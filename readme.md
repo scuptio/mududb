@@ -39,7 +39,7 @@ Maximizes resource efficiency through:
 
 ### 4. Microkernel Architecture Design  
 Embraces modularity and extensibility:  
-- **Core Engine**: Handles only essential functions (storage, ACID, query parsing).  
+- **Core Engine**: Handles only essential functions (storage, ACID, query parsing, query execution).  
 - **Plug-in Ecosystem**:  
   - Extensions (e.g., JSON/Graph support)  
   - External Runtime Modules (e.g., ML inference)  

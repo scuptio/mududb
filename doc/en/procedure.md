@@ -256,15 +256,15 @@ pub fn transfer_funds(
 ```
 
 ## Mudu Procedure and Transaction
-Mududb supports 2 transaction execution modes:
+Mudu procedure supports 2 transaction execution modes:
 
 ### Automatic Mode
 
 Each procedure runs as an independent transaction. The transaction:
 
-Commits automatically if the procedure returns Ok
+ - Commits automatically if the procedure returns Ok
 
-Rolls back automatically if the procedure returns Err
+ - Rollback automatically if the procedure returns Err
 
 ### Manual Mode
 
