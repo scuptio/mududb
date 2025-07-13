@@ -8,10 +8,7 @@ During the late Spring and Autumn period (circa 500 BCE), the rival states of Wu
 Over years, logs shipped continuously from Yue accumulated and clogged the rivers and harbors below Lingyan Mountain. Historical records describe this as "three years gathering timber, five years completing construction", leading to "accumulated logs clogging the waterways" (积木塞渎, *Jīmù Sèdú*). Thus, the name "Mudu" (木渎, Wood-Clogged Waterway) was born.  
 
 ### Logo Design Philosophy  
-The MuduDB logo artistically merges ancient bronze script characters for "Wood" (木<img src="../pic/wood.jpg" width="5%">) and "Water" (水). 
-
-标志将金文中的“木”与“水”  <img src="../pic/water.jpg" width="5%">二字进行线条化后，合并到一起：
-
+The MuduDB logo artistically merges ancient bronze script characters for "Wood" (木) <img src="../pic/wood.jpg" width="4%"> and "Water" (水) <img src="../pic/water.jpg" width="4%">. 
 
 - **Visual Structure**: The character for "Wood" appears above "Water", symbolizing the historic "wood clogging the waterway".  
 - **Color Symbolism**:  
