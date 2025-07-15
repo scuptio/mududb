@@ -1,0 +1,85 @@
+//
+// When change grammar.js, rerun ``cargo build`` to generate this file
+// Caution, do not change this file manually!!!
+//
+
+// field id
+
+pub const FI_ALIAS : u16 = 1;
+pub const FI_ALL_FIELDS : u16 = 2;
+pub const FI_ASSIGNMENT : u16 = 3;
+pub const FI_BEGIN_TRANSACTION : u16 = 4;
+pub const FI_BETWEEN_EXPRESSION : u16 = 5;
+pub const FI_BINARY_EXPRESSION : u16 = 6;
+pub const FI_CACHE : u16 = 7;
+pub const FI_COL_NAME : u16 = 8;
+pub const FI_COLUMN : u16 = 9;
+pub const FI_COLUMN_CONSTRAINT : u16 = 10;
+pub const FI_COLUMN_DEFINITIONS : u16 = 11;
+pub const FI_COLUMN_LIST : u16 = 12;
+pub const FI_COLUMN_NAME : u16 = 13;
+pub const FI_COMMIT_TRANSACTION : u16 = 14;
+pub const FI_CONFIGURATION_PARAMETER : u16 = 15;
+pub const FI_CONNECTION_LIMIT : u16 = 16;
+pub const FI_CONSTRAINT : u16 = 17;
+pub const FI_CUSTOM_TYPE : u16 = 18;
+pub const FI_DATA_TYPE : u16 = 19;
+pub const FI_DATA_TYPE_KIND : u16 = 20;
+pub const FI_DECIMAL : u16 = 21;
+pub const FI_DISTINCT : u16 = 22;
+pub const FI_EXPRESSION : u16 = 23;
+pub const FI_EXPRESSION_IN_PARENTHESIS : u16 = 24;
+pub const FI_FILE_PATH : u16 = 25;
+pub const FI_FROM : u16 = 26;
+pub const FI_HIGH : u16 = 27;
+pub const FI_IDENTIFIER_NAME : u16 = 28;
+pub const FI_IF_EXIST : u16 = 29;
+pub const FI_IF_NOT_EXISTS : u16 = 30;
+pub const FI_INSERT_VALUES : u16 = 31;
+pub const FI_INTEGER : u16 = 32;
+pub const FI_KEYWORD_FALSE : u16 = 33;
+pub const FI_KEYWORD_NULL : u16 = 34;
+pub const FI_KEYWORD_TRUE : u16 = 35;
+pub const FI_LEFT : u16 = 36;
+pub const FI_LENGTH : u16 = 37;
+pub const FI_LIST : u16 = 38;
+pub const FI_LITERAL : u16 = 39;
+pub const FI_LOW : u16 = 40;
+pub const FI_NAME : u16 = 41;
+pub const FI_NEW_NAME : u16 = 42;
+pub const FI_OBJECT_NAME : u16 = 43;
+pub const FI_OBJECT_REFERENCE : u16 = 44;
+pub const FI_OLD_NAME : u16 = 45;
+pub const FI_OPERAND : u16 = 46;
+pub const FI_OPERATOR : u16 = 47;
+pub const FI_OPTION : u16 = 48;
+pub const FI_PARAMETER : u16 = 49;
+pub const FI_PARAMETER_PLACEHOLDER : u16 = 50;
+pub const FI_PASSWORD : u16 = 51;
+pub const FI_PRECISION : u16 = 52;
+pub const FI_PREDICATE : u16 = 53;
+pub const FI_PRIMARY_KEY : u16 = 54;
+pub const FI_PRIMARY_KEY_CONSTRAINT : u16 = 55;
+pub const FI_QUALIFIED_FIELD : u16 = 56;
+pub const FI_RELATION : u16 = 57;
+pub const FI_RESTART : u16 = 58;
+pub const FI_RIGHT : u16 = 59;
+pub const FI_ROLLBACK_TRANSACTION : u16 = 60;
+pub const FI_SCALE : u16 = 61;
+pub const FI_SCHEMA : u16 = 62;
+pub const FI_SCHEMA_NAME : u16 = 63;
+pub const FI_SELECT : u16 = 64;
+pub const FI_SELECT_EXPRESSION : u16 = 65;
+pub const FI_SET_VALUES : u16 = 66;
+pub const FI_SIZE : u16 = 67;
+pub const FI_START : u16 = 68;
+pub const FI_STATEMENT : u16 = 69;
+pub const FI_STMT_GUT : u16 = 70;
+pub const FI_STRING : u16 = 71;
+pub const FI_TABLE_NAME : u16 = 72;
+pub const FI_TIMEOUT : u16 = 73;
+pub const FI_TYPE : u16 = 74;
+pub const FI_TYPED_ROW_VALUE_EXPR_LIST : u16 = 75;
+pub const FI_VALID_UNTIL : u16 = 76;
+pub const FI_VALUE : u16 = 77;
+pub const FI_WHERE : u16 = 78;

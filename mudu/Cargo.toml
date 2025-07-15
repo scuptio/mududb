@@ -1,0 +1,29 @@
+[package]
+name = "mudu"
+version = "0.1.0"
+edition = "2021"
+
+
+
+
+[dependencies]
+arbitrary = {version = "1.4.1", features = ["derive", "derive_arbitrary"]}
+scc = {version = "2.3.4"}
+byteorder = {version = "1.5.0"}
+serde = {version = "1.0.219", features = ["derive", "serde_derive"]}
+lazy_static = {version = "1.5.0"}
+crc = {version = "3.3.0"}
+uuid = {version = "1.16.0", features = ["v4"]}
+md5 = {version = "0.7.0", features = ["std"]}
+toml = {version = "0.8.22"}
+home = {version = "0.5.11"}
+tracing = {version = "0.1.41"}
+hex = { version = "0.4.3"  }
+anyhow = "1.0.98"
+thiserror = "2.0.12"
+
+[lib]
+path = "src/lib.rs"
+
+
+

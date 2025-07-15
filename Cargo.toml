@@ -1,0 +1,23 @@
+[workspace]
+resolver = "1"
+
+members = [
+    "mudu",
+    "example",
+    "mudu_runtime",
+    "mudu_gen",
+    "sql_parser",
+    "tree-sitter-sql",
+    "mudu_procedure"
+]
+
+[workspace.dependencies]
+mudu = {path = "mudu" }
+sql_parser = { path = "sql_parser" }
+mudu_gen = { path = "mudu_gen" }
+tree_sitter_sql = {path = "tree-sitter-sql"}
+tree-sitter = {version = "0.25.3"}
+serde_json = { version = "1.0.140" }
+project-root = { version = "0.2.2" }
+mudu_runtime = { path = "mudu_runtime" }
+mudu_procedure = { path = "mudu_procedure" }

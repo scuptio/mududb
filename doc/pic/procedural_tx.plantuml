@@ -1,0 +1,23 @@
+@startuml
+participant APP
+box "DB" #LightBlue
+participant VM
+participant CORE
+end box
+
+APP -> VM: request Tx
+group In DB Processing
+VM --> CORE: query Q1
+VM <-- CORE: Q1 result set response
+VM --> VM: do something T1
+VM --> CORE: query Q2
+VM <-- CORE: Q2 result set response
+VM --> VM: do something T2
+VM --> CORE: command C1
+VM <-- CORE: C1 end
+VM --> CORE: commit
+VM <-- CORE: commit success
+end
+APP <-- VM: Tx response
+
+@enduml

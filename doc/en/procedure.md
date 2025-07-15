@@ -1,7 +1,8 @@
 # Interactive vs. Procedural: Which Is Your Choice?
 
 Interactive and procedural approaches represent two distinct methods for developing database applications.
-Interactive Development
+
+## Interactive Approach:
 
 When using the interactive approach, users directly execute SQL statements via command-line or GUI tools, or utilize client libraries or ORM mapping frameworks.
 
@@ -22,7 +23,7 @@ When using the interactive approach, users directly execute SQL statements via c
 - **Correctness challenges**: Vulnerable transaction semantics.
 
 
-Procedural Development
+## Procedural Approach
 
 In the procedural approach, developers implement business logic using stored procedures, functions, and triggers.
 
@@ -63,7 +64,7 @@ Mudu Runtime currently supports Rust. A Rust-based stored procedure uses the fol
 
 
 ## Procedure specification
-```rust
+```
 #[mudu_procedure]
 fn {procedure_name}(
     xid: XID,
@@ -99,7 +100,7 @@ Return type implementing the `ToDatum` trait (same supported types as arguments)
 Return Result Type `RS` is `Result` enum:
 ```rust
 use mudu::common::error::ER;
-pub type RS<X> = Result<X, ER>; enum // ER: Error
+pub type RS<X> = Result<X, ER>;  // ER: Error
 ```
 
 ## CRUD(Create/Read/Update/Delete) Operations in Mudu Procedures
@@ -115,8 +116,8 @@ There are two key APIs that a Mudu procedure can invoke:
 ```rust
 pub fn query<R: Record>(
     xid: XID,
-    sql: &(dyn SQLStmt + Sync),
-    params: &[&(dyn ToDatum + Sync)]
+    sql: &dyn SQLStmt,
+    params: &[&dyn ToDatum]
 ) -> RS<RecordSet<R>> { ... }
 ```
 
@@ -129,8 +130,8 @@ pub fn query<R: Record>(
 ```rust
 pub fn command(
     xid: XID,
-    sql: &(dyn SQLStmt + Sync),
-    params: &[&(dyn ToDatum + Sync)]
+    sql: &dyn SQLStmt,
+    params: &[&dyn ToDatum]
 ) -> RS<usize> { ... } // Returns affected row count
 ```
 
@@ -186,6 +187,7 @@ pub trait Record: Sized {
 ```rust
 
 use mudu::{sql_param, sql_stmt, XID, RS, ER::MuduError};
+use mudu_procedure::mudu_procedure;
 use crate::rust::wallets::object::Wallets;
 use uuid::Uuid;
 
@@ -362,9 +364,42 @@ Advantages:
 # Key Technical Advantages
 
 
-| Feature          | Traditional Approach       | Mudu Procedure Advantage               |
+| Feature          | Traditional Approach       | Mudu Procedure Advantage     |
 | :--------------- | :------------------------- | :--------------------------- |
 | Dev-Prod Parity  | Different code for CLI/SPs | Identical codebase           |
 | Type Safety      | Runtime SQL errors         | Compile-time validation      |
 | Data Movement    | ETL pipelines required     | In-database processing       |
 | Extensibility    | DB-specific extensions     | General-purpose libraries    |
+
+
+
+# How MuduDB Treats the Interactive and Procedural Approach Uniformly
+
+MuduDB differs from traditional monolithic-architecture databases by splitting into two components: 
+Mudu Runtime and DB Core.
+Core provides basis foundations, transaction support, and storage capabilities.
+Runtime enables support for extended features and multi-language ecosystems.
+Within Mudu Runtime, a Virtual Machine (VM) operates.
+This VM can execute intermediate bytecode subroutines, into which mainstream programming languages can be compiled.
+During a Mudu Procedure execution, the VM collaborates with Core to complete the process.
+To illustrate this point, consider the following example:
+Suppose a procedure executes queries Q1, Q2, condition C1, and functions T1, T2 (implemented in a high-level language and can be compiled to the bytecode).
+
+```
+procedure {
+    query Q1
+    do something T1
+    query Q2
+    do something T2
+    command C1
+}
+```
+
+The following two figures show the difference of the two approaches.
+
+<div align="center">
+<img src="../pic/interactive_tx.png" width="20%">
+&nbsp&nbsp&nbsp&nbsp
+<img src="../pic/procedural_tx.png" width="20%">   
+</div>
+

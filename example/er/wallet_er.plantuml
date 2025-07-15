@@ -1,0 +1,67 @@
+@startuml
+
+hide circle
+skinparam linetype ortho
+skinparam packageStyle rectangle
+
+
+entity users {
+  * user_id : INT
+  --
+  * name : VARCHAR(100)
+  * phone : VARCHAR(20)
+  email : VARCHAR(100)
+  * password : VARCHAR(255)
+  created_at : INT
+}
+
+entity wallets {
+  * user_id : INT
+  --
+  * balance : INT
+}
+
+entity transactions {
+  * trans_id : CHAR(256)
+  --
+  from_user : INT
+  to_user : INT
+  * amount : INT
+  created_at : INT
+}
+
+entity orders {
+  * order_id : INT
+  --
+  * user_id : INT
+  * merch_id : INT
+  * amount : INT
+  created_at : INT
+}
+
+
+users ||--o{ wallets : "1:1"
+users ||--o{ transactions : "out"
+users ||--o| transactions : "in"
+users ||--o{ orders : "1:N"
+
+
+note top of wallets
+  FOREIGN KEY (user_id)
+  REFERENCES users(user_id)
+  ON DELETE CASCADE
+end note
+
+note right of transactions::from_user
+  reference users.user_id
+end note
+
+note right of transactions::to_user
+  reference users.user_id
+end note
+
+note right of orders::user_id
+  reference users.user_id
+end note
+
+@enduml
