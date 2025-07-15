@@ -1,0 +1,17 @@
+@startuml
+participant APP
+box "DB" #LightBlue
+participant DB
+end box
+APP -> DB: Tx begin
+APP --> DB: query Q1
+APP <-- DB: Q1 result set response
+APP --> APP: do something T1
+APP --> DB: query Q2
+APP <-- DB: Q2 result set response
+APP --> APP: do something T2
+APP --> DB: command C1
+APP <-- DB: C1 end
+APP --> DB: commit transaction
+APP <-- DB: commit success and Tx end
+@enduml

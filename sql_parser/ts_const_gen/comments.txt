@@ -1,0 +1,5 @@
+//
+// When change grammar.js, rerun ``cargo build`` to generate this file
+// Caution, do not change this file manually!!!
+//
+
