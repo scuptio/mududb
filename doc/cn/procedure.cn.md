@@ -48,7 +48,7 @@ Mudu运行时目前支持Rust。基于Rust的存储过程采用以下函数签�
 
 ### 过程规范
 
-```rust
+```
 #[mudu_procedure]
 fn {procedure_name}(
     xid: XID,
@@ -380,9 +380,8 @@ procedure {
 
 
 <div align="center">
-<img src="../pic/interactive_tx.png" width="40%">   
-</space>
+<img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
-<img src="../pic/procedural_tx.png" width="40%">   
+<img src="../pic/procedural_tx.png" width="20%">   
 </div>
 

@@ -64,7 +64,7 @@ Mudu Runtime currently supports Rust. A Rust-based stored procedure uses the fol
 
 
 ## Procedure specification
-```rust
+```
 #[mudu_procedure]
 fn {procedure_name}(
     xid: XID,
@@ -100,7 +100,7 @@ Return type implementing the `ToDatum` trait (same supported types as arguments)
 Return Result Type `RS` is `Result` enum:
 ```rust
 use mudu::common::error::ER;
-pub type RS<X> = Result<X, ER>; enum // ER: Error
+pub type RS<X> = Result<X, ER>;  // ER: Error
 ```
 
 ## CRUD(Create/Read/Update/Delete) Operations in Mudu Procedures
@@ -398,9 +398,8 @@ procedure {
 The following two figures show the difference of the two approaches.
 
 <div align="center">
-<img src="../pic/interactive_tx.png" width="40%">   
-</space>
+<img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
-<img src="../pic/procedural_tx.png" width="40%">   
+<img src="../pic/procedural_tx.png" width="20%">   
 </div>
 
