@@ -1,23 +1,23 @@
 @startuml
 participant APP
 box "DB" #LightBlue
-participant VM
-participant CORE
+participant Runtime
+participant Kernel
 end box
 
-APP -> VM: request Tx
+APP -> Runtime: request Tx
 group In DB Processing
-VM --> CORE: query Q1
-VM <-- CORE: Q1 result set response
-VM --> VM: do something T1
-VM --> CORE: query Q2
-VM <-- CORE: Q2 result set response
-VM --> VM: do something T2
-VM --> CORE: command C1
-VM <-- CORE: C1 end
-VM --> CORE: commit
-VM <-- CORE: commit success
+Runtime --> Kernel: query Q1
+Runtime <-- Kernel: Q1 result set response
+Runtime --> Runtime: do something T1
+Runtime --> Kernel: query Q2
+Runtime <-- Kernel: Q2 result set response
+Runtime --> Runtime: do something T2
+Runtime --> Kernel: command C1
+Runtime <-- Kernel: C1 end
+Runtime --> Kernel: commit
+Runtime <-- Kernel: commit success
 end
-APP <-- VM: Tx response
+APP <-- Runtime: Tx response
 
 @enduml

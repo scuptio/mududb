@@ -375,13 +375,12 @@ Advantages:
 
 # How MuduDB Treats the Interactive and Procedural Approach Uniformly
 
-MuduDB differs from traditional monolithic-architecture databases by splitting into two components: 
-Mudu Runtime and DB Core.
-Core provides basis foundations, transaction support, and storage capabilities.
-Runtime enables support for extended features and multi-language ecosystems.
-Within Mudu Runtime, a Virtual Machine (VM) operates.
-This VM can execute intermediate bytecode subroutines, into which mainstream programming languages can be compiled.
-During a Mudu Procedure execution, the VM collaborates with Core to complete the process.
+MuduDB differs from traditional monolithic-architecture databases by splitting into two components: Mudu Runtime and DB Kernel.
+
+Kernel provides basis foundations, transactions, and storage capabilities.
+Runtime supports for multi-language ecosystems.
+This runtime can host a VM(Virtual Machine) and execute intermediate WASM bytecode modules, into which mainstream programming languages can be compiled.
+During a Mudu Procedure execution, the runtime collaborates with kernel to complete the process.
 To illustrate this point, consider the following example:
 Suppose a procedure executes queries Q1, Q2, condition C1, and functions T1, T2 (implemented in a high-level language and can be compiled to the bytecode).
 
@@ -400,6 +399,6 @@ The following two figures show the difference of the two approaches.
 <div align="center">
 <img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
-<img src="../pic/procedural_tx.png" width="20%">   
+<img src="../pic/procedural_tx.png" width="26%">   
 </div>
 

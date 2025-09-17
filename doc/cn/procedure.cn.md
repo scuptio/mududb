@@ -355,12 +355,11 @@ fn create_order(xid: XID, user_id: i32) -> RS<String> {
 # MuduDB如何统一处理交互式与过程式方法?
 
 MuduDB与传统一体式架构数据库不同，它分为两个组件：
-Mudu Runtime 和 DB Core。
-Core 提供基础语义、事务支持及存储能力。
-Runtime 实现扩展功能支持与多语言生态兼容。
-Mudu Runtime内部运行着虚拟机（VM）。
-该虚拟机可执行中间字节码子程序，主流编程语言均可编译为此类字节码。
-在执行Mudu内部过程时，VM需与Core协同完成流程。
+Mudu运行时和 DB内核。
+内核提供基础语义、事务支持及存储能力。
+运行时实现扩展功能支持与多语言生态兼容。
+运行时运行一个虚拟机执行WASM间字节码模块，主流编程语言均可编译为此类字节码。
+在执行Mudu内部过程时，运行时需与内核协同完成流程。
 
 以下用例说明其运作机制：
 假设某过程执行查询Q1/Q2、条件C1，以及高级语言实现的函数T1/T2（它们能被编译成字节码）。
@@ -382,6 +381,6 @@ procedure {
 <div align="center">
 <img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
-<img src="../pic/procedural_tx.png" width="20%">   
+<img src="../pic/procedural_tx.png" width="26%">   
 </div>
 
