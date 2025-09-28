@@ -6,18 +6,19 @@ edition = "2021"
 build = "build.rs"
 
 [build-dependencies]
-tree_sitter_sql = {workspace = true}
-serde_json = { workspace = true}
+mudu = { workspace = true }
+tree_sitter_sql = { workspace = true }
+serde_json = { workspace = true }
 project-root = { workspace = true }
-tree-sitter = {workspace = true}
-md-5 = {version = "0.11.0-rc.0" }
-base16ct = {version = "0.2.0"}
+tree-sitter = { workspace = true }
+md-5 = { version = "0.11.0-rc.0" }
+base16ct = { version = "0.2.0" }
 
 [dependencies]
-substring = { version = "1.4.5"}
-tree_sitter_sql = { workspace = true}
-tree-sitter = {workspace = true}
-mudu = {workspace = true}
-project-root = {workspace = true}
+substring = { version = "1.4.5" }
+tree_sitter_sql = { workspace = true }
+tree-sitter = { workspace = true }
+mudu = { workspace = true }
+project-root = { workspace = true }
 hex = "0.4.3"
 base16ct = "0.2.0"

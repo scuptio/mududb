@@ -1,0 +1,4 @@
+pub const EN_OK: i32 = 0;
+pub const EN_INSUFFICIENT_OUTPUT_BUFFER_SPACE: i32 = -1;
+pub const EN_INSUFFICIENT_LENGTH_BUFFER: i32 = -2;
+pub const EN_ENCODE_RESULT_ERROR: i32 = -3;

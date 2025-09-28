@@ -1,6 +1,6 @@
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
-use crate::data_type::dt_param::ParamInfo;
 use crate::data_type::len_kind::LenKind;
+use crate::data_type::param_info::ParamInfo;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 

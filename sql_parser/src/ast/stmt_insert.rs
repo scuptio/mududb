@@ -6,7 +6,7 @@ use crate::ast::expr_item::ExprValue;
 pub struct StmtInsert {
     table_reference: String,
     columns: Vec<String>,
-    values_list: Vec<Vec<ExprValue>>
+    values_list: Vec<Vec<ExprValue>>,
 }
 
 impl StmtInsert {

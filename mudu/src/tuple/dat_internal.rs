@@ -1,3 +1,4 @@
+use crate::tuple::datum::DatumDyn;
 use std::any::Any;
 use std::hint;
 use std::sync::Arc;
@@ -17,6 +18,27 @@ pub union DatUnion {
 pub enum DatInternal {
     Raw(DatUnion),
     Any(Arc<dyn Any>),
+}
+
+
+impl DatUnion {
+    fn to_typed_ref<T: 'static + Clone>(&self) -> &T {
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            unsafe { &*(&self.v_f32 as *const f32 as *const T) }
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            unsafe { &*(&self.v_f64 as *const f64 as *const T) }
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() {
+            unsafe { &*(&self.v_i32 as *const i32 as *const T) }
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u32>() {
+            unsafe { &*(&self.v_u32 as *const u32 as *const T) }
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i64>() {
+            unsafe { &*(&self.v_i64 as *const i64 as *const T) }
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u64>() {
+            unsafe { &*(&self.v_u64 as *const u64 as *const T) }
+        } else {
+            panic!("Type not supported by union");
+        }
+    }
 }
 
 impl DatInternal {
@@ -76,13 +98,25 @@ impl DatInternal {
         unsafe { self.union().v_u64 }
     }
 
-    pub fn to_any<T: 'static + Clone>(&self) -> &T {
+    pub fn to_typed_ref<T: 'static + Clone + DatumDyn>(&self) -> &T {
         match self {
             Self::Any(v) => v
                 .downcast_ref::<T>()
-                .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() }),
+                .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() })
+            ,
             // SAFETY: the safety contract must be upheld by the caller.
-            Self::Raw(_) => unsafe { hint::unreachable_unchecked() },
+            Self::Raw(u) => { u.to_typed_ref::<T>() }
+        }
+    }
+
+    pub fn into_to_typed<T: 'static + Clone + DatumDyn>(self) -> T {
+        match self {
+            Self::Any(v) => v
+                .downcast_ref::<T>()
+                .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() })
+                .clone(),
+            // SAFETY: the safety contract must be upheld by the caller.
+            Self::Raw(u) => { u.to_typed_ref::<T>().clone() }
         }
     }
 
@@ -98,7 +132,7 @@ impl DatInternal {
         match self {
             Self::Any(v) => v.clone(),
             // SAFETY: the safety contract must be upheld by the caller.
-            Self::Raw(_) => unsafe { hint::unreachable_unchecked() },
+            Self::Raw(_u) => unsafe { hint::unreachable_unchecked() },
         }
     }
 }

@@ -2,8 +2,9 @@
 mod tests {
     use crate::code_gen::ddl_parser::DDLParser;
     use crate::code_gen::src_gen::{Language, SrcGen};
-    use mudu::common::error::ER;
     use mudu::common::result::RS;
+    use mudu::error::ec::EC;
+    use mudu::m_error;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -39,11 +40,11 @@ mod tests {
             let path = write_string_to_temp_file(text_src, file_name)?;
             let output = Command::new("rustc")
                 .arg("--emit=metadata")
-                .arg("--crate-type=lib") // 作为库检查，避免需要 main 函数
-                .arg("--edition=2021") // 指定 edition，根据需要调整
+                .arg("--crate-type=lib") // crate-type=lib, no main
+                .arg("--edition=2021")   //   edition
                 .arg(&path)
                 .output()
-                .map_err(|e| ER::IOError(e.to_string()))?;
+                .map_err(|e| m_error!(EC::IOErr, "build command line", e))?;
             if output.status.success() {
                 println!("compile {} OK", path.to_str().unwrap());
             } else {
@@ -59,11 +60,11 @@ mod tests {
             .to_path_buf();
         let path = path.join("example");
         std::env::set_current_dir(&path).unwrap();
-        
+
         let output = Command::new("cargo")
             .arg("fmt")
             .output()
-            .map_err(|e| ER::IOError(e.to_string()))?;
+            .map_err(|e| m_error!(EC::IOErr, "cargo fmt error", e))?;
         if output.status.success() {
             println!("cargo fmt OK");
         }
@@ -71,7 +72,7 @@ mod tests {
         let output = Command::new("cargo")
             .arg("build")
             .output()
-            .map_err(|e| ER::IOError(e.to_string()))?;
+            .map_err(|e| m_error!(EC::IOErr, "cargo build error", e))?;
         if output.status.success() {
             println!("cargo build OK");
         }
@@ -90,7 +91,7 @@ mod tests {
 
         let file_path = path.join(file_name);
         println!("write to temp file: {:?}", file_path);
-        fs::write(&file_path, content).map_err(|e| ER::IOError(e.to_string()))?;
+        fs::write(&file_path, content).map_err(|e| m_error!(EC::IOErr, "write temp file error", e))?;
         Ok(file_path)
     }
 }

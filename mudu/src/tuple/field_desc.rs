@@ -1,13 +1,17 @@
 use crate::common::id::OID;
 use crate::common::result::RS;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
+use serde::{Deserialize, Serialize};
 
 /// Metadata descriptor for a binary format tuple's field
 /// Contains structural information about how the field is stored in its binary format tuple
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug,
+    Serialize,
+    Deserialize,
+)]
 pub struct FieldDesc {
     oid: OID,
     is_fixed_len: bool,

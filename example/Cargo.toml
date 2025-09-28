@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mudu = {workspace = true}
-mudu_runtime = {workspace = true}
-mudu_procedure = {workspace = true}
+mudu = { workspace = true }
+mudu_runtime = { workspace = true }
+mudu_macro = { workspace = true }
 uuid = { version = "1.17.0", features = ["v4"] }
 
 
 [dev-dependencies]
-postgresql_commands = { version = "0.19"}
+postgresql_commands = { version = "0.20.0" }

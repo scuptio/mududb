@@ -1,23 +1,23 @@
+use md5::{Digest, Md5};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs::{read_to_string, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use md5::{Digest, Md5};
 use tree_sitter::Language;
 use tree_sitter_sql::LANGUAGE;
 
 
 pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(
     output_path: O,
-    grammar_path:G
+    grammar_path: G,
 ) {
     let mut constant = Constant {
         node_name: Default::default(),
         field_name: Default::default(),
         seq_index: Default::default(),
     };
-    let grammar_path_str =  grammar_path.as_ref().to_str().unwrap().to_string();
+    let grammar_path_str = grammar_path.as_ref().to_str().unwrap().to_string();
     let grammar_str = read_to_string(&grammar_path)
         .expect(&format!("grammar json file path {} cannot be found", grammar_path_str));
     let opt_new_md5 = grammar_file_changed(&grammar_str);
@@ -42,25 +42,20 @@ macro_rules! grammar_md5_file {
 
 macro_rules! this_file {
     () => {
-        _this_file().unwrap()
+        _this_file(file!())
     };
 }
 
-fn _this_file() -> Option<String> {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok()?;
+fn _this_file(file: &str) -> String {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok().unwrap();
     let manifest_dir_path_buf = PathBuf::from(&manifest_dir);
-    let manifest_dir = if manifest_dir_path_buf.file_name()?.to_str()? == "sql_parser" {
-        manifest_dir_path_buf.parent()?.to_str()?.to_string()
-    } else {
-        manifest_dir
-    };
-    let file_path = PathBuf::from(file!());
-    println!("cargo:warning={}", manifest_dir);
+    let manifest_dir = manifest_dir_path_buf.parent().unwrap().to_str().unwrap().to_string();
+    let file_path = PathBuf::from(file);
     let path = PathBuf::from(manifest_dir).join(file_path);
-    path.to_str().map(|s| s.to_string())
+    path.to_str().map(|s| s.to_string()).unwrap_or(String::new())
 }
 
-fn grammar_file_changed(s:&String) -> Option<String>  {
+fn grammar_file_changed(s: &String) -> Option<String> {
     let mut hasher = Md5::new();
     hasher.update(s);
     let md5_hash = hasher.finalize();
@@ -97,11 +92,9 @@ macro_rules! write_content {
     };
 }
 
-fn write_grammar_md5(md5:&String) {
+fn write_grammar_md5(md5: &String) {
     write_content!(grammar_md5_file!(), md5)
 }
-
-
 
 
 const COMMENTS: &'static str = include_str!("comments.txt");
@@ -132,7 +125,6 @@ struct Constant {
 fn language() -> Language {
     LANGUAGE.clone().into()
 }
-
 
 
 fn language_name() -> &'static str {
@@ -296,7 +288,7 @@ fn output_rust_file<P: AsRef<Path>>(path: P, constant: &Constant) {
     for (name, id) in node_kind_id {
         let mut var_name = name.clone();
         let mut name_str = name.clone();
-        
+
         var_name.make_ascii_uppercase();
         file_kind_name_ids
             .write_fmt(format_args!("pub const {} : u16 = {};\n", var_name, id))

@@ -1,7 +1,7 @@
 use crate::data_type::dt_fn_arbitrary::FnArbitrary;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use arbitrary::{Arbitrary, Unstructured};
 use std::hint;
 
@@ -23,7 +23,7 @@ pub fn fn_i64_arb_printable(u: &mut Unstructured, _p: &ParamObj) -> arbitrary::R
 }
 
 pub fn fn_i64_arb_dt_param(_u: &mut Unstructured) -> arbitrary::Result<ParamObj> {
-    Ok(ParamObj::from_no_params(DatTypeID::I64))
+    Ok(ParamObj::new_empty(DatTypeID::I64))
 }
 
 pub const FN_I64_ARBITRARY: FnArbitrary = FnArbitrary {

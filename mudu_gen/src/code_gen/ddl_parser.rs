@@ -18,7 +18,7 @@ impl DDLParser {
     }
 
     /// parse SQL text and return a vector of TableDef
-    pub fn parse(& self, text: &str) -> RS<Vec<TableDef>> {
+    pub fn parse(&self, text: &str) -> RS<Vec<TableDef>> {
         let stmt_list = self.parser.parse(text)?;
         let mut vec = vec![];
         for stmt in stmt_list.stmts() {

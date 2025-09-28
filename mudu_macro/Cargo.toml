@@ -1,0 +1,12 @@
+[package]
+name = "mudu_macro"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+quote = "1.0.40"
+syn = { version = "2.0.103", features = ["full"] }
+mudu = { workspace = true }
+
+[lib]
+proc-macro = true

@@ -1,14 +1,3 @@
-use mudu::common::error::ER;
-use mudu::common::result::RS;
-use mudu::common::result_of::rs_option;
-use mudu::database::datum_desc::DatumDesc;
-use mudu_gen::code_gen::column_def::TableColumnDef;
-use mudu_gen::code_gen::table_def::TableDef;
-use sql_parser::ast::expr_compare::ExprCompare;
-use sql_parser::ast::expr_item::{ExprItem, ExprValue};
-use sql_parser::ast::expr_literal::ExprLiteral;
-use std::sync::Arc;
-
 use crate::resolver::filter::Filter;
 use crate::resolver::item_value::ItemValue;
 use crate::resolver::resolved_command::ResolvedCommand;
@@ -16,28 +5,39 @@ use crate::resolver::resolved_insert::ResolvedInsert;
 use crate::resolver::resolved_select::ResolvedSelect;
 use crate::resolver::resolved_update::ResolvedUpdate;
 use crate::resolver::schema_mgr::SchemaMgr;
+use mudu::common::result::RS;
+use mudu::common::result_of::rs_option;
+use mudu::error::ec::EC;
+use mudu::m_error;
+use mudu::tuple::datum_desc::DatumDesc;
+use mudu_gen::code_gen::column_def::TableColumnDef;
+use mudu_gen::code_gen::table_def::TableDef;
+use sql_parser::ast::expr_compare::ExprCompare;
+use sql_parser::ast::expr_item::{ExprItem, ExprValue};
+use sql_parser::ast::expr_literal::ExprLiteral;
 use sql_parser::ast::stmt_insert::StmtInsert;
 use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::StmtCommand;
 use sql_parser::ast::stmt_update::{AssignedValue, StmtUpdate};
+use std::sync::Arc;
 
 /// SQLResolver performs analyzing and checking the semantics of a parsed SQL statement
 pub struct SQLResolver {
-    schema_mgr:SchemaMgr,
+    schema_mgr: SchemaMgr,
 }
 
 
 impl SQLResolver {
-    pub fn new(schema_mgr:SchemaMgr) -> Self {
+    pub fn new(schema_mgr: SchemaMgr) -> Self {
         Self { schema_mgr }
     }
 
-    pub fn resolve_query(&self, stmt:&StmtSelect) -> RS<ResolvedSelect>{
+    pub fn resolve_query(&self, stmt: &StmtSelect) -> RS<ResolvedSelect> {
         stmt_select_to_resolved(stmt, &self.schema_mgr)
     }
 
-    pub fn resolved_command(&self, stmt:&StmtCommand) -> RS<Arc<dyn ResolvedCommand>> {
-        let resolved_command:Arc<dyn ResolvedCommand> = match stmt {
+    pub fn resolved_command(&self, stmt: &StmtCommand) -> RS<Arc<dyn ResolvedCommand>> {
+        let resolved_command: Arc<dyn ResolvedCommand> = match stmt {
             StmtCommand::Update(update) => {
                 let update = self.resolve_update(update)?;
                 Arc::new(update)
@@ -52,20 +52,20 @@ impl SQLResolver {
         };
         Ok(resolved_command)
     }
-    
-    fn resolve_update(&self, stmt:&StmtUpdate) -> RS<ResolvedUpdate> {
+
+    fn resolve_update(&self, stmt: &StmtUpdate) -> RS<ResolvedUpdate> {
         let table_name = stmt.get_table_reference().clone();
         let table_def = self.get_table(&table_name)?;
         let mut vec_set_value = vec![];
         let mut vec_predicate = vec![];
         let mut vec_placeholder = vec![];
-        
+
         for assignment in stmt.get_set_values() {
             let column_name = assignment.get_column_reference();
             let value = assignment.get_set_value();
             let opt_column_def = table_def.find_column_def_by_name(column_name);
             let column_def = rs_option(opt_column_def, "no such column")?;
-            let desc = DatumDesc::new(column_def.column_name(), column_def.data_type().clone());
+            let desc = DatumDesc::new(column_def.column_name().clone(), column_def.data_type().clone());
             match value {
                 AssignedValue::Expression(_) => {
                     // todo set value expression could be > 1 placeholder, to fix it ...
@@ -84,7 +84,6 @@ impl SQLResolver {
                     }
                 }
             }
-
         }
 
 
@@ -92,19 +91,19 @@ impl SQLResolver {
             &table_def,
             stmt.get_where_predicate(),
             &mut vec_predicate,
-            &mut vec_placeholder
+            &mut vec_placeholder,
         )?;
         let r_update = ResolvedUpdate::new(
             table_name,
             vec_set_value,
-            vec_predicate, 
+            vec_predicate,
             vec![],
-            vec_placeholder
+            vec_placeholder,
         );
         Ok(r_update)
     }
-    
-    fn resolve_insert(&self, stmt:&StmtInsert) -> RS<ResolvedInsert> {
+
+    fn resolve_insert(&self, stmt: &StmtInsert) -> RS<ResolvedInsert> {
         let table_def = self.get_table(stmt.table_name())?;
 
         let mut vec_column_def = vec![];
@@ -120,22 +119,22 @@ impl SQLResolver {
 
         for value in stmt.values_list().iter() {
             if value_columns.len() != value.len() {
-                return Err(ER::ParseError(format!("column and value size are not equal {:?}", stmt)));
+                return Err(m_error!(EC::ParseErr, format!("column and value size are not equal {:?}", stmt)));
             }
         }
         if stmt.values_list().len() != 1 {
-           return Err(ER::MuduError("only support 1 row insert".to_string())); 
+            return Err(m_error!(EC::MuduError, "only support 1 row insert"));
         }
         let mut insert_values = vec![];
         let mut placeholder = vec![];
         let row = &stmt.values_list()[0];
         for (i, v) in row.iter().enumerate() {
             let c_def = &value_columns[i];
-            let desc = DatumDesc::new(c_def.column_name(), c_def.data_type().clone());
-        
+            let desc = DatumDesc::new(c_def.column_name().clone(), c_def.data_type().clone());
+
             let item_value = match v {
-                ExprValue::ValueLiteral(l)  => { ItemValue::Literal(l.dat_type().clone()) },
-                ExprValue::ValuePlaceholder => { 
+                ExprValue::ValueLiteral(l) => { ItemValue::Literal(l.dat_type().clone()) }
+                ExprValue::ValuePlaceholder => {
                     placeholder.push(desc.clone());
                     ItemValue::Placeholder
                 }
@@ -145,13 +144,13 @@ impl SQLResolver {
         Ok(ResolvedInsert::new(insert_values, placeholder))
     }
 
-    fn get_column<'a>(table_def:&'a TableDef, column_name:&String) -> RS<&'a TableColumnDef> {
+    fn get_column<'a>(table_def: &'a TableDef, column_name: &String) -> RS<&'a TableColumnDef> {
         let opt_column_def = table_def.find_column_def_by_name(column_name);
         let column_def = rs_option(opt_column_def, &format!("no such column named {}", column_name))?;
         Ok(column_def)
     }
 
-    fn get_table(&self, table_name:&String) -> RS<TableDef> {
+    fn get_table(&self, table_name: &String) -> RS<TableDef> {
         let opt_table_def = self.schema_mgr.get(table_name)?;
         let table_def = rs_option(opt_table_def, &format!("no such table named {}", table_name))?;
         Ok(table_def)
@@ -159,20 +158,19 @@ impl SQLResolver {
 }
 
 
-
-fn build_data_desc_for_name(column_name:&str, table_def: &TableDef) -> RS<DatumDesc> {
+fn build_data_desc_for_name(column_name: &str, table_def: &TableDef) -> RS<DatumDesc> {
     let opt = table_def.find_column_def_by_name(column_name);
     let column_def = rs_option(opt, &format!("no such column {}", column_name))?;
-    let datum_desc = DatumDesc::new(column_name, column_def.data_type().clone());
+    let datum_desc = DatumDesc::new(column_name.to_string(), column_def.data_type().clone());
     Ok(datum_desc)
 }
 
 
 fn real_where_predicate(
-    table_def:&TableDef,
-    expr_compare_list:&Vec<ExprCompare>, 
-    vec_predicate:&mut Vec<(DatumDesc, Filter)>,
-    vec_placeholder:&mut Vec<DatumDesc>,
+    table_def: &TableDef,
+    expr_compare_list: &Vec<ExprCompare>,
+    vec_predicate: &mut Vec<(DatumDesc, Filter)>,
+    vec_placeholder: &mut Vec<DatumDesc>,
 ) -> RS<()> {
     for predicate in expr_compare_list {
         let right = predicate.right();
@@ -197,18 +195,18 @@ fn real_where_predicate(
                 }
             }
             (_, _) => {
-                return Err(ER::ParseError(format!("\
+                return Err(m_error!(EC::ParseErr, format!("\
 In where filter, the left must be name, \
 the right must be a placeholder or literal value,\
 but got {:?} {:?}\
-                ", left, right).to_string()));
+                ", left, right)));
             }
         }
     }
     Ok(())
 }
 
-fn stmt_select_to_resolved(stmt:&StmtSelect, schema_mgr:&SchemaMgr) -> RS<ResolvedSelect> {
+fn stmt_select_to_resolved(stmt: &StmtSelect, schema_mgr: &SchemaMgr) -> RS<ResolvedSelect> {
     let table_name = stmt.get_table_reference();
     let opt = schema_mgr.get(table_name)?;
     let mut vec_projection = vec![];
@@ -224,15 +222,15 @@ fn stmt_select_to_resolved(stmt:&StmtSelect, schema_mgr:&SchemaMgr) -> RS<Resolv
         &table_def,
         stmt.get_where_predicate(),
         &mut vec_predicate,
-        &mut vec_placeholder
+        &mut vec_placeholder,
     )?;
-    
+
     let rs = ResolvedSelect::new(
-        table_name.clone(), 
+        table_name.clone(),
         vec_projection,
         vec_predicate,
         vec![],
-        vec_placeholder
+        vec_placeholder,
     );
     Ok(rs)
 }

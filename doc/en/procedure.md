@@ -4,7 +4,8 @@ Interactive and procedural approaches represent two distinct methods for develop
 
 ## Interactive Approach:
 
-When using the interactive approach, users directly execute SQL statements via command-line or GUI tools, or utilize client libraries or ORM mapping frameworks.
+When using the interactive approach, users directly execute SQL statements via command-line or GUI tools, or utilize
+client libraries or ORM mapping frameworks.
 
 **Advantages**:
 
@@ -22,7 +23,6 @@ When using the interactive approach, users directly execute SQL statements via c
 
 - **Correctness challenges**: Vulnerable transaction semantics.
 
-
 ## Procedural Approach
 
 In the procedural approach, developers implement business logic using stored procedures, functions, and triggers.
@@ -36,7 +36,6 @@ In the procedural approach, developers implement business logic using stored pro
 - **Transaction control**: Better ACID compliance.
 
 - **Enhanced security**: Reduced SQL injection risks.
-
 
 **Disadvantages**:
 
@@ -54,7 +53,9 @@ In the procedural approach, developers implement business logic using stored pro
 
 One piece of code can run both interactively and procedurally.
 
-We aim to combine the advantages of both modes while eliminating their drawbacks. Mudu Procedure achieves this. You can write Mudu Procedures in most modern languages—without relying on "weird" or "ugly" syntax like PostgreSQL PL/pgSQL or MySQL’s stored procedures.
+We aim to combine the advantages of both modes while eliminating their drawbacks. Mudu Procedure achieves this. You can
+write Mudu Procedures in most modern languages—without relying on "weird" or "ugly" syntax like PostgreSQL PL/pgSQL or
+MySQL’s stored procedures.
 
 During development, Mudu Procedures run interactively like an ORM mapping framework.
 
@@ -62,29 +63,31 @@ During development, Mudu Procedures run interactively like an ORM mapping framew
 
 Mudu Runtime currently supports Rust. A Rust-based stored procedure uses the following function signature:
 
-
 ## Procedure specification
+
 ```
-#[mudu_procedure]
+#[mudu_macro]
 fn {procedure_name}(
     xid: XID,
     {argument_list...}
 ) -> RS<{return_value_type}>
 ```
-### {procedure_name}: 
+
+### {procedure_name}:
 
 Valid Rust function name.
 
-### Macro #[mudu_procedure]: 
+### Macro #[mudu_macro]:
 
 Macro identifying the function as a Mudu procedure.
 
 ### Parameters:
 
-#### xid: 
+#### xid:
+
 Transaction ID.
 
-### {argument_list...}: 
+### {argument_list...}:
 
 Input arguments implementing the `ToDatum` trait.
 
@@ -94,24 +97,24 @@ Unsupported: Custom structs, enums, arrays, or tuples.
 
 ### Return value:
 
-#### {return_value_type}: 
+#### {return_value_type}:
+
 Return type implementing the `ToDatum` trait (same supported types as arguments).
 
 Return Result Type `RS` is `Result` enum:
+
 ```rust
-use mudu::common::error::ER;
+use mudu::error::error::ER;
 pub type RS<X> = Result<X, ER>;  // ER: Error
 ```
 
 ## CRUD(Create/Read/Update/Delete) Operations in Mudu Procedures
-
 
 There are two key APIs that a Mudu procedure can invoke:
 
 ### 1. `query`
 
 `query` for SELECT statements
-
 
 ```rust
 pub fn query<R: Record>(
@@ -121,7 +124,8 @@ pub fn query<R: Record>(
 ) -> RS<RecordSet<R>> { ... }
 ```
 
-`query` Performs R2O(relation to object) mapping automatically, returning a result set of objects implementing the `Record` trait.
+`query` Performs R2O(relation to object) mapping automatically, returning a result set of objects implementing the
+`Record` trait.
 
 ### 2. `command`
 
@@ -137,14 +141,15 @@ pub fn command(
 
 ### Parameters for Both:
 
-#### xid: 
+#### xid:
+
 Transaction ID.
 
-#### sql: 
+#### sql:
 
 SQL statement with ? as parameter placeholders.
 
-#### params: 
+#### params:
 
 Parameter list.
 
@@ -160,10 +165,11 @@ pub trait SQLStmt: std::fmt::Debug + std::fmt::Display {
 ```
 
 ### ToDatum
+
 ```rust
 
 pub trait ToDatum: std::fmt::Debug {
-    fn to_type_id(&self) -> DatTypeID;
+    fn dat_type_id_self(&self) -> DatTypeID;
     fn to_typed(&self, param: &ParamObj) -> RS<DatTyped>;
     fn to_binary(&self, param: &ParamObj) -> RS<DatBinary>;
     fn to_printable(&self, param: &ParamObj) -> RS<DatPrintable>;
@@ -184,14 +190,15 @@ pub trait Record: Sized {
 ```
 
 ## A Example: A Wallet APP's Transfer Procedure
+
 ```rust
 
 use mudu::{sql_param, sql_stmt, XID, RS, ER::MuduError};
-use mudu_procedure::mudu_procedure;
+use mudu_macro::mudu_macro;
 use crate::rust::wallets::object::Wallets;
 use uuid::Uuid;
 
-#[mudu_procedure]
+#[mudu_macro]
 pub fn transfer_funds(
     xid: XID, 
     from_user_id: i32, 
@@ -258,21 +265,23 @@ pub fn transfer_funds(
 ```
 
 ## Mudu Procedure and Transaction
+
 Mudu procedure supports 2 transaction execution modes:
 
 ### Automatic Mode
 
 Each procedure runs as an independent transaction. The transaction:
 
- - Commits automatically if the procedure returns Ok
+- Commits automatically if the procedure returns Ok
 
- - Rollback automatically if the procedure returns Err
+- Rollback automatically if the procedure returns Err
 
 ### Manual Mode
 
 Pass a transaction ID (xid) across multiple Mudu procedures for explicit transaction control.
 
 #### Example:
+
 ```
 procedure1(xid);
 procedure2(xid);
@@ -286,12 +295,14 @@ commit(xid); // Explicit commit
 
 "Develop once!"
 
-Mudu Procedures use the exact same code for both interactive development and production deployment. This eliminates context switching between tools and ensures consistency across environments.
+Mudu Procedures use the exact same code for both interactive development and production deployment. This eliminates
+context switching between tools and ensures consistency across environments.
 
 ## 2. Native ORM Support
 
 Seamless object-relational mapping
-The framework provides built-in ORM capabilities through the Record trait. It automatically maps query results to Rust structs, eliminating boilerplate conversion code while maintaining type safety.
+The framework provides built-in ORM capabilities through the Record trait. It automatically maps query results to Rust
+structs, eliminating boilerplate conversion code while maintaining type safety.
 
 ## 3. Static Analysis Friendly
 
@@ -306,15 +317,15 @@ Mudu's strongly-typed API enables:
 3. Early error detection for AI-generated code (critical for reliability)
 
 ## 4. Data Proximity Processing
+
 Massive efficiency gains。
 
 Execute data transformations directly in the database.
 An example is preparing AI training dataset without export/import.
 
-
 ```rust
 // Prepare AI training dataset without export/import  
-#[mudu_procedure]
+#[mudu_macro]
 fn prepare_training_data(xid: XID) -> RS<()> {
     command(xid, 
         sql_stmt!("..."),
@@ -326,6 +337,7 @@ fn prepare_training_data(xid: XID) -> RS<()> {
 Benefit: Faster for large datasets by avoiding network transfer.
 
 ### 5. Extended Database Capabilities
+
 Leverage full programming ecosystems
 Tap into any Rust crate (or future language ecosystems):
 
@@ -335,7 +347,7 @@ Example, use `uuid` and `chrono` crate,
 use chrono::Utc;
 use uuid::Uuid;
 
-#[mudu_procedure]
+#[mudu_macro]
 fn create_order(xid: XID, user_id: i32) -> RS<String> {
     // Do something ....
 
@@ -363,15 +375,12 @@ Advantages:
 
 # Key Technical Advantages
 
-
-| Feature          | Traditional Approach       | Mudu Procedure Advantage     |
-| :--------------- | :------------------------- | :--------------------------- |
-| Dev-Prod Parity  | Different code for CLI/SPs | Identical codebase           |
-| Type Safety      | Runtime SQL errors         | Compile-time validation      |
-| Data Movement    | ETL pipelines required     | In-database processing       |
-| Extensibility    | DB-specific extensions     | General-purpose libraries    |
-
-
+| Feature         | Traditional Approach       | Mudu Procedure Advantage  |
+|:----------------|:---------------------------|:--------------------------|
+| Dev-Prod Parity | Different code for CLI/SPs | Identical codebase        |
+| Type Safety     | Runtime SQL errors         | Compile-time validation   |
+| Data Movement   | ETL pipelines required     | In-database processing    |
+| Extensibility   | DB-specific extensions     | General-purpose libraries |
 
 # How MuduDB Treats the Interactive and Procedural Approach Uniformly
 

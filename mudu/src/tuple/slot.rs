@@ -1,8 +1,12 @@
 use crate::common::buf::Buf;
 use crate::common::endian::Endian;
 use byteorder::ByteOrder;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug,
+    Serialize,
+    Deserialize,
+)]
 pub struct Slot {
     off: u32,
     len: u32,

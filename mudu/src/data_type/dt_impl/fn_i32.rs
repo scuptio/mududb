@@ -1,8 +1,8 @@
 use crate::common::endian::Endian;
-use crate::data_type::dt_fn_base::{ErrConvert, FnBase};
 use crate::data_type::dt_fn_compare::{ErrCompare, FnCompare};
+use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use crate::tuple::dat_binary::DatBinary;
 use crate::tuple::dat_internal::DatInternal;
 use crate::tuple::dat_printable::DatPrintable;
@@ -90,7 +90,7 @@ pub const FN_I32_COMPARE: FnCompare = FnCompare {
     hash: fn_i32_hash,
 };
 
-pub const FN_I32_CONVERT: FnBase = FnBase {
+pub const FN_I32_CONVERT: FnConvert = FnConvert {
     input: fn_i32_in,
     output: fn_i32_out,
     len: fn_i32_len,

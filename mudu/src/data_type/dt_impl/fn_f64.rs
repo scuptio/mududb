@@ -1,9 +1,9 @@
 use crate::common::endian::Endian;
 use byteorder::ByteOrder;
 
-use crate::data_type::dt_fn_base::{ErrConvert, FnBase};
+use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 
 use crate::tuple::dat_binary::DatBinary;
 use crate::tuple::dat_internal::DatInternal;
@@ -63,7 +63,7 @@ pub fn fn_f64_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, Err
     }
 }
 
-pub const FN_F64_CONVERT: FnBase = FnBase {
+pub const FN_F64_CONVERT: FnConvert = FnConvert {
     input: fn_f64_in,
     output: fn_f64_out,
     len: fn_f64_len,

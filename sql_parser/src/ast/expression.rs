@@ -9,5 +9,5 @@ pub enum ExprType {
     Logical(Arc<ExprLogical>),
     Compare(Arc<ExprCompare>),
     Value(Arc<ExprItem>),
-    Arithmetic(Arc<ExprArithmetic>)
+    Arithmetic(Arc<ExprArithmetic>),
 }

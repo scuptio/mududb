@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 
 
 pub struct StmtList {
-    list: Vec<StmtType>
+    list: Vec<StmtType>,
 }
 
 impl ASTNode for StmtList {}
@@ -18,11 +18,11 @@ impl StmtList {
             list
         }
     }
-    
+
     pub fn stmts(&self) -> &Vec<StmtType> {
         &self.list
     }
-    
+
     pub fn into_stmts(self) -> Vec<StmtType> {
         self.list
     }

@@ -1,9 +1,9 @@
-use mudu::data_type::type_declare::TypeDeclare;
+use mudu::data_type::dat_type::DatType;
 
 #[derive(Debug, Clone)]
 pub struct TableColumnDef {
     column_name: String,
-    data_type: TypeDeclare,
+    data_type: DatType,
     is_unique: bool,
     not_null: bool,
 }
@@ -11,7 +11,7 @@ pub struct TableColumnDef {
 impl TableColumnDef {
     pub fn new(
         column_name: String,
-        data_type: TypeDeclare,
+        data_type: DatType,
         is_unique: bool,
         not_null: bool,
     ) -> Self {
@@ -27,7 +27,7 @@ impl TableColumnDef {
         &self.column_name
     }
 
-    pub fn data_type(&self) -> &TypeDeclare {
+    pub fn data_type(&self) -> &DatType {
         &self.data_type
     }
 

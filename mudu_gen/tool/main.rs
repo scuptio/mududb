@@ -1,6 +1,7 @@
 use clap::Parser;
-use mudu::common::error::ER;
 use mudu::common::result::RS;
+use mudu::error::ec::EC;
+use mudu::m_error;
 use mudu_gen::code_gen::ddl_parser::DDLParser;
 use mudu_gen::code_gen::src_gen::{Language, SrcGen};
 use std::fs;
@@ -21,20 +22,20 @@ struct Args {
 
     /// output language
     #[arg(short, long)]
-    lang:Language
+    lang: Language,
 }
 
 // read from DDL SQL file, and generate source code
-fn gen_for_ddl_sql<P:AsRef<Path>>(
-    input_ddl_path:P,
-    output_dir_path:P,
-    lang:Language
+fn gen_for_ddl_sql<P: AsRef<Path>>(
+    input_ddl_path: P,
+    output_dir_path: P,
+    lang: Language,
 ) -> RS<()> {
     let out_path_buf = output_dir_path.as_ref().to_path_buf();
     let sql_text = read_to_string(input_ddl_path)
         .map_err(|e| {
-        ER::IOError(format!("open DDL SQL file error {:?}", e))
-    })?;
+            m_error!(EC::IOErr, "open DDL SQL file error", e)
+        })?;
     let ml_parser = DDLParser::new();
     let vec_table_def = ml_parser.parse(&sql_text)?;
     let gen = SrcGen::new();
@@ -42,8 +43,8 @@ fn gen_for_ddl_sql<P:AsRef<Path>>(
         let src = gen.gen(lang, &table_def)?;
         let out_src_path = out_path_buf.join(
             format!("{}.{}", table_def.table_name(), lang.lang_suffix()));
-        fs::write(&out_src_path, src).map_err(|e|{
-            ER::IOError(format!("write generated source code error {:?}", e))
+        fs::write(&out_src_path, src).map_err(|e| {
+            m_error!(EC::IOErr, "write generated source code error", e)
         })?;
         println!("output source code {} for table {}", out_src_path.to_str().unwrap(), table_def.table_name());
     }
