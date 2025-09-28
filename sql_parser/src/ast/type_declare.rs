@@ -1,5 +1,6 @@
 use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
-use mudu::data_type::dt_param::{ParamInfo, ParamObj};
+use mudu::data_type::param_info::ParamInfo;
+use mudu::data_type::param_obj::ParamObj;
 
 #[derive(Clone, Debug)]
 pub struct TypeDeclare {
@@ -10,7 +11,7 @@ pub struct TypeDeclare {
 impl TypeDeclare {
     pub fn new(param: ParamObj) -> Self {
         Self {
-            id: param.data_type_id(),
+            id: param.dat_type_id(),
             param,
         }
     }

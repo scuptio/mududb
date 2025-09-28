@@ -1,105 +1,105 @@
+#[cfg(any(test, feature = "test"))]
 use crate::data_type::dt_fn_arbitrary::FnArbitrary;
-use crate::data_type::dt_fn_base::FnBase;
 use crate::data_type::dt_fn_compare::FnCompare;
+use crate::data_type::dt_fn_convert::FnConvert;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
-use crate::data_type::dt_impl::fn_char::{
-    FN_FIXED_LEN_STRING_COMPARE, FN_FIXED_LEN_STRING_CONVERT,
-};
-use crate::data_type::dt_impl::fn_char_arb::FN_CHAR_ARBITRARY;
-use crate::data_type::dt_impl::fn_char_param::FN_CHAR_PARAM;
-use crate::data_type::dt_impl::fn_f32::FN_F32_CONVERT;
-use crate::data_type::dt_impl::fn_f32_arb::FN_F32_ARBITRARY;
-use crate::data_type::dt_impl::fn_f64::FN_F64_CONVERT;
-use crate::data_type::dt_impl::fn_f64_arb::FN_F64_ARBITRARY;
-use crate::data_type::dt_impl::fn_i32::{FN_I32_COMPARE, FN_I32_CONVERT};
-use crate::data_type::dt_impl::fn_i32_arb::FN_I32_ARBITRARY;
-use crate::data_type::dt_impl::fn_i64::{FN_I64_COMPARE, FN_I64_CONVERT};
-use crate::data_type::dt_impl::fn_i64_arb::FN_I64_ARBITRARY;
-use crate::data_type::dt_impl::fn_varchar::{FN_VAR_LEN_STRING_COMPARE, FN_VAR_LEN_STRING_CONVERT};
-use crate::data_type::dt_impl::fn_varchar_arb::FN_VARCHAR_ARBITRARY;
-use crate::data_type::dt_param::{FnParam, ParamObj};
+
+
+use crate::data_type::dt_impl;
+
+use crate::data_type::dt_param::FnParam;
+use crate::data_type::param_obj::ParamObj;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::string::ToString;
 
-struct DataTypeDef {
-    pub data_type_id: DatTypeID,
-    pub data_type_name: String,
-    pub fn_base: FnBase,
+struct DatTypeDef {
+    pub id: DatTypeID,
+    /// data type ID
+    pub type_name: String,
+    /// data type name in SQL
+    pub fn_base: FnConvert,
+    /// base function
     pub opt_fn_compare: Option<FnCompare>,
+    /// optional compare function
+    #[cfg(any(test, feature = "test"))]
     pub fn_arbitrary: FnArbitrary,
-    pub is_fixed_length_type: bool,
+    /// arbitrary function
     pub opt_fn_param: Option<FnParam>,
+    /// is fixed length
+    pub is_fixed_len: bool,
 }
 
 lazy_static! {
-    static ref DAT_TABLE: Vec<DataTypeDef> = vec![
-        DataTypeDef {
-            data_type_id: DatTypeID::I32,
-            data_type_name: String::from("int"),
-            fn_base: FN_I32_CONVERT,
-            opt_fn_compare: Some(FN_I32_COMPARE),
-            fn_arbitrary: FN_I32_ARBITRARY,
-            is_fixed_length_type: true,
-
+    static ref DAT_TABLE: Vec<DatTypeDef> = vec![
+        DatTypeDef {
+            id: DatTypeID::I32,
+            type_name: String::from("int"),
+            fn_base: dt_impl::fn_i32::FN_I32_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_i32::FN_I32_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_i32_arb::FN_I32_ARBITRARY,
+            is_fixed_len: true,
             opt_fn_param: None,
         },
-        DataTypeDef {
-            data_type_id: DatTypeID::I64,
-            data_type_name: String::from("bigint"),
-            fn_base: FN_I64_CONVERT,
-            opt_fn_compare: Some(FN_I64_COMPARE),
-            fn_arbitrary: FN_I64_ARBITRARY,
-            is_fixed_length_type: true,
-
+        DatTypeDef {
+            id: DatTypeID::I64,
+            type_name: String::from("bigint"),
+            fn_base: dt_impl::fn_i64::FN_I64_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_i64::FN_I64_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_i64_arb::FN_I64_ARBITRARY,
+            is_fixed_len: true,
             opt_fn_param: None,
         },
-        DataTypeDef {
-            data_type_id: DatTypeID::F32,
-            data_type_name: "float".to_string(),
-            fn_base: FN_F32_CONVERT,
+        DatTypeDef {
+            id: DatTypeID::F32,
+            type_name: "float".to_string(),
+            fn_base: dt_impl::fn_f32::FN_F32_CONVERT,
             opt_fn_compare: None,
-            fn_arbitrary: FN_F32_ARBITRARY,
-            is_fixed_length_type: true,
-
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_f32_arb::FN_F32_ARBITRARY,
+            is_fixed_len: true,
             opt_fn_param: None,
         },
-        DataTypeDef {
-            data_type_id: DatTypeID::F64,
-            data_type_name: "double".to_string(),
-            fn_base: FN_F64_CONVERT,
+        DatTypeDef {
+            id: DatTypeID::F64,
+            type_name: "double".to_string(),
+            fn_base: dt_impl::fn_f64::FN_F64_CONVERT,
             opt_fn_compare: None,
-            fn_arbitrary: FN_F64_ARBITRARY,
-            is_fixed_length_type: true,
-
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_f64_arb::FN_F64_ARBITRARY,
+            is_fixed_len: true,
             opt_fn_param: None,
         },
-        DataTypeDef {
-            data_type_id: DatTypeID::FixedLenString,
-            data_type_name: "char".to_string(),
-            fn_base: FN_FIXED_LEN_STRING_CONVERT,
-            opt_fn_compare: Some(FN_FIXED_LEN_STRING_COMPARE),
-            fn_arbitrary: FN_CHAR_ARBITRARY,
-            is_fixed_length_type: true,
-
-            opt_fn_param: Some(FN_CHAR_PARAM),
+        DatTypeDef {
+            id: DatTypeID::CharFixedLen,
+            type_name: "char".to_string(),
+            fn_base: dt_impl::fn_char_fixed::FN_CHAR_FIXED_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_char_fixed::FN_CHAR_FIXED_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_char_fixed_arb::FN_CHAR_FIXED_ARBITRARY,
+            is_fixed_len: true,
+            opt_fn_param: Some(dt_impl::fn_char_fixed_param::FN_CHAR_FIXED_PARAM),
         },
-        DataTypeDef {
-            data_type_id: DatTypeID::VarLenString,
-            data_type_name: "varchar".to_string(),
-            fn_base: FN_VAR_LEN_STRING_CONVERT,
-            opt_fn_compare: Some(FN_VAR_LEN_STRING_COMPARE),
-            fn_arbitrary: FN_VARCHAR_ARBITRARY,
-            is_fixed_length_type: false,
-
-            opt_fn_param: Some(FN_CHAR_PARAM),
+        DatTypeDef {
+            id: DatTypeID::CharVarLen,
+            type_name: "varchar".to_string(),
+            fn_base: dt_impl::fn_char_var::FN_CHAR_VAR_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_char_var::FN_CHAR_VAR_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_char_var_arb::FN_CHAR_VAR_ARBITRARY,
+            is_fixed_len: false,
+            opt_fn_param: Some(dt_impl::fn_char_var_param::FN_VARCHAR_PARAM),
         },
+        // more data type definition
     ];
+
     static ref _DT_NAME_2_ID: HashMap<String, DatTypeID> = {
         let mut map: HashMap<String, DatTypeID> = HashMap::new();
         for _i in 0..DAT_TABLE.len() {
-            let id = DAT_TABLE[_i].data_type_id;
-            let name = DAT_TABLE[_i].data_type_name.clone();
+            let id = DAT_TABLE[_i].id;
+            let name = DAT_TABLE[_i].type_name.clone();
             let _ = map.insert(name, id);
         }
         map
@@ -111,27 +111,32 @@ pub fn dt_count() -> u32 {
 }
 
 pub fn get_dt_type(id: u32) -> DatTypeID {
-    DAT_TABLE[id as usize].data_type_id
+    DAT_TABLE[id as usize].id
 }
 
 pub fn get_dt_name(id: u32) -> &'static str {
-    DAT_TABLE[id as usize].data_type_name.as_str()
+    DAT_TABLE[id as usize].type_name.as_str()
 }
 
-pub fn get_convert_function(id: u32) -> &'static FnBase {
+pub fn get_fn_convert(id: u32) -> &'static FnConvert {
     &DAT_TABLE[id as usize].fn_base
 }
 
-pub fn get_compare_function(id: u32) -> &'static Option<FnCompare> {
+pub fn get_opt_fn_compare(id: u32) -> &'static Option<FnCompare> {
     &DAT_TABLE[id as usize].opt_fn_compare
 }
 
-pub fn get_arbitrary_function(id: u32) -> &'static FnArbitrary {
+#[cfg(any(test, feature = "test"))]
+pub fn get_fn_arbitrary(id: u32) -> &'static FnArbitrary {
     &DAT_TABLE[id as usize].fn_arbitrary
 }
 
+pub fn get_opt_fn_param(id: u32) -> &'static Option<FnParam> {
+    &DAT_TABLE[id as usize].opt_fn_param
+}
+
 pub fn is_fixed_len(id: u32) -> bool {
-    DAT_TABLE[id as usize].is_fixed_length_type
+    DAT_TABLE[id as usize].is_fixed_len
 }
 
 pub fn type_len(id: u32, opt_params: &ParamObj) -> Option<usize> {

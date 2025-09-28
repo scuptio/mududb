@@ -1,6 +1,6 @@
 use crate::common::buf::Buf;
 use crate::tuple::comparator::{tuple_compare, tuple_equal, tuple_hash};
-use crate::tuple::tuple_desc::TupleDesc;
+use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use scc::{Comparable, Equivalent};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug)]
 pub struct TupleKey {
-    desc: *const TupleDesc,
+    desc: *const TupleBinaryDesc,
     key: Buf,
 }
 
@@ -42,11 +42,11 @@ impl Ord for TupleKey {
 }
 
 impl TupleKey {
-    pub fn desc(&self) -> &TupleDesc {
+    pub fn desc(&self) -> &TupleBinaryDesc {
         unsafe { &(*self.desc) }
     }
 
-    pub fn from_buf(desc: *const TupleDesc, data: Buf) -> Self {
+    pub fn from_buf(desc: *const TupleBinaryDesc, data: Buf) -> Self {
         Self { desc, key: data }
     }
 

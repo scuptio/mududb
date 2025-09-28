@@ -1,6 +1,7 @@
 use crate::common::bc_dec::{DecErr, Decode, Decoder};
 use crate::common::bc_enc::{EncErr, Encode, Encoder};
 use crate::common::buf::Buf;
+#[cfg(any(test, feature = "test"))]
 use arbitrary::{Arbitrary, Unstructured};
 use std::cell::RefCell;
 
@@ -111,7 +112,9 @@ impl Decode for UpdateDelta {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl Arbitrary<'_> for UpdateDelta {
+    #[cfg(any(test, feature = "test"))]
     fn arbitrary(u: &mut Unstructured) -> arbitrary::Result<Self> {
         let len = Self::tuple_max_len() as u32;
         let begin = u32::arbitrary(u)? % len;

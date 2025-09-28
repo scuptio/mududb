@@ -1,12 +1,11 @@
 use crate::rust::wallets::object::Wallets;
-use mudu::common::error::ER::MuduError;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::database::attribute::Attribute;
+use mudu::database::attr_value::AttrValue;
 use mudu::database::sql::{command, query};
-use mudu::tuple::to_datum::ToDatum;
-use mudu::{sql_param, sql_stmt};
-use mudu_procedure::mudu_procedure;
+use mudu::error::ec::EC::MuduError;
+use mudu::tuple::datum::DatumDyn;
+use mudu::{m_error, sql_param, sql_stmt};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -20,18 +19,16 @@ fn current_timestamp() -> i64 {
     seconds as _
 }
 
-#[mudu_procedure]
+
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
-        return Err(MuduError(
-            "The transfer amount must be greater than 0".to_string(),
-        ));
+        return Err(m_error!(MuduError, "The transfer amount must be greater than 0"));
     }
 
     // Cannot transfer money to oneself
     if from_user_id == to_user_id {
-        return Err(MuduError("Cannot transfer money to oneself".to_string()));
+        return Err(m_error!(MuduError, "Cannot transfer money to oneself"));
     }
 
     // Check whether the transfer-out account exists and has sufficient balance
@@ -44,11 +41,11 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     let from_wallet = if let Some(row) = wallet_rs.next()? {
         row
     } else {
-        return Err(MuduError("no such user".to_string()));
+        return Err(m_error!(MuduError, "no such user"));
     };
 
     if from_wallet.get_balance().as_ref().unwrap().get_value() < amount {
-        return Err(MuduError("insufficient funds".to_string()));
+        return Err(m_error!(MuduError, "insufficient funds"));
     }
 
     // Check the user account existing
@@ -60,7 +57,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     let _to_wallet = if let Some(row) = to_wallet.next()? {
         row
     } else {
-        return Err(MuduError("no such user".to_string()));
+        return Err(m_error!(MuduError, "no such user"));
     };
 
     // Perform a transfer operation
@@ -71,7 +68,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_param!(&[&amount, &from_user_id]),
     )?;
     if deduct_updated_rows != 1 {
-        return Err(MuduError("transfer fund failed".to_string()));
+        return Err(m_error!(MuduError, "transfer fund failed"));
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = command(
@@ -80,7 +77,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_param!(&[&amount, &to_user_id]),
     )?;
     if increase_updated_rows != 1 {
-        return Err(MuduError("transfer fund failed".to_string()));
+        return Err(m_error!(MuduError, "transfer fund failed"));
     }
 
 
@@ -96,18 +93,17 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_param!(&[&id, &from_user_id, &to_user_id, &amount]),
     )?;
     if insert_rows != 1 {
-        return Err(MuduError("transfer fund failed".to_string()));
+        return Err(m_error!(MuduError, "transfer fund failed"));
     }
     Ok(())
 }
 
 
-#[mudu_procedure]
 pub fn create_user(
     xid: XID,
     user_id: i32,
     name: String,
-    email: String
+    email: String,
 ) -> RS<()> {
     let now = current_timestamp();
 
@@ -119,7 +115,7 @@ pub fn create_user(
     )?;
 
     if user_created != 1 {
-        return Err(MuduError("Failed to create user".to_string()));
+        return Err(m_error!(MuduError, "Failed to create user"));
     }
 
     // Create wallet with 0 balance
@@ -130,15 +126,13 @@ pub fn create_user(
     )?;
 
     if wallet_created != 1 {
-        return Err(MuduError("Failed to create wallet".to_string()));
+        return Err(m_error!(MuduError, "Failed to create wallet"));
     }
 
     Ok(())
 }
 
 
-
-#[mudu_procedure]
 pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = query::<Wallets>(
@@ -148,10 +142,10 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     )?;
 
     let wallet = wallet_rs.next()?
-        .ok_or(MuduError("User wallet not found".to_string()))?;
+        .ok_or(m_error!(MuduError, "User wallet not found"))?;
 
     if wallet.get_balance().as_ref().unwrap().get_value() != 0 {
-        return Err(MuduError("Cannot delete user with non-zero balance".to_string()));
+        return Err(m_error!(MuduError, "Cannot delete user with non-zero balance"));
     }
 
     // Delete wallet
@@ -171,15 +165,15 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     Ok(())
 }
 
-#[mudu_procedure]
+
 pub fn update_user(
     xid: XID,
     user_id: i32,
     name: Option<String>,
-    email: Option<String>
+    email: Option<String>,
 ) -> RS<()> {
     let now = current_timestamp();
-    let mut params: Vec<&dyn ToDatum> = vec![];
+    let mut params: Vec<&dyn DatumDyn> = vec![];
 
     let mut sql = "UPDATE users SET updated_at = ?".to_string();
     params.push(&now);
@@ -204,16 +198,16 @@ pub fn update_user(
     )?;
 
     if updated != 1 {
-        return Err(MuduError("User not found".to_string()));
+        return Err(m_error!(MuduError, "User not found"));
     }
 
     Ok(())
 }
 
-#[mudu_procedure]
+
 pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
-        return Err(MuduError("Amount must be positive".to_string()));
+        return Err(m_error!(MuduError, "Amount must be positive"));
     }
 
     let now = current_timestamp();
@@ -227,7 +221,7 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     )?;
 
     if updated != 1 {
-        return Err(MuduError("User wallet not found".to_string()));
+        return Err(m_error!(MuduError, "User wallet not found"));
     }
 
     // Record transaction
@@ -242,7 +236,7 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
 
 pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
-        return Err(MuduError("Amount must be positive".to_string()));
+        return Err(m_error!(MuduError, "Amount must be positive"));
     }
 
     // Check balance
@@ -253,10 +247,10 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     )?;
 
     let wallet = wallet_rs.next()?
-        .ok_or(MuduError("User wallet not found".to_string()))?;
+        .ok_or(m_error!(MuduError, "User wallet not found"))?;
 
     if wallet.get_balance().as_ref().unwrap().get_value() < amount {
-        return Err(MuduError("Insufficient funds".to_string()));
+        return Err(m_error!(MuduError, "Insufficient funds"));
     }
 
     let now = current_timestamp();
@@ -279,19 +273,19 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     Ok(())
 }
 
-#[mudu_procedure]
+
 pub fn transfer(
     xid: XID,
     from_user_id: i32,
     to_user_id: i32,
-    amount: i32
+    amount: i32,
 ) -> RS<()> {
     if from_user_id == to_user_id {
-        return Err(MuduError("Cannot transfer to self".to_string()));
+        return Err(m_error!(MuduError, "Cannot transfer to self"));
     }
 
     if amount <= 0 {
-        return Err(MuduError("Amount must be positive".to_string()));
+        return Err(m_error!(MuduError, "Amount must be positive"));
     }
 
     // Check sender balance
@@ -301,10 +295,10 @@ pub fn transfer(
         sql_param!(&[&from_user_id]),
     )?
         .next()?
-        .ok_or(MuduError("Sender wallet not found".to_string()))?;
+        .ok_or(m_error!(MuduError, "Sender wallet not found"))?;
 
     if sender_wallet.get_balance().as_ref().unwrap().get_value() < amount {
-        return Err(MuduError("Insufficient funds".to_string()));
+        return Err(m_error!(MuduError, "Insufficient funds"));
     }
 
     // Check receiver exists
@@ -317,7 +311,7 @@ pub fn transfer(
         .is_some();
 
     if !receiver_exists {
-        return Err(MuduError("Receiver wallet not found".to_string()));
+        return Err(m_error!(MuduError, "Receiver wallet not found"));
     }
 
     let now = current_timestamp();
@@ -347,15 +341,15 @@ pub fn transfer(
     Ok(())
 }
 
-#[mudu_procedure]
+
 pub fn purchase(
     xid: XID,
     user_id: i32,
     amount: i32,
-    description: String
+    description: String,
 ) -> RS<()> {
     if amount <= 0 {
-        return Err(MuduError("Amount must be positive".to_string()));
+        return Err(m_error!(MuduError, "Amount must be positive"));
     }
 
     // Check balance
@@ -365,10 +359,10 @@ pub fn purchase(
         sql_param!(&[&user_id]),
     )?
         .next()?
-        .ok_or(MuduError("Wallet not found".to_string()))?;
+        .ok_or(m_error!(MuduError, "Wallet not found"))?;
 
     if wallet.get_balance().as_ref().unwrap().get_value() < amount {
-        return Err(MuduError("Insufficient funds".to_string()));
+        return Err(m_error!(MuduError, "Insufficient funds"));
     }
 
     let now = current_timestamp();

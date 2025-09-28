@@ -1,7 +1,6 @@
-# MuduDB  
+# MuduDB
 
-
- [<img src="doc/pic/mudu_logo.svg" width="10%">](doc/en/name.md)
+[<img src="doc/pic/mudu_logo.svg" width="10%">](doc/en/name.md)
 
 [汉语](readme.cn.md)
 
@@ -15,58 +14,58 @@ It implements a range of innovative features designed to leverage modern AI and 
 
 ---
 ## Architecture
-
 <img src="doc/pic/architecture.png" width="80%">
 
 ---
-## Innovative Features of MuduDB  
+## Innovative Features of MuduDB
 
-### 1. AI-Assisted Database Engineering  
-Accelerates development cycles by using large language models (LLMs) to generate:  
-- **Entity-Relationship (ER) Diagrams**  
-- **Data Definition Language (DDL) Scripts**  
-- **Stored Procedures & Functions**  
+### 1. AI-Assisted Database Engineering
 
+Accelerates development cycles by using large language models (LLMs) to generate:
+
+- **Entity-Relationship (ER) Diagrams**
+- **Data Definition Language (DDL) Scripts**
+- **Stored Procedures & Functions**
 
 ### 2. [Mudu Procedure](doc/en/procedure.md)
-Seamlessly integrates:  
-- **Interactive** (for ad-hoc transaction)  
-- **Procedural** (for one-shot transactions)  
 
+Seamlessly integrates:
 
-### 3. Modern Hardware-Optimized Architecture  
+- **Interactive** (for ad-hoc transaction)
+- **Procedural** (for one-shot transactions)
 
-Maximizes resource efficiency through:  
-- **Asynchronous I/O** (optimized for NVMe/SSD)  
-- **Cooperative Concurrency** (lightweight threading with near-zero overhead)  
-  
+### 3. Modern Hardware-Optimized Architecture
 
-### 4. Microkernel Architecture Design  
-Embraces modularity and extensibility:  
-- **Core Engine**: Handles only essential functions (storage, ACID, query parsing, query execution).  
-- **Plug-in Ecosystem**:  
-  - Extensions (e.g., JSON/Graph support)  
-  - External Runtime Modules (e.g., ML inference)  
-  - Custom Storage Engines  
+Maximizes resource efficiency through:
 
+- **Asynchronous I/O** (optimized for NVMe/SSD)
+- **Cooperative Concurrency** (lightweight threading with near-zero overhead)
 
+### 4. Microkernel Architecture Design
 
+Embraces modularity and extensibility:
 
-## **Current Development Status** 
+- **Core Engine**: Handles only essential functions (storage, ACID, query parsing, query execution).
+- **Plug-in Ecosystem**:
+    - Extensions (e.g., JSON/Graph support)
+    - External Runtime Modules (e.g., ML inference)
+    - Custom Storage Engines
 
-### Top-Down Development Approach  
+## **Current Development Status**
 
-#### Strategically prioritizing:  
+### Top-Down Development Approach
 
-1. **Developer Tooling** (AI tools, checking tools)  
-2. **Frontend** (SQL APIs, ORM integrations, Runtime)  
-3. **Core Engine** (Core transactional processing layer)  
+#### Strategically prioritizing:
 
+1. **Developer Tooling** (AI tools, checking tools)
+2. **Frontend** (SQL APIs, ORM integrations, Runtime)
+3. **Core Engine** (Core transactional processing layer)
 
-#### Current Focus: Mudu Runtime  
-- **Development Status**: Actively implementing the **Mudu Runtime** – a execution environment unifying procedural logic and interactive queries.  
+#### Current Focus: Mudu Runtime
 
+- **Development Status**: Actively implementing the **Mudu Runtime** – a execution environment unifying procedural logic
+  and interactive queries.
 
-## **Open-Source** 
+## **Open-Source**
 
 Open-source release (Apache 2.0) targeted after core engine readiness.

@@ -1,20 +1,24 @@
-use crate::postgres::db_conn_pg::DBConnPG;
-use mudu::common::error::ER;
+use crate::db_libsql::ls_conn::create_ls_conn;
+use crate::db_postgres::pg_interactive_conn::create_pg_interactive_conn;
 use mudu::common::result::RS;
 use mudu::database::db_conn::DBConn;
+use mudu::error::ec::EC;
+use mudu::m_error;
+use std::str::FromStr;
 use std::sync::Arc;
+use strum_macros::EnumString;
 
-pub struct DBConnector {
-    
-}
+pub struct DBConnector {}
 
+#[derive(EnumString)]
 enum DBType {
     Postgres,
+    LibSQL,
 }
 
 impl DBConnector {
     pub fn connect(
-        connect_string:&str,
+        connect_string: &str,
     ) -> RS<Arc<dyn DBConn>> {
         let db_str_param = parse_db_connect_string(connect_string);
         let mut passing_param = Vec::new();
@@ -27,38 +31,52 @@ impl DBConnector {
                     opt_ddl_path = Some(value);
                 }
                 "db_type" => {
-                    opt_db_type = Some(DBType::Postgres)
+                    let db = DBType::from_str(&value).unwrap();
+                    opt_db_type = Some(db)
                 }
                 _ => {
                     passing_param.push(key_value);
                 }
-            } 
+            }
         }
+
+        let ddl_path = match opt_ddl_path {
+            Some(ddl_path) => { ddl_path }
+            None => {
+                return Err(m_error!(EC::NoneErr, "no DDL path provided"));
+            }
+        };
         let params = merge_to_string(passing_param);
         match opt_db_type {
-            Some(DBType::Postgres) => {
-                let conn = DBConnPG::new(&params, &opt_ddl_path.unwrap())?;
-                Ok(Arc::new(conn))
+            Some(db_type) => {
+                match db_type {
+                    DBType::Postgres => {
+                        create_pg_interactive_conn(&params, &ddl_path)
+                    }
+                    DBType::LibSQL => {
+                        create_ls_conn(&params, &ddl_path)
+                    }
+                }
             }
             None => {
-                panic!("unknown DB type")
+                Err(m_error!(EC::ParseErr, "not a valid DB type"))
             }
         }
     }
 }
 
-fn parse_key_value(s:&str) -> RS<(String, String)> {
+fn parse_key_value(s: &str) -> RS<(String, String)> {
     let parts: Vec<&str> = s.splitn(2, '=').collect();
     if parts.len() != 2 {
-        return Err(ER::ParseError(format!("Invalid key-value pair: '{}'", s)));
+        return Err(m_error!(EC::ParseErr, format!("Invalid key-value pair: '{}'", s)));
     }
 
     let key = parts[0].to_string();
     let value = parts[1].to_string();
 
-   
+
     let value = if value.starts_with('\'') && value.ends_with('\'') {
-        value[1..value.len()-1].to_string()
+        value[1..value.len() - 1].to_string()
     } else {
         value
     };
@@ -96,14 +114,14 @@ fn parse_db_connect_string(input: &str) -> Vec<String> {
     result
 }
 
-fn merge_to_string(vec:Vec<String>) -> String {
+fn merge_to_string(vec: Vec<String>) -> String {
     let n = vec.len();
     let mut ret = String::new();
     for (i, s) in vec.iter().enumerate() {
         ret.push_str(s);
         if i != n {
             ret.push_str(" ");
-        } 
+        }
     }
     ret
 }
@@ -118,7 +136,7 @@ mod tests {
             parse_db_connect_string("host=localhost port=5432 user=postgres"),
             vec!["host=localhost", "port=5432", "user=postgres"]
         );
-        
+
         assert_eq!(
             parse_db_connect_string("host='localhost server' port=5432 password='my password'"),
             vec!["host='localhost server'", "port=5432", "password='my password'"]
@@ -130,7 +148,7 @@ mod tests {
             vec!["host=localhost", "port=5432"]
         );
 
- 
+
         assert_eq!(
             parse_db_connect_string("'host=localhost port=5432'"),
             vec!["'host=localhost port=5432'"]

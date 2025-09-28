@@ -1,5 +1,5 @@
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use arbitrary::Unstructured;
 
 pub type FnArbValue = fn(u: &mut Unstructured, _p: &ParamObj) -> arbitrary::Result<DatTyped>;

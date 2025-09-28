@@ -1,9 +1,10 @@
 #[cfg(test)]
 pub mod test {
     use crate::rust::transfer_funds::transfer_funds;
-    use mudu::common::error::ER;
     use mudu::common::result::RS;
     use mudu::database::sql;
+    use mudu::error::ec::EC;
+    use mudu::m_error;
     use mudu_runtime::db_connector::DBConnector;
     use postgresql_commands::psql::PsqlBuilder;
     use postgresql_commands::{CommandBuilder, CommandExecutor};
@@ -67,7 +68,7 @@ pub mod test {
                 println!("{} {}", s.0, s.1)
             }
             Err(e) => {
-                return Err(ER::MuduError(e.to_string()));
+                return Err(m_error!(EC::MuduError, "", e));
             }
         }
         Ok(())

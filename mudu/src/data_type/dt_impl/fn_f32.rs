@@ -1,7 +1,7 @@
 use crate::common::endian::Endian;
-use crate::data_type::dt_fn_base::{ErrConvert, FnBase};
+use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use crate::tuple::dat_binary::DatBinary;
 use crate::tuple::dat_internal::DatInternal;
 use crate::tuple::dat_printable::DatPrintable;
@@ -61,7 +61,7 @@ pub fn fn_f32_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, Err
     }
 }
 
-pub const FN_F32_CONVERT: FnBase = FnBase {
+pub const FN_F32_CONVERT: FnConvert = FnConvert {
     input: fn_f32_in,
     output: fn_f32_out,
     len: fn_f32_len,

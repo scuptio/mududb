@@ -1,6 +1,6 @@
 use crate::data_type::dt_fn_arbitrary::FnArbitrary;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 
 use crate::data_type::dt_impl::dat_typed::DatTyped;
 use arbitrary::{Arbitrary, Unstructured};
@@ -14,7 +14,7 @@ pub fn fn_f32_arb_printable(u: &mut Unstructured, _p: &ParamObj) -> arbitrary::R
 }
 
 pub fn fn_f32_arb_dt_param(_u: &mut Unstructured) -> arbitrary::Result<ParamObj> {
-    Ok(ParamObj::from_no_params(DatTypeID::F32))
+    Ok(ParamObj::new_empty(DatTypeID::F32))
 }
 
 pub const FN_F32_ARBITRARY: FnArbitrary = FnArbitrary {

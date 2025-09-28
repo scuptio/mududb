@@ -1,3 +1,2 @@
-use crate::common::error::ER;
-
-pub type RS<X> = Result<X, ER>;
+use crate::error::err::MError;
+pub type RS<X> = Result<X, MError>;

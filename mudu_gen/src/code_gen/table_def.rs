@@ -1,8 +1,8 @@
 use crate::code_gen::column_def::TableColumnDef;
 use crate::code_gen::primary_key_def::PrimaryKeyDef;
 use mudu::common::result::RS;
-use mudu::database::datum_desc::DatumDesc;
-use mudu::database::row_desc::RowDesc;
+use mudu::tuple::datum_desc::DatumDesc;
+use mudu::tuple::tuple_item_desc::TupleItemDesc;
 use sql_parser::ast::stmt_create_table::StmtCreateTable;
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ pub struct TableDef {
     table_name: String,
     table_columns: Vec<TableColumnDef>,
     primary_key_def: PrimaryKeyDef,
-    name2column_def: HashMap<String, TableColumnDef>
+    name2column_def: HashMap<String, TableColumnDef>,
 }
 
 impl TableDef {
@@ -48,16 +48,16 @@ impl TableDef {
     pub fn primary_key_def(&self) -> &PrimaryKeyDef {
         &self.primary_key_def
     }
-    
-    pub fn row_desc(&self) -> RowDesc {
+
+    pub fn row_desc(&self) -> TupleItemDesc {
         let mut vec = vec![];
         for c in &self.table_columns {
-            let dd = DatumDesc::new(c.column_name(), c.data_type().clone());
+            let dd = DatumDesc::new(c.column_name().clone(), c.data_type().clone());
             vec.push(dd);
         }
-        RowDesc::new(vec)
+        TupleItemDesc::new(vec)
     }
-    
+
     pub fn find_column_def_by_name(&self, name: &str) -> Option<&TableColumnDef> {
         self.name2column_def.get(name)
     }

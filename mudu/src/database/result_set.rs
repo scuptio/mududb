@@ -1,6 +1,6 @@
 use crate::common::result::RS;
-use crate::database::tuple_row::TupleRow;
+use crate::tuple::tuple_item::TupleItem;
 
-pub trait ResultSet {
-    fn next(&self) -> RS<Option<TupleRow>>;
+pub trait ResultSet: Send + Sync {
+    fn next(&self) -> RS<Option<TupleItem>>;
 }

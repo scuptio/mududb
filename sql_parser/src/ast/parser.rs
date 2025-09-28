@@ -1,9 +1,9 @@
 use mudu::common::result_of::{rs_of_opt, rs_option};
 
-use mudu::common::error::ER;
 use mudu::common::result::RS;
+use mudu::error::ec::EC;
 
-use crate::ts_const::{ts_field_name, ts_kind_id, };
+use crate::ts_const::{ts_field_name, ts_kind_id};
 use std::collections::HashMap;
 use std::f64;
 use std::io::Write;
@@ -33,21 +33,23 @@ use crate::ast::stmt_list::StmtList;
 use crate::ast::stmt_select::StmtSelect;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
+use mudu::data_type::dat_type::DatType;
 use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
 use mudu::data_type::dt_impl::dat_typed::DatTyped;
-use mudu::data_type::dt_param::{ParamInfo, ParamObj};
-use mudu::data_type::type_declare::TypeDeclare;
+use mudu::data_type::param_info::ParamInfo;
+use mudu::error::err::MError;
+use mudu::m_error;
 
 pub struct SQLParser {
     parser: Mutex<Parser>,
 }
 
 struct ParseContext {
-    text:String,
+    text: String,
 }
 
 impl ParseContext {
-    fn new(text:String) -> Self {
+    fn new(text: String) -> Self {
         Self { text }
     }
 
@@ -61,7 +63,7 @@ fn sql_language() -> Language {
 }
 
 
-fn traverse_tree_for_error_nodes<'t>(node:&Node<'t>, error_nodes:&mut Vec<Node<'t>>) {
+fn traverse_tree_for_error_nodes<'t>(node: &Node<'t>, error_nodes: &mut Vec<Node<'t>>) {
     if !node.has_error() {
         return;
     }
@@ -77,25 +79,25 @@ fn traverse_tree_for_error_nodes<'t>(node:&Node<'t>, error_nodes:&mut Vec<Node<'
 }
 
 fn error_text(
-    parse_text:&str,
-    line_start:usize,
-    column_start:usize,
-    line_end:usize,
-    column_end:usize,
+    parse_text: &str,
+    line_start: usize,
+    column_start: usize,
+    line_end: usize,
+    column_end: usize,
 ) -> RS<String> {
     let line_start = line_start - 1;
     let column_start = column_start - 1;
     let line_end = line_end - 1;
     let column_end = column_end - 1;
-    
+
     let mut err_text = String::new();
-    let lines:Vec<_> = parse_text.lines().collect();
+    let lines: Vec<_> = parse_text.lines().collect();
     for i in line_start..=line_end {
         let opt = lines.get(i);
         if let Some(s) = opt {
             let str = if i == line_start && i != line_end {
                 s[column_start..].to_string()
-            } else if i != line_end && i == line_end  {
+            } else if i != line_end && i == line_end {
                 s[..column_end].to_string()
             } else if i == line_start && i == line_end {
                 s[column_start..column_end].to_string()
@@ -110,10 +112,10 @@ fn error_text(
     }
     Ok(err_text)
 }
-fn print_error_line<W:Write>(
-    parse_text:&str,
-    node:Node,
-    writter:&mut W,
+fn print_error_line<W: Write>(
+    parse_text: &str,
+    node: Node,
+    writter: &mut W,
 ) -> RS<()> {
     // row and column start at 0
     let line_start = node.start_position().row + 1;
@@ -138,31 +140,31 @@ fn print_error_line<W:Write>(
         "root"
     };
     let error_text = error_text(parse_text, line_start, column_start, line_end, column_end)?;
-    
+
     let error_msg = format!("In \
         position: [{},{}; {},{}], \
         text: [{}]
         child tokens:[{}], \
         parent kind:[{}],\
         s-expr: [{}]\n",
-        line_start,column_start, line_end,column_end,
-        error_text,
-        tokens,
-        kind,
-        node.to_sexp());
+                            line_start, column_start, line_end, column_end,
+                            error_text,
+                            tokens,
+                            kind,
+                            node.to_sexp());
 
     writter.write_fmt(format_args!("{}", error_msg)).unwrap();
     Ok(())
 }
 
-fn print_parse_error<W:Write>(parse_text:&str, node:&Node,  writer:&mut W) -> RS<()> {
+fn print_parse_error<W: Write>(parse_text: &str, node: &Node, writer: &mut W) -> RS<()> {
     let mut error_nodes = vec![];
     traverse_tree_for_error_nodes(node, &mut error_nodes);
     for node in error_nodes {
         print_error_line(
             parse_text,
             node,
-            writer
+            writer,
         )?
     }
     Ok(())
@@ -174,7 +176,7 @@ impl SQLParser {
         let mut parser = Parser::new();
         parser.set_language(&sql_language()).unwrap();
         Self {
-            parser:Mutex::new(parser),
+            parser: Mutex::new(parser),
         }
     }
 
@@ -184,21 +186,21 @@ impl SQLParser {
         let opt_tree = guard.parse(sql, None);
         let tree = match opt_tree {
             Some(tree) => { tree }
-            None => { return Err(ER::MLParseError("parse error".to_string()))}
+            None => { return Err(m_error!(EC::MLParseError, "SQL parse error")) }
         };
         let vec = self.visit_root(&parse_context, tree.root_node())?;
         let stmt = StmtList::new(vec);
         Ok(stmt)
     }
 
-    fn parse_error(&self, context:&ParseContext, node:&Node) -> RS<()> {
+    fn parse_error(&self, context: &ParseContext, node: &Node) -> RS<()> {
         if node.has_error() {
             let mut buffer = Vec::new();
             print_parse_error(context.parse_str(), node, &mut buffer)?;
             let error = String::from_utf8(buffer).map_err(|e| {
-                ER::MuduError(e.to_string())
+                m_error!(EC::MuduError, "", e)
             })?;
-            Err(ER::MLParseError(format!(
+            Err(m_error!(EC::MLParseError, format!(
                 "Syntax error at position start {}, end {}, at text\n\
                  \"\n\
                  {}\n\",\
@@ -213,11 +215,11 @@ impl SQLParser {
         }
     }
 
-    fn sql_parse_error(&self, context:&ParseContext, node: &Node) -> RS<()> {
+    fn sql_parse_error(&self, context: &ParseContext, node: &Node) -> RS<()> {
         self.parse_error(context, node)
     }
 
-    fn visit_root(&self, context:&ParseContext, node: Node) -> RS<Vec<StmtType>> {
+    fn visit_root(&self, context: &ParseContext, node: Node) -> RS<Vec<StmtType>> {
         self.sql_parse_error(context, &node)?;
         let mut vec = vec![];
         for i in 0..node.child_count() {
@@ -231,12 +233,12 @@ impl SQLParser {
         Ok(vec)
     }
 
-    fn visit_transaction_statement(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_transaction_statement(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let _opt_node = node.child_by_field_name(ts_field_name::STATEMENT);
         let c = match node.child(0) {
             Some(c) => c,
             None => {
-                return Err(ER::NoneError("no child in transaction statement".to_string()));
+                return Err(m_error!(EC::NoneErr, "no child in transaction statement"));
             }
         };
         if c.kind_id() == ts_kind_id::STATEMENT {
@@ -246,30 +248,30 @@ impl SQLParser {
         }
     }
 
-    fn visit_statement(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_statement(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let opt_stmt = node.child_by_field_name(ts_field_name::STMT_GUT);
         let d_stmt = match opt_stmt {
             Some(s) => s,
             None => {
-                return Err(ER::NoneError("no child in statement".to_string()));
+                return Err(m_error!(EC::NoneErr, "no child in statement"));
             }
         };
         let stmt = self.visit_statement_gut(context, d_stmt)?;
         Ok(stmt)
     }
 
-    fn visit_statement_gut(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_statement_gut(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let kind = node.kind_id();
         match kind {
             ts_kind_id::DML_READ_STMT => self.visit_dml_read_stmt(context, node),
             ts_kind_id::DML_WRITE_STMT => self.visit_dml_write_stmt(context, node),
             ts_kind_id::DDL_STMT => self.visit_ddl_stmt(context, node),
             ts_kind_id::COPY_STMT => self.visit_copy_stmt(context, node),
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
 
-    fn visit_dml_read_stmt(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_dml_read_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let opt_child = node.child(0);
         let child = rs_option(opt_child, "")?;
         let kind = child.kind_id();
@@ -278,11 +280,11 @@ impl SQLParser {
                 let stmt = self.visit_select_statement(context, child)?;
                 Ok(StmtType::Select(stmt))
             }
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
 
-    fn visit_ddl_stmt(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_ddl_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let opt_child = node.child(0);
         let child = rs_option(opt_child, "")?;
         let kind = child.kind_id();
@@ -296,11 +298,11 @@ impl SQLParser {
                 let stmt = self.visit_drop_statement(context, child)?;
                 Ok(StmtType::Command(StmtCommand::DropTable(stmt)))
             }
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
 
-    fn visit_dml_write_stmt(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_dml_write_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let opt_child = node.child(0);
         let child = rs_option(opt_child, "")?;
         let kind = child.kind_id();
@@ -317,30 +319,30 @@ impl SQLParser {
                 let stmt = self.visit_delete_statement(context, child)?;
                 Ok(StmtType::Command(StmtCommand::Delete(stmt)))
             }
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
 
-    fn visit_copy_stmt(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_copy_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let opt_child = node.child(0);
         let child = rs_option(opt_child, "")?;
         let kind = child.kind_id();
         match kind {
             ts_kind_id::COPY_FROM => self.visit_copy_from_stmt(context, child),
             ts_kind_id::COPY_TO => self.visit_copy_to_stmt(context, child),
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
 
-    fn visit_copy_from_stmt(&self, context:&ParseContext, node: Node) -> RS<StmtType> {
+    fn visit_copy_from_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let n = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let n_obj_ref = rs_of_opt(n, || {
-            ER::ParseError("no object reference field".to_string())
+            m_error!(EC::ParseErr, "no object reference field")
         })?;
         let table_name = self.visit_object_reference(context, n_obj_ref)?;
         let n = node.child_by_field_name(ts_field_name::FILE_PATH);
         let n_file_path = rs_of_opt(n, || {
-            ER::ParseError("no object file path field".to_string())
+            m_error!(EC::ParseErr, "no object file path field")
         })?;
         let file_path = self.visit_string(context, n_file_path)?;
         let copy_from = StmtCopyFrom::new(file_path, table_name, vec![]);
@@ -348,11 +350,11 @@ impl SQLParser {
         Ok(st)
     }
 
-    fn visit_copy_to_stmt(&self, _context:&ParseContext, _node: Node) -> RS<StmtType> {
+    fn visit_copy_to_stmt(&self, _context: &ParseContext, _node: Node) -> RS<StmtType> {
         todo!()
     }
 
-    fn visit_drop_statement(&self, context:&ParseContext, node: Node) -> RS<StmtDropTable> {
+    fn visit_drop_statement(&self, context: &ParseContext, node: Node) -> RS<StmtDropTable> {
         let opt_child = node.child(0);
         let child = rs_option(opt_child, "")?;
         let kind = child.kind_id();
@@ -361,37 +363,37 @@ impl SQLParser {
                 let s = self.visit_drop_table_statement(context, child)?;
                 Ok(s)
             }
-            _ => Err(ER::NotImplemented),
+            _ => Err(m_error!(EC::NotImplemented)),
         }
     }
-    fn visit_drop_table_statement(&self, context:&ParseContext, node: Node) -> RS<StmtDropTable> {
+    fn visit_drop_table_statement(&self, context: &ParseContext, node: Node) -> RS<StmtDropTable> {
         let opt = node.child_by_field_name(ts_field_name::IF_EXIST);
         let if_exist = opt.is_some();
         let opt = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let n = match opt {
             Some(n) => n,
             None => {
-                return Err(ER::NoneError("drop table statement".to_string()));
+                return Err(m_error!(EC::NoneErr, "drop table statement"));
             }
         };
         let object = self.visit_object_reference(context, n)?;
         Ok(StmtDropTable::new(object, if_exist))
     }
 
-    fn visit_select_statement(&self, context:&ParseContext, node: Node) -> RS<StmtSelect> {
+    fn visit_select_statement(&self, context: &ParseContext, node: Node) -> RS<StmtSelect> {
         let mut stmt = StmtSelect::new();
         let opt_select = node.child_by_field_name(ts_field_name::SELECT);
         let select = match opt_select {
             Some(select) => select,
             None => {
-                return Err(ER::NoneError("no select statement".to_string()));
+                return Err(m_error!(EC::NoneErr, "no select statement"));
             }
         };
         let opt_from = node.child_by_field_name(ts_field_name::FROM);
         let from = match opt_from {
             Some(from) => from,
             None => {
-                return Err(ER::NoneError(String::from("no from field")));
+                return Err(m_error!(EC::NoneErr, "no from field"));
             }
         };
 
@@ -400,12 +402,12 @@ impl SQLParser {
         Ok(stmt)
     }
 
-    fn visit_select(&self, context:&ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
+    fn visit_select(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
         let opt_select_expression = node.child_by_field_name(ts_field_name::SELECT_EXPRESSION);
         let select_expression = match opt_select_expression {
             Some(e) => e,
             None => {
-                return Err(ER::NoneError("no select expression".to_string()));
+                return Err(m_error!(EC::NoneErr, "no select expression"));
             }
         };
 
@@ -414,7 +416,7 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_from(&self, context:&ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
+    fn visit_from(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
         let opt_n_relation = node.child_by_field_name(ts_field_name::RELATION);
         let n_relation = rs_option(opt_n_relation, "")?;
         self.visit_relation(context, n_relation, stmt)?;
@@ -429,21 +431,21 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_where(&self, context:&ParseContext, node: Node) -> RS<Vec<ExprCompare>> {
+    fn visit_where(&self, context: &ParseContext, node: Node) -> RS<Vec<ExprCompare>> {
         let opt = node.child_by_field_name(ts_field_name::PREDICATE);
         let n_predicate = rs_option(opt, "")?;
         let where_predicate_list = self.visit_where_predicate_expression(context, n_predicate)?;
         Ok(where_predicate_list)
     }
 
-    fn visit_where_predicate_expression(&self, context:&ParseContext, node: Node) -> RS<Vec<ExprCompare>> {
+    fn visit_where_predicate_expression(&self, context: &ParseContext, node: Node) -> RS<Vec<ExprCompare>> {
         let expr = self.visit_expression(context, node)?;
         let mut cmp_list = vec![];
         ExprVisitor::extract_expr_compare_list(expr, &mut cmp_list);
         Ok(cmp_list)
     }
 
-    fn visit_expression(&self, context:&ParseContext, node: Node) -> RS<ExprType> {
+    fn visit_expression(&self, context: &ParseContext, node: Node) -> RS<ExprType> {
         let opt_binary_expression = node.child_by_field_name(ts_field_name::BINARY_EXPRESSION);
         if let Some(n) = opt_binary_expression {
             return self.visit_binary_expression(context, n);
@@ -466,10 +468,10 @@ impl SQLParser {
         if let Some(n) = opt_expression {
             return self.visit_expression(context, n);
         }
-        
+
         let opt_place_holder = node.child_by_field_name(ts_field_name::PARAMETER_PLACEHOLDER);
         if let Some(_n) = opt_place_holder {
-            return Ok(ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValuePlaceholder))))
+            return Ok(ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValuePlaceholder))));
         }
         panic!(
             "unknown expression {}",
@@ -477,7 +479,7 @@ impl SQLParser {
         )
     }
 
-    fn visit_literal(&self, context:&ParseContext, node: Node) -> RS<ExprLiteral> {
+    fn visit_literal(&self, context: &ParseContext, node: Node) -> RS<ExprLiteral> {
         let typed = if let Some(n) = node.child_by_field_name("integer") {
             let s = self.visit_integer(context, n)?;
             let i = i64::from_str(s.as_str()).unwrap();
@@ -499,7 +501,7 @@ impl SQLParser {
         Ok(ExprLiteral::DatumLiteral(typed))
     }
 
-    fn visit_qualified_field(&self, context:&ParseContext, node: Node) -> RS<ExprName> {
+    fn visit_qualified_field(&self, context: &ParseContext, node: Node) -> RS<ExprName> {
         let opt = node.child_by_field_name(ts_field_name::IDENTIFIER_NAME);
         let n = rs_option(opt, "")?;
         let name = self.visit_identifier(context, n)?;
@@ -508,7 +510,7 @@ impl SQLParser {
         Ok(field)
     }
 
-    fn visit_binary_expression(&self, context:&ParseContext, node: Node) -> RS<ExprType> {
+    fn visit_binary_expression(&self, context: &ParseContext, node: Node) -> RS<ExprType> {
         let opt_n_operator = node.child_by_field_name(ts_field_name::OPERATOR);
         let n_operation = rs_option(opt_n_operator, "no operator in binary expression")?;
         let op = self.visit_operator(context, n_operation)?;
@@ -522,7 +524,7 @@ impl SQLParser {
             Operator::OValueCompare(c) => {
                 let (l, r) = match (expr_left, expr_right) {
                     (ExprType::Value(l), ExprType::Value(r)) => ((*l).clone(), (*r).clone()),
-                    _ => return Err(ER::NotImplemented),
+                    _ => return Err(m_error!(EC::NotImplemented)),
                 };
                 ExprType::Compare(Arc::new(ExprCompare::new(c, l, r)))
             }
@@ -538,13 +540,13 @@ impl SQLParser {
         Ok(expr)
     }
 
-    fn visit_operator(&self, context:&ParseContext, node: Node) -> RS<Operator> {
+    fn visit_operator(&self, context: &ParseContext, node: Node) -> RS<Operator> {
         let op_string = ts_node_context_string(context.parse_str(), &node)?;
         let op = Operator::from_str(op_string);
         Ok(op)
     }
 
-    fn visit_relation(&self, context:&ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
+    fn visit_relation(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
         let opt_n_object_reference = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let n_object_reference = rs_option(opt_n_object_reference, "no object reference in relation")?;
         let name = self.visit_object_reference(context, n_object_reference)?;
@@ -552,14 +554,14 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_object_reference(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_object_reference(&self, context: &ParseContext, node: Node) -> RS<String> {
         let opt_n_object_name = node.child_by_field_name(ts_field_name::OBJECT_NAME);
         let n_object_name = rs_option(opt_n_object_name, "no object name in object reference")?;
         let name = ts_node_context_string(context.parse_str(), &n_object_name)?;
         Ok(name)
     }
 
-    fn visit_select_expression(&self, context:&ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
+    fn visit_select_expression(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
         for i in 0..node.child_count() {
             let n = node.child(i).unwrap();
             if n.kind().eq("term") {
@@ -571,7 +573,7 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_term(&self, context:&ParseContext, node: Node) -> RS<SelectTerm> {
+    fn visit_term(&self, context: &ParseContext, node: Node) -> RS<SelectTerm> {
         let mut term = SelectTerm::new();
         let opt_expression = node.child_by_field_name(ts_field_name::EXPRESSION);
         match opt_expression {
@@ -588,7 +590,7 @@ impl SQLParser {
                 match opt_all_fields {
                     Some(_) => {}
                     None => {
-                        return Err(ER::NoneError("no term found".to_string()));
+                        return Err(m_error!(EC::NoneErr, "no term found"));
                     }
                 };
             }
@@ -596,22 +598,22 @@ impl SQLParser {
         Ok(term)
     }
 
-    fn visit_projection_expression(&self, context:&ParseContext, node: Node, term: &mut SelectTerm) -> RS<()> {
+    fn visit_projection_expression(&self, context: &ParseContext, node: Node, term: &mut SelectTerm) -> RS<()> {
         let opt_identifier = node.child_by_field_name(ts_field_name::QUALIFIED_FIELD);
         match opt_identifier {
             Some(n) => {
                 let field = self.visit_qualified_field(context, n)?;
                 term.set_field(field);
             }
-            None => return Err(ER::NotImplemented),
+            None => return Err(m_error!(EC::NotImplemented)),
         };
         Ok(())
     }
 
-    fn visit_alias_name(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_alias_name(&self, context: &ParseContext, node: Node) -> RS<String> {
         let opt_alias = node.child_by_field_name(ts_field_name::ALIAS);
         match opt_alias {
-            None => Err(ER::NoneError(
+            None => Err(m_error!(EC::NoneErr,
                 format!("alias not found in {}",
                         ts_node_context_string(&context.parse_str(), &node)?))),
             Some(n) => {
@@ -621,23 +623,23 @@ impl SQLParser {
         }
     }
 
-    fn visit_identifier(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_identifier(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(&context.parse_str(), &node)
     }
 
-    fn visit_string(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_string(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(context.parse_str(), &node)
     }
 
-    fn visit_integer(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_integer(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(context.parse_str(), &node)
     }
 
-    fn visit_decimal(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_decimal(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(context.parse_str(), &node)
     }
 
-    fn visit_create_table_statement(&self, context:&ParseContext, node: Node) -> RS<StmtCreateTable> {
+    fn visit_create_table_statement(&self, context: &ParseContext, node: Node) -> RS<StmtCreateTable> {
         let opt_n_name = node.child_by_field_name(ts_field_name::TABLE_NAME);
         let n_name = rs_option(opt_n_name, "no table name in create table statement")?;
         let table_name = self.visit_identifier(context, n_name)?;
@@ -651,7 +653,7 @@ impl SQLParser {
         Ok(stmt_create_table)
     }
 
-    fn visit_column_definitions(&self, context:&ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_column_definitions(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
         let n = node.child_count();
         for i in 0..n {
             let c = node.child(i).unwrap();
@@ -664,7 +666,7 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_constraints(&self, context:&ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_constraints(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
         let mut cursor = node.walk();
         let iter = node.children_by_field_name(ts_field_name::CONSTRAINT, &mut cursor);
         for n in iter {
@@ -674,7 +676,7 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_constraint(&self, context:&ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_constraint(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
         if let Some(n) = node.child_by_field_name(ts_field_name::PRIMARY_KEY_CONSTRAINT) {
             self.visit_primary_key_constraint(context, n, stmt)?;
         }
@@ -682,7 +684,7 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_primary_key_constraint(&self, context:&ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_primary_key_constraint(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
         let opt_n = node.child_by_field_name(ts_field_name::COLUMN_LIST);
 
         let n = rs_option(opt_n, "no column list in primary key constraint")?;
@@ -698,16 +700,16 @@ impl SQLParser {
                 index += 1;
                 Ok(())
             } else {
-                Err(ER::NoSuchElement)
+                Err(m_error!(EC::NoSuchElement))
             }
         };
         self.visit_column_list(context, n, &mut f)?;
         Ok(())
     }
 
-    fn visit_column_definition(&self, context:&ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_column_definition(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
         let opt_n = node.child_by_field_name(ts_field_name::COLUMN_NAME);
-        let n_column_name = rs_option(opt_n,  "")?;
+        let n_column_name = rs_option(opt_n, "")?;
         let column_name = self.visit_identifier(context, n_column_name)?;
 
         let opt_n = node.child_by_field_name(ts_field_name::DATA_TYPE);
@@ -731,58 +733,58 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_data_type(&self, context:&ParseContext, node: Node) -> RS<TypeDeclare> {
+    fn visit_data_type(&self, context: &ParseContext, node: Node) -> RS<DatType> {
         let opt = node.child_by_field_name(ts_field_name::DATA_TYPE_KIND);
         let n = rs_option(opt, "")?;
         self.visit_data_type_kind(context, n)
     }
 
-    fn visit_data_type_kind(&self, context:&ParseContext, node: Node) -> RS<TypeDeclare> {
+    fn visit_data_type_kind(&self, context: &ParseContext, node: Node) -> RS<DatType> {
         let opt_n = node.child(0);
         let child = rs_option(opt_n, "no child in data type kind")?;
         let kind = child.kind_id();
         let type_declare = match kind {
-            ts_kind_id::INT => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::I32)),
-            ts_kind_id::BIGINT => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::I64)),
-            ts_kind_id::DOUBLE => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::F64)),
-            ts_kind_id::FLOAT => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::F32)),
+            ts_kind_id::INT => DatType::new_with_no_param(DatTypeID::I32),
+            ts_kind_id::BIGINT => DatType::new_with_no_param(DatTypeID::I64),
+            ts_kind_id::DOUBLE => DatType::new_with_no_param(DatTypeID::F64),
+            ts_kind_id::FLOAT => DatType::new_with_no_param(DatTypeID::F32),
             ts_kind_id::CHAR | ts_kind_id::VARCHAR => {
                 let data_type_id = if kind == ts_kind_id::CHAR {
-                    DatTypeID::FixedLenString
+                    DatTypeID::CharFixedLen
                 } else {
-                    DatTypeID::VarLenString
+                    DatTypeID::CharVarLen
                 };
                 let params = self.visit_char_param(context, child)?;
                 let info = ParamInfo {
-                    type_id: data_type_id,
-                    params,
+                    id: data_type_id,
+                    ty_param: params,
                 };
                 let dt_param = info.to_object();
-                TypeDeclare::new(dt_param)
+                DatType::new_with_obj(dt_param)
             }
-            ts_kind_id::NUMERIC => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::F64)),
-            ts_kind_id::DECIMAL => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::F64)),
-            ts_kind_id::KEYWORD_TIMESTAMP => TypeDeclare::new(ParamObj::from_no_params(DatTypeID::I64)),
-            _ => return Err(ER::NotYetImplemented(format!("Data type {} not yet implemented", child.kind()))),
+            ts_kind_id::NUMERIC => DatType::new_with_no_param(DatTypeID::F64),
+            ts_kind_id::DECIMAL => DatType::new_with_no_param(DatTypeID::F64),
+            ts_kind_id::KEYWORD_TIMESTAMP => DatType::new_with_no_param(DatTypeID::I64),
+            _ => return Err(m_error!(EC::NotImplemented, format!("Data type {} not yet implemented", child.kind()))),
         };
 
         Ok(type_declare)
     }
 
-    fn visit_char_param(&self, context:&ParseContext, node: Node) -> RS<Vec<String>> {
+    fn visit_char_param(&self, context: &ParseContext, node: Node) -> RS<Vec<String>> {
         if let Some(n) = node.child_by_field_name(ts_field_name::LENGTH) {
             let s = ts_node_context_string(&context.parse_str(), &n)?;
             let r = u32::from_str(s.as_str());
             match r {
                 Ok(l) => Ok(vec![l.to_string()]),
-                Err(e) => Err(ER::ParseError(e.to_string())),
+                Err(e) => Err(m_error!(EC::ParseErr, "parse u32 error", e)),
             }
         } else {
-            Err(ER::NoneError("No child parameter found".to_string()))
+            Err(m_error!(EC::NoneErr, "No child parameter found"))
         }
     }
 
-    fn visit_insert_statement(&self, context:&ParseContext, node: Node) -> RS<StmtInsert> {
+    fn visit_insert_statement(&self, context: &ParseContext, node: Node) -> RS<StmtInsert> {
         let opt = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let c = rs_option(opt, "no object reference in insert statement")?;
         let table_name = self.visit_object_reference(context, c)?;
@@ -803,9 +805,9 @@ impl SQLParser {
                         ExprValue::ValuePlaceholder => Ok(ExprValue::ValuePlaceholder)
                     }
                 }
-                _ => Err(ER::ErrorType),
+                _ => Err(m_error!(EC::TypeErr)),
             },
-            _ => Err(ER::ErrorType),
+            _ => Err(m_error!(EC::TypeErr)),
         }
     }
 
@@ -818,7 +820,7 @@ impl SQLParser {
         Ok(vec)
     }
 
-    fn visit_typed_row_value_expr_list(&self, context:&ParseContext, node: Node) -> RS<Vec<Vec<ExprValue>>> {
+    fn visit_typed_row_value_expr_list(&self, context: &ParseContext, node: Node) -> RS<Vec<Vec<ExprValue>>> {
         let mut cursor = node.walk();
         let mut value_expr_list = vec![];
         let iter = node.children_by_field_name(ts_field_name::LIST, &mut cursor);
@@ -830,20 +832,20 @@ impl SQLParser {
         Ok(value_expr_list)
     }
 
-    fn visit_insert_values(&self, context:&ParseContext, node: Node) -> RS<(Vec<String>, Vec<Vec<ExprValue>>)> {
+    fn visit_insert_values(&self, context: &ParseContext, node: Node) -> RS<(Vec<String>, Vec<Vec<ExprValue>>)> {
         let opt = node.child_by_field_name(ts_field_name::COLUMN_LIST);
         let mut columns = vec![];
         if let Some(c) = opt {
             let mut f = |name: String| {
                 columns.push(name);
-                Ok::<_, ER>(())
+                Ok::<_, MError>(())
             };
             self.visit_column_list(context, c, &mut f)?;
         }
 
         let opt = node.child_by_field_name(ts_field_name::TYPED_ROW_VALUE_EXPR_LIST);
         let n_val_expr_list = rs_of_opt(opt, || {
-            ER::SQLParseError(format!(
+            m_error!(EC::ParseErr, format!(
                 "no value expression list node {}",
                 ts_node_context_string(&context.parse_str(), &node).unwrap()
             ))
@@ -852,7 +854,7 @@ impl SQLParser {
         Ok((columns, expr_l))
     }
 
-    fn visit_column_list<F>(&self, context:&ParseContext, node: Node, f: &mut F) -> RS<()>
+    fn visit_column_list<F>(&self, context: &ParseContext, node: Node, f: &mut F) -> RS<()>
     where
         F: FnMut(String) -> RS<()>,
     {
@@ -876,11 +878,11 @@ impl SQLParser {
         Ok(vec)
     }
 
-    fn visit_column(&self,context:&ParseContext,  node: Node) -> RS<String> {
+    fn visit_column(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(&context.parse_str(), &node)
     }
 
-    fn visit_update_statement(&self,context:&ParseContext, node: Node) -> RS<StmtUpdate> {
+    fn visit_update_statement(&self, context: &ParseContext, node: Node) -> RS<StmtUpdate> {
         let mut stmt = StmtUpdate::new();
 
         let opt = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
@@ -901,7 +903,7 @@ impl SQLParser {
         Ok(stmt)
     }
 
-    fn visit_delete_statement(&self, context:&ParseContext, node: Node) -> RS<StmtDelete> {
+    fn visit_delete_statement(&self, context: &ParseContext, node: Node) -> RS<StmtDelete> {
         let mut stmt = StmtDelete::new();
         let opt = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let n_object_reference = rs_option(opt, "no object reference in delete statement")?;
@@ -914,7 +916,7 @@ impl SQLParser {
         Ok(stmt)
     }
 
-    fn visit_set_values(&self, context:&ParseContext, node: Node) -> RS<Vec<Assignment>> {
+    fn visit_set_values(&self, context: &ParseContext, node: Node) -> RS<Vec<Assignment>> {
         let mut cursor = node.walk();
         let mut set_values = vec![];
         let iter = node.children_by_field_name(ts_field_name::ASSIGNMENT, &mut cursor);
@@ -925,7 +927,7 @@ impl SQLParser {
         Ok(set_values)
     }
 
-    fn visit_assignment(&self, context:&ParseContext, node: Node) -> RS<Assignment> {
+    fn visit_assignment(&self, context: &ParseContext, node: Node) -> RS<Assignment> {
         let opt = node.child_by_field_name(ts_field_name::LEFT);
         let n_left = rs_option(opt, "no left in assignment node")?;
         let column_reference = self.visit_field(context, n_left)?;
@@ -949,7 +951,7 @@ impl SQLParser {
         Ok(assignment)
     }
 
-    fn visit_field(&self, context:&ParseContext, node: Node) -> RS<String> {
+    fn visit_field(&self, context: &ParseContext, node: Node) -> RS<String> {
         ts_node_context_string(context.parse_str(), &node)
     }
 }

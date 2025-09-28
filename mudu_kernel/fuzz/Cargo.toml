@@ -1,0 +1,72 @@
+[package]
+name = "fuzz_mududb"
+version = "0.1.0"
+edition = "2021"
+
+
+[features]
+_FUZZ_GEN_TEST_JSON_ = []
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.7"
+tracing = { version = "0.1.40" }
+
+[dependencies.mududb]
+path = ".."
+
+
+[[bin]]
+name = "_de_en_x_l_up_tuple"
+path = "fuzz_targets/_de_en_x_l_up_tuple.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "_de_en_x_l_batch"
+path = "fuzz_targets/_de_en_x_l_batch.rs"
+test = false
+doc = false
+bench = false
+
+
+[[bin]]
+name = "_schema_table"
+path = "fuzz_targets/_schema_table.rs"
+test = false
+doc = false
+bench = false
+
+
+[[bin]]
+name = "_x_log_append"
+path = "fuzz_targets/_x_log_append.rs"
+test = false
+doc = false
+bench = false
+
+
+[[bin]]
+name = "_gen_order_csv"
+path = "fuzz_targets/_gen_order_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "_delta_apply"
+path = "fuzz_targets/_delta_apply.rs"
+test = false
+doc = false
+bench = false
+
+
+[[bin]]
+name = "_type_convert"
+path = "fuzz_targets/_type_convert.rs"
+test = false
+doc = false
+bench = false

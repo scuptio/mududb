@@ -1,14 +1,13 @@
 use crate::common::buf::Buf;
 use crate::common::result::RS;
-use crate::tuple::datum::Datum;
-use crate::tuple::tuple_desc::TupleDesc;
-use crate::tuple::tuple_raw::TupleRaw;
+use crate::tuple::tuple_binary::{TupleBinary, TupleSlice};
+use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use crate::tuple::write_value;
 
 pub fn build_tuple_into(
-    vec: &[Datum],
-    tuple_desc: &TupleDesc,
-    tuple: &mut TupleRaw,
+    vec: &[Buf],
+    tuple_desc: &TupleBinaryDesc,
+    tuple: &mut TupleSlice,
 ) -> RS<Result<usize, usize>> {
     if vec.len() != tuple_desc.field_count() {
         panic!("value vector size must equal with tuple_desc field size");
@@ -33,7 +32,7 @@ pub fn build_tuple_into(
     Ok(Ok(offset))
 }
 
-pub fn build_tuple(vec: &Vec<Datum>, tuple_desc: &TupleDesc) -> RS<Buf> {
+pub fn build_tuple(vec: &Vec<Buf>, tuple_desc: &TupleBinaryDesc) -> RS<TupleBinary> {
     let mut tuple = vec![0; tuple_desc.min_tuple_size()];
     tuple.resize(tuple_desc.min_tuple_size(), 0);
     if vec.len() != tuple_desc.field_count() {

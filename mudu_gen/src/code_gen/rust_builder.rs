@@ -1,10 +1,12 @@
 use crate::code_gen::column_def::TableColumnDef;
 use crate::code_gen::src_builder::SrcBuilder;
 use crate::code_gen::table_def::TableDef;
-use mudu::common::error::ER;
 use mudu::common::result::RS;
+use mudu::data_type::dat_type::DatType;
 use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
-use mudu::data_type::type_declare::TypeDeclare;
+use mudu::error::ec::EC;
+use mudu::error::err::MError;
+use mudu::m_error;
 use std::fmt;
 use std::fmt::Write;
 
@@ -24,8 +26,8 @@ fn to_attr_struct_name(column_name: &str) -> RS<String> {
     Ok(format!("Attr{}", n))
 }
 
-fn write_error(e: fmt::Error) -> ER {
-    ER::WriteError(e.to_string())
+fn write_error(e: fmt::Error) -> MError {
+    m_error!(EC::FmtWriteErr, "format write error", e)
 }
 
 fn print_indent(s: &str, indent_n: u32, writer: &mut dyn Write) -> RS<()> {
@@ -43,14 +45,14 @@ fn print_indent(s: &str, indent_n: u32, writer: &mut dyn Write) -> RS<()> {
     }
     Ok(())
 }
-fn to_data_type(n: &TypeDeclare) -> RS<String> {
+fn to_data_type(n: &DatType) -> RS<String> {
     let s = match n.id() {
         DatTypeID::I32 => "i32".to_string(),
         DatTypeID::I64 => "i64".to_string(),
         DatTypeID::F32 => "f32".to_string(),
         DatTypeID::F64 => "f64".to_string(),
-        DatTypeID::FixedLenString => "String".to_string(),
-        DatTypeID::VarLenString => "String".to_string(),
+        DatTypeID::CharFixedLen => "String".to_string(),
+        DatTypeID::CharVarLen => "String".to_string(),
     };
     Ok(s)
 }
@@ -61,13 +63,13 @@ fn to_data_typed_enum(type_id: DatTypeID) -> RS<String> {
         DatTypeID::I64 => "I64".to_string(),
         DatTypeID::F32 => "F32".to_string(),
         DatTypeID::F64 => "F64".to_string(),
-        DatTypeID::FixedLenString => "String".to_string(),
-        DatTypeID::VarLenString => "String".to_string(),
+        DatTypeID::CharFixedLen => "String".to_string(),
+        DatTypeID::CharVarLen => "String".to_string(),
     };
     Ok(s)
 }
 
-fn is_basic_type(_n: &TypeDeclare) -> bool {
+fn is_basic_type(_n: &DatType) -> bool {
     true
 }
 
@@ -117,14 +119,13 @@ impl RustBuilder {
     }
 
 
-
     fn use_mod(&self, writer: &mut dyn Write) -> RS<()> {
         // use mod declaration
         writer
             .write_str("use mudu::common::result::RS;\n")
             .map_err(write_error)?;
         writer
-            .write_str("use mudu::database::attribute::Attribute;\n")
+            .write_str("use mudu::database::attribute::AttrValue;\n")
             .map_err(write_error)?;
         writer
             .write_str("use mudu::database::attr_datum::AttrDatum;\n")
@@ -486,7 +487,7 @@ impl RustBuilder {
             .map_err(write_error)?;
         Ok(())
     }
-    
+
 
     fn impl_object_fn_constructor(
         &self,
@@ -550,7 +551,7 @@ impl RustBuilder {
         writer
             .write_str(
                 r##"
-fn get_datum<R, A:Attribute<R>>(
+fn get_datum<R, A:AttrValue<R>>(
     attribute: & Option<A>
 ) -> RS<Option<Datum>> {
     let opt_datum = match  attribute  {
@@ -573,7 +574,7 @@ fn get_datum<R, A:Attribute<R>>(
         writer
             .write_str(
                 r##"
-fn set_datum<R, A:Attribute<R>, D:AsRef<Datum>>(
+fn set_datum<R, A:AttrValue<R>, D:AsRef<Datum>>(
     attribute: &mut Option<A>,
     opt_datum:Option<D>
 ) -> RS<()> {
@@ -730,10 +731,10 @@ fn set_datum<R, A:Attribute<R>, D:AsRef<Datum>>(
             .map_err(write_error)?;
         writer.write_fmt(format_args!("\n")).map_err(write_error)?;
 
-        // impl Attribute trait
+        // impl AttrValue trait
         writer
             .write_fmt(format_args!(
-                "impl Attribute<{data_type}> for {attr_obj_name} {{\n"
+                "impl AttrValue<{data_type}> for {attr_obj_name} {{\n"
             ))
             .map_err(write_error)?;
         let mut attr_trait_fn = String::new();

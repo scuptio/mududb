@@ -11,7 +11,7 @@ pub enum ExprItem {
 #[derive(Clone, Debug)]
 pub enum ExprValue {
     ValueLiteral(ExprLiteral),
-    ValuePlaceholder
+    ValuePlaceholder,
 }
 
 impl ExprItem {

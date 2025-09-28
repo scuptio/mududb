@@ -1,0 +1,9 @@
+server_listen_port = 5432
+server_bind_address = "0.0.0.0"
+db_path = "/tmp/mudu/"
+session_threads = 4
+x_log_folder = "x_log"
+x_log_ext_name = "xl"
+x_log_channels = 4
+x_log_file_size_limit = 10485760
+x_log_use_io_uring = false

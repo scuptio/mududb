@@ -1,11 +1,25 @@
 use crate::tuple::dat_internal::DatInternal;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone,
+    Serialize, Deserialize
+)]
 pub enum ErrCompare {
     ErrInternal(String),
 }
+
+impl Display for ErrCompare {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)?;
+        Ok(())
+    }
+}
+
+impl Error for ErrCompare {}
 
 pub type FnHash = fn(&DatInternal, &mut dyn Hasher) -> Result<(), ErrCompare>;
 

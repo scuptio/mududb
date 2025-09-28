@@ -1,4 +1,4 @@
-use crate::tuple::datum::Datum;
+use crate::tuple::enum_dat::EnumDat;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpType {
@@ -10,18 +10,18 @@ pub enum OpType {
 }
 
 pub struct Filter {
-    table_name:&'static str,
-    column_name:&'static str,
+    table_name: &'static str,
+    column_name: &'static str,
     op_type: OpType,
-    datum: Datum,
+    datum: EnumDat,
 }
 
 impl Filter {
     pub fn new(
-        table_name:&'static str, 
-        column_name:&'static str, 
-        op_type: OpType, 
-        datum:Datum
+        table_name: &'static str,
+        column_name: &'static str,
+        op_type: OpType,
+        datum: EnumDat,
     ) -> Filter {
         Self {
             table_name,
@@ -33,16 +33,16 @@ impl Filter {
     pub fn op_type(&self) -> OpType {
         self.op_type
     }
-    
+
     pub fn table_name(&self) -> &'static &str {
         &self.table_name
     }
-    
-    pub fn column_name(&self) ->  &'static &str {
+
+    pub fn column_name(&self) -> &'static &str {
         &self.column_name
     }
-    
-    pub fn datum(&self) -> &Datum {
+
+    pub fn datum(&self) -> &EnumDat {
         &self.datum
     }
 }

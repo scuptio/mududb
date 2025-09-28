@@ -2,7 +2,9 @@ use crate::common::bc::{BCHdr, BCTail};
 use crate::common::endian::Endian;
 use crate::common::slice::SliceRef;
 use byteorder::ByteOrder;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
+
 
 #[derive(Debug, Clone)]
 pub enum DecErr {
@@ -11,6 +13,7 @@ pub enum DecErr {
     ErrorCRC,
 }
 
+impl Error for DecErr {}
 impl Display for DecErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)?;

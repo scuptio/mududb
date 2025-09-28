@@ -1,14 +1,15 @@
 use crate::common::endian::Endian;
-use crate::data_type::dt_fn_base::{ErrConvert, FnBase};
 use crate::data_type::dt_fn_compare::{ErrCompare, FnCompare};
+use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
-use crate::data_type::dt_param::ParamObj;
+use crate::data_type::param_obj::ParamObj;
 use crate::tuple::dat_binary::DatBinary;
 use crate::tuple::dat_internal::DatInternal;
 use crate::tuple::dat_printable::DatPrintable;
 use byteorder::ByteOrder;
 use std::cmp::Ordering;
 use std::hash::Hasher;
+
 
 pub fn fn_i64_in(v: &DatPrintable, _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
     let r_i = v.str().parse::<i64>();
@@ -86,7 +87,7 @@ pub const FN_I64_COMPARE: FnCompare = FnCompare {
     hash: fn_i64_hash,
 };
 
-pub const FN_I64_CONVERT: FnBase = FnBase {
+pub const FN_I64_CONVERT: FnConvert = FnConvert {
     input: fn_i64_in,
     output: fn_i64_out,
     len: fn_i64_len,

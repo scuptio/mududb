@@ -2,17 +2,17 @@
 mod tests {
     use crate::code_gen::ddl_parser::DDLParser;
     use crate::code_gen::src_gen::{Language, SrcGen};
-    use mudu::common::error::ER;
     use mudu::common::result::RS;
+    use mudu::error::ec::EC;
 
     #[test]
     fn test_parse_mudul() {
         let r = _test_mudul();
         match r {
             Ok(_) => {}
-            Err(e) => match e {
-                ER::MLParseError(s) => {
-                    println!("{}", s);
+            Err(e) => match e.ec() {
+                EC::MLParseError => {
+                    println!("{}", e);
                 }
                 _ => {}
             },

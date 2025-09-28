@@ -3,21 +3,39 @@ resolver = "1"
 
 members = [
     "mudu",
-    "example",
+    #"example",
     "mudu_runtime",
     "mudu_gen",
     "sql_parser",
     "tree-sitter-sql",
-    "mudu_procedure"
+    "mudu_macro",
+    "mudu_macro_test",
+    "mudu_wasm",
+    "mudu_utils",
+    "sys_interface",
+    "mudu_kernel", "test_utils",
 ]
 
 [workspace.dependencies]
-mudu = {path = "mudu" }
+arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
+test_utils = { path = "test_utils" }
+sys_interface = { path = "sys_interface" }
+mudu = { path = "mudu" }
 sql_parser = { path = "sql_parser" }
 mudu_gen = { path = "mudu_gen" }
-tree_sitter_sql = {path = "tree-sitter-sql"}
-tree-sitter = {version = "0.25.3"}
-serde_json = { version = "1.0.140" }
+tree_sitter_sql = { path = "tree-sitter-sql" }
+tree-sitter = { version = "0.25.9" }
+serde_json = { version = "1.0.143" }
 project-root = { version = "0.2.2" }
 mudu_runtime = { path = "mudu_runtime" }
-mudu_procedure = { path = "mudu_procedure" }
+mudu_macro = { path = "mudu_macro" }
+mudu_utils = { path = "mudu_utils" }
+serde = { version = "1.0.221", features = ["default", "derive", "serde_derive"] }
+tracing-subscriber = "0.3.20"
+tracing = "0.1.41"
+env_logger = "0.11.8"
+console-subscriber = { version = "0.4.1" }
+sql = { path = "sql_parser" }
+tokio = { version = "1.40.0", features = ["full"] }
+rmp-serde = { version = "1.3.0" }
+rusqlite = { version = "0.37.0", features = ["bundled-full"] }

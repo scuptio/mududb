@@ -1,8 +1,7 @@
 use crate::common::result::RS;
-use crate::tuple::datum::Datum;
 
 pub trait AttrDatum {
-    fn get_datum(&self) -> RS<Datum>;
+    fn get_datum(&self) -> RS<Vec<u8>>;
 
-    fn set_datum<D:AsRef<Datum>>(&mut self, datum: D) -> RS<()>;
+    fn set_datum<D: AsRef<Vec<u8>>>(&mut self, datum: D) -> RS<()>;
 }

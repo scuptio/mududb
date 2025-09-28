@@ -1,19 +1,21 @@
 pub mod object {
-    use mudu::common::result::RS;
-    use mudu::data_type::dt_impl::dat_typed::DatTyped;
-    use mudu::database::attr_datum::AttrDatum;
-    use mudu::database::attribute::Attribute;
-    use mudu::database::record::Record;
-    use mudu::database::row_desc::RowDesc;
-    use mudu::database::tuple_row::TupleRow;
-    use mudu::tuple::datum::Datum;
+	use mudu::common::result::RS;
+	use mudu::data_type::dt_impl::dat_typed::DatTyped;
+	use mudu::database::attr_datum::AttrDatum;
+	use mudu::database::attribute::AttrValue;
+	use mudu::database::record::Record;
+	use mudu::database::row_desc::RowDesc;
+	use mudu::database::tuple_row::TupleRow;
+	use mudu::tuple::datum::Datum;
 
-    const TABLE_ITEM: &str = "item";
+
+	const TABLE_ITEM: &str = "item";
     const COLUMN_I_ID: &str = "i_id";
     const COLUMN_I_NAME: &str = "i_name";
     const COLUMN_I_PRICE: &str = "i_price";
     const COLUMN_I_DATA: &str = "i_data";
     const COLUMN_I_IM_ID: &str = "i_im_id";
+
 
     pub struct Item {
         i_id: Option<AttrIId>,
@@ -52,76 +54,113 @@ pub mod object {
             s
         }
 
-        fn get_datum<R, A: Attribute<R>>(attribute: &Option<A>) -> RS<Option<Datum>> {
+
+        fn get_datum<R, A: AttrValue<R>>(
+            attribute: &Option<A>
+        ) -> RS<Option<Datum>> {
             let opt_datum = match attribute {
-                Some(value) => Some(value.get_datum()?),
-                None => None,
+                Some(value) => {
+                    Some(value.get_datum()?)
+                }
+                None => {
+                    None
+                }
             };
             Ok(opt_datum)
         }
 
-        fn set_datum<R, A: Attribute<R>, D: AsRef<Datum>>(
-            attribute: &mut Option<A>,
-            opt_datum: Option<D>,
-        ) -> RS<()> {
+
+        fn set_datum<R, A: AttrValue<R>, D: AsRef<Datum>>(
+			attribute: &mut Option<A>,
+			opt_datum: Option<D>,
+		) -> RS<()> {
             match attribute {
-                Some(value) => match opt_datum {
-                    Some(datum) => {
-                        value.set_datum(datum)?;
+                Some(value) => {
+                    match opt_datum {
+                        Some(datum) => {
+                            value.set_datum(datum)?;
+                        }
+                        None => {
+                            value.set_datum(Datum::Null)?;
+                        }
                     }
-                    None => {
-                        value.set_datum(Datum::Null)?;
+                }
+                None => {
+                    match opt_datum {
+                        Some(datum) => {
+                            *attribute = Some(A::from_datum(datum.as_ref())?);
+                        }
+                        None => {
+                            *attribute = None;
+                        }
                     }
-                },
-                None => match opt_datum {
-                    Some(datum) => {
-                        *attribute = Some(A::from_datum(datum.as_ref())?);
-                    }
-                    None => {
-                        *attribute = None;
-                    }
-                },
+                }
             }
             Ok(())
         }
 
-        pub fn set_i_id(&mut self, i_id: AttrIId) {
+        pub fn set_i_id(
+            &mut self,
+            i_id: AttrIId,
+        ) {
             self.i_id = Some(i_id);
         }
 
-        pub fn get_i_id(&self) -> &Option<AttrIId> {
+        pub fn get_i_id(
+            &self,
+        ) -> &Option<AttrIId> {
             &self.i_id
         }
 
-        pub fn set_i_name(&mut self, i_name: AttrIName) {
+        pub fn set_i_name(
+            &mut self,
+            i_name: AttrIName,
+        ) {
             self.i_name = Some(i_name);
         }
 
-        pub fn get_i_name(&self) -> &Option<AttrIName> {
+        pub fn get_i_name(
+            &self,
+        ) -> &Option<AttrIName> {
             &self.i_name
         }
 
-        pub fn set_i_price(&mut self, i_price: AttrIPrice) {
+        pub fn set_i_price(
+            &mut self,
+            i_price: AttrIPrice,
+        ) {
             self.i_price = Some(i_price);
         }
 
-        pub fn get_i_price(&self) -> &Option<AttrIPrice> {
+        pub fn get_i_price(
+            &self,
+        ) -> &Option<AttrIPrice> {
             &self.i_price
         }
 
-        pub fn set_i_data(&mut self, i_data: AttrIData) {
+        pub fn set_i_data(
+            &mut self,
+            i_data: AttrIData,
+        ) {
             self.i_data = Some(i_data);
         }
 
-        pub fn get_i_data(&self) -> &Option<AttrIData> {
+        pub fn get_i_data(
+            &self,
+        ) -> &Option<AttrIData> {
             &self.i_data
         }
 
-        pub fn set_i_im_id(&mut self, i_im_id: AttrIImId) {
+        pub fn set_i_im_id(
+            &mut self,
+            i_im_id: AttrIImId,
+        ) {
             self.i_im_id = Some(i_im_id);
         }
 
-        pub fn get_i_im_id(&self) -> &Option<AttrIImId> {
+        pub fn get_i_im_id(
+            &self,
+        ) -> &Option<AttrIImId> {
             &self.i_im_id
         }
     }
@@ -156,14 +195,22 @@ pub mod object {
 
         fn get(&self, column: &str) -> RS<Option<Datum>> {
             match column {
-                COLUMN_I_ID => Self::get_datum(&self.i_id),
-                COLUMN_I_NAME => Self::get_datum(&self.i_name),
-                COLUMN_I_PRICE => Self::get_datum(&self.i_price),
-                COLUMN_I_DATA => Self::get_datum(&self.i_data),
-                COLUMN_I_IM_ID => Self::get_datum(&self.i_im_id),
-                _ => {
-                    panic!("unknown name");
+                COLUMN_I_ID => {
+                    Self::get_datum(&self.i_id)
                 }
+                COLUMN_I_NAME => {
+                    Self::get_datum(&self.i_name)
+                }
+                COLUMN_I_PRICE => {
+                    Self::get_datum(&self.i_price)
+                }
+                COLUMN_I_DATA => {
+                    Self::get_datum(&self.i_data)
+                }
+                COLUMN_I_IM_ID => {
+                    Self::get_datum(&self.i_im_id)
+                }
+                _ => { panic!("unknown name"); }
             }
         }
 
@@ -184,13 +231,12 @@ pub mod object {
                 COLUMN_I_IM_ID => {
                     Self::set_datum(&mut self.i_im_id, opt_datum)?;
                 }
-                _ => {
-                    panic!("unknown name");
-                }
+                _ => { panic!("unknown name"); }
             }
             Ok(())
         }
     }
+
 
     pub struct AttrIId {
         value: i32,
@@ -212,35 +258,35 @@ pub mod object {
                 Datum::Null => {
                     panic!("cannot set non-null attribute NULL")
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::I32(n) => {
-                        self.value = n.clone();
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::I32(n) => {
+                            self.value = n.clone();
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             Ok(())
         }
     }
 
-    impl Attribute<i32> for AttrIId {
+    impl AttrValue<i32> for AttrIId {
         fn from_datum(datum: &Datum) -> RS<Self> {
             match datum {
                 Datum::Null => {
                     panic!("cannot set non-null attribute NULL")
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::I32(value) => Ok(Self {
-                        value: value.clone(),
-                    }),
-                    _ => {
-                        unimplemented!()
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::I32(value) => {
+                            Ok(Self { value: value.clone() })
+                        }
+                        _ => { unimplemented!() }
                     }
-                },
-                _ => {
-                    unimplemented!()
                 }
+                _ => { unimplemented!() }
             }
         }
 
@@ -289,7 +335,7 @@ pub mod object {
         fn get_datum(&self) -> RS<Datum> {
             match &self.opt_value {
                 None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone()))),
+                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
             }
         }
 
@@ -298,33 +344,35 @@ pub mod object {
                 Datum::Null => {
                     self.opt_value = None;
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::String(n) => {
-                        self.opt_value = Some(n.clone());
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::String(n) => {
+                            self.opt_value = Some(n.clone());
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             Ok(())
         }
     }
 
-    impl Attribute<String> for AttrIName {
+    impl AttrValue<String> for AttrIName {
         fn from_datum(datum: &Datum) -> RS<Self> {
             match datum {
-                Datum::Null => Ok(Self { opt_value: None }),
-                Datum::Typed(typed) => match typed {
-                    DatTyped::String(value) => Ok(Self {
-                        opt_value: Some(value.clone()),
-                    }),
-                    _ => {
-                        unimplemented!()
-                    }
-                },
-                _ => {
-                    unimplemented!()
+                Datum::Null => {
+                    Ok(Self { opt_value: None })
                 }
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::String(value) => {
+                            Ok(Self { opt_value: Some(value.clone()) })
+                        }
+                        _ => { unimplemented!() }
+                    }
+                }
+                _ => { unimplemented!() }
             }
         }
 
@@ -375,7 +423,7 @@ pub mod object {
         fn get_datum(&self) -> RS<Datum> {
             match &self.opt_value {
                 None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::F64(value.clone()))),
+                Some(value) => Ok(Datum::Typed(DatTyped::F64(value.clone())))
             }
         }
 
@@ -384,33 +432,35 @@ pub mod object {
                 Datum::Null => {
                     self.opt_value = None;
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::F64(n) => {
-                        self.opt_value = Some(n.clone());
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::F64(n) => {
+                            self.opt_value = Some(n.clone());
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             Ok(())
         }
     }
 
-    impl Attribute<f64> for AttrIPrice {
+    impl AttrValue<f64> for AttrIPrice {
         fn from_datum(datum: &Datum) -> RS<Self> {
             match datum {
-                Datum::Null => Ok(Self { opt_value: None }),
-                Datum::Typed(typed) => match typed {
-                    DatTyped::F64(value) => Ok(Self {
-                        opt_value: Some(value.clone()),
-                    }),
-                    _ => {
-                        unimplemented!()
-                    }
-                },
-                _ => {
-                    unimplemented!()
+                Datum::Null => {
+                    Ok(Self { opt_value: None })
                 }
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::F64(value) => {
+                            Ok(Self { opt_value: Some(value.clone()) })
+                        }
+                        _ => { unimplemented!() }
+                    }
+                }
+                _ => { unimplemented!() }
             }
         }
 
@@ -461,7 +511,7 @@ pub mod object {
         fn get_datum(&self) -> RS<Datum> {
             match &self.opt_value {
                 None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone()))),
+                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
             }
         }
 
@@ -470,33 +520,35 @@ pub mod object {
                 Datum::Null => {
                     self.opt_value = None;
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::String(n) => {
-                        self.opt_value = Some(n.clone());
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::String(n) => {
+                            self.opt_value = Some(n.clone());
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             Ok(())
         }
     }
 
-    impl Attribute<String> for AttrIData {
+    impl AttrValue<String> for AttrIData {
         fn from_datum(datum: &Datum) -> RS<Self> {
             match datum {
-                Datum::Null => Ok(Self { opt_value: None }),
-                Datum::Typed(typed) => match typed {
-                    DatTyped::String(value) => Ok(Self {
-                        opt_value: Some(value.clone()),
-                    }),
-                    _ => {
-                        unimplemented!()
-                    }
-                },
-                _ => {
-                    unimplemented!()
+                Datum::Null => {
+                    Ok(Self { opt_value: None })
                 }
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::String(value) => {
+                            Ok(Self { opt_value: Some(value.clone()) })
+                        }
+                        _ => { unimplemented!() }
+                    }
+                }
+                _ => { unimplemented!() }
             }
         }
 
@@ -547,7 +599,7 @@ pub mod object {
         fn get_datum(&self) -> RS<Datum> {
             match &self.opt_value {
                 None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::I32(value.clone()))),
+                Some(value) => Ok(Datum::Typed(DatTyped::I32(value.clone())))
             }
         }
 
@@ -556,33 +608,35 @@ pub mod object {
                 Datum::Null => {
                     self.opt_value = None;
                 }
-                Datum::Typed(typed) => match typed {
-                    DatTyped::I32(n) => {
-                        self.opt_value = Some(n.clone());
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::I32(n) => {
+                            self.opt_value = Some(n.clone());
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             Ok(())
         }
     }
 
-    impl Attribute<i32> for AttrIImId {
+    impl AttrValue<i32> for AttrIImId {
         fn from_datum(datum: &Datum) -> RS<Self> {
             match datum {
-                Datum::Null => Ok(Self { opt_value: None }),
-                Datum::Typed(typed) => match typed {
-                    DatTyped::I32(value) => Ok(Self {
-                        opt_value: Some(value.clone()),
-                    }),
-                    _ => {
-                        unimplemented!()
-                    }
-                },
-                _ => {
-                    unimplemented!()
+                Datum::Null => {
+                    Ok(Self { opt_value: None })
                 }
+                Datum::Typed(typed) => {
+                    match typed {
+                        DatTyped::I32(value) => {
+                            Ok(Self { opt_value: Some(value.clone()) })
+                        }
+                        _ => { unimplemented!() }
+                    }
+                }
+                _ => { unimplemented!() }
             }
         }
 
