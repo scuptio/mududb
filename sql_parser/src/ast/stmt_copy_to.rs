@@ -16,15 +16,15 @@ impl StmtCopyTo {
             columns,
         }
     }
-    
+
     pub fn copy_to_file_path(&self) -> &String {
         &self.file_path
     }
-    
+
     pub fn copy_from_table_name(&self) -> &String {
         &self.table
     }
-    
+
     pub fn table_columns(&self) -> &Vec<String> {
         &self.columns
     }

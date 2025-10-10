@@ -13,11 +13,11 @@ impl Filter {
             filter_value,
         }
     }
-    
+
     pub fn compare_op(&self) -> ValueCompare {
-       self.value_compare 
+        self.value_compare
     }
-    
+
     pub fn filter_value(&self) -> &ItemValue {
         &self.filter_value
     }

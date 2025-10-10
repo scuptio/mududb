@@ -1,6 +1,7 @@
-use crate::common::buf::Buf;
-use crate::common::error::ER;
-use crate::common::result::RS;
+use mudu::common::buf::Buf;
+use mudu::error::ec::EC;
+use mudu::m_error;
+use mudu::common::result::RS;
 use crate::x_log::iou::{io_uring_event_loop, IOUSetting};
 use crate::x_log::lsn_syncer::LSNSyncer;
 use tokio::sync::mpsc::Receiver;
@@ -24,7 +25,7 @@ pub async fn f_sync_io_uring(
         IOUSetting::default(),
     )
         .await
-        .map_err(|e| ER::IOError(e.to_string()))?;
+        .map_err(|e| m_error!(EC::IOErr, "io_uring event loop", e))?;
 
     Ok(())
 }

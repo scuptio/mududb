@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Update Rust Toolchain
+        run: rustup update stable
+
+      - name: Installing Prerequisites (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update &&
+             sudo apt-get install build-essential curl liburing-dev
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo
+
+      - name: Cargo Build
+        run: cargo build

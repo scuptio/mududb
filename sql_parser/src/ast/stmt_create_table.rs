@@ -19,7 +19,7 @@ impl StmtCreateTable {
             non_primary_key_column_def: vec![],
         }
     }
-    
+
     pub fn table_name(&self) -> &String {
         &self.table_name
     }
@@ -27,7 +27,7 @@ impl StmtCreateTable {
     pub fn column_def(&self) -> &Vec<ColumnDef> {
         &self.column_def
     }
-    
+
     pub fn add_column_def(&mut self, def: ColumnDef) {
         self.column_def.push(def)
     }
@@ -60,7 +60,6 @@ impl StmtCreateTable {
             return x.column_index().cmp(&y.column_index());
         })
     }
-
 }
 
 impl ASTNode for StmtCreateTable {}

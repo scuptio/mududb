@@ -1,6 +1,4 @@
-pub struct Backend {}
-
-use crate::runtime::runtime_cfg::RuntimeCfg;
+use crate::backend::mududb_cfg::MuduDBCfg;
 use crate::runtime::service::Service;
 use crate::runtime::service_impl::create_runtime_service;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
@@ -11,22 +9,49 @@ use mudu::m_error;
 use mudu::procedure::proc_param::ProcParam;
 use mudu::tuple::dat_printable::DatPrintable;
 use mudu::tuple::datum_desc::DatumDesc;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
-use tracing::debug;
+use tokio::task::LocalSet;
+use tracing::{debug, info};
+use mudu::database::sql::Context;
+use mudu::procedure::proc_desc::ProcDesc;
+use crate::db_connector::DBConnector;
+
+
+pub struct Backend {
+
+}
 
 impl Backend {
-    pub async fn serve(cfg: RuntimeCfg) -> RS<()> {
+    pub fn sync_serve(cfg:MuduDBCfg) -> RS<()> {
+        let ls = LocalSet::new();
+        let mut builder = tokio::runtime::Builder::new_current_thread();
+        builder
+            .enable_all()
+            .build().map_err(
+            |e|{
+                m_error!(EC::IOErr, "build runtime error")
+            })?
+            .block_on(async {
+                ls.spawn_local(async move {
+                    Backend::serve(cfg).await
+                });
+            Ok(())
+        })
+    }
+    pub async fn serve(cfg: MuduDBCfg) -> RS<()> {
+        info!("starting backend server");
+        info!("{}", cfg);
         let service = create_runtime_service(&cfg.ddl_path, &cfg.bytecode_path)?;
         Backend::web_serve(service, &cfg).await.map_err(|e| {
             m_error!(EC::IOErr, "backend run error", e)
         })
     }
 
-    async fn web_serve(service: Arc<dyn Service>, cfg: &RuntimeCfg) -> std::io::Result<()> {
+    async fn web_serve(service: Arc<dyn Service>, cfg: &MuduDBCfg) -> std::io::Result<()> {
         let data = web::Data::new(AppContext {
+            conn_str: format!("db={}  ddl={} db_type=LibSQL", cfg.ddl_path, cfg.ddl_path),
             service,
         });
         HttpServer::new(move || {
@@ -68,6 +93,7 @@ fn to_param(argv: &HashMap<String, String>, desc: &[DatumDesc]) -> RS<ProcParam>
 
 #[derive(Clone)]
 struct AppContext {
+    conn_str:String,
     service: Arc<dyn Service>,
 }
 
@@ -75,29 +101,77 @@ unsafe impl Send for AppContext {}
 
 unsafe impl Sync for AppContext {}
 
-fn invoke_proc_inner(
+
+async fn async_invoke_proc(
+    conn_str:String,
     name: String,
     argv: HashMap<String, String>,
     service: Arc<dyn Service>,
 ) -> RS<RS<Vec<String>>> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
     // create a thread
     // to avoid to start a runtime from within a runtime
     // FIXME, change to asynchronous call
-    let thread = thread::spawn(move || {
+    thread::spawn(move || {
+        let ret = sync_invoke_proc(conn_str, name, argv, service);
+        sender.send(ret).map_err(|e| {
+            m_error!(EC::IOErr, format!("async_invoke_proc_inner send error {:?}", e))
+        })
+    });
+    let ret = receiver.await
+        .map_err(|e|{
+            m_error!(EC::IOErr, format!("async_invoke_proc_inner recv error {:?}", e))
+        })?;
+    ret
+}
+
+fn sync_invoke_proc(
+    conn_str:String,
+    name: String,
+    argv: HashMap<String, String>,
+    service: Arc<dyn Service>,
+) -> RS<RS<Vec<String>>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e|
+            m_error!(EC::IOErr, "runtime build error", e)
+        )?;
+    let ret = runtime.block_on(async move {
         let desc = service.describe(&name)?;
         let param = to_param(
             &argv,
             desc.param_desc().vec_datum_desc(),
         )?;
-        let result = service.invoke(&name,
-                                    param)?;
-        let ret = result.to_string(desc.return_desc())?;
+        let conn = DBConnector::connect(&conn_str)?;
+        let xid = {
+            let context = Context::create(conn)?;
+            context.xid()
+        };
+        let thread = thread::spawn(move || {
+            let ret = invoke_proc_inner(service, name, param, desc);
+            ret
+        });
+        let ret = thread.join().map_err(|_e| {
+            m_error!(EC::IOErr, "invoke_proc_inner thread error")
+        })?;
+
+        Context::remove(xid);
         ret
     });
-    let ret = thread.join().map_err(|_e| {
-        m_error!(EC::IOErr, "thread join error")
-    })?;
     Ok(ret)
+}
+
+fn invoke_proc_inner(
+    service: Arc<dyn Service>,
+    name: String,
+    param:ProcParam,
+    desc:Arc<ProcDesc>,
+) -> RS<Vec<String>> {
+    let result = service.invoke(&name,
+                                param)?;
+    let ret = result.to_string(desc.return_desc())?;
+    ret
 }
 
 #[post("/mudu/{name}")]
@@ -108,11 +182,12 @@ async fn invoke_proc(
 ) -> impl Responder {
     let name = path.into_inner();
     debug!("invoke procedure: {} <{:?}>", name, argv);
-    let r = invoke_proc_inner(
+    let r = async_invoke_proc(
+        context.conn_str.clone(),
         name.clone(),
         argv.to_owned(),
         context.service.clone(),
-    );
+    ).await;
     HttpResponse::Ok()
         .json(serde_json::json!({
             "status": "success",
@@ -122,22 +197,20 @@ async fn invoke_proc(
 
 #[cfg(test)]
 mod test {
-    use crate::runtime::backend::Backend;
-    use crate::runtime::runtime_cfg::RuntimeCfg;
+    use crate::backend::backend::Backend;
+    use crate::backend::mududb_cfg::MuduDBCfg;
     use crate::runtime::test_wasm_mod_path::wasm_mod_path;
     use mudu::common::result::RS;
     use mudu::error::ec::EC;
     use mudu::m_error;
     use mudu_utils::debug::async_debug_serve;
-    use mudu_utils::log::{log_setup, log_setup_ex};
+    use mudu_utils::log::log_setup_ex;
     use mudu_utils::notifier::Notifier;
     use mudu_utils::task::spawn_local_task;
     use reqwest;
     use std::collections::HashMap;
-    use std::env::temp_dir;
     use std::net::{SocketAddr, TcpStream};
     use std::str::FromStr;
-    use std::thread::sleep;
     use std::time::Duration;
     use tokio::task::LocalSet;
     use tracing::{error, info};
@@ -148,8 +221,8 @@ mod test {
         let _ = run_test();
     }
 
-    fn _cfg() -> RuntimeCfg {
-        let cfg = RuntimeCfg {
+    fn _cfg() -> MuduDBCfg {
+        let cfg = MuduDBCfg {
             bytecode_path: wasm_mod_path(),
             ddl_path: wasm_mod_path(),
             listen_ip: "0.0.0.0".to_string(),

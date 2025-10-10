@@ -1,5 +1,7 @@
 # MuduDB
 
+![build](../../actions/workflows/build.yaml/badge.svg)
+
 [<img src="doc/pic/mudu_logo.svg" width="10%">](doc/en/name.md)
 
 [汉语](readme.cn.md)

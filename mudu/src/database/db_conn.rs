@@ -24,5 +24,5 @@ pub trait DBConn: Sync + Send {
         &self,
         sql: &dyn SQLStmt,
         param: &[&dyn DatumDyn],
-    ) -> RS<usize>;
+    ) -> RS<u64>;
 }

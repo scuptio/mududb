@@ -1,4 +1,3 @@
-#![feature(tuple_trait)]
 
 pub mod common;
 pub mod data_type;

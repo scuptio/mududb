@@ -31,7 +31,7 @@ impl Context {
     pub fn command(
         &self,
         sql: &dyn SQLStmt,
-        param: &[&dyn DatumDyn]) -> RS<usize>
+        param: &[&dyn DatumDyn]) -> RS<u64>
     {
         self.conn.command(sql, param)
     }

@@ -59,7 +59,7 @@ CREATE TABLE oorder
     o_carrier_id int                    DEFAULT NULL,
     o_ol_cnt     decimal(2, 0) NOT NULL,
     o_all_local  decimal(1, 0) NOT NULL,
-    o_entry_d    int     NOT NULL DEFAULT NULL,
+    o_entry_d    int           NOT NULL DEFAULT NULL,
     PRIMARY KEY (o_w_id, o_d_id, o_id)
 );
 

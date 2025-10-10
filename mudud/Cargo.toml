@@ -1,0 +1,9 @@
+[package]
+name = "mudud"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mudu_runtime = {workspace = true}
+mudu = {workspace = true}
+tracing = {workspace = true}
