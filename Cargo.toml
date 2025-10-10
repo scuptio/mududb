@@ -13,7 +13,7 @@ members = [
     "mudu_wasm",
     "mudu_utils",
     "sys_interface",
-    "mudu_kernel", "test_utils",
+    "mudu_kernel", "test_utils", "mudud",
 ]
 
 [workspace.dependencies]
@@ -38,4 +38,4 @@ console-subscriber = { version = "0.4.1" }
 sql = { path = "sql_parser" }
 tokio = { version = "1.40.0", features = ["full"] }
 rmp-serde = { version = "1.3.0" }
-rusqlite = { version = "0.37.0", features = ["bundled-full"] }
+rusqlite = { version = "0.37.0", features = ["bundled"] }

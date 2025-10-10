@@ -1,37 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
-/*
-
-Suppose there is a procedure function F with the following signature:
-
-``
-    fn F(xid:XID, arg1:ty1, arg2: ty2, arg3: ty3, ...) -> RS<(r_ty1, r_ty2, ...)>;
-``
-    where,
-
-    1. "..." represents possible additional parameters or partial return values.
-    2. The function name F can be any valid identifier.
-    3. Each parameter in list ty1,ty2,ty3, ... and each return value in tuple r_ty1, r_ty2, ... would
-       implement Datum trait
-
-``mudu_macro`` macro expands F into a function named __mudu_macro_F with the following signature:
-
-``
-    fn __mudu_macro_F(argv: Vec<Vec<u8>>) -> RS<Vec<Vec<u8>>>;
-``
-
-In ``__mudu_macro_F``, implement the following:
-
-    1.Deserialize the argv parameters into the parameter list of F:
-
-        ``arg1:ty1, arg2: ty2, arg3: ty3, ...``
-
-    2. Call F to obtain the return value ret: (r_ty1, r_ty2, ...)
-
-    3. Serialize each value in ret into Vec<u8> and return the result as Vec<Vec<u8>>.
-*/
-
 #[proc_macro_attribute]
 pub fn mudu_proc(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // todo do SQL semantic check here

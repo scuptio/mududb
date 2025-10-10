@@ -69,7 +69,7 @@ impl DBConn for PGInteractive {
         self.query_inner(sql, param)
     }
 
-    fn command(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<usize> {
+    fn command(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<u64> {
         self.command_inner(sql, param)
     }
 }
@@ -128,7 +128,7 @@ impl PGInteractive {
         &self,
         sql: &dyn SQLStmt,
         param: &[&dyn DatumDyn],
-    ) -> RS<usize> {
+    ) -> RS<u64> {
         let sql_string = sql.to_sql_string();
         let stmt = self.parse_one_command(&sql_string)?;
         let resolved = self.resolver.resolved_command(&stmt)?;

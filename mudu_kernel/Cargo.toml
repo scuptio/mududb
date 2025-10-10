@@ -55,7 +55,7 @@ log = "0.4.22"
 sql_parser = { workspace = true }
 test_utils = { workspace = true }
 mudu_utils = { workspace = true }
-[target.'cfg(target_arch = "linux")'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 rliburing = { git = "https://github.com/scuptio/rliburing.git" }
 
 

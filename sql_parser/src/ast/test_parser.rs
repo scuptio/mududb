@@ -86,7 +86,7 @@ WHERE CustomerID = 1;"
         'Norway'
     );
     "
-        .to_string();
+            .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
     }
@@ -101,7 +101,7 @@ WHERE CustomerID = 1;"
         Address char(255),
         City char(255)
     );"
-        .to_string();
+            .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
 
@@ -115,7 +115,7 @@ WHERE CustomerID = 1;"
            SALARY      INT,
            PRIMARY KEY (ID1, ID2)
     );"
-        .to_string();
+            .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
     }

@@ -156,7 +156,3 @@ impl ProcedureInvokeInner {
         }
     }
 }
-
-fn procedure_call(input_ptr: u64, input_len: u64, output_ptr: u64, output_len: u64) -> i32 {
-    0
-}

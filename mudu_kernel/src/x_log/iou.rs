@@ -1,4 +1,4 @@
-use crate::common::buf::Buf;
+use mudu::common::buf::Buf;
 use libc::iovec;
 use std::fmt::Debug;
 use std::fs::OpenOptions;

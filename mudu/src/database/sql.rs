@@ -108,7 +108,7 @@ impl ContextInner {
         &self,
         sql: &dyn SQLStmt,
         param: &[&dyn DatumDyn],
-    ) -> RS<usize> {
+    ) -> RS<u64> {
         self.context.command(sql, param)
     }
 
@@ -166,11 +166,10 @@ impl Context {
     }
 
     pub fn new(conn: Arc<dyn DBConn>) -> RS<Self> {
-        let xid = conn.begin_tx()?;
         let s = Self {
             inner: Arc::new(ContextInner::new(conn)?),
         };
-        let _ = XContext.insert_sync(xid, s.clone());
+        let _ = XContext.insert_sync(s.xid(), s.clone());
         Ok(s)
     }
 
@@ -190,7 +189,7 @@ impl Context {
         &self,
         sql: &dyn SQLStmt,
         param: &[&dyn DatumDyn],
-    ) -> RS<usize> {
+    ) -> RS<u64> {
         self.inner.command(sql, param)
     }
 
@@ -231,7 +230,7 @@ pub fn command(
     xid: XID,
     sql: &dyn SQLStmt,
     param: &[&dyn DatumDyn],
-) -> RS<usize> {
+) -> RS<u64> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("no such transaction {}", xid))?;
     context.command(sql, param)

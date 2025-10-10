@@ -52,7 +52,7 @@ impl LSTrans {
             sql,
             params,
         ).await.map_err(|e| {
-            m_error!(EC::DBOpenError, "query error", e)
+            m_error!(EC::DBInternalError, "query error", e)
         })?;
         let rs = Arc::new(LSResultSet::new(rows, desc));
         Ok(rs)
@@ -62,9 +62,23 @@ impl LSTrans {
         sql: &str,
         params: impl IntoParams) -> RS<u64> {
         let affected_rows = self.trans.execute(sql, params).await.map_err(|e| {
-            m_error!(EC::DBOpenError, "query error", e)
+            m_error!(EC::DBInternalError, "query error", e)
         })?;
         Ok(affected_rows)
+    }
+    
+    pub async fn commit(self) -> RS<()> {
+        self.trans.commit().await.map_err(|e|{
+            m_error!(EC::DBInternalError, "commit error", e)
+        })?;
+        Ok(())
+    }
+
+    pub async fn rollback(self) -> RS<()> {
+        self.trans.rollback().await.map_err(|e|{
+            m_error!(EC::DBInternalError, "rollback error", e)
+        })?;
+        Ok(())
     }
 }
 
@@ -98,7 +112,7 @@ impl ResultSetInner {
         let mut guard = self.row.lock().await;
         let opt_row = guard.next().await
             .map_err(|e|{
-                m_error!(EC::DBOpenError, "query error", e)
+                m_error!(EC::DBInternalError, "query error", e)
             })?;
         match opt_row {
             Some(row) => {
@@ -121,27 +135,27 @@ fn libsql_row_to_tuple_item(row:Row, item_desc:&[DatumDesc]) -> RS<TupleItem> {
         let dat_typed = match desc.dat_type_id() {
             DatTypeID::I32 => {
                 let val = row.get::<i32>(n)
-                    .map_err(|e| { m_error!(EC::DBOpenError, "get item of row error") })?;
+                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error") })?;
                 DatTyped::I32(val)
             }
             DatTypeID::I64 => {
                 let val = row.get::<i64>(n)
-                    .map_err(|e| { m_error!(EC::DBOpenError, "get item of row error") })?;
+                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error") })?;
                 DatTyped::I64(val)
             }
             DatTypeID::F32 => {
                 let val = row.get::<f64>(n)
-                    .map_err(|e| { m_error!(EC::DBOpenError, "get item of row error") })?;
+                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error") })?;
                 DatTyped::F32(val as _)
             }
             DatTypeID::F64 => {
                 let val = row.get::<f64>(n)
-                    .map_err(|e| { m_error!(EC::DBOpenError, "get item of row error") })?;
+                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error") })?;
                 DatTyped::F64(val)
             }
             DatTypeID::CharVarLen|DatTypeID::CharFixedLen => {
                 let val = row.get::<String>(n)
-                    .map_err(|e| { m_error!(EC::DBOpenError, "get item of row error") })?;
+                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error") })?;
                 DatTyped::String(val)
             }
         };

@@ -24,6 +24,7 @@ impl DBConnector {
         let mut passing_param = Vec::new();
         let mut opt_ddl_path = None;
         let mut opt_db_type = Some(DBType::Postgres);
+        let mut opt_db_path = None;
         for key_value in db_str_param {
             let (key, value) = parse_key_value(&key_value)?;
             match key.as_str() {
@@ -33,6 +34,9 @@ impl DBConnector {
                 "db_type" => {
                     let db = DBType::from_str(&value).unwrap();
                     opt_db_type = Some(db)
+                }
+                "db" => {
+                    opt_db_path = Some(value);
                 }
                 _ => {
                     passing_param.push(key_value);
@@ -54,7 +58,7 @@ impl DBConnector {
                         create_pg_interactive_conn(&params, &ddl_path)
                     }
                     DBType::LibSQL => {
-                        create_ls_conn(&params, &ddl_path)
+                        create_ls_conn(&opt_db_path.unwrap(), &ddl_path)
                     }
                 }
             }

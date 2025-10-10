@@ -21,14 +21,15 @@ actix-web = "4.11.0"
 tokio = "1.47.1"
 mudu_utils = { workspace = true }
 tracing = "0.1.41"
-rusqlite = { workspace = true }
 strum = { version = "0.27.2" }
 strum_macros = { version = "0.27" }
 libsql = { version = "0.9.23" }
 lazy_static = "1.5.0"
+toml = "0.9.8"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 postgres = { version = "0.19.10" }
 scc = { version = "3.0.7" }
 
 [dev-dependencies]
 reqwest = { version = "0.12.23", features = ["json"] }
+rusqlite = {workspace = true}
