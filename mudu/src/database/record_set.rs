@@ -2,19 +2,19 @@ use crate::common::result::RS;
 use crate::database::record::Record;
 use crate::database::result_set::ResultSet;
 use crate::error::err::MError;
-use crate::tuple::tuple_item_desc::TupleItemDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use fallible_iterator::FallibleIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub struct RecordSet<R: Record> {
     phantom: PhantomData<R>,
-    desc: Arc<TupleItemDesc>,
+    desc: Arc<TupleFieldDesc>,
     result_set: Arc<dyn ResultSet>,
 }
 
 impl<R: Record> RecordSet<R> {
-    pub fn new(result_set: Arc<dyn ResultSet>, desc: Arc<TupleItemDesc>) -> Self {
+    pub fn new(result_set: Arc<dyn ResultSet>, desc: Arc<TupleFieldDesc>) -> Self {
         Self { phantom: PhantomData, desc, result_set }
     }
 }

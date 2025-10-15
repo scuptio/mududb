@@ -12,14 +12,14 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu::tuple::datum::DatumDyn;
 use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Client;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use std::sync::{Arc, Mutex};
-
+use mudu::database::sql_params::SQLParams;
 
 pub fn create_pg_interactive_conn(
     conn_str: &String, ddl_path: &String,
@@ -65,11 +65,11 @@ impl DBConn for PGInteractive {
     }
 
 
-    fn query(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<(Arc<dyn ResultSet>, Arc<TupleItemDesc>)> {
+    fn query(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         self.query_inner(sql, param)
     }
 
-    fn command(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<u64> {
+    fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
         self.command_inner(sql, param)
     }
 }
@@ -101,13 +101,13 @@ impl PGInteractive {
     fn query_inner(
         &self,
         sql: &dyn SQLStmt,
-        param: &[&dyn DatumDyn],
-    ) -> RS<(Arc<dyn ResultSet>, Arc<TupleItemDesc>)> {
+        param: &dyn SQLParams,
+    ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         let sql_string = sql.to_sql_string();
         let stmt = self.parse_one_query(&sql_string)?;
         let resolved = self.resolver.resolve_query(&stmt)?;
         let projection = resolved.projection().clone();
-        let row_desc = Arc::new(TupleItemDesc::new(projection));
+        let row_desc = Arc::new(TupleFieldDesc::new(projection));
         let sql_string = Self::replace_placeholder(&sql_string, resolved.placeholder(), param)?;
         let mut conn = self.db_conn.lock().unwrap();
         let rows = match &mut conn.1 {
@@ -127,7 +127,7 @@ impl PGInteractive {
     fn command_inner(
         &self,
         sql: &dyn SQLStmt,
-        param: &[&dyn DatumDyn],
+        param: &dyn SQLParams,
     ) -> RS<u64> {
         let sql_string = sql.to_sql_string();
         let stmt = self.parse_one_command(&sql_string)?;
@@ -147,11 +147,11 @@ impl PGInteractive {
         Ok(rows as _)
     }
 
-    fn replace_placeholder(sql_string: &String, desc: &Vec<DatumDesc>, param: &[&dyn DatumDyn]) -> RS<String> {
+    fn replace_placeholder(sql_string: &String, desc: &Vec<DatumDesc>, param: &dyn SQLParams) -> RS<String> {
         let placeholder_str = "?";
         let placeholder_str_len = placeholder_str.len();
         let vec_indices: Vec<_> = sql_string.match_indices(placeholder_str).into_iter().collect();
-        if desc.len() != param.len() || desc.len() != vec_indices.len() {
+        if desc.len() != param.size() as usize || desc.len() != vec_indices.len() {
             return Err(m_error!(EC::ParseErr, "parameter and placeholder count mismatch"));
         }
 
@@ -161,7 +161,7 @@ impl PGInteractive {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
             sql_after_replaced.push_str(" ");
-            let s = param[i].to_printable(desc[i].type_declare().param())?;
+            let s = param.get_idx_unchecked(i as u64).to_printable(desc[i].dat_type().param())?;
             sql_after_replaced.push_str(s.str());
             sql_after_replaced.push_str(" ");
             start_pos += _s.len() + placeholder_str_len;

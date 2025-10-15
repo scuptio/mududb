@@ -6,7 +6,7 @@ use crate::sync::s_mutex::SMutex;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::tuple::tuple_item_desc::TupleItemDesc as TupleDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
 use std::fmt::Debug;
 use std::sync::Arc;
 

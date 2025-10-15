@@ -3,8 +3,8 @@ use crate::database::db_conn::DBConn;
 use crate::database::record::Record;
 use crate::database::record_set::RecordSet;
 use crate::database::sql_stmt::SQLStmt;
-use crate::tuple::datum::DatumDyn;
 use std::sync::Arc;
+use crate::database::sql_params::SQLParams;
 
 pub struct Context {
     conn: Arc<dyn DBConn>,
@@ -22,7 +22,7 @@ impl Context {
     pub fn query<R: Record>(
         &self,
         sql: &dyn SQLStmt,
-        param: &[&dyn DatumDyn]) -> RS<RecordSet<R>> {
+        param: &dyn SQLParams) -> RS<RecordSet<R>> {
         let (rs, ds) = self.conn.query(sql, param)?;
         let r = RecordSet::<R>::new(rs, ds);
         Ok(r)
@@ -31,7 +31,7 @@ impl Context {
     pub fn command(
         &self,
         sql: &dyn SQLStmt,
-        param: &[&dyn DatumDyn]) -> RS<u64>
+        param: &dyn SQLParams) -> RS<u64>
     {
         self.conn.command(sql, param)
     }

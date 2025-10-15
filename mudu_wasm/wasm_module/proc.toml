@@ -1,37 +1,37 @@
 proc_name = "proc"
 module_name = "mudu_wasm"
 
-[[param_desc.vec]]
+[[param_desc.fields]]
 name = "a"
 
-[param_desc.vec.dat_type]
+[param_desc.fields.dat_type]
 id = "I32"
 ty_param = []
 
-[[param_desc.vec]]
+[[param_desc.fields]]
 name = "b"
 
-[param_desc.vec.dat_type]
+[param_desc.fields.dat_type]
 id = "I64"
 ty_param = []
 
-[[param_desc.vec]]
+[[param_desc.fields]]
 name = "c"
 
-[param_desc.vec.dat_type]
+[param_desc.fields.dat_type]
 id = "CharVarLen"
 ty_param = ["65535"]
 
-[[return_desc.vec]]
+[[return_desc.fields]]
 name = "t_0"
 
-[return_desc.vec.dat_type]
+[return_desc.fields.dat_type]
 id = "I32"
 ty_param = []
 
-[[return_desc.vec]]
+[[return_desc.fields]]
 name = "t_1"
 
-[return_desc.vec.dat_type]
+[return_desc.fields.dat_type]
 id = "CharVarLen"
 ty_param = ["65536"]

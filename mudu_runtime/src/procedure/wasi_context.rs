@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicU32;
-use wasmtime_wasi::preview1::WasiP1Ctx;
+use wasmtime_wasi::p1::WasiP1Ctx;
 
 
 pub struct ContextData {

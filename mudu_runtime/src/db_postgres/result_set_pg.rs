@@ -3,20 +3,20 @@ use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
 use mudu::data_type::dt_impl::dat_typed::DatTyped;
 use mudu::database::result_set::ResultSet;
 use mudu::tuple::datum::DatumDyn;
-use mudu::tuple::tuple_item::TupleItem;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field::TupleField;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Row;
 use std::sync::{Arc, Mutex};
 
 pub struct ResultSetPG {
-    desc: Arc<TupleItemDesc>,
+    desc: Arc<TupleFieldDesc>,
     rows: Mutex<Vec<Row>>,
 }
 
 
 impl ResultSetPG {
-    pub fn new(desc: Arc<TupleItemDesc>, rows: Vec<Row>) -> Self {
+    pub fn new(desc: Arc<TupleFieldDesc>, rows: Vec<Row>) -> Self {
         Self {
             desc,
             rows: Mutex::new(rows),
@@ -24,12 +24,12 @@ impl ResultSetPG {
     }
 }
 impl ResultSet for ResultSetPG {
-    fn next(&self) -> RS<Option<TupleItem>> {
+    fn next(&self) -> RS<Option<TupleField>> {
         let opt_row = self.rows.lock().unwrap().pop();
         match opt_row {
             Some(row) => {
                 let mut tuple_row = vec![];
-                for (i, d) in self.desc.vec_datum_desc().iter().enumerate() {
+                for (i, d) in self.desc.fields().iter().enumerate() {
                     let id = d.dat_type_id();
                     let datum = match id {
                         DatTypeID::I32 => {
@@ -57,10 +57,10 @@ impl ResultSet for ResultSetPG {
                             DatTyped::String(val)
                         }
                     };
-                    let binary = datum.to_binary(d.dat_type_param())?;
+                    let binary = datum.to_binary(d.param_obj())?;
                     tuple_row.push(binary.into());
                 }
-                Ok(Some(TupleItem::new(tuple_row)))
+                Ok(Some(TupleField::new(tuple_row)))
             }
             None => {
                 Ok(None)

@@ -2,7 +2,7 @@ use crate::procedure::procedure::Procedure;
 use crate::procedure::wasi_context::WasiContext;
 use crate::resolver::schema_mgr::SchemaMgr;
 use crate::resolver::sql_resolver::SQLResolver;
-use crate::runtime::procedure_invoke::ProcedureInvoke;
+use crate::service::procedure_invoke::ProcedureInvoke;
 use mudu::common::endian::write_u32;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
@@ -31,8 +31,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use wasmtime::{AsContext, Caller, Engine, Extern, Linker, Memory, Module};
+use wasmtime::{Caller, Engine, Extern, Linker, Memory, Module};
 use wasmtime_wasi::WasiCtxBuilder;
+use mudu::tuple::typed_bin::TypedBin;
 
 const MP_BYTE_CODE_EXTENSION: &str = "wasm";
 const MP_DESC_EXTENSION: &str = "toml";
@@ -138,7 +139,7 @@ impl RuntimeSimple {
             &mut map_proc_desc,
         )?;
 
-        wasmtime_wasi::preview1::add_to_linker_sync(&mut self.linker, |ctx|
+        wasmtime_wasi::p1::add_to_linker_sync(&mut self.linker, |ctx|
             {
                 ctx.wasi_mut()
             })
@@ -383,14 +384,18 @@ fn query_gut(
 ) -> RS<QueryResult> {
     let xid = query_in.xid();
     let context = get_context(xid)?;
-    let param: Vec<&dyn DatumDyn> = query_in
+    let params: Vec<Box<dyn DatumDyn>> = query_in
         .param()
         .iter()
-        .map(|e| { todo!() })
+        .enumerate()
+        .map(|(i, e)| {
+            let dat_type_id = query_in.param_desc()[i].dat_type_id();
+            Box::new(TypedBin::new(dat_type_id, e.clone())) as Box<dyn DatumDyn>
+        })
         .collect();
     let result = context.query_raw(
         &query_in.sql(),
-        &param,
+        todo!(),
     )?;
     let rs = context.cache_result(result)?;
     Ok(rs)
@@ -407,16 +412,20 @@ fn command_gut(
 ) -> RS<CommandOut> {
     let xid = command_in.xid();
     let context = get_context(xid)?;
-    let param: Vec<&dyn DatumDyn> = command_in
+    let param: Vec<Box<dyn DatumDyn>> = command_in
         .param()
         .iter()
-        .map(|e| { todo!() })
+        .enumerate()
+        .map(|(i, e)| {
+            let dat_type_id = command_in.param_desc().fields()[i].dat_type_id();
+            Box::new(TypedBin::new(dat_type_id, e.clone())) as Box<dyn DatumDyn>
+        })
         .collect();
     let affected_rows = context.command(
         &command_in.sql(),
         &param,
     )?;
-    Ok(CommandOut::new(affected_rows as _))
+    Ok(CommandOut::new(affected_rows))
 }
 
 fn get_context(xid: XID) -> RS<Context> {
@@ -547,8 +556,8 @@ fn check_bounds(ptr: usize, len: usize, memory_size: usize) -> RS<()> {
 #[cfg(test)]
 mod test {
     use crate::resolver::schema_mgr::SchemaMgr;
-    use crate::runtime::runtime_simple::RuntimeSimple;
-    use crate::runtime::test_wasm_mod_path::wasm_mod_path;
+    use crate::service::runtime_simple::RuntimeSimple;
+    use crate::service::test_wasm_mod_path::wasm_mod_path;
     use mudu::procedure::proc_param::ProcParam;
     use mudu::tuple::rs_tuple_datum::RsTupleDatum;
 

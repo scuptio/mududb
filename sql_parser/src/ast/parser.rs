@@ -36,6 +36,7 @@ use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
 use mudu::data_type::dat_type::DatType;
 use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
 use mudu::data_type::dt_impl::dat_typed::DatTyped;
+use mudu::data_type::dt_param::ParamObj;
 use mudu::data_type::param_info::ParamInfo;
 use mudu::error::err::MError;
 use mudu::m_error;
@@ -748,18 +749,22 @@ impl SQLParser {
             ts_kind_id::BIGINT => DatType::new_with_no_param(DatTypeID::I64),
             ts_kind_id::DOUBLE => DatType::new_with_no_param(DatTypeID::F64),
             ts_kind_id::FLOAT => DatType::new_with_no_param(DatTypeID::F32),
-            ts_kind_id::CHAR | ts_kind_id::VARCHAR => {
+            ts_kind_id::CHAR | ts_kind_id::VARCHAR | ts_kind_id::KEYWORD_TEXT => {
                 let data_type_id = if kind == ts_kind_id::CHAR {
                     DatTypeID::CharFixedLen
                 } else {
                     DatTypeID::CharVarLen
                 };
-                let params = self.visit_char_param(context, child)?;
-                let info = ParamInfo {
-                    id: data_type_id,
-                    ty_param: params,
+                let dt_param = if kind == ts_kind_id::CHAR || kind == ts_kind_id::VARCHAR {
+                    let params = self.visit_char_param(context, child)?;
+                    let info = ParamInfo {
+                        id: data_type_id,
+                        ty_param: params,
+                    };
+                    info.to_object()
+                } else {
+                    ParamObj::default_for(data_type_id)
                 };
-                let dt_param = info.to_object();
                 DatType::new_with_obj(dt_param)
             }
             ts_kind_id::NUMERIC => DatType::new_with_no_param(DatTypeID::F64),
