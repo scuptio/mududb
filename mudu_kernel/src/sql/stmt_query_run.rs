@@ -100,7 +100,7 @@ async fn encode_pg_wire_row_data(
     let mut has_err = false;
     let tuple_desc = rows.tuple_desc()?;
     while let Ok(Some(row)) = rows.next().await {
-        if row.items().len() != cols || tuple_desc.vec_datum_desc().len() != cols {
+        if row.fields().len() != cols || tuple_desc.fields().len() != cols {
             return Err(m_error!(ER::FatalError,
                 "fatal error: non consistent column number"
             ));
@@ -108,13 +108,13 @@ async fn encode_pg_wire_row_data(
         let mut encoder = DataRowEncoder::new(fields.clone());
         for idx in 0..cols {
             if let Some(datum) = row.get(idx) {
-                let field_desc = &tuple_desc.vec_datum_desc()[idx];
+                let field_desc = &tuple_desc.fields()[idx];
                 let dat_type_id = field_desc.dat_type_id();
                 let internal = dat_type_id.fn_recv()
-                    (&datum, field_desc.dat_type_param()).map_err(|e| {
+                    (&datum, field_desc.param_obj()).map_err(|e| {
                     m_error!(ER::ConvertErr, "recv error", e)
                 })?;
-                let value = dat_type_id.fn_to_typed()(&internal, field_desc.dat_type_param()).map_err(|e| {
+                let value = dat_type_id.fn_to_typed()(&internal, field_desc.param_obj()).map_err(|e| {
                     m_error!(ER::ConvertErr, "to_typed error", e)
                 })?;
 

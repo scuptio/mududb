@@ -1,6 +1,6 @@
 use crate::procedure::wasi_context::WasiContext;
 use mudu::procedure::proc_desc::ProcDesc;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
 use wasmtime::InstancePre;
 
@@ -32,11 +32,11 @@ impl Procedure {
         &self.instance
     }
 
-    pub fn param_desc(&self) -> &TupleItemDesc {
+    pub fn param_desc(&self) -> &TupleFieldDesc {
         self.proc_desc.param_desc()
     }
 
-    pub fn return_desc(&self) -> &TupleItemDesc {
+    pub fn return_desc(&self) -> &TupleFieldDesc {
         self.proc_desc.return_desc()
     }
 }

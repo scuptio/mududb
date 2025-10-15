@@ -6,7 +6,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu::tuple::datum::{AsDatumDynRef, DatumDyn};
 use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::StmtCommand;
@@ -38,12 +38,12 @@ impl SQLPrepare {
         SQL:AsSQLStmtRef,
         PARAMS: AsSlice<Element = Item>,
         Item: AsDatumDynRef,
-    >(&self, sql: SQL, param: PARAMS) -> RS<(String, Arc<TupleItemDesc>)> {
+    >(&self, sql: SQL, param: PARAMS) -> RS<(String, Arc<TupleFieldDesc>)> {
         let sql_string = sql.as_sql_stmt_ref().to_sql_string();
         let stmt = self.parse_one_query(&sql_string)?;
         let resolved = self.resolver.resolve_query(&stmt)?;
         let projection = resolved.projection().clone();
-        let result_set_desc = Arc::new(TupleItemDesc::new(projection));
+        let result_set_desc = Arc::new(TupleFieldDesc::new(projection));
         let sql = Self::replace_placeholder(&sql_string, resolved.placeholder(), param)?;
         Ok((sql, result_set_desc))
     }
@@ -89,7 +89,7 @@ impl SQLPrepare {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
             sql_after_replaced.push_str(" ");
-            let s = param.as_slice()[i].as_datum_dyn_ref().to_printable(desc[i].type_declare().param())?;
+            let s = param.as_slice()[i].as_datum_dyn_ref().to_printable(desc[i].dat_type().param())?;
             sql_after_replaced.push_str(s.str());
             sql_after_replaced.push_str(" ");
             start_pos += _s.len() + placeholder_str_len;

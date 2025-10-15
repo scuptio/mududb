@@ -5,7 +5,7 @@ use crate::x_engine::thd_ctx::ThdCtx;
 use crate::x_engine::x_param::PAccessKey;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::tuple::tuple_item_desc::TupleItemDesc as TupleDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
 
 pub struct IndexAccessKey {
     tuple_desc: TupleDesc,

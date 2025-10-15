@@ -9,19 +9,18 @@ use mudu::database::sql_stmt::SQLStmt;
 use mudu::database::v2h_param::{CommandIn, CommandOut, QueryIn, QueryResult, ResultCursor, ResultRow};
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::tuple::enumerable_datum::EnumerableDatum;
-use mudu::tuple::tuple_item::TupleItem;
+use mudu::tuple::tuple_field::TupleField;
 use serde::Serialize;
 use std::sync::Arc;
-
+use mudu::database::sql_params::SQLParams;
 
 pub fn inner_query<R: Record>(
     xid: XID,
     sql: &dyn SQLStmt,
-    param: &dyn EnumerableDatum,
+    params: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
-    let tuple_desc = param.tuple_desc()?;
-    let vec_bin = param.to_binary(tuple_desc.vec_datum_desc())?;
+    let tuple_desc = params.tuple_desc()?;
+    let vec_bin = params.to_binary(tuple_desc.fields())?;
     let str_sql = sql.to_string();
     let query_in = QueryIn::new(
         xid,
@@ -39,10 +38,10 @@ pub fn inner_query<R: Record>(
 pub fn inner_command(
     xid: XID,
     sql: &dyn SQLStmt,
-    param: &dyn EnumerableDatum,
+    params: &dyn SQLParams,
 ) -> RS<u64> {
-    let tuple_desc = param.tuple_desc()?;
-    let vec_bin = param.to_binary(tuple_desc.vec_datum_desc())?;
+    let tuple_desc = params.tuple_desc()?;
+    let vec_bin = params.to_binary(tuple_desc.fields())?;
     let str_sql = sql.to_string();
     let command_in = CommandIn::new(
         xid,
@@ -65,7 +64,7 @@ impl ResultSetWrapper {
 }
 
 impl ResultSet for ResultSetWrapper {
-    fn next(&self) -> RS<Option<TupleItem>> {
+    fn next(&self) -> RS<Option<TupleField>> {
         let result_row = _sys_fetch(&self.cursor)?;
         Ok(result_row.into_result())
     }

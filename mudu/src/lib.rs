@@ -5,7 +5,6 @@ pub mod tuple;
 pub mod database;
 pub mod procedure;
 pub mod error;
-pub mod log;
 pub mod utils;
 
 #[macro_export]
@@ -15,7 +14,7 @@ macro_rules! sql_stmt {
     };
 }
 #[macro_export]
-macro_rules! sql_param {
+macro_rules! sql_params {
     ($expression:expr) => {
         $expression
     };

@@ -53,7 +53,7 @@ mod tests {
     fn test() {
         let tuple = (1i32, 2i64, "s".to_string());
         let desc = <(i32, i64, String)>::tuple_desc_static();
-        println!("tuple {:?} and its describe {:?}", tuple, desc.vec_datum_desc());
+        println!("tuple {:?} and its describe {:?}", tuple, desc.fields());
     }
 }
 

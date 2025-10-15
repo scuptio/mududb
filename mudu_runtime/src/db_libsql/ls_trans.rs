@@ -14,8 +14,8 @@ use tokio::task::block_in_place;
 use mudu::data_type::dt_impl::dat_type_id::DatTypeID;
 use mudu::data_type::dt_impl::dat_typed::DatTyped;
 use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_item::TupleItem;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field::TupleField;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 
 pub struct LSTrans {
     xid: XID,
@@ -29,7 +29,7 @@ struct LSResultSet {
 
 struct ResultSetInner {
     row:Mutex<Rows>,
-    tuple_desc: Arc<TupleItemDesc>,
+    tuple_desc: Arc<TupleFieldDesc>,
 }
 
 impl LSTrans {
@@ -46,7 +46,7 @@ impl LSTrans {
         &self,
         sql: &str,
         params: impl IntoParams,
-        desc:Arc<TupleItemDesc>,
+        desc:Arc<TupleFieldDesc>,
     ) -> RS<Arc<dyn ResultSet>> {
         let rows = self.trans.query(
             sql,
@@ -62,7 +62,7 @@ impl LSTrans {
         sql: &str,
         params: impl IntoParams) -> RS<u64> {
         let affected_rows = self.trans.execute(sql, params).await.map_err(|e| {
-            m_error!(EC::DBInternalError, "query error", e)
+            m_error!(EC::DBInternalError, "command error", e)
         })?;
         Ok(affected_rows)
     }
@@ -84,7 +84,7 @@ impl LSTrans {
 
 
 impl LSResultSet {
-    fn new(rows:Rows, desc:Arc<TupleItemDesc>) -> LSResultSet {
+    fn new(rows:Rows, desc:Arc<TupleFieldDesc>) -> LSResultSet {
         let inner = ResultSetInner::new(rows, desc);
         Self {
             inner:Arc::new(inner),
@@ -92,7 +92,7 @@ impl LSResultSet {
     }
 }
 impl ResultSet for LSResultSet {
-    fn next(&self) -> RS<Option<TupleItem>> {
+    fn next(&self) -> RS<Option<TupleField>> {
         let inner = self.inner.clone();
         let r = block_in_place( move || {
             Handle::current().block_on(async move {
@@ -104,19 +104,19 @@ impl ResultSet for LSResultSet {
 }
 
 impl ResultSetInner {
-    fn new(row:Rows, tuple_desc: Arc<TupleItemDesc>) -> ResultSetInner {
+    fn new(row:Rows, tuple_desc: Arc<TupleFieldDesc>) -> ResultSetInner {
         Self { row: Mutex::new(row), tuple_desc }
     }
 
-    async fn async_next(&self) -> RS<Option<TupleItem>> {
+    async fn async_next(&self) -> RS<Option<TupleField>> {
         let mut guard = self.row.lock().await;
         let opt_row = guard.next().await
             .map_err(|e|{
-                m_error!(EC::DBInternalError, "query error", e)
+                m_error!(EC::DBInternalError, "query result next", e)
             })?;
         match opt_row {
             Some(row) => {
-                let items = libsql_row_to_tuple_item(row, self.tuple_desc.vec_datum_desc())?;
+                let items = libsql_row_to_tuple_item(row, self.tuple_desc.fields())?;
                 Ok(Some(items))
             }
             None => { Ok(None) }
@@ -124,7 +124,7 @@ impl ResultSetInner {
     }
 }
 
-fn libsql_row_to_tuple_item(row:Row, item_desc:&[DatumDesc]) -> RS<TupleItem> {
+fn libsql_row_to_tuple_item(row:Row, item_desc:&[DatumDesc]) -> RS<TupleField> {
     let mut vec = vec![];
     if row.column_count() != (item_desc.len() as i32) {
        return Err(m_error!(EC::FatalError, "column count mismatch"));
@@ -159,11 +159,11 @@ fn libsql_row_to_tuple_item(row:Row, item_desc:&[DatumDesc]) -> RS<TupleItem> {
                 DatTyped::String(val)
             }
         };
-        let internal = desc.dat_type_id().fn_from_typed()(&dat_typed, desc.dat_type_param())
+        let internal = desc.dat_type_id().fn_from_typed()(&dat_typed, desc.param_obj())
             .map_err(|e|{m_error!(EC::ConvertErr, "convert data error", e) })?;
-        let binary = desc.dat_type_id().fn_send()(&internal, desc.dat_type_param())
+        let binary = desc.dat_type_id().fn_send()(&internal, desc.param_obj())
         .map_err(|e|{m_error!(EC::ConvertErr, "convert data error", e) })?;
         vec.push(binary.into())
     }
-    Ok(TupleItem::new(vec))
+    Ok(TupleField::new(vec))
 }

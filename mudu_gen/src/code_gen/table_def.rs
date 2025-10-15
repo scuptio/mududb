@@ -2,7 +2,7 @@ use crate::code_gen::column_def::TableColumnDef;
 use crate::code_gen::primary_key_def::PrimaryKeyDef;
 use mudu::common::result::RS;
 use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::stmt_create_table::StmtCreateTable;
 use std::collections::HashMap;
 
@@ -49,13 +49,13 @@ impl TableDef {
         &self.primary_key_def
     }
 
-    pub fn row_desc(&self) -> TupleItemDesc {
+    pub fn row_desc(&self) -> TupleFieldDesc {
         let mut vec = vec![];
         for c in &self.table_columns {
             let dd = DatumDesc::new(c.column_name().clone(), c.data_type().clone());
             vec.push(dd);
         }
-        TupleItemDesc::new(vec)
+        TupleFieldDesc::new(vec)
     }
 
     pub fn find_column_def_by_name(&self, name: &str) -> Option<&TableColumnDef> {

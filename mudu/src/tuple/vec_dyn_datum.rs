@@ -5,7 +5,7 @@ use crate::m_error;
 use crate::tuple::datum::DatumDyn;
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;
-use crate::tuple::tuple_item_desc::TupleItemDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 
 pub trait VecDynDatum: EnumerableDatum {
     fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<Vec<Box<dyn DatumDyn>>>;
@@ -20,13 +20,13 @@ impl EnumerableDatum for [&dyn DatumDyn] {
         let mut vec = Vec::with_capacity(self.len());
         for (i, t) in self.iter().enumerate() {
             let datum_desc = &desc[i];
-            let binary = t.to_binary(datum_desc.dat_type_param())?;
+            let binary = t.to_binary(datum_desc.param_obj())?;
             vec.push(binary.into())
         }
         Ok(vec)
     }
 
-    fn tuple_desc(&self) -> RS<TupleItemDesc> {
+    fn tuple_desc(&self) -> RS<TupleFieldDesc> {
         let mut vec = Vec::with_capacity(self.len());
         for (i, t) in self.iter().enumerate() {
             let id = t.dat_type_id_self()?;
@@ -34,7 +34,7 @@ impl EnumerableDatum for [&dyn DatumDyn] {
             let datum_desc = DatumDesc::new(format!("v_{}", i), dat_type);
             vec.push(datum_desc)
         }
-        Ok(TupleItemDesc::new(vec))
+        Ok(TupleFieldDesc::new(vec))
     }
 }
 
@@ -46,7 +46,7 @@ impl VecDynDatum for [&dyn DatumDyn] {
         let mut vec: Vec<Box<dyn DatumDyn>> = Vec::with_capacity(vec_bin.len());
         for (i, bin) in vec_bin.iter().enumerate() {
             let id = desc[i].dat_type_id();
-            let param = desc[i].dat_type_param();
+            let param = desc[i].param_obj();
             let internal = id.fn_recv()(bin, param)
                 .map_err(|e| {
                     m_error!(EC::ConvertErr, "convert fn_recv error", e)

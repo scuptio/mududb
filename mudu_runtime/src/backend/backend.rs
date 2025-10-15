@@ -1,6 +1,6 @@
 use crate::backend::mududb_cfg::MuduDBCfg;
-use crate::runtime::service::Service;
-use crate::runtime::service_impl::create_runtime_service;
+use crate::service::service::Service;
+use crate::service::service_impl::create_runtime_service;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
 use mudu::common::id::gen_oid;
 use mudu::common::result::RS;
@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use tokio::task::LocalSet;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use mudu::database::sql::Context;
 use mudu::procedure::proc_desc::ProcDesc;
+use mudu_utils::notifier::Notifier;
+use mudu_utils::task::spawn_local_task;
 use crate::db_connector::DBConnector;
 
 
@@ -26,24 +28,37 @@ pub struct Backend {
 impl Backend {
     pub fn sync_serve(cfg:MuduDBCfg) -> RS<()> {
         let ls = LocalSet::new();
+        let notifier = Notifier::new();
         let mut builder = tokio::runtime::Builder::new_current_thread();
         builder
             .enable_all()
-            .build().map_err(
-            |e|{
-                m_error!(EC::IOErr, "build runtime error")
-            })?
+            .build()
+            .map_err(
+                |e|{
+                    m_error!(EC::IOErr, "build runtime error")
+                })?
             .block_on(async {
                 ls.spawn_local(async move {
-                    Backend::serve(cfg).await
+                    spawn_local_task(notifier, "", async move {
+                        let r = Backend::serve(cfg).await;
+                        match r {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("backend serve error: {}", e);
+                            }
+                        }
+                    }).unwrap();
                 });
+                ls.await;
             Ok(())
         })
     }
+
     pub async fn serve(cfg: MuduDBCfg) -> RS<()> {
         info!("starting backend server");
         info!("{}", cfg);
         let service = create_runtime_service(&cfg.ddl_path, &cfg.bytecode_path)?;
+        info!("runtime service initialized");
         Backend::web_serve(service, &cfg).await.map_err(|e| {
             m_error!(EC::IOErr, "backend run error", e)
         })
@@ -51,9 +66,10 @@ impl Backend {
 
     async fn web_serve(service: Arc<dyn Service>, cfg: &MuduDBCfg) -> std::io::Result<()> {
         let data = web::Data::new(AppContext {
-            conn_str: format!("db={}  ddl={} db_type=LibSQL", cfg.ddl_path, cfg.ddl_path),
+            conn_str: format!("db={} ddl={} db_type=LibSQL", cfg.ddl_path, cfg.ddl_path),
             service,
         });
+        info!("web service start");
         HttpServer::new(move || {
             App::new()
                 .app_data(data.clone())
@@ -61,7 +77,9 @@ impl Backend {
         })
             .bind(format!("{}:{}", cfg.listen_ip, cfg.listen_port))?
             .run()
-            .await
+            .await?;
+        info!("backend server terminated");
+        Ok(())
     }
 }
 
@@ -78,9 +96,9 @@ fn to_param(argv: &HashMap<String, String>, desc: &[DatumDesc]) -> RS<ProcParam>
         };
         let id = datum_desc.dat_type_id();
         let internal = id.fn_input()
-            (&DatPrintable::from(value), datum_desc.dat_type_param())
+            (&DatPrintable::from(value), datum_desc.param_obj())
             .map_err(|e| { m_error!(EC::ConvertErr, "", e) })?;
-        let dat = id.fn_send()(&internal, datum_desc.dat_type_param())
+        let dat = id.fn_send()(&internal, datum_desc.param_obj())
             .map_err(|e| { m_error!(EC::ConvertErr, "", e) })?;
         vec.push(dat.into())
     }
@@ -141,7 +159,7 @@ fn sync_invoke_proc(
         let desc = service.describe(&name)?;
         let param = to_param(
             &argv,
-            desc.param_desc().vec_datum_desc(),
+            desc.param_desc().fields(),
         )?;
         let conn = DBConnector::connect(&conn_str)?;
         let xid = {
@@ -199,7 +217,7 @@ async fn invoke_proc(
 mod test {
     use crate::backend::backend::Backend;
     use crate::backend::mududb_cfg::MuduDBCfg;
-    use crate::runtime::test_wasm_mod_path::wasm_mod_path;
+    use crate::service::test_wasm_mod_path::wasm_mod_path;
     use mudu::common::result::RS;
     use mudu::error::ec::EC;
     use mudu::m_error;

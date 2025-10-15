@@ -1,6 +1,6 @@
 use crate::resolver::schema_mgr::SchemaMgr;
-use crate::runtime::runtime_simple::RuntimeSimple;
-use crate::runtime::service::Service;
+use crate::service::runtime_simple::RuntimeSimple;
+use crate::service::service::Service;
 use mudu::common::result::RS;
 use mudu::procedure::proc_desc::ProcDesc;
 use mudu::procedure::proc_param::ProcParam;

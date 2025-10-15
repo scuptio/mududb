@@ -7,28 +7,23 @@ edition = "2021"
 
 
 [dependencies]
-scc = { version = "3.0.6" }
+scc = { workspace = true }
 byteorder = { version = "1.5.0" }
 serde = { workspace = true }
-serde_json = { version = "1.0.140" }
+serde_json = { workspace = true }
 lazy_static = { version = "1.5.0" }
 crc = { version = "3.3.0" }
 uuid = { version = "1.16.0", features = [
     "v4",
     "js" # wasm need this
 ] }
-bincode = { version = "2.0.1", features = ["serde"] }
 toml = { version = "0.9.5" }
 num_enum = { version = "0.7.4" }
 fallible-iterator = "0.3.0"
-tracing-subscriber = { workspace = true }
-tracing = { workspace = true }
-env_logger = { workspace = true }
+
 rmp-serde = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 console-subscriber = "0.4.1"
-
-#[target.'cfg(any(test, feature = "test"))'.dependencies]
 arbitrary = { workspace = true }
 test_utils = { workspace = true }
 

@@ -7,7 +7,7 @@ use crate::tuple::datum_desc::DatumDesc;
 
 fn datum_vec_to<T, F: Fn(&dyn DatumDyn, &DatumDesc) -> RS<T>>(
     param: &[&dyn DatumDyn],
-    desc: &Vec<DatumDesc>,
+    desc: &[DatumDesc],
     to: &F) -> RS<Vec<T>> {
     if param.len() != desc.len() {
         return Err(m_error!(EC::MuduError, format!("Incorrect number of parameters provided: {} != {}", param.len(), desc.len())));
@@ -24,11 +24,11 @@ fn datum_vec_to<T, F: Fn(&dyn DatumDyn, &DatumDesc) -> RS<T>>(
 
 pub fn datum_vec_to_bin_vec(
     param: &[&dyn DatumDyn],
-    desc: &Vec<DatumDesc>,
+    desc: &[DatumDesc],
 ) -> RS<Vec<Vec<u8>>> {
     let f = |datum: &dyn DatumDyn, datum_desc: &DatumDesc| {
         let dat: DatBinary = datum
-            .to_binary(datum_desc.type_declare().param())
+            .to_binary(datum_desc.dat_type().param())
             .map_err(|e| {
                 m_error!(EC::MuduError, format!("{:?} to binary error", datum), e)
             })?;

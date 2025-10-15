@@ -1,7 +1,7 @@
 use crate::common::result::RS;
 use crate::error::ec::EC;
 use crate::m_error;
-use crate::tuple::tuple_item_desc::TupleItemDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -14,16 +14,16 @@ use std::path::Path;
 pub struct ProcDesc {
     proc_name: String,
     module_name: String,
-    param_desc: TupleItemDesc,
-    return_desc: TupleItemDesc,
+    param_desc: TupleFieldDesc,
+    return_desc: TupleFieldDesc,
 }
 
 impl ProcDesc {
     pub fn new(
         proc_name: String,
         module_name: String,
-        param_desc: TupleItemDesc,
-        return_desc: TupleItemDesc,
+        param_desc: TupleFieldDesc,
+        return_desc: TupleFieldDesc,
     ) -> ProcDesc {
         Self {
             proc_name,
@@ -40,11 +40,11 @@ impl ProcDesc {
         &self.proc_name
     }
 
-    pub fn param_desc(&self) -> &TupleItemDesc {
+    pub fn param_desc(&self) -> &TupleFieldDesc {
         &self.param_desc
     }
 
-    pub fn return_desc(&self) -> &TupleItemDesc {
+    pub fn return_desc(&self) -> &TupleFieldDesc {
         &self.return_desc
     }
 

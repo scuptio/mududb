@@ -6,7 +6,7 @@ use crate::m_error;
 use crate::tuple::datum::DatumDyn;
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;
-use crate::tuple::tuple_item_desc::TupleItemDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use std::any::type_name;
 
 // Defines conversion methods between Rust tuples and binary data with description information.
@@ -22,24 +22,24 @@ For a tuple (i32, String)
 
 pub trait RsTupleDatum: EnumerableDatum + Sized + 'static {
     fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<Self>;
-    fn tuple_desc_static() -> TupleItemDesc;
+    fn tuple_desc_static() -> TupleFieldDesc;
 }
 
 fn datum_from_binary<T: DatumDyn + Clone + 'static>(slice: &[u8], desc: &DatumDesc) -> RS<T> {
     let internal = desc
         .dat_type_id()
-        .fn_recv()(slice, desc.dat_type_param())
+        .fn_recv()(slice, desc.param_obj())
         .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?;
     let t = internal.into_to_typed::<T>();
     Ok(t)
 }
 
 fn datum_to_binary<T: DatumDyn + Clone + 'static>(t: &T, desc: &DatumDesc) -> RS<Vec<u8>> {
-    let binary = t.to_binary(desc.dat_type_param())?;
+    let binary = t.to_binary(desc.param_obj())?;
     Ok(binary.into())
 }
 
-fn names_to_desc(names: Vec<String>) -> TupleItemDesc {
+fn names_to_desc(names: Vec<String>) -> TupleFieldDesc {
     let desc: Vec<_> = names.iter()
         .enumerate()
         .map(|(i, name)| {
@@ -47,7 +47,7 @@ fn names_to_desc(names: Vec<String>) -> TupleItemDesc {
             let desc = DatumDesc::new(format!("t_{}", i), DatType::new_with_default_param(id));
             desc
         }).collect();
-    TupleItemDesc::new(desc)
+    TupleFieldDesc::new(desc)
 }
 
 macro_rules! impl_rs_tuple_datum {
@@ -58,8 +58,8 @@ macro_rules! impl_rs_tuple_datum {
                 Ok(vec![])
             }
 
-            fn tuple_desc(&self) -> RS<TupleItemDesc> {
-                Ok(TupleItemDesc::new(vec![]))
+            fn tuple_desc(&self) -> RS<TupleFieldDesc> {
+                Ok(TupleFieldDesc::new(vec![]))
             }
         }
 
@@ -68,8 +68,8 @@ macro_rules! impl_rs_tuple_datum {
                 Ok(())
             }
 
-            fn tuple_desc_static() -> TupleItemDesc {
-                TupleItemDesc::new(vec![])
+            fn tuple_desc_static() -> TupleFieldDesc {
+                TupleFieldDesc::new(vec![])
             }
         }
     };
@@ -93,7 +93,7 @@ macro_rules! impl_rs_tuple_datum {
                 Ok(vec_binary)
             }
 
-            fn tuple_desc(&self) -> RS<TupleItemDesc> {
+            fn tuple_desc(&self) -> RS<TupleFieldDesc> {
                 Ok(Self::tuple_desc_static())
             }
         }
@@ -113,7 +113,7 @@ macro_rules! impl_rs_tuple_datum {
                 Ok(($($T,)*))
             }
 
-            fn tuple_desc_static() -> TupleItemDesc {
+            fn tuple_desc_static() -> TupleFieldDesc {
                 let names:Vec<String> = vec![
                     $(type_name::<$T>().split("::").last().unwrap_or("").to_string(),)*
                 ];

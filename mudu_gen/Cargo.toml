@@ -11,11 +11,10 @@ project-root = { workspace = true }
 [dependencies]
 mudu = { workspace = true }
 sql_parser = { workspace = true }
-clap = { version = "4.5.41", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-cc = { version = "1.2.24" }
-project-root = { version = "0.2.2" }
+project-root = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 mudu_runtime = {workspace = true}
 mudu = {workspace = true}
+mudu_utils = {workspace = true}
 tracing = {workspace = true}

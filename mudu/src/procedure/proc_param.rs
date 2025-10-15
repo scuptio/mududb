@@ -3,17 +3,17 @@ use crate::common::xid::XID;
 use crate::tuple::datum::DatumDyn;
 use crate::tuple::datum_vec::datum_vec_to_bin_vec;
 use crate::tuple::rs_tuple_datum::RsTupleDatum;
-use crate::tuple::tuple_item_desc::TupleItemDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use serde::{Deserialize, Serialize};
 
 impl ProcParam {
-    pub fn from_datum_vec(xid: XID, argv: &[&dyn DatumDyn], desc: &TupleItemDesc) -> RS<Self> {
-        let vec = datum_vec_to_bin_vec(argv, desc.vec_datum_desc())?;
+    pub fn from_datum_vec(xid: XID, argv: &[&dyn DatumDyn], desc: &TupleFieldDesc) -> RS<Self> {
+        let vec = datum_vec_to_bin_vec(argv, desc.fields())?;
         Ok(Self::new(xid, vec))
     }
 
-    pub fn from_tuple<T: RsTupleDatum>(xid: XID, tuple: T, desc: &TupleItemDesc) -> RS<Self> {
-        let vec = tuple.to_binary(desc.vec_datum_desc())?;
+    pub fn from_tuple<T: RsTupleDatum>(xid: XID, tuple: T, desc: &TupleFieldDesc) -> RS<Self> {
+        let vec = tuple.to_binary(desc.fields())?;
         Ok(Self::new(xid, vec))
     }
 

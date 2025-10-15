@@ -8,9 +8,9 @@ use crate::x_engine::operator::Operator;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::tuple::tuple_item::TupleItem;
+use mudu::tuple::tuple_field::TupleField;
 
-pub type TupleRow = TupleItem;
+pub type TupleRow = TupleField;
 
 /// Result set cursor
 #[async_trait]

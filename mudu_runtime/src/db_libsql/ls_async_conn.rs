@@ -1,7 +1,7 @@
 use std::mem;
 use std::path::{Path, PathBuf};
 use crate::db_libsql::ls_trans::LSTrans;
-use libsql::{params, Builder, Connection, Database};
+use libsql::{params, Builder, Connection, Database, Error};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -13,9 +13,10 @@ use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 use mudu::common::xid::XID;
 use mudu::database::result_set::ResultSet;
+use mudu::database::sql_params::SQLParams;
 use mudu::database::sql_stmt::{AsSQLStmtRef, SQLStmt};
 use mudu::tuple::datum::{AsDatumDynRef, DatumDyn};
-use mudu::tuple::tuple_item_desc::TupleItemDesc;
+use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::sql_prepare::sql_prepare::SQLPrepare;
 
 #[derive(Clone)]
@@ -34,8 +35,8 @@ const MUDU_LIB_SQL_DB:&str = "mudu.db";
 
 
 fn mudu_lib_db_file<P:AsRef<Path>>(folder:P) -> RS<String> {
-    let mut path = PathBuf::from(folder.as_ref());
-    let mut path2 = path.join(MUDU_LIB_SQL_DB);
+    let path = PathBuf::from(folder.as_ref());
+    let path2 = path.join(MUDU_LIB_SQL_DB);
     let opt = path2.to_str();
     match opt {
         Some(t) => { Ok(t.to_string()) },
@@ -97,28 +98,36 @@ impl LSSyncConn {
         })
     }
 
-    pub fn sync_query(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<(Arc<dyn ResultSet>, Arc<TupleItemDesc>)> {
+    pub fn sync_query(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         let inner = self.inner.clone();
         let sql_boxed = sql.clone_boxed();
-        let param_boxed = param.iter().map(|e| {
-            e.clone_boxed()
-        }).collect::<Vec<_>>();
+        let n = param.size();
+        let mut params_boxed = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let datum = param.get_idx_unchecked(i);
+            let boxed = datum.clone_boxed();
+            params_boxed.push(boxed);
+        }
         block_in_place(move || {
             Handle::current().block_on(async {
-                inner.async_query(sql_boxed, param_boxed.as_slice()).await
+                inner.async_query(sql_boxed, params_boxed.as_slice()).await
             })
         })
     }
 
-    pub fn sync_command(&self, sql: &dyn SQLStmt, param: &[&dyn DatumDyn]) -> RS<u64> {
+    pub fn sync_command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
         let inner = self.inner.clone();
         let sql_boxed = sql.clone_boxed();
-        let param_boxed = param.iter().map(|e| {
-            e.clone_boxed()
-        }).collect::<Vec<_>>();
+        let n = param.size();
+        let mut params_boxed = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let datum = param.get_idx_unchecked(i);
+            let boxed = datum.clone_boxed();
+            params_boxed.push(boxed);
+        }
         block_in_place(move || {
             Handle::current().block_on(async {
-                inner.async_command(sql_boxed, param_boxed.as_slice()).await
+                inner.async_command(sql_boxed, params_boxed.as_slice()).await
             })
         })
     }
@@ -149,6 +158,25 @@ impl LSAsyncConnInner {
         let conn = db.connect().map_err(|e| {
             m_error!(EC::DBInternalError, "connect libsql DB error", e)
         })?;
+        let r1 = conn.execute("PRAGMA busy_timeout = 10000000;", ()).await;
+        let r2 = conn.execute("PRAGMA journal_mode = WAL;", ()).await;
+        for r in [r1, r2] {
+            match r {
+                Ok(_) => { Ok(()) }
+                Err(e) => {
+                    match e {
+                        Error::ExecuteReturnedRows=> {
+                            // We can ignore the error and then the pragma is set
+                            // https://github.com/tursodatabase/go-libsql/issues/28#issuecomment-2571633180
+                            Ok(())
+                        }
+                        _ => {
+                            Err(m_error!(EC::DBInternalError, "set pragma error", e))
+                        }
+                    }
+                }
+            }?;
+        }
 
         Ok(Self {
             conn,
@@ -222,7 +250,7 @@ impl LSAsyncConnInner {
         SQL:AsSQLStmtRef,
         PARAMS: AsSlice<Element = Item>,
         Item: AsDatumDynRef,
-    >(&self, sql: SQL, param: PARAMS) -> RS<(Arc<dyn ResultSet>, Arc<TupleItemDesc>)> {
+    >(&self, sql: SQL, param: PARAMS) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         let (s, desc) = self.prepare.replace_query(sql, param)?;
         let _desc = desc.clone();
         let rs = self.transaction(

@@ -153,6 +153,12 @@ SQL statement with ? as parameter placeholders.
 
 Parameter list.
 
+
+<!--
+quote_begin
+content="[KeyTrait](../lang.common/proc_key_traits.md#L1-L34)"
+-->
+
 ## Key Traits
 
 ### SQLStmt
@@ -164,30 +170,30 @@ pub trait SQLStmt: std::fmt::Debug + std::fmt::Display {
 }
 ```
 
-### ToDatum
+### DatumDyn
 
+<!--
+quote_begin
+content="[DatumDyn](../../mudu/src/tuple/datum.rs#L22-L34)"
+lang="rust"
+-->
 ```rust
+pub trait DatumDyn: fmt::Debug + Sync {
+    fn dat_type_id_self(&self) -> RS<DatTypeID>;
 
-pub trait ToDatum: std::fmt::Debug {
-    fn dat_type_id_self(&self) -> DatTypeID;
     fn to_typed(&self, param: &ParamObj) -> RS<DatTyped>;
+
     fn to_binary(&self, param: &ParamObj) -> RS<DatBinary>;
+
     fn to_printable(&self, param: &ParamObj) -> RS<DatPrintable>;
+
     fn to_internal(&self, param: &ParamObj) -> RS<DatInternal>;
+
+    fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
 ```
-
-### Record
-
-```rust
-pub trait Record: Sized {
-    fn table_name() -> &'static str;
-    fn from_tuple<T: AsRef<TupleRow>, D: AsRef<RowDesc>>(tuple_row: T, row_desc: D) -> RS<Self>;
-    fn to_tuple<D: AsRef<RowDesc>>(&self, row_desc: D) -> RS<TupleRow>;
-    fn get(&self, field_name: &str) -> RS<Option<Datum>>;
-    fn set<D: AsRef<Datum>>(&mut self, field_name: &str, datum: Option<D>) -> RS<()>;
-}
-```
+<!--quote_end-->
+<!--quote_end-->
 
 ## A Example: A Wallet APP's Transfer Procedure
 
