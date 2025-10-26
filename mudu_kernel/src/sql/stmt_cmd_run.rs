@@ -8,13 +8,13 @@ use tracing::error;
 // DDL includes: Create/Alter Table
 // DML includes: Insert/Update/Delete
 pub async fn run_cmd_stmt(stmt: &dyn StmtCmd, ctx: &dyn SsnCtx) -> RS<u64> {
-    let xid = get_tx(ctx).await?;
+    let _xid = get_tx(ctx).await?;
     let r = run_cmd_stmt_gut(stmt, ctx).await;
     match r {
         Ok(r) => Ok(r),
         Err(e) => {
             error!("run command error: {}", e);
-            //ctx.thd_ctx().abort_tx(xid).await?;
+            //ctx.thd_ctx().abort_tx(_xid).await?;
             ctx.end_tx()?;
             Err(e)
         }

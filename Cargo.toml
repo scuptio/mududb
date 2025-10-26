@@ -5,7 +5,7 @@ resolver = "1"
 
 members = [
     "mudu",
-    #"example",
+    "example",
     "mudu_runtime",
     "mudu_gen",
     "sql_parser",

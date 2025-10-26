@@ -51,9 +51,7 @@ pub fn write_value_to_buf(
 
     let len = match r {
         Ok(n) => n,
-        Err(e) => {
-            return Err(e)
-        }
+        Err(e) => return Err(e),
     };
     Ok(Ok(len))
 }

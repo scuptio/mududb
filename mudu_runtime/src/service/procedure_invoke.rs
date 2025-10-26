@@ -3,14 +3,15 @@ use anyhow::Context;
 use mudu::common::result::RS;
 use mudu::common::serde_utils::{
     deserialize_sized_from,
+    header_size_len,
     serialize_sized_to,
-    size_len,
 };
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu::procedure::proc_param::ProcParam;
 use mudu::procedure::proc_result::ProcResult;
 use std::sync::Mutex;
+use std::thread;
 use wasmtime::{InstancePre, Memory, Store, TypedFunc};
 
 pub struct ProcedureInvoke {
@@ -58,14 +59,21 @@ impl ProcedureInvoke {
             .map_err(|e| {
                 m_error!(EC::MuduError, "", e)
             })?;
-        inner.invoke(param)
+        let thread = thread::spawn(move || {
+            let ret = inner.invoke(param);
+            ret
+        });
+        let result = thread.join().map_err(|_e| {
+            m_error!(EC::MuduError, "invoke thread join error")
+        })?;
+        result
     }
 }
 
 struct ProcedureInvokeInner {
     store: Store<WasiContext>,
     typed_func: TypedFunc<(u32, u32, u32, u32), i32>,
-    proc_opt: ProcOpt,
+    _proc_opt: ProcOpt,
     memory: Memory,
 }
 
@@ -116,7 +124,7 @@ impl ProcedureInvokeInner {
         Ok(Self {
             store,
             typed_func,
-            proc_opt,
+            _proc_opt: proc_opt,
             memory,
         })
     }
@@ -133,7 +141,7 @@ impl ProcedureInvokeInner {
                 return Err(m_error!(EC::MuduError, format!("failed to serialize procedure: buffer size not efficient {}", buf.len())));
             }
             let in_ptr = 0;
-            let in_size = size + size_len();
+            let in_size = size + header_size_len();
             let out_ptr = in_size;
             let out_size = buf.len() as u64 - out_ptr;
             (in_ptr as u32, in_size as u32, out_ptr as u32, out_size as u32)

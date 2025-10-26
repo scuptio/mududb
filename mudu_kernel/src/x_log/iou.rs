@@ -1,5 +1,5 @@
-use mudu::common::buf::Buf;
 use libc::iovec;
+use mudu::common::buf::Buf;
 use std::fmt::Debug;
 use std::fs::OpenOptions;
 use std::io::Result;

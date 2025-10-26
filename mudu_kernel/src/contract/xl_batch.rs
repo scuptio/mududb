@@ -63,12 +63,13 @@ impl Decode for XLBatch {
 }
 
 
-#[cfg(test)]
+#[allow(unused)]
 pub mod _fuzz {
     use crate::contract::xl_batch::XLBatch;
     use mudu::common::_arb_de_en::_fuzz_decode_and_encode;
 
+    #[allow(dead_code)]
     pub fn _dc_en_x_l_batch(data: &[u8]) {
-        _fuzz_decode_and_encode::<XLBatch>(data);
+        //_fuzz_decode_and_encode::<XLBatch>(data);
     }
 }

@@ -48,14 +48,13 @@ macro_rules! impl_datum_for_typed {
                     $(DatTyped::$variant(v) => v.to_internal(param),)*
                 }
             }
-            
+
             fn clone_boxed(&self) -> Box<dyn DatumDyn> {
                 Box::new(self.clone())
             }
         }
     };
 }
-
 
 impl_datum_for_typed! {
     I32(i32),

@@ -1,4 +1,6 @@
-use crate::tuple::datum::DatumDyn;
+use crate::common::result::RS;
+use crate::data_type::dt_impl::dat_typed::DatTyped;
+use crate::tuple::datum::{Datum, DatumDyn};
 use std::any::Any;
 use std::hint;
 use std::sync::Arc;
@@ -19,7 +21,6 @@ pub enum DatInternal {
     Raw(DatUnion),
     Any(Arc<dyn Any>),
 }
-
 
 impl DatUnion {
     fn to_typed_ref<T: 'static + Clone>(&self) -> &T {
@@ -42,6 +43,25 @@ impl DatUnion {
 }
 
 impl DatInternal {
+    pub fn from_datum<T: Datum + 'static>(datum: T) -> RS<Self> {
+        let dat_type_id = T::dat_type_id();
+        let ret = if dat_type_id.is_primitive_type() {
+            let typed = datum.to_typed(T::datum_desc().param_obj())?;
+            match typed {
+                DatTyped::I32(t) => Self::from_i32(t),
+                DatTyped::I64(t) => Self::from_i64(t),
+                DatTyped::F32(t) => Self::from_f32(t),
+                DatTyped::F64(t) => Self::from_f64(t),
+                _ => {
+                    panic!("Type not a primitive type");
+                }
+            }
+        } else {
+            Self::from_any_type(datum)
+        };
+
+        Ok(ret)
+    }
     pub fn from_any_type<T: Any + Clone + 'static>(t: T) -> Self {
         Self::from_any(Arc::new(t))
     }
@@ -116,7 +136,7 @@ impl DatInternal {
                 .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() })
                 .clone(),
             // SAFETY: the safety contract must be upheld by the caller.
-            Self::Raw(u) => { u.to_typed_ref::<T>().clone() }
+            Self::Raw(u) => u.to_typed_ref::<T>().clone(),
         }
     }
 

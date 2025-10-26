@@ -15,7 +15,7 @@ impl AsSQLStmtRef for Box<dyn SQLStmt> {
     }
 }
 
-impl <U: AsSQLStmtRef + ?Sized>  AsSQLStmtRef for &U {
+impl<U: AsSQLStmtRef + ?Sized> AsSQLStmtRef for &U {
     fn as_sql_stmt_ref(&self) -> &dyn SQLStmt {
         (*self).as_sql_stmt_ref()
     }
@@ -51,7 +51,6 @@ impl SQLStmt for String {
     }
 }
 
-
 impl<'a> AsRef<dyn SQLStmt + 'a> for String {
     fn as_ref(&self) -> &(dyn SQLStmt + 'a) {
         self
@@ -63,4 +62,3 @@ impl<'a> AsRef<dyn SQLStmt + 'a> for &'a str {
         self
     }
 }
-

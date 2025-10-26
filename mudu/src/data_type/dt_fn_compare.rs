@@ -5,9 +5,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone,
-    Serialize, Deserialize
-)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Serialize, Deserialize)]
 pub enum ErrCompare {
     ErrInternal(String),
 }

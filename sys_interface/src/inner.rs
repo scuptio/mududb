@@ -12,7 +12,9 @@ use mudu::m_error;
 use mudu::tuple::tuple_field::TupleField;
 use serde::Serialize;
 use std::sync::Arc;
+use mudu::common::endian::read_u32;
 use mudu::database::sql_params::SQLParams;
+use mudu::error::err::MError;
 
 pub fn inner_query<R: Record>(
     xid: XID,
@@ -89,8 +91,8 @@ fn _sys_fetch(cursor: &ResultCursor) -> RS<ResultRow> {
 }
 
 struct OutMemory {
-    len: u32,
-    vec: Vec<u8>,
+    pub len: u32,
+    pub vec: Vec<u8>,
 }
 
 impl Default for OutMemory {
@@ -118,8 +120,8 @@ fn __sys_call<
     F: Fn(
         *const u8, usize,
         *mut u8, usize,
-        *mut u32,
-        *mut u32,
+        *mut u8,
+        *mut u8,
     ) -> i32
 >(
     param: &P,
@@ -128,15 +130,18 @@ fn __sys_call<
 ) -> RS<OutMemory> {
     let param = serialize_sized_to_vec(param)?;
     let mut out_mem = OutMemory::default();
-    let mut mem_id = 0u32;
-    let n = unsafe {
+    let ret_value = {
+        let mut out_mem_len = [0u8;size_of::<u32>()];
+        let mut out_mem_id = [0u8;size_of::<u32>()];
         let n = sys_fn(
             param.as_ptr(), param.len(),
             out_mem.slice_mut().as_mut_ptr(),
             out_mem.slice().len(),
-            &mut out_mem.len,
-            &mut mem_id,
+            out_mem_len.as_mut_ptr(),
+            out_mem_id.as_mut_ptr(),
         );
+        let mem_id = read_u32(&out_mem_id);
+        out_mem.len = read_u32(&out_mem_len);
         if mem_id != 0 { // the provided memory is insufficient
             out_mem.vec.resize(out_mem.len as usize, 0);
             let size = unsafe {
@@ -151,8 +156,13 @@ fn __sys_call<
         }
         n
     };
-    if n != 0 {
-        return Err(m_error!(EC::MuduError, format!("sys call {} error, return code {}", fn_name, n)));
+    if ret_value != 0 {
+        let (mut err, _len) = deserialize_sized_from::<MError>(&out_mem.slice()[0..out_mem.len as usize])
+            .unwrap_or((m_error!(EC::MuduError, "cannot deserialized error"), 0));
+        out_mem.vec.resize(0, 0);
+        out_mem.len = 0;
+        err.set_message(format!("sys call {} error, return code:{}, {}", fn_name, ret_value, err.message()));
+        return Err(err);
     }
     Ok(out_mem)
 }
@@ -175,8 +185,8 @@ fn ___sys_query(
     param_buf_len: usize,
     out_buf_ptr: *mut u8,
     out_buf_len: usize,
-    out_len: *mut u32,
-    mem_id: *mut u32,
+    out_len: *mut u8,
+    mem_id: *mut u8,
 ) -> i32 {
     unsafe {
         sys_call::sys_query(
@@ -196,8 +206,8 @@ fn ___sys_command(
     param_buf_len: usize,
     out_buf_ptr: *mut u8,
     out_buf_len: usize,
-    out_len: *mut u32,
-    mem_id: *mut u32,
+    out_len: *mut u8,
+    mem_id: *mut u8,
 ) -> i32 {
     unsafe {
         sys_call::sys_command(
@@ -217,8 +227,8 @@ fn ___sys_fetch(
     param_buf_len: usize,
     out_buf_ptr: *mut u8,
     out_buf_len: usize,
-    out_len: *mut u32,
-    mem_id: *mut u32,
+    out_len: *mut u8,
+    mem_id: *mut u8,
 ) -> i32 {
     unsafe {
         sys_call::sys_fetch(

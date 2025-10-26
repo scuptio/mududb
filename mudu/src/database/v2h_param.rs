@@ -40,7 +40,6 @@ pub struct CommandOut {
     affected_rows: u64,
 }
 
-
 impl QueryIn {
     pub fn new(xid: XID, sql: String, param: Vec<Vec<u8>>, desc: TupleFieldDesc) -> Self {
         Self {
@@ -68,12 +67,9 @@ impl QueryIn {
     }
 }
 
-
 impl ResultCursor {
     pub fn new(xid: XID) -> ResultCursor {
-        Self {
-            xid,
-        }
+        Self { xid }
     }
 
     pub fn xid(&self) -> XID {
@@ -99,7 +95,6 @@ impl QueryResult {
         self.tuple_desc
     }
 
-
     pub fn cursor(&self) -> ResultCursor {
         ResultCursor::new(self.xid)
     }
@@ -107,9 +102,7 @@ impl QueryResult {
 
 impl ResultRow {
     pub fn new(result: Option<TupleField>) -> ResultRow {
-        Self {
-            result,
-        }
+        Self { result }
     }
 
     pub fn result(&self) -> &Option<TupleField> {
@@ -120,7 +113,6 @@ impl ResultRow {
         self.result
     }
 }
-
 
 impl CommandIn {
     pub fn new(xid: XID, sql: String, param: Vec<Vec<u8>>, desc: TupleFieldDesc) -> CommandIn {
@@ -143,7 +135,7 @@ impl CommandIn {
     pub fn param(&self) -> &Vec<Vec<u8>> {
         &self.param
     }
-    
+
     pub fn param_desc(&self) -> &TupleFieldDesc {
         &self.desc
     }
@@ -151,9 +143,7 @@ impl CommandIn {
 
 impl CommandOut {
     pub fn new(affected_rows: u64) -> Self {
-        Self {
-            affected_rows,
-        }
+        Self { affected_rows }
     }
 
     pub fn affected_rows(&self) -> u64 {

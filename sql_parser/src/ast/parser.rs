@@ -759,7 +759,7 @@ impl SQLParser {
                     let params = self.visit_char_param(context, child)?;
                     let info = ParamInfo {
                         id: data_type_id,
-                        ty_param: params,
+                        type_param: params,
                     };
                     info.to_object()
                 } else {

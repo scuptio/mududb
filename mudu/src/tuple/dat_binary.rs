@@ -21,6 +21,8 @@ impl DatBinary {
 
 impl Default for DatBinary {
     fn default() -> Self {
-        Self { datum: Buf::default() }
+        Self {
+            datum: Buf::default(),
+        }
     }
 }

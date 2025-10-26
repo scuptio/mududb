@@ -25,6 +25,7 @@ impl DBConnector {
         let mut opt_ddl_path = None;
         let mut opt_db_type = Some(DBType::Postgres);
         let mut opt_db_path = None;
+        let mut opt_app = None;
         for key_value in db_str_param {
             let (key, value) = parse_key_value(&key_value)?;
             match key.as_str() {
@@ -38,6 +39,9 @@ impl DBConnector {
                 "db" => {
                     opt_db_path = Some(value);
                 }
+                "app" => {
+                    opt_app = Some(value);
+                }
                 _ => {
                     passing_param.push(key_value);
                 }
@@ -47,9 +51,10 @@ impl DBConnector {
         let ddl_path = match opt_ddl_path {
             Some(ddl_path) => { ddl_path }
             None => {
-                return Err(m_error!(EC::NoneErr, "no DDL path provided"));
+                String::default()
             }
         };
+        let app_name = opt_app.unwrap_or(String::default());
         let params = merge_to_string(passing_param);
         match opt_db_type {
             Some(db_type) => {
@@ -58,7 +63,7 @@ impl DBConnector {
                         create_pg_interactive_conn(&params, &ddl_path)
                     }
                     DBType::LibSQL => {
-                        create_ls_conn(&opt_db_path.unwrap(), &ddl_path)
+                        create_ls_conn(&opt_db_path.unwrap(), &app_name, &ddl_path)
                     }
                 }
             }

@@ -1,30 +1,25 @@
-
+use crate::db_libsql::ls_async_conn::LSSyncConn;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::database::db_conn::DBConn;
 use mudu::database::result_set::ResultSet;
+use mudu::database::sql_params::SQLParams;
 use mudu::database::sql_stmt::SQLStmt;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
-use mudu::database::sql_params::SQLParams;
-use crate::db_libsql::ls_async_conn::LSSyncConn;
-use crate::sql_prepare::sql_prepare::SQLPrepare;
 
-pub fn create_ls_conn(db_path: &String, ddl_path: &String) -> RS<Arc<dyn DBConn>> {
-    Ok(Arc::new(LSConn::new(db_path, ddl_path)?))
+pub fn create_ls_conn(db_path: &String, app_name: &String, ddl_path: &String) -> RS<Arc<dyn DBConn>> {
+    Ok(Arc::new(LSConn::new(db_path, app_name, ddl_path)?))
 }
 
 struct LSConn {
     inner: Arc<LSSyncConn>,
 }
 
-struct LSConnInner {
-    sql_prepare: SQLPrepare,
-}
 
 impl LSConn {
-    fn new(db_path: &String, ddl_path: &String) -> RS<Self> {
-        let inner = LSSyncConn::new(db_path, ddl_path)?;
+    fn new(db_path: &String, app_name: &String, ddl_path: &String) -> RS<Self> {
+        let inner = LSSyncConn::new(db_path, app_name, ddl_path)?;
         Ok(Self {
             inner: Arc::new(inner)
         })
@@ -54,36 +49,28 @@ impl DBConn for LSConn {
     }
 }
 
-unsafe impl Send for LSConn {
+unsafe impl Send for LSConn {}
 
-}
-
-unsafe impl Sync for LSConn {
-
-}
-
+unsafe impl Sync for LSConn {}
 
 
 #[cfg(test)]
 mod test {
+    use crate::db_libsql::ls_conn::create_ls_conn;
+    use libsql::{params, Connection};
+    use mudu::common::result::RS;
+    use mudu::common::xid::XID;
+    use mudu::database::db_conn::DBConn;
+    use mudu::this_file;
+    use mudu_utils::log::log_setup;
+    use mudu_utils::notifier::Notifier;
+    use mudu_utils::task::spawn_task;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::Duration;
-    use mudu::this_file;
-    use libsql::{params, Connection};
     use tokio::runtime::Builder;
-    use tokio::time::sleep;
     use tracing::info;
-    use mudu::common::result::RS;
-    use mudu::common::xid::XID;
-    use mudu::database::db_conn::DBConn;
-    use mudu_utils::log::log_setup;
-    use mudu_utils::notifier::Notifier;
-    use mudu_utils::task::spawn_task;
-    use crate::db_libsql::ls_async_conn::test::__mudu_lib_db_file;
-    use crate::db_libsql::ls_conn::create_ls_conn;
 
     fn test_db_folder() -> String {
         let file = this_file!();
@@ -92,7 +79,7 @@ mod test {
         path2.to_str().unwrap().to_string()
     }
 
-    async fn execute_sql_file<P:AsRef<Path>>(conn: &Connection, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_sql_file<P: AsRef<Path>>(conn: &Connection, path: P) -> Result<(), Box<dyn std::error::Error>> {
         // open SQL file
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -131,14 +118,14 @@ mod test {
         Ok(())
     }
 
-    fn sql_file(folder:&String) -> String {
+    fn sql_file(folder: &String) -> String {
         let path1 = PathBuf::from(folder);
         let path2 = path1.join("testdb.ddl.sql");
         path2.to_str().unwrap().to_string()
     }
 
-    fn db_file(folder:&String) -> String {
-        __mudu_lib_db_file(folder)
+    fn db_file(folder: &String) -> String {
+        format!("{}/db", folder)
     }
 
     async fn prepare_test_db() {
@@ -159,21 +146,21 @@ mod test {
             .enable_all()
             .build().unwrap();
 
-        let conn_max = 10;
+        let conn_max = 2;
         builder.block_on(async move {
             let notifier = Notifier::new();
             prepare_test_db().await;
             let folder = test_db_folder();
             let mut join = vec![];
             for i in 0..conn_max {
-                let db_path = folder.clone();
+                let db_path = db_file(&folder);
                 let ddl_path = folder.clone();
                 let j = spawn_task(
                     notifier.clone(),
                     &format!("task_{}", i),
                     async move {
                         handle_conn(i, conn_max, db_path, ddl_path).await.unwrap();
-                }).unwrap();
+                    }).unwrap();
                 join.push(j);
             }
             for j in join {
@@ -182,8 +169,8 @@ mod test {
         });
     }
 
-    async fn handle_conn(i:u32, conn_max:u32, db_path: String, ddl_path: String) -> RS<()> {
-        let conn = create_ls_conn(&db_path, &ddl_path)?;
+    async fn handle_conn(i: u32, conn_max: u32, db_path: String, ddl_path: String) -> RS<()> {
+        let conn = create_ls_conn(&db_path, &String::default(), &ddl_path)?;
         let tx_max = 2;
         for n in 0..tx_max {
             let xid = conn.begin_tx()?;
@@ -197,14 +184,15 @@ mod test {
         Ok(())
     }
 
-    fn process(conn_id:u32, conn_max:u32, n:u32, tx_max:u32,  xid:XID, conn:Arc<dyn DBConn>) -> RS<()> {
+    fn process(conn_id: u32, _conn_max: u32, n: u32, tx_max: u32, _xid: XID, conn: Arc<dyn DBConn>) -> RS<()> {
         let id = conn_id * tx_max + n;
-        let n = conn.command(
+        let rows = conn.command(
             &format!("insert into orders(order_id, user_id, amount, status) VALUES({}, 1, 100, 'status');", id), &[])?;
-        let (result, desc) = conn.query(&"select order_id, user_id, amount, status from orders;", &[])?;
-        let mut n:u64 = 0;
+        let (result, _desc) = conn.query(&"select order_id, user_id, amount, status from orders;", &[])?;
+        info!("affected rows {}", rows);
+        let mut n: u64 = 0;
         while let Some(_row) = result.next()? {
-            n +=1 ;
+            n += 1;
         }
         info!("task {} query {} rows",conn_id, n);
         Ok(())

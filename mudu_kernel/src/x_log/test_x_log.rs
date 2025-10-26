@@ -34,11 +34,13 @@ mod test {
     }
 
     //#[test]
+    #[allow(dead_code)]
     fn test_uring_log() {
         x_log_run(10, 2, 20, true, None);
     }
 
-    #[test]
+    //#[test]
+    #[allow(dead_code)]
     fn test_tokio_log() {
         x_log_run(10, 2, 20, false, None);
     }

@@ -18,7 +18,9 @@ pub trait Iterator {
 }
 impl<R: Record> Iter<R> {
     pub fn new() -> Self {
-        Self { phantom: Default::default() }
+        Self {
+            phantom: Default::default(),
+        }
     }
 }
 

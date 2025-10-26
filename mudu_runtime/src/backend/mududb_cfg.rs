@@ -1,16 +1,16 @@
+use mudu::common::result::RS;
+use mudu::error::ec::EC;
+use mudu::m_error;
+use serde::{Deserialize, Serialize};
 use std::env::{home_dir, temp_dir};
 use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub struct MuduDBCfg {
     pub bytecode_path: String,
-    pub ddl_path: String,
+    pub db_path: String,
     pub listen_ip: String,
     pub listen_port: u16,
 }
@@ -20,7 +20,7 @@ impl Display for MuduDBCfg {
         write!(f, "MuduDB Cfg Setting:\n")?;
         write!(f, "-------------------\n")?;
         write!(f, "  -> Byte code path: {}\n", self.bytecode_path)?;
-        write!(f, "  -> DDL sql path: {}\n", self.ddl_path)?;
+        write!(f, "  -> DDL sql path: {}\n", self.db_path)?;
         write!(f, "  -> Listen IP address: {}\n", self.listen_ip)?;
         write!(f, "  -> Listening port: {}\n", self.listen_port)?;
         write!(f, "-------------------\n")?;
@@ -32,7 +32,7 @@ impl Default for MuduDBCfg {
     fn default() -> Self {
         Self {
             bytecode_path: temp_dir().to_str().unwrap().to_string(),
-            ddl_path: temp_dir().to_str().unwrap().to_string(),
+            db_path: temp_dir().to_str().unwrap().to_string(),
             listen_ip: temp_dir().to_str().unwrap().to_string(),
             listen_port: 8300,
         }
@@ -99,8 +99,8 @@ fn write_mududb_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
 
 #[cfg(test)]
 mod _test {
-    use std::env::temp_dir;
     use crate::backend::mududb_cfg::{read_mududb_cfg, write_mududb_cfg, MuduDBCfg};
+    use std::env::temp_dir;
     #[test]
     fn test_conf() {
         let cfg = MuduDBCfg::default();

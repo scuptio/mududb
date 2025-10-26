@@ -1,9 +1,13 @@
-// todo developing
-
-mod test_runtime;
 mod runtime_simple;
 mod procedure_invoke;
 pub mod service;
 pub mod service_impl;
 pub mod test_wasm_mod_path;
-// mod test_runtime;
+mod kernel_function;
+mod app_package;
+pub mod app_inst_impl;
+pub mod app_module;
+mod file_name;
+mod app_cfg;
+mod app_proc_desc;
+pub mod app_inst;

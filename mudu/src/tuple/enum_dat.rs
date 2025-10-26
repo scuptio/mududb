@@ -43,17 +43,22 @@ impl EnumDat {
             EnumDat::Printable(printable) => {
                 let fn_to_typed = type_id.fn_to_typed();
                 let fn_input = type_id.fn_input();
-                let internal = fn_input(printable, param).map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
-                let typed = fn_to_typed(&internal, param).map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                let internal = fn_input(printable, param)
+                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                let typed = fn_to_typed(&internal, param)
+                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
                 typed
             }
             EnumDat::Internal(internal) => {
                 let fn_to_typed = type_id.fn_to_typed();
-                let typed = fn_to_typed(internal, param).map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                let typed = fn_to_typed(internal, param)
+                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
                 typed
             }
             EnumDat::Typed(typed_val) => typed_val.clone(),
-            EnumDat::Null => { panic!("null data") }
+            EnumDat::Null => {
+                panic!("null data")
+            }
         };
         Ok(typed_val)
     }

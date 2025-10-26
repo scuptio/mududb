@@ -5,7 +5,7 @@ pub mod resolver;
 pub mod db_connector;
 pub mod service;
 mod procedure;
-mod db_libsql; 
+mod db_libsql;
 mod sql_prepare;
 pub mod backend;
 

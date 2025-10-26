@@ -32,6 +32,14 @@ impl ProcParam {
     pub fn xid(&self) -> XID {
         self.xid
     }
+
+    pub fn set_xid(&mut self, xid: XID) {
+        self.xid = xid
+    }
+
+    pub fn set_param(&mut self, param: Vec<Vec<u8>>) {
+        self.param = param
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -39,7 +47,6 @@ pub struct ProcParam {
     xid: XID,
     param: Vec<Vec<u8>>,
 }
-
 
 #[cfg(test)]
 pub mod test {

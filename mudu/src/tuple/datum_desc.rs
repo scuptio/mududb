@@ -1,8 +1,4 @@
-use crate::data_type::{
-    dat_type::DatType,
-    dt_impl::dat_type_id::DatTypeID,
-    param_obj::ParamObj,
-};
+use crate::data_type::{dat_type::DatType, dt_impl::dat_type_id::DatTypeID, param_obj::ParamObj};
 use serde::{Deserialize, Serialize};
 
 /// Describes a data element with type information and name

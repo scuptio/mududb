@@ -1,4 +1,5 @@
 use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::service::app_inst::AppInst;
 use crate::service::service::Service;
 use crate::service::service_impl::create_runtime_service;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
@@ -6,27 +7,22 @@ use mudu::common::id::gen_oid;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu::procedure::proc_desc::ProcDesc;
 use mudu::procedure::proc_param::ProcParam;
 use mudu::tuple::dat_printable::DatPrintable;
 use mudu::tuple::datum_desc::DatumDesc;
+use mudu_utils::notifier::Notifier;
+use mudu_utils::task::spawn_local_task;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use tokio::task::LocalSet;
 use tracing::{debug, error, info};
-use mudu::database::sql::Context;
-use mudu::procedure::proc_desc::ProcDesc;
-use mudu_utils::notifier::Notifier;
-use mudu_utils::task::spawn_local_task;
-use crate::db_connector::DBConnector;
 
-
-pub struct Backend {
-
-}
+pub struct Backend {}
 
 impl Backend {
-    pub fn sync_serve(cfg:MuduDBCfg) -> RS<()> {
+    pub fn sync_serve(cfg: MuduDBCfg) -> RS<()> {
         let ls = LocalSet::new();
         let notifier = Notifier::new();
         let mut builder = tokio::runtime::Builder::new_current_thread();
@@ -34,8 +30,8 @@ impl Backend {
             .enable_all()
             .build()
             .map_err(
-                |e|{
-                    m_error!(EC::IOErr, "build runtime error")
+                |e| {
+                    m_error!(EC::IOErr, "build runtime error", e)
                 })?
             .block_on(async {
                 ls.spawn_local(async move {
@@ -50,14 +46,17 @@ impl Backend {
                     }).unwrap();
                 });
                 ls.await;
-            Ok(())
-        })
+                Ok(())
+            })
     }
 
     pub async fn serve(cfg: MuduDBCfg) -> RS<()> {
         info!("starting backend server");
         info!("{}", cfg);
-        let service = create_runtime_service(&cfg.ddl_path, &cfg.bytecode_path)?;
+        let service = create_runtime_service(
+            &cfg.bytecode_path,
+            &cfg.db_path,
+        )?;
         info!("runtime service initialized");
         Backend::web_serve(service, &cfg).await.map_err(|e| {
             m_error!(EC::IOErr, "backend run error", e)
@@ -66,14 +65,15 @@ impl Backend {
 
     async fn web_serve(service: Arc<dyn Service>, cfg: &MuduDBCfg) -> std::io::Result<()> {
         let data = web::Data::new(AppContext {
-            conn_str: format!("db={} ddl={} db_type=LibSQL", cfg.ddl_path, cfg.ddl_path),
+            conn_str: format!("db={} ddl={} db_type=LibSQL", cfg.db_path, cfg.db_path),
             service,
         });
         info!("web service start");
         HttpServer::new(move || {
             App::new()
                 .app_data(data.clone())
-                .service(invoke_proc)
+                .service(invoke_proc1)
+                .service(invoke_proc2)
         })
             .bind(format!("{}:{}", cfg.listen_ip, cfg.listen_port))?
             .run()
@@ -111,7 +111,7 @@ fn to_param(argv: &HashMap<String, String>, desc: &[DatumDesc]) -> RS<ProcParam>
 
 #[derive(Clone)]
 struct AppContext {
-    conn_str:String,
+    conn_str: String,
     service: Arc<dyn Service>,
 }
 
@@ -121,8 +121,10 @@ unsafe impl Sync for AppContext {}
 
 
 async fn async_invoke_proc(
-    conn_str:String,
-    name: String,
+    conn_str: String,
+    app_name: String,
+    mod_name: String,
+    proc_name: String,
     argv: HashMap<String, String>,
     service: Arc<dyn Service>,
 ) -> RS<RS<Vec<String>>> {
@@ -131,21 +133,23 @@ async fn async_invoke_proc(
     // to avoid to start a runtime from within a runtime
     // FIXME, change to asynchronous call
     thread::spawn(move || {
-        let ret = sync_invoke_proc(conn_str, name, argv, service);
+        let ret = sync_invoke_proc(conn_str, app_name, mod_name, proc_name, argv, service);
         sender.send(ret).map_err(|e| {
             m_error!(EC::IOErr, format!("async_invoke_proc_inner send error {:?}", e))
         })
     });
     let ret = receiver.await
-        .map_err(|e|{
+        .map_err(|e| {
             m_error!(EC::IOErr, format!("async_invoke_proc_inner recv error {:?}", e))
         })?;
     ret
 }
 
 fn sync_invoke_proc(
-    conn_str:String,
-    name: String,
+    _conn_str: String,
+    app_name: String,
+    mod_name: String,
+    proc_name: String,
     argv: HashMap<String, String>,
     service: Arc<dyn Service>,
 ) -> RS<RS<Vec<String>>> {
@@ -156,53 +160,68 @@ fn sync_invoke_proc(
             m_error!(EC::IOErr, "runtime build error", e)
         )?;
     let ret = runtime.block_on(async move {
-        let desc = service.describe(&name)?;
+        let app = service.app(&app_name)
+            .ok_or(m_error!(EC::NoneErr, format!("no such app {}", &app_name)))?;
+        let desc = app.describe(&mod_name, &proc_name)?;
         let param = to_param(
             &argv,
             desc.param_desc().fields(),
         )?;
-        let conn = DBConnector::connect(&conn_str)?;
-        let xid = {
-            let context = Context::create(conn)?;
-            context.xid()
-        };
         let thread = thread::spawn(move || {
-            let ret = invoke_proc_inner(service, name, param, desc);
+            let ret = invoke_proc_inner(app, mod_name, proc_name, param, desc);
             ret
         });
         let ret = thread.join().map_err(|_e| {
             m_error!(EC::IOErr, "invoke_proc_inner thread error")
         })?;
-
-        Context::remove(xid);
         ret
     });
     Ok(ret)
 }
 
 fn invoke_proc_inner(
-    service: Arc<dyn Service>,
-    name: String,
-    param:ProcParam,
-    desc:Arc<ProcDesc>,
+    service: Arc<dyn AppInst>,
+    mod_name: String,
+    proc_name: String,
+    param: ProcParam,
+    desc: Arc<ProcDesc>,
 ) -> RS<Vec<String>> {
-    let result = service.invoke(&name,
-                                param)?;
+    let result = service.invoke(&mod_name, &proc_name, param)?;
     let ret = result.to_string(desc.return_desc())?;
     ret
 }
 
-#[post("/mudu/{name}")]
-async fn invoke_proc(
-    path: web::Path<String>,
+#[post("/mudu/{app_name}/{mod_name}/{proc_name}")]
+async fn invoke_proc1(
+    path: web::Path<(String, String, String)>,
     argv: web::Json<HashMap<String, String>>,
     context: web::Data<AppContext>,
 ) -> impl Responder {
-    let name = path.into_inner();
+    handle_invoke_proc(path, argv, context).await
+}
+
+#[post("/mudu/{app_name}/{mod_name}/{proc_name}/")]
+async fn invoke_proc2(
+    path: web::Path<(String, String, String)>,
+    argv: web::Json<HashMap<String, String>>,
+    context: web::Data<AppContext>,
+) -> impl Responder {
+    handle_invoke_proc(path, argv, context).await
+}
+
+async fn handle_invoke_proc(
+    path: web::Path<(String, String, String)>,
+    argv: web::Json<HashMap<String, String>>,
+    context: web::Data<AppContext>,
+) -> impl Responder {
+    let (app_name, mod_name, proc_name) = path.into_inner();
+    let name = format!("{}/{}/{}", app_name, mod_name, proc_name);
     debug!("invoke procedure: {} <{:?}>", name, argv);
     let r = async_invoke_proc(
         context.conn_str.clone(),
-        name.clone(),
+        app_name,
+        mod_name,
+        proc_name,
         argv.to_owned(),
         context.service.clone(),
     ).await;
@@ -212,7 +231,6 @@ async fn invoke_proc(
             "message": format!("invoke procedure {}, result <{:?}>", name, r),
         }))
 }
-
 #[cfg(test)]
 mod test {
     use crate::backend::backend::Backend;
@@ -235,14 +253,14 @@ mod test {
 
     #[test]
     fn test() {
-        log_setup_ex("info", "runtime=debug", false);
+        log_setup_ex("info", "mudu_runtime=debug", false);
         let _ = run_test();
     }
 
     fn _cfg() -> MuduDBCfg {
         let cfg = MuduDBCfg {
             bytecode_path: wasm_mod_path(),
-            ddl_path: wasm_mod_path(),
+            db_path: wasm_mod_path(),
             listen_ip: "0.0.0.0".to_string(),
             listen_port: 8000,
         };
@@ -280,7 +298,7 @@ mod test {
             fe_request(
                 localhost,
                 cfg.listen_port,
-                "proc",
+                "app1/mod_0/proc/",
                 &param,
             ).await?;
         }
@@ -349,7 +367,7 @@ mod test {
             );
             match res {
                 Ok(j) => {
-                    let r = j.await;
+                    let _r = j.await;
                     Ok(())
                 }
                 Err(e) => { Err(e) }

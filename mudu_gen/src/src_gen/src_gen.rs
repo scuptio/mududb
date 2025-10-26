@@ -1,10 +1,10 @@
-use crate::code_gen::rust_builder::RustBuilder;
-use crate::code_gen::src_builder::SrcBuilder;
-use crate::code_gen::table_def::TableDef;
+use crate::src_gen::rust_builder::RustBuilder;
+use crate::src_gen::src_builder::SrcBuilder;
+use crate::src_gen::table_def::TableDef;
 use clap::ValueEnum;
 use mudu::common::result::RS;
+use rust_format::{Formatter, RustFmt};
 use std::sync::Arc;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 pub enum Language {
     Rust,
@@ -17,13 +17,14 @@ impl SrcGen {
         Self {}
     }
 
-    pub fn gen(&self, lang: Language, table_def: &TableDef) -> RS<String> {
+    pub fn generate(&self, lang: Language, table_def: &TableDef) -> RS<String> {
         let builder: Arc<dyn SrcBuilder> = match lang {
             Language::Rust => Arc::new(RustBuilder::new())
         };
         let mut s = String::new();
         builder.build(table_def, &mut s)?;
-        Ok(s)
+        let formatted = RustFmt::default().format_str(s).unwrap();
+        Ok(formatted)
     }
 }
 

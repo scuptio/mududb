@@ -1,10 +1,9 @@
-
 pub mod common;
 pub mod data_type;
-pub mod tuple;
 pub mod database;
-pub mod procedure;
 pub mod error;
+pub mod procedure;
+pub mod tuple;
 pub mod utils;
 
 #[macro_export]

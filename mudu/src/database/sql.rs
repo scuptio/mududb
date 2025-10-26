@@ -5,6 +5,7 @@ use crate::database::db_conn::DBConn;
 use crate::database::record::Record;
 use crate::database::record_set::RecordSet;
 use crate::database::result_set::ResultSet;
+use crate::database::sql_params::SQLParams;
 use crate::database::sql_stmt::SQLStmt;
 use crate::database::v2h_param::QueryResult;
 use crate::tuple::datum::DatumDyn;
@@ -14,7 +15,6 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use lazy_static::lazy_static;
 use scc::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::database::sql_params::SQLParams;
 
 pub fn function_sql_stmt(stmt: &dyn SQLStmt) -> &dyn SQLStmt {
     stmt
@@ -25,7 +25,7 @@ pub fn function_sql_param<'a>(param: &'a [&'a dyn DatumDyn]) -> &'a [&'a dyn Dat
 }
 
 lazy_static! {
-    static ref XContext:HashMap<XID, Context> = HashMap::new();
+    static ref XContext: HashMap<XID, Context> = HashMap::new();
 }
 
 #[derive(Clone)]
@@ -42,20 +42,17 @@ struct ContextInner {
 struct ContextResult {
     result_set: Arc<dyn ResultSet>,
     row_desc: Arc<TupleFieldDesc>,
-    tuple_desc: Arc<TupleBinaryDesc>,
+    _tuple_desc: Arc<TupleBinaryDesc>,
     datum_mapping: Vec<usize>,
 }
 
 impl ContextResult {
-    fn new(
-        result_set: Arc<dyn ResultSet>,
-        row_desc: Arc<TupleFieldDesc>,
-    ) -> Self {
+    fn new(result_set: Arc<dyn ResultSet>, row_desc: Arc<TupleFieldDesc>) -> Self {
         let (tuple_desc, datum_mapping) = row_desc.to_tuple_binary_desc();
         Self {
             result_set,
             row_desc,
-            tuple_desc: Arc::new(tuple_desc),
+            _tuple_desc: Arc::new(tuple_desc),
             datum_mapping,
         }
     }
@@ -64,10 +61,11 @@ impl ContextResult {
         &self.row_desc
     }
 
+    #[allow(dead_code)]
     fn tuple_desc(&self) -> &TupleBinaryDesc {
-        &self.tuple_desc
+        &self._tuple_desc
     }
-
+    #[allow(dead_code)]
     fn datum_mapping(&self) -> &Vec<usize> {
         &self.datum_mapping
     }
@@ -92,50 +90,36 @@ impl ContextInner {
     fn xid(&self) -> XID {
         self.xid
     }
-    fn query<R: Record>(
-        &self,
-        sql: &dyn SQLStmt,
-        param: &dyn SQLParams,
-    ) -> RS<RecordSet<R>> {
+    fn query<R: Record>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<RecordSet<R>> {
         let (rs, rd) = self.context.query(sql, param)?;
         Ok(RecordSet::<R>::new(rs, rd))
     }
 
-    fn query_raw(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
+    fn query_raw(
+        &self,
+        sql: &dyn SQLStmt,
+        param: &dyn SQLParams,
+    ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         self.context.query(sql, param)
     }
 
-    fn command(
-        &self,
-        sql: &dyn SQLStmt,
-        param:  &dyn SQLParams,
-    ) -> RS<u64> {
+    fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
         self.context.command(sql, param)
     }
 
-    fn cache_result(
-        &self,
-        result: (Arc<dyn ResultSet>, Arc<TupleFieldDesc>),
-    ) -> RS<QueryResult> {
+    fn cache_result(&self, result: (Arc<dyn ResultSet>, Arc<TupleFieldDesc>)) -> RS<QueryResult> {
         let mut g = self.result_set.lock().unwrap();
         let context_result = ContextResult::new(result.0, result.1);
 
-        let result = QueryResult::new(
-            self.xid,
-            context_result.row_desc().clone(),
-        );
+        let result = QueryResult::new(self.xid, context_result.row_desc().clone());
         *g = Some(context_result);
         Ok(result)
     }
 
-    pub fn query_next(
-        &self,
-    ) -> RS<Option<TupleField>> {
+    pub fn query_next(&self) -> RS<Option<TupleField>> {
         let mut g = self.result_set.lock().unwrap();
         match &*g {
-            None => {
-                Ok(None)
-            }
+            None => Ok(None),
             Some(result) => {
                 let opt = result.query_next()?;
                 if opt.is_none() {
@@ -154,12 +138,12 @@ impl Context {
 
     pub fn context(xid: XID) -> Option<Context> {
         let opt = XContext.get_sync(&xid);
-        opt.map(|e| { e.get().clone() })
+        opt.map(|e| e.get().clone())
     }
 
     pub fn remove(xid: XID) -> Option<Context> {
         let opt = XContext.remove_sync(&xid);
-        opt.map(|e| { e.1 })
+        opt.map(|e| e.1)
     }
 
     pub fn xid(&self) -> XID {
@@ -174,26 +158,21 @@ impl Context {
         Ok(s)
     }
 
-    pub fn query<R: Record>(
-        &self,
-        sql: &dyn SQLStmt,
-        param: &dyn SQLParams,
-    ) -> RS<RecordSet<R>> {
+    pub fn query<R: Record>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<RecordSet<R>> {
         self.inner.query(sql, param)
     }
 
-    pub fn query_raw(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
-        self.inner.query_raw(sql, param)
-    }
-
-    pub fn command(
+    pub fn query_raw(
         &self,
         sql: &dyn SQLStmt,
         param: &dyn SQLParams,
-    ) -> RS<u64> {
-        self.inner.command(sql, param)
+    ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
+        self.inner.query_raw(sql, param)
     }
 
+    pub fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.inner.command(sql, param)
+    }
 
     // for naive implementation
     pub fn cache_result(
@@ -203,38 +182,23 @@ impl Context {
         self.inner.cache_result(result)
     }
 
-    pub fn query_next(
-        &self,
-    ) -> RS<Option<TupleField>> {
+    pub fn query_next(&self) -> RS<Option<TupleField>> {
         self.inner.query_next()
     }
 }
 
-
-pub fn context(
-    conn: Arc<dyn DBConn>,
-) -> RS<Context> {
+pub fn context(conn: Arc<dyn DBConn>) -> RS<Context> {
     Context::create(conn)
 }
 
-pub fn query<R: Record>(
-    xid: XID,
-    sql: &dyn SQLStmt,
-    param: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+pub fn query<R: Record>(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<RecordSet<R>> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("no such transaction {}", xid))?;
     context.query(sql, param)
 }
 
-pub fn command(
-    xid: XID,
-    sql: &dyn SQLStmt,
-    param: &dyn SQLParams,
-) -> RS<u64> {
+pub fn command(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("no such transaction {}", xid))?;
     context.command(sql, param)
 }
-
-

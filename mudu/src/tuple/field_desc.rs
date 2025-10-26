@@ -8,10 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Metadata descriptor for a binary format tuple's field
 /// Contains structural information about how the field is stored in its binary format tuple
-#[derive(Clone, Debug,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldDesc {
     oid: OID,
     is_fixed_len: bool,

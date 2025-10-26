@@ -4,10 +4,7 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn new(
-        table_name: &'static str,
-        column_name: &'static str,
-    ) -> Project {
+    pub fn new(table_name: &'static str, column_name: &'static str) -> Project {
         Self {
             table_name,
             column_name,

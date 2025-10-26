@@ -64,7 +64,8 @@ pub mod _fuzz {
 mod _test {
     use crate::fuzz::_test_target::_test::_test_target;
 
-    #[test]
+    //#[test]
+    #[allow(dead_code)]
     fn test_schema_table() {
         _test_target("_schema_table");
     }

@@ -1,7 +1,7 @@
 [package]
 name = "mudu_gen"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 
 
@@ -12,6 +12,7 @@ project-root = { workspace = true }
 mudu = { workspace = true }
 sql_parser = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+rust-format = "0.3.4"
 
 [dev-dependencies]
 project-root = { workspace = true }

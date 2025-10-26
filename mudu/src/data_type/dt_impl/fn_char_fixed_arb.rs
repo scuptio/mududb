@@ -27,7 +27,7 @@ pub fn fn_char_arb_dt_param(u: &mut Unstructured) -> arbitrary::Result<ParamObj>
     let length = length % _ARB_MAX_STRING_LEN as u32;
     let info = ParamInfo {
         id: DatTypeID::CharFixedLen,
-        ty_param: vec![length.to_string()],
+        type_param: vec![length.to_string()],
     };
     Ok(info.to_object())
 }

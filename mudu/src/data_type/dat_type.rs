@@ -11,7 +11,7 @@ pub struct DatType {
 impl DatType {
     pub fn new_with_no_param(id: DatTypeID) -> Self {
         Self {
-            dat_type_obj: ParamObj::new_empty(id)
+            dat_type_obj: ParamObj::new_empty(id),
         }
     }
 

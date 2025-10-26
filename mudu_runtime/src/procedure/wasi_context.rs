@@ -38,7 +38,7 @@ impl ContextData {
     }
 
     pub fn get_memory(&self, id: u32) -> Option<Vec<u8>> {
-        self.host_mem.remove_sync(&id).map(|(k, v)| v)
+        self.host_mem.remove_sync(&id).map(|(_k, v)| v)
     }
 }
 

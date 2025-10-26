@@ -2,7 +2,6 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 pub type Endian = NetworkEndian;
 
-
 #[inline]
 pub fn write_u64(buf: &mut [u8], n: u64) {
     Endian::write_u64(buf, n);

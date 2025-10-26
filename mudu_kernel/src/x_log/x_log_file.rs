@@ -37,7 +37,7 @@ pub struct XLogFile {
 struct AsyncFile {
     channel_name: String,
     log_file_seq_no: u32,
-    buf: Vec<u8>,
+    _buf: Vec<u8>,
     file: File,
     file_size: u64,
 }
@@ -55,7 +55,7 @@ impl AsyncFile {
         Self {
             channel_name,
             log_file_seq_no,
-            buf: Default::default(),
+            _buf: Default::default(),
             file,
             file_size,
         }
@@ -71,7 +71,7 @@ impl AsyncFile {
         if self.file_size > cfg.log_file_size_limit() {
             panic!("size limit exceeded");
         }
-        let mut write_buf_offset = 0;
+        let mut _write_buf_offset = 0;
         let capacity_low =
             self.file_size as usize + ChunkHdr::size_of() + ChunkTail::size_of() + buf.len()
                 > cfg.log_file_size_limit() as usize;
@@ -79,20 +79,20 @@ impl AsyncFile {
         if capacity_low {
             let mut seq = 0;
             let mut last_chunk = false;
-            while buf.len() > write_buf_offset {
+            while buf.len() > _write_buf_offset {
                 let possible_write_len =
                     cfg.log_file_size_limit() as usize - self.file_size as usize;
                 if possible_write_len > ChunkHdr::size_of() + ChunkTail::size_of() {
                     let len1 = possible_write_len - ChunkHdr::size_of() - ChunkTail::size_of();
-                    let len = min(len1, buf.len() - write_buf_offset);
-                    let _buf = &buf[write_buf_offset..write_buf_offset + len];
+                    let len = min(len1, buf.len() - _write_buf_offset);
+                    let _buf = &buf[_write_buf_offset.._write_buf_offset + len];
                     let size =
                         write_chunk_to_u_file(&mut self.file, lsn, _buf, Some((seq, last_chunk)))
                             .await?;
-                    write_buf_offset += _buf.len();
+                    _write_buf_offset += _buf.len();
                     self.file_size += size as u64;
                     seq += 1;
-                    last_chunk = buf.len() == write_buf_offset;
+                    last_chunk = buf.len() == _write_buf_offset;
                     self.fsync().await?;
                 }
                 self.file_size = 0;
@@ -109,7 +109,7 @@ impl AsyncFile {
         } else {
             let size = write_chunk_to_u_file(&mut self.file, lsn, &buf, None).await?;
             file_offset += size as u64;
-            write_buf_offset += size;
+            _write_buf_offset += size;
             self.file_size = file_offset;
         }
 
@@ -232,7 +232,7 @@ impl XLogFile {
     }
 
     // if prev_seq_no == 0, then,
-
+    #[allow(dead_code)]
     fn consolidate_part(vec: Vec<Buf>) -> RS<XLBatch> {
         let mut buf = Buf::new();
         for v in vec {

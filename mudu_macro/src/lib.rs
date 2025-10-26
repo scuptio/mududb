@@ -2,33 +2,6 @@ use proc_macro::TokenStream;
 use quote::quote;
 
 
-
-fn build_return_and_desc(
-    index:u64,
-    type_str:String,
-    vec_return_binary:&mut Vec<TokenStream>,
-    vec_return_datum_desc:&mut Vec<TokenStream>,
-) {
-
-    let ts1 = quote! {
-       ::mudu::tuple::datum::binary_from_typed(&ret.#index, #type_str)
-    };
-    vec_return_binary.push(TokenStream::from(ts1));
-
-    let ts2 = quote! {
-        {
-            let (id, _) = mudu::data_type::dt_impl::lang::rust::dt_lang_name_to_id(&#type_str).unwrap();
-            let name = format!("ret_{}", #index);
-            let desc : ::mudu::tuple::datum_desc::DatumDesc = ::mudu::tuple::datum_desc::DatumDesc::new(
-              name,
-              ::mudu::data_type::dat_type::DatType::new_with_default_param(id)
-            );
-            desc
-        },
-    };
-    vec_return_datum_desc.push(TokenStream::from(ts2));
-}
-
 #[proc_macro_attribute]
 pub fn mudu_proc(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // todo do SQL semantic check here

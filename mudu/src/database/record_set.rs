@@ -15,7 +15,11 @@ pub struct RecordSet<R: Record> {
 
 impl<R: Record> RecordSet<R> {
     pub fn new(result_set: Arc<dyn ResultSet>, desc: Arc<TupleFieldDesc>) -> Self {
-        Self { phantom: PhantomData, desc, result_set }
+        Self {
+            phantom: PhantomData,
+            desc,
+            result_set,
+        }
     }
 }
 

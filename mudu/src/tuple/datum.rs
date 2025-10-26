@@ -11,15 +11,16 @@ use crate::tuple::dat_internal::DatInternal;
 use crate::tuple::dat_printable::DatPrintable;
 use crate::tuple::datum_desc::DatumDesc;
 use lazy_static::lazy_static;
+use std::any::Any;
 use std::fmt;
 
-pub trait Datum: DatumDyn + 'static {
+pub trait Datum: DatumDyn + Clone + 'static {
     fn dat_type_id() -> DatTypeID;
 
     fn datum_desc() -> &'static DatumDesc;
 }
 
-pub trait DatumDyn: fmt::Debug + Sync {
+pub trait DatumDyn: fmt::Debug + Sync + Any {
     fn dat_type_id_self(&self) -> RS<DatTypeID>;
 
     fn to_typed(&self, param: &ParamObj) -> RS<DatTyped>;
@@ -33,7 +34,6 @@ pub trait DatumDyn: fmt::Debug + Sync {
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
 
-
 pub trait AsDatumDynRef {
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn;
 }
@@ -44,7 +44,7 @@ impl AsDatumDynRef for Box<dyn DatumDyn> {
     }
 }
 
-impl <U: AsDatumDynRef + ?Sized>  AsDatumDynRef for &U {
+impl<U: AsDatumDynRef + ?Sized> AsDatumDynRef for &U {
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn {
         (*self).as_datum_dyn_ref()
     }
@@ -52,7 +52,6 @@ impl <U: AsDatumDynRef + ?Sized>  AsDatumDynRef for &U {
 
 impl<'a, U: AsDatumDynRef> AsDatumDynRef for &'a [U] {
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn {
-
         if self.is_empty() {
             panic!("Empty slice");
         }
@@ -85,7 +84,10 @@ impl Datum for i32 {
 
     fn datum_desc() -> &'static DatumDesc {
         lazy_static! {
-            static ref DESC:DatumDesc = DatumDesc::new("".to_string(), DatType::new_with_default_param(i32::dat_type_id()));
+            static ref DESC: DatumDesc = DatumDesc::new(
+                "".to_string(),
+                DatType::new_with_default_param(i32::dat_type_id())
+            );
         }
         &DESC
     }
@@ -98,7 +100,10 @@ impl Datum for i64 {
 
     fn datum_desc() -> &'static DatumDesc {
         lazy_static! {
-            static ref DESC:DatumDesc = DatumDesc::new("".to_string(), DatType::new_with_default_param(i64::dat_type_id()));
+            static ref DESC: DatumDesc = DatumDesc::new(
+                "".to_string(),
+                DatType::new_with_default_param(i64::dat_type_id())
+            );
         }
         &DESC
     }
@@ -111,7 +116,10 @@ impl Datum for f32 {
 
     fn datum_desc() -> &'static DatumDesc {
         lazy_static! {
-            static ref DESC:DatumDesc = DatumDesc::new("".to_string(), DatType::new_with_default_param(f32::dat_type_id()));
+            static ref DESC: DatumDesc = DatumDesc::new(
+                "".to_string(),
+                DatType::new_with_default_param(f32::dat_type_id())
+            );
         }
         &DESC
     }
@@ -124,12 +132,14 @@ impl Datum for f64 {
 
     fn datum_desc() -> &'static DatumDesc {
         lazy_static! {
-            static ref DESC:DatumDesc = DatumDesc::new("".to_string(), DatType::new_with_default_param(f64::dat_type_id()));
+            static ref DESC: DatumDesc = DatumDesc::new(
+                "".to_string(),
+                DatType::new_with_default_param(f64::dat_type_id())
+            );
         }
         &DESC
     }
 }
-
 
 impl Datum for String {
     fn dat_type_id() -> DatTypeID {
@@ -138,7 +148,10 @@ impl Datum for String {
 
     fn datum_desc() -> &'static DatumDesc {
         lazy_static! {
-            static ref DESC:DatumDesc = DatumDesc::new("".to_string(), DatType::new_with_default_param(String::dat_type_id()));
+            static ref DESC: DatumDesc = DatumDesc::new(
+                "".to_string(),
+                DatType::new_with_default_param(String::dat_type_id())
+            );
         }
         &DESC
     }
@@ -160,12 +173,9 @@ impl DatumDyn for i32 {
         if param.dat_type_id() != DatTypeID::I32 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .send
-        )(&DatInternal::from_i32(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().send)(&DatInternal::from_i32(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -173,12 +183,9 @@ impl DatumDyn for i32 {
         if param.dat_type_id() != DatTypeID::I32 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .output
-        )(&DatInternal::from_i32(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().output)(&DatInternal::from_i32(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -193,7 +200,6 @@ impl DatumDyn for i32 {
         Box::new(self.clone())
     }
 }
-
 
 impl DatumDyn for i64 {
     fn dat_type_id_self(&self) -> RS<DatTypeID> {
@@ -211,12 +217,9 @@ impl DatumDyn for i64 {
         if param.dat_type_id() != DatTypeID::I64 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .send
-        )(&DatInternal::from_i64(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().send)(&DatInternal::from_i64(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -224,14 +227,9 @@ impl DatumDyn for i64 {
         if param.dat_type_id() != DatTypeID::I64 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .output
-        )(&DatInternal::from_i64(*self), param)
-            .map_err(|e| {
-                m_error!(EC::ConvertErr, "convert data format error", e)
-            })?
+        Ok(
+            (param.dat_type_id().fn_base().output)(&DatInternal::from_i64(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -260,14 +258,9 @@ impl DatumDyn for f32 {
         if param.dat_type_id() != DatTypeID::F32 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .send
-        )(&DatInternal::from_f32(*self), param)
-            .map_err(|e| {
-                m_error!(EC::ConvertErr, "convert data format error", e)
-            })?
+        Ok(
+            (param.dat_type_id().fn_base().send)(&DatInternal::from_f32(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -275,12 +268,9 @@ impl DatumDyn for f32 {
         if param.dat_type_id() != DatTypeID::F32 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .output
-        )(&DatInternal::from_f32(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().output)(&DatInternal::from_f32(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -312,12 +302,9 @@ impl DatumDyn for f64 {
         if param.dat_type_id() != DatTypeID::F64 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .send
-        )(&DatInternal::from_f64(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().send)(&DatInternal::from_f64(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -325,12 +312,9 @@ impl DatumDyn for f64 {
         if param.dat_type_id() != DatTypeID::F64 {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .output
-        )(&DatInternal::from_f64(*self), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().output)(&DatInternal::from_f64(*self), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -345,7 +329,6 @@ impl DatumDyn for f64 {
         Box::new(self.clone())
     }
 }
-
 
 impl DatumDyn for String {
     fn dat_type_id_self(&self) -> RS<DatTypeID> {
@@ -367,12 +350,9 @@ impl DatumDyn for String {
         {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .send
-        )(&DatInternal::from_any_type(self.clone()), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().send)(&DatInternal::from_any_type(self.clone()), param)
+                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -382,12 +362,12 @@ impl DatumDyn for String {
         {
             return Err(m_error!(EC::TypeErr));
         }
-        Ok((param
-            .dat_type_id()
-            .fn_base()
-            .output
-        )(&DatInternal::from_any_type(self.clone()), param)
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?
+        Ok(
+            (param.dat_type_id().fn_base().output)(
+                &DatInternal::from_any_type(self.clone()),
+                param,
+            )
+            .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
         )
     }
 
@@ -405,18 +385,10 @@ impl DatumDyn for String {
     }
 }
 
-fn binary_to_internal(vec: &Vec<u8>, param: &ParamObj) -> RS<DatInternal> {
-    let internal = param
-        .dat_type_id()
-        .fn_recv()(vec, param)
-        .map_err(|e| {
-            m_error!(EC::ConvertErr, "convert data format error", e)
-        })?;
-    Ok(internal)
-}
-
-
-pub fn binary_to_typed<T: 'static + Clone + DatumDyn, S: AsRef<str>>(data: &[u8], type_str: S) -> T {
+pub fn binary_to_typed<T: 'static + Clone + DatumDyn, S: AsRef<str>>(
+    data: &[u8],
+    type_str: S,
+) -> T {
     let (id, _) = dt_lang_name_to_id(type_str.as_ref()).unwrap();
     let param = ParamObj::default_for(id);
     let internal = id.fn_recv()(data, &param).unwrap();
@@ -424,10 +396,12 @@ pub fn binary_to_typed<T: 'static + Clone + DatumDyn, S: AsRef<str>>(data: &[u8]
     t.clone()
 }
 
-pub fn binary_from_typed<T: 'static + DatumDyn + Clone, S: AsRef<str>>(t: &T, type_str: S) -> Vec<u8> {
+pub fn binary_from_typed<T: 'static + DatumDyn + Clone, S: AsRef<str>>(
+    t: &T,
+    type_str: S,
+) -> Vec<u8> {
     let (id, _) = dt_lang_name_to_id(type_str.as_ref()).unwrap();
     let param = ParamObj::default_for(id);
     let binary = t.to_binary(&param).unwrap();
     binary.into()
 }
-

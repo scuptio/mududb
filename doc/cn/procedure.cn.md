@@ -186,7 +186,7 @@ pub trait DatumDyn: fmt::Debug + Sync {
 
 ```rust
 
-use mudu::{sql_param, sql_stmt, XID, RS, ER::MuduError};
+use mudu::{sql_params, sql_stmt, XID, RS, ER::MuduError};
 use crate::rust::wallets::object::Wallets;
 use uuid::Uuid;
 

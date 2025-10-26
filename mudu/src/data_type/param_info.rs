@@ -10,7 +10,7 @@ impl ParamInfo {
     pub fn from_text(data_type_id: DatTypeID, params: Vec<String>) -> Self {
         Self {
             id: data_type_id,
-            ty_param: params,
+            type_param: params,
         }
     }
     pub fn to_object(&self) -> ParamObj {
@@ -22,11 +22,8 @@ impl ParamInfo {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, Hash,
-    Serialize,
-    Deserialize)
-]
+#[derive(Eq, PartialEq, Clone, Debug, Hash, Serialize, Deserialize)]
 pub struct ParamInfo {
     pub id: DatTypeID,
-    pub ty_param: Vec<String>,
+    pub type_param: Vec<String>,
 }

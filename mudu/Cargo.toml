@@ -1,9 +1,7 @@
 [package]
 name = "mudu"
 version = "0.1.0"
-edition = "2021"
-
-
+edition = "2024"
 
 
 [dependencies]
@@ -22,6 +20,7 @@ num_enum = { version = "0.7.4" }
 fallible-iterator = "0.3.0"
 
 rmp-serde = { workspace = true }
+tracing = "0.1.41"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 console-subscriber = "0.4.1"
 arbitrary = { workspace = true }

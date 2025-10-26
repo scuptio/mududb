@@ -1,9 +1,6 @@
 use crate::{
     data_type::type_desc::TypeDesc,
-    tuple::{
-        datum_desc::DatumDesc,
-        tuple_binary_desc::TupleBinaryDesc,
-    },
+    tuple::{datum_desc::DatumDesc, tuple_binary_desc::TupleBinaryDesc},
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,14 +24,13 @@ impl TupleFieldDesc {
     /// Converts to a binary tuple description with index mapping
     /// Returns a tuple of (binary_descriptor, original_to_normalized_index_mapping)
     pub fn to_tuple_binary_desc(&self) -> (TupleBinaryDesc, Vec<usize>) {
-        let type_descs_with_indices: Vec<(TypeDesc, usize)> = self.fields
+        let type_descs_with_indices: Vec<(TypeDesc, usize)> = self
+            .fields
             .iter()
             .enumerate()
             .map(|(original_index, field_desc)| {
-                let type_desc = TypeDesc::new(
-                    field_desc.dat_type_id(),
-                    field_desc.dat_type().param_info()
-                );
+                let type_desc =
+                    TypeDesc::new(field_desc.dat_type_id(), field_desc.dat_type().param_info());
                 (type_desc, original_index)
             })
             .collect();
@@ -58,10 +54,7 @@ mod tests {
     use super::*;
     use crate::{
         common::serde_utils::{deserialize_from_json, serialize_to_json},
-        data_type::{
-            dat_type::DatType,
-            dt_impl::dat_type_id::DatTypeID,
-        },
+        data_type::{dat_type::DatType, dt_impl::dat_type_id::DatTypeID},
         tuple::datum_desc::DatumDesc,
     };
 
@@ -78,6 +71,9 @@ mod tests {
         println!("Serialized JSON:\n{}", json);
 
         let deserialized_desc: TupleFieldDesc = deserialize_from_json(&json).unwrap();
-        assert_eq!(original_desc.fields().len(), deserialized_desc.fields().len());
+        assert_eq!(
+            original_desc.fields().len(),
+            deserialized_desc.fields().len()
+        );
     }
 }

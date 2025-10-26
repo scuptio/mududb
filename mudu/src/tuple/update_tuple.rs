@@ -16,11 +16,14 @@ pub fn update_tuple(
     delta: &mut Vec<UpdateDelta>,
 ) -> RS<()> {
     if index >= tuple_desc.field_count() {
-        Err(m_error!(EC::InternalErr, format!(
-            "tuple_slice index {} out of bounds, the maximum size {}",
-            index,
-            tuple_desc.field_count()
-        )))?;
+        Err(m_error!(
+            EC::InternalErr,
+            format!(
+                "tuple_slice index {} out of bounds, the maximum size {}",
+                index,
+                tuple_desc.field_count()
+            )
+        ))?;
     }
 
     let field = tuple_desc.get_field_desc(index);
@@ -41,7 +44,8 @@ pub fn update_tuple(
                 Slot::size_of() as u32,
                 slot_binary,
             );
-            let up_data = UpdateDelta::new(slot.offset() as u32, slot.length() as u32, value.clone());
+            let up_data =
+                UpdateDelta::new(slot.offset() as u32, slot.length() as u32, value.clone());
             delta.push(up_slot);
             delta.push(up_data);
         } else {
@@ -89,4 +93,3 @@ pub fn update_tuple(
     };
     Ok(())
 }
-

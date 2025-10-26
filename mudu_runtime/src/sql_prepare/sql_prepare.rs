@@ -1,18 +1,18 @@
-use std::sync::Arc;
+use crate::resolver::schema_mgr::SchemaMgr;
+use crate::resolver::sql_resolver::SQLResolver;
+use crate::sql_prepare::parse_one::{parse_one_command, parse_one_query};
 use as_slice::AsSlice;
 use mudu::common::result::RS;
-use mudu::database::sql_stmt::{AsSQLStmtRef, SQLStmt};
+use mudu::database::sql_stmt::AsSQLStmtRef;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::tuple::datum::{AsDatumDynRef, DatumDyn};
+use mudu::tuple::datum::AsDatumDynRef;
 use mudu::tuple::datum_desc::DatumDesc;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::StmtCommand;
-use crate::resolver::schema_mgr::SchemaMgr;
-use crate::resolver::sql_resolver::SQLResolver;
-use crate::sql_prepare::parse_one::{parse_one_command, parse_one_query};
+use std::sync::Arc;
 
 pub struct SQLPrepare {
     parser: SQLParser,
@@ -20,23 +20,25 @@ pub struct SQLPrepare {
 }
 
 impl SQLPrepare {
-    pub fn new(ddl_path:&String) -> RS<SQLPrepare> {
+    pub fn new(ddl_path: &String) -> RS<SQLPrepare> {
         let schema_mgr = SchemaMgr::load_from_ddl_path(ddl_path)?;
         Ok(Self {
             parser: SQLParser::new(),
             resolver: SQLResolver::new(schema_mgr),
         })
     }
-    
-    fn prepare_sql(&self, _sql:&dyn SQLStmt) -> RS<()> {
-        todo!();
-        Ok(())
+
+    pub fn new_from_schema_mgr(mgr: SchemaMgr) -> RS<Self> {
+        Ok(Self {
+            parser: SQLParser::new(),
+            resolver: SQLResolver::new(mgr),
+        })
     }
-    
+
     /// FIXME replace_* is a temporary solution
     pub fn replace_query<
-        SQL:AsSQLStmtRef,
-        PARAMS: AsSlice<Element = Item>,
+        SQL: AsSQLStmtRef,
+        PARAMS: AsSlice<Element=Item>,
         Item: AsDatumDynRef,
     >(&self, sql: SQL, param: PARAMS) -> RS<(String, Arc<TupleFieldDesc>)> {
         let sql_string = sql.as_sql_stmt_ref().to_sql_string();
@@ -47,11 +49,11 @@ impl SQLPrepare {
         let sql = Self::replace_placeholder(&sql_string, resolved.placeholder(), param)?;
         Ok((sql, result_set_desc))
     }
-    
+
     /// FIXME replace_* is a temporary solution
     pub fn replace_command<
-        SQL:AsSQLStmtRef,
-        PARAMS: AsSlice<Element = Item>,
+        SQL: AsSQLStmtRef,
+        PARAMS: AsSlice<Element=Item>,
         Item: AsDatumDynRef,
     >(&self, sql: SQL, param: PARAMS) -> RS<String> {
         let sql_string = sql.as_sql_stmt_ref().to_sql_string();
@@ -60,21 +62,21 @@ impl SQLPrepare {
         let sql = Self::replace_placeholder(&sql_string, resolved.placeholder(), param)?;
         Ok(sql)
     }
-    
-    fn parse_one_query(&self, sql:&String) -> RS<StmtSelect> {
+
+    fn parse_one_query(&self, sql: &String) -> RS<StmtSelect> {
         parse_one_query(&self.parser, sql)
     }
-    
-    fn parse_one_command(&self, sql:&String) -> RS<StmtCommand> {
+
+    fn parse_one_command(&self, sql: &String) -> RS<StmtCommand> {
         parse_one_command(&self.parser, sql)
     }
-    
+
     fn replace_placeholder<
-        PARAMS: AsSlice <Element = Item> + ,
+        PARAMS: AsSlice<Element=Item> +,
         Item: AsDatumDynRef
     >(
         sql_string: &String,
-        desc: &Vec<DatumDesc>, param: PARAMS
+        desc: &Vec<DatumDesc>, param: PARAMS,
     ) -> RS<String> {
         let placeholder_str = "?";
         let placeholder_str_len = placeholder_str.len();
@@ -100,5 +102,4 @@ impl SQLPrepare {
         sql_after_replaced.push_str(" ");
         Ok(sql_after_replaced)
     }
-
 }

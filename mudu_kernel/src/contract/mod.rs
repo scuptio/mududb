@@ -14,7 +14,7 @@ pub mod waiter;
 pub mod xl_chunk;
 pub mod xl_rec;
 pub mod xl_batch;
-mod xl_d_up_tuple;
+pub mod xl_d_up_tuple;
 mod xl_d_insert;
 mod xl_d_delete;
 mod xl_op;

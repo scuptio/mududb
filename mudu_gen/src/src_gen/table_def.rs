@@ -1,5 +1,5 @@
-use crate::code_gen::column_def::TableColumnDef;
-use crate::code_gen::primary_key_def::PrimaryKeyDef;
+use crate::src_gen::column_def::TableColumnDef;
+use crate::src_gen::primary_key_def::PrimaryKeyDef;
 use mudu::common::result::RS;
 use mudu::tuple::datum_desc::DatumDesc;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;

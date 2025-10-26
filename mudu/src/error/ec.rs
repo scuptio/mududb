@@ -3,17 +3,17 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-
+pub const ERROR_CODE_START_AT: u32 = 10000;
+pub const ERROR_CODE_END_AT: u32 = EC::ErrCodeEnd as u32;
 /// Error code
 #[derive(
-    Debug, Clone, PartialEq, Eq,
-    Serialize, Deserialize,
-    IntoPrimitive, TryFromPrimitive
+    Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, IntoPrimitive, TryFromPrimitive,
 )]
 #[repr(u32)]
 pub enum EC {
     Ok = 0,
-    InternalErr = 1000,
+    ErrorCodeStart = ERROR_CODE_START_AT,
+    InternalErr,
     DecodeErr,
     EncodeErr,
     TupleErr,
@@ -42,6 +42,8 @@ pub enum EC {
     FatalError,
     ThreadErr,
     TokioErr,
+    OtherSourceErr,
+    ErrCodeEnd,
 }
 
 impl Display for EC {
@@ -51,9 +53,22 @@ impl Display for EC {
 }
 
 impl EC {
+    pub fn from_u32(ec: u32) -> Option<EC> {
+        if (ec != 0 && ec <= ERROR_CODE_START_AT) || ec >= ERROR_CODE_END_AT {
+            panic!("unknown error code {}", ec)
+        }
+        EC::try_from_primitive(ec).map_or_else(|_| None, |ec| Some(ec))
+    }
+
     pub fn message(&self) -> &'static str {
         match self {
             EC::Ok => "OK",
+            EC::ErrorCodeStart => {
+                panic!("EC error code start")
+            }
+            EC::ErrCodeEnd => {
+                panic!("EC error code end")
+            }
             EC::InternalErr => "Internal error",
             EC::DecodeErr => "Decode error",
             EC::EncodeErr => "Encode error",
@@ -82,6 +97,7 @@ impl EC {
             EC::FatalError => "Fatal error",
             EC::ThreadErr => "Thread error",
             EC::TokioErr => "Tokio error",
+            EC::OtherSourceErr => "Other source error",
         }
     }
 }

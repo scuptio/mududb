@@ -5,7 +5,6 @@ pub struct TupleField {
     fields: Vec<Vec<u8>>,
 }
 
-
 impl TupleField {
     pub fn new(fields: Vec<Vec<u8>>) -> TupleField {
         Self { fields }
