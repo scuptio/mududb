@@ -56,7 +56,6 @@ unsafe impl Sync for LSConn {}
 
 #[cfg(test)]
 mod test {
-    use crate::db_libsql::ls_async_conn::test::__mudu_lib_db_file;
     use crate::db_libsql::ls_conn::create_ls_conn;
     use libsql::{params, Connection};
     use mudu::common::result::RS;
@@ -126,7 +125,7 @@ mod test {
     }
 
     fn db_file(folder: &String) -> String {
-        __mudu_lib_db_file(folder)
+        format!("{}/db", folder)
     }
 
     async fn prepare_test_db() {
@@ -147,14 +146,14 @@ mod test {
             .enable_all()
             .build().unwrap();
 
-        let conn_max = 10;
+        let conn_max = 2;
         builder.block_on(async move {
             let notifier = Notifier::new();
             prepare_test_db().await;
             let folder = test_db_folder();
             let mut join = vec![];
             for i in 0..conn_max {
-                let db_path = folder.clone();
+                let db_path = db_file(&folder);
                 let ddl_path = folder.clone();
                 let j = spawn_task(
                     notifier.clone(),

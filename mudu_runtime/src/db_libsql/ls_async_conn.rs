@@ -32,13 +32,9 @@ struct LSAsyncConnInner {
 }
 
 
-const MUDU_LIB_SQL_DB: &str = "mudu.db";
-
-
-fn mudu_lib_db_file<P: AsRef<Path>>(folder: P) -> RS<String> {
-    let path = PathBuf::from(folder.as_ref());
-    let path2 = path.join(MUDU_LIB_SQL_DB);
-    let opt = path2.to_str();
+fn mudu_lib_db_file<P: AsRef<Path>>(db_path: P) -> RS<String> {
+    let path = PathBuf::from(db_path.as_ref());
+    let opt = path.to_str();
     match opt {
         Some(t) => { Ok(t.to_string()) }
         None => { Err(m_error!(EC::IOErr, "convert path to string error")) }
@@ -84,7 +80,6 @@ impl LSSyncConn {
             return Err(m_error!(EC::NoneErr, "empty DDL"));
         };
 
-        let _db_path = db_path.clone();
         let result = block_in_place(move ||
             Handle::current().block_on(
                 async move {
