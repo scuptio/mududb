@@ -18,7 +18,11 @@ pub fn read_slot(field_desc: &FieldDesc, tuple: &TupleSlice) -> RS<Slot> {
     Ok(slot)
 }
 
-pub fn read_data_capacity(index: usize, tuple_desc: &TupleBinaryDesc, tuple: &TupleSlice) -> RS<usize> {
+pub fn read_data_capacity(
+    index: usize,
+    tuple_desc: &TupleBinaryDesc,
+    tuple: &TupleSlice,
+) -> RS<usize> {
     let field = tuple_desc.get_field_desc(index);
     if index >= tuple_desc.field_count() {
         return Err(m_error!(EC::IndexOutOfRange));

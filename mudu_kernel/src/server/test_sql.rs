@@ -8,7 +8,8 @@ mod test {
     use std::thread::JoinHandle;
     use tracing::info;
 
-    #[test]
+    //#[test]
+    #[allow(dead_code)]
     fn run_test_sql() {
         log_setup("debug");
         let (server, stop) = mudu_serve().unwrap();

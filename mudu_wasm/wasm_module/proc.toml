@@ -6,32 +6,32 @@ name = "a"
 
 [param_desc.fields.dat_type]
 id = "I32"
-ty_param = []
+type_param = []
 
 [[param_desc.fields]]
 name = "b"
 
 [param_desc.fields.dat_type]
 id = "I64"
-ty_param = []
+type_param = []
 
 [[param_desc.fields]]
 name = "c"
 
 [param_desc.fields.dat_type]
 id = "CharVarLen"
-ty_param = ["65535"]
+type_param = ["65535"]
 
 [[return_desc.fields]]
 name = "t_0"
 
 [return_desc.fields.dat_type]
 id = "I32"
-ty_param = []
+type_param = []
 
 [[return_desc.fields]]
 name = "t_1"
 
 [return_desc.fields.dat_type]
 id = "CharVarLen"
-ty_param = ["65536"]
+type_param = ["65536"]

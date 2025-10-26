@@ -1,3 +1,5 @@
+#[allow(unused)]
+#[allow(dead_code)]
 pub mod rust;
 
 pub fn add(left: u64, right: u64) -> u64 {

@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone,
-    Serialize, Deserialize
-)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Serialize, Deserialize)]
 pub enum ErrConvert {
     ErrTypeConvert(String),
     ErrLowBufSpace(usize),
@@ -45,7 +43,6 @@ pub type FnRecv = fn(&[u8], &ParamObj) -> Result<DatInternal, ErrConvert>;
 pub type FnToTyped = fn(&DatInternal, &ParamObj) -> Result<DatTyped, ErrConvert>;
 
 pub type FnFromTyped = fn(&DatTyped, &ParamObj) -> Result<DatInternal, ErrConvert>;
-
 
 pub struct FnConvert {
     pub input: FnInput,

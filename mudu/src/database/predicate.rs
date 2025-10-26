@@ -1,16 +1,12 @@
 use crate::database::filter::Filter;
 
-
 pub struct Predicate {
     filter: Vec<Vec<Filter>>,
 }
 
-
 impl Predicate {
     pub fn new(filter_and: Vec<Filter>) -> Self {
-        let mut s = Self {
-            filter: Vec::new()
-        };
+        let mut s = Self { filter: Vec::new() };
         s.filter.push(filter_and);
         s
     }

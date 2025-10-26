@@ -1,18 +1,18 @@
 use crate::procedure::wasi_context::WasiContext;
 use mudu::procedure::proc_desc::ProcDesc;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
 use wasmtime::InstancePre;
 
+#[derive(Clone)]
 pub struct Procedure {
     proc_desc: Arc<ProcDesc>,
-    instance: InstancePre<WasiContext>,
+    instance: Arc<InstancePre<WasiContext>>,
 }
 
 impl Procedure {
     pub fn new(
         proc_desc: ProcDesc,
-        instance: InstancePre<WasiContext>,
+        instance: Arc<InstancePre<WasiContext>>,
     ) -> Self {
         Self {
             proc_desc: Arc::new(proc_desc),
@@ -29,14 +29,6 @@ impl Procedure {
     }
 
     pub fn instance(&self) -> &InstancePre<WasiContext> {
-        &self.instance
-    }
-
-    pub fn param_desc(&self) -> &TupleFieldDesc {
-        self.proc_desc.param_desc()
-    }
-
-    pub fn return_desc(&self) -> &TupleFieldDesc {
-        self.proc_desc.return_desc()
+        self.instance.as_ref()
     }
 }

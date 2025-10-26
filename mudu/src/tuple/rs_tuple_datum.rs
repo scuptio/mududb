@@ -13,10 +13,13 @@ use std::any::type_name;
 /**
 For a tuple (i32, String)
 ```
+    use crate::mudu::tuple::enumerable_datum::EnumerableDatum;
+    use crate::mudu::tuple::rs_tuple_datum::RsTupleDatum;
+
     let data = (42, "hello".to_string());
-    let desc = <(i32, String)>::tuple_desc();
-    let binary = data.to_binary(&desc).unwrap();
-    let decoded = <(i32, String)>::from_binary(&binary, &desc).unwrap();
+    let desc = <(i32, String)>::tuple_desc_static();
+    let binary = data.to_binary(desc.fields()).unwrap();
+    let decoded = <(i32, String)>::from_binary(&binary, desc.fields()).unwrap();
 ```
 **/
 
@@ -26,10 +29,8 @@ pub trait RsTupleDatum: EnumerableDatum + Sized + 'static {
 }
 
 fn datum_from_binary<T: DatumDyn + Clone + 'static>(slice: &[u8], desc: &DatumDesc) -> RS<T> {
-    let internal = desc
-        .dat_type_id()
-        .fn_recv()(slice, desc.param_obj())
-        .map_err(|e| { m_error!(EC::ConvertErr, "convert data format error", e) })?;
+    let internal = desc.dat_type_id().fn_recv()(slice, desc.param_obj())
+        .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
     let t = internal.into_to_typed::<T>();
     Ok(t)
 }
@@ -40,13 +41,15 @@ fn datum_to_binary<T: DatumDyn + Clone + 'static>(t: &T, desc: &DatumDesc) -> RS
 }
 
 fn names_to_desc(names: Vec<String>) -> TupleFieldDesc {
-    let desc: Vec<_> = names.iter()
+    let desc: Vec<_> = names
+        .iter()
         .enumerate()
         .map(|(i, name)| {
             let (id, _) = dt_lang_name_to_id(name).unwrap();
             let desc = DatumDesc::new(format!("t_{}", i), DatType::new_with_default_param(id));
             desc
-        }).collect();
+        })
+        .collect();
     TupleFieldDesc::new(desc)
 }
 
@@ -144,15 +147,41 @@ impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1, E1);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1, E1, F1);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1,
+    E1
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1,
+    E1, F1
+);

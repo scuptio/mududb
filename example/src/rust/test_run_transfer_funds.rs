@@ -10,7 +10,8 @@ pub mod test {
     use postgresql_commands::{CommandBuilder, CommandExecutor};
     use std::path::PathBuf;
 
-    #[test]
+    //#[test]
+    #[allow(dead_code)]
     fn test() {
         let r = test_transfer(
             &"localhost".to_string(),

@@ -2,13 +2,13 @@ use clap::Parser;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_gen::code_gen::ddl_parser::DDLParser;
-use mudu_gen::code_gen::src_gen::{Language, SrcGen};
+use mudu_gen::src_gen::ddl_parser::DDLParser;
+use mudu_gen::src_gen::src_gen::{Language, SrcGen};
 use std::fs;
 use std::fs::read_to_string;
 use std::path::Path;
 
-/// 简单的文件复制程序
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -38,9 +38,9 @@ fn gen_for_ddl_sql<P: AsRef<Path>>(
         })?;
     let ml_parser = DDLParser::new();
     let vec_table_def = ml_parser.parse(&sql_text)?;
-    let gen = SrcGen::new();
+    let src_gen = SrcGen::new();
     for table_def in vec_table_def.iter() {
-        let src = gen.gen(lang, &table_def)?;
+        let src = src_gen.generate(lang, &table_def)?;
         let out_src_path = out_path_buf.join(
             format!("{}.{}", table_def.table_name(), lang.lang_suffix()));
         fs::write(&out_src_path, src).map_err(|e| {

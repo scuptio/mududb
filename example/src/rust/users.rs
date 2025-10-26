@@ -1,22 +1,22 @@
 pub mod object {
-	use mudu::common::result::RS;
-	use mudu::data_type::dt_impl::dat_typed::DatTyped;
-	use mudu::database::attr_datum::AttrDatum;
-	use mudu::database::attribute::AttrValue;
-	use mudu::database::record::Record;
-	use mudu::database::row_desc::RowDesc;
-	use mudu::database::tuple_row::TupleRow;
-	use mudu::tuple::datum::Datum;
+    use lazy_static::lazy_static;
+    use mudu::common::result::RS;
+    use mudu::database::attr_binary::AttrBinary;
+    use mudu::database::attr_set_get::{attr_get_binary, attr_set_binary};
+    use mudu::database::attr_value::AttrValue;
+    use mudu::database::record::Record;
+    use mudu::database::record_convert_tuple::{record_from_tuple, record_to_tuple};
+    use mudu::tuple::datum_convert::{datum_from_binary, datum_to_binary};
+    use mudu::tuple::tuple_field::TupleField;
+    use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 
-
-	const TABLE_USERS: &str = "users";
+    const TABLE_USERS: &str = "users";
     const COLUMN_USER_ID: &str = "user_id";
     const COLUMN_NAME: &str = "name";
     const COLUMN_PHONE: &str = "phone";
     const COLUMN_EMAIL: &str = "email";
     const COLUMN_PASSWORD: &str = "password";
     const COLUMN_CREATED_AT: &str = "created_at";
-
 
     pub struct Users {
         user_id: Option<AttrUserId>,
@@ -47,7 +47,57 @@ pub mod object {
             s
         }
 
-        pub fn new_empty() -> Self {
+        pub fn set_user_id(&mut self, user_id: AttrUserId) {
+            self.user_id = Some(user_id);
+        }
+
+        pub fn get_user_id(&self) -> &Option<AttrUserId> {
+            &self.user_id
+        }
+
+        pub fn set_name(&mut self, name: AttrName) {
+            self.name = Some(name);
+        }
+
+        pub fn get_name(&self) -> &Option<AttrName> {
+            &self.name
+        }
+
+        pub fn set_phone(&mut self, phone: AttrPhone) {
+            self.phone = Some(phone);
+        }
+
+        pub fn get_phone(&self) -> &Option<AttrPhone> {
+            &self.phone
+        }
+
+        pub fn set_email(&mut self, email: AttrEmail) {
+            self.email = Some(email);
+        }
+
+        pub fn get_email(&self) -> &Option<AttrEmail> {
+            &self.email
+        }
+
+        pub fn set_password(&mut self, password: AttrPassword) {
+            self.password = Some(password);
+        }
+
+        pub fn get_password(&self) -> &Option<AttrPassword> {
+            &self.password
+        }
+
+        pub fn set_created_at(&mut self, created_at: AttrCreatedAt) {
+            self.created_at = Some(created_at);
+        }
+
+        pub fn get_created_at(&self) -> &Option<AttrCreatedAt> {
+            &self.created_at
+        }
+    }
+
+    impl Record for Users {
+        fn new_empty() -> Self {
             let s = Self {
                 user_id: None,
                 name: None,
@@ -58,260 +108,99 @@ pub mod object {
             };
             s
         }
-
-
-        fn get_datum<R, A: AttrValue<R>>(
-            attribute: &Option<A>
-        ) -> RS<Option<Datum>> {
-            let opt_datum = match attribute {
-                Some(value) => {
-                    Some(value.get_datum()?)
-                }
-                None => {
-                    None
-                }
-            };
-            Ok(opt_datum)
-        }
-
-
-        fn set_datum<R, A: AttrValue<R>, D: AsRef<Datum>>(
-			attribute: &mut Option<A>,
-			opt_datum: Option<D>,
-		) -> RS<()> {
-            match attribute {
-                Some(value) => {
-                    match opt_datum {
-                        Some(datum) => {
-                            value.set_datum(datum)?;
-                        }
-                        None => {
-                            value.set_datum(Datum::Null)?;
-                        }
-                    }
-                }
-                None => {
-                    match opt_datum {
-                        Some(datum) => {
-                            *attribute = Some(A::from_datum(datum.as_ref())?);
-                        }
-                        None => {
-                            *attribute = None;
-                        }
-                    }
-                }
+        fn tuple_desc() -> &'static TupleFieldDesc {
+            lazy_static! {
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrUserId::datum_desc().clone(),
+                    AttrName::datum_desc().clone(),
+                    AttrPhone::datum_desc().clone(),
+                    AttrEmail::datum_desc().clone(),
+                    AttrPassword::datum_desc().clone(),
+                    AttrCreatedAt::datum_desc().clone(),
+                ]);
             }
-            Ok(())
+            &TUPLE_DESC
         }
 
-        pub fn set_user_id(
-            &mut self,
-            user_id: AttrUserId,
-        ) {
-            self.user_id = Some(user_id);
-        }
-
-        pub fn get_user_id(
-            &self,
-        ) -> &Option<AttrUserId> {
-            &self.user_id
-        }
-
-        pub fn set_name(
-            &mut self,
-            name: AttrName,
-        ) {
-            self.name = Some(name);
-        }
-
-        pub fn get_name(
-            &self,
-        ) -> &Option<AttrName> {
-            &self.name
-        }
-
-        pub fn set_phone(
-            &mut self,
-            phone: AttrPhone,
-        ) {
-            self.phone = Some(phone);
-        }
-
-        pub fn get_phone(
-            &self,
-        ) -> &Option<AttrPhone> {
-            &self.phone
-        }
-
-        pub fn set_email(
-            &mut self,
-            email: AttrEmail,
-        ) {
-            self.email = Some(email);
-        }
-
-        pub fn get_email(
-            &self,
-        ) -> &Option<AttrEmail> {
-            &self.email
-        }
-
-        pub fn set_password(
-            &mut self,
-            password: AttrPassword,
-        ) {
-            self.password = Some(password);
-        }
-
-        pub fn get_password(
-            &self,
-        ) -> &Option<AttrPassword> {
-            &self.password
-        }
-
-        pub fn set_created_at(
-            &mut self,
-            created_at: AttrCreatedAt,
-        ) {
-            self.created_at = Some(created_at);
-        }
-
-        pub fn get_created_at(
-            &self,
-        ) -> &Option<AttrCreatedAt> {
-            &self.created_at
-        }
-    }
-
-    impl Record for Users {
         fn table_name() -> &'static str {
             TABLE_USERS
         }
 
-        fn from_tuple<T: AsRef<TupleRow>, D: AsRef<RowDesc>>(row: T, desc: D) -> RS<Self> {
-            let mut s = Self::new_empty();
-            if row.as_ref().items().len() != desc.as_ref().desc().len() {
-                panic!("Users::from_tuple wrong length");
-            }
-            for (i, dat) in row.as_ref().items().iter().enumerate() {
-                let dd = &desc.as_ref().desc()[i];
-                s.set(dd.name(), Some(dat.as_ref()))?;
-            }
-            Ok(s)
+        fn from_tuple<T: AsRef<TupleField>, D: AsRef<TupleFieldDesc>>(row: T, desc: D) -> RS<Self> {
+            record_from_tuple::<Self, T, D>(row, desc)
         }
 
-        fn to_tuple<D: AsRef<RowDesc>>(&self, desc: D) -> RS<TupleRow> {
-            let mut tuple = vec![];
-            for d in desc.as_ref().desc() {
-                let opt_datum = self.get(d.name())?;
-                if let Some(datum) = opt_datum {
-                    tuple.push(datum);
+        fn to_tuple<D: AsRef<TupleFieldDesc>>(&self, desc: D) -> RS<TupleField> {
+            record_to_tuple(self, desc)
+        }
+
+        fn get_binary(&self, column: &str) -> RS<Option<Vec<u8>>> {
+            match column {
+                COLUMN_USER_ID => attr_get_binary(&self.user_id),
+                COLUMN_NAME => attr_get_binary(&self.name),
+                COLUMN_PHONE => attr_get_binary(&self.phone),
+                COLUMN_EMAIL => attr_get_binary(&self.email),
+                COLUMN_PASSWORD => attr_get_binary(&self.password),
+                COLUMN_CREATED_AT => attr_get_binary(&self.created_at),
+                _ => {
+                    panic!("unknown name");
                 }
             }
-            Ok(TupleRow::new(tuple))
         }
 
-        fn get(&self, column: &str) -> RS<Option<Datum>> {
+        fn set_binary<B: AsRef<[u8]>>(&mut self, column: &str, binary: B) -> RS<()> {
             match column {
                 COLUMN_USER_ID => {
-                    Self::get_datum(&self.user_id)
+                    attr_set_binary(&mut self.user_id, binary.as_ref())?;
                 }
                 COLUMN_NAME => {
-                    Self::get_datum(&self.name)
+                    attr_set_binary(&mut self.name, binary.as_ref())?;
                 }
                 COLUMN_PHONE => {
-                    Self::get_datum(&self.phone)
+                    attr_set_binary(&mut self.phone, binary.as_ref())?;
                 }
                 COLUMN_EMAIL => {
-                    Self::get_datum(&self.email)
+                    attr_set_binary(&mut self.email, binary.as_ref())?;
                 }
                 COLUMN_PASSWORD => {
-                    Self::get_datum(&self.password)
+                    attr_set_binary(&mut self.password, binary.as_ref())?;
                 }
                 COLUMN_CREATED_AT => {
-                    Self::get_datum(&self.created_at)
+                    attr_set_binary(&mut self.created_at, binary.as_ref())?;
                 }
-                _ => { panic!("unknown name"); }
-            }
-        }
-
-        fn set<D: AsRef<Datum>>(&mut self, column: &str, opt_datum: Option<D>) -> RS<()> {
-            match column {
-                COLUMN_USER_ID => {
-                    Self::set_datum(&mut self.user_id, opt_datum)?;
+                _ => {
+                    panic!("unknown name");
                 }
-                COLUMN_NAME => {
-                    Self::set_datum(&mut self.name, opt_datum)?;
-                }
-                COLUMN_PHONE => {
-                    Self::set_datum(&mut self.phone, opt_datum)?;
-                }
-                COLUMN_EMAIL => {
-                    Self::set_datum(&mut self.email, opt_datum)?;
-                }
-                COLUMN_PASSWORD => {
-                    Self::set_datum(&mut self.password, opt_datum)?;
-                }
-                COLUMN_CREATED_AT => {
-                    Self::set_datum(&mut self.created_at, opt_datum)?;
-                }
-                _ => { panic!("unknown name"); }
             }
             Ok(())
         }
     }
-
 
     pub struct AttrUserId {
         value: i32,
     }
 
-    impl AttrUserId {
-        pub fn new(value: i32) -> Self {
-            Self { value }
-        }
-    }
+    impl AttrUserId {}
 
-    impl AttrDatum for AttrUserId {
-        fn get_datum(&self) -> RS<Datum> {
-            Ok(Datum::Typed(DatTyped::I32(self.value.clone())))
+    impl AttrBinary for AttrUserId {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    panic!("cannot set non-null attribute NULL")
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::I32(n) => {
-                            self.value = n.clone();
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: i32 = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<i32> for AttrUserId {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    panic!("cannot set non-null attribute NULL")
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::I32(value) => {
-                            Ok(Self { value: value.clone() })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: i32) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -320,20 +209,6 @@ pub mod object {
 
         fn column_name() -> &'static str {
             COLUMN_USER_ID
-        }
-
-        fn is_null(&self) -> bool {
-            false
-        }
-
-        fn get_opt_value(&self) -> Option<i32> {
-            Some(self.value.clone())
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<i32>) {
-            if let Some(value) = opt_value {
-                self.value = value;
-            }
         }
 
         fn get_value(&self) -> i32 {
@@ -346,58 +221,30 @@ pub mod object {
     }
 
     pub struct AttrName {
-        opt_value: Option<String>,
+        value: String,
     }
 
-    impl AttrName {
-        pub fn new(opt_value: Option<String>) -> Self {
-            Self { opt_value }
-        }
-    }
+    impl AttrName {}
 
-    impl AttrDatum for AttrName {
-        fn get_datum(&self) -> RS<Datum> {
-            match &self.opt_value {
-                None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
-            }
+    impl AttrBinary for AttrName {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    self.opt_value = None;
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(n) => {
-                            self.opt_value = Some(n.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: String = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<String> for AttrName {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    Ok(Self { opt_value: None })
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(value) => {
-                            Ok(Self { opt_value: Some(value.clone()) })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: String) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -408,84 +255,40 @@ pub mod object {
             COLUMN_NAME
         }
 
-        fn is_null(&self) -> bool {
-            self.opt_value.is_none()
-        }
-
-        fn get_opt_value(&self) -> Option<String> {
-            self.opt_value.clone()
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<String>) {
-            self.opt_value = opt_value;
-        }
-
         fn get_value(&self) -> String {
-            if let Some(value) = &self.opt_value {
-                value.clone()
-            } else {
-                panic!("attribute name is null");
-            }
+            self.value.clone()
         }
 
         fn set_value(&mut self, value: String) {
-            self.opt_value = Some(value);
+            self.value = value;
         }
     }
 
     pub struct AttrPhone {
-        opt_value: Option<String>,
+        value: String,
     }
 
-    impl AttrPhone {
-        pub fn new(opt_value: Option<String>) -> Self {
-            Self { opt_value }
-        }
-    }
+    impl AttrPhone {}
 
-    impl AttrDatum for AttrPhone {
-        fn get_datum(&self) -> RS<Datum> {
-            match &self.opt_value {
-                None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
-            }
+    impl AttrBinary for AttrPhone {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    self.opt_value = None;
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(n) => {
-                            self.opt_value = Some(n.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: String = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<String> for AttrPhone {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    Ok(Self { opt_value: None })
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(value) => {
-                            Ok(Self { opt_value: Some(value.clone()) })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: String) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -496,84 +299,40 @@ pub mod object {
             COLUMN_PHONE
         }
 
-        fn is_null(&self) -> bool {
-            self.opt_value.is_none()
-        }
-
-        fn get_opt_value(&self) -> Option<String> {
-            self.opt_value.clone()
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<String>) {
-            self.opt_value = opt_value;
-        }
-
         fn get_value(&self) -> String {
-            if let Some(value) = &self.opt_value {
-                value.clone()
-            } else {
-                panic!("attribute phone is null");
-            }
+            self.value.clone()
         }
 
         fn set_value(&mut self, value: String) {
-            self.opt_value = Some(value);
+            self.value = value;
         }
     }
 
     pub struct AttrEmail {
-        opt_value: Option<String>,
+        value: String,
     }
 
-    impl AttrEmail {
-        pub fn new(opt_value: Option<String>) -> Self {
-            Self { opt_value }
-        }
-    }
+    impl AttrEmail {}
 
-    impl AttrDatum for AttrEmail {
-        fn get_datum(&self) -> RS<Datum> {
-            match &self.opt_value {
-                None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
-            }
+    impl AttrBinary for AttrEmail {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    self.opt_value = None;
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(n) => {
-                            self.opt_value = Some(n.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: String = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<String> for AttrEmail {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    Ok(Self { opt_value: None })
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(value) => {
-                            Ok(Self { opt_value: Some(value.clone()) })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: String) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -584,84 +343,40 @@ pub mod object {
             COLUMN_EMAIL
         }
 
-        fn is_null(&self) -> bool {
-            self.opt_value.is_none()
-        }
-
-        fn get_opt_value(&self) -> Option<String> {
-            self.opt_value.clone()
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<String>) {
-            self.opt_value = opt_value;
-        }
-
         fn get_value(&self) -> String {
-            if let Some(value) = &self.opt_value {
-                value.clone()
-            } else {
-                panic!("attribute email is null");
-            }
+            self.value.clone()
         }
 
         fn set_value(&mut self, value: String) {
-            self.opt_value = Some(value);
+            self.value = value;
         }
     }
 
     pub struct AttrPassword {
-        opt_value: Option<String>,
+        value: String,
     }
 
-    impl AttrPassword {
-        pub fn new(opt_value: Option<String>) -> Self {
-            Self { opt_value }
-        }
-    }
+    impl AttrPassword {}
 
-    impl AttrDatum for AttrPassword {
-        fn get_datum(&self) -> RS<Datum> {
-            match &self.opt_value {
-                None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::String(value.clone())))
-            }
+    impl AttrBinary for AttrPassword {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    self.opt_value = None;
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(n) => {
-                            self.opt_value = Some(n.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: String = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<String> for AttrPassword {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    Ok(Self { opt_value: None })
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::String(value) => {
-                            Ok(Self { opt_value: Some(value.clone()) })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: String) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -672,84 +387,40 @@ pub mod object {
             COLUMN_PASSWORD
         }
 
-        fn is_null(&self) -> bool {
-            self.opt_value.is_none()
-        }
-
-        fn get_opt_value(&self) -> Option<String> {
-            self.opt_value.clone()
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<String>) {
-            self.opt_value = opt_value;
-        }
-
         fn get_value(&self) -> String {
-            if let Some(value) = &self.opt_value {
-                value.clone()
-            } else {
-                panic!("attribute password is null");
-            }
+            self.value.clone()
         }
 
         fn set_value(&mut self, value: String) {
-            self.opt_value = Some(value);
+            self.value = value;
         }
     }
 
     pub struct AttrCreatedAt {
-        opt_value: Option<i64>,
+        value: i64,
     }
 
-    impl AttrCreatedAt {
-        pub fn new(opt_value: Option<i64>) -> Self {
-            Self { opt_value }
-        }
-    }
+    impl AttrCreatedAt {}
 
-    impl AttrDatum for AttrCreatedAt {
-        fn get_datum(&self) -> RS<Datum> {
-            match &self.opt_value {
-                None => Ok(Datum::Null),
-                Some(value) => Ok(Datum::Typed(DatTyped::I64(value.clone())))
-            }
+    impl AttrBinary for AttrCreatedAt {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
         }
 
-        fn set_datum<D: AsRef<Datum>>(&mut self, datum: D) -> RS<()> {
-            match datum.as_ref() {
-                Datum::Null => {
-                    self.opt_value = None;
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::I64(n) => {
-                            self.opt_value = Some(n.clone());
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: i64 = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
             Ok(())
         }
     }
 
     impl AttrValue<i64> for AttrCreatedAt {
-        fn from_datum(datum: &Datum) -> RS<Self> {
-            match datum {
-                Datum::Null => {
-                    Ok(Self { opt_value: None })
-                }
-                Datum::Typed(typed) => {
-                    match typed {
-                        DatTyped::I64(value) => {
-                            Ok(Self { opt_value: Some(value.clone()) })
-                        }
-                        _ => { unimplemented!() }
-                    }
-                }
-                _ => { unimplemented!() }
-            }
+        fn new(datum: i64) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
         }
 
         fn table_name() -> &'static str {
@@ -760,28 +431,12 @@ pub mod object {
             COLUMN_CREATED_AT
         }
 
-        fn is_null(&self) -> bool {
-            self.opt_value.is_none()
-        }
-
-        fn get_opt_value(&self) -> Option<i64> {
-            self.opt_value.clone()
-        }
-
-        fn set_opt_value(&mut self, opt_value: Option<i64>) {
-            self.opt_value = opt_value;
-        }
-
         fn get_value(&self) -> i64 {
-            if let Some(value) = &self.opt_value {
-                value.clone()
-            } else {
-                panic!("attribute created_at is null");
-            }
+            self.value.clone()
         }
 
         fn set_value(&mut self, value: i64) {
-            self.opt_value = Some(value);
+            self.value = value;
         }
     }
 } // end mod object

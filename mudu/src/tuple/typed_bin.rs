@@ -1,4 +1,3 @@
-use std::fmt::{Debug, Formatter};
 use crate::common::result::RS;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
 use crate::data_type::dt_impl::dat_typed::DatTyped;
@@ -9,16 +8,16 @@ use crate::tuple::dat_binary::DatBinary;
 use crate::tuple::dat_internal::DatInternal;
 use crate::tuple::dat_printable::DatPrintable;
 use crate::tuple::datum::DatumDyn;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Clone)]
 pub struct TypedBin {
-    dat_type_id:DatTypeID,
-    bin:Vec<u8>
+    dat_type_id: DatTypeID,
+    bin: Vec<u8>,
 }
 
-
 impl TypedBin {
-    pub fn new(dat_type_id:DatTypeID, bin:Vec<u8>) -> Self {
+    pub fn new(dat_type_id: DatTypeID, bin: Vec<u8>) -> Self {
         Self { dat_type_id, bin }
     }
 }
@@ -38,13 +37,11 @@ impl DatumDyn for TypedBin {
 
     fn to_typed(&self, param: &ParamObj) -> RS<DatTyped> {
         let fn_recv = self.dat_type_id.fn_recv();
-        let internal = fn_recv(&self.bin, param).map_err(|e|{
-            m_error!(EC::ConvertErr, "to_typed error", e)
-        })?;
+        let internal =
+            fn_recv(&self.bin, param).map_err(|e| m_error!(EC::ConvertErr, "to_typed error", e))?;
         let fn_to_typed = self.dat_type_id.fn_to_typed();
-        let typed = fn_to_typed(&internal, param).map_err(|e|{
-            m_error!(EC::ConvertErr, "to_typed error", e)
-        })?;
+        let typed = fn_to_typed(&internal, param)
+            .map_err(|e| m_error!(EC::ConvertErr, "to_typed error", e))?;
         Ok(typed)
     }
 
@@ -54,22 +51,19 @@ impl DatumDyn for TypedBin {
 
     fn to_printable(&self, param: &ParamObj) -> RS<DatPrintable> {
         let fn_recv = self.dat_type_id.fn_recv();
-        let internal = fn_recv(&self.bin, param).map_err(|e|{
-            m_error!(EC::ConvertErr, "to_printable error", e)
-        })?;
+        let internal = fn_recv(&self.bin, param)
+            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
 
         let fn_output = self.dat_type_id.fn_output();
-        let output = fn_output(&internal, param).map_err(|e|{
-            m_error!(EC::ConvertErr, "to_printable error", e)
-        })?;
+        let output = fn_output(&internal, param)
+            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
         Ok(output)
     }
 
     fn to_internal(&self, param: &ParamObj) -> RS<DatInternal> {
         let fn_recv = self.dat_type_id.fn_recv();
-        let internal = fn_recv(&self.bin, param).map_err(|e|{
-            m_error!(EC::ConvertErr, "to_printable error", e)
-        })?;
+        let internal = fn_recv(&self.bin, param)
+            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
         Ok(internal)
     }
 

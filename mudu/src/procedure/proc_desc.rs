@@ -6,22 +6,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(
-    Clone,
-    Serialize,
-    Deserialize
-)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProcDesc {
-    proc_name: String,
     module_name: String,
+    proc_name: String,
     param_desc: TupleFieldDesc,
     return_desc: TupleFieldDesc,
 }
 
 impl ProcDesc {
     pub fn new(
-        proc_name: String,
         module_name: String,
+        proc_name: String,
         param_desc: TupleFieldDesc,
         return_desc: TupleFieldDesc,
     ) -> ProcDesc {
@@ -54,21 +50,14 @@ impl ProcDesc {
 
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> RS<()> {
         let s = self.to_toml_str();
-        fs::write(path, s).map_err(|e| {
-            m_error!(EC::IOErr, "write to file error", e)
-        })?;
+        fs::write(path, s).map_err(|e| m_error!(EC::IOErr, "write to file error", e))?;
         Ok(())
     }
 
     pub fn from_path<P: AsRef<Path>>(path: P) -> RS<Self> {
-        let s = fs::read_to_string(path)
-            .map_err(|e| {
-                m_error!(EC::IOErr, "read path error", e)
-            })?;
+        let s = fs::read_to_string(path).map_err(|e| m_error!(EC::IOErr, "read path error", e))?;
         let ret: Self = toml::from_str::<Self>(&s)
-            .map_err(|e| {
-                m_error!(EC::DecodeErr,  "decode from toml string error", e)
-            })?;
+            .map_err(|e| m_error!(EC::DecodeErr, "decode from toml string error", e))?;
         Ok(ret)
     }
 }
@@ -84,8 +73,8 @@ mod test {
         let param_desc = <(i32, i32, i64)>::tuple_desc_static();
         let return_desc = <(i32, String)>::tuple_desc_static();
         let proc_desc = ProcDesc::new(
-            "proc".to_string(),
             "mudu_wasm".to_string(),
+            "proc".to_string(),
             param_desc,
             return_desc,
         );

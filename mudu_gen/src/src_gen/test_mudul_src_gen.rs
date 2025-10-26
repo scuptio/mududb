@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::code_gen::ddl_parser::DDLParser;
-    use crate::code_gen::src_gen::{Language, SrcGen};
+    use crate::src_gen::ddl_parser::DDLParser;
+    use crate::src_gen::src_gen::{Language, SrcGen};
     use mudu::common::result::RS;
     use mudu::error::ec::EC;
     use mudu::m_error;
@@ -35,13 +35,13 @@ mod tests {
         let vec = parser.parse(text)?;
         let src_gen = SrcGen::new();
         for table_def in vec.iter() {
-            let text_src = src_gen.gen(Language::Rust, table_def)?;
+            let text_src = src_gen.generate(Language::Rust, table_def)?;
             let file_name = format!("{}.rs", table_def.table_name());
             let path = write_string_to_temp_file(text_src, file_name)?;
             let output = Command::new("rustc")
                 .arg("--emit=metadata")
                 .arg("--crate-type=lib") // crate-type=lib, no main
-                .arg("--edition=2021")   //   edition
+                .arg("--edition=2024")   //   edition
                 .arg(&path)
                 .output()
                 .map_err(|e| m_error!(EC::IOErr, "build command line", e))?;
@@ -91,7 +91,10 @@ mod tests {
 
         let file_path = path.join(file_name);
         println!("write to temp file: {:?}", file_path);
-        fs::write(&file_path, content).map_err(|e| m_error!(EC::IOErr, "write temp file error", e))?;
+        fs::write(&file_path, content)
+            .map_err(|e|
+                m_error!(EC::IOErr, "write temp file error", e)
+            )?;
         Ok(file_path)
     }
 }

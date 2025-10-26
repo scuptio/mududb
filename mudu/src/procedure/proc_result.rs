@@ -19,14 +19,9 @@ impl ProcResult {
                 let vec = t.to_binary(desc.fields())?;
                 (EC::Ok, vec)
             }
-            Err(e) => {
-                (e.ec(), vec![])
-            }
+            Err(e) => (e.ec(), vec![]),
         };
-        Ok(Self {
-            error,
-            result,
-        })
+        Ok(Self { error, result })
     }
 
     pub fn to<T: RsTupleDatum>(&self, desc: &TupleFieldDesc) -> RS<RS<T>> {
@@ -35,9 +30,7 @@ impl ProcResult {
                 let r = T::from_binary(&self.result, desc.fields())?;
                 Ok(Ok(r))
             }
-            _ => {
-                Ok(Err(m_error!(self.error.clone())))
-            }
+            _ => Ok(Err(m_error!(self.error.clone()))),
         }
     }
 
@@ -49,31 +42,22 @@ impl ProcResult {
                     let datum_desc = &desc.fields()[i];
                     let id = datum_desc.dat_type_id();
                     let internal = id.fn_recv()(s, datum_desc.param_obj())
-                        .map_err(|e| {
-                            m_error!(ConvertErr, "", e)
-                        })?;
+                        .map_err(|e| m_error!(ConvertErr, "", e))?;
                     let printable = id.fn_output()(&internal, datum_desc.param_obj())
-                        .map_err(|e| {
-                            m_error!(ConvertErr, "", e)
-                        })?;
+                        .map_err(|e| m_error!(ConvertErr, "", e))?;
                     vec.push(printable.into())
                 }
                 Ok(Ok(vec))
             }
-            _ => {
-                Ok(Err(m_error!(self.error.clone())))
-            }
+            _ => Ok(Err(m_error!(self.error.clone()))),
         }
     }
 
     pub fn new(result: RS<Vec<Vec<u8>>>) -> ProcResult {
         let (error, result) = match result {
             Ok(vec) => (EC::Ok, vec),
-            Err(e) => (e.ec(), vec![])
+            Err(e) => (e.ec(), vec![]),
         };
-        Self {
-            error,
-            result,
-        }
+        Self { error, result }
     }
 }

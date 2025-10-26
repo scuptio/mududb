@@ -59,13 +59,10 @@ fn _tuple_hash(desc: &TupleBinaryDesc, tuple: &[u8], hasher: &mut dyn Hasher) ->
 
 fn _hash_binary(id: DatTypeID, p: &ParamObj, val: &[u8], hasher: &mut dyn Hasher) -> RS<()> {
     let recv = id.fn_recv();
-    let v_internal = recv(val, p)
-        .map_err(|e|
-            m_error!(EC::ConvertErr, "convert data format error", e))?;
+    let v_internal =
+        recv(val, p).map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
     if let Some(h) = id.fn_hash() {
-        h(&v_internal, hasher)
-            .map_err(|e|
-                { m_error!(EC::CompareErr, "hash binary error", e) })
+        h(&v_internal, hasher).map_err(|e| m_error!(EC::CompareErr, "hash binary error", e))
     } else {
         Err(m_error!(EC::TupleErr))
     }

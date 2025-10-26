@@ -9,7 +9,7 @@ type FuzzRun = fn(&[u8]);
 
 lazy_static! {
     static ref _FUZZ_RUN: Vec<(&'static str, FuzzRun)> = vec![
-        /*
+
         (
             "_de_en_x_l_up_tuple",
             crate::contract::xl_d_up_tuple::_fuzz::_de_en_x_l_up_tuple,
@@ -22,21 +22,7 @@ lazy_static! {
             "_de_en_x_l_batch",
             crate::contract::xl_batch::_fuzz::_dc_en_x_l_batch,
         ),
-        (
-            "_schema_table",
-            crate::meta::test_schema::_fuzz::_schema_table,
-        ),
-        (
-            "_x_log_append",
-            crate::x_log::test_x_log::_fuzz::_x_log_append,
-        ),
         ("_gen_order_csv", crate::test::fuzz_gen_csv::_gen_order_csv,),
-        (
-            "_type_convert",
-            crate::data_type::test_type::_fuzz::_type_convert,
-        )
-
-         */
     ];
     static ref FUZZ_RUN: HashMap<&'static str, FuzzRun> = {
         let mut _vec = _FUZZ_RUN.clone();

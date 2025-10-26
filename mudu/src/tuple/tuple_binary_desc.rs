@@ -4,12 +4,7 @@ use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
 use serde::{Deserialize, Serialize};
 
-
-#[derive(
-    Clone, Debug,
-    Serialize,
-    Deserialize
-)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TupleBinaryDesc {
     offset_len_data_fixed: Vec<FieldDesc>,
     offset_len_slot_var: Vec<FieldDesc>,
@@ -153,7 +148,6 @@ fn _normalized<T>(vec_type_desc: Vec<(TypeDesc, T)>) -> (Vec<TypeDesc>, Vec<T>) 
     }
     (sorted_vec, payload_vec)
 }
-
 
 fn is_normalized(vec_type_desc: &[TypeDesc]) -> bool {
     for i in 0..vec_type_desc.len() {

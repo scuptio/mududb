@@ -1,16 +1,16 @@
-use crate::sql_prepare::parse_one::parse_one_query;
 use crate::db_postgres::result_set_pg::ResultSetPG;
 use crate::db_postgres::tx_pg::TxPg;
 use crate::resolver::schema_mgr::SchemaMgr;
 use crate::resolver::sql_resolver::SQLResolver;
+use crate::sql_prepare::parse_one::parse_one_query;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::database::db_conn::DBConn;
 use mudu::database::result_set::ResultSet;
+use mudu::database::sql_params::SQLParams;
 use mudu::database::sql_stmt::SQLStmt;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::tuple::datum::DatumDyn;
 use mudu::tuple::datum_desc::DatumDesc;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 #[cfg(not(target_arch = "wasm32"))]
@@ -19,7 +19,6 @@ use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use std::sync::{Arc, Mutex};
-use mudu::database::sql_params::SQLParams;
 
 pub fn create_pg_interactive_conn(
     conn_str: &String, ddl_path: &String,

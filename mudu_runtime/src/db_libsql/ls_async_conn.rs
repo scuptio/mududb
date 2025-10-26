@@ -1,45 +1,46 @@
-use std::mem;
-use std::path::{Path, PathBuf};
 use crate::db_libsql::ls_trans::LSTrans;
-use libsql::{params, Builder, Connection, Database, Error};
-use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use scc::HashMap;
-use std::sync::{Arc, Mutex};
+use crate::resolver::schema_mgr::SchemaMgr;
+use crate::sql_prepare::sql_prepare::SQLPrepare;
 use as_slice::AsSlice;
 use lazy_static::lazy_static;
-use tokio::runtime::Handle;
-use tokio::task::block_in_place;
+use libsql::{params, Builder, Connection, Database, Error};
+use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::database::result_set::ResultSet;
 use mudu::database::sql_params::SQLParams;
 use mudu::database::sql_stmt::{AsSQLStmtRef, SQLStmt};
-use mudu::tuple::datum::{AsDatumDynRef, DatumDyn};
+use mudu::error::ec::EC;
+use mudu::m_error;
+use mudu::tuple::datum::AsDatumDynRef;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;
-use crate::sql_prepare::sql_prepare::SQLPrepare;
+use scc::HashMap;
+use std::mem;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use tokio::runtime::Handle;
+use tokio::task::block_in_place;
 
 #[derive(Clone)]
 pub struct LSSyncConn {
-    inner:Arc<LSAsyncConnInner>
+    inner: Arc<LSAsyncConnInner>,
 }
 
 struct LSAsyncConnInner {
     conn: Connection,
-    prepare:SQLPrepare,
+    prepare: SQLPrepare,
     trans: Mutex<Option<LSTrans>>,
 }
 
 
-const MUDU_LIB_SQL_DB:&str = "mudu.db";
+const MUDU_LIB_SQL_DB: &str = "mudu.db";
 
 
-fn mudu_lib_db_file<P:AsRef<Path>>(folder:P) -> RS<String> {
+fn mudu_lib_db_file<P: AsRef<Path>>(folder: P) -> RS<String> {
     let path = PathBuf::from(folder.as_ref());
     let path2 = path.join(MUDU_LIB_SQL_DB);
     let opt = path2.to_str();
     match opt {
-        Some(t) => { Ok(t.to_string()) },
+        Some(t) => { Ok(t.to_string()) }
         None => { Err(m_error!(EC::IOErr, "convert path to string error")) }
     }
 }
@@ -49,13 +50,13 @@ lazy_static! {
 }
 
 
-async fn get_db(_path:String) -> RS<Arc<Database>> {
+async fn get_db(_path: String) -> RS<Arc<Database>> {
     let db_path = mudu_lib_db_file(_path)?;
-    let opt =  DB.get_async(&db_path).await;
+    let opt = DB.get_async(&db_path).await;
     let db = match opt {
         Some(db) => {
             return Ok(db.get().clone())
-        },
+        }
         None => {
             let db = Builder::new_local(&db_path)
                 .build().await.map_err(|e| {
@@ -72,8 +73,17 @@ async fn get_db(_path:String) -> RS<Arc<Database>> {
 
 
 impl LSSyncConn {
-    pub fn new(db_path:&String, ddl_path:&String) -> RS<Self> {
-        let sql_prepare = SQLPrepare::new(&ddl_path)?;
+    pub fn new(db_path: &String, app_name: &String, ddl_path: &String) -> RS<Self> {
+        let sql_prepare = if !app_name.is_empty() {
+            let schema_mgr = SchemaMgr::get_mgr(app_name)
+                .ok_or(m_error!(EC::NoneErr, "get schema mgr error"))?;
+            SQLPrepare::new_from_schema_mgr(schema_mgr)?
+        } else if !ddl_path.is_empty() {
+            SQLPrepare::new(&ddl_path)?
+        } else {
+            return Err(m_error!(EC::NoneErr, "empty DDL"));
+        };
+
         let _db_path = db_path.clone();
         let result = block_in_place(move ||
             Handle::current().block_on(
@@ -85,7 +95,7 @@ impl LSSyncConn {
         );
         let inner = result?;
         Ok(Self {
-            inner:Arc::new(inner),
+            inner: Arc::new(inner),
         })
     }
 
@@ -153,7 +163,7 @@ impl LSSyncConn {
 
 
 impl LSAsyncConnInner {
-    pub async fn new(db_path: String, prepare:SQLPrepare) -> RS<Self> {
+    pub async fn new(db_path: String, prepare: SQLPrepare) -> RS<Self> {
         let db = get_db(db_path.clone()).await?;
         let conn = db.connect().map_err(|e| {
             m_error!(EC::DBInternalError, "connect libsql DB error", e)
@@ -165,7 +175,7 @@ impl LSAsyncConnInner {
                 Ok(_) => { Ok(()) }
                 Err(e) => {
                     match e {
-                        Error::ExecuteReturnedRows=> {
+                        Error::ExecuteReturnedRows => {
                             // We can ignore the error and then the pragma is set
                             // https://github.com/tursodatabase/go-libsql/issues/28#issuecomment-2571633180
                             Ok(())
@@ -187,11 +197,12 @@ impl LSAsyncConnInner {
 
     pub async fn async_begin_tx(&self) -> RS<XID> {
         let mut guard = self.trans.lock()
-            .map_err(|e|{
+            .map_err(|_e| {
                 m_error!(EC::DBInternalError, "lock libsql DB error")
             })?;
+
         match &mut *guard {
-            Some(tx) => {
+            Some(_tx) => {
                 Err(m_error!(EC::DBInternalError, "transaction in processing"))
             }
             None => {
@@ -199,7 +210,7 @@ impl LSAsyncConnInner {
                     .map_err(|e| {
                         m_error!(EC::DBInternalError, "create transaction libsql DB error", e)
                     })?;
-                let tx = LSTrans::new(self.conn.clone(), trans);
+                let tx = LSTrans::new(trans);
                 let xid = tx.xid();
                 *guard = Some(tx);
                 Ok(xid)
@@ -209,7 +220,7 @@ impl LSAsyncConnInner {
 
     pub fn tx_move_out(&self) -> RS<LSTrans> {
         let mut guard = self.trans.lock()
-            .map_err(|e|{
+            .map_err(|_e| {
                 m_error!(EC::DBInternalError, "lock libsql DB error")
             })?;
         let mut opt_trans = None;
@@ -226,14 +237,14 @@ impl LSAsyncConnInner {
 
     pub async fn transaction<
         R,
-        H:AsyncFn(
+        H: AsyncFn(
             &LSTrans,
             &str,
-        ) -> RS<R>>(&self, h:H, sql:&str) -> RS<R> {
+        ) -> RS<R>>(&self, h: H, sql: &str) -> RS<R> {
         let mut guard = self.trans.lock()
-            .map_err(|e|{
+            .map_err(|_e| {
                 m_error!(EC::DBInternalError, "lock libsql DB error")
-        })?;
+            })?;
         match &mut *guard {
             Some(tx) => {
                 let r = h(tx, sql).await?;
@@ -247,31 +258,30 @@ impl LSAsyncConnInner {
 
 
     async fn async_query<
-        SQL:AsSQLStmtRef,
-        PARAMS: AsSlice<Element = Item>,
+        SQL: AsSQLStmtRef,
+        PARAMS: AsSlice<Element=Item>,
         Item: AsDatumDynRef,
     >(&self, sql: SQL, param: PARAMS) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
         let (s, desc) = self.prepare.replace_query(sql, param)?;
         let _desc = desc.clone();
         let rs = self.transaction(
-            async move  |tx, s| {
+            async move |tx, s| {
                 tx.query(&s, params!([]), _desc.clone()).await
-            }, &s
+            }, &s,
         ).await?;
         Ok((rs, desc))
     }
 
     async fn async_command<
-        SQL:AsSQLStmtRef,
-        PARAMS: AsSlice<Element = Item>,
+        SQL: AsSQLStmtRef,
+        PARAMS: AsSlice<Element=Item>,
         Item: AsDatumDynRef,
     >(&self, sql: SQL, param: PARAMS) -> RS<u64> {
-
         let s = self.prepare.replace_command(sql, param)?;
         let affected_rows = self.transaction(
-            async move  |tx, s| {
+            async move |tx, s| {
                 tx.command(&s, params!([])).await
-            }, &s
+            }, &s,
         ).await?;
         Ok(affected_rows)
     }
@@ -292,10 +302,10 @@ impl LSAsyncConnInner {
 
 #[cfg(test)]
 pub mod test {
-    use std::path::Path;
     use crate::db_libsql::ls_async_conn::mudu_lib_db_file;
+    use std::path::Path;
 
-    pub fn __mudu_lib_db_file<P:AsRef<Path>>(folder:P) -> String {
+    pub fn __mudu_lib_db_file<P: AsRef<Path>>(folder: P) -> String {
         mudu_lib_db_file(folder).unwrap()
     }
 }

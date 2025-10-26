@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::code_gen::ddl_parser::DDLParser;
-    use crate::code_gen::src_gen::{Language, SrcGen};
+    use crate::src_gen::ddl_parser::DDLParser;
+    use crate::src_gen::src_gen::{Language, SrcGen};
     use mudu::common::result::RS;
     use mudu::error::ec::EC;
 
@@ -29,7 +29,7 @@ mod tests {
             println!("{:?}", vec);
             let src_gen = SrcGen::new();
             for table_def in vec.iter() {
-                let src = src_gen.gen(Language::Rust, table_def)?;
+                let src = src_gen.generate(Language::Rust, table_def)?;
                 println!("{}", src);
             }
         }

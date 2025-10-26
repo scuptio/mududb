@@ -13,9 +13,8 @@ impl<'de> Deserialize<'de> for ParamObj {
         D: Deserializer<'de>,
     {
         let info: ParamInfo = Deserialize::deserialize(deserializer)?;
-        Self::from_info(&info).map_err(|e| {
-            Error::custom(format!("error deserializing param object: {:?}", e))
-        })
+        Self::from_info(&info)
+            .map_err(|e| Error::custom(format!("error deserializing param object: {:?}", e)))
     }
 }
 
@@ -47,8 +46,8 @@ impl ParamObj {
     pub fn default_for(id: DatTypeID) -> ParamObj {
         let opt = id.opt_fn_param();
         let param_obj = match opt {
-            Some(t) => { (t.default)() }
-            None => { ParamObj::new_empty(id) }
+            Some(t) => (t.default)(),
+            None => ParamObj::new_empty(id),
         };
         param_obj
     }
@@ -68,7 +67,7 @@ impl ParamObj {
     pub fn from_info(info: &ParamInfo) -> Result<Self, ErrParam> {
         let opt_param = get_fn_param(info.id.to_u32());
         if let Some(fn_param) = opt_param {
-            (fn_param.input)(&info.ty_param)
+            (fn_param.input)(&info.type_param)
         } else {
             Ok(ParamObj::from(info.id, vec![], ()))
         }
@@ -89,14 +88,14 @@ impl ParamObj {
     pub fn into_info(self) -> ParamInfo {
         ParamInfo {
             id: self.id,
-            ty_param: self.dat_params,
+            type_param: self.dat_params,
         }
     }
 
     pub fn to_info(&self) -> ParamInfo {
         ParamInfo {
             id: self.id,
-            ty_param: self.dat_params.clone(),
+            type_param: self.dat_params.clone(),
         }
     }
 

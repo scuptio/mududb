@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused)]
 pub mod fuzz;
 mod common;
 mod sync;

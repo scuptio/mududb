@@ -11,7 +11,6 @@ pub trait VecDynDatum: EnumerableDatum {
     fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<Vec<Box<dyn DatumDyn>>>;
 }
 
-
 impl EnumerableDatum for [&dyn DatumDyn] {
     fn to_binary(&self, desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
         if desc.len() != self.len() {
@@ -48,13 +47,9 @@ impl VecDynDatum for [&dyn DatumDyn] {
             let id = desc[i].dat_type_id();
             let param = desc[i].param_obj();
             let internal = id.fn_recv()(bin, param)
-                .map_err(|e| {
-                    m_error!(EC::ConvertErr, "convert fn_recv error", e)
-                })?;
+                .map_err(|e| m_error!(EC::ConvertErr, "convert fn_recv error", e))?;
             let dat_typed = id.fn_to_typed()(&internal, param)
-                .map_err(|e| {
-                    m_error!(EC::ConvertErr, "convert fn_to_typed error", e)
-                })?;
+                .map_err(|e| m_error!(EC::ConvertErr, "convert fn_to_typed error", e))?;
             vec.push(Box::new(dat_typed));
         }
         Ok(vec)

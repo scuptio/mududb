@@ -1,5 +1,9 @@
-
-
+use crate::common::result::RS;
+use crate::data_type::dat_type::DatType;
+use crate::tuple::datum::DatumDyn;
+use crate::tuple::datum_desc::DatumDesc;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
+use sealed::Sealed;
 
 mod sealed {
     /// This trait exists just to ensure that the only impls of `trait Params`
@@ -7,22 +11,15 @@ mod sealed {
     pub trait Sealed {}
 }
 
-use sealed::Sealed;
-use crate::common::result::RS;
-use crate::data_type::dat_type::DatType;
-use crate::tuple::datum::DatumDyn;
-use crate::tuple::datum_desc::DatumDesc;
-use crate::tuple::tuple_field_desc::TupleFieldDesc;
-
 pub trait SQLParams: Sealed {
     #[doc(hidden)]
     fn size(&self) -> u64;
 
     #[doc(hidden)]
-    fn get_idx(&self, n:u64) -> Option<&dyn DatumDyn>;
+    fn get_idx(&self, n: u64) -> Option<&dyn DatumDyn>;
 
     #[doc(hidden)]
-    fn get_idx_unchecked(&self, n:u64) -> &dyn DatumDyn {
+    fn get_idx_unchecked(&self, n: u64) -> &dyn DatumDyn {
         unsafe { self.get_idx(n).unwrap_unchecked() }
     }
     #[doc(hidden)]
@@ -53,7 +50,6 @@ pub trait SQLParams: Sealed {
     }
 }
 
-
 impl Sealed for [&dyn DatumDyn; 0] {}
 impl SQLParams for [&dyn DatumDyn; 0] {
     #[inline]
@@ -62,41 +58,40 @@ impl SQLParams for [&dyn DatumDyn; 0] {
     }
 
     #[inline]
-    fn get_idx(&self, _n:u64) -> Option<&dyn DatumDyn> {
+    fn get_idx(&self, _n: u64) -> Option<&dyn DatumDyn> {
         None
     }
 }
 
-impl Sealed for &[&dyn DatumDyn] {}
-impl SQLParams for &[&dyn DatumDyn] {
+impl Sealed for [&dyn DatumDyn] {}
+impl SQLParams for [&dyn DatumDyn] {
     #[inline]
     fn size(&self) -> u64 {
-        0
+        self.len() as u64
     }
 
     #[inline]
-    fn get_idx(&self, n:u64) -> Option<&dyn DatumDyn> {
+    fn get_idx(&self, n: u64) -> Option<&dyn DatumDyn> {
         if n > self.len() as u64 {
-            return None
+            return None;
         }
         Some(self[n as usize])
     }
 }
 
-
 impl Sealed for Vec<Box<dyn DatumDyn>> {}
 impl SQLParams for Vec<Box<dyn DatumDyn>> {
     #[inline]
     fn size(&self) -> u64 {
-        let vec:Vec<u8> = vec![];
+        let vec: Vec<u8> = vec![];
         vec.get(0).unwrap();
         self.len() as u64
     }
 
     #[inline]
-    fn get_idx(&self, n:u64) -> Option<&dyn DatumDyn> {
+    fn get_idx(&self, n: u64) -> Option<&dyn DatumDyn> {
         if n > self.len() as u64 {
-            return None
+            return None;
         }
         Some(self[n as usize].as_ref())
     }
@@ -112,29 +107,37 @@ impl SQLParams for () {
     }
 
     #[inline]
-    fn get_idx(&self, _n:u64) -> Option<&dyn DatumDyn> {
+    fn get_idx(&self, _n: u64) -> Option<&dyn DatumDyn> {
         None
     }
 }
 
-// I'm pretty sure you could tweak the `single_tuple_impl` to accept this.
-impl<T: DatumDyn> Sealed for (T,) {}
-impl<T: DatumDyn> SQLParams for (T,) {
-
+impl<T: DatumDyn> Sealed for T {}
+impl<T: DatumDyn> SQLParams for T {
     #[inline]
     fn size(&self) -> u64 {
         1
     }
 
     #[inline]
-    fn get_idx(&self, _n:u64) -> Option<&dyn DatumDyn> {
-        Some(&self.0)
+    fn get_idx(&self, _n: u64) -> Option<&dyn DatumDyn> {
+        Some(self)
     }
 }
 
+// I'm pretty sure you could tweak the `single_tuple_impl` to accept this.
+impl<T: DatumDyn> Sealed for (T,) {}
+impl<T: DatumDyn> SQLParams for (T,) {
+    #[inline]
+    fn size(&self) -> u64 {
+        1
+    }
 
-
-
+    #[inline]
+    fn get_idx(&self, _n: u64) -> Option<&dyn DatumDyn> {
+        Some(&self.0)
+    }
+}
 
 // count elements number
 macro_rules! count_ids {

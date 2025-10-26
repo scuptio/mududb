@@ -7,8 +7,7 @@ use crate::data_type::dt_fn_convert::{
 #[cfg(any(test, feature = "test"))]
 use crate::data_type::dt_impl::dat_table::get_fn_arbitrary;
 use crate::data_type::dt_impl::dat_table::{
-    get_dt_name, get_fn_convert,
-    get_opt_fn_compare, get_opt_fn_param, is_fixed_len, type_len,
+    get_dt_name, get_fn_convert, get_opt_fn_compare, get_opt_fn_param, is_fixed_len, type_len,
 };
 use crate::data_type::dt_param::{FnParam, FnParamDefault};
 use crate::data_type::param_obj::ParamObj;
@@ -17,10 +16,7 @@ use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
 
 #[repr(u32)]
-#[derive(
-    Hash, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Debug,
-    Serialize, Deserialize,
-)]
+#[derive(Hash, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "test"), derive(Arbitrary))]
 pub enum DatTypeID {
     I32 = 0,
@@ -127,5 +123,12 @@ impl DatTypeID {
 
     pub fn fn_param_default(&self) -> Option<FnParamDefault> {
         self.opt_fn_param().as_ref().map(|p| p.default)
+    }
+
+    pub fn is_primitive_type(&self) -> bool {
+        match self {
+            DatTypeID::I32 | DatTypeID::I64 | DatTypeID::F32 | DatTypeID::F64 => true,
+            _ => false,
+        }
     }
 }

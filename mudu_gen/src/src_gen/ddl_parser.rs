@@ -1,4 +1,4 @@
-use crate::code_gen::table_def::TableDef;
+use crate::src_gen::table_def::TableDef;
 use mudu::common::result::RS;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
