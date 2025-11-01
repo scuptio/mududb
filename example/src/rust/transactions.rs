@@ -12,6 +12,7 @@ pub mod object {
 
     const TABLE_TRANSACTIONS: &str = "transactions";
     const COLUMN_TRANS_ID: &str = "trans_id";
+    const COLUMN_TRANS_TYPE: &str = "trans_type";
     const COLUMN_FROM_USER: &str = "from_user";
     const COLUMN_TO_USER: &str = "to_user";
     const COLUMN_AMOUNT: &str = "amount";
@@ -19,6 +20,7 @@ pub mod object {
 
     pub struct Transactions {
         trans_id: Option<AttrTransId>,
+        trans_type: Option<AttrTransType>,
         from_user: Option<AttrFromUser>,
         to_user: Option<AttrToUser>,
         amount: Option<AttrAmount>,
@@ -28,6 +30,7 @@ pub mod object {
     impl Transactions {
         pub fn new(
             trans_id: AttrTransId,
+            trans_type: AttrTransType,
             from_user: AttrFromUser,
             to_user: AttrToUser,
             amount: AttrAmount,
@@ -35,6 +38,7 @@ pub mod object {
         ) -> Self {
             let s = Self {
                 trans_id: Some(trans_id),
+                trans_type: Some(trans_type),
                 from_user: Some(from_user),
                 to_user: Some(to_user),
                 amount: Some(amount),
@@ -49,6 +53,14 @@ pub mod object {
 
         pub fn get_trans_id(&self) -> &Option<AttrTransId> {
             &self.trans_id
+        }
+
+        pub fn set_trans_type(&mut self, trans_type: AttrTransType) {
+            self.trans_type = Some(trans_type);
+        }
+
+        pub fn get_trans_type(&self) -> &Option<AttrTransType> {
+            &self.trans_type
         }
 
         pub fn set_from_user(&mut self, from_user: AttrFromUser) {
@@ -88,6 +100,7 @@ pub mod object {
         fn new_empty() -> Self {
             let s = Self {
                 trans_id: None,
+                trans_type: None,
                 from_user: None,
                 to_user: None,
                 amount: None,
@@ -99,6 +112,7 @@ pub mod object {
             lazy_static! {
                 static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
                     AttrTransId::datum_desc().clone(),
+                    AttrTransType::datum_desc().clone(),
                     AttrFromUser::datum_desc().clone(),
                     AttrToUser::datum_desc().clone(),
                     AttrAmount::datum_desc().clone(),
@@ -123,6 +137,7 @@ pub mod object {
         fn get_binary(&self, column: &str) -> RS<Option<Vec<u8>>> {
             match column {
                 COLUMN_TRANS_ID => attr_get_binary(&self.trans_id),
+                COLUMN_TRANS_TYPE => attr_get_binary(&self.trans_type),
                 COLUMN_FROM_USER => attr_get_binary(&self.from_user),
                 COLUMN_TO_USER => attr_get_binary(&self.to_user),
                 COLUMN_AMOUNT => attr_get_binary(&self.amount),
@@ -137,6 +152,9 @@ pub mod object {
             match column {
                 COLUMN_TRANS_ID => {
                     attr_set_binary(&mut self.trans_id, binary.as_ref())?;
+                }
+                COLUMN_TRANS_TYPE => {
+                    attr_set_binary(&mut self.trans_type, binary.as_ref())?;
                 }
                 COLUMN_FROM_USER => {
                     attr_set_binary(&mut self.from_user, binary.as_ref())?;
@@ -159,7 +177,7 @@ pub mod object {
     }
 
     pub struct AttrTransId {
-        value: i32,
+        value: String,
     }
 
     impl AttrTransId {}
@@ -170,14 +188,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: i32 = datum_from_binary(binary.as_ref())?;
+            let value: String = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<i32> for AttrTransId {
-        fn new(datum: i32) -> Self {
+    impl AttrValue<String> for AttrTransId {
+        fn new(datum: String) -> Self {
             Self { value: datum }
         }
 
@@ -193,11 +211,55 @@ pub mod object {
             COLUMN_TRANS_ID
         }
 
-        fn get_value(&self) -> i32 {
+        fn get_value(&self) -> String {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: i32) {
+        fn set_value(&mut self, value: String) {
+            self.value = value;
+        }
+    }
+
+    pub struct AttrTransType {
+        value: String,
+    }
+
+    impl AttrTransType {}
+
+    impl AttrBinary for AttrTransType {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
+        }
+
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: String = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
+            Ok(())
+        }
+    }
+
+    impl AttrValue<String> for AttrTransType {
+        fn new(datum: String) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
+        }
+
+        fn table_name() -> &'static str {
+            TABLE_TRANSACTIONS
+        }
+
+        fn column_name() -> &'static str {
+            COLUMN_TRANS_TYPE
+        }
+
+        fn get_value(&self) -> String {
+            self.value.clone()
+        }
+
+        fn set_value(&mut self, value: String) {
             self.value = value;
         }
     }
@@ -291,7 +353,7 @@ pub mod object {
     }
 
     pub struct AttrAmount {
-        value: f64,
+        value: i32,
     }
 
     impl AttrAmount {}
@@ -302,14 +364,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: f64 = datum_from_binary(binary.as_ref())?;
+            let value: i32 = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<f64> for AttrAmount {
-        fn new(datum: f64) -> Self {
+    impl AttrValue<i32> for AttrAmount {
+        fn new(datum: i32) -> Self {
             Self { value: datum }
         }
 
@@ -325,17 +387,17 @@ pub mod object {
             COLUMN_AMOUNT
         }
 
-        fn get_value(&self) -> f64 {
+        fn get_value(&self) -> i32 {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: f64) {
+        fn set_value(&mut self, value: i32) {
             self.value = value;
         }
     }
 
     pub struct AttrCreatedAt {
-        value: i64,
+        value: i32,
     }
 
     impl AttrCreatedAt {}
@@ -346,14 +408,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: i64 = datum_from_binary(binary.as_ref())?;
+            let value: i32 = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<i64> for AttrCreatedAt {
-        fn new(datum: i64) -> Self {
+    impl AttrValue<i32> for AttrCreatedAt {
+        fn new(datum: i32) -> Self {
             Self { value: datum }
         }
 
@@ -369,11 +431,11 @@ pub mod object {
             COLUMN_CREATED_AT
         }
 
-        fn get_value(&self) -> i64 {
+        fn get_value(&self) -> i32 {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: i64) {
+        fn set_value(&mut self, value: i32) {
             self.value = value;
         }
     }

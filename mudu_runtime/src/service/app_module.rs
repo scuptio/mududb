@@ -24,5 +24,13 @@ impl AppModule {
     pub fn procedure(&self, proc_name: &str) -> Option<Procedure> {
         self.procedure.get_sync(proc_name).map(|e| e.get().clone())
     }
-}
 
+    pub fn procedure_list(&self) -> Vec<(String, String)> {
+        let mut vec = Vec::new();
+        self.procedure.iter_sync(|_k, v| {
+            vec.push((v.module_name().clone(), v.proc_name().clone()));
+            true
+        });
+        vec
+    }
+}

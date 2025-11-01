@@ -112,10 +112,10 @@ async fn encode_pg_wire_row_data(
                 let dat_type_id = field_desc.dat_type_id();
                 let internal = dat_type_id.fn_recv()
                     (&datum, field_desc.param_obj()).map_err(|e| {
-                    m_error!(ER::ConvertErr, "recv error", e)
+                    m_error!(ER::TypeBaseErr, "recv error", e)
                 })?;
                 let value = dat_type_id.fn_to_typed()(&internal, field_desc.param_obj()).map_err(|e| {
-                    m_error!(ER::ConvertErr, "to_typed error", e)
+                    m_error!(ER::TypeBaseErr, "to_typed error", e)
                 })?;
 
                 let r = match value {

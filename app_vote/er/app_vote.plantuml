@@ -1,0 +1,45 @@
+@startuml
+!theme plain
+top to bottom direction
+
+entity "User" as user {
+  * id : TEXT
+  * mobile : TEXT
+  * created_at : INTEGER
+}
+
+entity "Poll" as poll {
+  * id : TEXT
+  * user_id : TEXT
+  * title : TEXT
+  * end_time : INTEGER
+  * max_choices : INTEGER
+}
+
+entity "PollOption" as polloption {
+  * id : TEXT
+  * poll_id : TEXT
+  * option_text : TEXT
+}
+
+entity "UserVote" as uservote {
+  * id : TEXT
+  * user_id : TEXT
+  * poll_id : TEXT
+  * action : TEXT
+  * created_at : INTEGER
+}
+
+entity "UserVoteChoice" as uservotechoice {
+  * id : TEXT
+  * user_vote_id : TEXT
+  * option_id : TEXT
+}
+
+user ||..o{ poll : creates
+poll ||..o{ polloption : has
+poll ||..o{ uservote : has
+user ||..o{ uservote : makes
+uservote ||..o{ uservotechoice : has (if CAST)
+uservotechoice }o--|| polloption : references
+@enduml

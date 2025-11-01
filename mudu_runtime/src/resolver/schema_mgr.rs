@@ -16,12 +16,9 @@ pub struct SchemaMgr {
     map: Arc<Mutex<HashMap<String, TableDef>>>,
 }
 
-
-
 lazy_static! {
-    static ref _MGR : SCCHashMap<String, SchemaMgr> = SCCHashMap::new();
+    static ref _MGR: SCCHashMap<String, SchemaMgr> = SCCHashMap::new();
 }
-
 
 fn _mgr_get(app_name: &String) -> Option<SchemaMgr> {
     _MGR.get_sync(app_name).map(|e| e.get().clone())
@@ -58,19 +55,14 @@ impl SchemaMgr {
     pub fn load_from_ddl_path(ddl_path: &String) -> RS<SchemaMgr> {
         let parser = DDLParser::new();
         let schema_mgr = SchemaMgr::new_empty();
-        for entry in fs::read_dir(ddl_path)
-            .map_err(|e| {
-                m_error!(
-                    EC::MuduError,
-                    format!("read DDL SQL directory {:?} error", ddl_path),
-                    e
-                )
-            })?
-        {
-            let entry = entry
-                .map_err(|e| {
-                    m_error!(EC::MuduError, "entry  error", e)
-                })?;
+        for entry in fs::read_dir(ddl_path).map_err(|e| {
+            m_error!(
+                EC::MuduError,
+                format!("read DDL SQL directory {:?} error", ddl_path),
+                e
+            )
+        })? {
+            let entry = entry.map_err(|e| m_error!(EC::MuduError, "entry  error", e))?;
             let path = entry.path();
 
             // check if this is a file
@@ -79,14 +71,13 @@ impl SchemaMgr {
                     if ext.to_ascii_lowercase() == DDL_SQL_EXTENSION {
                         let r = read_to_string(path);
                         let str = match r {
-                            Ok(str) => { str }
+                            Ok(str) => str,
                             Err(e) => {
-                                return Err(
-                                    m_error!(
-                                        EC::IOErr,
-                                        format!("read ddl path {} failed", ddl_path),
-                                        e)
-                                );
+                                return Err(m_error!(
+                                    EC::IOErr,
+                                    format!("read ddl path {} failed", ddl_path),
+                                    e
+                                ));
                             }
                         };
                         schema_mgr.load_from_sql_text(&str, &parser)?;
@@ -98,10 +89,9 @@ impl SchemaMgr {
         Ok(schema_mgr)
     }
 
-
     pub fn new_empty() -> Self {
         Self {
-            map: Arc::new(Mutex::new(HashMap::new()))
+            map: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

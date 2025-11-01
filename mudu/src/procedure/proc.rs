@@ -5,7 +5,7 @@ use crate::error::err::MError;
 use crate::procedure::proc_param::ProcParam;
 use crate::procedure::proc_result::ProcResult;
 use std::slice;
-use tracing::error;
+use tracing::{error, info};
 
 pub fn invoke_proc(
     p1_ptr: *const u8,
@@ -36,9 +36,9 @@ fn _invoke_proc(
         })?;
         param
     };
-    println!("invoke function, param {:?}", &param);
+    info!("invoke function, param {:?}", &param);
     let result = f(param.xid(), param.into_param_vec());
-    println!("invoke function, return {:?}", &result);
+    info!("invoke function, return {:?}", &result);
     let out_buf = unsafe {
         let slice = slice::from_raw_parts_mut(p2_ptr, p2_len);
         slice
@@ -59,7 +59,8 @@ mod tests {
     }
 }
 
-pub const MUDU_PROC_PREFIX: &'static str = "mudu_proc_";
-pub const MUDU_PROC_INNER_PREFIX: &'static str = "mudu_proc_inner_";
-pub const MUDU_PROC_ARGV_DESC_PREFIX: &'static str = "mudu_proc_argv_desc_";
-pub const MUDU_PROC_RESULT_DESC_PREFIX: &'static str = "mudu_proc_result_desc_";
+pub const MUDU_PROC_PREFIX: &'static str = "mudu_";
+pub const MUDU_PROC_INNER_PREFIX: &'static str = "mudu_inner_";
+pub const MUDU_PROC_ARGV_DESC_PREFIX: &'static str = "mudu_argv_desc_";
+pub const MUDU_PROC_RESULT_DESC_PREFIX: &'static str = "mudu_result_desc_";
+pub const MUDU_PROC_PROC_DESC_PREFIX: &'static str = "mudu_proc_desc_";

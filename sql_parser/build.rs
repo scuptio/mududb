@@ -2,7 +2,6 @@ use crate::ts_const_gen::from_gram::gen_rs;
 use std::path::PathBuf;
 pub mod ts_const_gen;
 
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let path = PathBuf::from(&path).parent().unwrap().to_path_buf();

@@ -1,5 +1,6 @@
 #[allow(unused)]
 #[allow(dead_code)]
+#[cfg(target_arch = "wasm32")]
 pub mod rust;
 
 pub fn add(left: u64, right: u64) -> u64 {

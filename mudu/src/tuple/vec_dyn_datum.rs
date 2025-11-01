@@ -47,9 +47,9 @@ impl VecDynDatum for [&dyn DatumDyn] {
             let id = desc[i].dat_type_id();
             let param = desc[i].param_obj();
             let internal = id.fn_recv()(bin, param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert fn_recv error", e))?;
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert fn_recv error", e))?;
             let dat_typed = id.fn_to_typed()(&internal, param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert fn_to_typed error", e))?;
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert fn_to_typed error", e))?;
             vec.push(Box::new(dat_typed));
         }
         Ok(vec)

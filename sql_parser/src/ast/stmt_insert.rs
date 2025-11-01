@@ -1,7 +1,6 @@
 use crate::ast::ast_node::ASTNode;
 use crate::ast::expr_item::ExprValue;
 
-
 #[derive(Debug, Clone)]
 pub struct StmtInsert {
     table_reference: String,

@@ -21,7 +21,7 @@ project-root = { workspace = true }
 path = "src/lib.rs"
 
 [[bin]]
-name = "modul_gen"
+name = "mgen"
 path = "tool/main.rs"
 
 

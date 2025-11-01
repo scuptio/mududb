@@ -41,7 +41,7 @@ mod tests {
             let output = Command::new("rustc")
                 .arg("--emit=metadata")
                 .arg("--crate-type=lib") // crate-type=lib, no main
-                .arg("--edition=2024")   //   edition
+                .arg("--edition=2024") //   edition
                 .arg(&path)
                 .output()
                 .map_err(|e| m_error!(EC::IOErr, "build command line", e))?;
@@ -85,16 +85,12 @@ mod tests {
             .parent()
             .unwrap()
             .to_path_buf();
-        let path = path.join("example")
-            .join("src")
-            .join("rust");
+        let path = path.join("example").join("src").join("rust");
 
         let file_path = path.join(file_name);
         println!("write to temp file: {:?}", file_path);
         fs::write(&file_path, content)
-            .map_err(|e|
-                m_error!(EC::IOErr, "write temp file error", e)
-            )?;
+            .map_err(|e| m_error!(EC::IOErr, "write temp file error", e))?;
         Ok(file_path)
     }
 }

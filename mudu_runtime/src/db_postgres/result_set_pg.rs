@@ -14,7 +14,6 @@ pub struct ResultSetPG {
     rows: Mutex<Vec<Row>>,
 }
 
-
 impl ResultSetPG {
     pub fn new(desc: Arc<TupleFieldDesc>, rows: Vec<Row>) -> Self {
         Self {
@@ -62,9 +61,7 @@ impl ResultSet for ResultSetPG {
                 }
                 Ok(Some(TupleField::new(tuple_row)))
             }
-            None => {
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 }

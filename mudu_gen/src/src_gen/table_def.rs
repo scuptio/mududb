@@ -6,7 +6,6 @@ use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::stmt_create_table::StmtCreateTable;
 use std::collections::HashMap;
 
-
 #[derive(Debug, Clone)]
 pub struct TableDef {
     table_name: String,

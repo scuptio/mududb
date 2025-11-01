@@ -1,6 +1,6 @@
 use crate::common::endian::Endian;
 use crate::data_type::dt_fn_compare::{ErrCompare, FnCompare};
-use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
+use crate::data_type::dt_fn_convert::{ErrFnBase, FnBase};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
 use crate::data_type::param_obj::ParamObj;
 use crate::tuple::dat_binary::DatBinary;
@@ -10,14 +10,13 @@ use byteorder::ByteOrder;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 
-
-pub fn fn_i64_in(v: &DatPrintable, _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_i64_in(v: &DatPrintable, _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     let r_i = v.str().parse::<i64>();
-    let i = r_i.map_err(|e| ErrConvert::ErrTypeConvert(e.to_string()))?;
+    let i = r_i.map_err(|e| ErrFnBase::ErrTypeConvert(e.to_string()))?;
     Ok(DatInternal::from_i64(i))
 }
 
-pub fn fn_i64_out(v: &DatInternal, _p: &ParamObj) -> Result<DatPrintable, ErrConvert> {
+pub fn fn_i64_out(v: &DatInternal, _p: &ParamObj) -> Result<DatPrintable, ErrFnBase> {
     let i = v.to_i64();
     Ok(DatPrintable::from(i.to_string()))
 }
@@ -26,40 +25,44 @@ pub fn fn_i64_len(_opt_param: &ParamObj) -> Option<usize> {
     Some(size_of::<i64>())
 }
 
-pub fn fn_i64_send(v: &DatInternal, _p: &ParamObj) -> Result<DatBinary, ErrConvert> {
+pub fn fn_i64_send(v: &DatInternal, _p: &ParamObj) -> Result<DatBinary, ErrFnBase> {
     let i = v.to_i64();
     let mut buf = vec![0; size_of_val(&i)];
     Endian::write_i64(&mut buf, i);
     Ok(DatBinary::from(buf))
 }
 
-pub fn fn_i64_send_to(v: &DatInternal, _p: &ParamObj, buf: &mut [u8]) -> Result<usize, ErrConvert> {
+pub fn fn_i64_send_to(v: &DatInternal, _p: &ParamObj, buf: &mut [u8]) -> Result<usize, ErrFnBase> {
     let i = v.to_i64();
     let len = size_of_val(&i);
     if size_of_val(&i) < buf.len() {
-        return Err(ErrConvert::ErrLowBufSpace(len));
+        return Err(ErrFnBase::ErrLowBufSpace(len));
     }
     Endian::write_i64(buf, i);
     Ok(len)
 }
 
-pub fn fn_i64_recv(buf: &[u8], _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_i64_recv(buf: &[u8], _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     if size_of::<i64>() < buf.len() {
-        return Err(ErrConvert::ErrLowBufSpace(size_of::<i64>()));
+        return Err(ErrFnBase::ErrLowBufSpace(size_of::<i64>()));
     };
     let i = Endian::read_i64(buf);
     Ok(DatInternal::from_i64(i))
 }
 
-pub fn fn_i64_to_typed(v: &DatInternal, _p: &ParamObj) -> Result<DatTyped, ErrConvert> {
+pub fn fn_i64_to_typed(v: &DatInternal, _p: &ParamObj) -> Result<DatTyped, ErrFnBase> {
     Ok(DatTyped::I64(v.to_i64()))
 }
 
-pub fn fn_i64_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_i64_default(_p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
+    Ok(DatInternal::from_i64(i64::default()))
+}
+
+pub fn fn_i64_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     match v {
         DatTyped::I32(i) => Ok(DatInternal::from_i64(*i as i64)),
         DatTyped::I64(i) => Ok(DatInternal::from_i64(*i)),
-        _ => Err(ErrConvert::ErrTypeConvert(format!(
+        _ => Err(ErrFnBase::ErrTypeConvert(format!(
             "cannot convert {:?} to i64",
             v
         ))),
@@ -87,7 +90,7 @@ pub const FN_I64_COMPARE: FnCompare = FnCompare {
     hash: fn_i64_hash,
 };
 
-pub const FN_I64_CONVERT: FnConvert = FnConvert {
+pub const FN_I64_CONVERT: FnBase = FnBase {
     input: fn_i64_in,
     output: fn_i64_out,
     len: fn_i64_len,
@@ -96,4 +99,5 @@ pub const FN_I64_CONVERT: FnConvert = FnConvert {
     send_to: fn_i64_send_to,
     to_typed: fn_i64_to_typed,
     from_typed: fn_i64_from_typed,
+    default: fn_i64_default,
 };

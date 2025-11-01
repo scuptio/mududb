@@ -19,6 +19,10 @@ It implements a range of innovative features designed to leverage modern AI and 
 <img src="doc/pic/architecture.png" width="80%">
 
 ---
+
+## [How to start](doc/en/how_to_start.md)
+
+---
 ## Innovative Features of MuduDB
 
 ### 1. AI-Assisted Database Engineering

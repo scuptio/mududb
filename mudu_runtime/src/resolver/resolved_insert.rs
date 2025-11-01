@@ -14,7 +14,10 @@ impl ResolvedCommand for ResolvedInsert {
 }
 
 impl ResolvedInsert {
-    pub fn new(insert_value: Vec<(DatumDesc, ItemValue)>, placeholder: Vec<DatumDesc>) -> ResolvedInsert {
+    pub fn new(
+        insert_value: Vec<(DatumDesc, ItemValue)>,
+        placeholder: Vec<DatumDesc>,
+    ) -> ResolvedInsert {
         Self {
             insert_value,
             placeholder,

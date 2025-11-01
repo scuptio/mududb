@@ -13,17 +13,20 @@ pub mod object {
     const TABLE_WALLETS: &str = "wallets";
     const COLUMN_USER_ID: &str = "user_id";
     const COLUMN_BALANCE: &str = "balance";
+    const COLUMN_UPDATED_AT: &str = "updated_at";
 
     pub struct Wallets {
         user_id: Option<AttrUserId>,
         balance: Option<AttrBalance>,
+        updated_at: Option<AttrUpdatedAt>,
     }
 
     impl Wallets {
-        pub fn new(user_id: AttrUserId, balance: AttrBalance) -> Self {
+        pub fn new(user_id: AttrUserId, balance: AttrBalance, updated_at: AttrUpdatedAt) -> Self {
             let s = Self {
                 user_id: Some(user_id),
                 balance: Some(balance),
+                updated_at: Some(updated_at),
             };
             s
         }
@@ -43,6 +46,14 @@ pub mod object {
         pub fn get_balance(&self) -> &Option<AttrBalance> {
             &self.balance
         }
+
+        pub fn set_updated_at(&mut self, updated_at: AttrUpdatedAt) {
+            self.updated_at = Some(updated_at);
+        }
+
+        pub fn get_updated_at(&self) -> &Option<AttrUpdatedAt> {
+            &self.updated_at
+        }
     }
 
     impl Record for Wallets {
@@ -50,6 +61,7 @@ pub mod object {
             let s = Self {
                 user_id: None,
                 balance: None,
+                updated_at: None,
             };
             s
         }
@@ -58,6 +70,7 @@ pub mod object {
                 static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
                     AttrUserId::datum_desc().clone(),
                     AttrBalance::datum_desc().clone(),
+                    AttrUpdatedAt::datum_desc().clone(),
                 ]);
             }
             &TUPLE_DESC
@@ -79,6 +92,7 @@ pub mod object {
             match column {
                 COLUMN_USER_ID => attr_get_binary(&self.user_id),
                 COLUMN_BALANCE => attr_get_binary(&self.balance),
+                COLUMN_UPDATED_AT => attr_get_binary(&self.updated_at),
                 _ => {
                     panic!("unknown name");
                 }
@@ -92,6 +106,9 @@ pub mod object {
                 }
                 COLUMN_BALANCE => {
                     attr_set_binary(&mut self.balance, binary.as_ref())?;
+                }
+                COLUMN_UPDATED_AT => {
+                    attr_set_binary(&mut self.updated_at, binary.as_ref())?;
                 }
                 _ => {
                     panic!("unknown name");
@@ -178,6 +195,50 @@ pub mod object {
 
         fn column_name() -> &'static str {
             COLUMN_BALANCE
+        }
+
+        fn get_value(&self) -> i32 {
+            self.value.clone()
+        }
+
+        fn set_value(&mut self, value: i32) {
+            self.value = value;
+        }
+    }
+
+    pub struct AttrUpdatedAt {
+        value: i32,
+    }
+
+    impl AttrUpdatedAt {}
+
+    impl AttrBinary for AttrUpdatedAt {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
+        }
+
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: i32 = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
+            Ok(())
+        }
+    }
+
+    impl AttrValue<i32> for AttrUpdatedAt {
+        fn new(datum: i32) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
+        }
+
+        fn table_name() -> &'static str {
+            TABLE_WALLETS
+        }
+
+        fn column_name() -> &'static str {
+            COLUMN_UPDATED_AT
         }
 
         fn get_value(&self) -> i32 {

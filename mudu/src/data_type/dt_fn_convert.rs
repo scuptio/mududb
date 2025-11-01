@@ -8,43 +8,45 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Serialize, Deserialize)]
-pub enum ErrConvert {
+pub enum ErrFnBase {
     ErrTypeConvert(String),
     ErrLowBufSpace(usize),
 }
 
-impl Display for ErrConvert {
+impl Display for ErrFnBase {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("{:?}", self).as_str())
     }
 }
 
-impl Error for ErrConvert {}
+impl Error for ErrFnBase {}
 
 /// `FnInput` converts the type's external textual representation to the internal representation
 /// used by the operators and functions defined for the type.
-pub type FnInput = fn(&DatPrintable, &ParamObj) -> Result<DatInternal, ErrConvert>;
+pub type FnInput = fn(&DatPrintable, &ParamObj) -> Result<DatInternal, ErrFnBase>;
 
 /// `FnOutput` converts the type's the internal representation  used by the operators and functions
 /// defined for the type to external textual representation.
-pub type FnOutput = fn(&DatInternal, &ParamObj) -> Result<DatPrintable, ErrConvert>;
+pub type FnOutput = fn(&DatInternal, &ParamObj) -> Result<DatPrintable, ErrFnBase>;
 
 /// `FnLen` return the length of the type, if it is a fixed length type
 pub type FnLen = fn(&ParamObj) -> Option<usize>;
 
 /// `FnSend` converts from the internal representation to the external binary representation
-pub type FnSend = fn(&DatInternal, &ParamObj) -> Result<DatBinary, ErrConvert>;
+pub type FnSend = fn(&DatInternal, &ParamObj) -> Result<DatBinary, ErrFnBase>;
 
-pub type FnSendTo = fn(&DatInternal, &ParamObj, &mut [u8]) -> Result<usize, ErrConvert>;
+pub type FnSendTo = fn(&DatInternal, &ParamObj, &mut [u8]) -> Result<usize, ErrFnBase>;
 
 /// `FnRecv` converts from the external binary representation to the internal representation
-pub type FnRecv = fn(&[u8], &ParamObj) -> Result<DatInternal, ErrConvert>;
+pub type FnRecv = fn(&[u8], &ParamObj) -> Result<DatInternal, ErrFnBase>;
 
-pub type FnToTyped = fn(&DatInternal, &ParamObj) -> Result<DatTyped, ErrConvert>;
+pub type FnToTyped = fn(&DatInternal, &ParamObj) -> Result<DatTyped, ErrFnBase>;
 
-pub type FnFromTyped = fn(&DatTyped, &ParamObj) -> Result<DatInternal, ErrConvert>;
+pub type FnFromTyped = fn(&DatTyped, &ParamObj) -> Result<DatInternal, ErrFnBase>;
 
-pub struct FnConvert {
+pub type FnDefault = fn(&ParamObj) -> Result<DatInternal, ErrFnBase>;
+
+pub struct FnBase {
     pub input: FnInput,
     pub output: FnOutput,
     pub len: FnLen,
@@ -53,4 +55,5 @@ pub struct FnConvert {
     pub send_to: FnSendTo,
     pub to_typed: FnToTyped,
     pub from_typed: FnFromTyped,
+    pub default: FnDefault,
 }

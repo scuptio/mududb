@@ -9,10 +9,9 @@ pub enum ExprLiteral {
 impl ExprLiteral {
     pub fn dat_type(&self) -> &DatTyped {
         match self {
-            ExprLiteral::DatumLiteral(typed) => { typed }
+            ExprLiteral::DatumLiteral(typed) => typed,
         }
     }
 }
-
 
 impl ASTNode for ExprLiteral {}

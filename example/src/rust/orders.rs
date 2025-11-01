@@ -291,7 +291,7 @@ pub mod object {
     }
 
     pub struct AttrAmount {
-        value: f64,
+        value: i32,
     }
 
     impl AttrAmount {}
@@ -302,14 +302,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: f64 = datum_from_binary(binary.as_ref())?;
+            let value: i32 = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<f64> for AttrAmount {
-        fn new(datum: f64) -> Self {
+    impl AttrValue<i32> for AttrAmount {
+        fn new(datum: i32) -> Self {
             Self { value: datum }
         }
 
@@ -325,17 +325,17 @@ pub mod object {
             COLUMN_AMOUNT
         }
 
-        fn get_value(&self) -> f64 {
+        fn get_value(&self) -> i32 {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: f64) {
+        fn set_value(&mut self, value: i32) {
             self.value = value;
         }
     }
 
     pub struct AttrCreatedAt {
-        value: i64,
+        value: i32,
     }
 
     impl AttrCreatedAt {}
@@ -346,14 +346,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: i64 = datum_from_binary(binary.as_ref())?;
+            let value: i32 = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<i64> for AttrCreatedAt {
-        fn new(datum: i64) -> Self {
+    impl AttrValue<i32> for AttrCreatedAt {
+        fn new(datum: i32) -> Self {
             Self { value: datum }
         }
 
@@ -369,11 +369,11 @@ pub mod object {
             COLUMN_CREATED_AT
         }
 
-        fn get_value(&self) -> i64 {
+        fn get_value(&self) -> i32 {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: i64) {
+        fn set_value(&mut self, value: i32) {
             self.value = value;
         }
     }

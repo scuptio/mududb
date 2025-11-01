@@ -37,11 +37,11 @@ impl DatumDyn for TypedBin {
 
     fn to_typed(&self, param: &ParamObj) -> RS<DatTyped> {
         let fn_recv = self.dat_type_id.fn_recv();
-        let internal =
-            fn_recv(&self.bin, param).map_err(|e| m_error!(EC::ConvertErr, "to_typed error", e))?;
+        let internal = fn_recv(&self.bin, param)
+            .map_err(|e| m_error!(EC::TypeBaseErr, "to_typed error", e))?;
         let fn_to_typed = self.dat_type_id.fn_to_typed();
         let typed = fn_to_typed(&internal, param)
-            .map_err(|e| m_error!(EC::ConvertErr, "to_typed error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "to_typed error", e))?;
         Ok(typed)
     }
 
@@ -52,18 +52,18 @@ impl DatumDyn for TypedBin {
     fn to_printable(&self, param: &ParamObj) -> RS<DatPrintable> {
         let fn_recv = self.dat_type_id.fn_recv();
         let internal = fn_recv(&self.bin, param)
-            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "to_printable error", e))?;
 
         let fn_output = self.dat_type_id.fn_output();
         let output = fn_output(&internal, param)
-            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "to_printable error", e))?;
         Ok(output)
     }
 
     fn to_internal(&self, param: &ParamObj) -> RS<DatInternal> {
         let fn_recv = self.dat_type_id.fn_recv();
         let internal = fn_recv(&self.bin, param)
-            .map_err(|e| m_error!(EC::ConvertErr, "to_printable error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "to_printable error", e))?;
         Ok(internal)
     }
 

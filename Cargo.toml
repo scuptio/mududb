@@ -15,7 +15,7 @@ members = [
     "mudu_wasm",
     "mudu_utils",
     "sys_interface",
-    "mudu_kernel", "test_utils", "mudud",
+    "mudu_kernel", "test_utils", "mudud", "mpk",
 ]
 
 [workspace.dependencies]

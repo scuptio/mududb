@@ -7,7 +7,6 @@ pub enum Operator {
     OArithmetic(Arithmetic),
 }
 
-
 #[derive(Clone, Copy, Debug)]
 pub enum Arithmetic {
     PLUS,
@@ -64,7 +63,9 @@ impl Operator {
         match self {
             Operator::OValueCompare(_) => None,
             Operator::OLogicalConnective(c) => Some(c.clone()),
-            &Operator::OArithmetic(_) => { panic!("Arithmetic not supported"); }
+            &Operator::OArithmetic(_) => {
+                panic!("Arithmetic not supported");
+            }
         }
     }
 

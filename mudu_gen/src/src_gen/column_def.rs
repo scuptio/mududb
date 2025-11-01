@@ -9,12 +9,7 @@ pub struct TableColumnDef {
 }
 
 impl TableColumnDef {
-    pub fn new(
-        column_name: String,
-        data_type: DatType,
-        is_unique: bool,
-        not_null: bool,
-    ) -> Self {
+    pub fn new(column_name: String, data_type: DatType, is_unique: bool, not_null: bool) -> Self {
         Self {
             column_name,
             data_type,

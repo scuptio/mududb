@@ -1,7 +1,7 @@
 use libsql::Transaction;
 use libsql::{Row, Rows};
 use mudu::common::result::RS;
-use mudu::common::xid::{new_xid, XID};
+use mudu::common::xid::{XID, new_xid};
 use mudu::database::result_set::ResultSet;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -13,9 +13,8 @@ use mudu::tuple::datum_desc::DatumDesc;
 use mudu::tuple::tuple_field::TupleField;
 use mudu::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
-use tokio::runtime::Handle;
 use tokio::sync::Mutex;
-use tokio::task::block_in_place;
+use crate::async_utils::blocking;
 
 pub struct LSTrans {
     xid: XID,
@@ -30,6 +29,9 @@ struct ResultSetInner {
     row: Mutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
 }
+
+unsafe impl Send for LSTrans {}
+unsafe impl Sync for LSTrans {}
 
 impl LSTrans {
     pub fn new(trans: Transaction) -> LSTrans {
@@ -47,40 +49,40 @@ impl LSTrans {
         params: impl IntoParams,
         desc: Arc<TupleFieldDesc>,
     ) -> RS<Arc<dyn ResultSet>> {
-        let rows = self.trans.query(
-            sql,
-            params,
-        ).await.map_err(|e| {
-            m_error!(EC::DBInternalError, "query error", e)
-        })?;
+        let rows = self
+            .trans
+            .query(sql, params)
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "query error", e))?;
         let rs = Arc::new(LSResultSet::new(rows, desc));
         Ok(rs)
     }
 
-    pub async fn command(&self,
-                         sql: &str,
-                         params: impl IntoParams) -> RS<u64> {
-        let affected_rows = self.trans.execute(sql, params).await.map_err(|e| {
-            m_error!(EC::DBInternalError, "command error", e)
-        })?;
+    pub async fn command(&self, sql: &str, params: impl IntoParams) -> RS<u64> {
+        let affected_rows = self
+            .trans
+            .execute(sql, params)
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "command error", e))?;
         Ok(affected_rows)
     }
 
     pub async fn commit(self) -> RS<()> {
-        self.trans.commit().await.map_err(|e| {
-            m_error!(EC::DBInternalError, "commit error", e)
-        })?;
+        self.trans
+            .commit()
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "commit error", e))?;
         Ok(())
     }
 
     pub async fn rollback(self) -> RS<()> {
-        self.trans.rollback().await.map_err(|e| {
-            m_error!(EC::DBInternalError, "rollback error", e)
-        })?;
+        self.trans
+            .rollback()
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "rollback error", e))?;
         Ok(())
     }
 }
-
 
 impl LSResultSet {
     fn new(rows: Rows, desc: Arc<TupleFieldDesc>) -> LSResultSet {
@@ -93,32 +95,30 @@ impl LSResultSet {
 impl ResultSet for LSResultSet {
     fn next(&self) -> RS<Option<TupleField>> {
         let inner = self.inner.clone();
-        let r = block_in_place(move || {
-            Handle::current().block_on(async move {
-                inner.async_next().await
-            })
-        });
-        r
+        blocking::run_async(async move { inner.async_next().await })?
     }
 }
 
 impl ResultSetInner {
     fn new(row: Rows, tuple_desc: Arc<TupleFieldDesc>) -> ResultSetInner {
-        Self { row: Mutex::new(row), tuple_desc }
+        Self {
+            row: Mutex::new(row),
+            tuple_desc,
+        }
     }
 
     async fn async_next(&self) -> RS<Option<TupleField>> {
         let mut guard = self.row.lock().await;
-        let opt_row = guard.next().await
-            .map_err(|e| {
-                m_error!(EC::DBInternalError, "query result next", e)
-            })?;
+        let opt_row = guard
+            .next()
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "query result next", e))?;
         match opt_row {
             Some(row) => {
                 let items = libsql_row_to_tuple_item(row, self.tuple_desc.fields())?;
                 Ok(Some(items))
             }
-            None => { Ok(None) }
+            None => Ok(None),
         }
     }
 }
@@ -133,35 +133,40 @@ fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleField>
         let n = i as i32;
         let dat_typed = match desc.dat_type_id() {
             DatTypeID::I32 => {
-                let val = row.get::<i32>(n)
-                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error", e) })?;
+                let val = row
+                    .get::<i32>(n)
+                    .map_err(|e| m_error!(EC::DBInternalError, "get item of row error", e))?;
                 DatTyped::I32(val)
             }
             DatTypeID::I64 => {
-                let val = row.get::<i64>(n)
-                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error", e) })?;
+                let val = row
+                    .get::<i64>(n)
+                    .map_err(|e| m_error!(EC::DBInternalError, "get item of row error", e))?;
                 DatTyped::I64(val)
             }
             DatTypeID::F32 => {
-                let val = row.get::<f64>(n)
-                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error", e) })?;
+                let val = row
+                    .get::<f64>(n)
+                    .map_err(|e| m_error!(EC::DBInternalError, "get item of row error", e))?;
                 DatTyped::F32(val as _)
             }
             DatTypeID::F64 => {
-                let val = row.get::<f64>(n)
-                    .map_err(|_e| { m_error!(EC::DBInternalError, "get item of row error") })?;
+                let val = row
+                    .get::<f64>(n)
+                    .map_err(|_e| m_error!(EC::DBInternalError, "get item of row error"))?;
                 DatTyped::F64(val)
             }
             DatTypeID::CharVarLen | DatTypeID::CharFixedLen => {
-                let val = row.get::<String>(n)
-                    .map_err(|e| { m_error!(EC::DBInternalError, "get item of row error", e) })?;
+                let val = row
+                    .get::<String>(n)
+                    .map_err(|e| m_error!(EC::DBInternalError, "get item of row error", e))?;
                 DatTyped::String(val)
             }
         };
         let internal = desc.dat_type_id().fn_from_typed()(&dat_typed, desc.param_obj())
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data error", e) })?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data error", e))?;
         let binary = desc.dat_type_id().fn_send()(&internal, desc.param_obj())
-            .map_err(|e| { m_error!(EC::ConvertErr, "convert data error", e) })?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data error", e))?;
         vec.push(binary.into())
     }
     Ok(TupleField::new(vec))

@@ -14,12 +14,12 @@ mod tests {
 
     #[test]
     fn test_mudu_macro_macro() {
-        let argv_desc = mudu_proc_argv_desc_example();
-        let result_desc = mudu_proc_result_desc_example();
+        let argv_desc = mudu_argv_desc_example();
+        let result_desc = mudu_result_desc_example();
         let argv = ProcParam::from_datum_vec(0, &[&32i32, &64i64, &"s".to_string()], argv_desc).unwrap();
         let mut output_buf = vec![0u8; 10240usize];
         let input_buf = serialize_sized_to_vec(&argv).unwrap();
-        let r = mudu_proc_example(input_buf.as_ptr(), input_buf.len(), output_buf.as_mut_ptr(), output_buf.len());
+        let r = mudu_example(input_buf.as_ptr(), input_buf.len(), output_buf.as_mut_ptr(), output_buf.len());
         if r == 0 {
             let (result, _n): (ProcResult, _) = deserialize_sized_from(&output_buf).unwrap();
             let r = result.to::<(i64, String)>(result_desc).unwrap();

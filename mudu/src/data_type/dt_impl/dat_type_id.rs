@@ -2,7 +2,7 @@
 use crate::data_type::dt_fn_arbitrary::{FnArbParam, FnArbPrintable, FnArbValue, FnArbitrary};
 use crate::data_type::dt_fn_compare::{FnCompare, FnEqual, FnHash, FnOrder};
 use crate::data_type::dt_fn_convert::{
-    FnConvert, FnFromTyped, FnInput, FnOutput, FnRecv, FnSend, FnSendTo, FnToTyped,
+    FnBase, FnDefault, FnFromTyped, FnInput, FnOutput, FnRecv, FnSend, FnSendTo, FnToTyped,
 };
 #[cfg(any(test, feature = "test"))]
 use crate::data_type::dt_impl::dat_table::get_fn_arbitrary;
@@ -42,7 +42,7 @@ impl DatTypeID {
         unsafe { std::mem::transmute::<_, Self>(n) }
     }
 
-    pub fn fn_base(&self) -> &'static FnConvert {
+    pub fn fn_base(&self) -> &'static FnBase {
         get_fn_convert(self.to_u32())
     }
 
@@ -94,6 +94,10 @@ impl DatTypeID {
 
     pub fn fn_from_typed(&self) -> FnFromTyped {
         self.fn_base().from_typed
+    }
+
+    pub fn fn_default(&self) -> FnDefault {
+        self.fn_base().default
     }
 
     pub fn fn_order(&self) -> Option<FnOrder> {

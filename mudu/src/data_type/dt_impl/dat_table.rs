@@ -1,9 +1,8 @@
 #[cfg(any(test, feature = "test"))]
 use crate::data_type::dt_fn_arbitrary::FnArbitrary;
 use crate::data_type::dt_fn_compare::FnCompare;
-use crate::data_type::dt_fn_convert::FnConvert;
+use crate::data_type::dt_fn_convert::FnBase;
 use crate::data_type::dt_impl::dat_type_id::DatTypeID;
-
 
 use crate::data_type::dt_impl;
 
@@ -18,7 +17,7 @@ struct DatTypeDef {
     /// data type ID
     pub type_name: String,
     /// data type name in SQL
-    pub fn_base: FnConvert,
+    pub fn_base: FnBase,
     /// base function
     pub opt_fn_compare: Option<FnCompare>,
     /// optional compare function
@@ -118,7 +117,7 @@ pub fn get_dt_name(id: u32) -> &'static str {
     DAT_TABLE[id as usize].type_name.as_str()
 }
 
-pub fn get_fn_convert(id: u32) -> &'static FnConvert {
+pub fn get_fn_convert(id: u32) -> &'static FnBase {
     &DAT_TABLE[id as usize].fn_base
 }
 

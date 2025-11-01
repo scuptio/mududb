@@ -1,4 +1,4 @@
-use crate::common::bc::{hdr_size, tail_size, BCHdr, BCTail};
+use crate::common::bc::{BCHdr, BCTail, hdr_size, tail_size};
 use crate::common::bc_dec::{DecErr, Decoder};
 use crate::common::buf::Buf;
 use crate::common::crc::calc_crc;

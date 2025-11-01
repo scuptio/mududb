@@ -2,7 +2,6 @@ use crate::ast::ast_node::ASTNode;
 use crate::ast::stmt_type::StmtType;
 use std::fmt::{Debug, Formatter};
 
-
 pub struct StmtList {
     list: Vec<StmtType>,
 }
@@ -14,9 +13,7 @@ impl StmtList {
         if list.is_empty() {
             panic!("Cannot create a StmtList from an empty list");
         }
-        Self {
-            list
-        }
+        Self { list }
     }
 
     pub fn stmts(&self) -> &Vec<StmtType> {

@@ -11,7 +11,6 @@ pub struct ResolvedUpdate {
     place_holder: Vec<DatumDesc>,
 }
 
-
 impl ResolvedUpdate {
     pub fn new(
         table_name: String,
@@ -45,7 +44,6 @@ impl ResolvedUpdate {
         &self.set_value
     }
 }
-
 
 impl ResolvedCommand for ResolvedUpdate {
     fn placeholder(&self) -> &Vec<DatumDesc> {

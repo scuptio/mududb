@@ -8,18 +8,13 @@ use lazy_static::lazy_static;
 use scc::HashIndex;
 
 use crate::notifier::Notifier;
+use crate::task_id;
+use crate::task_id::TaskID;
 use mudu::common::result::RS;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::{select, task, task_local};
 use tracing::trace;
-use uuid::Uuid;
-
-/// TaskID use to store async task related context
-/// Any async function can have a TaskID parameter to retrieve this task context
-/// If rust can support [Custom Future contexts](https://github.com/rust-lang/rfcs/issues/2900)
-/// The context information can be kept in Future
-pub type TaskID = u128;
 
 task_local! {
     static TASK_ID: TaskID;
@@ -123,10 +118,6 @@ pub fn this_task_id() -> TaskID {
     TASK_ID.get()
 }
 
-fn new_task_id() -> TaskID {
-    Uuid::new_v4().as_u128()
-}
-
 impl TaskContext {
     fn new_context(id: TaskID, name: String, local_task: bool, notifier: Notifier) -> Arc<Self> {
         let r = Self {
@@ -207,7 +198,7 @@ where
     F: Future + 'static,
     F::Output: 'static,
 {
-    let id = new_task_id();
+    let id = task_id::new_task_id();
     let _ = TaskContext::new_context(id, _name.to_string(), false, cancel_notifier.clone());
     Ok(task::spawn_local(TASK_ID.scope(id, async move {
         let r = __select_local_till_done(cancel_notifier, future).await;
@@ -225,7 +216,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    let id = new_task_id();
+    let id = task_id::new_task_id();
     let _ = TaskContext::new_context(id, _name.to_string(), false, cancel_notifier.clone());
     Ok(task::spawn(TASK_ID.scope(id, async move {
         let r = __select_till_done(cancel_notifier, future).await;

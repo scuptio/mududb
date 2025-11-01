@@ -1,5 +1,5 @@
 use crate::data_type::dt_fn_compare::{ErrCompare, FnCompare};
-use crate::data_type::dt_fn_convert::{ErrConvert, FnConvert};
+use crate::data_type::dt_fn_convert::{ErrFnBase, FnBase};
 use crate::data_type::dt_impl::dat_typed::DatTyped;
 use crate::data_type::param_obj::ParamObj;
 use crate::tuple::dat_binary::DatBinary;
@@ -8,7 +8,7 @@ use crate::tuple::dat_printable::DatPrintable;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 
-pub fn fn_char_in(v: &DatPrintable, _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_char_in(v: &DatPrintable, _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     let s = v.str().to_string();
     Ok(DatInternal::from_any_type(s))
 }
@@ -25,50 +25,50 @@ pub fn fn_char_len(opt_params: &ParamObj) -> Option<usize> {
     Some(param_len(opt_params) as _)
 }
 
-pub fn fn_char_out(v: &DatInternal, _p: &ParamObj) -> Result<DatPrintable, ErrConvert> {
+pub fn fn_char_out(v: &DatInternal, _p: &ParamObj) -> Result<DatPrintable, ErrFnBase> {
     let s = v.to_typed_ref::<String>();
     let s_out = format!("'{}'", s);
     Ok(DatPrintable::from(s_out))
 }
 
-pub fn fn_char_send(v: &DatInternal, _p: &ParamObj) -> Result<DatBinary, ErrConvert> {
+pub fn fn_char_send(v: &DatInternal, _p: &ParamObj) -> Result<DatBinary, ErrFnBase> {
     let s = v.to_typed_ref::<String>();
     Ok(DatBinary::from(s.as_bytes().to_vec()))
 }
 
-pub fn fn_char_send_to(
-    v: &DatInternal,
-    _p: &ParamObj,
-    buf: &mut [u8],
-) -> Result<usize, ErrConvert> {
+pub fn fn_char_send_to(v: &DatInternal, _p: &ParamObj, buf: &mut [u8]) -> Result<usize, ErrFnBase> {
     let s = v.to_typed_ref::<String>();
     let vec = s.as_bytes().to_vec();
     if buf.len() < vec.len() {
-        return Err(ErrConvert::ErrLowBufSpace(vec.len()));
+        return Err(ErrFnBase::ErrLowBufSpace(vec.len()));
     }
     buf[0..vec.len()].copy_from_slice(vec.as_slice());
     Ok(vec.len())
 }
 
-pub fn fn_char_recv(buf: &[u8], _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_char_recv(buf: &[u8], _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     let _r = String::from_utf8(buf.to_vec());
-    let s = _r.map_err(|e| ErrConvert::ErrTypeConvert(e.to_string()))?;
+    let s = _r.map_err(|e| ErrFnBase::ErrTypeConvert(e.to_string()))?;
     Ok(DatInternal::from_any_type(s))
 }
 
-pub fn fn_char_to_typed(v: &DatInternal, _p: &ParamObj) -> Result<DatTyped, ErrConvert> {
+pub fn fn_char_to_typed(v: &DatInternal, _p: &ParamObj) -> Result<DatTyped, ErrFnBase> {
     let s = v.to_typed_ref::<String>();
     Ok(DatTyped::String(s.clone()))
 }
 
-pub fn fn_char_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, ErrConvert> {
+pub fn fn_char_from_typed(v: &DatTyped, _p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
     match v {
         DatTyped::String(i) => Ok(DatInternal::from_any_type(i.clone())),
-        _ => Err(ErrConvert::ErrTypeConvert(format!(
+        _ => Err(ErrFnBase::ErrTypeConvert(format!(
             "cannot convert {:?} to char",
             v
         ))),
     }
+}
+
+pub fn fn_char_default(_p: &ParamObj) -> Result<DatInternal, ErrFnBase> {
+    Ok(DatInternal::from_any_type(String::default()))
 }
 
 /// `FnOrder` returns ordering result of a comparison between two internal values.
@@ -97,7 +97,7 @@ pub const FN_CHAR_FIXED_COMPARE: FnCompare = FnCompare {
     hash: fn_char_hash,
 };
 
-pub const FN_CHAR_FIXED_CONVERT: FnConvert = FnConvert {
+pub const FN_CHAR_FIXED_CONVERT: FnBase = FnBase {
     input: fn_char_in,
     output: fn_char_out,
     len: fn_char_len,
@@ -106,4 +106,5 @@ pub const FN_CHAR_FIXED_CONVERT: FnConvert = FnConvert {
     send_to: fn_char_send_to,
     to_typed: fn_char_to_typed,
     from_typed: fn_char_from_typed,
+    default: fn_char_default,
 };

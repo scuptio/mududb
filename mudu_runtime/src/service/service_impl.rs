@@ -9,21 +9,27 @@ struct ServiceImpl {
 }
 
 impl ServiceImpl {
-    pub fn new(package_path: &String,
-               db_path: &String,
-    ) -> RS<Self> {
+    pub fn new(package_path: &String, db_path: &String) -> RS<Self> {
         let mut runtime = RuntimeSimple::new(package_path, db_path);
         runtime.initialized()?;
         let ret = Self {
-            runtime: Arc::new(runtime)
+            runtime: Arc::new(runtime),
         };
         Ok(ret)
     }
 }
 
 impl Service for ServiceImpl {
+    fn list(&self) -> Vec<String> {
+        self.runtime.list()
+    }
+
     fn app(&self, app_name: &String) -> Option<Arc<dyn AppInst>> {
         self.runtime.app(app_name)
+    }
+
+    fn install(&self, pkg_path: &String) -> RS<()> {
+        self.runtime.install(pkg_path)
     }
 }
 
