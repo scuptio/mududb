@@ -19,7 +19,7 @@ impl SrcGen {
 
     pub fn generate(&self, lang: Language, table_def: &TableDef) -> RS<String> {
         let builder: Arc<dyn SrcBuilder> = match lang {
-            Language::Rust => Arc::new(RustBuilder::new())
+            Language::Rust => Arc::new(RustBuilder::new()),
         };
         let mut s = String::new();
         builder.build(table_def, &mut s)?;

@@ -34,9 +34,9 @@ impl<'a, 'b> TupleRef<'a, 'b> {
         let recv = data_type.fn_recv();
         let to_typed = data_type.fn_to_typed();
         let internal = recv(binary, fd.type_param())
-            .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
         let typed_value = to_typed(&internal, fd.type_param())
-            .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
         Ok(typed_value)
     }
 

@@ -26,7 +26,6 @@ pub struct SQLResolver {
     schema_mgr: SchemaMgr,
 }
 
-
 impl SQLResolver {
     pub fn new(schema_mgr: SchemaMgr) -> Self {
         Self { schema_mgr }
@@ -65,27 +64,27 @@ impl SQLResolver {
             let value = assignment.get_set_value();
             let opt_column_def = table_def.find_column_def_by_name(column_name);
             let column_def = rs_option(opt_column_def, "no such column")?;
-            let desc = DatumDesc::new(column_def.column_name().clone(), column_def.data_type().clone());
+            let desc = DatumDesc::new(
+                column_def.column_name().clone(),
+                column_def.data_type().clone(),
+            );
             match value {
                 AssignedValue::Expression(_) => {
                     // todo set value expression could be > 1 placeholder, to fix it ...
                     vec_set_value.push((desc.clone(), ItemValue::Placeholder));
                     vec_placeholder.push(desc);
                 }
-                AssignedValue::Value(v) => {
-                    match v {
-                        ExprValue::ValueLiteral(v_l) => {
-                            vec_set_value.push((desc, ItemValue::Literal(v_l.dat_type().clone())));
-                        }
-                        ExprValue::ValuePlaceholder => {
-                            vec_set_value.push((desc.clone(), ItemValue::Placeholder));
-                            vec_placeholder.push(desc);
-                        }
+                AssignedValue::Value(v) => match v {
+                    ExprValue::ValueLiteral(v_l) => {
+                        vec_set_value.push((desc, ItemValue::Literal(v_l.dat_type().clone())));
                     }
-                }
+                    ExprValue::ValuePlaceholder => {
+                        vec_set_value.push((desc.clone(), ItemValue::Placeholder));
+                        vec_placeholder.push(desc);
+                    }
+                },
             }
         }
-
 
         real_where_predicate(
             &table_def,
@@ -119,7 +118,10 @@ impl SQLResolver {
 
         for value in stmt.values_list().iter() {
             if value_columns.len() != value.len() {
-                return Err(m_error!(EC::ParseErr, format!("column and value size are not equal {:?}", stmt)));
+                return Err(m_error!(
+                    EC::ParseErr,
+                    format!("column and value size are not equal {:?}", stmt)
+                ));
             }
         }
         if stmt.values_list().len() != 1 {
@@ -133,7 +135,7 @@ impl SQLResolver {
             let desc = DatumDesc::new(c_def.column_name().clone(), c_def.data_type().clone());
 
             let item_value = match v {
-                ExprValue::ValueLiteral(l) => { ItemValue::Literal(l.dat_type().clone()) }
+                ExprValue::ValueLiteral(l) => ItemValue::Literal(l.dat_type().clone()),
                 ExprValue::ValuePlaceholder => {
                     placeholder.push(desc.clone());
                     ItemValue::Placeholder
@@ -146,17 +148,22 @@ impl SQLResolver {
 
     fn get_column<'a>(table_def: &'a TableDef, column_name: &String) -> RS<&'a TableColumnDef> {
         let opt_column_def = table_def.find_column_def_by_name(column_name);
-        let column_def = rs_option(opt_column_def, &format!("no such column named {}", column_name))?;
+        let column_def = rs_option(
+            opt_column_def,
+            &format!("no such column named {}", column_name),
+        )?;
         Ok(column_def)
     }
 
     fn get_table(&self, table_name: &String) -> RS<TableDef> {
         let opt_table_def = self.schema_mgr.get(table_name)?;
-        let table_def = rs_option(opt_table_def, &format!("no such table named {}", table_name))?;
+        let table_def = rs_option(
+            opt_table_def,
+            &format!("no such table named {}", table_name),
+        )?;
         Ok(table_def)
     }
 }
-
 
 fn build_data_desc_for_name(column_name: &str, table_def: &TableDef) -> RS<DatumDesc> {
     let opt = table_def.find_column_def_by_name(column_name);
@@ -164,7 +171,6 @@ fn build_data_desc_for_name(column_name: &str, table_def: &TableDef) -> RS<Datum
     let datum_desc = DatumDesc::new(column_name.to_string(), column_def.data_type().clone());
     Ok(datum_desc)
 }
-
 
 fn real_where_predicate(
     table_def: &TableDef,
@@ -176,30 +182,34 @@ fn real_where_predicate(
         let right = predicate.right();
         let left = predicate.left();
         match (left, right) {
-            (ExprItem::ItemName(expr_name), ExprItem::ItemValue(value)) => {
-                match value {
-                    ExprValue::ValueLiteral(literal) => {
-                        let datum_desc = build_data_desc_for_name(expr_name.name(), &table_def)?;
-                        let literal_value = match literal {
-                            ExprLiteral::DatumLiteral(typed) => { typed.clone() }
-                        };
-                        let filter = Filter::new(*predicate.op(), ItemValue::Literal(literal_value));
-                        vec_predicate.push((datum_desc, filter));
-                    }
-                    ExprValue::ValuePlaceholder => {
-                        let datum_desc = build_data_desc_for_name(expr_name.name(), &table_def)?;
-                        let filter = Filter::new(*predicate.op(), ItemValue::Placeholder);
-                        vec_predicate.push((datum_desc.clone(), filter));
-                        vec_placeholder.push(datum_desc);
-                    }
+            (ExprItem::ItemName(expr_name), ExprItem::ItemValue(value)) => match value {
+                ExprValue::ValueLiteral(literal) => {
+                    let datum_desc = build_data_desc_for_name(expr_name.name(), &table_def)?;
+                    let literal_value = match literal {
+                        ExprLiteral::DatumLiteral(typed) => typed.clone(),
+                    };
+                    let filter = Filter::new(*predicate.op(), ItemValue::Literal(literal_value));
+                    vec_predicate.push((datum_desc, filter));
                 }
-            }
+                ExprValue::ValuePlaceholder => {
+                    let datum_desc = build_data_desc_for_name(expr_name.name(), &table_def)?;
+                    let filter = Filter::new(*predicate.op(), ItemValue::Placeholder);
+                    vec_predicate.push((datum_desc.clone(), filter));
+                    vec_placeholder.push(datum_desc);
+                }
+            },
             (_, _) => {
-                return Err(m_error!(EC::ParseErr, format!("\
+                return Err(m_error!(
+                    EC::ParseErr,
+                    format!(
+                        "\
 In where filter, the left must be name, \
 the right must be a placeholder or literal value,\
 but got {:?} {:?}\
-                ", left, right)));
+                ",
+                        left, right
+                    )
+                ));
             }
         }
     }

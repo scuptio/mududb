@@ -146,11 +146,34 @@ impl Context {
         opt.map(|e| e.1)
     }
 
+    pub fn commit(xid: XID) -> RS<()> {
+        let opt = XContext.remove_sync(&xid);
+        match opt {
+            Some(e) => e.1.commit_tx(),
+            None => Ok(()),
+        }
+    }
+
+    pub fn rollback(xid: XID) -> RS<()> {
+        let opt = XContext.remove_sync(&xid);
+        match opt {
+            Some(e) => e.1.rollback_tx(),
+            None => Ok(()),
+        }
+    }
+
     pub fn xid(&self) -> XID {
         self.inner.xid()
     }
+    fn rollback_tx(&self) -> RS<()> {
+        self.inner.context.rollback_tx()
+    }
 
-    pub fn new(conn: Arc<dyn DBConn>) -> RS<Self> {
+    fn commit_tx(&self) -> RS<()> {
+        self.inner.context.commit_tx()
+    }
+
+    fn new(conn: Arc<dyn DBConn>) -> RS<Self> {
         let s = Self {
             inner: Arc::new(ContextInner::new(conn)?),
         };
@@ -191,13 +214,13 @@ pub fn context(conn: Arc<dyn DBConn>) -> RS<Context> {
     Context::create(conn)
 }
 
-pub fn query<R: Record>(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<RecordSet<R>> {
+pub fn mudu_query<R: Record>(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<RecordSet<R>> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("no such transaction {}", xid))?;
     context.query(sql, param)
 }
 
-pub fn command(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+pub fn mudu_command(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("no such transaction {}", xid))?;
     context.command(sql, param)

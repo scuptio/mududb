@@ -1,6 +1,6 @@
 use crate::common::bc::{hdr_size, tail_size};
-use crate::common::bc_dec::{decode_binary, Decode};
-use crate::common::bc_enc::{encode_binary, Encode};
+use crate::common::bc_dec::{Decode, decode_binary};
+use crate::common::bc_enc::{Encode, encode_binary};
 #[cfg(any(test, feature = "test"))]
 use arbitrary::{Arbitrary, Unstructured};
 use std::fmt::Debug;

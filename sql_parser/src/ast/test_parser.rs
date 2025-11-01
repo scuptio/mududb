@@ -25,6 +25,16 @@ mod _test {
             .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
+
+        let sql2 = "
+        select
+            distinct column1,
+            column2
+        from table1
+        where column3 = 1"
+            .to_string();
+        let r = parse_sql(&sql2);
+        assert!(r.is_ok());
     }
 
     #[test]
@@ -86,7 +96,7 @@ WHERE CustomerID = 1;"
         'Norway'
     );
     "
-            .to_string();
+        .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
     }
@@ -101,7 +111,7 @@ WHERE CustomerID = 1;"
         Address char(255),
         City char(255)
     );"
-            .to_string();
+        .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
 
@@ -115,7 +125,7 @@ WHERE CustomerID = 1;"
            SALARY      INT,
            PRIMARY KEY (ID1, ID2)
     );"
-            .to_string();
+        .to_string();
         let r = parse_sql(&sql);
         assert!(r.is_ok());
     }

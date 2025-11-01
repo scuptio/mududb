@@ -1,20 +1,21 @@
 use crate::sys_call;
+use mudu::common::endian::read_u32;
 use mudu::common::result::RS;
 use mudu::common::serde_utils::{deserialize_sized_from, serialize_sized_to_vec};
 use mudu::common::xid::XID;
 use mudu::database::record::Record;
 use mudu::database::record_set::RecordSet;
 use mudu::database::result_set::ResultSet;
+use mudu::database::sql_params::SQLParams;
 use mudu::database::sql_stmt::SQLStmt;
 use mudu::database::v2h_param::{CommandIn, CommandOut, QueryIn, QueryResult, ResultCursor, ResultRow};
 use mudu::error::ec::EC;
+use mudu::error::err::MError;
 use mudu::m_error;
 use mudu::tuple::tuple_field::TupleField;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::sync::Arc;
-use mudu::common::endian::read_u32;
-use mudu::database::sql_params::SQLParams;
-use mudu::error::err::MError;
 
 pub fn inner_query<R: Record>(
     xid: XID,
@@ -116,7 +117,7 @@ impl OutMemory {
 }
 
 fn __sys_call<
-    P: Serialize,
+    P: Serialize + DeserializeOwned + 'static,
     F: Fn(
         *const u8, usize,
         *mut u8, usize,

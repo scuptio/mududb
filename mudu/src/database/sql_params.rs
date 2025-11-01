@@ -83,8 +83,6 @@ impl Sealed for Vec<Box<dyn DatumDyn>> {}
 impl SQLParams for Vec<Box<dyn DatumDyn>> {
     #[inline]
     fn size(&self) -> u64 {
-        let vec: Vec<u8> = vec![];
-        vec.get(0).unwrap();
         self.len() as u64
     }
 

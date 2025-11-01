@@ -1,7 +1,6 @@
 use std::sync::atomic::AtomicU32;
 use wasmtime_wasi::p1::WasiP1Ctx;
 
-
 pub struct ContextData {
     auto_increase: AtomicU32,
     host_mem: scc::HashMap<u32, Vec<u8>>,
@@ -24,15 +23,13 @@ impl ContextData {
     pub fn add_memory(&self, vec: Vec<u8>) -> u32 {
         let mut vec = vec;
         loop {
-            let n = self.auto_increase.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let n = self
+                .auto_increase
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let result = self.host_mem.insert_sync(n, vec);
             match result {
-                Ok(_) => {
-                    return n
-                }
-                Err((_n, v)) => {
-                    vec = v
-                }
+                Ok(_) => return n,
+                Err((_n, v)) => vec = v,
             }
         }
     }

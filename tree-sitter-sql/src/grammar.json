@@ -4,20 +4,29 @@
   "word": "_identifier",
   "rules": {
     "program": {
-      "type": "REPEAT",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "SYMBOL",
-            "name": "statement_transaction"
-          },
-          {
-            "type": "STRING",
-            "value": ";"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "statement_transaction"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "statement_transaction"
+              },
+              {
+                "type": "STRING",
+                "value": ";"
+              }
+            ]
           }
-        ]
-      }
+        }
+      ]
     },
     "keyword_select": {
       "type": "PATTERN",

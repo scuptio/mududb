@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use crate::ast::ast_node::ASTNode;
 
-
 #[derive(Debug, Clone)]
 pub struct StmtDropTable {
     table_name: String,
@@ -27,4 +26,3 @@ impl StmtDropTable {
 }
 
 impl ASTNode for StmtDropTable {}
-

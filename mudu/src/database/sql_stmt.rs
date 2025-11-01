@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub trait SQLStmt: fmt::Debug + fmt::Display + Sync {
+pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
     fn to_sql_string(&self) -> String;
 
     fn clone_boxed(&self) -> Box<dyn SQLStmt>;

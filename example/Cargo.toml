@@ -3,13 +3,16 @@ name = "example"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib"]
+
+
 [dependencies]
 mudu = { workspace = true }
-mudu_runtime = { workspace = true }
 mudu_macro = { workspace = true }
 uuid = { version = "1.17.0", features = ["v4"] }
 lazy_static = "1.5.0"
-
+sys_interface = {workspace = true}
 
 [dev-dependencies]
 postgresql_commands = { version = "0.20.0" }

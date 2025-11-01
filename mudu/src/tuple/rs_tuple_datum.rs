@@ -30,7 +30,7 @@ pub trait RsTupleDatum: EnumerableDatum + Sized + 'static {
 
 fn datum_from_binary<T: DatumDyn + Clone + 'static>(slice: &[u8], desc: &DatumDesc) -> RS<T> {
     let internal = desc.dat_type_id().fn_recv()(slice, desc.param_obj())
-        .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+        .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
     let t = internal.into_to_typed::<T>();
     Ok(t)
 }

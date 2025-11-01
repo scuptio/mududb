@@ -10,7 +10,6 @@ pub struct ResolvedSelect {
     placeholder: Vec<DatumDesc>,
 }
 
-
 impl ResolvedSelect {
     pub fn new(
         table_name: String,

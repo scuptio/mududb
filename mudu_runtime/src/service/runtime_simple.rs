@@ -8,7 +8,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use scc::HashMap as SCCHashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use wasmtime::{Caller, Engine, Linker};
 
@@ -26,22 +26,18 @@ fn load_package_files<P1: AsRef<Path>, F: Fn(&str) -> RS<()>>(
 ) -> RS<()> {
     let dir = package_dir_path.as_ref();
     for entry in fs::read_dir(&dir)
-        .map_err(|e| {
-            m_error!(EC::MuduError, format!("read directory {:?} error", dir), e)
-        })?
+        .map_err(|e| m_error!(EC::MuduError, format!("read directory {:?} error", dir), e))?
     {
-        let entry = entry
-            .map_err(|e| {
-                m_error!(EC::MuduError, "entry  error", e)
-            })?;
+        let entry = entry.map_err(|e| m_error!(EC::MuduError, "entry  error", e))?;
         let path = entry.path();
 
         // check file name
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-                    let path_str = path.as_path().to_str()
-                        .ok_or_else(|| { m_error!(EC::IOErr, format!("path {:?} to str error", path)) })?;
+                    let path_str = path.as_path().to_str().ok_or_else(|| {
+                        m_error!(EC::IOErr, format!("path {:?} to str error", path))
+                    })?;
                     handle_package_file(path_str)?;
                 }
             }
@@ -51,11 +47,41 @@ fn load_package_files<P1: AsRef<Path>, F: Fn(&str) -> RS<()>>(
     Ok(())
 }
 
+fn load_package_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
+    let path_buf = PathBuf::from(path_ref.as_ref());
+    if !path_buf.is_file() {
+        return Err(m_error!(
+            EC::IOErr,
+            format!("path {} is not a file", path_ref.as_ref().to_str().unwrap())
+        ));
+    }
+    if let Some(ext) = path_buf.extension() {
+        if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
+            let app_package = AppPackage::load(&path_buf)?;
+            Ok(app_package)
+        } else {
+            Err(m_error!(
+                EC::IOErr,
+                format!(
+                    "package {} must be with {} extension",
+                    path_ref.as_ref().to_str().unwrap(),
+                    file_name::APP_PACKAGE_EXTENSION
+                )
+            ))
+        }
+    } else {
+        Err(m_error!(
+            EC::IOErr,
+            format!(
+                "package {} must be with {} extension",
+                path_ref.as_ref().to_str().unwrap(),
+                file_name::APP_PACKAGE_EXTENSION
+            )
+        ))
+    }
+}
 impl RuntimeSimple {
-    pub fn new(
-        package_path: &String,
-        db_path: &String,
-    ) -> RuntimeSimple {
+    pub fn new(package_path: &String, db_path: &String) -> RuntimeSimple {
         let engine = Engine::default();
         // Configure linker with host functions
         let linker = Linker::new(&engine);
@@ -70,131 +96,172 @@ impl RuntimeSimple {
 
     pub fn initialized(&mut self) -> RS<()> {
         Self::register_sys_call(&mut self.linker)?;
-        wasmtime_wasi::p1::add_to_linker_sync(&mut self.linker, |ctx|
-            {
-                ctx.wasi_mut()
-            })
-            .map_err(|e| {
-                m_error!(EC::MuduError, "wasmtime_wasi add_to_linker_sync error", e)
-            })?;
-        if !fs::exists(&self.db_path).map_err(|e| {
-            m_error!(EC::IOErr, "test db directory exists error", e)
-        })? {
+        wasmtime_wasi::p1::add_to_linker_sync(&mut self.linker, |ctx| ctx.wasi_mut())
+            .map_err(|e| m_error!(EC::MuduError, "wasmtime_wasi add_to_linker_sync error", e))?;
+        if !fs::exists(&self.db_path)
+            .map_err(|e| m_error!(EC::IOErr, "test db directory exists error", e))?
+        {
             fs::create_dir_all(&self.db_path).map_err(|e| {
-                m_error!(EC::IOErr, format!("create directory {} error", self.db_path), e)
+                m_error!(
+                    EC::IOErr,
+                    format!("create directory {} error", self.db_path),
+                    e
+                )
             })?
-        } else if let metadata = fs::metadata(&self.db_path).map_err(|e| {
-            m_error!(EC::IOErr, "read db metadata error", e)
-        })? && metadata.is_file() {
-            return Err(m_error!(EC::IOErr, format!("path {} is a not a directory", self.db_path)));
+        } else if let metadata = fs::metadata(&self.db_path)
+            .map_err(|e| m_error!(EC::IOErr, "read db metadata error", e))?
+            && metadata.is_file()
+        {
+            return Err(m_error!(
+                EC::IOErr,
+                format!("path {} is a not a directory", self.db_path)
+            ));
         }
 
-        load_package_files(
-            &self.package_path,
-            &|path| {
-                let app_package = AppPackage::load(path)?;
-                let app_instance = AppInstImpl::build(
-                    &self.engine, &self.linker, &self.db_path, app_package)?;
-                let _ = self.apps.insert_sync(app_instance.name().to_string(), app_instance);
-                Ok(())
-            },
-        )?;
+        load_package_files(&self.package_path, &|path| {
+            self.init_mpk(path)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    fn init_mpk<P: AsRef<Path>>(&self, path: P) -> RS<String> {
+        let app_package = load_package_file(path.as_ref())?;
+        let app_instance =
+            AppInstImpl::build(&self.engine, &self.linker, &self.db_path, app_package)?;
+        let mpk_name = app_instance.name().clone();
+        let _ = self
+            .apps
+            .insert_sync(app_instance.name().to_string(), app_instance);
+        Ok(mpk_name)
+    }
+
+    fn install_pkg<P: AsRef<Path>>(&self, path: P) -> RS<()> {
+        let mpk_name = self.init_mpk(path.as_ref().to_path_buf())?;
+        let pkg_path = PathBuf::from(self.package_path.clone());
+        if path.as_ref().parent().unwrap().eq(&pkg_path) {
+            return Ok(());
+        }
+        let output = PathBuf::from(&self.package_path).join(format!("{}.mpk", mpk_name));
+        fs::copy(&path, &output)
+            .map_err(|e| m_error!(EC::IOErr, "package copy error", e))?;
         Ok(())
     }
 
     fn register_sys_call(linker: &mut Linker<WasiContext>) -> RS<()> {
         let module_name = "env";
-        linker.func_wrap(
-            module_name, "query",
-            |caller: Caller<'_, WasiContext>,
-             param_buf_ptr: u32,
-             param_buf_len: u32,
-             out_buf_ptr: u32,
-             out_buf_len: u32,
-             out_mem_ptr: u32,
-             out_mem_len: u32,
-            | -> i32 {
-                kernel_function::kernel_query(
-                    caller,
-                    param_buf_ptr,
-                    param_buf_len,
-                    out_buf_ptr,
-                    out_buf_len,
-                    out_mem_ptr,
-                    out_mem_len,
-                )
-            },
-        ).map_err(|e| { m_error!(EC::MuduError, "register query error", e) })?;
+        linker
+            .func_wrap(
+                module_name,
+                "sys_query",
+                |caller: Caller<'_, WasiContext>,
+                 param_buf_ptr: u32,
+                 param_buf_len: u32,
+                 out_buf_ptr: u32,
+                 out_buf_len: u32,
+                 out_mem_ptr: u32,
+                 out_mem_len: u32|
+                 -> i32 {
+                    kernel_function::kernel_query(
+                        caller,
+                        param_buf_ptr,
+                        param_buf_len,
+                        out_buf_ptr,
+                        out_buf_len,
+                        out_mem_ptr,
+                        out_mem_len,
+                    )
+                },
+            )
+            .map_err(|e| m_error!(EC::MuduError, "register query error", e))?;
 
-        linker.func_wrap(
-            module_name, "sys_command",
-            |caller: Caller<'_, WasiContext>,
-             param_buf_ptr: u32,
-             param_buf_len: u32,
-             out_buf_ptr: u32,
-             out_buf_len: u32,
-             out_mem_ptr: u32,
-             out_mem_len: u32,
-            | -> i32 {
-                kernel_function::kernel_command(
-                    caller,
-                    param_buf_ptr,
-                    param_buf_len,
-                    out_buf_ptr,
-                    out_buf_len,
-                    out_mem_ptr,
-                    out_mem_len,
-                )
-            },
-        ).map_err(|e| { m_error!(EC::MuduError, "register command error", e) })?;
+        linker
+            .func_wrap(
+                module_name,
+                "sys_command",
+                |caller: Caller<'_, WasiContext>,
+                 param_buf_ptr: u32,
+                 param_buf_len: u32,
+                 out_buf_ptr: u32,
+                 out_buf_len: u32,
+                 out_mem_ptr: u32,
+                 out_mem_len: u32|
+                 -> i32 {
+                    kernel_function::kernel_command(
+                        caller,
+                        param_buf_ptr,
+                        param_buf_len,
+                        out_buf_ptr,
+                        out_buf_len,
+                        out_mem_ptr,
+                        out_mem_len,
+                    )
+                },
+            )
+            .map_err(|e| m_error!(EC::MuduError, "register command error", e))?;
 
-        linker.func_wrap(
-            module_name, "sys_fetch",
-            |caller: Caller<'_, WasiContext>,
-             param_buf_ptr: u32,
-             param_buf_len: u32,
-             out_buf_ptr: u32,
-             out_buf_len: u32,
-             out_mem_ptr: u32,
-             out_mem_len: u32,
-            | -> i32 {
-                kernel_function::kernel_fetch(
-                    caller,
-                    param_buf_ptr,
-                    param_buf_len,
-                    out_buf_ptr,
-                    out_buf_len,
-                    out_mem_ptr,
-                    out_mem_len,
-                )
-            },
-        ).map_err(|e| { m_error!(EC::MuduError, "register fetch error", e) })?;
+        linker
+            .func_wrap(
+                module_name,
+                "sys_fetch",
+                |caller: Caller<'_, WasiContext>,
+                 param_buf_ptr: u32,
+                 param_buf_len: u32,
+                 out_buf_ptr: u32,
+                 out_buf_len: u32,
+                 out_mem_ptr: u32,
+                 out_mem_len: u32|
+                 -> i32 {
+                    kernel_function::kernel_fetch(
+                        caller,
+                        param_buf_ptr,
+                        param_buf_len,
+                        out_buf_ptr,
+                        out_buf_len,
+                        out_mem_ptr,
+                        out_mem_len,
+                    )
+                },
+            )
+            .map_err(|e| m_error!(EC::MuduError, "register fetch error", e))?;
 
-        linker.func_wrap(
-            module_name, "sys_get_memory",
-            |caller: Caller<'_, WasiContext>,
-             mem_id: u32,
-             out_buf_ptr: u32,
-             out_buf_len: u32| -> i32 {
-                kernel_function::kernel_get_memory(
-                    caller,
-                    mem_id,
-                    out_buf_ptr,
-                    out_buf_len,
-                )
-            },
-        ).map_err(|e| { m_error!(EC::MuduError, "", e) })?;
+        linker
+            .func_wrap(
+                module_name,
+                "sys_get_memory",
+                |caller: Caller<'_, WasiContext>,
+                 mem_id: u32,
+                 out_buf_ptr: u32,
+                 out_buf_len: u32|
+                 -> i32 {
+                    kernel_function::kernel_get_memory(caller, mem_id, out_buf_ptr, out_buf_len)
+                },
+            )
+            .map_err(|e| m_error!(EC::MuduError, "", e))?;
 
         Ok(())
     }
 
+    pub fn list(&self) -> Vec<String> {
+        let mut vec = Vec::new();
+        let _ = self.apps.iter_sync(|k, _v| {
+            vec.push(k.to_string());
+            true
+        });
+        vec
+    }
+
     pub fn app(&self, name: &String) -> Option<Arc<dyn AppInst>> {
-        self.apps.get_sync(name).map(|e| {
-            Arc::new(e.get().clone()) as Arc<dyn AppInst>
-        })
+        self.apps
+            .get_sync(name)
+            .map(|e| Arc::new(e.get().clone()) as Arc<dyn AppInst>)
+    }
+
+    pub fn install(&self, pkg_path: &String) -> RS<()> {
+        self.install_pkg(pkg_path)?;
+        Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -215,10 +282,14 @@ mod tests {
     ///
     #[test]
     fn test_runtime_simple() {
-        tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
-            let r = test_async_runtime_simple().await;
-            println!("{:?}", r);
-        });
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let r = test_async_runtime_simple().await;
+                println!("{:?}", r);
+            });
     }
 
     async fn test_async_runtime_simple() -> RS<()> {
@@ -230,13 +301,10 @@ mod tests {
             async_session(service).await?;
             Ok(())
         })?;
-        let opt = task.await.map_err(|e|
-            m_error!(EC::InternalErr, "join error", e)
-        )?;
-        match opt {
-            Some(r) => { r }
-            None => { Ok(()) }
-        }
+        let opt = task
+            .await
+            .map_err(|e| m_error!(EC::InternalErr, "join error", e))?;
+        opt.unwrap_or_else(|| Ok(()))
     }
 
     async fn async_session(service: Arc<dyn Service>) -> RS<()> {
@@ -245,12 +313,16 @@ mod tests {
         let desc = <(i32, i64, String)>::tuple_desc_static();
         let params = ProcParam::from_tuple(0, tuple, &desc)?;
         let app_name = "app1".to_string();
-        let app = service.app(&app_name).ok_or(m_error!(EC::NoneErr, format!("no such app named {}", app_name)))?;
-        app.task_create()?;
-        let proc_result = app.invoke(&"mod_0".to_string(), &"proc".to_string(), params)?;
+        let app = service.app(&app_name)
+            .ok_or_else(|| m_error!(
+            EC::NoneErr,
+            format!("no such app named {}", app_name)
+        ))?;
+        let id = app.task_create()?;
+        let proc_result = app.invoke(id, &"mod_0".to_string(), &"proc".to_string(), params)?;
         let result = proc_result.to::<(i32, String)>(&<(i32, String)>::tuple_desc_static())?;
         println!("result: {:?}", result);
-        app.task_end()?;
+        app.task_end(id)?;
         Ok(())
     }
 }

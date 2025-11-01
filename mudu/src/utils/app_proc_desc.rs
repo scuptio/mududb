@@ -1,5 +1,5 @@
-use mudu::procedure::proc_desc::ProcDesc;
-use mudu::utils::toml::to_toml_str;
+use crate::procedure::proc_desc::ProcDesc;
+use crate::utils::toml::to_toml_str;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -10,11 +10,26 @@ pub struct AppProcDesc {
     pub modules: HashMap<String, Vec<ProcDesc>>,
 }
 
+impl AppProcDesc {
+    pub fn new() -> Self {
+        Self {
+            modules: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, desc: ProcDesc) {
+        if let Some(vec) = self.modules.get_mut(desc.module_name()) {
+            vec.push(desc);
+        } else {
+            self.modules
+                .insert(desc.module_name().to_string(), vec![desc]);
+        }
+    }
+}
+
 impl Display for AppProcDesc {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let s = to_toml_str(self).map_err(|_e|
-            std::fmt::Error
-        )?;
+        let s = to_toml_str(self).map_err(|_e| std::fmt::Error)?;
         std::fmt::Display::fmt(&s, f)?;
         Ok(())
     }
@@ -28,14 +43,14 @@ impl Debug for AppProcDesc {
 
 #[cfg(test)]
 mod tests {
-    use crate::service::app_proc_desc::AppProcDesc;
-    use chrono::Utc;
-    use mudu::common::result::RS;
-    use mudu::procedure::proc_desc::ProcDesc;
-    use mudu::tuple::rs_tuple_datum::RsTupleDatum;
-    use mudu::utils::toml::{read_toml, write_toml};
+    use crate::common::result::RS;
+    use crate::procedure::proc_desc::ProcDesc;
+    use crate::tuple::rs_tuple_datum::RsTupleDatum;
+    use crate::utils::app_proc_desc::AppProcDesc;
+    use crate::utils::toml::{read_toml, write_toml};
     use std::collections::HashMap;
     use std::env::temp_dir;
+    use uuid::Uuid;
 
     #[test]
     fn test_app_proc_desc() {
@@ -57,12 +72,12 @@ mod tests {
                     return_desc,
                 );
                 vec.push(proc_desc);
-            };
+            }
             map.insert(mod_name, vec);
         }
         let app_proc_desc = AppProcDesc { modules: map };
-        let time_str = Utc::now().format("%Y%m%d%H%M%S").to_string();
-        let path = format!("{}/proc_desc_{}.toml", temp_dir().to_str().unwrap(), time_str);
+        let id = Uuid::new_v4().to_string();
+        let path = format!("{}/proc_desc_{}.toml", temp_dir().to_str().unwrap(), id);
 
         println!("{}", path);
         write_toml(&app_proc_desc, &path)?;

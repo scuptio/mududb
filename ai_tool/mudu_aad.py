@@ -35,20 +35,35 @@ def mudu_doc_content(directory):
         raise ValueError(f"no such directory: {directory}")
 
     markdown_contents = []
-
+    doc_content = "The following content is the documents of MuduDB and Mudu Procedure"
+    prompt_content = "The following content is the requirements of a Mudu Application you want to develop"
+    doc_path = []
+    prompt_path = []
     for root, _, files in os.walk(directory):
         for filename in files:
             if filename.lower().endswith('.md'):
                 filepath = os.path.join(root, filename)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        content = f.read()
-
-                        markdown_contents.append(f"<!-- file: {filepath} -->")
-                        markdown_contents.append(content)
-                        markdown_contents.append("\n\n")
-                except Exception as e:
-                    print(f"read file failed {filepath}: {str(e)}", file=sys.stderr)
+                if filename.lower().endswith('.requirement.spec.md'):
+                    continue
+                elif filename.lower().endswith('.prompt.md'):
+                    prompt_path.append(filepath)
+                else:
+                    doc_path.append(filepath)
+    prompt_path.sort()
+    for (i, array) in enumerate([doc_path, prompt_path]):
+        if i == 0:
+            markdown_contents.append(doc_content)
+        else:
+            markdown_contents.append(prompt_content)
+        for path in array:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    markdown_contents.append(f"<!-- file: {path} -->")
+                    markdown_contents.append(content)
+                    markdown_contents.append("\n\n")
+            except Exception as e:
+                print(f"read file failed {path}: {str(e)}", file=sys.stderr)
 
     return ''.join(markdown_contents).rstrip('\n')
 
@@ -71,7 +86,7 @@ if __name__ == "__main__":
 
     input_path = args.input_path
     if input_path is None:
-        input_path = 'content.mudu.prompt.txt'
+        input_path = 'content.requirement.spec.md'
     now = datetime.now()
     formatted_time = now.strftime("__%Y_%m_%d_%H_%M_%S")
     file_output = f'ai_output_{formatted_time}.txt'

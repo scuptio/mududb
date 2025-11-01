@@ -17,6 +17,7 @@ pub mod object {
     const COLUMN_EMAIL: &str = "email";
     const COLUMN_PASSWORD: &str = "password";
     const COLUMN_CREATED_AT: &str = "created_at";
+    const COLUMN_UPDATED_AT: &str = "updated_at";
 
     pub struct Users {
         user_id: Option<AttrUserId>,
@@ -25,6 +26,7 @@ pub mod object {
         email: Option<AttrEmail>,
         password: Option<AttrPassword>,
         created_at: Option<AttrCreatedAt>,
+        updated_at: Option<AttrUpdatedAt>,
     }
 
     impl Users {
@@ -35,6 +37,7 @@ pub mod object {
             email: AttrEmail,
             password: AttrPassword,
             created_at: AttrCreatedAt,
+            updated_at: AttrUpdatedAt,
         ) -> Self {
             let s = Self {
                 user_id: Some(user_id),
@@ -43,6 +46,7 @@ pub mod object {
                 email: Some(email),
                 password: Some(password),
                 created_at: Some(created_at),
+                updated_at: Some(updated_at),
             };
             s
         }
@@ -94,6 +98,14 @@ pub mod object {
         pub fn get_created_at(&self) -> &Option<AttrCreatedAt> {
             &self.created_at
         }
+
+        pub fn set_updated_at(&mut self, updated_at: AttrUpdatedAt) {
+            self.updated_at = Some(updated_at);
+        }
+
+        pub fn get_updated_at(&self) -> &Option<AttrUpdatedAt> {
+            &self.updated_at
+        }
     }
 
     impl Record for Users {
@@ -105,6 +117,7 @@ pub mod object {
                 email: None,
                 password: None,
                 created_at: None,
+                updated_at: None,
             };
             s
         }
@@ -117,6 +130,7 @@ pub mod object {
                     AttrEmail::datum_desc().clone(),
                     AttrPassword::datum_desc().clone(),
                     AttrCreatedAt::datum_desc().clone(),
+                    AttrUpdatedAt::datum_desc().clone(),
                 ]);
             }
             &TUPLE_DESC
@@ -142,6 +156,7 @@ pub mod object {
                 COLUMN_EMAIL => attr_get_binary(&self.email),
                 COLUMN_PASSWORD => attr_get_binary(&self.password),
                 COLUMN_CREATED_AT => attr_get_binary(&self.created_at),
+                COLUMN_UPDATED_AT => attr_get_binary(&self.updated_at),
                 _ => {
                     panic!("unknown name");
                 }
@@ -167,6 +182,9 @@ pub mod object {
                 }
                 COLUMN_CREATED_AT => {
                     attr_set_binary(&mut self.created_at, binary.as_ref())?;
+                }
+                COLUMN_UPDATED_AT => {
+                    attr_set_binary(&mut self.updated_at, binary.as_ref())?;
                 }
                 _ => {
                     panic!("unknown name");
@@ -397,7 +415,7 @@ pub mod object {
     }
 
     pub struct AttrCreatedAt {
-        value: i64,
+        value: i32,
     }
 
     impl AttrCreatedAt {}
@@ -408,14 +426,14 @@ pub mod object {
         }
 
         fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
-            let value: i64 = datum_from_binary(binary.as_ref())?;
+            let value: i32 = datum_from_binary(binary.as_ref())?;
             self.set_value(value);
             Ok(())
         }
     }
 
-    impl AttrValue<i64> for AttrCreatedAt {
-        fn new(datum: i64) -> Self {
+    impl AttrValue<i32> for AttrCreatedAt {
+        fn new(datum: i32) -> Self {
             Self { value: datum }
         }
 
@@ -431,11 +449,55 @@ pub mod object {
             COLUMN_CREATED_AT
         }
 
-        fn get_value(&self) -> i64 {
+        fn get_value(&self) -> i32 {
             self.value.clone()
         }
 
-        fn set_value(&mut self, value: i64) {
+        fn set_value(&mut self, value: i32) {
+            self.value = value;
+        }
+    }
+
+    pub struct AttrUpdatedAt {
+        value: i32,
+    }
+
+    impl AttrUpdatedAt {}
+
+    impl AttrBinary for AttrUpdatedAt {
+        fn get_binary(&self) -> RS<Vec<u8>> {
+            datum_to_binary(&self.value)
+        }
+
+        fn set_binary<D: AsRef<[u8]>>(&mut self, binary: D) -> RS<()> {
+            let value: i32 = datum_from_binary(binary.as_ref())?;
+            self.set_value(value);
+            Ok(())
+        }
+    }
+
+    impl AttrValue<i32> for AttrUpdatedAt {
+        fn new(datum: i32) -> Self {
+            Self { value: datum }
+        }
+
+        fn from_binary<B: AsRef<[u8]>>(binary: B) -> RS<Self> {
+            Ok(Self::new(datum_from_binary(binary)?))
+        }
+
+        fn table_name() -> &'static str {
+            TABLE_USERS
+        }
+
+        fn column_name() -> &'static str {
+            COLUMN_UPDATED_AT
+        }
+
+        fn get_value(&self) -> i32 {
+            self.value.clone()
+        }
+
+        fn set_value(&mut self, value: i32) {
             self.value = value;
         }
     }

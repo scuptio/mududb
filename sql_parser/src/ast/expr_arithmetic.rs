@@ -40,5 +40,4 @@ impl Debug for ExprArithmetic {
     }
 }
 
-
 impl ASTNode for ExprArithmetic {}

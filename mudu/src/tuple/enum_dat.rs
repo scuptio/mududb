@@ -35,24 +35,24 @@ impl EnumDat {
                 let fn_to_typed = type_id.fn_to_typed();
                 let fn_recv = type_id.fn_recv();
                 let internal = fn_recv(&binary.buf(), param)
-                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                    .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
                 let typed = fn_to_typed(&internal, param)
-                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                    .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
                 typed
             }
             EnumDat::Printable(printable) => {
                 let fn_to_typed = type_id.fn_to_typed();
                 let fn_input = type_id.fn_input();
                 let internal = fn_input(printable, param)
-                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                    .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
                 let typed = fn_to_typed(&internal, param)
-                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                    .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
                 typed
             }
             EnumDat::Internal(internal) => {
                 let fn_to_typed = type_id.fn_to_typed();
                 let typed = fn_to_typed(internal, param)
-                    .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?;
+                    .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
                 typed
             }
             EnumDat::Typed(typed_val) => typed_val.clone(),

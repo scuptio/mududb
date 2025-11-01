@@ -7,6 +7,8 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
 
 pub trait DBConn: Sync + Send {
+    fn exec_sql(&self, sql_text: &String) -> RS<()>;
+
     fn begin_tx(&self) -> RS<XID>;
 
     fn rollback_tx(&self) -> RS<()>;

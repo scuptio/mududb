@@ -11,11 +11,8 @@ pub struct TxPg {
     transaction: ManuallyDrop<Transaction<'static>>,
 }
 
-
 unsafe fn extend_lifetime<'b>(r: Transaction<'b>) -> Transaction<'static> {
-    unsafe {
-        std::mem::transmute::<Transaction<'b>, Transaction<'static>>(r)
-    }
+    unsafe { std::mem::transmute::<Transaction<'b>, Transaction<'static>>(r) }
 }
 
 impl TxPg {
@@ -59,4 +56,3 @@ impl Drop for TxPg {
         let _ = Context::remove(self.xid);
     }
 }
-

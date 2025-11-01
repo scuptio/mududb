@@ -1,0 +1,9 @@
+{
+  "dat_type": {
+    "id": "CharFixedLen",
+    "type_param": [
+      "65536"
+    ]
+  },
+  "name": "v_0"
+}

@@ -5,7 +5,7 @@ pub mod notifier;
 pub mod task;
 mod test_debug_server;
 pub mod md5;
-
+pub mod task_id;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

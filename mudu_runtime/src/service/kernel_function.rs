@@ -2,14 +2,15 @@ use crate::procedure::wasi_context::{ContextData, WasiContext};
 use mudu::common::endian::write_u32;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
-use mudu::common::serde_utils::{deserialize_sized_from, header_size_len, serialize_sized_to, serialize_sized_to_vec};
+use mudu::common::serde_utils::{
+    deserialize_sized_from, header_size_len, serialize_sized_to, serialize_sized_to_vec,
+};
 use mudu::common::xid::XID;
 use mudu::database::err_no;
 use mudu::database::sql::Context;
 use mudu::database::sql_params::SQLParams;
 use mudu::database::v2h_param::{
-    CommandIn, CommandOut, QueryIn,
-    QueryResult, ResultCursor, ResultRow,
+    CommandIn, CommandOut, QueryIn, QueryResult, ResultCursor, ResultRow,
 };
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
@@ -49,8 +50,10 @@ pub fn kernel_query(
 /// Fetch next row from a query result cursor
 pub fn kernel_fetch(
     caller: Caller<'_, WasiContext>,
-    param_buf_ptr: u32, param_buf_len: u32,
-    output_buf_ptr: u32, output_buf_len: u32,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
     out_mem_ptr: u32,
     out_mem_len: u32,
 ) -> i32 {
@@ -69,8 +72,10 @@ pub fn kernel_fetch(
 /// Execute a SQL command (INSERT, UPDATE, DELETE) from WebAssembly guest
 pub fn kernel_command(
     caller: Caller<'_, WasiContext>,
-    param_buf_ptr: u32, param_buf_len: u32,
-    output_buf_ptr: u32, output_buf_len: u32,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
     out_mem_ptr: u32,
     out_mem_len: u32,
 ) -> i32 {
@@ -93,9 +98,7 @@ pub fn kernel_get_memory(
     output_buf_ptr: u32,
     output_buf_len: u32,
 ) -> i32 {
-    let opt_mem = {
-        caller.data().context_ref().get_memory(mem_id)
-    };
+    let opt_mem = { caller.data().context_ref().get_memory(mem_id) };
     match opt_mem {
         Some(mem) => {
             let size = min(mem.len(), output_buf_len as usize);
@@ -108,7 +111,7 @@ pub fn kernel_get_memory(
             data[_output_buf_ptr.._output_buf_ptr + size].copy_from_slice(&mem[..size]);
             size as i32
         }
-        None => { -1 }
+        None => -1,
     }
 }
 
@@ -117,9 +120,7 @@ pub fn kernel_get_memory(
 // =============================================================================
 
 /// Execute a SQL query with parameters
-fn query_gut(
-    query_in: &QueryIn,
-) -> RS<QueryResult> {
+fn query_gut(query_in: &QueryIn) -> RS<QueryResult> {
     let xid = query_in.xid();
     let context = get_context(xid)?;
     let params: Vec<Box<dyn DatumDyn>> = query_in
@@ -131,10 +132,7 @@ fn query_gut(
             Box::new(TypedBin::new(dat_type_id, e.clone())) as Box<dyn DatumDyn>
         })
         .collect();
-    let result = context.query_raw(
-        &query_in.sql(),
-        &params as &dyn SQLParams,
-    )?;
+    let result = context.query_raw(&query_in.sql(), &params as &dyn SQLParams)?;
     let rs = context.cache_result(result)?;
     Ok(rs)
 }
@@ -147,9 +145,7 @@ fn query_fetch_gut(query_cursor: &ResultCursor) -> RS<ResultRow> {
 }
 
 /// Execute a SQL command with parameters
-fn command_gut(
-    command_in: &CommandIn
-) -> RS<CommandOut> {
+fn command_gut(command_in: &CommandIn) -> RS<CommandOut> {
     let xid = command_in.xid();
     let context = get_context(xid)?;
     let param: Vec<Box<dyn DatumDyn>> = command_in
@@ -161,10 +157,7 @@ fn command_gut(
             Box::new(TypedBin::new(dat_type_id, e.clone())) as Box<dyn DatumDyn>
         })
         .collect();
-    let affected_rows = context.command(
-        &command_in.sql(),
-        &param as &dyn SQLParams,
-    )?;
+    let affected_rows = context.command(&command_in.sql(), &param as &dyn SQLParams)?;
     Ok(CommandOut::new(affected_rows))
 }
 
@@ -174,13 +167,11 @@ fn get_context(xid: XID) -> RS<Context> {
     Ok(context)
 }
 
-
-fn deserialize_input<
-    D: DeserializeOwned + 'static,
->(
+fn deserialize_input<D: Serialize + DeserializeOwned + 'static>(
     caller: &Caller<'_, WasiContext>,
     memory: &Memory,
-    param_buf_ptr: u32, param_buf_len: u32,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
 ) -> RS<D> {
     let buf = memory.data(&caller);
     let _buf_ptr = param_buf_ptr as usize;
@@ -192,9 +183,7 @@ fn deserialize_input<
     Ok(d)
 }
 
-fn serialize_and_write_output<
-    S: Serialize + 'static,
->(
+fn serialize_and_write_output<S: Serialize + DeserializeOwned + 'static>(
     result: S,
     context: *const ContextData,
     caller: &mut Caller<'_, WasiContext>,
@@ -216,7 +205,10 @@ fn serialize_and_write_output<
 
     // write the expected output buffer size
     check_bounds(_out_len_ptr, size_of::<u32>(), mem_buf.len())?;
-    write_u32(&mut mem_buf[_out_len_ptr.._out_len_ptr + size_of::<u32>()], total_size);
+    write_u32(
+        &mut mem_buf[_out_len_ptr.._out_len_ptr + size_of::<u32>()],
+        total_size,
+    );
     if !ok {
         handle_insufficient_buffer(result, context, mem_buf, mem_id_ptr)
     } else {
@@ -224,9 +216,8 @@ fn serialize_and_write_output<
     }
 }
 
-
 /// Handle case when output buffer is too small
-fn handle_insufficient_buffer<Output: Serialize>(
+fn handle_insufficient_buffer<Output: Serialize + DeserializeOwned + 'static>(
     result: Output,
     context_ptr: *const ContextData,
     memory_data: &mut [u8],
@@ -252,24 +243,24 @@ fn write_memory_id(memory_data: &mut [u8], mem_id_ptr: u32, memory_id: u32) -> R
 // =============================================================================
 /// Process a single host invocation with error handling
 fn handle_wasm_guest_invoke_host_gut<
-    D: DeserializeOwned + 'static,
-    S: Serialize + 'static,
+    D: Serialize + DeserializeOwned + 'static,
+    S: Serialize + DeserializeOwned + 'static,
     F: Fn(&D) -> RS<S> + 'static,
 >(
     caller: &mut Caller<'_, WasiContext>,
     context: *const ContextData,
     memory: &Memory,
-    param_buf_ptr: u32, param_buf_len: u32,
-    output_buf_ptr: u32, output_buf_len: u32,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
     out_len_ptr: u32,
     mem_id_ptr: u32,
     f: F,
 ) -> (i32, Option<MError>) {
     // Deserialize input parameters
     let input = match deserialize_input::<D>(caller, memory, param_buf_ptr, param_buf_len) {
-        Ok(input) => {
-            input
-        }
+        Ok(input) => input,
         Err(e) => {
             return (err_no::EN_DECODE_PARAM, Some(e));
         }
@@ -285,7 +276,8 @@ fn handle_wasm_guest_invoke_host_gut<
 
     // Serialize and write output
     match serialize_and_write_output(
-        result, context,
+        result,
+        context,
         caller,
         &memory,
         output_buf_ptr,
@@ -293,24 +285,22 @@ fn handle_wasm_guest_invoke_host_gut<
         out_len_ptr,
         mem_id_ptr,
     ) {
-        Ok(output) => {
-            (output, None)
-        }
-        Err(e) => {
-            (err_no::EN_ENCODE_RESULT, Some(e))
-        }
+        Ok(output) => (output, None),
+        Err(e) => (err_no::EN_ENCODE_RESULT, Some(e)),
     }
 }
 
 /// Generic handler for WebAssembly guest to host invocations
 fn handle_guest_invoke_host<
-    D: DeserializeOwned + 'static,
-    S: Serialize + 'static,
+    D: Serialize + DeserializeOwned + 'static,
+    S: Serialize + DeserializeOwned + 'static,
     F: Fn(&D) -> RS<S> + 'static,
 >(
     caller: Caller<'_, WasiContext>,
-    param_buf_ptr: u32, param_buf_len: u32,
-    output_buf_ptr: u32, output_buf_len: u32,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
     out_len_ptr: u32,
     mem_id_ptr: u32,
     function: F,
@@ -326,8 +316,10 @@ fn handle_guest_invoke_host<
         &mut caller,
         context,
         &memory,
-        param_buf_ptr, param_buf_len,
-        output_buf_ptr, output_buf_len,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
         out_len_ptr,
         mem_id_ptr,
         function,
@@ -372,7 +364,6 @@ fn write_error_response(
     Ok(())
 }
 
-
 /// Validate memory access bounds
 fn check_bounds(ptr: usize, len: usize, memory_size: usize) -> RS<()> {
     if ptr + len > memory_size {
@@ -381,7 +372,6 @@ fn check_bounds(ptr: usize, len: usize, memory_size: usize) -> RS<()> {
         Ok(())
     }
 }
-
 
 fn get_memory(caller: &mut Caller<'_, WasiContext>) -> RS<Memory> {
     match caller.get_export("memory") {

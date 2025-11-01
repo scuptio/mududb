@@ -37,11 +37,14 @@ module.exports = grammar({
     rules: {
         program: $ =>
             // any number of transactions, statements, or blocks with a terminating ;
-            repeat(
-                seq(
-                    $.statement_transaction,
-                    ';',
-                ),
+            choice(
+                $.statement_transaction,
+                repeat(
+                    seq(
+                        $.statement_transaction,
+                        ';',
+                    ),
+                )
             ),
 
         keyword_select: _ => make_keyword("select"),

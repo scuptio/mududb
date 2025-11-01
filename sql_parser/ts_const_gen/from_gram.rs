@@ -7,24 +7,22 @@ use std::path::{Path, PathBuf};
 use tree_sitter::Language;
 use tree_sitter_sql::LANGUAGE;
 
-
-pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(
-    output_path: O,
-    grammar_path: G,
-) {
+pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(output_path: O, grammar_path: G) {
     let mut constant = Constant {
         node_name: Default::default(),
         field_name: Default::default(),
         seq_index: Default::default(),
     };
     let grammar_path_str = grammar_path.as_ref().to_str().unwrap().to_string();
-    let grammar_str = read_to_string(&grammar_path)
-        .expect(&format!("grammar json file path {} cannot be found", grammar_path_str));
+    let grammar_str = read_to_string(&grammar_path).expect(&format!(
+        "grammar json file path {} cannot be found",
+        grammar_path_str
+    ));
     let opt_new_md5 = grammar_file_changed(&grammar_str);
     let new_md5 = match opt_new_md5 {
-        None => { return }
+        None => return,
         // file does not change
-        Some(s) => s
+        Some(s) => s,
     };
     let json: Value = serde_json::from_str(grammar_str.as_str())
         .expect(&format!("parse json file {} failed", grammar_path_str));
@@ -32,7 +30,6 @@ pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(
     output_rust_file(output_path, &constant);
     write_grammar_md5(&new_md5);
 }
-
 
 macro_rules! grammar_md5_file {
     () => {
@@ -49,10 +46,17 @@ macro_rules! this_file {
 fn _this_file(file: &str) -> String {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok().unwrap();
     let manifest_dir_path_buf = PathBuf::from(&manifest_dir);
-    let manifest_dir = manifest_dir_path_buf.parent().unwrap().to_str().unwrap().to_string();
+    let manifest_dir = manifest_dir_path_buf
+        .parent()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     let file_path = PathBuf::from(file);
     let path = PathBuf::from(manifest_dir).join(file_path);
-    path.to_str().map(|s| s.to_string()).unwrap_or(String::new())
+    path.to_str()
+        .map(|s| s.to_string())
+        .unwrap_or(String::new())
 }
 
 fn grammar_file_changed(s: &String) -> Option<String> {
@@ -70,32 +74,30 @@ fn grammar_file_changed(s: &String) -> Option<String> {
 }
 
 macro_rules! write_content {
-    ($filename:expr, $content:expr) => {
-        {
-            // Get the directory of the current source file
-            let this_file = this_file!();
-            let current_file = Path::new(&this_file);
-            let dir = current_file.parent()
-                .expect("Failed to get parent directory of current file");
-            
-            // Create the full path
-            let file_path = dir.join($filename);
-            
-            // Write the content to the file
-            let mut file = File::create(&file_path)
-                .expect(&format!("Failed to create file: {:?}", file_path));
-            file.write_all($content.as_bytes())
-                .expect(&format!("Failed to write to file: {:?}", file_path));
-            
-            println!("Successfully wrote to {:?}", file_path);
-        }
-    };
+    ($filename:expr, $content:expr) => {{
+        // Get the directory of the current source file
+        let this_file = this_file!();
+        let current_file = Path::new(&this_file);
+        let dir = current_file
+            .parent()
+            .expect("Failed to get parent directory of current file");
+
+        // Create the full path
+        let file_path = dir.join($filename);
+
+        // Write the content to the file
+        let mut file =
+            File::create(&file_path).expect(&format!("Failed to create file: {:?}", file_path));
+        file.write_all($content.as_bytes())
+            .expect(&format!("Failed to write to file: {:?}", file_path));
+
+        println!("Successfully wrote to {:?}", file_path);
+    }};
 }
 
 fn write_grammar_md5(md5: &String) {
     write_content!(grammar_md5_file!(), md5)
 }
-
 
 const COMMENTS: &'static str = include_str!("comments.txt");
 
@@ -121,11 +123,9 @@ struct Constant {
     seq_index: HashMap<String, Vec<usize>>,
 }
 
-
 fn language() -> Language {
     LANGUAGE.clone().into()
 }
-
 
 fn language_name() -> &'static str {
     language().name().unwrap()
@@ -230,7 +230,6 @@ fn visit_rule(json: Value, constant: &mut Constant) {
     }
 }
 
-
 fn output_rust_file<P: AsRef<Path>>(path: P, constant: &Constant) {
     let mut node_kind_id: Vec<(String, u16)> = constant
         .node_name
@@ -296,7 +295,10 @@ fn output_rust_file<P: AsRef<Path>>(path: P, constant: &Constant) {
 
         name_str.make_ascii_lowercase();
         file_kind_names
-            .write_fmt(format_args!("pub const S_{} : &str = \"{}\";\n", var_name, name_str))
+            .write_fmt(format_args!(
+                "pub const S_{} : &str = \"{}\";\n",
+                var_name, name_str
+            ))
             .unwrap();
     }
 

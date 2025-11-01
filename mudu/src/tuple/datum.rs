@@ -175,7 +175,7 @@ impl DatumDyn for i32 {
         }
         Ok(
             (param.dat_type_id().fn_base().send)(&DatInternal::from_i32(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -185,7 +185,7 @@ impl DatumDyn for i32 {
         }
         Ok(
             (param.dat_type_id().fn_base().output)(&DatInternal::from_i32(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -219,7 +219,7 @@ impl DatumDyn for i64 {
         }
         Ok(
             (param.dat_type_id().fn_base().send)(&DatInternal::from_i64(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -229,7 +229,7 @@ impl DatumDyn for i64 {
         }
         Ok(
             (param.dat_type_id().fn_base().output)(&DatInternal::from_i64(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -260,7 +260,7 @@ impl DatumDyn for f32 {
         }
         Ok(
             (param.dat_type_id().fn_base().send)(&DatInternal::from_f32(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -270,7 +270,7 @@ impl DatumDyn for f32 {
         }
         Ok(
             (param.dat_type_id().fn_base().output)(&DatInternal::from_f32(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -304,7 +304,7 @@ impl DatumDyn for f64 {
         }
         Ok(
             (param.dat_type_id().fn_base().send)(&DatInternal::from_f64(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -314,7 +314,7 @@ impl DatumDyn for f64 {
         }
         Ok(
             (param.dat_type_id().fn_base().output)(&DatInternal::from_f64(*self), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -352,7 +352,7 @@ impl DatumDyn for String {
         }
         Ok(
             (param.dat_type_id().fn_base().send)(&DatInternal::from_any_type(self.clone()), param)
-                .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+                .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 
@@ -367,7 +367,7 @@ impl DatumDyn for String {
                 &DatInternal::from_any_type(self.clone()),
                 param,
             )
-            .map_err(|e| m_error!(EC::ConvertErr, "convert data format error", e))?,
+            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?,
         )
     }
 

@@ -8,9 +8,7 @@ pub struct StmtCopyFrom {
     columns: Vec<String>,
 }
 
-
 impl ASTNode for StmtCopyFrom {}
-
 
 impl StmtCopyFrom {
     pub fn new(from_file_path: String, table: String, columns: Vec<String>) -> Self {

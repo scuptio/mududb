@@ -4,6 +4,7 @@ use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::error::Error;
 use std::fmt;
+use std::panic::Location;
 use std::sync::Arc;
 
 /// Custom error type with error code, message, and optional source
@@ -12,40 +13,41 @@ pub struct MError {
     ec: EC,
     msg: String,
     src: Option<Arc<dyn Error>>,
+    loc: String
 }
 
 unsafe impl Send for MError {}
 
 unsafe impl Sync for MError {}
 impl MError {
+    #[track_caller]
     pub fn new_with_ec(ec: EC) -> Self {
-        Self::new(ec, String::new(), None)
+        let loc = format!("{}:{}", Location::caller().file(), Location::caller().line());
+        Self::new(ec, ec.message(), None, loc)
     }
 
+    #[track_caller]
     pub fn new_with_ec_msg<S: AsRef<str>>(ec: EC, msg: S) -> Self {
-        Self::new(ec, msg, None)
+        let loc = format!("{}:{}", Location::caller().file(), Location::caller().line());
+        Self::new(ec, msg.as_ref(), None, loc)
     }
 
+    #[track_caller]
     pub fn new_with_ec_msg_src<S: AsRef<str>, E: Into<Box<dyn Error + 'static>>>(
         ec: EC,
         msg: S,
         src: E,
     ) -> Self {
-        Self::new(ec, msg, Some(Arc::from(src.into())))
+        let loc = format!("{}:{}", Location::caller().file(), Location::caller().line());
+        Self::new(ec, msg.as_ref(), Some(Arc::from(src.into())), loc)
     }
 
-    pub fn new<S: AsRef<str>>(ec: EC, msg: S, src: Option<Arc<dyn Error>>) -> Self {
-        let msg_str = msg.as_ref();
-        let final_msg = if msg_str.is_empty() {
-            ec.message().to_string()
-        } else {
-            msg_str.to_string()
-        };
-
+    pub fn new<S: AsRef<str>>(ec: EC, msg: S, src: Option<Arc<dyn Error>>, loc: String) -> Self {
         Self {
             ec,
-            msg: final_msg,
+            msg: msg.as_ref().to_string(),
             src,
+            loc,
         }
     }
 
@@ -55,6 +57,10 @@ impl MError {
 
     pub fn message(&self) -> &str {
         &self.msg
+    }
+
+    pub fn loc(&self) -> &str {
+        &self.loc
     }
 
     pub fn set_message(&mut self, msg: String) {
@@ -109,11 +115,12 @@ impl Default for MError {
 
 // Serde implementation
 const STRUCT_NAME: &str = "MError";
-const FIELD_COUNT: usize = 3;
+const FIELD_COUNT: usize = 4;
 const FIELD_CODE: &str = "code";
 const FIELD_MSG: &str = "msg";
 const FIELD_SRC: &str = "src";
-const FIELDS: &[&str] = &[FIELD_CODE, FIELD_MSG, FIELD_SRC];
+const FIELD_LOC: &str = "loc";
+const FIELDS: &[&str] = &[FIELD_CODE, FIELD_MSG, FIELD_SRC, FIELD_LOC];
 
 #[derive(Serialize, Deserialize)]
 enum ErrorSource {
@@ -150,7 +157,7 @@ impl Serialize for MError {
             None => ErrorSource::None,
         };
         state.serialize_field(FIELD_SRC, &src_field)?;
-
+        state.serialize_field(FIELD_LOC, &self.loc)?;
         state.end()
     }
 }
@@ -188,8 +195,10 @@ impl<'de> Visitor<'de> for MErrorVisitor {
         let src: ErrorSource = seq
             .next_element()?
             .ok_or_else(|| de::Error::invalid_length(2, &self))?;
-
-        Ok(MError::new(ec, msg, src.into_error_source()))
+        let loc: String = seq
+            .next_element()?
+            .ok_or_else(|| de::Error::invalid_length(4, &self))?;
+        Ok(MError::new(ec, msg, src.into_error_source(), loc))
     }
 
     fn visit_map<V>(self, mut map: V) -> Result<MError, V::Error>
@@ -199,7 +208,7 @@ impl<'de> Visitor<'de> for MErrorVisitor {
         let mut ec: Option<EC> = None;
         let mut msg: Option<String> = None;
         let mut src: Option<Arc<dyn Error>> = None;
-
+        let mut loc: Option<String> = None;
         while let Some(key) = map.next_key()? {
             match key {
                 FIELD_CODE => {
@@ -217,6 +226,9 @@ impl<'de> Visitor<'de> for MErrorVisitor {
                 FIELD_SRC => {
                     src = map.next_value::<ErrorSource>()?.into_error_source();
                 }
+                FIELD_LOC => {
+                    loc = Some(map.next_value::<String>()?);
+                }
                 _ => {
                     return Err(de::Error::unknown_field(key, FIELDS));
                 }
@@ -225,8 +237,8 @@ impl<'de> Visitor<'de> for MErrorVisitor {
 
         let ec = ec.ok_or_else(|| de::Error::missing_field(FIELD_CODE))?;
         let msg = msg.ok_or_else(|| de::Error::missing_field(FIELD_MSG))?;
-
-        Ok(MError::new(ec, msg, src))
+        let loc = loc.ok_or_else(|| de::Error::missing_field(FIELD_LOC))?;
+        Ok(MError::new(ec, msg, src, loc))
     }
 }
 

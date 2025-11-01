@@ -165,11 +165,11 @@ impl _LoadFromFile {
             let type_param = field_desc.type_param();
             let internal = dat_id.fn_input()(&DatPrintable::from(s), type_param)
                 .map_err(|e| {
-                    m_error!(ER::ConvertErr, "convert printable to internal error", e)
+                    m_error!(ER::TypeBaseErr, "convert printable to internal error", e)
                 })?;
             let binary = dat_id.fn_send()(&internal, type_param)
                 .map_err(|e| {
-                    m_error!(ER::ConvertErr, "converting internal to binary error", e)
+                    m_error!(ER::TypeBaseErr, "converting internal to binary error", e)
                 })?;
             tuple.push(binary.into());
         }

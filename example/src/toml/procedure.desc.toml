@@ -1,0 +1,195 @@
+[[modules.example]]
+module_name = "example"
+proc_name = "deposit"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "amount"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "transfer"
+
+[[modules.example.param_desc.fields]]
+name = "from_user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "to_user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "amount"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "purchase"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "amount"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "description"
+
+[modules.example.param_desc.fields.dat_type]
+id = "CharFixedLen"
+type_param = ["65536"]
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "create_user"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "name"
+
+[modules.example.param_desc.fields.dat_type]
+id = "CharFixedLen"
+type_param = ["65536"]
+
+[[modules.example.param_desc.fields]]
+name = "email"
+
+[modules.example.param_desc.fields.dat_type]
+id = "CharFixedLen"
+type_param = ["65536"]
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "delete_user"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "transfer_funds"
+
+[[modules.example.param_desc.fields]]
+name = "from_user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "to_user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "amount"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "update_user"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "name"
+
+[modules.example.param_desc.fields.dat_type]
+id = "CharFixedLen"
+type_param = ["65536"]
+
+[[modules.example.param_desc.fields]]
+name = "email"
+
+[modules.example.param_desc.fields.dat_type]
+id = "CharFixedLen"
+type_param = ["65536"]
+
+[modules.example.return_desc]
+fields = []
+
+[[modules.example]]
+module_name = "example"
+proc_name = "withdraw"
+
+[[modules.example.param_desc.fields]]
+name = "user_id"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[[modules.example.param_desc.fields]]
+name = "amount"
+
+[modules.example.param_desc.fields.dat_type]
+id = "I32"
+type_param = []
+
+[modules.example.return_desc]
+fields = []

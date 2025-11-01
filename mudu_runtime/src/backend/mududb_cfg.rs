@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub struct MuduDBCfg {
-    pub bytecode_path: String,
-    pub db_path: String,
+    pub mpk_path: String,
+    pub data_path: String,
     pub listen_ip: String,
     pub listen_port: u16,
 }
@@ -19,8 +19,8 @@ impl Display for MuduDBCfg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "MuduDB Cfg Setting:\n")?;
         write!(f, "-------------------\n")?;
-        write!(f, "  -> Byte code path: {}\n", self.bytecode_path)?;
-        write!(f, "  -> DDL sql path: {}\n", self.db_path)?;
+        write!(f, "  -> Byte code path: {}\n", self.mpk_path)?;
+        write!(f, "  -> Data path: {}\n", self.data_path)?;
         write!(f, "  -> Listen IP address: {}\n", self.listen_ip)?;
         write!(f, "  -> Listening port: {}\n", self.listen_port)?;
         write!(f, "-------------------\n")?;
@@ -31,8 +31,8 @@ impl Display for MuduDBCfg {
 impl Default for MuduDBCfg {
     fn default() -> Self {
         Self {
-            bytecode_path: temp_dir().to_str().unwrap().to_string(),
-            db_path: temp_dir().to_str().unwrap().to_string(),
+            mpk_path: temp_dir().to_str().unwrap().to_string(),
+            data_path: temp_dir().to_str().unwrap().to_string(),
             listen_ip: temp_dir().to_str().unwrap().to_string(),
             listen_port: 8300,
         }
@@ -66,14 +66,15 @@ pub fn load_mududb_cfg(opt_cfg_path: Option<String>) -> RS<MuduDBCfg> {
 
 fn read_mududb_cfg<P: AsRef<Path>>(path: P) -> RS<MuduDBCfg> {
     let r = fs::read_to_string(path);
-    let s = r.map_err(|e|
-        m_error!(EC::IOErr, "read MuduDB configuration error", e)
-    )?;
+    let s = r.map_err(|e| m_error!(EC::IOErr, "read MuduDB configuration error", e))?;
     let r = toml::from_str::<MuduDBCfg>(s.as_str());
-    let cfg =
-        r.map_err(|e|
-            m_error!(EC::IOErr, "deserialization MuduDB configuration file error", e)
-        )?;
+    let cfg = r.map_err(|e| {
+        m_error!(
+            EC::IOErr,
+            "deserialization MuduDB configuration file error",
+            e
+        )
+    })?;
     Ok(cfg)
 }
 
@@ -82,15 +83,11 @@ fn write_mududb_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)
-                .map_err(|e| {
-                    m_error!(EC::IOErr, "create directory error", e)
-                })?;
+                .map_err(|e| m_error!(EC::IOErr, "create directory error", e))?;
         }
     }
     let r = toml::to_string(cfg);
-    let s = r.map_err(|e| {
-        m_error!(EC::EncodeErr, "serialize configuration error", e)
-    })?;
+    let s = r.map_err(|e| m_error!(EC::EncodeErr, "serialize configuration error", e))?;
 
     let r = fs::write(path, s);
     r.map_err(|e| m_error!(EC::IOErr, "write configuration file error", e))?;
@@ -99,7 +96,7 @@ fn write_mududb_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
 
 #[cfg(test)]
 mod _test {
-    use crate::backend::mududb_cfg::{read_mududb_cfg, write_mududb_cfg, MuduDBCfg};
+    use crate::backend::mududb_cfg::{MuduDBCfg, read_mududb_cfg, write_mududb_cfg};
     use std::env::temp_dir;
     #[test]
     fn test_conf() {

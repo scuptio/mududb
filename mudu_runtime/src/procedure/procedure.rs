@@ -10,18 +10,19 @@ pub struct Procedure {
 }
 
 impl Procedure {
-    pub fn new(
-        proc_desc: ProcDesc,
-        instance: Arc<InstancePre<WasiContext>>,
-    ) -> Self {
+    pub fn new(proc_desc: ProcDesc, instance: Arc<InstancePre<WasiContext>>) -> Self {
         Self {
             proc_desc: Arc::new(proc_desc),
             instance,
         }
     }
 
-    pub fn name(&self) -> &str {
-        &self.proc_desc.proc_name()
+    pub fn proc_name(&self) -> &String {
+        self.proc_desc.proc_name()
+    }
+
+    pub fn module_name(&self) -> &String {
+        self.proc_desc.module_name()
     }
 
     pub fn desc(&self) -> Arc<ProcDesc> {

@@ -1,7 +1,6 @@
 use crate::ast::ast_node::ASTNode;
 use crate::ast::expr_compare::ExprCompare;
 
-
 #[derive(Clone, Debug)]
 pub struct StmtDelete {
     table_reference: String,

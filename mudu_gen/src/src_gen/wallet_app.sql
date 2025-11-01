@@ -1,11 +1,12 @@
 CREATE TABLE users
 (
     user_id    INT,
-    name       VARCHAR(100) NOT NULL,
-    phone      VARCHAR(20)  NOT NULL,
+    name       VARCHAR(100),
+    phone      VARCHAR(20) ,
     email      VARCHAR(100),
-    password   VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP,
+    password   VARCHAR(255),
+    created_at INT,
+    updated_at INT,
     PRIMARY KEY (user_id)
 );
 
@@ -13,27 +14,28 @@ CREATE TABLE users
 CREATE TABLE wallets
 (
     user_id INT PRIMARY KEY,
-    balance INT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    balance INT,
+    updated_at INT
 );
 
 
 CREATE TABLE transactions
 (
-    trans_id   INT,
+    trans_id   CHAR(256),
+    trans_type CHAR(256),
     from_user  INT,
     to_user    INT,
-    amount     DECIMAL(15, 2) NOT NULL,
-    created_at TIMESTAMP,
+    amount     INT,
+    created_at INT,
     PRIMARY KEY (trans_id)
 );
 
 CREATE TABLE orders
 (
-    order_id   INT AUTO_INCREMENT PRIMARY KEY,
-    user_id    INT            NOT NULL,
-    merch_id   INT            NOT NULL,
-    amount     DECIMAL(15, 2) NOT NULL,
-    created_at TIMESTAMP,
+    order_id   INT,
+    user_id    INT,
+    merch_id   INT,
+    amount     INT,
+    created_at INT,
     PRIMARY KEY (order_id)
 );

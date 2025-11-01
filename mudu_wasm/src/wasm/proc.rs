@@ -6,7 +6,6 @@ use sys_interface::api::mudu_command;
 
 #[mudu_proc]
 pub fn proc(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
-
     let tuple = (1i32, 0i64);
     let rows = mudu_command(
         xid,

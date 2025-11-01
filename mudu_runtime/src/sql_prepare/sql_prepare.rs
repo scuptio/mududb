@@ -38,9 +38,13 @@ impl SQLPrepare {
     /// FIXME replace_* is a temporary solution
     pub fn replace_query<
         SQL: AsSQLStmtRef,
-        PARAMS: AsSlice<Element=Item>,
+        PARAMS: AsSlice<Element = Item>,
         Item: AsDatumDynRef,
-    >(&self, sql: SQL, param: PARAMS) -> RS<(String, Arc<TupleFieldDesc>)> {
+    >(
+        &self,
+        sql: SQL,
+        param: PARAMS,
+    ) -> RS<(String, Arc<TupleFieldDesc>)> {
         let sql_string = sql.as_sql_stmt_ref().to_sql_string();
         let stmt = self.parse_one_query(&sql_string)?;
         let resolved = self.resolver.resolve_query(&stmt)?;
@@ -53,9 +57,13 @@ impl SQLPrepare {
     /// FIXME replace_* is a temporary solution
     pub fn replace_command<
         SQL: AsSQLStmtRef,
-        PARAMS: AsSlice<Element=Item>,
+        PARAMS: AsSlice<Element = Item>,
         Item: AsDatumDynRef,
-    >(&self, sql: SQL, param: PARAMS) -> RS<String> {
+    >(
+        &self,
+        sql: SQL,
+        param: PARAMS,
+    ) -> RS<String> {
         let sql_string = sql.as_sql_stmt_ref().to_sql_string();
         let stmt = self.parse_one_command(&sql_string)?;
         let resolved = self.resolver.resolved_command(&stmt)?;
@@ -71,18 +79,22 @@ impl SQLPrepare {
         parse_one_command(&self.parser, sql)
     }
 
-    fn replace_placeholder<
-        PARAMS: AsSlice<Element=Item> +,
-        Item: AsDatumDynRef
-    >(
+    fn replace_placeholder<PARAMS: AsSlice<Element = Item>, Item: AsDatumDynRef>(
         sql_string: &String,
-        desc: &Vec<DatumDesc>, param: PARAMS,
+        desc: &Vec<DatumDesc>,
+        param: PARAMS,
     ) -> RS<String> {
         let placeholder_str = "?";
         let placeholder_str_len = placeholder_str.len();
-        let vec_indices: Vec<_> = sql_string.match_indices(placeholder_str).into_iter().collect();
+        let vec_indices: Vec<_> = sql_string
+            .match_indices(placeholder_str)
+            .into_iter()
+            .collect();
         if desc.len() != param.as_slice().len() || desc.len() != vec_indices.len() {
-            return Err(m_error!(EC::ParseErr, "parameter and placeholder count mismatch"));
+            return Err(m_error!(
+                EC::ParseErr,
+                "parameter and placeholder count mismatch"
+            ));
         }
 
         let mut start_pos = 0;
@@ -91,7 +103,9 @@ impl SQLPrepare {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
             sql_after_replaced.push_str(" ");
-            let s = param.as_slice()[i].as_datum_dyn_ref().to_printable(desc[i].dat_type().param())?;
+            let s = param.as_slice()[i]
+                .as_datum_dyn_ref()
+                .to_printable(desc[i].dat_type().param())?;
             sql_after_replaced.push_str(s.str());
             sql_after_replaced.push_str(" ");
             start_pos += _s.len() + placeholder_str_len;

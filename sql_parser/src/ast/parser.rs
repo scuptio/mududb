@@ -63,7 +63,6 @@ fn sql_language() -> Language {
     tree_sitter_sql::LANGUAGE.clone().into()
 }
 
-
 fn traverse_tree_for_error_nodes<'t>(node: &Node<'t>, error_nodes: &mut Vec<Node<'t>>) {
     if !node.has_error() {
         return;
@@ -113,11 +112,7 @@ fn error_text(
     }
     Ok(err_text)
 }
-fn print_error_line<W: Write>(
-    parse_text: &str,
-    node: Node,
-    writter: &mut W,
-) -> RS<()> {
+fn print_error_line<W: Write>(parse_text: &str, node: Node, writter: &mut W) -> RS<()> {
     // row and column start at 0
     let line_start = node.start_position().row + 1;
     let line_end = node.end_position().row + 1;
@@ -126,7 +121,6 @@ fn print_error_line<W: Write>(
 
     let mut cursor = node.walk();
     let mut tokens = String::new();
-
 
     for (i, child) in node.children(&mut cursor).enumerate() {
         let text = ts_node_context_string(parse_text, &child)?;
@@ -142,17 +136,22 @@ fn print_error_line<W: Write>(
     };
     let error_text = error_text(parse_text, line_start, column_start, line_end, column_end)?;
 
-    let error_msg = format!("In \
+    let error_msg = format!(
+        "In \
         position: [{},{}; {},{}], \
         text: [{}]
         child tokens:[{}], \
         parent kind:[{}],\
         s-expr: [{}]\n",
-                            line_start, column_start, line_end, column_end,
-                            error_text,
-                            tokens,
-                            kind,
-                            node.to_sexp());
+        line_start,
+        column_start,
+        line_end,
+        column_end,
+        error_text,
+        tokens,
+        kind,
+        node.to_sexp()
+    );
 
     writter.write_fmt(format_args!("{}", error_msg)).unwrap();
     Ok(())
@@ -162,15 +161,10 @@ fn print_parse_error<W: Write>(parse_text: &str, node: &Node, writer: &mut W) ->
     let mut error_nodes = vec![];
     traverse_tree_for_error_nodes(node, &mut error_nodes);
     for node in error_nodes {
-        print_error_line(
-            parse_text,
-            node,
-            writer,
-        )?
+        print_error_line(parse_text, node, writer)?
     }
     Ok(())
 }
-
 
 impl SQLParser {
     pub fn new() -> SQLParser {
@@ -186,8 +180,8 @@ impl SQLParser {
         let mut guard = self.parser.lock().unwrap();
         let opt_tree = guard.parse(sql, None);
         let tree = match opt_tree {
-            Some(tree) => { tree }
-            None => { return Err(m_error!(EC::MLParseError, "SQL parse error")) }
+            Some(tree) => tree,
+            None => return Err(m_error!(EC::MLParseError, "SQL parse error")),
         };
         let vec = self.visit_root(&parse_context, tree.root_node())?;
         let stmt = StmtList::new(vec);
@@ -198,19 +192,20 @@ impl SQLParser {
         if node.has_error() {
             let mut buffer = Vec::new();
             print_parse_error(context.parse_str(), node, &mut buffer)?;
-            let error = String::from_utf8(buffer).map_err(|e| {
-                m_error!(EC::MuduError, "", e)
-            })?;
-            Err(m_error!(EC::MLParseError, format!(
-                "Syntax error at position start {}, end {}, at text\n\
+            let error = String::from_utf8(buffer).map_err(|e| m_error!(EC::MuduError, "", e))?;
+            Err(m_error!(
+                EC::MLParseError,
+                format!(
+                    "Syntax error at position start {}, end {}, at text\n\
                  \"\n\
                  {}\n\",\
                  \nErrors, {}",
-                node.start_position(),
-                node.end_position(),
-                ts_node_context_string(context.parse_str(), node)?,
-                error
-            )))
+                    node.start_position(),
+                    node.end_position(),
+                    ts_node_context_string(context.parse_str(), node)?,
+                    error
+                )
+            ))
         } else {
             Ok(())
         }
@@ -337,14 +332,10 @@ impl SQLParser {
 
     fn visit_copy_from_stmt(&self, context: &ParseContext, node: Node) -> RS<StmtType> {
         let n = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
-        let n_obj_ref = rs_of_opt(n, || {
-            m_error!(EC::ParseErr, "no object reference field")
-        })?;
+        let n_obj_ref = rs_of_opt(n, || m_error!(EC::ParseErr, "no object reference field"))?;
         let table_name = self.visit_object_reference(context, n_obj_ref)?;
         let n = node.child_by_field_name(ts_field_name::FILE_PATH);
-        let n_file_path = rs_of_opt(n, || {
-            m_error!(EC::ParseErr, "no object file path field")
-        })?;
+        let n_file_path = rs_of_opt(n, || m_error!(EC::ParseErr, "no object file path field"))?;
         let file_path = self.visit_string(context, n_file_path)?;
         let copy_from = StmtCopyFrom::new(file_path, table_name, vec![]);
         let st = StmtType::Command(StmtCommand::CopyFrom(copy_from));
@@ -439,7 +430,11 @@ impl SQLParser {
         Ok(where_predicate_list)
     }
 
-    fn visit_where_predicate_expression(&self, context: &ParseContext, node: Node) -> RS<Vec<ExprCompare>> {
+    fn visit_where_predicate_expression(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<Vec<ExprCompare>> {
         let expr = self.visit_expression(context, node)?;
         let mut cmp_list = vec![];
         ExprVisitor::extract_expr_compare_list(expr, &mut cmp_list);
@@ -455,8 +450,9 @@ impl SQLParser {
         let opt_literal = node.child_by_field_name(ts_field_name::LITERAL);
         if let Some(n) = opt_literal {
             let literal = self.visit_literal(context, n)?;
-            return Ok(ExprType::Value(Arc::new(
-                ExprItem::ItemValue(ExprValue::ValueLiteral(literal)))));
+            return Ok(ExprType::Value(Arc::new(ExprItem::ItemValue(
+                ExprValue::ValueLiteral(literal),
+            ))));
         }
 
         let opt_qualified_field = node.child_by_field_name(ts_field_name::QUALIFIED_FIELD);
@@ -472,7 +468,9 @@ impl SQLParser {
 
         let opt_place_holder = node.child_by_field_name(ts_field_name::PARAMETER_PLACEHOLDER);
         if let Some(_n) = opt_place_holder {
-            return Ok(ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValuePlaceholder))));
+            return Ok(ExprType::Value(Arc::new(ExprItem::ItemValue(
+                ExprValue::ValuePlaceholder,
+            ))));
         }
         panic!(
             "unknown expression {}",
@@ -537,7 +535,6 @@ impl SQLParser {
             }
         };
 
-
         Ok(expr)
     }
 
@@ -549,7 +546,8 @@ impl SQLParser {
 
     fn visit_relation(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
         let opt_n_object_reference = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
-        let n_object_reference = rs_option(opt_n_object_reference, "no object reference in relation")?;
+        let n_object_reference =
+            rs_option(opt_n_object_reference, "no object reference in relation")?;
         let name = self.visit_object_reference(context, n_object_reference)?;
         stmt.set_table_reference(name);
         Ok(())
@@ -562,7 +560,12 @@ impl SQLParser {
         Ok(name)
     }
 
-    fn visit_select_expression(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
+    fn visit_select_expression(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtSelect,
+    ) -> RS<()> {
         for i in 0..node.child_count() {
             let n = node.child(i).unwrap();
             if n.kind().eq("term") {
@@ -599,7 +602,12 @@ impl SQLParser {
         Ok(term)
     }
 
-    fn visit_projection_expression(&self, context: &ParseContext, node: Node, term: &mut SelectTerm) -> RS<()> {
+    fn visit_projection_expression(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        term: &mut SelectTerm,
+    ) -> RS<()> {
         let opt_identifier = node.child_by_field_name(ts_field_name::QUALIFIED_FIELD);
         match opt_identifier {
             Some(n) => {
@@ -614,9 +622,13 @@ impl SQLParser {
     fn visit_alias_name(&self, context: &ParseContext, node: Node) -> RS<String> {
         let opt_alias = node.child_by_field_name(ts_field_name::ALIAS);
         match opt_alias {
-            None => Err(m_error!(EC::NoneErr,
-                format!("alias not found in {}",
-                        ts_node_context_string(&context.parse_str(), &node)?))),
+            None => Err(m_error!(
+                EC::NoneErr,
+                format!(
+                    "alias not found in {}",
+                    ts_node_context_string(&context.parse_str(), &node)?
+                )
+            )),
             Some(n) => {
                 let s = ts_node_context_string(&context.parse_str(), &n)?;
                 Ok(s)
@@ -640,7 +652,11 @@ impl SQLParser {
         ts_node_context_string(context.parse_str(), &node)
     }
 
-    fn visit_create_table_statement(&self, context: &ParseContext, node: Node) -> RS<StmtCreateTable> {
+    fn visit_create_table_statement(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<StmtCreateTable> {
         let opt_n_name = node.child_by_field_name(ts_field_name::TABLE_NAME);
         let n_name = rs_option(opt_n_name, "no table name in create table statement")?;
         let table_name = self.visit_identifier(context, n_name)?;
@@ -654,7 +670,12 @@ impl SQLParser {
         Ok(stmt_create_table)
     }
 
-    fn visit_column_definitions(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_column_definitions(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtCreateTable,
+    ) -> RS<()> {
         let n = node.child_count();
         for i in 0..n {
             let c = node.child(i).unwrap();
@@ -667,7 +688,12 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_constraints(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_constraints(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtCreateTable,
+    ) -> RS<()> {
         let mut cursor = node.walk();
         let iter = node.children_by_field_name(ts_field_name::CONSTRAINT, &mut cursor);
         for n in iter {
@@ -677,7 +703,12 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_constraint(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_constraint(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtCreateTable,
+    ) -> RS<()> {
         if let Some(n) = node.child_by_field_name(ts_field_name::PRIMARY_KEY_CONSTRAINT) {
             self.visit_primary_key_constraint(context, n, stmt)?;
         }
@@ -685,7 +716,12 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_primary_key_constraint(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_primary_key_constraint(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtCreateTable,
+    ) -> RS<()> {
         let opt_n = node.child_by_field_name(ts_field_name::COLUMN_LIST);
 
         let n = rs_option(opt_n, "no column list in primary key constraint")?;
@@ -708,7 +744,12 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_column_definition(&self, context: &ParseContext, node: Node, stmt: &mut StmtCreateTable) -> RS<()> {
+    fn visit_column_definition(
+        &self,
+        context: &ParseContext,
+        node: Node,
+        stmt: &mut StmtCreateTable,
+    ) -> RS<()> {
         let opt_n = node.child_by_field_name(ts_field_name::COLUMN_NAME);
         let n_column_name = rs_option(opt_n, "")?;
         let column_name = self.visit_identifier(context, n_column_name)?;
@@ -728,7 +769,10 @@ impl SQLParser {
         Ok(())
     }
     fn visit_column_constraint(&self, node: Node, column_def: &mut ColumnDef) -> RS<()> {
-        if node.child_by_field_name(ts_field_name::PRIMARY_KEY).is_some() {
+        if node
+            .child_by_field_name(ts_field_name::PRIMARY_KEY)
+            .is_some()
+        {
             column_def.set_primary_key(true);
         }
         Ok(())
@@ -770,7 +814,12 @@ impl SQLParser {
             ts_kind_id::NUMERIC => DatType::new_with_no_param(DatTypeID::F64),
             ts_kind_id::DECIMAL => DatType::new_with_no_param(DatTypeID::F64),
             ts_kind_id::KEYWORD_TIMESTAMP => DatType::new_with_no_param(DatTypeID::I64),
-            _ => return Err(m_error!(EC::NotImplemented, format!("Data type {} not yet implemented", child.kind()))),
+            _ => {
+                return Err(m_error!(
+                    EC::NotImplemented,
+                    format!("Data type {} not yet implemented", child.kind())
+                ))
+            }
         };
 
         Ok(type_declare)
@@ -804,12 +853,10 @@ impl SQLParser {
     fn expected_expr_value(expr: ExprType) -> RS<ExprValue> {
         match expr {
             ExprType::Value(v) => match &*v {
-                ExprItem::ItemValue(expr_v) => {
-                    match expr_v {
-                        ExprValue::ValueLiteral(v) => Ok(ExprValue::ValueLiteral(v.clone())),
-                        ExprValue::ValuePlaceholder => Ok(ExprValue::ValuePlaceholder)
-                    }
-                }
+                ExprItem::ItemValue(expr_v) => match expr_v {
+                    ExprValue::ValueLiteral(v) => Ok(ExprValue::ValueLiteral(v.clone())),
+                    ExprValue::ValuePlaceholder => Ok(ExprValue::ValuePlaceholder),
+                },
                 _ => Err(m_error!(EC::TypeErr)),
             },
             _ => Err(m_error!(EC::TypeErr)),
@@ -825,7 +872,11 @@ impl SQLParser {
         Ok(vec)
     }
 
-    fn visit_typed_row_value_expr_list(&self, context: &ParseContext, node: Node) -> RS<Vec<Vec<ExprValue>>> {
+    fn visit_typed_row_value_expr_list(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<Vec<Vec<ExprValue>>> {
         let mut cursor = node.walk();
         let mut value_expr_list = vec![];
         let iter = node.children_by_field_name(ts_field_name::LIST, &mut cursor);
@@ -837,7 +888,11 @@ impl SQLParser {
         Ok(value_expr_list)
     }
 
-    fn visit_insert_values(&self, context: &ParseContext, node: Node) -> RS<(Vec<String>, Vec<Vec<ExprValue>>)> {
+    fn visit_insert_values(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<(Vec<String>, Vec<Vec<ExprValue>>)> {
         let opt = node.child_by_field_name(ts_field_name::COLUMN_LIST);
         let mut columns = vec![];
         if let Some(c) = opt {
@@ -850,10 +905,13 @@ impl SQLParser {
 
         let opt = node.child_by_field_name(ts_field_name::TYPED_ROW_VALUE_EXPR_LIST);
         let n_val_expr_list = rs_of_opt(opt, || {
-            m_error!(EC::ParseErr, format!(
-                "no value expression list node {}",
-                ts_node_context_string(&context.parse_str(), &node).unwrap()
-            ))
+            m_error!(
+                EC::ParseErr,
+                format!(
+                    "no value expression list node {}",
+                    ts_node_context_string(&context.parse_str(), &node).unwrap()
+                )
+            )
         })?;
         let expr_l = self.visit_typed_row_value_expr_list(context, n_val_expr_list)?;
         Ok((columns, expr_l))
@@ -941,15 +999,11 @@ impl SQLParser {
         let n_right = rs_option(opt, "no right in assignment node")?;
         let expr = self.visit_expression(context, n_right)?;
         let expr_l = match &expr {
-            ExprType::Value(value) => {
-                match &(**value) {
-                    ExprItem::ItemValue(value) => {
-                        AssignedValue::Value(value.clone())
-                    }
-                    _ => { AssignedValue::Expression(expr) }
-                }
-            }
-            _ => { AssignedValue::Expression(expr) }
+            ExprType::Value(value) => match &(**value) {
+                ExprItem::ItemValue(value) => AssignedValue::Value(value.clone()),
+                _ => AssignedValue::Expression(expr),
+            },
+            _ => AssignedValue::Expression(expr),
         };
 
         let assignment = Assignment::new(column_reference, expr_l);
