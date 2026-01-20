@@ -1,0 +1,14 @@
+use crate:universal:uni-dat-type/uni-dat-type;
+
+interface universal {
+record uni-record-field {
+    field-name: string,
+    field-type: uni-dat-type
+}
+
+record uni-record-type {
+    record-name:string,
+    record-fields:list<uni-record-field>
+}
+}
+

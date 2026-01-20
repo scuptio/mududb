@@ -1,0 +1,57 @@
+{% if enum_def.enum_comments.len() > 0 %}
+{{ enum_def.enum_comments }}
+{% endif %}
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr
+)]
+#[repr(u32)]
+pub enum {{ enum_def.enum_name }} {
+    {% for case in enum_def.enum_cases %}
+    {% if case.ec_comments.len() > 0 %}
+    {{ case.ec_comments }}
+    {% endif %}
+    {{ case.ec_name }} = {{ case.ec_number }},
+    {% endfor %}
+}
+
+{% if cfg.impl_default %}
+impl Default for {{ enum_def.enum_name }} {
+    fn default() -> Self {
+        Self::{{ enum_def.enum_cases[0].ec_name }}
+    }
+}
+{% endif %}
+
+{% if cfg.impl_display %}
+impl std::fmt::Display for {{ enum_def.enum_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            {% for case in enum_def.enum_cases %}
+            Self::{{ case.ec_name }} => write!(f, "{{ case.ec_name }}"),
+            {% endfor %}
+        }
+    }
+}
+{% endif %}
+
+{% if cfg.impl_from_str %}
+impl std::str::FromStr for {{ enum_def.enum_name }} {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            {% for case in enum_def.enum_cases %}
+            "{{ case.ec_name }}" => Ok(Self::{{ case.ec_name }}),
+            {% endfor %}
+            _ => Err(format!("Invalid {} value: {}", stringify!({{ enum_def.enum_name }}), s)),
+        }
+    }
+}
+{% endif %}

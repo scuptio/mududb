@@ -1,5 +1,5 @@
 use mudu::common::id::OID;
-use mudu::data_type::dat_type::DatType;
+use mudu_type::dat_type::DatType;
 
 #[derive(Debug, Clone)]
 pub struct ProjField {

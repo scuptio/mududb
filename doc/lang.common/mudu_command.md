@@ -3,6 +3,7 @@ quote_begin
 content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
 lang="rust"
 -->
+
 ```rust
 pub fn mudu_query<
     R: Entity
@@ -14,4 +15,5 @@ pub fn mudu_query<
     inner::inner_query(xid, sql, params)
 }
 ```
+
 <!--quote_end-->

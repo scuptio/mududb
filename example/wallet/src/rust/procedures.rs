@@ -1,11 +1,11 @@
 use crate::rust::wallets::object::Wallets;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::data_type::datum::DatumDyn;
-use mudu::database::attr_value::AttrValue;
 use mudu::error::ec::EC::MuduError;
-use mudu::{m_error, sql_params, sql_stmt};
-use mudu_macro::mudu_proc;
+use mudu::m_error;
+use mudu_contract::database::attr_value::AttrValue;
+use mudu_contract::{sql_params, sql_stmt};
+use mudu_type::datum::DatumDyn;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sys_interface::api::{mudu_command, mudu_query};
 use uuid::Uuid;
@@ -20,7 +20,7 @@ fn current_timestamp() -> i64 {
     seconds as _
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
@@ -39,7 +39,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
-        sql_params!(&from_user_id),
+        sql_params!(&(from_user_id, )),
     )?;
 
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
@@ -103,7 +103,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
 
@@ -134,13 +134,13 @@ pub fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&user_id),
+        sql_params!(&(user_id, )),
     )?;
 
     let wallet = wallet_rs
@@ -171,7 +171,7 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn update_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
     let mut params: Vec<Box<dyn DatumDyn>> = vec![];
@@ -201,7 +201,7 @@ pub fn update_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
@@ -233,7 +233,7 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
@@ -243,7 +243,7 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&user_id),
+        sql_params!(&(user_id, )),
     )?;
 
     let wallet = wallet_rs
@@ -276,7 +276,7 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     if from_user_id == to_user_id {
         return Err(m_error!(MuduError, "Cannot transfer to self"));
@@ -290,7 +290,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     let sender_wallet = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&from_user_id),
+        sql_params!(&(from_user_id, )),
     )?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Sender wallet not found"))?;
@@ -303,7 +303,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     let receiver_exists = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?"),
-        sql_params!(&to_user_id),
+        sql_params!(&(to_user_id.clone(), )),
     )?
     .next_record()?
     .is_some();
@@ -348,7 +348,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     Ok(())
 }
 
-#[mudu_proc]
+/**mudu-proc**/
 pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
@@ -358,7 +358,7 @@ pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<
     let wallet = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&user_id),
+        sql_params!(&(user_id,)),
     )?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Wallet not found"))?;
@@ -394,44 +394,4 @@ pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<
     )?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::rust::procedures;
-    use mudu::common::result::RS;
-    use mudu::procedure::proc_desc::ProcDesc;
-    use mudu::this_file;
-    use mudu::utils::app_proc_desc::AppProcDesc;
-    use mudu::utils::toml::{to_toml_str, write_toml};
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_gen_proc_desc() {
-        _test_gen_proc_desc().unwrap();
-    }
-
-    fn _test_gen_proc_desc() -> RS<()> {
-        let mut app_proc_desc = AppProcDesc::new_empty();
-        for desc in vec![
-            procedures::mudu_proc_desc_deposit(),
-            procedures::mudu_proc_desc_transfer(),
-            procedures::mudu_proc_desc_purchase(),
-            procedures::mudu_proc_desc_create_user(),
-            procedures::mudu_proc_desc_delete_user(),
-            procedures::mudu_proc_desc_transfer_funds(),
-            procedures::mudu_proc_desc_update_user(),
-            procedures::mudu_proc_desc_withdraw(),
-        ] {
-            app_proc_desc.add(desc.clone())
-        }
-
-        let mut path_buf = PathBuf::from(this_file!());
-        path_buf.pop();
-        path_buf.pop();
-        path_buf.pop();
-        let path_buf = path_buf.join("toml").join("procedure.desc.toml");
-        write_toml(&app_proc_desc, &path_buf).unwrap();
-        Ok(())
-    }
 }

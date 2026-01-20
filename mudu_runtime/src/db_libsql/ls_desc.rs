@@ -1,11 +1,11 @@
 use libsql::Connection;
 use mudu::common::result::RS;
-use mudu::data_type::dat_type::DatType;
-use mudu::data_type::dat_type_id::DatTypeID;
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
-use mudu::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_type::dat_type::DatType;
+use mudu_type::dat_type_id::DatTypeID;
 
 /// Get schema information for a SQL query result set
 /// This function executes the query with LIMIT 0 to get only the structure without data

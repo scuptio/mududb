@@ -1,29 +1,26 @@
 use crate::db_connector::DBConnector;
 use crate::procedure::procedure::Procedure;
-use crate::procedure::wasi_context::WasiContext;
 use crate::resolver::schema_mgr::SchemaMgr;
 use crate::service::app_inst::AppInst;
-use crate::service::app_module::AppModule;
-use crate::service::app_package::AppPackage;
-use crate::service::procedure_invoke::ProcedureInvoke;
-use mudu::common::app_cfg::AppCfg;
+use crate::service::mudu_package::MuduPackage;
+use crate::service::package_module::PackageModule;
+use crate::service::procedure_invoke_p1::ProcedureInvoke1;
+use crate::service::procedure_invoke_p2::ProcedureInvokeP2;
+use async_trait::async_trait;
+use mudu::common::package_cfg::PackageCfg;
 use mudu::common::result::RS;
 use mudu::common::xid::is_xid_invalid;
-use mudu::database::db_conn::DBConn;
-use mudu::database::sql::Context;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::procedure::proc_desc::ProcDesc;
-use mudu::procedure::proc_param::ProcParam;
-use mudu::procedure::proc_result::ProcResult;
-use mudu::utils::app_proc_desc::AppProcDesc;
+use mudu_contract::database::sql::{Context, DBConn};
+use mudu_contract::procedure::proc_desc::ProcDesc;
+use mudu_contract::procedure::procedure_param::ProcedureParam;
+use mudu_contract::procedure::procedure_result::ProcedureResult;
 use mudu_utils::task_id::{new_task_id, TaskID};
 use scc::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-use wasmtime::{Engine, Linker, Module};
-use wasmtime_wasi::WasiCtxBuilder;
 
 #[derive(Clone)]
 pub struct AppInstImpl {
@@ -31,31 +28,35 @@ pub struct AppInstImpl {
 }
 
 struct AppInstImplInner {
-    app_cfg: AppCfg,
+    package_cfg: PackageCfg,
+    enable_async: bool,
     db_path: String,
     schema_mgr: SchemaMgr,
-    modules: HashMap<String, AppModule>,
-    _conn: HashMap<u128, Arc<dyn DBConn>>,
+    modules: HashMap<String, PackageModule>,
+    _conn: HashMap<u128, DBConn>,
+    use_p2: bool,
 }
 
 impl AppInstImpl {
-    pub fn build(
-        engine: &Engine,
-        linker: &Linker<WasiContext>,
+    pub async fn build(
         db_path: &String,
-        package: AppPackage,
+        package: &MuduPackage,
+        vec_modules: Vec<(String, PackageModule)>,
+        build_p2:bool,
+        enable_async: bool,
     ) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(AppInstImplInner::build(engine, linker, db_path, package)?),
+            inner: Arc::new(AppInstImplInner::build(
+                db_path, package, vec_modules, build_p2, enable_async).await?),
         })
     }
 
-    pub fn connection(&self, task_id: u128) -> Option<Arc<dyn DBConn>> {
+    pub fn connection(&self, task_id: u128) -> Option<DBConn> {
         self.inner.connection(task_id)
     }
 
-    pub fn create_conn(&self, task_id: u128) -> RS<()> {
-        self.inner.create_conn(task_id)
+    pub async fn create_conn(&self, task_id: u128) -> RS<()> {
+        self.inner.create_conn(task_id).await
     }
 
     pub fn remove_conn(&self, task_id: u128) -> RS<()> {
@@ -76,72 +77,37 @@ impl AppInstImpl {
 }
 
 impl AppInstImplInner {
-    fn build(
-        engine: &Engine,
-        linker: &Linker<WasiContext>,
+    async fn build(
         db_path: &String,
-        package: AppPackage,
+        package: &MuduPackage,
+        vec_modules: Vec<(String, PackageModule)>,
+        build_p2:bool,
+        enable_async: bool,
     ) -> RS<Self> {
-        let mut package = package;
         let modules = HashMap::new();
-        let app_cfg = package.app_cfg;
-        let ddl_sql = package.ddl_sql;
-        let init_sql = package.initdb_sql;
+        let app_cfg = &package.package_cfg;
+        let ddl_sql = &package.ddl_sql;
+        let init_sql = &package.initdb_sql;
         let schema_mgr = SchemaMgr::from_sql_text(&ddl_sql)?;
-        let app_proc_desc: AppProcDesc = package.app_proc_desc;
-        for (mod_name, vec_desc) in app_proc_desc.into_modules() {
-            let byte_code = package.modules.remove(&mod_name).ok_or_else(|| {
-                m_error!(EC::NoneErr, format!("no such module named {}", mod_name))
-            })?;
-            let module =
-                Self::build_app_module(engine, linker, mod_name.clone(), byte_code, vec_desc)?;
-            let _ = modules.insert_sync(mod_name, module);
+        for (name, module) in vec_modules {
+            let _ = modules.insert_sync(name, module);
         }
         SchemaMgr::add_mgr(app_cfg.name.clone(), schema_mgr.clone());
-        let sql_text = ddl_sql + init_sql.as_str();
-        initdb(db_path, &app_cfg.name, &sql_text)?;
+        let sql_text = ddl_sql.to_string() + init_sql.as_str();
+        initdb(db_path, &app_cfg.name, &sql_text, enable_async).await?;
         Ok(Self {
-            app_cfg,
+            package_cfg: app_cfg.clone(),
+            enable_async,
             db_path: db_path.clone(),
             schema_mgr,
             modules,
             _conn: Default::default(),
+            use_p2: build_p2,
         })
     }
 
-    fn build_app_module(
-        engine: &Engine,
-        linker: &Linker<WasiContext>,
-        name: String,
-        byte_code: Vec<u8>,
-        desc_vec: Vec<ProcDesc>,
-    ) -> RS<AppModule> {
-        let module = Module::from_binary(&engine, &byte_code).map_err(|e| {
-            m_error!(
-                EC::MuduError,
-                format!("build module {} from binary error", name),
-                e
-            )
-        })?;
 
-        let instance_pre = linker.instantiate_pre(&module).map_err(|e| {
-            m_error!(
-                EC::MuduError,
-                format!("instantiate module {} error", name),
-                e
-            )
-        })?;
-        AppModule::new(instance_pre, desc_vec)
-    }
 
-    fn build_context() -> WasiContext {
-        let wasi = WasiCtxBuilder::new()
-            .inherit_stdio()
-            .inherit_args()
-            .build_p1();
-        let context = WasiContext::new(wasi);
-        context
-    }
     pub fn list_procedure(&self) -> RS<Vec<(String, String)>> {
         let mut vec = Vec::new();
         self.modules.iter_sync(|_k, v| {
@@ -161,46 +127,29 @@ impl AppInstImplInner {
         Ok(procedure.desc())
     }
 
-    pub fn invoke_procedure(
+    pub async fn invoke_procedure(
         &self,
         task_id: TaskID,
         mod_name: &String,
         proc_name: &String,
-        param: ProcParam,
-    ) -> RS<ProcResult> {
-        let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
-            m_error!(
-                EC::NoneErr,
-                format!("procedure {}/{} not found", mod_name, proc_name)
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult> {
+        let (procedure, param, new_tx) = self.pre_invoke(task_id, mod_name, proc_name, param).await?;
+        let xid = param.session_id();
+        let result = if self.use_p2 {
+            ProcedureInvokeP2::call(
+                &procedure,
+                Default::default(),
+                param,
             )
-        })?;
-
-        let existing_xid = param.xid();
-        let param = if is_xid_invalid(&existing_xid) {
-            let conn = self
-                .connection(task_id)
-                .ok_or_else(|| m_error!(EC::NoneErr, format!("no such task named {}", task_id)))?;
-            let context = Context::create(conn)?;
-            let mut param = param;
-            param.set_xid(context.xid());
-            param
         } else {
-            param
+            ProcedureInvoke1::call(
+                &procedure,
+                Default::default(),
+                param,
+            )
         };
-        let xid = param.xid();
-        let invoke_name = format!(
-            "{}{}",
-            mudu::procedure::proc::MUDU_PROC_PREFIX,
-            procedure.proc_name()
-        );
-        let result = ProcedureInvoke::call(
-            Self::build_context(),
-            procedure.instance(),
-            Default::default(),
-            invoke_name,
-            param,
-        );
-        if is_xid_invalid(&existing_xid) {
+        if new_tx {
             if result.is_ok() {
                 Context::commit(xid)?;
             } else {
@@ -210,12 +159,39 @@ impl AppInstImplInner {
         Ok(result?)
     }
 
+    pub async fn invoke_procedure_async(
+        &self,
+        task_id: TaskID,
+        mod_name: &String,
+        proc_name: &String,
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult> {
+        if !self.enable_async {
+            return Err(m_error!(EC::DBInternalError, "enable async mode when call async procedure"))
+        }
+        let (procedure, param, new_tx) = self.pre_invoke(task_id, mod_name, proc_name, param).await?;
+        let xid = param.session_id();
+        let result = ProcedureInvokeP2::call_async(
+                &procedure,
+                Default::default(),
+                param,
+        ).await;
+        if new_tx {
+            if result.is_ok() {
+                Context::commit_async(xid).await?;
+            } else {
+                Context::rollback_async(xid).await?;
+            }
+        }
+        Ok(result?)
+    }
+
     pub fn procedure(&self, mod_name: &str, proc_name: &str) -> Option<Procedure> {
         self.modules.get_sync(mod_name)?.get().procedure(proc_name)
     }
 
-    pub fn create_conn(&self, task_id: u128) -> RS<()> {
-        let db_conn = new_conn(&self.db_path, &self.app_cfg.name)?;
+    pub async fn create_conn(&self, task_id: u128) -> RS<()> {
+        let db_conn = new_conn(&self.db_path, &self.package_cfg.name, self.enable_async).await?;
         self._conn.insert_sync(task_id, db_conn).map_err(|_e| {
             m_error!(
                 EC::ExistingSuchElement,
@@ -229,32 +205,67 @@ impl AppInstImplInner {
         let _ = self._conn.remove_sync(&task_id);
         Ok(())
     }
-    pub fn connection(&self, task_id: u128) -> Option<Arc<dyn DBConn>> {
+    pub fn connection(&self, task_id: u128) -> Option<DBConn> {
         self._conn.get_sync(&task_id).map(|conn| conn.clone())
     }
 
     pub fn name(&self) -> &String {
-        &self.app_cfg.name
+        &self.package_cfg.name
     }
 
     pub fn schema_mgr(&self) -> &SchemaMgr {
         &self.schema_mgr
     }
+
+    async fn pre_invoke(&self,
+                  task_id: TaskID,
+                  mod_name: &String,
+                  proc_name: &String,
+                  param: ProcedureParam,
+    ) -> RS<(Procedure, ProcedureParam, bool)> {
+        let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
+            m_error!(
+                EC::NoneErr,
+                format!("procedure {}/{} not found", mod_name, proc_name)
+            )
+        })?;
+
+        let existing_xid = param.session_id();
+        let (param, new_tx) = if is_xid_invalid(&existing_xid) {
+            let conn = self
+                .connection(task_id)
+                .ok_or_else(|| m_error!(EC::NoneErr, format!("no such task named {}", task_id)))?;
+            let context = Context::create(task_id, conn)?;
+            let mut param = param;
+            param.set_session_id(context.session_id());
+            context.begin_tx().await?;
+            (param, true)
+        } else {
+            (param, false)
+        };
+        Ok((procedure, param, new_tx))
+    }
 }
 
-fn new_conn(db_path: &String, app_name: &String) -> RS<Arc<dyn DBConn>> {
-    let conn_str = format!("db={} app={} db_type=LibSQL", db_path, app_name);
-    let db_conn = DBConnector::connect(&conn_str)?;
+async fn new_conn(db_path: &String, app_name: &String, enable_async: bool) -> RS<DBConn> {
+    let db_type = if enable_async {
+        "LibSQLAsync".to_string()
+    } else {
+        "LibSQL".to_string()
+    };
+    let conn_str = format!("db={} app={} db_type={}", db_path, app_name, db_type);
+    let db_conn = DBConnector::connect(&conn_str).await?;
     Ok(db_conn)
 }
 
-fn initdb(db_path: &String, app_name: &String, sql: &String) -> RS<()> {
+
+async fn initdb(db_path: &String, app_name: &String, sql: &String, enable_async: bool) -> RS<()> {
     let init_db_lock = PathBuf::from(&db_path).join(format!("{}.lock", app_name));
     if init_db_lock.exists() {
         return Ok(());
     }
-    let conn = new_conn(db_path, app_name)?;
-    conn.exec_sql(sql)?;
+    let conn = new_conn(db_path, app_name, enable_async).await?;
+    conn.execute_silent(sql.clone()).await?;
     File::create(&init_db_lock).map_err(|e| {
         m_error!(
             EC::IOErr,
@@ -265,10 +276,15 @@ fn initdb(db_path: &String, app_name: &String, sql: &String) -> RS<()> {
     Ok(())
 }
 
+#[async_trait]
 impl AppInst for AppInstImpl {
-    fn task_create(&self) -> RS<TaskID> {
+    fn cfg(&self) -> &PackageCfg {
+        &self.inner.package_cfg
+    }
+
+    async fn task_create(&self) -> RS<TaskID> {
         let id = new_task_id();
-        self.create_conn(id)?;
+        self.create_conn(id).await?;
         Ok(id)
     }
 
@@ -276,7 +292,7 @@ impl AppInst for AppInstImpl {
         self.remove_conn(task_id)
     }
 
-    fn connection(&self, task_id: TaskID) -> Option<Arc<dyn DBConn>> {
+    fn connection(&self, task_id: TaskID) -> Option<DBConn> {
         self.inner.connection(task_id)
     }
 
@@ -284,15 +300,26 @@ impl AppInst for AppInstImpl {
         self.inner.list_procedure()
     }
 
-    fn invoke(
+    async fn invoke(
         &self,
         task_id: TaskID,
         mod_name: &String,
         proc_name: &String,
-        param: ProcParam,
-    ) -> RS<ProcResult> {
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult> {
         self.inner
-            .invoke_procedure(task_id, mod_name, proc_name, param)
+            .invoke_procedure(task_id, mod_name, proc_name, param).await
+    }
+
+    async fn invoke_async(
+        &self,
+        task_id: TaskID,
+        mod_name: &String,
+        proc_name: &String,
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult> {
+        self.inner
+            .invoke_procedure_async(task_id, mod_name, proc_name, param).await
     }
 
     fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>> {

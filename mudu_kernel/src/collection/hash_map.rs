@@ -53,12 +53,12 @@ where
 {
     let mut key = key;
     loop {
-        let opt = scc_hash_map.get(&key);
+        let opt = scc_hash_map.get_sync(&key);
         let v = match opt {
             Some(e) => e.get().clone(),
             None => {
                 let v = creater();
-                let _opt = scc_hash_map.insert(key.clone(), v.clone());
+                let _opt = scc_hash_map.insert_sync(key.clone(), v.clone());
                 match _opt {
                     Ok(_) => v,
                     Err((_k, _v)) => {

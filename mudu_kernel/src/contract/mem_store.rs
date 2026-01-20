@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use std::ops::Bound;
 
 #[async_trait]

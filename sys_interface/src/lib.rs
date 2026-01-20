@@ -1,22 +1,13 @@
-#[cfg(target_arch = "wasm32")]
-pub mod inner;
-#[cfg(target_arch = "wasm32")]
-
-pub mod sys_call;
-
 pub mod api;
+mod host;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#[cfg(all(target_arch = "wasm32", feature = "wasip1", not(feature = "wasip2")))]
+pub mod inner_p1;
+#[cfg(all(target_arch = "wasm32", feature = "wasip1", not(feature = "wasip2")))]
+pub mod extern_c;
+#[cfg(all(target_arch = "wasm32", feature = "wasip2", not(feature = "async")))]
+mod inner_p2;
+#[cfg(all(target_arch = "wasm32", feature = "wasip2", feature = "async"))]
+mod inner_p2_async;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}

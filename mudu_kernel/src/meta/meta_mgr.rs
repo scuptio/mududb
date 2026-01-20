@@ -50,12 +50,12 @@ impl MetaMgrImpl {
     }
 
     pub fn get_table_by_id(&self, oid: OID) -> Option<TableInfo> {
-        let opt = self.id2table.get(&oid);
+        let opt = self.id2table.get_sync(&oid);
         opt.map(|e| e.get().clone())
     }
 
     pub fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
-        let opt = self.table.get(name);
+        let opt = self.table.get_sync(name);
         let table_desc = match opt {
             None => return Ok(None),
             Some(t) => t.get().table_desc()?,
@@ -64,7 +64,7 @@ impl MetaMgrImpl {
     }
 
     pub fn _create_table(&self, schema: &SchemaTable) -> RS<()> {
-        if !self.table.contains(schema.table_name()) {
+        if !self.table.contains_sync(schema.table_name()) {
             let table_name = schema.table_name().clone();
             let mut pb = PathBuf::from(self.path.clone());
             pb.push(format!("{}.json", schema.table_name().clone()));
@@ -77,9 +77,9 @@ impl MetaMgrImpl {
             }
             let table_id = schema.id();
             let table = TableInfo::new(schema.clone())?;
-            let _ = self.table.insert(table_name.clone(), table.clone());
-            let _ = self.id2table.insert(table_id, table);
-            let _ = self.name2id.insert(table_name, table_id);
+            let _ = self.table.insert_sync(table_name.clone(), table.clone());
+            let _ = self.id2table.insert_sync(table_id, table);
+            let _ = self.name2id.insert_sync(table_name, table_id);
         } else {
             return Err(m_error!(ER::ExistingSuchElement, ""));
         }

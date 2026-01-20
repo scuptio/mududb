@@ -1,7 +1,7 @@
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::database::sql::Context;
-use mudu::database::tx::Tx;
+use mudu_contract::database::sql::Context;
+use mudu_contract::database::tx::Tx;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Transaction;
 use std::mem::ManuallyDrop;

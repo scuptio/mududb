@@ -1,0 +1,28 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+#[derive(Debug, Clone
+{% if cfg.impl_serialize %}, serde::Serialize, serde::Deserialize{% endif %}
+{% if cfg.impl_eq %}, Eq, PartialEq {% endif %}
+{% if cfg.impl_hash %}, Hash {% endif %}
+)]
+pub struct {{ record.record_name }} {
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    pub {{ field.rf_name }}: {{ field.rf_type }},
+    {% endfor %}
+}
+
+{% if cfg.impl_default %}
+impl Default for {{ record.record_name }} {
+    fn default() -> Self {
+        Self {
+            {% for field in record.record_fields %}
+            {{ field.rf_name }}: Default::default(),
+            {% endfor %}
+        }
+    }
+}
+{% endif %}

@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicU32;
 use wasmtime_wasi::p1::WasiP1Ctx;
+use wasmtime_wasi::WasiCtxBuilder;
 
 pub struct ContextData {
     auto_increase: AtomicU32,
@@ -10,6 +11,15 @@ pub struct WasiContext {
     data: ContextData,
     // .. other custom state here ..
     wasi: WasiP1Ctx,
+}
+
+pub fn build_wasi_p1_context() -> WasiContext {
+    let wasi = WasiCtxBuilder::new()
+        .inherit_stdio()
+        .inherit_args()
+        .build_p1();
+    let context = WasiContext::new(wasi);
+    context
 }
 
 impl ContextData {

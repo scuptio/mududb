@@ -1,7 +1,7 @@
 use mudu::common::id::OID;
 
 use crate::contract::field_info::FieldInfo;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use std::collections::HashMap;
 
 pub struct TableDesc {

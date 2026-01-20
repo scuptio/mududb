@@ -1,4 +1,4 @@
-use mudu::data_type::dat_typed::DatTyped;
+use mudu_type::dat_typed::DatTyped;
 
 pub enum ItemValue {
     Literal(DatTyped),

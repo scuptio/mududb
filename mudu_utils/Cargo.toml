@@ -19,6 +19,9 @@ uuid = { version = "1.18.1", features = ["v4"] }
 async-backtrace = "0.2.7"
 tracing = "0.1.41"
 hex = "0.4.3"
-console-subscriber = "0.4.1"
+console-subscriber = {workspace = true}
 async-trait = "0.1.89"
 futures = "0.3.31"
+tree-sitter = { workspace = true }
+serde_json = "1.0.145"
+base16ct = "0.3.0"

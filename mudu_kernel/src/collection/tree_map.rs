@@ -1,4 +1,5 @@
-use scc::ebr::Guard;
+
+use scc::Guard;
 use scc::TreeIndex;
 
 pub async fn tree_map_async_get_or_create<K, V, C, T>(
@@ -72,7 +73,7 @@ where
                     Some(v) => v,
                     None => creater(),
                 };
-                let opt = scc_tree_map.insert(key, v.clone());
+                let opt = scc_tree_map.insert_sync(key, v.clone());
                 match opt {
                     Ok(_) => {
                         return Some(v);

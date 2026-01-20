@@ -1,4 +1,4 @@
-use mudu::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::datum_desc::DatumDesc;
 
 use crate::resolver::filter::Filter;
 

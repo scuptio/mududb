@@ -1,0 +1,15 @@
+[package]
+name = "mudu_binding"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+mudu = { workspace = true }
+mudu_type = {workspace = true}
+mudu_contract = {workspace = true}
+serde = { workspace = true }
+tracing = { workspace = true }
+serde_repr = {workspace = true}
+hex = "0.4.3"
+

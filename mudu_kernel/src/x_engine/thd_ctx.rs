@@ -34,9 +34,9 @@ use mudu::common::update_delta::UpdateDelta;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu::tuple::build_tuple::build_tuple;
-use mudu::tuple::tuple_binary::TupleBinary as TupleRaw;
-use mudu::tuple::update_tuple::update_tuple;
+use mudu_contract::tuple::build_tuple::build_tuple;
+use mudu_contract::tuple::tuple_binary::TupleBinary as TupleRaw;
+use mudu_contract::tuple::update_tuple::update_tuple;
 use mudu_utils::sync::notify_wait::create_notify_wait;
 use mudu_utils::task_trace;
 use scc::HashMap;
@@ -379,7 +379,7 @@ impl ThdCtxInner {
         let snapshot = self.snap_req.start_tx().await?;
         let xid = snapshot.xid();
         let tx_ctx = TxCtx::new(xid, snapshot);
-        let _ = self.tx_ctx.insert(xid, tx_ctx);
+        let _ = self.tx_ctx.insert_sync(xid, tx_ctx);
         Ok(xid)
     }
 
@@ -393,7 +393,7 @@ impl ThdCtxInner {
     }
 
     fn get_tx_ctx(&self, xid: XID) -> RS<TxCtx> {
-        let opt = self.tx_ctx.get(&xid);
+        let opt = self.tx_ctx.get_sync(&xid);
         let entry = rs_of_opt(opt, || {
             m_error!(ER::NoSuchElement, format!("no such transaction {}", xid))
         })?;
@@ -402,7 +402,7 @@ impl ThdCtxInner {
     }
 
     fn remove_tx_ctx(&self, xid: XID) {
-        self.tx_ctx.remove(&xid);
+        self.tx_ctx.remove_async(&xid);
     }
 }
 

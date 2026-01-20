@@ -14,6 +14,8 @@ pub struct MuduDBCfg {
     pub listen_ip: String,
     pub http_listen_port: u16,
     pub pg_listen_port: u16,
+    pub enable_p2: bool,
+    pub enable_async: bool,
 }
 
 impl Display for MuduDBCfg {
@@ -25,6 +27,8 @@ impl Display for MuduDBCfg {
         write!(f, "  -> Listen IP address: {}\n", self.listen_ip)?;
         write!(f, "  -> HTTP Listening port: {}\n", self.http_listen_port)?;
         write!(f, "  -> PG Listening port: {}\n", self.pg_listen_port)?;
+        write!(f, "  -> Enable WASIp2: {}\n", self.enable_p2)?;
+        write!(f, "  -> Enable Async: {}\n", self.enable_async)?;
         write!(f, "-------------------\n")?;
         Ok(())
     }
@@ -38,6 +42,8 @@ impl Default for MuduDBCfg {
             listen_ip: temp_dir().to_str().unwrap().to_string(),
             http_listen_port: 8300,
             pg_listen_port: 5432,
+            enable_p2: false,
+            enable_async: false,
         }
     }
 }

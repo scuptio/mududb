@@ -2,17 +2,34 @@ use crate::common::endian;
 use crate::common::result::RS;
 use crate::error::ec::EC;
 use crate::m_error;
-use rmp_serde::{encode, Serializer as RmpSerializer};
+use rmp_serde::Serializer as RmpSerializer;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json;
 use std::io;
-use std::io::Write;
+use std::io::{Cursor, Write};
 
 pub const fn header_size_len() -> u64 {
     SIZE_LEN as u64
 }
 const INIT_LENGTH: usize = 256usize;
+
+pub fn deserialize_from<D: Serialize + DeserializeOwned + 'static>(
+    deserialize: &[u8],
+) -> RS<(D, u64)> {
+    _deserialize_from::<D>(deserialize)
+}
+
+pub fn serialize_to<S: Serialize + DeserializeOwned + 'static>(
+    serialize: &S,
+    out_buf: &mut [u8],
+) -> RS<u64> {
+    _serialize_to::<S>(serialize, out_buf)
+}
+
+pub fn serialize_to_vec<S: Serialize + DeserializeOwned + 'static>(serialize: &S) -> RS<Vec<u8>> {
+    _serialize_to_vec::<S>(serialize)
+}
 
 pub fn deserialize_sized_from<D: Serialize + DeserializeOwned + 'static>(
     deserialize: &[u8],
@@ -185,11 +202,11 @@ impl<'a> Writer<'a> {
 }
 
 impl Sizer {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { size: 0 }
     }
 
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.size
     }
 }
@@ -271,10 +288,44 @@ fn _deserialize_sized_from<D: DeserializeOwned + 'static>(input: &[u8]) -> RS<(D
             "insufficient buffer size to fill body"
         ));
     }
+
     let input_d: D = rmp_serde::decode::from_slice(&input[SIZE_LEN..SIZE_LEN + length as usize])
         .map_err(|e| m_error!(EC::DecodeErr, format!("decode error {} bytes", length), e))?;
 
     Ok((input_d, length as _))
+}
+
+fn _deserialize_from<D: DeserializeOwned + 'static>(input: &[u8]) -> RS<(D, u64)> {
+    let mut cursor = Cursor::new(input);
+    let result: D = rmp_serde::decode::from_read(&mut cursor).map_err(|e| {
+        m_error!(
+            EC::DecodeErr,
+            format!("decode error {} bytes", cursor.position()),
+            e
+        )
+    })?;
+    Ok((result, cursor.position()))
+}
+
+fn _serialize_to<S: Serialize + DeserializeOwned + 'static>(
+    result: &S,
+    out_buf: &mut [u8],
+) -> RS<u64> {
+    let mut cursor = Cursor::new(out_buf);
+    rmp_serde::encode::write(&mut cursor, result).map_err(|e| {
+        m_error!(
+            EC::EncodeErr,
+            format!("encode error {} bytes", cursor.position()),
+            e
+        )
+    })?;
+    Ok(cursor.position())
+}
+
+fn _serialize_to_vec<S: Serialize + DeserializeOwned + 'static>(result: &S) -> RS<Vec<u8>> {
+    let vec = rmp_serde::encode::to_vec::<S>(&result)
+        .map_err(|_e| m_error!(EC::EncodeErr, "encode error bytes"))?;
+    Ok(vec)
 }
 
 fn _serialize_sized_to<S: Serialize + DeserializeOwned + 'static>(
@@ -300,7 +351,7 @@ fn _serialize_sized_to<S: Serialize + DeserializeOwned + 'static>(
         }
         Err(err) => {
             match &err {
-                encode::Error::InvalidValueWrite(_err) => {
+                rmp_serde::encode::Error::InvalidValueWrite(_err) => {
                     // it is possible that the buffer is not insufficient
                     let mut sizer = Sizer::new();
                     let mut serializer = RmpSerializer::new(&mut sizer);
@@ -334,32 +385,4 @@ fn encode_length(out_buf: &mut [u8], size: u64) {
 
 fn decode_length(buf: &[u8]) -> u64 {
     endian::read_u64(buf)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::common::serde_utils::{__deserialize_sized_from, __serialize_sized_to_vec};
-    use crate::database::v2h_param::CommandIn;
-    use crate::tuple::datum_desc::DatumDesc;
-
-    #[test]
-    fn test_in_command() {
-        let json = include_str!("test_data/in_command.json");
-        let command_in = serde_json::from_str::<CommandIn>(json).unwrap();
-        let vec = __serialize_sized_to_vec::<_, true>(&command_in).unwrap();
-        let (command_in_1, _n) =
-            __deserialize_sized_from::<CommandIn, true>(vec.as_slice()).unwrap();
-        println!("{:?}", serde_json::to_string_pretty(&command_in_1).unwrap());
-    }
-
-    #[test]
-    fn test_datum_desc() {
-        let json = include_str!("test_data/datum_desc.json");
-        let command_in = serde_json::from_str::<DatumDesc>(json)
-            .expect("json deserialization failed");
-        let vec = __serialize_sized_to_vec::<_, true>(&command_in).unwrap();
-        let (command_in_1, _n) =
-            __deserialize_sized_from::<DatumDesc, true>(vec.as_slice()).unwrap();
-        println!("{:?}", serde_json::to_string_pretty(&command_in_1).unwrap());
-    }
 }

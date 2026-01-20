@@ -1,38 +1,116 @@
-[[modules.mod_0]]
-proc_name = "proc"
-module_name = "mod_0"
+[[modules.module]]
+module_name = "module"
+proc_name = "proc_mtp"
 
-[[modules.mod_0.param_desc.fields]]
+[[modules.module.param_desc.fields]]
 name = "a"
 
-[modules.mod_0.param_desc.fields.dat_type]
+[modules.module.param_desc.fields.dat_type]
 id = "I32"
 param = ""
 
-[[modules.mod_0.param_desc.fields]]
+[[modules.module.param_desc.fields]]
 name = "b"
 
-[modules.mod_0.param_desc.fields.dat_type]
+[modules.module.param_desc.fields.dat_type]
 id = "I64"
 param = ""
 
-[[modules.mod_0.param_desc.fields]]
+[[modules.module.param_desc.fields]]
 name = "c"
 
-[modules.mod_0.param_desc.fields.dat_type]
+[modules.module.param_desc.fields.dat_type]
 id = "String"
-param = "{\"length\":65535}"
+param = '{"length":65536}'
 
-[[modules.mod_0.return_desc.fields]]
-name = "t_0"
+[[modules.module.return_desc.fields]]
+name = "0"
 
-[modules.mod_0.return_desc.fields.dat_type]
+[modules.module.return_desc.fields.dat_type]
 id = "I32"
 param = ""
 
-[[modules.mod_0.return_desc.fields]]
-name = "t_1"
+[[modules.module.return_desc.fields]]
+name = "1"
 
-[modules.mod_0.return_desc.fields.dat_type]
+[modules.module.return_desc.fields.dat_type]
 id = "String"
-param = "{\"length\":65535}"
+param = '{"length":65536}'
+
+[[modules.module]]
+module_name = "module"
+proc_name = "proc2_mtp"
+
+[[modules.module.param_desc.fields]]
+name = "a"
+
+[modules.module.param_desc.fields.dat_type]
+id = "I32"
+param = ""
+
+[[modules.module.param_desc.fields]]
+name = "b"
+
+[modules.module.param_desc.fields.dat_type]
+id = "I64"
+param = ""
+
+[[modules.module.param_desc.fields]]
+name = "c"
+
+[modules.module.param_desc.fields.dat_type]
+id = "String"
+param = '{"length":65536}'
+
+[[modules.module.return_desc.fields]]
+name = "0"
+
+[modules.module.return_desc.fields.dat_type]
+id = "I32"
+param = ""
+
+[[modules.module.return_desc.fields]]
+name = "1"
+
+[modules.module.return_desc.fields.dat_type]
+id = "String"
+param = '{"length":65536}'
+
+[[modules.module]]
+module_name = "module"
+proc_name = "proc_sys_call_mtp"
+
+[[modules.module.param_desc.fields]]
+name = "a"
+
+[modules.module.param_desc.fields.dat_type]
+id = "I32"
+param = ""
+
+[[modules.module.param_desc.fields]]
+name = "b"
+
+[modules.module.param_desc.fields.dat_type]
+id = "I64"
+param = ""
+
+[[modules.module.param_desc.fields]]
+name = "c"
+
+[modules.module.param_desc.fields.dat_type]
+id = "String"
+param = '{"length":65536}'
+
+[[modules.module.return_desc.fields]]
+name = "0"
+
+[modules.module.return_desc.fields.dat_type]
+id = "I32"
+param = ""
+
+[[modules.module.return_desc.fields]]
+name = "1"
+
+[modules.module.return_desc.fields.dat_type]
+id = "String"
+param = '{"length":65536}'

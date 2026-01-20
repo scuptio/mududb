@@ -1,8 +1,9 @@
-use crate::procedure::wasi_context::WasiContext;
 use crate::service::app_inst::AppInst;
 use crate::service::app_inst_impl::AppInstImpl;
-use crate::service::app_package::AppPackage;
-use crate::service::{file_name, kernel_function};
+use crate::service::file_name;
+use crate::service::mudu_package::MuduPackage;
+use crate::service::runtime_opt::RuntimeOpt;
+use crate::service::wt_runtime::WTRuntime;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -10,20 +11,24 @@ use scc::HashMap as SCCHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use wasmtime::{Caller, Engine, Linker};
+
 
 pub struct RuntimeSimple {
+    rt_opt: RuntimeOpt,
     db_path: String,
     package_path: String,
-    engine: Engine,
+    wt_runtime: WTRuntime,
     apps: SCCHashMap<String, AppInstImpl>,
-    linker: Linker<WasiContext>,
 }
 
-fn load_package_files<P1: AsRef<Path>, F: Fn(&str) -> RS<()>>(
+async fn load_package_files<P1, F>(
     package_dir_path: P1,
-    handle_package_file: &F,
-) -> RS<()> {
+    handle_package_file: F,
+) -> RS<()>
+where
+    P1: AsRef<Path>,
+    F: AsyncFn(String) -> RS<()>,
+{
     let dir = package_dir_path.as_ref();
     for entry in fs::read_dir(&dir)
         .map_err(|e| m_error!(EC::MuduError, format!("read directory {:?} error", dir), e))?
@@ -37,8 +42,8 @@ fn load_package_files<P1: AsRef<Path>, F: Fn(&str) -> RS<()>>(
                 if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
                     let path_str = path.as_path().to_str().ok_or_else(|| {
                         m_error!(EC::IOErr, format!("path {:?} to str error", path))
-                    })?;
-                    handle_package_file(path_str)?;
+                    })?.to_string();
+                    handle_package_file(path_str).await?;
                 }
             }
         }
@@ -47,7 +52,7 @@ fn load_package_files<P1: AsRef<Path>, F: Fn(&str) -> RS<()>>(
     Ok(())
 }
 
-fn load_package_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
+fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
     let path_buf = PathBuf::from(path_ref.as_ref());
     if !path_buf.is_file() {
         return Err(m_error!(
@@ -57,7 +62,7 @@ fn load_package_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
     }
     if let Some(ext) = path_buf.extension() {
         if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-            let app_package = AppPackage::load(&path_buf)?;
+            let app_package = MuduPackage::load(&path_buf)?;
             Ok(app_package)
         } else {
             Err(m_error!(
@@ -81,23 +86,23 @@ fn load_package_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
     }
 }
 impl RuntimeSimple {
-    pub fn new(package_path: &String, db_path: &String) -> RuntimeSimple {
-        let engine = Engine::default();
-        // Configure linker with host functions
-        let linker = Linker::new(&engine);
-        Self {
+    pub async fn new(package_path: &String, db_path: &String, rt_opt: RuntimeOpt) -> RS<RuntimeSimple> {
+        let wt_runtime = if rt_opt.enable_p2 {
+            WTRuntime::build_p2(&rt_opt)?
+        } else {
+            WTRuntime::build_p1()?
+        };
+        Ok(Self {
+            rt_opt,
             package_path: package_path.clone(),
             db_path: db_path.clone(),
-            engine,
-            apps: Default::default(),
-            linker,
-        }
+            wt_runtime,
+            apps: Default::default()
+        })
     }
 
-    pub fn initialized(&mut self) -> RS<()> {
-        Self::register_sys_call(&mut self.linker)?;
-        wasmtime_wasi::p1::add_to_linker_sync(&mut self.linker, |ctx| ctx.wasi_mut())
-            .map_err(|e| m_error!(EC::MuduError, "wasmtime_wasi add_to_linker_sync error", e))?;
+    pub async fn initialize(&mut self) -> RS<()> {
+        self.wt_runtime.instantiate()?;
         if !fs::exists(&self.db_path)
             .map_err(|e| m_error!(EC::IOErr, "test db directory exists error", e))?
         {
@@ -118,17 +123,20 @@ impl RuntimeSimple {
             ));
         }
 
-        load_package_files(&self.package_path, &|path| {
-            self.init_mpk(path)?;
+        load_package_files(&self.package_path, async |path| {
+            self.init_mpk(path).await?;
             Ok(())
-        })?;
+        }).await?;
         Ok(())
     }
 
-    fn init_mpk<P: AsRef<Path>>(&self, path: P) -> RS<String> {
-        let app_package = load_package_file(path.as_ref())?;
+    async fn init_mpk<P: AsRef<Path>>(&self, path: P) -> RS<String> {
+        let app_package = load_package_from_file(path.as_ref())?;
+        let modules = self.wt_runtime.compile_modules(&app_package)?;
         let app_instance =
-            AppInstImpl::build(&self.engine, &self.linker, &self.db_path, app_package)?;
+            AppInstImpl::build(
+                &self.db_path, &app_package, modules,
+                self.rt_opt.enable_p2, self.rt_opt.enable_async).await?;
         let mpk_name = app_instance.name().clone();
         let _ = self
             .apps
@@ -136,108 +144,14 @@ impl RuntimeSimple {
         Ok(mpk_name)
     }
 
-    fn install_pkg<P: AsRef<Path>>(&self, path: P) -> RS<()> {
-        let mpk_name = self.init_mpk(path.as_ref().to_path_buf())?;
+    async fn install_pkg<P: AsRef<Path>>(&self, path: P) -> RS<()> {
+        let mpk_name = self.init_mpk(path.as_ref().to_path_buf()).await?;
         let pkg_path = PathBuf::from(self.package_path.clone());
         if path.as_ref().parent().unwrap().eq(&pkg_path) {
             return Ok(());
         }
         let output = PathBuf::from(&self.package_path).join(format!("{}.mpk", mpk_name));
         fs::copy(&path, &output).map_err(|e| m_error!(EC::IOErr, "package copy error", e))?;
-        Ok(())
-    }
-
-    fn register_sys_call(linker: &mut Linker<WasiContext>) -> RS<()> {
-        let module_name = "env";
-        linker
-            .func_wrap(
-                module_name,
-                "sys_query",
-                |caller: Caller<'_, WasiContext>,
-                 param_buf_ptr: u32,
-                 param_buf_len: u32,
-                 out_buf_ptr: u32,
-                 out_buf_len: u32,
-                 out_mem_ptr: u32,
-                 out_mem_len: u32|
-                 -> i32 {
-                    kernel_function::kernel_query(
-                        caller,
-                        param_buf_ptr,
-                        param_buf_len,
-                        out_buf_ptr,
-                        out_buf_len,
-                        out_mem_ptr,
-                        out_mem_len,
-                    )
-                },
-            )
-            .map_err(|e| m_error!(EC::MuduError, "register query error", e))?;
-
-        linker
-            .func_wrap(
-                module_name,
-                "sys_command",
-                |caller: Caller<'_, WasiContext>,
-                 param_buf_ptr: u32,
-                 param_buf_len: u32,
-                 out_buf_ptr: u32,
-                 out_buf_len: u32,
-                 out_mem_ptr: u32,
-                 out_mem_len: u32|
-                 -> i32 {
-                    kernel_function::kernel_command(
-                        caller,
-                        param_buf_ptr,
-                        param_buf_len,
-                        out_buf_ptr,
-                        out_buf_len,
-                        out_mem_ptr,
-                        out_mem_len,
-                    )
-                },
-            )
-            .map_err(|e| m_error!(EC::MuduError, "register command error", e))?;
-
-        linker
-            .func_wrap(
-                module_name,
-                "sys_fetch",
-                |caller: Caller<'_, WasiContext>,
-                 param_buf_ptr: u32,
-                 param_buf_len: u32,
-                 out_buf_ptr: u32,
-                 out_buf_len: u32,
-                 out_mem_ptr: u32,
-                 out_mem_len: u32|
-                 -> i32 {
-                    kernel_function::kernel_fetch(
-                        caller,
-                        param_buf_ptr,
-                        param_buf_len,
-                        out_buf_ptr,
-                        out_buf_len,
-                        out_mem_ptr,
-                        out_mem_len,
-                    )
-                },
-            )
-            .map_err(|e| m_error!(EC::MuduError, "register fetch error", e))?;
-
-        linker
-            .func_wrap(
-                module_name,
-                "sys_get_memory",
-                |caller: Caller<'_, WasiContext>,
-                 mem_id: u32,
-                 out_buf_ptr: u32,
-                 out_buf_len: u32|
-                 -> i32 {
-                    kernel_function::kernel_get_memory(caller, mem_id, out_buf_ptr, out_buf_len)
-                },
-            )
-            .map_err(|e| m_error!(EC::MuduError, "", e))?;
-
         Ok(())
     }
 
@@ -250,85 +164,15 @@ impl RuntimeSimple {
         vec
     }
 
-    pub fn app(&self, name: &String) -> Option<Arc<dyn AppInst>> {
+    pub fn app(&self, name: String) -> Option<Arc<dyn AppInst>> {
         self.apps
-            .get_sync(name)
+            .get_sync(&name)
             .map(|e| Arc::new(e.get().clone()) as Arc<dyn AppInst>)
     }
 
-    pub fn install(&self, pkg_path: &String) -> RS<()> {
-        self.install_pkg(pkg_path)?;
+    pub async fn install(&self, pkg_path: String) -> RS<()> {
+        self.install_pkg(pkg_path).await?;
         Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::service::runtime::Runtime;
-    use crate::service::runtime_impl::create_runtime_service;
-    use crate::service::test_wasm_mod_path::wasm_mod_path;
-    use mudu::common::result::RS;
-    use mudu::error::ec::EC;
-    use mudu::m_error;
-    use mudu::procedure::proc_param::ProcParam;
-    use mudu::tuple::rs_tuple_datum::RsTupleDatum;
-    use mudu_utils::notifier::NotifyWait;
-    use mudu_utils::task::{spawn_task, this_task_id};
-    use std::env::temp_dir;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    ///
-    /// See proc function definition [proc](mudu_wasm/src/wasm/proc.rs#L5)。
-    ///
-    #[test]
-    fn test_runtime_simple() {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                let r = test_async_runtime_simple().await;
-                println!("{:?}", r);
-            });
-    }
-
-    fn db_path() -> String {
-        let n = uuid::Uuid::new_v4().to_string();
-        let path = PathBuf::from(temp_dir()).join(format!("test_runtime_service_{}", n));
-        path.to_str().unwrap().to_string()
-    }
-
-    async fn test_async_runtime_simple() -> RS<()> {
-        let pkg_path = wasm_mod_path();
-        let db_path = db_path();
-        let service = create_runtime_service(&pkg_path, &db_path, None).unwrap();
-
-        let stopper = NotifyWait::new();
-        let task = spawn_task(stopper.clone(), "test session task", async move {
-            async_session(service).await?;
-            Ok(())
-        })?;
-        let opt = task
-            .await
-            .map_err(|e| m_error!(EC::InternalErr, "join error", e))?;
-        opt.unwrap_or_else(|| Ok(()))
-    }
-
-    async fn async_session(service: Arc<dyn Runtime>) -> RS<()> {
-        println!("task id {}", this_task_id());
-        let tuple = (1i32, 100i64, "string argument".to_string());
-        let desc = <(i32, i64, String)>::tuple_desc_static(&[]);
-        let params = ProcParam::from_tuple(0, tuple, &desc)?;
-        let app_name = "app1".to_string();
-        let app = service
-            .app(&app_name)
-            .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app named {}", app_name)))?;
-        let id = app.task_create()?;
-        let proc_result = app.invoke(id, &"mod_0".to_string(), &"proc".to_string(), params)?;
-        let result = proc_result.to::<(i32, String)>(&<(i32, String)>::tuple_desc_static(&[]))?;
-        println!("result: {:?}", result);
-        app.task_end(id)?;
-        Ok(())
-    }
-}

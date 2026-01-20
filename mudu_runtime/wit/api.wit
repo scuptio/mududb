@@ -1,0 +1,13 @@
+package mududb:api;
+
+interface system {
+    query: func(query-in: list<u8>) -> list<u8>;
+
+    fetch: func(query-result: list<u8>) -> list<u8>;
+
+    command: func(command-in: list<u8>) -> list<u8>;
+}
+
+world api {
+    import system;
+}

@@ -5,7 +5,7 @@ use crate::sql::stmt_cmd::StmtCmd;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
 use mudu_utils::sync::s_mutex::SMutex;
 use std::fmt::Debug;
 use std::sync::Arc;

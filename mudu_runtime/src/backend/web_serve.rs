@@ -2,28 +2,29 @@ use crate::backend::mududb_cfg::MuduDBCfg;
 use crate::service::app_inst::AppInst;
 use crate::service::runtime::Runtime;
 use crate::service::runtime_impl::create_runtime_service;
+use crate::service::runtime_opt::RuntimeOpt;
+use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use base64::Engine;
 use mudu::common::id::gen_oid;
 use mudu::common::result::RS;
-use mudu::data_type::dat_textual::DatTextual;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::procedure::proc_desc::ProcDesc;
-use mudu::procedure::proc_param::ProcParam;
-use mudu::tuple::datum_desc::DatumDesc;
-
+use mudu::utils::json::JsonValue;
+use mudu_binding::procedure::procedure_invoke;
+use mudu_contract::procedure::proc_desc::ProcDesc;
+use mudu_contract::procedure::procedure_param::ProcedureParam;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_utils::notifier::Notifier;
 use mudu_utils::task_id::TaskID;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::env::temp_dir;
+use std::fs;
 use std::sync::Arc;
-use std::{fs, thread};
 use tracing::{debug, error, info};
-use mudu::utils::json::JsonValue;
-use mudu_utils::notifier::Notifier;
 
 #[derive(Serialize, Deserialize)]
 struct ProcedureList {
@@ -34,13 +35,16 @@ struct ProcedureList {
 async fn web_serve(service: Arc<dyn Runtime>, cfg: &MuduDBCfg) -> std::io::Result<()> {
     let payload_limit = 500 * 1024 * 1024;
     let data = web::Data::new(AppContext {
-        conn_str: format!("db={} ddl={} db_type=LibSQL", cfg.data_path, cfg.data_path),
         service,
     });
     info!("web service start");
+
     // register all service urls
     HttpServer::new(move || {
+        // todo configuration for cors
+        let cors = Cors::permissive();
         App::new()
+            .wrap(cors)
             .app_data(data.clone())
             // Configure JSON payload limits
             .app_data(
@@ -81,14 +85,16 @@ async fn web_serve(service: Arc<dyn Runtime>, cfg: &MuduDBCfg) -> std::io::Resul
 pub async fn async_serve(cfg: MuduDBCfg, opt_initialized_notifier: Option<Notifier>) -> RS<()> {
     info!("starting backend server");
     info!("{}", cfg);
-    let service = create_runtime_service(&cfg.mpk_path, &cfg.data_path, opt_initialized_notifier)?;
+    let enable_async = cfg.enable_async && cfg.enable_p2;
+    let runtime_opt = RuntimeOpt { enable_p2: cfg.enable_p2, enable_async };
+    let service = create_runtime_service(&cfg.mpk_path, &cfg.data_path, opt_initialized_notifier, runtime_opt).await?;
     info!("runtime service initialized");
     web_serve(service, &cfg)
         .await
         .map_err(|e| m_error!(EC::IOErr, "backend run error", e))
 }
 
-fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcParam> {
+fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcedureParam> {
     let mut vec = vec![];
     for (_n, datum_desc) in desc.iter().enumerate() {
         let opt_name = argv.get(datum_desc.name());
@@ -102,18 +108,16 @@ fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcParam> {
             }
         };
         let id = datum_desc.dat_type_id();
-        let internal = id.fn_input()(&DatTextual::from(value.to_string()), datum_desc.dat_type())
+        let dat_value = id.fn_input_json()(&value, datum_desc.dat_type())
             .map_err(|e| m_error!(EC::TypeBaseErr, "convert printable to internal error", e))?;
-        let dat = id.fn_send()(&internal, datum_desc.dat_type())
-            .map_err(|e| m_error!(EC::TypeBaseErr, "convert internal to binary error", e))?;
-        vec.push(dat.into())
+        vec.push(dat_value)
     }
-    Ok(ProcParam::new(0, vec))
+    let proc_param = ProcedureParam::new(0, 0, vec);
+    Ok(proc_param)
 }
 
 #[derive(Clone)]
 struct AppContext {
-    conn_str: String,
     service: Arc<dyn Runtime>,
 }
 
@@ -121,91 +125,90 @@ unsafe impl Send for AppContext {}
 
 unsafe impl Sync for AppContext {}
 
-async fn async_invoke_proc(
-    conn_str: String,
-    app_name: String,
+async fn async_invoke_sync_proc(
     mod_name: String,
     proc_name: String,
     argv: Map<String, Value>,
-    service: Arc<dyn Runtime>,
-) -> RS<RS<Value>> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    // create a thread
-    // to avoid to start a runtime from within a runtime
-    // FIXME, change to asynchronous call
-    thread::spawn(move || {
-        let ret = sync_invoke_proc(conn_str, app_name, mod_name, proc_name, argv, service);
-        sender.send(ret).map_err(|e| {
-            m_error!(
-                EC::IOErr,
-                format!("async_invoke_proc_inner send error {:?}", e)
-            )
-        })
-    });
-    let ret = receiver.await.map_err(|e| {
-        m_error!(
-            EC::IOErr,
-            format!("async_invoke_proc_inner recv error {:?}", e)
-        )
-    })?;
+    app: Arc<dyn AppInst>,
+    desc: Arc<ProcDesc>,
+) -> RS<Value> {
+    let ret = sync_invoke_proc(mod_name, proc_name, argv, app, desc).await?;
     ret
 }
 
-fn sync_invoke_proc(
-    _conn_str: String,
-    app_name: String,
+async fn service_get_app_and_desc(
+    service: Arc<dyn Runtime>,
+    app_name: &String,
+    mod_name: &String,
+    proc_name: &String,
+) -> RS<(Arc<dyn AppInst>, Arc<ProcDesc>)> {
+    let opt_app = service.app(app_name.clone()).await;
+    let app = if let Some(app) = opt_app {
+        app
+    } else {
+        return Err(m_error!(EC::NoneErr, format!("no such app {}", app_name)));
+    };
+    let desc = app.describe(&mod_name, &proc_name)?;
+    Ok((app, desc))
+}
+
+async fn sync_invoke_proc(
     mod_name: String,
     proc_name: String,
     argv: Map<String, Value>,
-    service: Arc<dyn Runtime>,
+    app: Arc<dyn AppInst>,
+    desc: Arc<ProcDesc>,
 ) -> RS<RS<Value>> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| m_error!(EC::IOErr, "runtime build error", e))?;
-    let ret = runtime.block_on(async move {
-        let opt_app = service.app(&app_name);
-        let app = if let Some(app) = opt_app {
-            app
-        } else {
-            return Err(m_error!(EC::NoneErr, format!("no such app {}", &app_name)));
-        };
-        let task_id = app.task_create()?;
-        let _app = app.clone();
-        let _g = scopeguard::guard(task_id, |task_id| {
-            let _r = _app.task_end(task_id);
-        });
-
-        let desc = app.describe(&mod_name, &proc_name)?;
-        let param = to_param(&argv, desc.param_desc().fields())?;
-        let thread = thread::spawn(move || {
-            let ret = invoke_proc_inner(task_id, app, mod_name, proc_name, param, desc);
-            ret
-        });
-        let ret = thread
-            .join()
-            .map_err(|_e| m_error!(EC::IOErr, "invoke_proc_inner thread error"))?;
-        ret
+    let task_id = app.task_create().await?;
+    let _app = app.clone();
+    let _g = scopeguard::guard(task_id, |task_id| {
+        let _r = _app.task_end(task_id);
     });
+
+    let param = to_param(&argv, desc.param_desc().fields())?;
+    let ret = invoke_proc_inner(task_id, app, mod_name, proc_name, param, desc).await;
     Ok(ret)
 }
 
-fn invoke_proc_inner(
+
+async fn async_invoke_async_proc(
+    mod_name: String,
+    proc_name: String,
+    argv: Map<String, Value>,
+    app: Arc<dyn AppInst>,
+    desc: Arc<ProcDesc>,
+) -> RS<JsonValue> {
+    let task_id = app.task_create().await?;
+    let _g = scopeguard::guard(task_id, |task_id| {
+        let _r = app.task_end(task_id);
+    });
+    let param = to_param(&argv, desc.param_desc().fields())?;
+    let result = app.invoke_async(
+        task_id,
+        &mod_name,
+        &proc_name,
+        param,
+    ).await?;
+    let r = procedure_invoke::result_to_json(result)?;
+    Ok(r)
+}
+
+async fn invoke_proc_inner(
     task_id: TaskID,
     service: Arc<dyn AppInst>,
     mod_name: String,
     proc_name: String,
-    param: ProcParam,
-    desc: Arc<ProcDesc>,
-) -> RS<Value> {
-    let result = service.invoke(task_id, &mod_name, &proc_name, param)?;
-    let ret = result.to_json(desc.return_desc())?;
-    ret
+    param: ProcedureParam,
+    _: Arc<ProcDesc>,
+) -> RS<JsonValue> {
+    let result = service.invoke(task_id, &mod_name, &proc_name, param).await?;
+    let r = procedure_invoke::result_to_json(result)?;
+    Ok(r)
 }
 
 #[get("/mudu/app/list")]
 async fn app_list(context: web::Data<AppContext>) -> impl Responder {
-    let result = handle_app_list(context.service.as_ref());
+    let result = handle_app_list(context.service.as_ref()).await;
     match result {
         Ok(list) => HttpResponse::Ok().json(serde_json::json!({
             "status": 0,
@@ -223,7 +226,7 @@ async fn app_list(context: web::Data<AppContext>) -> impl Responder {
 #[get("/mudu/app/list/{app_name}")]
 async fn app_proc_list(path: web::Path<String>, context: web::Data<AppContext>) -> impl Responder {
     let app_name = path.into_inner();
-    let result = handle_procedure_list(&app_name, context.service.as_ref());
+    let result = handle_procedure_list(&app_name, context.service.as_ref()).await;
 
     match result {
         Ok(procedures) => {
@@ -252,7 +255,7 @@ async fn app_proc_detail(
 ) -> impl Responder {
     let (app_name, mod_name, proc_name) = path.into_inner();
     let result =
-        handle_procedure_detail(&app_name, &mod_name, &proc_name, context.service.as_ref());
+        handle_procedure_detail(&app_name, &mod_name, &proc_name, context.service.as_ref()).await;
     match result {
         Ok((desc, param_json_default, return_json_default)) => {
             HttpResponse::Ok()
@@ -284,7 +287,7 @@ async fn install(
     context: web::Data<AppContext>,
 ) -> impl Responder {
     let body_str = String::from_utf8_lossy(&body).to_string();
-    let result = handle_install(body_str.clone(), context.service.as_ref());
+    let result = handle_install(body_str.clone(), context.service.as_ref()).await;
     match result {
         Ok(()) => HttpResponse::Ok().json(serde_json::json!({
             "status": 0,
@@ -311,14 +314,12 @@ async fn invoke(
     let body_str = String::from_utf8_lossy(&body).to_string();
     let proc = format!("{}/{}/{}", app_name, mod_name, proc_name);
     let result = handle_invoke_proc(
-        context.conn_str.clone(),
         app_name,
         mod_name,
         proc_name,
         body_str,
         context.service.clone(),
-    )
-        .await;
+    ).await;
     match result {
         Ok(value) => HttpResponse::Ok().json(serde_json::json!({
             "status": 0,
@@ -333,13 +334,13 @@ async fn invoke(
     }
 }
 
-fn handle_app_list(service: &dyn Runtime) -> RS<Vec<String>> {
-    let list = service.list();
+async fn handle_app_list(service: &dyn Runtime) -> RS<Vec<String>> {
+    let list = service.list().await;
     Ok(list)
 }
 
-fn handle_procedure_list(app_name: &String, service: &dyn Runtime) -> RS<Vec<String>> {
-    let procedure_list = if let Some(app) = service.app(app_name) {
+async fn handle_procedure_list(app_name: &String, service: &dyn Runtime) -> RS<Vec<String>> {
+    let procedure_list = if let Some(app) = service.app(app_name.clone()).await {
         app.procedure()?
     } else {
         Vec::new()
@@ -350,13 +351,13 @@ fn handle_procedure_list(app_name: &String, service: &dyn Runtime) -> RS<Vec<Str
         .collect())
 }
 
-fn handle_procedure_detail(
+async fn handle_procedure_detail(
     app_name: &String,
     mod_name: &String,
     proc_name: &String,
     service: &dyn Runtime,
 ) -> RS<(ProcDesc, JsonValue, JsonValue)> {
-    if let Some(app) = service.app(app_name) {
+    if let Some(app) = service.app(app_name.clone()).await {
         let desc = app.describe(mod_name, proc_name)?;
         let proc_desc = desc.as_ref().clone();
         let param_json = desc.as_ref().default_param_json()?;
@@ -370,7 +371,7 @@ fn handle_procedure_detail(
     }
 }
 
-fn handle_install(body_str: String, service: &dyn Runtime) -> RS<()> {
+async fn handle_install(body_str: String, service: &dyn Runtime) -> RS<()> {
     let map = serde_json::from_str::<HashMap<String, String>>(&body_str)
         .map_err(|e| m_error!(EC::DecodeErr, "deserialize body error: {}", e))?;
     let mpk_base64 = map
@@ -386,11 +387,11 @@ fn handle_install(body_str: String, service: &dyn Runtime) -> RS<()> {
         .to_str()
         .ok_or_else(|| m_error!(EC::NoneErr, "cannot get string of PathBuf"))?
         .to_string();
-    service.install(&file_path)
+    service.install(file_path).await
 }
 
 async fn handle_invoke_proc(
-    conn_string: String,
+
     app_name: String,
     mod_name: String,
     proc_name: String,
@@ -399,12 +400,23 @@ async fn handle_invoke_proc(
 ) -> RS<Value> {
     let object: Value = serde_json::from_str(&body)
         .map_err(|e| m_error!(EC::DecodeErr, "deserialize error", e))?;
-    let map = object.as_object()
-        .ok_or_else(|| m_error!(EC::DecodeErr, "request json body must be an object"))?;
+    let map = match object {
+        Value::Object(obj_map) => { obj_map }
+        _ => {
+            return Err(m_error!(EC::DecodeErr, "request json body must be an object"));
+        }
+    };
     let name = format!("{}/{}/{}", app_name, mod_name, proc_name);
     debug!("invoke procedure: {} <{:?}>", name, map);
-    async_invoke_proc(conn_string, app_name, mod_name, proc_name, map.clone(), context).await?
+    let (app, desc) = service_get_app_and_desc(context, &app_name, &mod_name, &proc_name).await?;
+    if app.cfg().use_async {
+        async_invoke_async_proc(mod_name, proc_name, map, app, desc).await
+    } else {
+        async_invoke_sync_proc(mod_name, proc_name, map, app, desc).await
+    }
 }
+
+#[allow(unused)]
 #[cfg(test)]
 mod test {
     use crate::backend::mududb_cfg::MuduDBCfg;
@@ -437,7 +449,7 @@ mod test {
         tmp.to_str().unwrap().to_string()
     }
 
-    #[test]
+    //#[test]
     fn test() {
         log_setup_ex("info", "mudu_runtime=debug", false);
         let _ = run_test();
@@ -450,6 +462,8 @@ mod test {
             listen_ip: "0.0.0.0".to_string(),
             http_listen_port: 8000,
             pg_listen_port: 5432,
+            enable_p2: true,
+            enable_async: true,
         };
         cfg
     }

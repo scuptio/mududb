@@ -1,0 +1,13 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+[MessagePackObject]
+public struct {{ record.record_name }} {
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    [Key({{field.rf_index}})]
+    public {{ field.rf_type }} {{ field.rf_name }} { get; set; }
+    {% endfor %}
+}

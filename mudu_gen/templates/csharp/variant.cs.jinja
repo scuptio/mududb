@@ -1,0 +1,63 @@
+
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+// Annotate inheritance types
+{% for case in variant.variant_cases %}
+[Union({{ case.vc_number }}, typeof({{ variant.variant_name }}{{ case.vc_case_name }}))]
+{% endfor %}
+public interface {{ variant.variant_name }}
+{
+    public {{ variant.variant_name }}Kind Kind();
+}
+
+public enum {{ variant.variant_name }}Kind {
+{% for case in variant.variant_cases %}
+   {{ case.vc_case_name }} = {{ case.vc_number }},
+{% endfor %}
+}
+
+
+{% for case in variant.variant_cases %}
+[MessagePackFormatter(typeof({{ variant.variant_name }}{{ case.vc_case_name }}Formatter))]
+public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.variant_name }}
+{
+    public required {{ case.vc_inner_type_name }} Inner  { get; set; }
+
+    public {{ variant.variant_name }}Kind Kind() {
+        return {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    }
+
+    public static {{ variant.variant_name }}Kind KindStatic() {
+        return {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    }
+
+    public static {{ variant.variant_name }}{{ case.vc_case_name }} As{{case.vc_case_name}}({{ variant.variant_name }} value)
+    {
+        switch (value)
+        {
+            case {{ variant.variant_name }}{{ case.vc_case_name }}  v:
+                return v;
+            default:
+                throw new InvalidOperationException($"Unknown type: {value?.GetType()}");
+        }
+    }
+}
+
+#pragma warning disable CS8633
+public class {{ variant.variant_name }}{{ case.vc_case_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}{{ case.vc_case_name }}>
+#pragma warning restore CS8633
+{
+    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}{{ case.vc_case_name }} value, MessagePackSerializerOptions options)
+    {
+
+        MessagePackSerializer.Serialize(ref writer, value.Inner, options);
+    }
+
+    public {{ variant.variant_name }}{{ case.vc_case_name }} Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    {
+        {{ case.vc_inner_type_name }} inner = MessagePackSerializer.Deserialize<{{ case.vc_inner_type_name }}>(ref reader);
+        return new {{ variant.variant_name }}{{ case.vc_case_name }} { Inner= inner};
+    }
+}
+{% endfor %}

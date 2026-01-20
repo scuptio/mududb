@@ -6,9 +6,9 @@ use crate::sql::stmt_query::StmtQuery;
 use async_std::prelude::Stream;
 use futures::stream;
 use mudu::common::result::RS;
-use mudu::data_type::dat_type_id::{DatTypeID as TypeID, DatTypeID};
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
+use mudu_type::dat_type_id::{DatTypeID as TypeID, DatTypeID};
 use pgwire::api::portal::Format;
 use pgwire::api::results::{DataRowEncoder, FieldInfo};
 use pgwire::api::Type as PGDataType;
@@ -138,8 +138,8 @@ async fn encode_pg_wire_row_data(
             }
         }
         if !has_err {
-            let e = encoder.finish();
-            results.push(e);
+            let e = encoder.take_row();
+            results.push(Ok(e));
         }
     }
 

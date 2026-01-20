@@ -1,27 +1,41 @@
+use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::procedure::proc_desc::ProcDesc;
-use mudu::procedure::proc_param::ProcParam;
-use mudu::procedure::proc_result::ProcResult;
+use mudu_contract::database::sql::DBConn;
+use mudu_contract::procedure::proc_desc::ProcDesc;
+use mudu_contract::procedure::procedure_param::ProcedureParam;
+use mudu_contract::procedure::procedure_result::ProcedureResult;
 use mudu_utils::task_id::TaskID;
 use std::sync::Arc;
-use mudu::database::db_conn::DBConn;
+use mudu::common::package_cfg::PackageCfg;
 
+#[async_trait]
 pub trait AppInst: Send + Sync {
-    fn task_create(&self) -> RS<TaskID>;
+
+    fn cfg(&self) -> &PackageCfg;
+    
+    async fn task_create(&self) -> RS<TaskID>;
 
     fn task_end(&self, task_id: TaskID) -> RS<()>;
 
-    fn connection(&self, task_id: TaskID) -> Option<Arc<dyn DBConn>>;
+    fn connection(&self, task_id: TaskID) -> Option<DBConn>;
 
     fn procedure(&self) -> RS<Vec<(String, String)>>;
 
-    fn invoke(
+    async fn invoke(
         &self,
         task_id: TaskID,
         mod_name: &String,
         proc_name: &String,
-        param: ProcParam,
-    ) -> RS<ProcResult>;
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult>;
+
+    async fn invoke_async(
+        &self,
+        task_id: TaskID,
+        mod_name: &String,
+        proc_name: &String,
+        param: ProcedureParam,
+    ) -> RS<ProcedureResult>;
 
     fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>>;
 }

@@ -6,6 +6,7 @@ edition = "2021"
 build = "build.rs"
 
 [build-dependencies]
+
 mudu = { workspace = true }
 tree_sitter_sql = { workspace = true }
 serde_json = { workspace = true }
@@ -14,11 +15,14 @@ tree-sitter = { workspace = true }
 md-5 = { version = "0.11.0-rc.0" }
 base16ct = { version = "0.2.0" }
 [dependencies]
+mudu = { workspace = true }
+mudu_binding = {workspace = true}
+mudu_contract = {workspace = true}
 serde_json = { workspace = true }
 substring = { version = "1.4.5" }
 tree_sitter_sql = { workspace = true }
 tree-sitter = { workspace = true }
-mudu = { workspace = true }
 project-root = { workspace = true }
 hex = "0.4.3"
 base16ct = "0.2.0"
+mudu_type = { workspace = true }

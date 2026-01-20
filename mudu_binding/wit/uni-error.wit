@@ -1,0 +1,6 @@
+interface universal {
+    record uni-error {
+        err-code: u32,
+        err-msg: string
+    }
+}

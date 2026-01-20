@@ -9,9 +9,10 @@ use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::tuple::datum_desc::DatumDesc;
-use mudu_gen::src_gen::column_def::TableColumnDef;
-use mudu_gen::src_gen::table_def::TableDef;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+
+use mudu_binding::record::record_def::RecordDef;
+use mudu_binding::record::field_def::FieldDef;
 use sql_parser::ast::expr_compare::ExprCompare;
 use sql_parser::ast::expr_item::{ExprItem, ExprValue};
 use sql_parser::ast::expr_literal::ExprLiteral;
@@ -20,6 +21,7 @@ use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::StmtCommand;
 use sql_parser::ast::stmt_update::{AssignedValue, StmtUpdate};
 use std::sync::Arc;
+
 
 /// SQLResolver performs analyzing and checking the semantics of a parsed SQL statement
 pub struct SQLResolver {
@@ -66,7 +68,7 @@ impl SQLResolver {
             let column_def = rs_option(opt_column_def, "no such column")?;
             let desc = DatumDesc::new(
                 column_def.column_name().clone(),
-                column_def.dat_type().clone(),
+                column_def.dat_type().clone().uni_to()?,
             );
             match value {
                 AssignedValue::Expression(_) => {
@@ -90,7 +92,7 @@ impl SQLResolver {
             &table_def,
             stmt.get_where_predicate(),
             &mut vec_predicate,
-            &mut vec_placeholder,
+            &mut vec_placeholder
         )?;
         let r_update = ResolvedUpdate::new(
             table_name,
@@ -132,7 +134,9 @@ impl SQLResolver {
         let row = &stmt.values_list()[0];
         for (i, v) in row.iter().enumerate() {
             let c_def = &value_columns[i];
-            let desc = DatumDesc::new(c_def.column_name().clone(), c_def.dat_type().clone());
+            let desc = DatumDesc::new(
+                c_def.column_name().clone(),
+                c_def.dat_type().clone().uni_to()?);
 
             let item_value = match v {
                 ExprValue::ValueLiteral(l) => ItemValue::Literal(l.dat_type().clone()),
@@ -146,7 +150,7 @@ impl SQLResolver {
         Ok(ResolvedInsert::new(insert_values, placeholder))
     }
 
-    fn get_column<'a>(table_def: &'a TableDef, column_name: &String) -> RS<&'a TableColumnDef> {
+    fn get_column<'a>(table_def: &'a RecordDef, column_name: &String) -> RS<&'a FieldDef> {
         let opt_column_def = table_def.find_column_def_by_name(column_name);
         let column_def = rs_option(
             opt_column_def,
@@ -155,7 +159,7 @@ impl SQLResolver {
         Ok(column_def)
     }
 
-    fn get_table(&self, table_name: &String) -> RS<TableDef> {
+    fn get_table(&self, table_name: &String) -> RS<RecordDef> {
         let opt_table_def = self.schema_mgr.get(table_name)?;
         let table_def = rs_option(
             opt_table_def,
@@ -165,18 +169,20 @@ impl SQLResolver {
     }
 }
 
-fn build_data_desc_for_name(column_name: &str, table_def: &TableDef) -> RS<DatumDesc> {
+fn build_data_desc_for_name(column_name: &str, table_def: &RecordDef) -> RS<DatumDesc> {
     let opt = table_def.find_column_def_by_name(column_name);
     let column_def = rs_option(opt, &format!("no such column {}", column_name))?;
-    let datum_desc = DatumDesc::new(column_name.to_string(), column_def.dat_type().clone());
+    let datum_desc = DatumDesc::new(
+        column_name.to_string(),
+        column_def.dat_type().clone().uni_to()?);
     Ok(datum_desc)
 }
 
 fn real_where_predicate(
-    table_def: &TableDef,
+    table_def: &RecordDef,
     expr_compare_list: &Vec<ExprCompare>,
     vec_predicate: &mut Vec<(DatumDesc, Filter)>,
-    vec_placeholder: &mut Vec<DatumDesc>,
+    vec_placeholder: &mut Vec<DatumDesc>
 ) -> RS<()> {
     for predicate in expr_compare_list {
         let right = predicate.right();
@@ -232,7 +238,7 @@ fn stmt_select_to_resolved(stmt: &StmtSelect, schema_mgr: &SchemaMgr) -> RS<Reso
         &table_def,
         stmt.get_where_predicate(),
         &mut vec_predicate,
-        &mut vec_placeholder,
+        &mut vec_placeholder
     )?;
 
     let rs = ResolvedSelect::new(

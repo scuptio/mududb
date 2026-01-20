@@ -110,6 +110,7 @@ quote_begin
 content="[Query API](../../sys_interface/src/api.rs#L34-L40)"
 lang="rust"
 -->
+
 ```rust
 pub fn mudu_command(
     xid: XID,
@@ -119,6 +120,7 @@ pub fn mudu_command(
     inner::inner_command(xid, sql, params)
 }
 ```
+
 <!--quote_end-->
 <!--quote_end-->
 
@@ -139,6 +141,7 @@ quote_begin
 content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
 lang="rust"
 -->
+
 ```rust
 pub fn mudu_query<
     R: Entity
@@ -150,6 +153,7 @@ pub fn mudu_query<
     inner::inner_query(xid, sql, params)
 }
 ```
+
 <!--quote_end-->
 <!--quote_end-->
 
@@ -171,6 +175,7 @@ pub fn mudu_query<
 quote_begin
 content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 -->
+
 ## Key Traits
 
 ### SQLStmt
@@ -180,6 +185,7 @@ quote_begin
 content="[Entity](../../mudu/src/database/entity.rs#L12-L34)"
 lang="rust"
 -->
+
 ```rust
 pub trait Entity: private::Sealed + Datum {
     fn new_empty() -> Self;
@@ -205,6 +211,7 @@ pub trait Entity: private::Sealed + Datum {
     }
 }
 ```
+
 <!--quote_end-->
 
 
@@ -213,6 +220,7 @@ quote_begin
 content="[SQLStmt](../../mudu/src/database/sql_stmt.rs#L3-L8)"
 lang="rust"
 -->
+
 ```rust
 pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
     fn to_sql_string(&self) -> String;
@@ -220,6 +228,7 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
     fn clone_boxed(&self) -> Box<dyn SQLStmt>;
 }
 ```
+
 <!--quote_end-->
 
 ### Datum, DatumDyn
@@ -229,6 +238,7 @@ quote_begin
 content="[DatumDyn](../../mudu/src/data_type/datum.rs#L18-L38)"
 lang="rust"
 -->
+
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
     fn dat_type() -> &'static DatType;
@@ -252,6 +262,7 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
 ```
+
 <!--quote_end-->
 <!--quote_end-->
 
@@ -266,6 +277,7 @@ quote_begin
 content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L105)"
 lang="rust"
 -->
+
 ```rust
 #[mudu_proc]
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
@@ -350,6 +362,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 ```
+
 <!--quote_end-->
 <!--quote_end-->
 
@@ -456,11 +469,11 @@ fn create_order(xid: XID, user_id: i32) -> RS<String> {
 # 核心技术优势对比传统模式
 
 | 特性      | 传统方案         | MPDA优势 |
-|:--------|:-------------|:---------|
-| 开发生产一致性 | CLI/存储过程代码不同 | 统一代码库    |
-| 类型安全    | 运行时 SQL 错误   | 编译期验证    |
-| 数据移动    | 需要 ETL 管道    | 库内处理     |
-| 扩展性     | 数据库特定扩展      | 通用编程库    |
+|:--------|:-------------|:-------|
+| 开发生产一致性 | CLI/存储过程代码不同 | 统一代码库  |
+| 类型安全    | 运行时 SQL 错误   | 编译期验证  |
+| 数据移动    | 需要 ETL 管道    | 库内处理   |
+| 扩展性     | 数据库特定扩展      | 通用编程库  |
 
 --
 

@@ -1,96 +1,65 @@
 [env]
 
-MOD_DIR = "wasm"
-
-APP_NAME = "wallet"
-# WASM filename
-WASM_FILE = "${APP_NAME}.wasm"
-
-# output wasm module folder in project
-WASM_DEST_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/${MOD_DIR}"
-
-# build setting, default is release
+PACKAGE_NAME = "wallet"
 PROFILE = "release"
+TARGET = "wasm32-wasip2"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
 
-APP_CFG = "toml/app.cfg.toml"
-PROCEDURE_DESC = "toml/procedure.desc.toml"
-DDL_SQL = "src/sql/ddl.sql"
-INITDB_SQL = "src/sql/init.sql"
-BYTECODE_FILE = "wasm/${WASM_FILE}"
-
-[tasks.set-debug]
-script_runner = "@shell"
-# set for debug build
-script = [
-    "profile = \"debug\"",
-    "set_env PROFILE = \"${profile}\"",
-    "echo \"Build profile set to: ${profile}\""
+[tasks.generate]
+command = "mgen"
+args = [
+    "entity",
+    "--input-source-files",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--output-source-folder",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
+    "--type-desc",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
+    "--lang",
+    "rust"
 ]
 
-[tasks.build-wasm]
-# build WASM file
+[tasks.transpile]
+command = "python"
+args = [
+    "../../script/build/transpiler.py",
+    "--config",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build-cfg/transpiler-cfg.toml",
+    "--source",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
+    "--target",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/generated",
+    "--artifact",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/artifact",
+    "--package-desc",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-desc",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json"
+]
+
+
+[tasks.cargo-build]
+
+dependencies = ["generate", "transpile"]
+
 command = "cargo"
-args = ["build", "--target", "wasm32-wasip1", "--${PROFILE}"]
-
-[tasks.copy-wasm]
-
-dependencies = ["copy-wasm-windows-task", "copy-wasm-unix-task"]
+args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
 
 
-[tasks.copy-wasm-unix-task]
-condition = { platforms = ["linux", "mac"] }
-# copy WASM file to destination
-script = [
-    # build destination
-    "mkdir -p ${WASM_DEST_DIR}",
-    # copy file
-    "copy ${CARGO_TARGET_DIR}/wasm32-wasip1/${PROFILE}/${WASM_FILE} ${WASM_DEST_DIR}",
-    # output result
-    "echo \"Copied ${source_path} to ${WASM_DEST_DIR}\""
+[tasks.package]
+dependencies = ["generate", "transpile", "cargo-build"]
+command = "mpk"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.toml",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
 ]
 
-[tasks.copy-wasm-windows-task]
-condition = { platforms = ["windows"] }
-script = '''
-set WASM_DEST_DIR="%CARGO_MAKE_WORKING_DIRECTORY%\\%MOD_DIR%"
-set WASM_SRC_PATH="%CARGO_MAKE_WORKING_DIRECTORY%\..\..\\target\\wasm32-wasip1\\%PROFILE%\\%WASM_FILE%"
-mkdir "%WASM_DEST_DIR%"
-echo %WASM_SRC_PATH%
-echo %WASM_DEST_DIR%
-echo copying WASM file...
-copy /Y "%WASM_SRC_PATH%" "%WASM_DEST_DIR%"
-'''
-
-[tasks.build-package]
-
-dependencies = ["build-package-windows"]
-
-[tasks.build-package-windows]
-condition = { platforms = ["windows"] }
-script = '''
-set PATH_APP_CFG="%CARGO_MAKE_WORKING_DIRECTORY%\\%APP_CFG%"
-set PATH_PROCEDURE_DESC="%CARGO_MAKE_WORKING_DIRECTORY%\\%PROCEDURE_DESC%"
-set PATH_DDL_SQL="%CARGO_MAKE_WORKING_DIRECTORY%\\%DDL_SQL%"
-set PATH_INITDB_SQL="%CARGO_MAKE_WORKING_DIRECTORY%\\%INITDB_SQL%"
-set PATH_BYTECODE_FILES="%CARGO_MAKE_WORKING_DIRECTORY%\\%BYTECODE_FILE%"
-mpk.exe --app-cfg %PATH_APP_CFG% ^
-    --procedure-desc %PATH_PROCEDURE_DESC% ^
-    --ddl-sql %PATH_DDL_SQL% ^
-    --initdb-sql %PATH_INITDB_SQL% ^
-    --bytecode-files %PATH_BYTECODE_FILES%
-'''
-
-[tasks.build-release]
-# build release WASM and copy
-dependencies = ["build-wasm", "copy-wasm", "build-package"]
-
-[tasks.build-debug]
-# build debug WASM and copy
-dependencies = ["set-debug", "build-wasm", "copy-wasm", "build-package"]
-
-[tasks.build]
-# default：build release
-alias = "build-release"
 
 [tasks.default]
-alias = "build"
+alias = "package"

@@ -1,10 +1,10 @@
 use crate::contract::data_row::DataRow;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
-use mudu::tuple::tuple_key::{TupleKey, _KeyRef};
-use scc::ebr::Guard;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_key::{TupleKey, _KeyRef};
 use scc::TreeIndex;
+use scc::Guard;
 use std::collections::Bound;
 use std::sync::Arc;
 
@@ -46,7 +46,6 @@ impl MemTableI {
 
     pub fn read_key<K: AsRef<[u8]>>(&self, key: K) -> RS<Option<DataRow>> {
         let key_ref = _KeyRef::new(&key);
-        let g = Guard::new();
         todo!();
         /*
         let opt_r = self.tree_index.peek(todo!(), &g);
@@ -79,7 +78,7 @@ impl MemTableI {
 
     pub fn insert_key(&self, key: Buf, row: DataRow) -> RS<Option<(Buf, DataRow)>> {
         let key = TupleKey::from_buf(&self.key_desc, key);
-        let r = self.tree_index.insert(key, row);
+        let r = self.tree_index.insert_sync(key, row);
         match r {
             Ok(()) => Ok(None),
             Err((k, v)) => Ok(Some((k.into(), v))),

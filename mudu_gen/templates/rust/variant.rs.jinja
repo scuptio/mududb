@@ -1,0 +1,157 @@
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+#[derive(Debug, Clone
+{% if cfg.impl_eq %}, Eq, PartialEq {% endif %}
+{% if cfg.impl_hash %}, Hash {% endif %}
+)]
+
+pub enum {{ variant.variant_name }} {
+    {% for case in variant.variant_cases %}
+    {% if case.vc_comments.len() > 0 %}
+    {{ case.vc_comments }}
+    {% endif %}
+    {{ case.vc_case_name }}{% if case.vc_has_inner_type %}({{ case.vc_inner_type_name }}){% endif %},
+    {% endfor %}
+}
+
+{% if cfg.impl_default %}
+impl Default for {{ variant.variant_name }} {
+    fn default() -> Self {
+        {% if variant.variant_cases[0].vc_has_inner_type %}
+        Self::{{ variant.variant_cases[0].vc_case_name }} (Default::default())
+        {% else %}
+        Self::{{ variant.variant_cases[0].vc_case_name }}
+        {% endif %}
+    }
+}
+{% endif %}
+
+{% if cfg.impl_display %}
+impl std::fmt::Display for {{ variant.variant_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            {% for case in variant.variant_cases %}
+            Self::{{ case.vc_case_name }}{% if case.vc_has_inner_type %}(inner){% endif %} => {
+                write!(f, "{{ case.vc_case_name }}")?;
+                {% if case.vc_has_inner_type %}
+                write!(f, "({})", inner)?;
+                {% endif %}
+                Ok(())
+            }
+            {% endfor %}
+        }
+    }
+}
+{% endif %}
+
+{% if cfg.impl_inner_func %}
+
+
+impl {{ variant.variant_name }} {
+    {% for case in variant.variant_cases %}
+    {% if case.vc_has_inner_type %}
+    pub fn from_{{ case.vc_case_name_snake }}(inner: {{ case.vc_inner_type_name }}) -> Self {
+        Self::{{ case.vc_case_name }}(inner)
+    }
+
+    pub fn as_{{ case.vc_case_name_snake }}(&self) -> Option<&{{ case.vc_inner_type_name }}> {
+        match self {
+            Self::{{ case.vc_case_name }}(inner) => { Some(inner) }
+            _ => { None }
+        }
+    }
+
+    pub fn expect_{{ case.vc_case_name_snake }}(&self) ->  &{{ case.vc_inner_type_name }} {
+        match self {
+            Self::{{ case.vc_case_name }}(inner) => { inner }
+            _ => { unsafe { std::hint::unreachable_unchecked() } }
+        }
+    }
+    {% endif %}
+    {% endfor %}
+}
+{% endif %}
+
+{% if cfg.impl_serialize %}
+impl serde::Serialize for {{ variant.variant_name }} {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        use serde::ser::SerializeSeq;
+        let mut serialize_seq = serializer.serialize_seq(Some(2))?;
+        match self {
+            {% for case in variant.variant_cases %}
+            {% if case.vc_has_inner_type %}
+            {{ variant.variant_name }}::{{ case.vc_case_name }}(inner) => {
+                serialize_seq.serialize_element(&{{ case.vc_number }}u32)?;
+                serialize_seq.serialize_element(&inner)?;
+            }
+            {% else %}
+            {{ variant.variant_name }}::{{ case.vc_case_name }} => {
+                // has no inner payload, write a dummy u8 value
+                serialize_seq.serialize_element(&{{ case.vc_number }}u32)?;
+                serialize_seq.serialize_element(&0u8)?
+            }
+            {% endif %}
+            {% endfor %}
+        }
+        serialize_seq.end()
+    }
+}
+
+
+struct {{ variant.variant_name }}Visitor {}
+
+impl <'de> serde::de::Visitor<'de> for {{ variant.variant_name }}Visitor {
+    type Value = {{ variant.variant_name }};
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a sequence")
+    }
+
+    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        use serde::de::Error;
+        use serde::de::Unexpected;
+        let mut seq = seq;
+        let key = seq.next_element::<u32>()?;
+        let id = match key {
+            Some(key) => key,
+            None => {
+                return Err(Error::invalid_value(Unexpected::Seq, &self));
+            }
+        };
+        match id {
+            {% for case in variant.variant_cases %}
+            {{ case.vc_number }} => {
+                {% if case.vc_has_inner_type %}
+                let value = seq.next_element::<{{ case.vc_inner_type_name }}>()?
+                    .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
+                Ok(Self::Value::{{ case.vc_case_name }}(value))
+                {% else %}
+                // has no inner payload, consume a dummy u8 value
+                let _ = seq.next_element::<u8>()?
+                    .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
+                Ok(Self::Value::{{ case.vc_case_name }})
+                {% endif %}
+            }
+            {% endfor %}
+            _ => {  Err(Error::invalid_value(Unexpected::Map, &self)) }
+        }
+    }
+}
+
+impl <'de> serde::Deserialize<'de> for {{ variant.variant_name }} {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        deserializer.deserialize_seq({{ variant.variant_name }}Visitor{})
+    }
+}
+
+{% endif %}

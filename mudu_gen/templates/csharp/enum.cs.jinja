@@ -1,0 +1,13 @@
+{% if enum_def.enum_comments.len() > 0 %}
+{{ enum_def.enum_comments }}
+{% endif %}
+public enum {{ enum_def.enum_name }} {
+    {% for case in enum_def.enum_cases %}
+    {% if case.ec_comments.len() > 0 %}
+    {{ case.ec_comments }}
+    {% endif %}
+    {{ case.ec_name }} = {{ case.ec_number }},
+    {% endfor %}
+}
+
+

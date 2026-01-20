@@ -1612,6 +1612,7 @@
   {
     "type": "comment",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {
@@ -3692,6 +3693,7 @@
   {
     "type": "marginalia",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {

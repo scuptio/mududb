@@ -2,19 +2,19 @@ use libsql::Transaction;
 use libsql::{Row, Rows};
 use mudu::common::result::RS;
 use mudu::common::xid::{new_xid, XID};
-use mudu::database::result_set::ResultSet;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_contract::database::result_set::ResultSet;
 
 use crate::async_utils::blocking;
 use libsql::params::IntoParams;
-use mudu::data_type::dat_type_id::DatTypeID;
-use mudu::data_type::dat_value::DatValue;
-use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_field::TupleField;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::dat_value::DatValue;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use mudu_contract::tuple::tuple_value::TupleValue;
 
 pub struct LSTrans {
     xid: XID,
@@ -93,7 +93,7 @@ impl LSResultSet {
     }
 }
 impl ResultSet for LSResultSet {
-    fn next(&self) -> RS<Option<TupleField>> {
+    fn next(&self) -> RS<Option<TupleValue>> {
         let inner = self.inner.clone();
         blocking::run_async(async move { inner.async_next().await })?
     }
@@ -107,7 +107,7 @@ impl ResultSetInner {
         }
     }
 
-    async fn async_next(&self) -> RS<Option<TupleField>> {
+    async fn async_next(&self) -> RS<Option<TupleValue>> {
         let mut guard = self.row.lock().await;
         let opt_row = guard
             .next()
@@ -123,7 +123,7 @@ impl ResultSetInner {
     }
 }
 
-fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleField> {
+fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleValue> {
     let mut vec = vec![];
     if row.column_count() != (item_desc.len() as i32) {
         return Err(m_error!(EC::FatalError, "column count mismatch"));
@@ -167,9 +167,7 @@ fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleField>
             }
         };
 
-        let binary = desc.dat_type_id().fn_send()(&internal, desc.dat_type())
-            .map_err(|e| m_error!(EC::TypeBaseErr, "convert data error", e))?;
-        vec.push(binary.into())
+        vec.push(internal)
     }
-    Ok(TupleField::new(vec))
+    Ok(TupleValue::from(vec))
 }

@@ -8,7 +8,7 @@ use crate::x_engine::operator::Operator;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::tuple::tuple_field::TupleField;
+use mudu_contract::tuple::tuple_field::TupleField;
 
 pub type TupleRow = TupleField;
 

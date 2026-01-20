@@ -19,7 +19,7 @@ pub mod _test {
         for r_entry in fs::read_dir(path.as_path()).unwrap() {
             let entry = r_entry.unwrap();
             if entry.path().is_file() {
-                info!("Testing {}", entry.file_name().to_str().unwrap());
+                //info!("Testing {}", entry.file_name().to_str().unwrap());
                 let data = fs::read(entry.path()).unwrap();
                 _target(name, data.as_slice())
             }

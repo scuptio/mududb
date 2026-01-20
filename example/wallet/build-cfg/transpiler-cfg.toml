@@ -1,0 +1,17 @@
+lang = "rust"
+async = true
+
+[translate]
+mode = "refactor" # or mirror
+src_mod = "rust"
+dst_mod = "generated"
+
+[patterns]
+include = [
+    "**/*.rs",
+]
+exclude = [
+    "**/*_test.rs",
+    "**/test_*.rs",
+    "**/tests/**",
+]

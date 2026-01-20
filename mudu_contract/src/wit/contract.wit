@@ -1,0 +1,99 @@
+package mududb:api;
+
+world host {
+    import  binding;
+}
+
+interface binding {
+    // object id
+    record mu-oid {
+        // higher 64 bits
+        h:u64,
+        // lower 64 bits
+        l:u64,
+    }
+
+    // data type id
+    enum mu-dat-type-id {
+        // 32 bits integer
+        i32,
+        i64,
+        %f32,
+        %f64,
+        string,
+        array,
+        object
+    }
+
+    record mu-dat-type {
+        dat-type-id : mu-dat-type-id,
+        name: string,
+        opt-dat-type-param : option<mu-dat-type-param>
+    }
+
+    // data type parameter
+    variant mu-dat-type-param {
+        // array type parameter
+        array(box<mu-dat-type>),
+        object(list<tuple<string, mu-dat-type>>)
+    }
+
+    variant mu-dat-value {
+        i32(s32),
+        i64(s64),
+        %f32(f32),
+        %f64(f64),
+        string(string),
+        array(list<mu-dat-value>),
+        object(list<mu-dat-value>)
+    }
+
+    record mu-error {
+        err-code: u32,
+        err-msg: string
+    }
+
+    record mu-sql-stmt {
+        sql-string: string,
+        sql-prepared: list<u8>
+    }
+
+    record mu-sql-param {
+        params:list<mu-dat-value>
+    }
+
+    record mu-tuple-row {
+        fields:list<mu-dat-value>
+    }
+
+    record mu-tuple-desc {
+        fields:list<tuple<string, mu-dat-type>>
+    }
+
+    record mu-query-result {
+        tuple-desc: mu-tuple-desc,
+        result-set: mu-result-set
+    }
+
+    record mu-result-set {
+        eof:bool,
+        row-set: list<mu-tuple-row>,
+        cursor: list<u8>
+    }
+
+    record mu-query-argument {
+        oid:mu-oid,
+        query:mu-sql-stmt,
+        param:mu-sql-param,
+    }
+
+    record mu-command-argument {
+        oid:mu-oid,
+        command:mu-sql-stmt,
+        param:mu-sql-param,
+    }
+
+    host-query: func(argument:list<u8>) -> list<u8>;
+    host-command: func(argument:list<u8>) -> list<u8>;
+    host-fetch: func(argument:list<u8>) -> list<u8>;
+}

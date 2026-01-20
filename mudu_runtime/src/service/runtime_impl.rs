@@ -1,12 +1,14 @@
 use crate::service::app_inst::AppInst;
-use crate::service::runtime_simple::RuntimeSimple;
 use crate::service::runtime::Runtime;
+use crate::service::runtime_opt::RuntimeOpt;
+use crate::service::runtime_simple::RuntimeSimple;
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_utils::notifier::Notifier;
 use std::path::PathBuf;
 use std::sync::Arc;
-use mudu_utils::notifier::Notifier;
 
 #[derive(Clone)]
 struct RuntimeImpl {
@@ -14,7 +16,7 @@ struct RuntimeImpl {
 }
 
 impl RuntimeImpl {
-    pub fn new(package_path: &String, db_path: &String) -> RS<Self> {
+    pub async fn new(package_path: &String, db_path: &String, rt_opt: RuntimeOpt) -> RS<Self> {
         for ps in [package_path, db_path] {
             let path = PathBuf::from(ps);
             if !path.exists() {
@@ -27,8 +29,8 @@ impl RuntimeImpl {
                 }
             }
         }
-        let mut runtime = RuntimeSimple::new(package_path, db_path);
-        runtime.initialized()?;
+        let mut runtime = RuntimeSimple::new(package_path, db_path, rt_opt).await?;
+        runtime.initialize().await?;
         let ret = Self {
             inner: Arc::new(runtime),
         };
@@ -36,17 +38,18 @@ impl RuntimeImpl {
     }
 }
 
+#[async_trait]
 impl Runtime for RuntimeImpl {
-    fn list(&self) -> Vec<String> {
+    async fn list(&self) -> Vec<String> {
         self.inner.list()
     }
 
-    fn app(&self, app_name: &String) -> Option<Arc<dyn AppInst>> {
+    async fn app(&self, app_name: String) -> Option<Arc<dyn AppInst>> {
         self.inner.app(app_name)
     }
 
-    fn install(&self, pkg_path: &String) -> RS<()> {
-        self.inner.install(pkg_path)
+    async fn install(&self, pkg_path: String) -> RS<()> {
+        self.inner.install(pkg_path).await
     }
 }
 
@@ -54,12 +57,13 @@ unsafe impl Sync for RuntimeImpl {}
 
 unsafe impl Send for RuntimeImpl {}
 
-pub fn create_runtime_service(
+pub async fn create_runtime_service(
     package_path: &String,
     db_path: &String,
-    opt_initialized_notifier:Option<Notifier>
+    opt_initialized_notifier:Option<Notifier>,
+    rt_opt: RuntimeOpt
 ) -> RS<Arc<dyn Runtime>> {
-    let runtime = RuntimeImpl::new(package_path, db_path)?;
+    let runtime = RuntimeImpl::new(package_path, db_path, rt_opt).await?;
     match opt_initialized_notifier {
         Some(notifier) => {
             notifier.notify_all();

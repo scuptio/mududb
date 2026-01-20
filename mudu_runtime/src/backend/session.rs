@@ -78,7 +78,7 @@ impl AuthSource for DummyAuthSource {
             }, |e| {
                 Ok(e.to_string())
             })?;
-        self.context.open(&db)
+        self.context.open(&db).await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
     }
@@ -96,7 +96,7 @@ impl SimpleQueryHandler for Session {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection()
+        let conn = self.ctx.connection().await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let stmt = conn
             .prepare(query).await
@@ -105,7 +105,7 @@ impl SimpleQueryHandler for Session {
             let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
             let rows = stmt.query(()).await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let s = encode_row_data(rows, header.clone()).await;
+            let s = encode_row_data(rows, header.clone());
             Ok(vec![Response::Query(QueryResponse::new(header, s))])
         } else {
             conn.execute(query, ()).await
@@ -137,9 +137,12 @@ impl ExtendedQueryHandler for Session {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection()
+        let conn = self.ctx.connection().await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        let param_types = target.parameter_types.clone();
+        let param_types = target.parameter_types.iter()
+            .map(|e|{
+                e.as_ref().unwrap().clone()
+            }).collect::<Vec<_>>();
         let stmt = conn
             .prepare(&target.statement).await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -160,7 +163,7 @@ impl ExtendedQueryHandler for Session {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection()
+        let conn = self.ctx.connection().await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let stmt = conn
             .prepare(&_target.statement.statement).await
@@ -180,7 +183,7 @@ impl ExtendedQueryHandler for Session {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection()
+        let conn = self.ctx.connection().await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let query = &portal.statement.statement;
         let stmt = conn.prepare(query).await
@@ -191,7 +194,7 @@ impl ExtendedQueryHandler for Session {
             let rows = stmt.query(Params::Positional(params)).await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
 
-            let s = encode_row_data(rows, header.clone()).await;
+            let s = encode_row_data(rows, header.clone());
             Ok(Response::Query(QueryResponse::new(header, s)))
         } else {
             stmt.execute(Params::Positional(params)).await
@@ -209,35 +212,36 @@ unsafe impl Sync for Session {}
 fn get_params(portal: &Portal<String>) -> Vec<Value> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.statement.parameter_types.get(i).unwrap();
+        let param_type = portal.statement.parameter_types.get(i)
+            .unwrap().as_ref().unwrap().clone();
         // we only support a small amount of types for demo
-        match param_type {
+        match &param_type {
             &Type::BOOL => {
-                let param = portal.parameter::<bool>(i, param_type).unwrap();
+                let param = portal.parameter::<bool>(i, &param_type).unwrap();
                 results.push(Value::Integer(param.unwrap() as i64));
             }
             &Type::INT2 => {
-                let param = portal.parameter::<i16>(i, param_type).unwrap();
+                let param = portal.parameter::<i16>(i, &param_type).unwrap();
                 results.push(Value::Integer(param.unwrap() as i64));
             }
             &Type::INT4 => {
-                let param = portal.parameter::<i32>(i, param_type).unwrap();
+                let param = portal.parameter::<i32>(i, &param_type).unwrap();
                 results.push(Value::Integer(param.unwrap() as i64));
             }
             &Type::INT8 => {
-                let param = portal.parameter::<i64>(i, param_type).unwrap();
+                let param = portal.parameter::<i64>(i, &param_type).unwrap();
                 results.push(Value::Integer(param.unwrap()));
             }
             &Type::TEXT | &Type::VARCHAR => {
-                let param = portal.parameter::<String>(i, param_type).unwrap();
+                let param = portal.parameter::<String>(i, &param_type).unwrap();
                 results.push(Value::Text(param.unwrap()));
             }
             &Type::FLOAT4 => {
-                let param = portal.parameter::<f32>(i, param_type).unwrap();
+                let param = portal.parameter::<f32>(i, &param_type).unwrap();
                 results.push(Value::Real(param.unwrap() as f64));
             }
             &Type::FLOAT8 => {
-                let param = portal.parameter::<f64>(i, param_type).unwrap();
+                let param = portal.parameter::<f64>(i, &param_type).unwrap();
                 results.push(Value::Real(param.unwrap()));
             }
             _ => {
@@ -286,39 +290,31 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
     }
 }
 
-async fn encode_row_data(
-    mut rows: Rows,
+fn encode_row_data(
+    rows: Rows,
     schema: Arc<Vec<FieldInfo>>,
-) -> impl Stream<Item=PgWireResult<DataRow>> {
-    let mut results = Vec::new();
-    let ncols = schema.len();
-    while let Ok(Some(row)) = rows.next().await {
+) -> impl Stream<Item = PgWireResult<DataRow>> {
+    stream::unfold((rows, schema), |(mut rows, schema)| async move {
+        let row = rows.next().await.ok()??;
+
+        let ncols = schema.len();
         let mut encoder = DataRowEncoder::new(schema.clone());
+
         for idx in 0..ncols {
             let data = row.get_value(idx as i32).unwrap();
             match data {
                 Value::Null => encoder.encode_field(&None::<i8>).unwrap(),
-                Value::Integer(i) => {
-                    encoder.encode_field(&i).unwrap();
-                }
-                Value::Real(f) => {
-                    encoder.encode_field(&f).unwrap();
-                }
-                Value::Text(t) => {
-                    encoder
-                        .encode_field(&String::from_utf8_lossy(t.as_bytes()).as_ref())
-                        .unwrap();
-                }
-                Value::Blob(b) => {
-                    encoder.encode_field(&b).unwrap();
-                }
+                Value::Integer(i) => encoder.encode_field(&i).unwrap(),
+                Value::Real(f) => encoder.encode_field(&f).unwrap(),
+                Value::Text(t) => encoder
+                    .encode_field(&String::from_utf8_lossy(t.as_bytes()).as_ref())
+                    .unwrap(),
+                Value::Blob(b) => encoder.encode_field(&b).unwrap(),
             }
         }
 
-        results.push(encoder.finish());
-    }
-
-    stream::iter(results)
+        Some((Ok(encoder.take_row()), (rows, schema)))
+    })
 }
 
 #[allow(unused)]

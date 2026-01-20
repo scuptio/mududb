@@ -6,8 +6,8 @@ use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
-use mudu::tuple::tuple_key::TupleKey;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_key::TupleKey;
 use mudu_utils::sync::notify_wait::Notify;
 use scc::HashMap;
 use std::sync::Arc;
@@ -57,14 +57,14 @@ impl LockTableInner {
 
     fn release(&self, xid: XID, key: &Buf) -> RS<()> {
         let key = TupleKey::from_buf(&self.tuple_desc, key.clone());
-        let opt = self.hash_map.get(&key);
+        let opt = self.hash_map.get_sync(&key);
         let slot = match opt {
             Some(slot) => slot.clone(),
             None => return Err(m_error!(ER::NoSuchElement, "")),
         };
         let empty = slot.release(xid)?;
         if empty {
-            let _ = self.hash_map.remove(&key);
+            let _ = self.hash_map.remove_sync(&key);
         }
         Ok(())
     }

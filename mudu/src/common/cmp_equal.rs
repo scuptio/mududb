@@ -5,4 +5,3 @@ pub trait Equal {
 
     fn cmp_eq(&self, other: &Self) -> Result<bool, Self::Error>;
 }
-

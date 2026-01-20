@@ -1,0 +1,10 @@
+use crate:universal:uni-primitive-value/uni-primitive-value;
+
+interface universal {
+variant uni-dat-value {
+    primitive(uni-primitive-value),
+    array(list<uni-dat-value>),
+    record(list<uni-dat-value>),
+    binary(list<u8>)
+}
+}

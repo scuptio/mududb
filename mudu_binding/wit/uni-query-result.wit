@@ -1,0 +1,15 @@
+use crate:universal:uni-record-type/uni-record-type;
+use crate:universal:uni-result-set/uni-result-set;
+use crate:universal:uni-error/uni-error;
+
+interface universal {
+    record uni-query-result {
+        tuple-desc: uni-record-type,
+        result-set: uni-result-set
+    }
+
+    variant uni-query-return {
+        ok(uni-query-result),
+        err(uni-error)
+    }
+}

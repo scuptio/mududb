@@ -1,18 +1,9 @@
 #[allow(unused)]
 #[allow(dead_code)]
+#[cfg(target_arch = "x86_64")]
 pub mod rust;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#[allow(unused)]
+#[cfg(target_arch = "wasm32")]
+pub mod generated;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}

@@ -1,13 +1,15 @@
 use crate::db_libsql::ls_conn::{create_ls_conn, db_conn_get_libsql_connection};
 use crate::db_postgres::pg_interactive_conn::create_pg_interactive_conn;
+use crate::db_turso::turso_conn::create_turso_conn;
+use libsql::Connection;
 use mudu::common::result::RS;
-use mudu::database::db_conn::DBConn;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_contract::database::db_conn::DBConnSync;
+use mudu_contract::database::sql::DBConn;
 use std::str::FromStr;
-use std::sync::Arc;
-use libsql::Connection;
 use strum_macros::EnumString;
+use crate::db_libsql_async::libsql_async_conn::create_libsql_async_conn;
 
 pub struct DBConnector {}
 
@@ -15,10 +17,12 @@ pub struct DBConnector {}
 enum DBType {
     Postgres,
     LibSQL,
+    Turso,
+    LibSQLAsync,
 }
 
 impl DBConnector {
-    pub fn connect(connect_string: &str) -> RS<Arc<dyn DBConn>> {
+    pub async fn connect(connect_string: &str) -> RS<DBConn> {
         let db_str_param = parse_db_connect_string(connect_string);
         let mut passing_param = Vec::new();
         let mut opt_ddl_path = None;
@@ -50,16 +54,24 @@ impl DBConnector {
         let ddl_path = opt_ddl_path.unwrap_or_else(|| String::default());
         let app_name = opt_app.unwrap_or(String::default());
         let params = merge_to_string(passing_param);
+        let db_path = match opt_db_path {
+            Some(db_path) => { db_path }
+            None => {
+                return Err(m_error!(EC::DBInternalError, "no db path specified"))
+            }
+        };
         match opt_db_type {
             Some(db_type) => match db_type {
                 DBType::Postgres => create_pg_interactive_conn(&params, &ddl_path),
-                DBType::LibSQL => create_ls_conn(&opt_db_path.unwrap(), &app_name, &ddl_path),
+                DBType::LibSQL => create_ls_conn(&db_path, &app_name, &ddl_path),
+                DBType::Turso => create_turso_conn(&db_path, &app_name).await,
+                DBType::LibSQLAsync => create_libsql_async_conn(&db_path, &app_name).await,
             },
             None => Err(m_error!(EC::ParseErr, "not a valid DB type")),
         }
     }
 
-    pub fn get_libsql_conn(db_conn:Arc<dyn DBConn>) -> Option<Connection> {
+    pub fn get_libsql_conn(db_conn: &dyn DBConnSync) -> Option<Connection> {
         db_conn_get_libsql_connection(db_conn)
     }
 }

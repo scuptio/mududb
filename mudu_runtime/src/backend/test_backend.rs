@@ -1,12 +1,12 @@
 
 #[cfg(test)]
 pub mod tests {
-    use std::env::temp_dir;
-    use std::fs;
-    use mudu::common::result::RS;
     use crate::backend::backend::Backend;
     use crate::backend::mududb_cfg::MuduDBCfg;
     use crate::service::test_wasm_mod_path::wasm_mod_path;
+    use mudu::common::result::RS;
+    use std::env::temp_dir;
+    use std::fs;
 
     fn test_db_path() -> String {
         let tmp = temp_dir().join(format!("test_bakend_{}", uuid::Uuid::new_v4().to_string()));
@@ -23,6 +23,8 @@ pub mod tests {
             listen_ip: "0.0.0.0".to_string(),
             http_listen_port: 8000,
             pg_listen_port: 5432,
+            enable_p2: true,
+            enable_async: false,
         };
         cfg
     }

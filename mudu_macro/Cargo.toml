@@ -8,6 +8,9 @@ quote = "1.0.41"
 syn = { version = "2.0.106", features = ["full"] }
 mudu = { workspace = true }
 proc-macro2 = { version = "1.0.103" }
-
+mudu_type = {workspace = true}
+mudu_contract = {workspace = true}
+mudu_binding = {workspace = true}
+wit-bindgen = { workspace = true }
 [lib]
 proc-macro = true

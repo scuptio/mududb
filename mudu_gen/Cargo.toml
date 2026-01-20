@@ -4,19 +4,29 @@ version = "0.1.0"
 edition = "2024"
 
 
-
-[build-dependencies]
-project-root = { workspace = true }
+build = "build.rs"
 
 [dependencies]
 mudu = { workspace = true }
 sql_parser = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-wit = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+mudu_type = { workspace = true }
+mudu_contract = { workspace = true }
+askama = {workspace = true}
+serde = { workspace = true }
 rust-format = "0.3.4"
-tera = {version = "1.20.1"}
-[dev-dependencies]
-project-root = { workspace = true }
-
+paste = "1.0.15"
+lazy_static = "1.5.0"
+mudu_binding = {workspace = true}
+[build-dependencies]
+md-5 = { workspace = true }
+serde_json = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-wit = { workspace = true }
+base16ct = { workspace = true }
+serde = { workspace = true }
 [lib]
 path = "src/lib.rs"
 

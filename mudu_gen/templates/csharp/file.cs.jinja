@@ -1,0 +1,11 @@
+using MessagePack;
+using MessagePack.Formatters;
+{% for using_stmt in file.using_stmts %}
+using {{using_stmt}};
+{% endfor %}
+
+namespace {{ file.namespace }} {
+{% for block in file.blocks %}
+{{block}}
+{% endfor %}
+}

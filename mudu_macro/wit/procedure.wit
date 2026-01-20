@@ -1,0 +1,5 @@
+package mudu_macro:procedure;
+
+world procedure {
+    export proc-func: func(param: list<u8>) -> result<vec<u8>, vec<u8>>;
+}

@@ -1,13 +1,22 @@
 [package]
-name = "mudu_wasm"
+name = "mod_0"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["transpile"]
+macro = ["sys_interface/wasip1", "sys_interface/wasip2"]
+transpile = ["sys_interface/wasip2", "sys_interface/async"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 mudu = { workspace = true }
+mudu_type = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = { workspace = true }
+wit-bindgen = { workspace = true }
 mudu_macro = { workspace = true }
 sys_interface = { workspace = true }
+lazy_static = "1.5.0"

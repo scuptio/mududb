@@ -2,9 +2,9 @@ use crate::contract::table_desc::TableDesc;
 use crate::sql::proj_field::ProjField;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::data_type::dat_type::DatType;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
+use mudu_type::dat_type::DatType;
 use sql_parser::ast::select_term::SelectTerm;
 
 pub fn visit_select_term(

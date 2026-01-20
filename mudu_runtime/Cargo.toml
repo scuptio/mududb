@@ -2,20 +2,27 @@
 name = "mudu_runtime"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
+[package.metadata.wit-bindgen]
+out-dir = "src/bindings"
 
 [dependencies]
+mudu_type = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = { workspace = true }
 as-slice = { version = "0.2.1" }
 sql_parser = { workspace = true }
 mudu = { workspace = true }
 mudu_gen = { workspace = true }
-wasmtime = { version = "38.0.3" }
-wasmtime-wasi = { version = "38.0.3" }
+wasmtime = { version = "40.0.0", features = ["async"] }
+wasmtime-wasi = { version = "40.0.0", features = ["p2"] }
 anyhow = "1.0.99"
 serde = { workspace = true }
 uuid = { version = "1.18.0", features = ["v4"] }
 serde_json = { workspace = true }
 actix-web = "4.11.0"
+actix-cors = "0.7.1"
 tokio = "1.47.1"
 mudu_utils = { workspace = true }
 tracing = "0.1.41"
@@ -27,13 +34,20 @@ toml = "0.9.8"
 zip = "6.0.0"
 scopeguard = "1.2.0"
 base64 = "0.22.1"
-pgwire = "0.35.0"
+pgwire = { workspace = true }
 async-trait = "0.1.89"
 futures = "0.3.31"
+turso = {version = "0.4.0-pre.19"}
+
 as-any = {version = "0.3.2"}
+
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 postgres = { version = "0.19.10" }
 scc = { workspace = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12.23", features = ["json"] }
+
+[build-dependencies]
+

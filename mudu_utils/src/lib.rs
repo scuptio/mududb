@@ -7,6 +7,7 @@ mod test_debug_server;
 pub mod md5;
 pub mod task_id;
 pub mod sync;
+pub mod ts_gram;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

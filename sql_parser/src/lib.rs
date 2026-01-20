@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod ts_const;
+pub mod parser;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

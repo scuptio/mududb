@@ -42,3 +42,12 @@ pub fn write_f32(buf: &mut [u8], n: f32) {
     Endian::write_f32(buf, n);
 }
 
+#[inline]
+pub fn read_u128(buf: &[u8]) -> u128 {
+    Endian::read_u128(buf)
+}
+
+#[inline]
+pub fn write_u128(buf: &mut [u8], n: u128) {
+    Endian::write_u128(buf, n);
+}

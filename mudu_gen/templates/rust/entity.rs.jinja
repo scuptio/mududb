@@ -1,0 +1,236 @@
+pub mod object {
+use lazy_static::lazy_static;
+use mudu::common::result::RS;
+use mudu_type::dat_binary::DatBinary;
+use mudu_type::dat_textual::DatTextual;
+use mudu_type::dat_type::DatType;
+use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::dat_value::DatValue;
+use mudu_type::datum::{Datum, DatumDyn};
+use mudu_contract::database::attr_field_access;
+use mudu_contract::database::attr_value::AttrValue;
+use mudu_contract::database::entity::Entity;
+use mudu_contract::database::entity_utils;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::tuple::tuple_datum::TupleDatumMarker;
+use mudu_contract::database::sql_params::SQLParamMarker;
+
+// constant definition
+const {{ table.entity_name_const }}:&str = "{{ table.entity_name }}";
+{% for field in table.fields %}
+const {{ field.field_name_const }}:&str = "{{ field.field_name }}";
+{% endfor %}
+
+// entity struct definition
+#[derive(Debug, Clone, Default)]
+pub struct {{ table.struct_obj_name }} {
+    {% for field in table.fields %}
+    {{ field.field_name_snake_case }}: Attr{{ field.field_name_pascal_case }},
+    {% endfor %}
+}
+
+impl TupleDatumMarker for {{ table.struct_obj_name }} {}
+
+impl SQLParamMarker for {{ table.struct_obj_name }} {}
+
+impl {{ table.struct_obj_name }} {
+    pub fn new(
+        {% for field in table.fields -%}
+        {{ field.field_name_snake_case }}: Option<{{ field.data_type }}>,
+        {% endfor %}
+    ) -> Self {
+        let s = Self {
+            {% for field in table.fields %}
+            {{ field.field_name_snake_case }} : Attr{{ field.field_name_pascal_case }}::from({{ field.field_name_snake_case }}),
+            {% endfor %}
+        };
+        s
+    }
+
+    pub fn new_empty() -> Self {
+        Self::default()
+    }
+
+    {% for field in table.fields %}
+    pub fn set_{{ field.field_name_snake_case }}(
+        &mut self,
+        {{ field.field_name_snake_case }}: {{ field.data_type }},
+    ) {
+        self.{{ field.field_name_snake_case }}.update({{ field.field_name_snake_case }})
+    }
+
+    pub fn get_{{ field.field_name_snake_case }}(
+        &self,
+    ) -> &Option<{{ field.data_type }}> {
+        self.{{ field.field_name_snake_case }}.get()
+    }
+    {% endfor %}
+}
+
+impl Datum for {{ table.struct_obj_name }} {
+    fn dat_type() -> &'static DatType {
+        lazy_static! {
+            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<{{ table.struct_obj_name }}>();
+        }
+        &DAT_TYPE
+    }
+
+    fn from_binary(binary: &[u8]) -> RS<Self> {
+        entity_utils::entity_from_binary(binary)
+    }
+
+    fn from_value(value: &DatValue) -> RS<Self> {
+        entity_utils::entity_from_value(value)
+    }
+
+    fn from_textual(textual: &str) -> RS<Self> {
+        entity_utils::entity_from_textual(textual)
+    }
+}
+
+impl DatumDyn for {{ table.struct_obj_name }} {
+    fn dat_type_id(&self) -> RS<DatTypeID> {
+        entity_utils::entity_dat_type_id()
+    }
+
+    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
+        entity_utils::entity_to_binary(self, dat_type)
+    }
+
+    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
+        entity_utils::entity_to_textual(self, dat_type)
+    }
+
+    fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
+        entity_utils::entity_to_value(self, dat_type)
+    }
+
+    fn clone_boxed(&self) -> Box<dyn DatumDyn> {
+        entity_utils::entity_clone_boxed(self)
+    }
+}
+
+impl Entity for {{ table.struct_obj_name }} {
+    fn new_empty() -> Self {
+        Self::new_empty()
+    }
+
+    fn tuple_desc() -> &'static TupleFieldDesc {
+        lazy_static! {
+            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                {% for field in table.fields %}
+                Attr{{ field.field_name_pascal_case }}::datum_desc().clone(),
+                {% endfor %}
+            ]);
+        }
+        &TUPLE_DESC
+    }
+
+    fn object_name() -> &'static str {
+        {{ table.entity_name_const }}
+    }
+
+    fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
+        match field {
+            {% for field in table.fields %}
+            {{ field.field_name_const }} => {
+                attr_field_access::attr_get_binary::<_>(self.{{ field.field_name_snake_case }}.get())
+            }
+            {% endfor %}
+            _ => { panic!("unknown name"); }
+        }
+    }
+
+    fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
+        match field {
+            {% for field in table.fields %}
+            {{ field.field_name_const }} => {
+                attr_field_access::attr_set_binary::<_, _>(self.{{ field.field_name_snake_case }}.get_mut(), binary.as_ref())?;
+            }
+            {% endfor %}
+            _ => { panic!("unknown name"); }
+        }
+        Ok(())
+    }
+
+    fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
+        match field {
+            {% for field in table.fields %}
+            {{ field.field_name_const }} => {
+                attr_field_access::attr_get_value::<_>(self.{{ field.field_name_snake_case }}.get())
+            }
+            {% endfor %}
+            _ => { panic!("unknown name"); }
+        }
+    }
+
+    fn set_field_value<B: AsRef<DatValue>>(&mut self, field: &str, value: B) -> RS<()> {
+        match field {
+            {% for field in table.fields %}
+            {{ field.field_name_const }} => {
+                attr_field_access::attr_set_value::<_, _>(self.{{ field.field_name_snake_case }}.get_mut(), value)?;
+            }
+            {% endfor %}
+            _ => { panic!("unknown name"); }
+        }
+        Ok(())
+    }
+}
+
+{% for field in table.fields %}
+// attribute struct definition
+#[derive(Default, Clone, Debug)]
+pub struct Attr{{ field.field_name_pascal_case }} {
+    is_dirty:bool,
+    value: Option<{{ field.data_type }}>
+}
+
+impl Attr{{ field.field_name_pascal_case }} {
+    fn from(value:Option<{{ field.data_type }}>) -> Self {
+        Self {
+            is_dirty: false,
+            value
+        }
+    }
+
+    fn get(&self) -> &Option<{{ field.data_type }}> {
+        &self.value
+    }
+
+    fn get_mut(&mut self) -> &mut Option<{{ field.data_type }}> {
+        &mut self.value
+    }
+
+    fn set(&mut self, value:Option<{{ field.data_type }}>) {
+        self.value = value
+    }
+
+    fn update(&mut self, value: {{ field.data_type }}) {
+        self.is_dirty = true;
+        self.value = Some(value)
+    }
+}
+
+impl AttrValue<{{ field.data_type }}> for Attr{{ field.field_name_pascal_case }} {
+    fn dat_type() -> &'static DatType {
+        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+    }
+
+    fn datum_desc() -> &'static DatumDesc {
+        static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+    }
+
+    fn object_name() -> &'static str {
+        {{ table.entity_name_const }}
+    }
+
+    fn attr_name() -> &'static str {
+        {{ field.field_name_const }}
+    }
+}
+{% endfor %}
+
+}

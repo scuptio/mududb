@@ -4,7 +4,7 @@ use crate::contract::schema_column::SchemaColumn;
 use arbitrary::{Arbitrary, Unstructured};
 use mudu::common::id::{gen_oid, OID};
 use mudu::common::result::RS;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use serde::{Deserialize, Serialize};
 #[cfg(any(test, feature = "test"))]
 use test_utils::_arb_limit;

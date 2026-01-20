@@ -3,7 +3,7 @@ use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use mudu_utils::sync::notify_wait::Notify;
 
 #[derive(Debug, Clone)]

@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use crate::contract::lsn::LSN;
 use crate::x_log::lsn_syncer::LSNSyncer;
 use crate::x_log::x_log_file::XLogFile;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iouring"))]
 use crate::x_log::x_log_file_iou::f_sync_io_uring;
 use crate::x_log::xl_file_info::XLFileInfo;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iouring"))]
 use crate::x_log::xl_path::xl_file_path;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
@@ -16,7 +16,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use tracing::error;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iouring"))]
 async fn sync_io(
     f: XLFileInfo,
     receiver: Receiver<(Buf, LSN)>,
@@ -42,7 +42,7 @@ async fn sync_io(
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", feature = "iouring")))]
 async fn sync_io(
     f: XLFileInfo,
     receiver: Receiver<(Buf, LSN)>,

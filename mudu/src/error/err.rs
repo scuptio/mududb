@@ -1,3 +1,4 @@
+use crate::common::serde_utils;
 use crate::error::ec::EC;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::SerializeStruct;
@@ -54,6 +55,20 @@ impl MError {
         Self::new(ec, msg.as_ref(), Some(Arc::from(src.into())), loc)
     }
 
+    #[track_caller]
+    pub fn new_with_ec_msg_opt_src<S: AsRef<str>>(
+        ec: EC,
+        msg: S,
+        src: Option<Arc<dyn Error>>,
+    ) -> Self {
+        let loc = format!(
+            "{}:{}",
+            Location::caller().file(),
+            Location::caller().line()
+        );
+        Self::new(ec, msg.as_ref(), src, loc)
+    }
+
     pub fn new<S: AsRef<str>>(ec: EC, msg: S, src: Option<Arc<dyn Error>>, loc: String) -> Self {
         Self {
             ec,
@@ -77,6 +92,17 @@ impl MError {
 
     pub fn set_message(&mut self, msg: String) {
         self.msg = msg;
+    }
+
+    pub fn err_src(&self) -> ErrorSource {
+        let src = match &self.src {
+            Some(src) => match src.downcast_ref::<MError>() {
+                Some(merr) => ErrorSource::MError(merr.clone()),
+                None => ErrorSource::Other(src.to_string()),
+            },
+            None => ErrorSource::None,
+        };
+        src
     }
 }
 
@@ -135,19 +161,32 @@ const FIELD_LOC: &str = "loc";
 const FIELDS: &[&str] = &[FIELD_CODE, FIELD_MSG, FIELD_SRC, FIELD_LOC];
 
 #[derive(Serialize, Deserialize)]
-enum ErrorSource {
+pub enum ErrorSource {
     MError(MError),
     Other(String),
     None,
 }
 
 impl ErrorSource {
-    fn into_error_source(self) -> Option<Arc<dyn Error>> {
+    pub fn into_error_source(self) -> Option<Arc<dyn Error>> {
         match self {
             Self::MError(err) => Some(Arc::new(err)),
             Self::Other(msg) => Some(Arc::new(m_error!(EC::MuduError, msg))),
             Self::None => None,
         }
+    }
+
+    pub fn from_json_str(s: &str) -> Self {
+        let s = serde_utils::deserialize_from_json::<Self>(s);
+        match s {
+            Ok(src) => src,
+            Err(_) => Self::None,
+        }
+    }
+
+    pub fn to_json_str(&self) -> String {
+        let s = serde_utils::serialize_to_json(self);
+        s.unwrap_or_else(|_| Default::default())
     }
 }
 
@@ -161,13 +200,7 @@ impl Serialize for MError {
         state.serialize_field(FIELD_CODE, &self.ec)?;
         state.serialize_field(FIELD_MSG, &self.msg)?;
 
-        let src_field = match &self.src {
-            Some(src) => match src.downcast_ref::<MError>() {
-                Some(merr) => ErrorSource::MError(merr.clone()),
-                None => ErrorSource::Other(src.to_string()),
-            },
-            None => ErrorSource::None,
-        };
+        let src_field = self.err_src();
         state.serialize_field(FIELD_SRC, &src_field)?;
         state.serialize_field(FIELD_LOC, &self.loc)?;
         state.end()

@@ -1,5 +1,5 @@
 use crate::ast::ast_node::ASTNode;
-use mudu::data_type::dat_typed::DatTyped;
+use mudu_type::dat_typed::DatTyped;
 
 #[derive(Clone, Debug)]
 pub enum ExprLiteral {

@@ -1,0 +1,63 @@
+{
+  "name": "tree-sitter-wit",
+  "version": "1.2.0",
+  "description": "WIT grammar for tree-sitter",
+  "author": "Liam Woodleigh-Hardinge <liam.woodleigh@gmail.com>",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "maintainers": [
+    "Liam Woodleigh-Hardinge <liam.woodleigh@gmail.com>"
+  ],
+  "contributors": [
+    "Liam Woodleigh-Hardinge <liam.woodleigh@gmail.com>"
+  ],
+  "keywords": [
+    "incremental",
+    "parsing",
+    "tree-sitter"
+  ],
+  "main": "bindings/node",
+  "types": "bindings/node",
+  "scripts": {
+    "install": "node-gyp-build",
+    "prebuildify": "prebuildify --napi --strip",
+    "build": "tree-sitter generate --no-bindings",
+    "build-wasm": "tree-sitter build --wasm",
+    "lint": "eslint grammar.js",
+    "parse": "tree-sitter parse",
+    "test": "tree-sitter test"
+  },
+  "files": [
+    "grammar.js",
+    "binding.gyp",
+    "prebuilds/**",
+    "bindings/node/*",
+    "queries/*",
+    "src/**"
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.4.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.22.4"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "eslint": "^9.29.0",
+    "eslint-config-treesitter": "^1.0.2",
+    "globals": "^16.2.0",
+    "prebuildify": "^6.0.1",
+    "tree-sitter-cli": "^0.25.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "tree-sitter",
+      "tree-sitter-cli"
+    ]
+  }
+}

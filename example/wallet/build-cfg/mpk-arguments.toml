@@ -1,0 +1,5 @@
+package-cfg = "package/package.cfg.toml"
+package-desc = "package/package.desc.json"
+ddl-sql = "sql/sql.sql"
+initdb-sql = "sql/init.sql"
+wasm-files = []

@@ -1,19 +1,18 @@
 pub mod object {
-
     use lazy_static::lazy_static;
     use mudu::common::result::RS;
-    use mudu::data_type::dat_binary::DatBinary;
-    use mudu::data_type::dat_textual::DatTextual;
-    use mudu::data_type::dat_type::DatType;
-    use mudu::data_type::dat_type_id::DatTypeID;
-    use mudu::data_type::dat_value::DatValue;
-    use mudu::data_type::datum::{Datum, DatumDyn};
-    use mudu::database::attr_field_access;
-    use mudu::database::attr_value::AttrValue;
-    use mudu::database::entity::Entity;
-    use mudu::database::entity_utils;
-    use mudu::tuple::datum_desc::DatumDesc;
-    use mudu::tuple::tuple_field_desc::TupleFieldDesc;
+    use mudu_contract::database::attr_field_access;
+    use mudu_contract::database::attr_value::AttrValue;
+    use mudu_contract::database::entity::Entity;
+    use mudu_contract::database::entity_utils;
+    use mudu_contract::tuple::datum_desc::DatumDesc;
+    use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+    use mudu_type::dat_binary::DatBinary;
+    use mudu_type::dat_textual::DatTextual;
+    use mudu_type::dat_type::DatType;
+    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::dat_value::DatValue;
+    use mudu_type::datum::{Datum, DatumDyn};
 
     const TABLE_WAREHOUSE: &str = "warehouse";
     const COLUMN_W_ID: &str = "w_id";

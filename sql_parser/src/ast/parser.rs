@@ -24,15 +24,13 @@ use crate::ast::stmt_select::StmtSelect;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
 use crate::ts_const::{ts_field_name, ts_kind_id};
-use mudu::data_type::dat_prim::DatPrim;
-use mudu::data_type::dat_type_id::DatTypeID;
-use mudu::data_type::dat_typed::DatTyped;
-use mudu::data_type::dt_fn_param::DatType;
-use mudu::data_type::dt_info::DTInfo;
-use mudu::data_type::param;
 use mudu::error::err::MError;
 use mudu::m_error;
-use serde_json;
+use mudu_type::dat_typed::DatTyped;
+use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_dat_value::UniDatValue;
+use mudu_binding::universal::uni_primitive::UniPrimitive;
+use mudu_binding::universal::uni_primitive_value::UniPrimitiveValue;
 use std::collections::HashMap;
 use std::f64;
 use std::io::Write;
@@ -220,7 +218,7 @@ impl SQLParser {
         self.sql_parse_error(context, &node)?;
         let mut vec = vec![];
         for i in 0..node.child_count() {
-            let child = node.child(i).unwrap();
+            let child = node.child(i as _).unwrap();
             self.sql_parse_error(context, &child)?;
             if child.kind_id() == ts_kind_id::STATEMENT_TRANSACTION {
                 let stmt = self.visit_transaction_statement(context, child)?;
@@ -568,7 +566,7 @@ impl SQLParser {
         stmt: &mut StmtSelect,
     ) -> RS<()> {
         for i in 0..node.child_count() {
-            let n = node.child(i).unwrap();
+            let n = node.child(i as _).unwrap();
             if n.kind().eq("term") {
                 let term = self.visit_term(context, n)?;
                 stmt.add_select_term(term);
@@ -679,7 +677,7 @@ impl SQLParser {
     ) -> RS<()> {
         let n = node.child_count();
         for i in 0..n {
-            let c = node.child(i).unwrap();
+            let c = node.child(i as _).unwrap();
             if c.kind_id() == ts_kind_id::COLUMN_DEFINITION {
                 self.visit_column_definition(context, c, stmt)?;
             } else if c.kind_id() == ts_kind_id::CONSTRAINTS {
@@ -757,8 +755,8 @@ impl SQLParser {
 
         let opt_n = node.child_by_field_name(ts_field_name::DATA_TYPE);
         let n_data_type = rs_option(opt_n, "")?;
-        let type_def = self.visit_data_type(context, n_data_type)?;
-        let mut column_def = ColumnDef::new(column_name, type_def, false);
+        let (dat_type, opt_type_params) = self.visit_data_type(context, n_data_type)?;
+        let mut column_def = ColumnDef::new(column_name, dat_type, opt_type_params, false);
         let mut cursor = node.walk();
         let iter = node.children_by_field_name(ts_field_name::COLUMN_CONSTRAINT, &mut cursor);
         for n in iter {
@@ -779,38 +777,33 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_data_type(&self, context: &ParseContext, node: Node) -> RS<DatPrim> {
+    fn visit_data_type(&self, context: &ParseContext, node: Node) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
         let opt = node.child_by_field_name(ts_field_name::DATA_TYPE_KIND);
         let n = rs_option(opt, "")?;
         self.visit_data_type_kind(context, n)
     }
 
-    fn visit_data_type_kind(&self, context: &ParseContext, node: Node) -> RS<DatPrim> {
+    fn visit_data_type_kind(&self, context: &ParseContext, node: Node) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
         let opt_n = node.child(0);
         let child = rs_option(opt_n, "no child in data type kind")?;
         let kind = child.kind_id();
-        let type_declare = match kind {
-            ts_kind_id::INT => DatPrim::new_without_param(DatTypeID::I32),
-            ts_kind_id::BIGINT => DatPrim::new_without_param(DatTypeID::I64),
-            ts_kind_id::DOUBLE => DatPrim::new_without_param(DatTypeID::F64),
-            ts_kind_id::FLOAT => DatPrim::new_without_param(DatTypeID::F32),
+        let ret = match kind {
+            ts_kind_id::INT => (UniDatType::Primitive(UniPrimitive::I32), None),
+            ts_kind_id::BIGINT => (UniDatType::Primitive(UniPrimitive::I64), None),
+            ts_kind_id::DOUBLE => (UniDatType::Primitive(UniPrimitive::F64), None),
+            ts_kind_id::FLOAT => (UniDatType::Primitive(UniPrimitive::F32), None),
             ts_kind_id::CHAR | ts_kind_id::VARCHAR | ts_kind_id::KEYWORD_TEXT => {
-                let data_type_id = DatTypeID::String;
-                let dt_param = if kind == ts_kind_id::CHAR || kind == ts_kind_id::VARCHAR {
-                    let params = self.visit_char_param(context, child)?;
-                    let info = DTInfo {
-                        id: data_type_id,
-                        param: params,
-                    };
-                    info.to_dat_type()?
+                let opt_params = if kind == ts_kind_id::CHAR || kind == ts_kind_id::VARCHAR {
+                    let param = self.visit_char_param(context, child)?;
+                    Some(vec![param])
                 } else {
-                    DatType::default_for(data_type_id)
+                    None
                 };
-                DatPrim::new(dt_param)
+                (UniDatType::Primitive(UniPrimitive::String), opt_params)
             }
-            ts_kind_id::NUMERIC => DatPrim::new_without_param(DatTypeID::F64),
-            ts_kind_id::DECIMAL => DatPrim::new_without_param(DatTypeID::F64),
-            ts_kind_id::KEYWORD_TIMESTAMP => DatPrim::new_without_param(DatTypeID::I64),
+            ts_kind_id::NUMERIC => (UniDatType::Primitive(UniPrimitive::F64), None),
+            ts_kind_id::DECIMAL => (UniDatType::Primitive(UniPrimitive::F64), None),
+            ts_kind_id::KEYWORD_TIMESTAMP => (UniDatType::Primitive(UniPrimitive::I64), None),
             _ => {
                 return Err(m_error!(
                     EC::NotImplemented,
@@ -819,15 +812,17 @@ impl SQLParser {
             }
         };
 
-        Ok(type_declare)
+        Ok(ret)
     }
 
-    fn visit_char_param(&self, context: &ParseContext, node: Node) -> RS<String> {
+    fn visit_char_param(&self, context: &ParseContext, node: Node) -> RS<UniDatValue> {
         if let Some(n) = node.child_by_field_name(ts_field_name::LENGTH) {
             let s = ts_node_context_string(&context.parse_str(), &n)?;
-            let r = u32::from_str(s.as_str());
+            let r = i64::from_str(s.as_str());
             match r {
-                Ok(l) => Ok(serde_json::json!({param::LENGTH: l}).to_string()),
+                Ok(l) => {
+                    Ok(UniDatValue::Primitive(UniPrimitiveValue::I64(l)))
+                },
                 Err(e) => Err(m_error!(EC::ParseErr, "parse u32 error", e)),
             }
         } else {

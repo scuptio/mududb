@@ -4,14 +4,15 @@ use crate::resolver::schema_mgr::SchemaMgr;
 use crate::resolver::sql_resolver::SQLResolver;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::database::db_conn::DBConn;
-use mudu::database::result_set::ResultSet;
-use mudu::database::sql_params::SQLParams;
-use mudu::database::sql_stmt::SQLStmt;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu::tuple::datum_desc::DatumDesc;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::database::db_conn::DBConnSync;
+use mudu_contract::database::result_set::ResultSet;
+use mudu_contract::database::sql::DBConn;
+use mudu_contract::database::sql_params::SQLParams;
+use mudu_contract::database::sql_stmt::SQLStmt;
+use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Client;
 use sql_parser::ast::parser::SQLParser;
@@ -19,8 +20,8 @@ use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use std::sync::{Arc, Mutex};
 
-pub fn create_pg_interactive_conn(conn_str: &String, ddl_path: &String) -> RS<Arc<dyn DBConn>> {
-    Ok(Arc::new(PGInteractive::new(conn_str, ddl_path)?))
+pub fn create_pg_interactive_conn(conn_str: &String, ddl_path: &String) -> RS<DBConn> {
+    Ok(DBConn::Sync(Arc::new(PGInteractive::new(conn_str, ddl_path)?)))
 }
 
 struct PGInteractive {
@@ -29,8 +30,8 @@ struct PGInteractive {
     db_conn: Mutex<(Client, Option<TxPg>)>,
 }
 
-impl DBConn for PGInteractive {
-    fn exec_sql(&self, _sql_text: &String) -> RS<()> {
+impl DBConnSync for PGInteractive {
+    fn exec_silent(&self, _sql_text: &String) -> RS<()> {
         Ok(())
     }
 

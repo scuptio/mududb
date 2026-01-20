@@ -5,6 +5,7 @@ use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, GenericArgument, ItemFn, PathArguments, ReturnType, Type};
 
+
 const RESULT_TYPE_NAME: &str = "RS";
 #[proc_macro_attribute]
 pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
@@ -13,28 +14,49 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
     // function name
     let fn_name = &input_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
+    let fn_proc_p2_str = format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name);
+
+    let fn_wrapper_p2_ident = syn::Ident::new(
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name),
+        fn_name.span(),
+    );
+
+    let exported_mod = syn::Ident::new(
+        &format!("mod_{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name),
+        fn_name.span(),
+    );
+    let component_ident = syn::Ident::new(
+        &format!("Component{}", ::mudu::utils::case_convert::to_pascal_case(&fn_name_str)),
+        fn_name.span(),
+    );
+
     let fn_wrapper_ident = syn::Ident::new(
-        &format!("{}{}", mudu::procedure::proc::MUDU_PROC_PREFIX, fn_name),
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_PREFIX, fn_name),
         fn_name.span(),
     );
 
     let fn_inner_ident = syn::Ident::new(
-        &format!("{}{}", mudu::procedure::proc::MUDU_PROC_INNER_PREFIX, fn_name),
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX, fn_name),
+        fn_name.span(),
+    );
+
+    let fn_inner_ident_p2 = syn::Ident::new(
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX_P2, fn_name),
         fn_name.span(),
     );
 
     let fn_argv_desc = syn::Ident::new(
-        &format!("{}{}", mudu::procedure::proc::MUDU_PROC_ARGV_DESC_PREFIX, fn_name),
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_ARGV_DESC_PREFIX, fn_name),
         fn_name.span(),
     );
     let fn_result_desc = syn::Ident::new(
-        &format!("{}{}", mudu::procedure::proc::MUDU_PROC_RESULT_DESC_PREFIX, fn_name),
+        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_RESULT_DESC_PREFIX, fn_name),
         fn_name.span(),
     );
     let fn_proc_desc = syn::Ident::new(
         &format!(
             "{}{}",
-            mudu::procedure::proc::MUDU_PROC_PROC_DESC_PREFIX,
+            mudu_contract::procedure::proc::MUDU_PROC_PROC_DESC_PREFIX,
             fn_name
         ),
         fn_name.span(),
@@ -72,12 +94,17 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     // argument conversion
     let mut param_conversions: Vec<_> = Vec::new();
+    let mut param_conversions_p2: Vec<_> = Vec::new();
     for (i, ty) in types.iter().enumerate() {
         let type_str = &ty_string[i];
         let _ident = idents[i];
 
         param_conversions.push(quote! {
-            ::mudu::data_type::datum::binary_to_typed::<#ty, _>(&param.param_vec()[#i], #type_str)?
+            ::mudu_type::datum::binary_to_typed::<#ty, _>(&param.param_vec()[#i], #type_str)?
+        });
+
+        param_conversions_p2.push(quote! {
+            ::mudu_type::datum::value_to_typed::<#ty, _>(&param.param_list()[#i], #type_str)?
         })
     }
 
@@ -85,34 +112,55 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     let return_desc_construction = build_return_desc(&inner_type);
 
-    let invoke_handling = if is_vec_type(&inner_type) {
+    let invoke_handling = {
         quote! {
             let return_desc = #return_desc_construction;
-            let res = #fn_name(param.xid(), #(#param_conversions),*);
-            Ok(::mudu::procedure::proc_result::ProcResult::from_vec(res, &return_desc)?)
-        }
-    } else if is_tuple_type(&inner_type) {
-        quote! {
-            let return_desc = #return_desc_construction;
-            let res = #fn_name(param.xid(), #(#param_conversions),*);
-            Ok(::mudu::procedure::proc_result::ProcResult::from(res, &return_desc)?)
-        }
-    } else {
-        // basic type
-        quote! {
-            let return_desc = #return_desc_construction;
-            let res = #fn_name(param.xid(), #(#param_conversions),*);
+            let res = #fn_name(param.session_id(), #(#param_conversions_p2),*);
             let tuple = res;
-            Ok(::mudu::procedure::proc_result::ProcResult::from(tuple, &return_desc)?)
+            Ok(::mudu_contract::procedure::procedure_result::ProcedureResult::from(tuple, &return_desc)?)
         }
     };
 
+    let exported = ::mudu::utils::case_convert::to_kebab_case(&fn_proc_p2_str);
+    let wit_inline = format!(r##"
+package mudu:{};
+
+world mudu-app-{} {{
+    export {}: func(param:list<u8>) -> list<u8>;
+}}
+"##, exported, exported, exported);
+
     let output = quote! {
+
         #input_fn
+        mod #exported_mod{
+            wit_bindgen::generate!({
+                inline: #wit_inline,
+            });
+
+            #[allow(non_camel_case_types)]
+            #[allow(unused)]
+            struct #component_ident;
+
+            impl Guest for #component_ident {
+                fn #fn_wrapper_p2_ident(param:Vec<u8>) -> Vec<u8> {
+                    super::#fn_wrapper_p2_ident(param)
+                }
+            }
+
+            export!(#component_ident);
+        }
+
+        fn #fn_wrapper_p2_ident(param:Vec<u8>) -> Vec<u8> {
+            ::mudu_binding::procedure::procedure_invoke::invoke_procedure(
+                param,
+                #fn_inner_ident_p2
+            )
+        }
 
         #[unsafe(no_mangle)]
         pub extern "C" fn #fn_wrapper_ident (p1_ptr: *const u8, p1_len: usize, p2_ptr: *mut u8, p2_len: usize) -> i32 {
-            ::mudu::procedure::proc::invoke_proc_wrapper(
+            ::mudu_binding::procedure::procedure_invoke::invoke_wrapper(
                 p1_ptr, p1_len,
                 p2_ptr, p2_len,
                 #fn_inner_ident
@@ -120,26 +168,35 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
         }
 
         pub fn #fn_inner_ident(
-            param: ::mudu::procedure::proc_param::ProcParam,
-        ) -> ::mudu::common::result::RS<::mudu::procedure::proc_result::ProcResult> {
+            param: &::mudu_contract::procedure::procedure_param::ProcedureParam,
+        ) -> ::mudu::common::result::RS<::mudu_contract::procedure::procedure_result::ProcedureResult> {
             // generate tuple desc
-            let desc = <(#(#types),*)  as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&#code_arg_names);
+            let desc = <(#(#types),*)  as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&#code_arg_names);
 
             #invoke_handling
         }
 
-        pub fn #fn_argv_desc()  -> &'static ::mudu::tuple::tuple_field_desc::TupleFieldDesc {
-            static ARGV_DESC: std::sync::OnceLock<::mudu::tuple::tuple_field_desc::TupleFieldDesc> =
+        pub fn #fn_inner_ident_p2(
+            param: ::mudu_contract::procedure::procedure_param::ProcedureParam,
+        ) -> ::mudu::common::result::RS<::mudu_contract::procedure::procedure_result::ProcedureResult> {
+            // generate tuple desc
+            let desc = <(#(#types),*)  as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&#code_arg_names);
+
+            #invoke_handling
+        }
+
+        pub fn #fn_argv_desc()  -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+            static ARGV_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
                 std::sync::OnceLock::new();
             ARGV_DESC.get_or_init(||
                 {
-                    <(#(#types),*)  as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&#code_arg_names)
+                    <(#(#types),*)  as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&#code_arg_names)
                 }
             )
         }
 
-        pub fn #fn_result_desc() -> &'static ::mudu::tuple::tuple_field_desc::TupleFieldDesc {
-            static RESULT_DESC: std::sync::OnceLock<::mudu::tuple::tuple_field_desc::TupleFieldDesc> =
+        pub fn #fn_result_desc() -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+            static RESULT_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
                 std::sync::OnceLock::new();
             RESULT_DESC.get_or_init(||
                 {
@@ -148,20 +205,22 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
             )
         }
 
-        pub fn #fn_proc_desc()  -> &'static ::mudu::procedure::proc_desc::ProcDesc {
+        pub fn #fn_proc_desc()  -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc {
             static PROC_DESC: std::sync::OnceLock<
-                ::mudu::procedure::proc_desc::ProcDesc,
+                ::mudu_contract::procedure::proc_desc::ProcDesc,
             > = std::sync::OnceLock::new();
             PROC_DESC
                 .get_or_init(|| {
-                    ::mudu::procedure::proc_desc::ProcDesc::new(
+                    ::mudu_contract::procedure::proc_desc::ProcDesc::new(
                         std::env!("CARGO_PKG_NAME").to_string(),
                         #fn_name_str.to_string(),
                         #fn_argv_desc().clone(),
-                        #fn_result_desc().clone()
+                        #fn_result_desc().clone(),
+                        false
                     )
                 })
         }
+
     };
 
     output.into()
@@ -178,12 +237,12 @@ fn build_return_desc(inner_type: &Type) -> proc_macro2::TokenStream {
                         return if is_tuple_type(element_type) {
                             // Vec<(T1, T2, ...)>
                             quote! {
-                                <#element_type  as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&[])
+                                <#element_type  as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
                             }
                         } else {
                             // Vec<T> - wrap with Vec<(T,)>
                             quote! {
-                                <(#element_type,) as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&[])
+                                <(#element_type,) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
                             }
                         };
                     }
@@ -193,19 +252,19 @@ fn build_return_desc(inner_type: &Type) -> proc_macro2::TokenStream {
     } else if is_tuple_type(inner_type) {
         // a tuple (T1, T2, ...)
         return quote! {
-            <#inner_type as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&[])
+            <#inner_type as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
         };
     } else {
         // basic type T - use tuple (T,)
         return quote! {
-            <(#inner_type,) as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&[])
+            <(#inner_type,) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
         };
     }
 
     // default
     quote! {
         use ;
-        <() as ::mudu::tuple::rs_tuple_datum::RsTupleDatum>::tuple_desc_static(&[])
+        <() as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
     }
 }
 // check if return a vec type

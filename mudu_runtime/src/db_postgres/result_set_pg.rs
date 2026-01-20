@@ -1,14 +1,12 @@
 use mudu::common::result::RS;
-use mudu::data_type::dat_type_id::DatTypeID;
-use mudu::data_type::dat_value::DatValue;
-use mudu::database::result_set::ResultSet;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use mudu::tuple::tuple_field::TupleField;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::database::result_set::ResultSet;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::dat_value::DatValue;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Row;
 use std::sync::{Arc, Mutex};
+use mudu_contract::tuple::tuple_value::TupleValue;
 
 pub struct ResultSetPG {
     desc: Arc<TupleFieldDesc>,
@@ -24,7 +22,7 @@ impl ResultSetPG {
     }
 }
 impl ResultSet for ResultSetPG {
-    fn next(&self) -> RS<Option<TupleField>> {
+    fn next(&self) -> RS<Option<TupleValue>> {
         let opt_row = self.rows.lock().unwrap().pop();
         match opt_row {
             Some(row) => {
@@ -56,11 +54,10 @@ impl ResultSet for ResultSetPG {
                             panic!("unsupported type {:?}", id);
                         }
                     };
-                    let binary = id.fn_send()(&datum, d.dat_type())
-                        .map_err(|e| m_error!(EC::TypeBaseErr, "type convert error", e))?;
-                    tuple_row.push(binary.into());
+
+                    tuple_row.push(datum);
                 }
-                Ok(Some(TupleField::new(tuple_row)))
+                Ok(Some(TupleValue::from(tuple_row)))
             }
             None => Ok(None),
         }

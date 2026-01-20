@@ -4,7 +4,8 @@ use libsql::Connection;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_utils::sync::s_mutex::SMutex;
+
+use mudu_utils::sync::a_mutex::AMutex;
 use pgwire::api::auth::md5pass::Md5PasswordAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::copy::CopyHandler;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct SessionCtx {
     db_path: String,
-    inner: Arc<SMutex<Option<SessionCtxInner>>>,
+    inner: Arc<AMutex<Option<SessionCtxInner>>>,
 }
 
 struct SessionCtxInner {
@@ -28,18 +29,18 @@ impl SessionCtx {
     pub fn new(db_path: String) -> Self {
         Self {
             db_path,
-            inner: Arc::new(SMutex::new(None))
+            inner: Arc::new(AMutex::new(None))
         }
     }
 
-    pub fn open(&self, app_name: &String) -> RS<()> {
-        let mut inner = self.inner.lock()?;
-        *inner = Some(SessionCtxInner::open(&self.db_path, app_name)?);
+    pub async fn open(&self, app_name: &String) -> RS<()> {
+        let mut inner = self.inner.lock().await;
+        *inner = Some(SessionCtxInner::open(&self.db_path, app_name).await?);
         Ok(())
     }
 
-    pub fn connection(&self) -> RS<Connection> {
-        let inner = self.inner.lock()?;
+    pub async fn connection(&self) -> RS<Connection> {
+        let inner = self.inner.lock().await;
         inner.as_ref().map_or_else(
             || { Err(m_error!(EC::NoneErr)) },
             |inner| { Ok(inner.conn.clone()) })
@@ -48,10 +49,10 @@ impl SessionCtx {
 
 
 impl SessionCtxInner {
-    fn open(db_path: &String, app_name: &String) -> RS<Self> {
+    async fn open(db_path: &String, app_name: &String) -> RS<Self> {
         let conn_str = format!("db={} app={} db_type=LibSQL", db_path, app_name);
-        let db_conn = DBConnector::connect(&conn_str)?;
-        let libsql_conn = DBConnector::get_libsql_conn(db_conn.clone())
+        let db_conn = DBConnector::connect(&conn_str).await?;
+        let libsql_conn = DBConnector::get_libsql_conn(db_conn.expected_sync()?)
             .map_or_else(|| { Err(m_error!(EC::NoneErr)) }, |c| { Ok(c) })?;
         Ok(Self {
             conn: libsql_conn,

@@ -1,6 +1,6 @@
 use crate::resolver::item_value::ItemValue;
 use crate::resolver::resolved_command::ResolvedCommand;
-use mudu::tuple::datum_desc::DatumDesc;
+use mudu_contract::tuple::datum_desc::DatumDesc;
 
 pub struct ResolvedInsert {
     insert_value: Vec<(DatumDesc, ItemValue)>,

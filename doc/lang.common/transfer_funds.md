@@ -3,6 +3,7 @@ quote_begin
 content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L105)"
 lang="rust"
 -->
+
 ```rust
 #[mudu_proc]
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
@@ -87,4 +88,5 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 ```
+
 <!--quote_end-->

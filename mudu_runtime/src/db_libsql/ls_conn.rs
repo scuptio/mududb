@@ -2,11 +2,12 @@ use crate::db_libsql::ls_async_conn::LSSyncConn;
 use libsql::Connection;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
-use mudu::database::db_conn::DBConn;
-use mudu::database::result_set::ResultSet;
-use mudu::database::sql_params::SQLParams;
-use mudu::database::sql_stmt::SQLStmt;
-use mudu::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::database::db_conn::DBConnSync;
+use mudu_contract::database::result_set::ResultSet;
+use mudu_contract::database::sql::DBConn;
+use mudu_contract::database::sql_params::SQLParams;
+use mudu_contract::database::sql_stmt::SQLStmt;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -14,16 +15,16 @@ pub fn create_ls_conn(
     db_path: &String,
     app_name: &String,
     ddl_path: &String,
-) -> RS<Arc<dyn DBConn>> {
-    Ok(Arc::new(LSConn::new(db_path, app_name, ddl_path)?))
+) -> RS<DBConn> {
+    Ok(DBConn::Sync(Arc::new(LSConn::new(db_path, app_name, ddl_path)?)))
 }
 
 struct LSConn {
     inner: Arc<LSSyncConn>,
 }
 
-pub fn db_conn_get_libsql_connection(conn:Arc<dyn DBConn>) -> Option<Connection> {
-    let inner = conn.as_ref() as &dyn Any;
+pub fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection> {
+    let inner = conn as &dyn Any;
     let opt_ls_conn = inner.downcast_ref::<LSConn>();
     opt_ls_conn.map(|ls_conn| {
         ls_conn.inner.libsql_connection()
@@ -39,8 +40,8 @@ impl LSConn {
     }
 }
 
-impl DBConn for LSConn {
-    fn exec_sql(&self, sql_text: &String) -> RS<()> {
+impl DBConnSync for LSConn {
+    fn exec_silent(&self, sql_text: &String) -> RS<()> {
         self.inner.exe_sql(sql_text.clone())
     }
 
@@ -73,14 +74,16 @@ unsafe impl Send for LSConn {}
 
 unsafe impl Sync for LSConn {}
 
+#[allow(unused)]
 #[cfg(test)]
 mod test {
     use crate::db_libsql::ls_conn::create_ls_conn;
     use libsql::{params, Connection};
     use mudu::common::result::RS;
     use mudu::common::xid::XID;
-    use mudu::database::db_conn::DBConn;
     use mudu::this_file;
+    use mudu_contract::database::db_conn::DBConnSync;
+    use mudu_contract::database::sql::DBConn;
     use mudu_utils::log::log_setup;
     use mudu_utils::notifier::NotifyWait;
     use mudu_utils::task::spawn_task;
@@ -206,13 +209,14 @@ mod test {
     ) -> RS<()> {
         let conn = create_ls_conn(&db_path, &app_name, &ddl_path)?;
         let tx_max = 2;
+
         for n in 0..tx_max {
-            let xid = conn.begin_tx()?;
+            let xid = conn.expected_sync()?.begin_tx()?;
             let r = process(i, conn_max, n, tx_max, xid, conn.clone());
             if Ok(()) == r {
-                conn.commit_tx()?;
+                conn.expected_sync()?.commit_tx()?;
             } else {
-                conn.rollback_tx()?;
+                conn.expected_sync()?.rollback_tx()?;
             }
         }
         Ok(())
@@ -224,14 +228,14 @@ mod test {
         n: u32,
         tx_max: u32,
         _xid: XID,
-        conn: Arc<dyn DBConn>,
+        conn: DBConn,
     ) -> RS<()> {
         let id = conn_id * tx_max + n;
-        let rows = conn.command(
-            &format!("insert into orders(order_id, user_id, amount, status) VALUES({}, 1, 100, 'status');", id), &[])?;
-        let (result, _desc) = conn.query(
+        let rows = conn.expected_sync()?.command(
+            &format!("insert into orders(order_id, user_id, amount, status) VALUES({}, 1, 100, 'status');", id), &())?;
+        let (result, _desc) = conn.expected_sync()?.query(
             &"select order_id, user_id, amount, status from orders;",
-            &[],
+            &(),
         )?;
         info!("affected rows {}", rows);
         let mut n: u64 = 0;

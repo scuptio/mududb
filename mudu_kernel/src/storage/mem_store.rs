@@ -11,7 +11,7 @@ use crate::contract::mem_store::MemStore;
 use crate::storage::mem_table::MemTable;
 use mudu::common::result::RS;
 use mudu::m_error;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 
 #[derive(Clone)]
 pub struct MemStoreImpl {
@@ -27,13 +27,13 @@ impl MemStoreImpl {
 
     fn _create_table(&self, oid: OID, key_desc: TupleDesc) -> RS<()> {
         let table = MemTable::new(key_desc);
-        let r = self.hash.insert(oid, Arc::new(table));
+        let r = self.hash.insert_sync(oid, Arc::new(table));
         r.map_err(|(_, _)| m_error!(ER::ExistingSuchElement))?;
         Ok(())
     }
 
     fn _drop_table(&self, oid: OID) -> RS<()> {
-        let r = self.hash.remove(&oid);
+        let r = self.hash.remove_sync(&oid);
         if !r {
             return Err(m_error!(ER::NoSuchElement));
         }
@@ -41,7 +41,7 @@ impl MemStoreImpl {
     }
 
     fn _get_key<K: AsRef<[u8]>>(&self, oid: OID, key: K) -> RS<Option<DataRow>> {
-        let opt = self.hash.get(&oid);
+        let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().read_key(key),
             None => Err(m_error!(ER::NoSuchElement, format!(
@@ -57,7 +57,7 @@ impl MemStoreImpl {
         begin: Bound<K>,
         end: Bound<K>,
     ) -> RS<Vec<DataRow>> {
-        let opt = self.hash.get(&oid);
+        let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().read_range(begin, end),
             None => Err(m_error!(ER::NoSuchElement, format!(
@@ -68,7 +68,7 @@ impl MemStoreImpl {
     }
 
     fn _insert_key(&self, oid: OID, key: Buf, row: DataRow) -> RS<Option<(Buf, DataRow)>> {
-        let opt = self.hash.get(&oid);
+        let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().insert_key(key, row),
             None => Err(m_error!(ER::NoSuchElement, format!(

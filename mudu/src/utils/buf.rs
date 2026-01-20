@@ -20,5 +20,8 @@ pub fn read_sized_buf(buf: &[u8]) -> Result<(u32, &[u8]), Option<u32>> {
     if n as usize + len_bytes < buf.len() {
         return Err(Some(n));
     }
-    Ok((n + size_of::<u32>() as u32, &buf[len_bytes..len_bytes + n as usize]))
+    Ok((
+        n + size_of::<u32>() as u32,
+        &buf[len_bytes..len_bytes + n as usize],
+    ))
 }

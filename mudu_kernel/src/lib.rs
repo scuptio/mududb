@@ -1,3 +1,4 @@
+#![feature(generic_atomic)]
 #![allow(dead_code)]
 #![allow(unused)]
 pub mod fuzz;

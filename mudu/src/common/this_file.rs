@@ -14,7 +14,7 @@ pub fn __this_file(file: &str) -> String {
     let mut project_home = manifest_dir_path_buf;
     let home_path = loop {
         if project_home.join(".project.home").exists() {
-            break project_home
+            break project_home;
         } else {
             project_home.pop();
         }

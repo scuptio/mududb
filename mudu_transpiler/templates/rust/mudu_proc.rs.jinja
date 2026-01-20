@@ -1,0 +1,117 @@
+
+{{procedure.opt_async }} fn {{ procedure.fn_exported_name }}(param:Vec<u8>) -> Vec<u8> {
+    ::mudu_binding::procedure::procedure_invoke::invoke_procedure{{procedure.opt_underline_async}}(
+        param,
+        {{ procedure.fn_inner_name }},
+    ){{procedure.opt_dot_await }}
+}
+
+pub {{procedure.opt_async }} fn {{ procedure.fn_inner_name }}(
+    param: &::mudu_contract::procedure::procedure_param::ProcedureParam,
+) -> ::mudu::common::result::RS<
+    ::mudu_contract::procedure::procedure_result::ProcedureResult,
+> {
+    let return_desc = {{ procedure.fn_result_desc }}().clone();
+    let res = {{ procedure.fn_name }}(
+        param.session_id(),
+        {% for arg_info in  procedure.argument_list %}
+            ::mudu_type::datum::value_to_typed::<
+                {{ arg_info.arg_type }},
+                _,
+            >(&param.param_list()[{{ arg_info.arg_index }}], "{{ arg_info.arg_type }}")?,
+        {% endfor %}
+    ){{procedure.opt_dot_await }};
+    let tuple = res;
+    Ok(
+        ::mudu_contract::procedure::procedure_result::ProcedureResult::from(
+            tuple,
+            &return_desc,
+        )?,
+    )
+}
+
+pub fn {{ procedure.fn_argv_desc }}()  -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            <(
+                {% for arg_info in  procedure.argument_list %}
+                    {{ arg_info.arg_type }},
+                {% endfor %}
+            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum
+            >::tuple_desc_static(
+                &{
+                    let _vec: Vec<String> = <[_]>::into_vec(
+                            std::boxed::Box::new([
+                            {% for arg_info in  procedure.argument_list %}
+                                "{{ arg_info.arg_name }}",
+                            {% endfor %}
+
+                            ]),
+                        )
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect();
+                    _vec
+                },
+            )
+        }
+    )
+}
+
+pub fn {{ procedure.fn_result_desc }}() -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            <(
+                {% for ret_info in  procedure.return_tuple %}
+                    {{ ret_info.ret_type }},
+                {% endfor %}
+            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(
+                &[],
+            )
+        }
+    )
+}
+
+pub fn {{ procedure.fn_proc_desc }}()  -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mudu_contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mudu_contract::procedure::proc_desc::ProcDesc::new(
+                "{{ procedure.package_name }}".to_string(),
+                "{{ procedure.fn_name }}".to_string(),
+                {{ procedure.fn_argv_desc }}().clone(),
+                {{ procedure.fn_result_desc }}().clone(),
+                false
+            )
+        })
+}
+
+mod {{ procedure.mod_name }} {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:{{ procedure.wit_fn_exported_name }};
+            world mudu-app-{{ procedure.wit_fn_exported_name }} {
+                export {{ procedure.wit_fn_exported_name }}: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        {{ procedure.wit_async_true }}
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct {{ procedure.guest_struct_name }} {}
+
+    impl Guest for {{ procedure.guest_struct_name }} {
+        {{procedure.opt_async }} fn {{ procedure.fn_exported_name }}(param:Vec<u8>) -> Vec<u8> {
+            super::{{ procedure.fn_exported_name }}(param){{procedure.opt_dot_await }}
+        }
+    }
+
+    export!({{ procedure.guest_struct_name }});
+}

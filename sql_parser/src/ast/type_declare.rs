@@ -1,6 +1,6 @@
-use mudu::data_type::dat_type::DatType;
-use mudu::data_type::dat_type_id::DatTypeID;
-use mudu::data_type::dt_info::DTInfo;
+use mudu_type::dat_type::DatType;
+use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::dt_info::DTInfo;
 
 #[derive(Clone, Debug)]
 pub struct TypeDeclare {

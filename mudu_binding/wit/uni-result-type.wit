@@ -1,0 +1,8 @@
+use crate:universal:uni-dat-type/uni-dat-type;
+
+interface universal {
+record uni-result-type {
+    ok : option<box<uni-dat-type>>,
+    err : option<box<uni-dat-type>>
+}
+}

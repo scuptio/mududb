@@ -34,7 +34,6 @@ impl BinSize {
         Self { len }
     }
 
-
     pub fn size(&self) -> u32 {
         self.len
     }

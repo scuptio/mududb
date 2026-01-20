@@ -23,6 +23,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v5
 
+      - name: Installing Prerequisites (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y python3 pip build-essential curl liburing-dev
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
+
+      - name: Installing Prerequisites Rust (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Users\$env:USERNAME\.cargo\bin", "User")
+
       - name: Install Rust Nightly
         run: |
           rustup toolchain install nightly
@@ -33,12 +47,6 @@ jobs:
 
       - name: Update Rust Toolchain
         run: rustup update nightly
-
-      - name: Installing Prerequisites (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential curl liburing-dev
 
       - name: Cache Cargo Registry
         uses: actions/cache@v3
@@ -59,3 +67,7 @@ jobs:
 
       - name: Test
         run: cargo test --release
+
+      - name: Build(Linux iouring)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --features iouring

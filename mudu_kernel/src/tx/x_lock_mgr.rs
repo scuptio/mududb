@@ -7,7 +7,7 @@ use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use mudu_utils::sync::notify_wait::Notify;
 use scc::HashMap;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ impl _XLockMgrInner {
     }
 
     fn create_table(&self, table: OID, tuple_desc: TupleDesc) -> RS<()> {
-        let r = self.map.insert(table, LockTable::new(tuple_desc));
+        let r = self.map.insert_sync(table, LockTable::new(tuple_desc));
         if r.is_err() {
             return Err(m_error!(ER::ExistingSuchElement));
         }
@@ -47,7 +47,7 @@ impl _XLockMgrInner {
     }
 
     fn drop_table(&self, table: OID) -> RS<()> {
-        let r = self.map.remove(&table);
+        let r = self.map.remove_sync(&table);
         if r.is_none() {
             return Err(m_error!(ER::NoSuchElement));
         }
@@ -67,7 +67,7 @@ impl _XLockMgrInner {
 
     fn get_lock_table(&self, table_id: OID) -> RS<LockTable> {
         let lock_table = {
-            let opt = self.map.get(&table_id);
+            let opt = self.map.get_sync(&table_id);
             match opt {
                 Some(e) => e.get().clone(),
                 None => {

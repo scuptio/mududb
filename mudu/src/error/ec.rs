@@ -44,6 +44,7 @@ pub enum EC {
     TokioErr,
     OtherSourceErr,
     ErrCodeEnd,
+    StorageErr,
 }
 
 impl Display for EC {
@@ -101,6 +102,7 @@ impl EC {
             EC::ThreadErr => "Thread error",
             EC::TokioErr => "Tokio error",
             EC::OtherSourceErr => "Other source error",
+            EC::StorageErr => "Storage error",
         }
     }
 }

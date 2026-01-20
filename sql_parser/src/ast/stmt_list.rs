@@ -10,9 +10,6 @@ impl ASTNode for StmtList {}
 
 impl StmtList {
     pub fn new(list: Vec<StmtType>) -> StmtList {
-        if list.is_empty() {
-            panic!("Cannot create a StmtList from an empty list");
-        }
         Self { list }
     }
 

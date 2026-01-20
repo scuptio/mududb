@@ -1,5 +1,5 @@
 use mudu::common::id::OID;
-use mudu::data_type::dt_fn_param::DatType;
+use mudu_type::dt_fn_param::DatType;
 
 #[derive(Clone, Debug, Default)]
 pub struct FieldInfo {

@@ -1,14 +1,15 @@
 mod fsync_task;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iouring"))]
 mod iou;
+#[cfg(all(target_os = "linux", feature = "iouring"))]
+mod x_log_file_iou;
 mod lsn_allocator;
 mod lsn_syncer;
 mod recovery_task;
 pub mod test_x_log;
 mod test_xl_batch;
 mod x_log_file;
-#[cfg(target_os = "linux")]
-mod x_log_file_iou;
+
 mod x_log_impl;
 pub mod x_log_service;
 mod xid;

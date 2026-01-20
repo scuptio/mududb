@@ -170,8 +170,8 @@ impl Inner {
         stmt.execute(params![
             table_id,
             tuple_id,
-            insert_kv.timestamp.c_min(),
-            insert_kv.timestamp.c_max(),
+            insert_kv.timestamp.c_min() as i64,
+            insert_kv.timestamp.c_max() as i64,
             insert_kv.key,
             insert_kv.value
         ])
@@ -183,8 +183,8 @@ impl Inner {
         let table_id = oid_2_text(update_v.table_id);
         let tuple_id = oid_2_text(update_v.tuple_id);
         stmt.execute(params![
-            update_v.timestamp.c_min(),
-            update_v.timestamp.c_max(),
+            update_v.timestamp.c_min() as i64,
+            update_v.timestamp.c_max() as i64,
             update_v.value,
             table_id,
             tuple_id,

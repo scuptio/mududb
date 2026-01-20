@@ -7,6 +7,10 @@ A wallet application example.
 ```bash
 git clone https://github.com/scuptio/mududb.git
 ```
+## Install Prerequisite
+### cmake
+### python
+### rustup
 
 ## Install Tools and MuduDB Server
 
@@ -71,8 +75,8 @@ tree
 │   │   ├── ddl.sql
 │   │   └── init.sql
 │   └── toml
-│       ├── app.cfg.toml
-│       └── procedure.desc.toml
+│       ├── package.cfg.toml
+│       └── package.desc.toml
 ├── mpk
     └── wallet.mpk
 └── wasm

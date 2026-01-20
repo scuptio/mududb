@@ -1,0 +1,32 @@
+[package]
+name = "mudu_transpiler"
+version = "0.1.0"
+edition = "2024"
+
+build = "build.rs"
+
+[dependencies]
+mudu = { workspace = true }
+mudu_binding = {workspace = true}
+clap = { workspace = true, features = ["derive"] }
+mudu_contract = { workspace = true }
+mudu_utils = { workspace = true }
+askama = {workspace = true}
+tree-sitter-rust = { version = "0.24.0" }
+sql_parser = {workspace = true}
+tree-sitter = {workspace = true}
+mudu_type = { workspace = true }
+
+
+[build-dependencies]
+askama = { workspace = true }
+mudu = {workspace = true}
+mudu_utils = { workspace = true }
+cargo_metadata = { version = "0.23.1" }
+anyhow = { version = "1.0.100" }
+tree-sitter-rust = { version = "0.24.0" }
+tree-sitter = { workspace = true }
+
+[[bin]]
+name = "mtp"
+path = "src/main.rs"

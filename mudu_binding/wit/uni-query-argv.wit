@@ -1,0 +1,11 @@
+use crate:universal:uni-oid/uni-oid;
+use crate:universal:uni-sql-stmt/uni-sql-stmt;
+use crate:universal:uni-sql-param/uni-sql-param;
+
+interface universal {
+    record uni-query-argv {
+        oid:uni-oid,
+        query:uni-sql-stmt,
+        param-list:uni-sql-param,
+    }
+}

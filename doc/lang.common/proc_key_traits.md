@@ -7,6 +7,7 @@ quote_begin
 content="[Entity](../../mudu/src/database/entity.rs#L12-L34)"
 lang="rust"
 -->
+
 ```rust
 pub trait Entity: private::Sealed + Datum {
     fn new_empty() -> Self;
@@ -32,6 +33,7 @@ pub trait Entity: private::Sealed + Datum {
     }
 }
 ```
+
 <!--quote_end-->
 
 
@@ -40,6 +42,7 @@ quote_begin
 content="[SQLStmt](../../mudu/src/database/sql_stmt.rs#L3-L8)"
 lang="rust"
 -->
+
 ```rust
 pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
     fn to_sql_string(&self) -> String;
@@ -47,6 +50,7 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
     fn clone_boxed(&self) -> Box<dyn SQLStmt>;
 }
 ```
+
 <!--quote_end-->
 
 ### Datum, DatumDyn
@@ -56,6 +60,7 @@ quote_begin
 content="[DatumDyn](../../mudu/src/data_type/datum.rs#L18-L38)"
 lang="rust"
 -->
+
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
     fn dat_type() -> &'static DatType;
@@ -79,4 +84,5 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
 ```
+
 <!--quote_end-->

@@ -1,0 +1,11 @@
+use crate:universal:uni-oid/uni-oid;
+use crate:universal:uni-dat-value/uni-dat-value;
+
+
+interface universal {
+    record uni-procedure-param {
+        procedure: u64,
+        session: uni-oid,
+        param-list: list<uni-dat-value>
+    }
+}
