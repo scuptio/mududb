@@ -1,0 +1,45 @@
+# Example mududb configuration for the Linux io_uring runtime path.
+# Copy the values you need into ${HOME}/.mudu/mududb_cfg.toml or point mudud
+# at an equivalent config file in your deployment environment.
+
+# The path to install application package
+mpk_path = "/your database path/mpk"
+
+# The path of database files
+data_path = "/your database path/data"
+
+listen_ip = "127.0.0.1"
+http_listen_port = 8300
+http_worker_threads = 1
+pg_listen_port = 5432
+
+# Enable the WASI component runtime used by the new backend.
+enable_p2 = true
+enable_async = true
+
+# 0 = Legacy
+# 1 = IOUring
+server_mode = 1
+
+# TCP port used by the custom framed client/server protocol.
+tcp_listen_port = 9527
+
+# 0 means: detect the worker count from available CPU cores.
+io_uring_worker_threads = 0
+
+# Ring depth used by the worker-local io_uring instance.
+io_uring_ring_entries = 1024
+
+# Transport feature flags for the new backend.
+io_uring_accept_multishot = true
+io_uring_recv_multishot = true
+io_uring_enable_fixed_buffers = false
+io_uring_enable_fixed_files = false
+
+# Routing mode:
+# 0 = ConnectionId
+# 1 = PlayerId
+# 2 = RemoteHash
+routing_mode = 0
+
+io_uring_log_chunk_size = 67108864

@@ -26,11 +26,11 @@ use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
 use crate::ts_const::{ts_field_name, ts_kind_id};
 use mudu::error::err::MError;
 use mudu::m_error;
-use mudu_type::dat_typed::DatTyped;
 use mudu_binding::universal::uni_dat_type::UniDatType;
 use mudu_binding::universal::uni_dat_value::UniDatValue;
 use mudu_binding::universal::uni_primitive::UniPrimitive;
 use mudu_binding::universal::uni_primitive_value::UniPrimitiveValue;
+use mudu_type::dat_typed::DatTyped;
 use std::collections::HashMap;
 use std::f64;
 use std::io::Write;
@@ -777,13 +777,21 @@ impl SQLParser {
         Ok(())
     }
 
-    fn visit_data_type(&self, context: &ParseContext, node: Node) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
+    fn visit_data_type(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
         let opt = node.child_by_field_name(ts_field_name::DATA_TYPE_KIND);
         let n = rs_option(opt, "")?;
         self.visit_data_type_kind(context, n)
     }
 
-    fn visit_data_type_kind(&self, context: &ParseContext, node: Node) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
+    fn visit_data_type_kind(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<(UniDatType, Option<Vec<UniDatValue>>)> {
         let opt_n = node.child(0);
         let child = rs_option(opt_n, "no child in data type kind")?;
         let kind = child.kind_id();
@@ -820,9 +828,7 @@ impl SQLParser {
             let s = ts_node_context_string(&context.parse_str(), &n)?;
             let r = i64::from_str(s.as_str());
             match r {
-                Ok(l) => {
-                    Ok(UniDatValue::Primitive(UniPrimitiveValue::I64(l)))
-                },
+                Ok(l) => Ok(UniDatValue::Primitive(UniPrimitiveValue::I64(l))),
                 Err(e) => Err(m_error!(EC::ParseErr, "parse u32 error", e)),
             }
         } else {

@@ -1,0 +1,8 @@
+
+
+interface game-data {
+    record id {
+        id1: string,
+        id2: string,
+    }
+}

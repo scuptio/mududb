@@ -19,5 +19,3 @@ impl Iterator for LibSQLParam {
         self.inner.pop()
     }
 }
-
-

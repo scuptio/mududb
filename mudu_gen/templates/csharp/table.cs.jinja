@@ -1,0 +1,57 @@
+
+{% if table.table_comments.len() > 0 %}
+{{ table.table_comments }}
+{% endif %}
+[MessagePackObject]
+public struct {{ table.table_name }} {
+    [MessagePackObject]
+    public struct {{table.table_name}}Key {
+        {% if cfg.impl_default %}
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+        public {{table.table_name}}Key()
+        {
+            {% for field in table.key_fields %}
+            {{ field.rf_name }} = {{ field.rf_default_value }};
+            {% endfor %}
+        }
+        {% endif %}
+        {% for field in table.key_fields %}
+        {% if field.rf_comments.len() > 0 %}
+        {{ field.rf_comments }}
+        {% endif %}
+        [Key({{field.rf_index}})]
+        public {% if field.rf_required %}required {% endif %}{{ field.rf_type }} {{ field.rf_name }} { get; set; }
+        {% endfor %}
+    }
+
+    [MessagePackObject]
+    public struct {{table.table_name}}Value {
+        {% if cfg.impl_default %}
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+        public {{table.table_name}}Value()
+        {
+            {% for field in table.value_fields %}
+            {{ field.rf_name }} = {{ field.rf_default_value }};
+            {% endfor %}
+        }
+        {% endif %}
+        {% for field in table.value_fields %}
+        {% if field.rf_comments.len() > 0 %}
+        {{ field.rf_comments }}
+        {% endif %}
+        [Key({{field.rf_index}})]
+        public {% if field.rf_required %}required {% endif %}{{ field.rf_type }} {{ field.rf_name }} { get; set; }
+        {% endfor %}
+    }
+
+    {% if cfg.impl_default %}
+    [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public {{ table.table_name }}()
+    {
+        ResultSet = [];
+    }
+    {% endif %}
+
+    [Key(0)]
+    public required List<KeyValuePair<{{table.table_name}}Key, {{table.table_name}}Value>> ResultSet { get; set; }
+}

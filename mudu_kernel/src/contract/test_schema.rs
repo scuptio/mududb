@@ -25,8 +25,8 @@ pub mod _fuzz {
                 (key_columns, key_desc, key_mapping),
                 (value_columns, value_desc, value_mapping),
             ]
-                .into_iter()
-                .enumerate()
+            .into_iter()
+            .enumerate()
             {
                 assert_eq!(desc.field_count(), mapping.len());
                 for (i, field_info) in mapping.iter().enumerate() {

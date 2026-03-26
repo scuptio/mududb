@@ -39,16 +39,28 @@ pub fn create_vote(
 ) -> RS<String> {
     // Validate input
     if end_time <= Utc::now().timestamp() {
-        return Err(m_error!(MuduError, "End time must be in future".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "End time must be in future".to_string()
+        ));
     }
     if vote_type != "single" && vote_type != "multiple" {
-        return Err(m_error!(MuduError, "Vote type must be 'single' or 'multiple'".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Vote type must be 'single' or 'multiple'".to_string()
+        ));
     }
     if vote_type == "single" && max_choices != 1 {
-        return Err(m_error!(MuduError, "Single vote requires max_choices=1".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Single vote requires max_choices=1".to_string()
+        ));
     }
     if visibility_rule != "always" && visibility_rule != "after_end" {
-        return Err(m_error!(MuduError, "Visibility rule must be 'always' or 'after_end'".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Visibility rule must be 'always' or 'after_end'".to_string()
+        ));
     }
 
     let vote_id = Uuid::new_v4().to_string();
@@ -82,28 +94,38 @@ pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<Str
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
-        sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+        sql_params!(&(vote_id.clone(),)),
+    )?
+    .next()?
+    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(m_error!(MuduError, "Voting has ended".to_string()));
     }
 
     // Check user hasn't voted or has withdrawn previous vote
-    let mut rs:RecordSet<_> = mudu_query::<VoteActions>(
+    let mut rs: RecordSet<_> = mudu_query::<VoteActions>(
         xid,
-        sql_stmt!(&"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"),
+        sql_stmt!(
+            &"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"
+        ),
         sql_params!(&(user_id.clone(), vote_id.clone())),
     )?;
     let has_active_vote = rs.next()?.is_some();
 
     if has_active_vote {
-        return Err(m_error!(MuduError, "User already voted and hasn't withdrawn".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "User already voted and hasn't withdrawn".to_string()
+        ));
     }
 
     // Validate choices
     if vote.get_vote_type().as_ref().unwrap() == "single" && option_ids.len() != 1 {
-        return Err(m_error!(MuduError, "Single vote requires exactly one option".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Single vote requires exactly one option".to_string()
+        ));
     }
     if vote.get_vote_type().as_ref().unwrap() == "multiple" && option_ids.len() > 3 {
         return Err(m_error!(MuduError, "Exceeded max choices".to_string()));
@@ -143,18 +165,27 @@ pub fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
-        sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+        sql_params!(&(vote_id.clone(),)),
+    )?
+    .next()?
+    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
-        return Err(m_error!(MuduError, "Voting has ended, cannot withdraw".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Voting has ended, cannot withdraw".to_string()
+        ));
     }
 
     let active_action = mudu_query::<VoteActions>(
         xid,
-        sql_stmt!(&"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"),
+        sql_stmt!(
+            &"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"
+        ),
         sql_params!(&(user_id, vote_id)),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "No active vote to withdraw".to_string()))?;
+    )?
+    .next()?
+    .ok_or_else(|| m_error!(MuduError, "No active vote to withdraw".to_string()))?;
 
     let action_id = active_action.get_action_id().as_ref().unwrap().clone();
     mudu_command(
@@ -163,7 +194,7 @@ pub fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
             &"UPDATE vote_actions SET is_withdrawn = 1
              WHERE action_id = ?"
         ),
-        sql_params!(&(action_id.clone(), )),
+        sql_params!(&(action_id.clone(),)),
     )?;
 
     Ok(())
@@ -175,15 +206,20 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
-        sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+        sql_params!(&(vote_id.clone(),)),
+    )?
+    .next()?
+    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
     let now = Utc::now().timestamp();
     let vote_ended = now > vote.get_end_time().unwrap() as i64;
 
     // Check visibility rules
     if vote.get_visibility_rule().as_ref().unwrap() == "after_end" && !vote_ended {
-        return Err(m_error!(MuduError, "Results only visible after vote ends".to_string()));
+        return Err(m_error!(
+            MuduError,
+            "Results only visible after vote ends".to_string()
+        ));
     }
 
     // Calculate results
@@ -191,7 +227,8 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
         xid,
         sql_stmt!(&"SELECT * FROM options WHERE vote_id = ?"),
         sql_params!(&(vote_id)),
-    )?.collect::<Vec<_>>()?;
+    )?
+    .collect::<Vec<_>>()?;
 
     let total_votes = mudu_query::<i64>(
         xid,
@@ -200,8 +237,10 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
              FROM vote_actions
              WHERE vote_id = ? AND is_withdrawn = 0"
         ),
-        sql_params!(&(vote_id.clone(), )),
-    )?.next()?.unwrap_or(0);
+        sql_params!(&(vote_id.clone(),)),
+    )?
+    .next()?
+    .unwrap_or(0);
 
     for option in &mut options {
         let _count = mudu_query::<i64>(
@@ -212,8 +251,13 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
                  JOIN vote_actions va ON vc.action_id = va.action_id
                  WHERE vc.option_id = ? AND va.vote_id = ? AND va.is_withdrawn = 0"
             ),
-            sql_params!(&(option.get_option_id().as_ref().unwrap().to_string(), vote_id.to_string())),
-        )?.next()?.unwrap_or(0);
+            sql_params!(&(
+                option.get_option_id().as_ref().unwrap().to_string(),
+                vote_id.to_string()
+            )),
+        )?
+        .next()?
+        .unwrap_or(0);
     }
 
     Ok(VoteResult::new(
@@ -236,8 +280,9 @@ pub fn get_voting_history(xid: XID, user_id: String) -> RS<Vec<VoteHistoryItem>>
              JOIN votes v ON va.vote_id = v.vote_id
              WHERE user_id = ?"
         ),
-        sql_params!(&(user_id.to_string(), )),
-    )?.collect::<Vec<_>>()?;
+        sql_params!(&(user_id.to_string(),)),
+    )?
+    .collect::<Vec<_>>()?;
 
     let mut history = Vec::new();
     for action in actions {
@@ -247,10 +292,9 @@ pub fn get_voting_history(xid: XID, user_id: String) -> RS<Vec<VoteHistoryItem>>
             Some("topic todo".to_string()),
             Some(action.get_action_time().unwrap()),
             Some(action.get_is_withdrawn().unwrap()),
-            Some(vote_ended)
+            Some(vote_ended),
         ));
     }
 
     Ok(history)
 }
-

@@ -5,12 +5,8 @@ use crate::dat_value::DatValue;
 use crate::dt_fn_arbitrary::FnArbitrary;
 use arbitrary::{Arbitrary, Unstructured};
 
-pub fn fn_binary_arb_object(
-    u: &mut Unstructured,
-    _: &DatType,
-) -> arbitrary::Result<DatValue> {
+pub fn fn_binary_arb_object(u: &mut Unstructured, _: &DatType) -> arbitrary::Result<DatValue> {
     let n = u8::arbitrary(u)? as usize;
-
 
     let mut vec = Vec::with_capacity(n);
     for _ in 0..n {

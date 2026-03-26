@@ -1,6 +1,6 @@
+use crate::service::wt_instance_pre::WTInstancePre;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use std::sync::Arc;
-use crate::service::wt_instance_pre::WTInstancePre;
 
 #[derive(Clone)]
 pub struct Procedure {

@@ -13,10 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
-pub async fn create_turso_conn(
-    db_path: &String,
-    app_name: &String,
-) -> RS<DBConn> {
+pub async fn create_turso_conn(db_path: &String, app_name: &String) -> RS<DBConn> {
     let db_file_path = PathBuf::from(db_path).join(app_name);
     let path = rs_option(db_file_path.to_str(), "path to string error")?.to_string();
     let conn = TursoConn::new(path).await?;
@@ -24,17 +21,16 @@ pub async fn create_turso_conn(
 }
 
 pub struct TursoConn {
-    turso: Arc<Mutex<TursoConnInner>>
+    turso: Arc<Mutex<TursoConnInner>>,
 }
 
 impl TursoConn {
     async fn new(db_path: String) -> RS<TursoConn> {
         let conn = TursoConnInner::new(db_path).await?;
         Ok(Self {
-            turso: Arc::new(Mutex::new(conn))
+            turso: Arc::new(Mutex::new(conn)),
         })
     }
-
 
     async fn handle_inner<R, F>(&self, f: F) -> RS<R>
     where
@@ -45,53 +41,46 @@ impl TursoConn {
     }
 }
 
-
 #[async_trait]
 impl DBConnAsync for TursoConn {
     async fn prepare(&self, stmt: Box<dyn SQLStmt>) -> RS<Arc<dyn PreparedStmt>> {
-        self.handle_inner(
-            async move |inner: MutexGuard<TursoConnInner>| { inner.prepare(stmt).await }
-        ).await
+        self.handle_inner(async move |inner: MutexGuard<TursoConnInner>| inner.prepare(stmt).await)
+            .await
     }
 
     async fn exec_silent(&self, sql_text: String) -> RS<()> {
-        self.handle_inner(
-            async move |inner: MutexGuard<TursoConnInner>| { inner.exec_silent(sql_text).await }
-        ).await
+        self.handle_inner(async move |inner: MutexGuard<TursoConnInner>| {
+            inner.exec_silent(sql_text).await
+        })
+        .await
     }
 
     async fn begin_tx(&self) -> RS<XID> {
-        self.handle_inner(
-            async |mut inner: MutexGuard<TursoConnInner>| { inner.begin_tx().await }
-        ).await
+        self.handle_inner(async |mut inner: MutexGuard<TursoConnInner>| inner.begin_tx().await)
+            .await
     }
 
     async fn rollback_tx(&self) -> RS<()> {
-        self.handle_inner(
-            async |mut inner: MutexGuard<TursoConnInner>| { inner.rollback_tx().await }
-        ).await
+        self.handle_inner(async |mut inner: MutexGuard<TursoConnInner>| inner.rollback_tx().await)
+            .await
     }
 
     async fn commit_tx(&self) -> RS<()> {
-        self.handle_inner(
-            async |mut inner: MutexGuard<TursoConnInner>| { inner.commit_tx().await }
-        ).await
+        self.handle_inner(async |mut inner: MutexGuard<TursoConnInner>| inner.commit_tx().await)
+            .await
     }
 
-    async fn query(&self,
-                   sql: Box<dyn SQLStmt>,
-                   param: Box<dyn SQLParams>, ) -> RS<Arc<dyn ResultSetAsync>> {
-        let f = async move |inner: MutexGuard<TursoConnInner>| {
-            inner.query(sql, param).await
-        };
+    async fn query(
+        &self,
+        sql: Box<dyn SQLStmt>,
+        param: Box<dyn SQLParams>,
+    ) -> RS<Arc<dyn ResultSetAsync>> {
+        let f = async move |inner: MutexGuard<TursoConnInner>| inner.query(sql, param).await;
         self.handle_inner(f).await
     }
 
-    async fn execute(&self, sql: Box<dyn SQLStmt>,
-                     param: Box<dyn SQLParams>, ) -> RS<u64> {
-        let f = async move |inner: MutexGuard<TursoConnInner>| {
-            inner.command(sql, param).await
-        };
+    async fn execute(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
+        let f = async move |inner: MutexGuard<TursoConnInner>| inner.command(sql, param).await;
         self.handle_inner(f).await
     }
 }

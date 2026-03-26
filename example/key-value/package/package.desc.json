@@ -1,0 +1,204 @@
+{
+  "modules": {
+    "key_value": [
+      {
+        "module_name": "key_value",
+        "proc_name": "kv_insert",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "value"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "key_value",
+        "proc_name": "kv_scan",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "start_user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "end_user_key"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "String",
+                      "param": {
+                        "String": {
+                          "length": 65536
+                        }
+                      }
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "key_value",
+        "proc_name": "kv_read_modify_write",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "append_value"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "key_value",
+        "proc_name": "kv_update",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "value"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "key_value",
+        "proc_name": "kv_read",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -16,8 +16,8 @@ impl EntityInfo {
     pub fn from_record_def(record_def: &RecordDef, lang_kind: &LangKind) -> RS<Self> {
         let mut fields = Vec::with_capacity(record_def.table_columns().len());
         for field in record_def.table_columns() {
-            let column_info = FieldInfo::from_column_schema(
-                record_def.table_name(), field, lang_kind)?;
+            let column_info =
+                FieldInfo::from_column_schema(record_def.table_name(), field, lang_kind)?;
             fields.push(column_info);
         }
         Ok(Self {

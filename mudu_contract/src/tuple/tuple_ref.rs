@@ -1,7 +1,7 @@
-use mudu::common::result::RS;
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
+use mudu::common::result::RS;
 
 pub struct TupleRef<'a, 'b> {
     tuple: &'a [u8],
@@ -23,7 +23,6 @@ impl<'a, 'b> TupleRef<'a, 'b> {
         let fd = self.desc.get_field_desc(idx);
         self._get_binary_data(fd.slot(), fd.is_fixed_len())
     }
-
 
     fn _get_binary_data(&self, s: &Slot, fixed_len: bool) -> RS<&'a [u8]> {
         if fixed_len {

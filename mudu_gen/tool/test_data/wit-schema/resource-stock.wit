@@ -1,0 +1,11 @@
+
+interface game-data {
+    record resource-stock {
+        wood: u64,
+        iron: u64,
+        bronze: u64,
+        stone: u64,
+        horse: u64,
+        gold: u64,
+    }
+}

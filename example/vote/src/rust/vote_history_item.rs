@@ -29,7 +29,6 @@ pub mod object {
 
     const VOTE_ENDED: &str = "vote_ended";
 
-
     // entity struct definition
     #[derive(Debug, Clone, Default)]
     pub struct VoteHistoryItem {
@@ -42,7 +41,6 @@ pub mod object {
         is_withdrawn: AttrIsWithdrawn,
 
         vote_ended: AttrVoteEnded,
-
     }
 
     impl TupleDatumMarker for VoteHistoryItem {}
@@ -67,7 +65,6 @@ pub mod object {
                 is_withdrawn: AttrIsWithdrawn::from(is_withdrawn),
 
                 vote_ended: AttrVoteEnded::from(vote_ended),
-
             };
             s
         }
@@ -76,69 +73,43 @@ pub mod object {
             Self::default()
         }
 
-
-        pub fn set_vote_id(
-            &mut self,
-            vote_id: String,
-        ) {
+        pub fn set_vote_id(&mut self, vote_id: String) {
             self.vote_id.update(vote_id)
         }
 
-        pub fn get_vote_id(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_vote_id(&self) -> &Option<String> {
             self.vote_id.get()
         }
 
-        pub fn set_topic(
-            &mut self,
-            topic: String,
-        ) {
+        pub fn set_topic(&mut self, topic: String) {
             self.topic.update(topic)
         }
 
-        pub fn get_topic(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_topic(&self) -> &Option<String> {
             self.topic.get()
         }
 
-        pub fn set_action_time(
-            &mut self,
-            action_time: i32,
-        ) {
+        pub fn set_action_time(&mut self, action_time: i32) {
             self.action_time.update(action_time)
         }
 
-        pub fn get_action_time(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_action_time(&self) -> &Option<i32> {
             self.action_time.get()
         }
 
-        pub fn set_is_withdrawn(
-            &mut self,
-            is_withdrawn: i32,
-        ) {
+        pub fn set_is_withdrawn(&mut self, is_withdrawn: i32) {
             self.is_withdrawn.update(is_withdrawn)
         }
 
-        pub fn get_is_withdrawn(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_is_withdrawn(&self) -> &Option<i32> {
             self.is_withdrawn.get()
         }
 
-        pub fn set_vote_ended(
-            &mut self,
-            vote_ended: i32,
-        ) {
+        pub fn set_vote_ended(&mut self, vote_ended: i32) {
             self.vote_ended.update(vote_ended)
         }
 
-        pub fn get_vote_ended(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_vote_ended(&self) -> &Option<i32> {
             self.vote_ended.get()
         }
     }
@@ -146,8 +117,8 @@ pub mod object {
     impl Datum for VoteHistoryItem {
         fn dat_type() -> &'static DatType {
             lazy_static! {
-            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<VoteHistoryItem>();
-        }
+                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<VoteHistoryItem>();
+            }
             &DAT_TYPE
         }
 
@@ -193,20 +164,14 @@ pub mod object {
 
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
-            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                
-                AttrVoteId::datum_desc().clone(),
-                
-                AttrTopic::datum_desc().clone(),
-                
-                AttrActionTime::datum_desc().clone(),
-                
-                AttrIsWithdrawn::datum_desc().clone(),
-                
-                AttrVoteEnded::datum_desc().clone(),
-                
-            ]);
-        }
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrVoteId::datum_desc().clone(),
+                    AttrTopic::datum_desc().clone(),
+                    AttrActionTime::datum_desc().clone(),
+                    AttrIsWithdrawn::datum_desc().clone(),
+                    AttrVoteEnded::datum_desc().clone(),
+                ]);
+            }
             &TUPLE_DESC
         }
 
@@ -216,80 +181,81 @@ pub mod object {
 
         fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
             match field {
-                VOTE_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.vote_id.get())
+                VOTE_ID => attr_field_access::attr_get_binary::<_>(self.vote_id.get()),
+
+                TOPIC => attr_field_access::attr_get_binary::<_>(self.topic.get()),
+
+                ACTION_TIME => attr_field_access::attr_get_binary::<_>(self.action_time.get()),
+
+                IS_WITHDRAWN => attr_field_access::attr_get_binary::<_>(self.is_withdrawn.get()),
+
+                VOTE_ENDED => attr_field_access::attr_get_binary::<_>(self.vote_ended.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                TOPIC => {
-                    attr_field_access::attr_get_binary::<_>(self.topic.get())
-            }
-
-                ACTION_TIME => {
-                    attr_field_access::attr_get_binary::<_>(self.action_time.get())
-                }
-
-                IS_WITHDRAWN => {
-                    attr_field_access::attr_get_binary::<_>(self.is_withdrawn.get())
-                }
-
-                VOTE_ENDED => {
-                    attr_field_access::attr_get_binary::<_>(self.vote_ended.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
         fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
             match field {
                 VOTE_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.vote_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.vote_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 TOPIC => {
-                    attr_field_access::attr_set_binary::<_, _>(self.topic.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.topic.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 ACTION_TIME => {
-                    attr_field_access::attr_set_binary::<_, _>(self.action_time.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.action_time.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 IS_WITHDRAWN => {
-                    attr_field_access::attr_set_binary::<_, _>(self.is_withdrawn.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.is_withdrawn.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 VOTE_ENDED => {
-                    attr_field_access::attr_set_binary::<_, _>(self.vote_ended.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.vote_ended.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
 
         fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
             match field {
-                VOTE_ID => {
-                    attr_field_access::attr_get_value::<_>(self.vote_id.get())
+                VOTE_ID => attr_field_access::attr_get_value::<_>(self.vote_id.get()),
+
+                TOPIC => attr_field_access::attr_get_value::<_>(self.topic.get()),
+
+                ACTION_TIME => attr_field_access::attr_get_value::<_>(self.action_time.get()),
+
+                IS_WITHDRAWN => attr_field_access::attr_get_value::<_>(self.is_withdrawn.get()),
+
+                VOTE_ENDED => attr_field_access::attr_get_value::<_>(self.vote_ended.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                TOPIC => {
-                    attr_field_access::attr_get_value::<_>(self.topic.get())
-                }
-
-                ACTION_TIME => {
-                    attr_field_access::attr_get_value::<_>(self.action_time.get())
-                }
-
-                IS_WITHDRAWN => {
-                    attr_field_access::attr_get_value::<_>(self.is_withdrawn.get())
-            }
-
-                VOTE_ENDED => {
-                    attr_field_access::attr_get_value::<_>(self.vote_ended.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
@@ -315,12 +281,13 @@ pub mod object {
                     attr_field_access::attr_set_value::<_, _>(self.vote_ended.get_mut(), value)?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
     }
-
 
     // attribute struct definition
     #[derive(Default, Clone, Debug)]

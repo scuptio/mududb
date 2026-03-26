@@ -1,0 +1,13 @@
+use crate:game-data:id/id;
+use crate:game-data:house/house;
+
+interface game-data {
+  table house-table {
+    key: {
+        house-id: id,
+    },
+    value: {
+        house: house,
+    }
+  }
+}

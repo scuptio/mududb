@@ -1,5 +1,3 @@
-
-
 pub const MUDU_PROC_PREFIX: &'static str = "mp1_";
 
 pub const MUDU_PROC_P2_PREFIX: &'static str = "mp2_";

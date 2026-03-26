@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Mudu.Api</RootNamespace>
+    <AssemblyName>Mudu.Api</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.4" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="demo\**\*.cs" />
+    <EmbeddedResource Remove="demo\**\*" />
+    <None Remove="demo\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="mudu_sys\ApiWorld_component_type.wit" Pack="false" Visible="true" />
+  </ItemGroup>
+</Project>

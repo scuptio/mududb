@@ -9,15 +9,15 @@ use mudu_binding::universal::uni_def::UniRecordDef;
 #[derive(Template)]
 #[template(path = "rust/record.rs.jinja", escape = "none")]
 pub struct TemplateRecordRS {
-    pub cfg:CodegenCfg,
+    pub cfg: CodegenCfg,
     pub record: RecordInfo,
 }
 
 impl TemplateRecordRS {
-    pub fn from(record_def: UniRecordDef, cfg:CodegenCfg) -> RS<Self> {
+    pub fn from(record_def: UniRecordDef, cfg: CodegenCfg) -> RS<Self> {
         Ok(Self {
             record: RecordInfo::from(record_def, LangKind::Rust)?,
-            cfg
+            cfg,
         })
     }
 }

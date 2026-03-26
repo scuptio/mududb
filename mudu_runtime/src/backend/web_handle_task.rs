@@ -6,8 +6,18 @@ use crate::backend::mududb_cfg::MuduDBCfg;
 use crate::backend::web_serve;
 
 impl WebHandleTask {
-    pub fn new(cfg: MuduDBCfg, name: String, notifier: Waiter, opt_db_init_notifier: Option<Notifier>) -> Self {
-        Self { cfg, name, waiter: notifier, opt_db_init_notifier }
+    pub fn new(
+        cfg: MuduDBCfg,
+        name: String,
+        notifier: Waiter,
+        opt_db_init_notifier: Option<Notifier>,
+    ) -> Self {
+        Self {
+            cfg,
+            name,
+            waiter: notifier,
+            opt_db_init_notifier,
+        }
     }
 }
 
@@ -28,7 +38,7 @@ impl AsyncLocalTask for WebHandleTask {
     fn name(&self) -> String {
         self.name.clone()
     }
-    fn async_run_local(self) -> impl Future<Output=RS<()>> {
-        web_serve::async_serve(self.cfg, self.opt_db_init_notifier)
+    fn async_run_local(self) -> impl Future<Output = RS<()>> {
+        web_serve::async_serve(self.cfg, self.waiter, self.opt_db_init_notifier)
     }
 }

@@ -103,7 +103,7 @@ impl AsyncFile {
                     cfg.log_ext_name(),
                     self.log_file_seq_no,
                 )
-                    .await?;
+                .await?;
                 self.file = file;
             }
         } else {

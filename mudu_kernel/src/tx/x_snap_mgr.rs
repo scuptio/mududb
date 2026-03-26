@@ -1,4 +1,5 @@
 use crate::contract::snapshot::{RunningXList, Snapshot};
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC as ER;
@@ -8,7 +9,6 @@ use mudu_utils::sync::a_task::{ATask, AsyncTask};
 use mudu_utils::sync::unique_inner::UniqueInner;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio::sync::oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender};

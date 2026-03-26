@@ -9,12 +9,12 @@ use mudu_binding::universal::uni_def::UniVariantDef;
 #[template(path = "csharp/variant.cs.jinja", escape = "none")]
 pub struct TemplateVariantCS {
     #[allow(unused)]
-    pub cfg:CodegenCfg,
+    pub cfg: CodegenCfg,
     pub variant: VariantInfo,
 }
 
 impl TemplateVariantCS {
-    pub fn from(variant_def: UniVariantDef, cfg:CodegenCfg) -> RS<TemplateVariantCS> {
+    pub fn from(variant_def: UniVariantDef, cfg: CodegenCfg) -> RS<TemplateVariantCS> {
         Ok(TemplateVariantCS {
             cfg,
             variant: VariantInfo::from(variant_def, LangKind::CSharp)?,

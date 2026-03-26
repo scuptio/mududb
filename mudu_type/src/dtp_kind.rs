@@ -6,8 +6,8 @@ use crate::dtp_string::DTPString;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
 use paste::paste;
-use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DTPKind {

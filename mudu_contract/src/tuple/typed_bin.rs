@@ -34,7 +34,6 @@ impl DatumDyn for TypedBin {
         Ok(self.dat_type_id)
     }
 
-
     fn to_binary(&self, _: &DatType) -> RS<DatBinary> {
         Ok(DatBinary::from(self.bin.clone()))
     }

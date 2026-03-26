@@ -6,8 +6,8 @@ use crate::storage::storage_cfg::StorageCfg;
 use mcslock::raw::Mutex;
 use mcslock::relax::Spin;
 use mudu::common::result::RS;
-use rand::seq::IteratorRandom;
 use rand::rng as thread_rng;
+use rand::seq::IteratorRandom;
 use scc::HashMap;
 use std::sync::Arc;
 
@@ -15,33 +15,32 @@ pub struct BufferManager {
     inner: Arc<BufferManagerInner>,
 }
 pub struct BufferManagerInner {
-    page_size:u64,
-    page_cache:HashMap<PageIndex, Frame>,
-    frame_array:Vec<Frame>,
-    free_list:Mutex<FreeList, Spin>,
-    disk_io:DiskIO,
+    page_size: u64,
+    page_cache: HashMap<PageIndex, Frame>,
+    frame_array: Vec<Frame>,
+    free_list: Mutex<FreeList, Spin>,
+    disk_io: DiskIO,
 }
-
 
 impl BufferManager {
     pub fn new(cfg: &StorageCfg) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(BufferManagerInner::new(cfg)?)
+            inner: Arc::new(BufferManagerInner::new(cfg)?),
         })
     }
 
-    pub async fn get_page(&self, page_index:&PageIndex) -> RS<Frame> {
+    pub async fn get_page(&self, page_index: &PageIndex) -> RS<Frame> {
         self.inner.get_page(page_index).await
     }
 }
 
 struct FreeList {
-    vec:Vec<u64>,
+    vec: Vec<u64>,
 }
 
 impl FreeList {
-    fn new(vec:Vec<u64>) -> FreeList {
-        Self {vec}
+    fn new(vec: Vec<u64>) -> FreeList {
+        Self { vec }
     }
 
     fn get_a_free_frame_index(&mut self) -> Option<u64> {
@@ -56,7 +55,7 @@ impl FreeList {
         }
     }
 
-    fn add_a_free_frame_index(&mut self, fram_index:u64) {
+    fn add_a_free_frame_index(&mut self, fram_index: u64) {
         let result = self.vec.binary_search(&fram_index);
         match result {
             Ok(_) => {}
@@ -66,14 +65,13 @@ impl FreeList {
         }
     }
 
-    fn remove_free_frame_index(&mut self, fram_index:u64) {
+    fn remove_free_frame_index(&mut self, fram_index: u64) {
         let result = self.vec.binary_search(&fram_index);
         match result {
             Ok(index) => {
                 self.vec.remove(index);
             }
-            Err(_) => {
-            }
+            Err(_) => {}
         }
     }
 }
@@ -92,19 +90,16 @@ impl BufferManagerInner {
             page_cache: Default::default(),
             frame_array: buffer,
             free_list: Mutex::new(FreeList::new(free_list)),
-            disk_io: DiskIO::new(cfg.path.clone(), cfg.page_size)?
+            disk_io: DiskIO::new(cfg.path.clone(), cfg.page_size)?,
         })
     }
 
-
     fn get_a_free_frame(&self) -> Option<Frame> {
         let mut rng = thread_rng();
-        let opt = self.free_list.lock_then(|fl| {
-            fl.get_a_free_frame_index()
-        });
+        let opt = self.free_list.lock_then(|fl| fl.get_a_free_frame_index());
         match opt {
-            Some(index) => { self.frame_array.get(index as usize).cloned() },
-            None => { None }
+            Some(index) => self.frame_array.get(index as usize).cloned(),
+            None => None,
         }
     }
 
@@ -126,13 +121,13 @@ impl BufferManagerInner {
     pub async fn get_page(&self, page_index: &PageIndex) -> RS<Frame> {
         let opt = self.page_cache.get_sync(page_index);
         match opt {
-            Some(frame) => {
-                Ok(frame.clone())
-            },
+            Some(frame) => Ok(frame.clone()),
             None => {
                 let frame = self.locate_a_frame().await?;
                 let mut page_block = PageBlock::new_empty(self.page_size);
-                self.disk_io.read_page(page_index.clone(), &mut page_block).await?;
+                self.disk_io
+                    .read_page(page_index.clone(), &mut page_block)
+                    .await?;
                 frame.swap_page(&mut page_block);
                 Ok(frame)
             }

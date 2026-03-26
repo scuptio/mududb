@@ -25,7 +25,6 @@ pub mod object {
 
     const UPDATED_AT: &str = "updated_at";
 
-
     // entity struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Wallets {
@@ -34,7 +33,6 @@ pub mod object {
         balance: AttrBalance,
 
         updated_at: AttrUpdatedAt,
-
     }
 
     impl TupleDatumMarker for Wallets {}
@@ -42,18 +40,13 @@ pub mod object {
     impl SQLParamMarker for Wallets {}
 
     impl Wallets {
-        pub fn new(
-        user_id: Option<i32>,
-        balance: Option<i32>,
-        updated_at: Option<i32>,
-        ) -> Self {
+        pub fn new(user_id: Option<i32>, balance: Option<i32>, updated_at: Option<i32>) -> Self {
             let s = Self {
                 user_id: AttrUserId::from(user_id),
 
                 balance: AttrBalance::from(balance),
 
                 updated_at: AttrUpdatedAt::from(updated_at),
-
             };
             s
         }
@@ -62,43 +55,27 @@ pub mod object {
             Self::default()
         }
 
-
-        pub fn set_user_id(
-            &mut self,
-            user_id: i32,
-        ) {
+        pub fn set_user_id(&mut self, user_id: i32) {
             self.user_id.update(user_id)
         }
 
-        pub fn get_user_id(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_user_id(&self) -> &Option<i32> {
             self.user_id.get()
         }
 
-        pub fn set_balance(
-            &mut self,
-            balance: i32,
-        ) {
+        pub fn set_balance(&mut self, balance: i32) {
             self.balance.update(balance)
         }
 
-        pub fn get_balance(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_balance(&self) -> &Option<i32> {
             self.balance.get()
         }
 
-        pub fn set_updated_at(
-            &mut self,
-            updated_at: i32,
-        ) {
+        pub fn set_updated_at(&mut self, updated_at: i32) {
             self.updated_at.update(updated_at)
         }
 
-        pub fn get_updated_at(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_updated_at(&self) -> &Option<i32> {
             self.updated_at.get()
         }
     }
@@ -106,8 +83,8 @@ pub mod object {
     impl Datum for Wallets {
         fn dat_type() -> &'static DatType {
             lazy_static! {
-            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Wallets>();
-        }
+                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Wallets>();
+            }
             &DAT_TYPE
         }
 
@@ -153,16 +130,12 @@ pub mod object {
 
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
-            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                
-                AttrUserId::datum_desc().clone(),
-                
-                AttrBalance::datum_desc().clone(),
-                
-                AttrUpdatedAt::datum_desc().clone(),
-                
-            ]);
-        }
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrUserId::datum_desc().clone(),
+                    AttrBalance::datum_desc().clone(),
+                    AttrUpdatedAt::datum_desc().clone(),
+                ]);
+            }
             &TUPLE_DESC
         }
 
@@ -172,56 +145,59 @@ pub mod object {
 
         fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
             match field {
-                USER_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.user_id.get())
+                USER_ID => attr_field_access::attr_get_binary::<_>(self.user_id.get()),
+
+                BALANCE => attr_field_access::attr_get_binary::<_>(self.balance.get()),
+
+                UPDATED_AT => attr_field_access::attr_get_binary::<_>(self.updated_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                BALANCE => {
-                    attr_field_access::attr_get_binary::<_>(self.balance.get())
-            }
-
-                UPDATED_AT => {
-                    attr_field_access::attr_get_binary::<_>(self.updated_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
         fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
             match field {
                 USER_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.user_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.user_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 BALANCE => {
-                    attr_field_access::attr_set_binary::<_, _>(self.balance.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.balance.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 UPDATED_AT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.updated_at.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.updated_at.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
 
         fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
             match field {
-                USER_ID => {
-                    attr_field_access::attr_get_value::<_>(self.user_id.get())
+                USER_ID => attr_field_access::attr_get_value::<_>(self.user_id.get()),
+
+                BALANCE => attr_field_access::attr_get_value::<_>(self.balance.get()),
+
+                UPDATED_AT => attr_field_access::attr_get_value::<_>(self.updated_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                BALANCE => {
-                    attr_field_access::attr_get_value::<_>(self.balance.get())
-            }
-
-                UPDATED_AT => {
-                    attr_field_access::attr_get_value::<_>(self.updated_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
@@ -239,12 +215,13 @@ pub mod object {
                     attr_field_access::attr_set_value::<_, _>(self.updated_at.get_mut(), value)?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
     }
-
 
     // attribute struct definition
     #[derive(Default, Clone, Debug)]

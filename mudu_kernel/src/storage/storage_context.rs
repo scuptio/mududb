@@ -19,7 +19,7 @@ pub struct StorageContext {
 impl StorageContext {
     pub fn new(cfg: &StorageCfg) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(ContextInner::new(cfg)?)
+            inner: Arc::new(ContextInner::new(cfg)?),
         })
     }
 
@@ -38,7 +38,7 @@ impl StorageContext {
     pub fn file_insert(&self, data_file_id: u64, data_file: DataFile) -> RS<()> {
         self.inner.file_insert(data_file_id, data_file)
     }
-    pub fn append_log_entry(&self, _log:LogEntry) {
+    pub fn append_log_entry(&self, _log: LogEntry) {
         todo!()
     }
 
@@ -65,16 +65,14 @@ impl ContextInner {
     }
 
     pub fn extent_insert(&self, page_index: PageIndex, extent: Extent) -> RS<()> {
-        self.extent.insert_sync(page_index, extent)
-            .map_err(|_|{
-                m_error!(EC::StorageErr, "exsiting such extent")
-            })
+        self.extent
+            .insert_sync(page_index, extent)
+            .map_err(|_| m_error!(EC::StorageErr, "exsiting such extent"))
     }
 
     pub fn extent_get(&self, page_index: &PageIndex) -> Option<Extent> {
         self.extent.get_sync(page_index).map(|x| x.clone())
     }
-
 
     fn file_insert(&self, data_file_id: u64, data_file: DataFile) -> RS<()> {
         self.data_files.insert_sync(data_file_id, data_file);
@@ -93,7 +91,7 @@ impl ContextInner {
 pub struct ContextInner {
     cfg: StorageCfg,
     extent: HashMap<PageIndex, Extent>,
-    data_files:HashMap<u64, DataFile>,
+    data_files: HashMap<u64, DataFile>,
     buffer_manager: BufferManager,
     space_manager: SpaceManager,
 }

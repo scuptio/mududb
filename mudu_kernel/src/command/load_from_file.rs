@@ -87,28 +87,31 @@ impl _LoadFromFile {
 
     async fn load_table(&self) -> RS<u64> {
         let file = File::open(self.csv_file.clone()).await.map_err(|e| {
-            m_error!(ER::IOErr, format!(
-                "load failed, open csv file {} error, {}",
-                self.csv_file, e
-            ))
+            m_error!(
+                ER::IOErr,
+                format!("load failed, open csv file {} error, {}", self.csv_file, e)
+            )
         })?;
         let mut rdr = csv_async::AsyncReader::from_reader(file);
         let mut records = rdr.records();
         let mut rows = 0;
         while let Some(t) = records.next().await {
             let record = t.map_err(|e| {
-                m_error!(ER::IOErr, format!(
-                    "load failed, csv file {} error, {}",
-                    self.csv_file, e
-                ))
+                m_error!(
+                    ER::IOErr,
+                    format!("load failed, csv file {} error, {}", self.csv_file, e)
+                )
             })?;
             let field_num = self.key_index.len() + self.value_index.len();
             if field_num != record.len() {
-                return Err(m_error!(ER::IOErr, format!(
-                    "load failed, table column size {} not equal to csv column count {}",
-                    field_num,
-                    record.len()
-                )));
+                return Err(m_error!(
+                    ER::IOErr,
+                    format!(
+                        "load failed, table column size {} not equal to csv column count {}",
+                        field_num,
+                        record.len()
+                    )
+                ));
             }
             let key = Self::build_tuple_from_line(&record, &self.key_index, &self.key_desc)?;
             let value = Self::build_tuple_from_line(&record, &self.value_index, &self.value_desc)?;
@@ -163,13 +166,9 @@ impl _LoadFromFile {
             let dat_id = field_desc.data_type();
             let type_param = field_desc.type_obj();
             let internal = dat_id.fn_input()(&s, type_param)
-                .map_err(|e| {
-                    m_error!(ER::TypeBaseErr, "convert printable to internal error", e)
-                })?;
+                .map_err(|e| m_error!(ER::TypeBaseErr, "convert printable to internal error", e))?;
             let binary = dat_id.fn_send()(&internal, type_param)
-                .map_err(|e| {
-                    m_error!(ER::TypeBaseErr, "converting internal to binary error", e)
-                })?;
+                .map_err(|e| m_error!(ER::TypeBaseErr, "converting internal to binary error", e))?;
             tuple.push(binary.into());
         }
         let buf = build_tuple(&tuple, tuple_desc)?;

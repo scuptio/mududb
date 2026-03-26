@@ -16,14 +16,14 @@ pub mod result;
 pub mod result_of;
 pub mod slice;
 
-pub mod package_cfg;
+pub mod app_info;
 pub mod cmp_equal;
 pub mod cmp_order;
 pub mod default_value;
+pub mod into_result;
 pub mod limitation;
+pub mod result_from;
 pub mod serde_utils;
 pub mod this_file;
 pub mod update_delta;
 pub mod xid;
-pub mod into_result;
-pub mod result_from;

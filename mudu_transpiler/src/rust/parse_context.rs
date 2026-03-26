@@ -5,12 +5,12 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu::utils::case_convert::{to_kebab_case, to_pascal_case};
+use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use mudu_contract::procedure::proc;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use tree_sitter::Node;
-use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 
 #[derive(Debug, Clone)]
 pub struct UseRefactor {
@@ -35,19 +35,23 @@ pub struct ParseContext {
 }
 
 impl ParseContext {
-    pub fn new(text: String,
-               src_mod: Option<String>,
-               dst_mod: Option<String>,
-    ) -> Self {
+    pub fn new(text: String, src_mod: Option<String>, dst_mod: Option<String>) -> Self {
         let mut sys_call = HashSet::new();
         sys_call.insert("mudu_query".to_string());
         sys_call.insert("mudu_command".to_string());
+        sys_call.insert("mudu_open".to_string());
+        sys_call.insert("mudu_close".to_string());
+        sys_call.insert("mudu_get".to_string());
+        sys_call.insert("mudu_put".to_string());
+        sys_call.insert("mudu_range".to_string());
         let lines: Vec<String> = text
             .lines()
             .map(|s| s.to_string())
             .collect::<Vec<_>>()
             .into();
-        let refactor_src_dst_mod = if let Some(src) = src_mod && let Some(dst) = dst_mod {
+        let refactor_src_dst_mod = if let Some(src) = src_mod
+            && let Some(dst) = dst_mod
+        {
             let src_path = mod_path_to_vec(&src);
             let dst_path = mod_path_to_vec(&dst);
             if src_path == dst_path || src_path.len() != dst_path.len() {
@@ -124,7 +128,11 @@ impl ParseContext {
         lines.join("\n")
     }
 
-    pub fn gen_procedure_desc_list(&self, module_name: &String, custom_types: &UniTypeDesc) -> RS<Vec<ProcDesc>> {
+    pub fn gen_procedure_desc_list(
+        &self,
+        module_name: &String,
+        custom_types: &UniTypeDesc,
+    ) -> RS<Vec<ProcDesc>> {
         let mut vec = Vec::new();
         for (_, function) in self.mudu_procedure.iter() {
             let proc_desc = function.to_proc_desc(module_name, custom_types)?;

@@ -12,6 +12,7 @@ variant uni-primitive-value {
     %f32(f32),
     %f64(f64),
     %char(char),
-    %string(string)
+    %string(string),
+    blob(blob)
 }
 }

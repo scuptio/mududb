@@ -6,7 +6,7 @@ use crate::dat_value::DatValue;
 use crate::dt_fn_convert::FnBase;
 use crate::type_error::{TyEC, TyErr};
 use mudu::utils::bin_size::BinSize;
-use mudu::utils::json::{from_json_str, JsonNumber, JsonValue};
+use mudu::utils::json::{JsonNumber, JsonValue, from_json_str};
 use mudu::utils::msg_pack::{MsgPackInteger, MsgPackValue};
 
 pub fn fn_binary_in(s: &str, dat_type: &DatType) -> Result<DatValue, TyErr> {
@@ -35,8 +35,13 @@ pub fn fn_binary_in_json(json: &JsonValue, _: &DatType) -> Result<DatValue, TyEr
     let mut binary = Vec::with_capacity(value_array.len());
     for v in value_array.iter() {
         let n = v.as_u64().map_or_else(
-            ||{ Err(TyErr::new( TyEC::TypeConvertFailed, "expected a number".to_string())) },
-            |e| { Ok(e) }
+            || {
+                Err(TyErr::new(
+                    TyEC::TypeConvertFailed,
+                    "expected a number".to_string(),
+                ))
+            },
+            |e| Ok(e),
         )?;
         binary.push(n as u8);
     }
@@ -67,8 +72,13 @@ pub fn fn_binary_in_msgpack(msg_pack: &MsgPackValue, _: &DatType) -> Result<DatV
     let mut binary = Vec::with_capacity(value_array.len());
     for v in value_array.iter() {
         let n = v.as_u64().map_or_else(
-            ||{ Err(TyErr::new( TyEC::TypeConvertFailed, "in msgpack, expected a number".to_string())) },
-            |e| { Ok(e) }
+            || {
+                Err(TyErr::new(
+                    TyEC::TypeConvertFailed,
+                    "in msgpack, expected a number".to_string(),
+                ))
+            },
+            |e| Ok(e),
         )?;
         binary.push(n as u8);
     }
@@ -88,7 +98,6 @@ pub fn fn_binary_out_msgpack(v: &DatValue, _: &DatType) -> Result<MsgPackValue, 
     };
     let mut vec = Vec::with_capacity(binary.len());
     for v in binary.iter() {
-
         vec.push(MsgPackValue::Integer(MsgPackInteger::from(*v)));
     }
     Ok(MsgPackValue::Array(vec))
@@ -109,8 +118,6 @@ pub fn fn_dat_output_len(dat_value: &DatValue, _: &DatType) -> Result<u32, TyErr
     Ok(size)
 }
 
-
-
 pub fn fn_binary_send(dat_value: &DatValue, dat_type: &DatType) -> Result<DatBinary, TyErr> {
     let len = fn_dat_output_len(dat_value, dat_type)?;
     let mut vec = Vec::with_capacity(len as usize);
@@ -121,11 +128,7 @@ pub fn fn_binary_send(dat_value: &DatValue, dat_type: &DatType) -> Result<DatBin
     Ok(DatBinary::from(vec))
 }
 
-pub fn fn_binary_send_to(
-    object: &DatValue,
-    _: &DatType,
-    buf: &mut [u8],
-) -> Result<u32, TyErr> {
+pub fn fn_binary_send_to(object: &DatValue, _: &DatType, buf: &mut [u8]) -> Result<u32, TyErr> {
     let datum_binary: &Vec<u8> = object.expect_binary();
     let hdr_size = header_size();
     let offset = hdr_size as u32;
@@ -160,8 +163,6 @@ pub fn fn_binary_recv(buf: &[u8], _: &DatType) -> Result<(DatValue, u32), TyErr>
 pub fn fn_binary_default(_: &DatType) -> Result<DatValue, TyErr> {
     Ok(DatValue::from_binary(vec![]))
 }
-
-
 
 pub const FN_BINARY_CONVERT: FnBase = FnBase {
     input_textual: fn_binary_in,

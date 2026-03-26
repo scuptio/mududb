@@ -12,6 +12,7 @@ enum uni-primitive {
     %f32,
     %f64,
     %char,
-    %string
+    %string,
+    blob
 }
 }

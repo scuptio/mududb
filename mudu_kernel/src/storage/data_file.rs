@@ -16,28 +16,28 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-static NEXT_FILE_ID:AtomicU64 = AtomicU64::new(1);
+static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub struct DataFile {
-    inner:Arc<DataFileInner>
+    inner: Arc<DataFileInner>,
 }
 
 struct DataFileInner {
-    extent_pages : u64,
-    page_size : u64,
+    extent_pages: u64,
+    page_size: u64,
     file_id: u64,
     path: String,
     disk_io: DiskIO,
     total_allocated: AtomicU64,
-    roaring:Mutex<RoaringBitmap, Spin>,
+    roaring: Mutex<RoaringBitmap, Spin>,
     allocated_extents: HashMap<u64, Extent>,
 }
 
 impl DataFile {
     pub fn open(cfg: &StorageCfg) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(DataFileInner::open(cfg)?)
+            inner: Arc::new(DataFileInner::open(cfg)?),
         })
     }
 
@@ -49,16 +49,15 @@ impl DataFile {
         _next_file_id()
     }
 
-    pub fn file_create_extent(&self, table_space:u64, ctx:&StorageContext) -> RS<Extent> {
+    pub fn file_create_extent(&self, table_space: u64, ctx: &StorageContext) -> RS<Extent> {
         self.inner.create_extent(table_space, ctx)
     }
 
-    pub async fn write_block(&self, block:PageBlock) -> RS<()> {
+    pub async fn write_block(&self, block: PageBlock) -> RS<()> {
         self.inner.write_block(block).await?;
         Ok(())
     }
 }
-
 
 fn _current_file_id() -> u64 {
     NEXT_FILE_ID.load(Ordering::SeqCst)
@@ -78,16 +77,10 @@ impl DataFileInner {
             }
         };
 
-        Ok(Self::new(
-            cfg,
-            file_id,
-        )?)
+        Ok(Self::new(cfg, file_id)?)
     }
 
-    fn new(
-        cfg:&StorageCfg,
-        file_id: u64,
-    ) -> RS<Self> {
+    fn new(cfg: &StorageCfg, file_id: u64) -> RS<Self> {
         Ok(Self {
             extent_pages: cfg.extent_pages,
             page_size: cfg.page_size,
@@ -100,15 +93,16 @@ impl DataFileInner {
         })
     }
 
-
-    fn create_extent(&self, table_space_id:u64, context:&StorageContext) -> RS<Extent> {
+    fn create_extent(&self, table_space_id: u64, context: &StorageContext) -> RS<Extent> {
         let opt = self.get_free_extent();
         if let Some(n) = opt {
             let extent_id = self.extent_page_id(n);
-            let extent = context.extent_get(&PageIndex::new(self.file_id, extent_id))
+            let extent = context
+                .extent_get(&PageIndex::new(self.file_id, extent_id))
                 .map_or_else(
-                    || { Err(m_error!(EC::StorageErr, "cannot get extent")) },
-                    |e| { Ok(e) })?;
+                    || Err(m_error!(EC::StorageErr, "cannot get extent")),
+                    |e| Ok(e),
+                )?;
             Ok(extent)
         } else {
             let index = self.total_allocated.load(Ordering::SeqCst);
@@ -116,7 +110,10 @@ impl DataFileInner {
             let extent = Extent::new(
                 self.file_id,
                 table_space_id,
-                extent_id, extent_id + 1, self.extent_pages);
+                extent_id,
+                extent_id + 1,
+                self.extent_pages,
+            );
             let mut block = PageBlock::new_empty(self.page_size);
             block.set_page_id(extent_id);
             block.set_lsn(0);
@@ -133,14 +130,15 @@ impl DataFileInner {
         }
     }
 
-
-    fn extent_page_id(&self, index:u64) -> u64 {
+    fn extent_page_id(&self, index: u64) -> u64 {
         index * self.extent_pages
     }
 
-    async fn write_block(& self, block:PageBlock) -> RS<()> {
+    async fn write_block(&self, block: PageBlock) -> RS<()> {
         let page_id = block.get_page_id();
-        self.disk_io.write_page(PageIndex::new(self.file_id, page_id), block).await
+        self.disk_io
+            .write_page(PageIndex::new(self.file_id, page_id), block)
+            .await
     }
 
     fn get_free_extent(&self) -> Option<u64> {
@@ -155,7 +153,7 @@ impl DataFileInner {
         })
     }
 
-    fn push_free_extent(&self, extent:u64) {
+    fn push_free_extent(&self, extent: u64) {
         self.roaring.lock_then(|roaring| {
             roaring.insert(extent as u32);
         })

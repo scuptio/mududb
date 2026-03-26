@@ -4,9 +4,8 @@ use mudu_type::datum::DatumDyn;
 use crate::database::sql_params::SQLParams;
 
 pub struct SQLParamValue {
-    param:Vec<DatValue>
+    param: Vec<DatValue>,
 }
-
 
 impl SQLParams for SQLParamValue {
     fn size(&self) -> u64 {
@@ -27,7 +26,7 @@ impl SQLParamValue {
     pub fn params(&self) -> &[DatValue] {
         &self.param
     }
-    pub fn from_vec(vec:Vec<DatValue>) -> Self {
+    pub fn from_vec(vec: Vec<DatValue>) -> Self {
         Self { param: vec }
     }
 }

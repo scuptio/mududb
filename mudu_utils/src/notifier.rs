@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::Notify;
 use tracing::trace;
@@ -42,12 +42,23 @@ pub fn notify_wait() -> (Notifier, Waiter) {
 impl NotifyWait {
     pub fn new_notify_wait() -> (Notifier, Waiter) {
         let inner = Arc::new(NotifyWaitInner::new());
-        (Notifier {
-            inner: inner.clone(),
-        },
-        Waiter {
-            inner
-        })
+        (
+            Notifier {
+                inner: inner.clone(),
+            },
+            Waiter { inner },
+        )
+    }
+
+    pub fn notify_wait(&self) -> (Notifier, Waiter) {
+        (
+            Notifier {
+                inner: self.inner.clone(),
+            },
+            Waiter {
+                inner: self.inner.clone(),
+            },
+        )
     }
 
     pub fn new() -> Self {
@@ -118,14 +129,13 @@ impl NotifyWaitInner {
     }
 }
 
-
 impl Waiter {
     pub async fn wait(&self) {
         self.inner.notified().await;
     }
 
     pub fn into(self) -> NotifyWait {
-        NotifyWait {inner:self.inner}
+        NotifyWait { inner: self.inner }
     }
 }
 
@@ -138,6 +148,6 @@ impl Notifier {
     }
 
     pub fn into(self) -> NotifyWait {
-        NotifyWait {inner:self.inner}
+        NotifyWait { inner: self.inner }
     }
 }

@@ -4,10 +4,11 @@ use crate::resolver::schema_mgr::SchemaMgr;
 use crate::service::app_inst::AppInst;
 use crate::service::mudu_package::MuduPackage;
 use crate::service::package_module::PackageModule;
+use crate::service::procedure_invoke_component::ProcedureInvokeComponent;
 use crate::service::procedure_invoke_p1::ProcedureInvoke1;
-use crate::service::procedure_invoke_p2::ProcedureInvokeP2;
+use crate::service::runtime_opt::RuntimeTarget;
 use async_trait::async_trait;
-use mudu::common::package_cfg::PackageCfg;
+use mudu::common::app_info::AppInfo;
 use mudu::common::result::RS;
 use mudu::common::xid::is_xid_invalid;
 use mudu::error::ec::EC;
@@ -16,7 +17,8 @@ use mudu_contract::database::sql::{Context, DBConn};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
-use mudu_utils::task_id::{new_task_id, TaskID};
+use mudu_kernel::server_ur::worker_local::WorkerLocalRef;
+use mudu_utils::task_id::{TaskID, new_task_id};
 use scc::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
@@ -28,13 +30,13 @@ pub struct AppInstImpl {
 }
 
 struct AppInstImplInner {
-    package_cfg: PackageCfg,
+    package_cfg: AppInfo,
     enable_async: bool,
     db_path: String,
     schema_mgr: SchemaMgr,
     modules: HashMap<String, PackageModule>,
     _conn: HashMap<u128, DBConn>,
-    use_p2: bool,
+    runtime_target: RuntimeTarget,
 }
 
 impl AppInstImpl {
@@ -42,12 +44,20 @@ impl AppInstImpl {
         db_path: &String,
         package: &MuduPackage,
         vec_modules: Vec<(String, PackageModule)>,
-        build_p2:bool,
+        runtime_target: RuntimeTarget,
         enable_async: bool,
     ) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(AppInstImplInner::build(
-                db_path, package, vec_modules, build_p2, enable_async).await?),
+            inner: Arc::new(
+                AppInstImplInner::build(
+                    db_path,
+                    package,
+                    vec_modules,
+                    runtime_target,
+                    enable_async,
+                )
+                .await?,
+            ),
         })
     }
 
@@ -81,7 +91,7 @@ impl AppInstImplInner {
         db_path: &String,
         package: &MuduPackage,
         vec_modules: Vec<(String, PackageModule)>,
-        build_p2:bool,
+        runtime_target: RuntimeTarget,
         enable_async: bool,
     ) -> RS<Self> {
         let modules = HashMap::new();
@@ -102,11 +112,9 @@ impl AppInstImplInner {
             schema_mgr,
             modules,
             _conn: Default::default(),
-            use_p2: build_p2,
+            runtime_target,
         })
     }
-
-
 
     pub fn list_procedure(&self) -> RS<Vec<(String, String)>> {
         let mut vec = Vec::new();
@@ -133,21 +141,22 @@ impl AppInstImplInner {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
-        let (procedure, param, new_tx) = self.pre_invoke(task_id, mod_name, proc_name, param).await?;
+        let (procedure, param, new_tx) =
+            self.pre_invoke(task_id, mod_name, proc_name, param).await?;
         let xid = param.session_id();
-        let result = if self.use_p2 {
-            ProcedureInvokeP2::call(
+        let result = match self.runtime_target {
+            RuntimeTarget::P1 => {
+                ProcedureInvoke1::call(&procedure, Default::default(), param, worker_local)
+            }
+            RuntimeTarget::Component(component_target) => ProcedureInvokeComponent::call(
                 &procedure,
+                component_target,
                 Default::default(),
                 param,
-            )
-        } else {
-            ProcedureInvoke1::call(
-                &procedure,
-                Default::default(),
-                param,
-            )
+                worker_local,
+            ),
         };
         if new_tx {
             if result.is_ok() {
@@ -165,17 +174,35 @@ impl AppInstImplInner {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
         if !self.enable_async {
-            return Err(m_error!(EC::DBInternalError, "enable async mode when call async procedure"))
+            return Err(m_error!(
+                EC::DBInternalError,
+                "enable async mode when call async procedure"
+            ));
         }
-        let (procedure, param, new_tx) = self.pre_invoke(task_id, mod_name, proc_name, param).await?;
+        let (procedure, param, new_tx) =
+            self.pre_invoke(task_id, mod_name, proc_name, param).await?;
         let xid = param.session_id();
-        let result = ProcedureInvokeP2::call_async(
-                &procedure,
-                Default::default(),
-                param,
-        ).await;
+        let result = match self.runtime_target {
+            RuntimeTarget::P1 => {
+                return Err(m_error!(
+                    EC::DBInternalError,
+                    "async invocation is only supported for component targets"
+                ));
+            }
+            RuntimeTarget::Component(component_target) => {
+                ProcedureInvokeComponent::call_async(
+                    &procedure,
+                    component_target,
+                    Default::default(),
+                    param,
+                    worker_local,
+                )
+                .await
+            }
+        };
         if new_tx {
             if result.is_ok() {
                 Context::commit_async(xid).await?;
@@ -217,11 +244,12 @@ impl AppInstImplInner {
         &self.schema_mgr
     }
 
-    async fn pre_invoke(&self,
-                  task_id: TaskID,
-                  mod_name: &String,
-                  proc_name: &String,
-                  param: ProcedureParam,
+    async fn pre_invoke(
+        &self,
+        task_id: TaskID,
+        mod_name: &String,
+        proc_name: &String,
+        param: ProcedureParam,
     ) -> RS<(Procedure, ProcedureParam, bool)> {
         let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
             m_error!(
@@ -258,7 +286,6 @@ async fn new_conn(db_path: &String, app_name: &String, enable_async: bool) -> RS
     Ok(db_conn)
 }
 
-
 async fn initdb(db_path: &String, app_name: &String, sql: &String, enable_async: bool) -> RS<()> {
     let init_db_lock = PathBuf::from(&db_path).join(format!("{}.lock", app_name));
     if init_db_lock.exists() {
@@ -278,7 +305,7 @@ async fn initdb(db_path: &String, app_name: &String, sql: &String, enable_async:
 
 #[async_trait]
 impl AppInst for AppInstImpl {
-    fn cfg(&self) -> &PackageCfg {
+    fn cfg(&self) -> &AppInfo {
         &self.inner.package_cfg
     }
 
@@ -306,9 +333,11 @@ impl AppInst for AppInstImpl {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
         self.inner
-            .invoke_procedure(task_id, mod_name, proc_name, param).await
+            .invoke_procedure(task_id, mod_name, proc_name, param, worker_local)
+            .await
     }
 
     async fn invoke_async(
@@ -317,9 +346,11 @@ impl AppInst for AppInstImpl {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
         self.inner
-            .invoke_procedure_async(task_id, mod_name, proc_name, param).await
+            .invoke_procedure_async(task_id, mod_name, proc_name, param, worker_local)
+            .await
     }
 
     fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>> {

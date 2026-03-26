@@ -1,11 +1,14 @@
 mod merge_desc;
 
 use crate::merge_desc::merge_desc_files;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::{Arg, Command};
-use mudu::common::package_cfg::PackageCfg;
+use mudu::common::app_info::AppInfo;
+use mudu::utils::json::read_json;
 use mudu::utils::toml::read_toml;
+use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -38,7 +41,7 @@ impl MPKPackage {
     fn validate(&self) -> Result<()> {
         // Check if required files exist
         let required_files = [
-            (&self.package_cfg, "package.cfg.toml"),
+            (&self.package_cfg, "package.cfg.json"),
             (&self.package_desc, "package.desc.json"),
             (&self.ddl_sql, "ddl.sql"),
             (&self.initdb_sql, "initdb.sql"),
@@ -72,8 +75,41 @@ impl MPKPackage {
             }
         }
 
+        validate_desc_matches_wasm_modules(&self.package_desc, &self.wasm_files)?;
+
         Ok(())
     }
+}
+
+fn validate_desc_matches_wasm_modules(
+    package_desc_path: &str,
+    wasm_files: &[String],
+) -> Result<()> {
+    let package_desc: ModProcDesc = read_json(package_desc_path)?;
+    let desc_modules = package_desc
+        .modules()
+        .keys()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let wasm_modules = wasm_files
+        .iter()
+        .map(|path| {
+            PathBuf::from(path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_string)
+                .ok_or_else(|| anyhow!("Invalid WASM file name: {}", path))
+        })
+        .collect::<Result<HashSet<_>>>()?;
+
+    if desc_modules != wasm_modules {
+        return Err(anyhow!(
+            "package.desc.json modules {:?} do not match wasm file names {:?}",
+            desc_modules,
+            wasm_modules
+        ));
+    }
+    Ok(())
 }
 
 fn parse_arguments() -> Result<MPKCommand> {
@@ -154,7 +190,7 @@ fn parse_arguments() -> Result<MPKCommand> {
                         .long("input-folder")
                         .short('f')
                         .value_name("FOLDER")
-                        .help("Path to folder contains *.desc.toml list toml file")
+                        .help("Path to folder contains procedure description files")
                         .required(true),
                 )
                 .arg(
@@ -224,7 +260,7 @@ fn parse_arguments() -> Result<MPKCommand> {
     };
     if let MPKCommand::Package(pkg) = &mut mpk_cmd {
         if pkg.output_path.is_empty() {
-            let app_cfg: PackageCfg = read_toml(&pkg.package_cfg)
+            let app_cfg: AppInfo = read_json(&pkg.package_cfg)
                 .map_err(|e| anyhow!("Error parsing app-cfg file: {}", e))?;
             let default_output = format!("{}.mpk", app_cfg.name);
             pkg.output_path = default_output;
@@ -260,7 +296,7 @@ fn create_package(config: &MPKPackage) -> Result<()> {
     let mut zip = ZipWriter::new(file);
 
     // Add required files with their specific names
-    add_file_to_zip(&mut zip, &config.package_cfg, "package.cfg.toml")?;
+    add_file_to_zip(&mut zip, &config.package_cfg, "package.cfg.json")?;
     add_file_to_zip(&mut zip, &config.package_desc, "package.desc.json")?;
     add_file_to_zip(&mut zip, &config.ddl_sql, "ddl.sql")?;
     add_file_to_zip(&mut zip, &config.initdb_sql, "initdb.sql")?;
@@ -329,8 +365,14 @@ mod tests {
 
     fn create_test_files(dir: &Path) -> Result<()> {
         let files = [
-            ("package.cfg.toml", "[app]\nname = \"test\"\n"),
-            ("package.desc.json", "[procedure]\nversion = \"1.0\"\n"),
+            (
+                "package.cfg.json",
+                "{\"name\":\"test\",\"lang\":\"rust\",\"version\":\"0.1.0\",\"use_async\":true}",
+            ),
+            (
+                "package.desc.json",
+                "{\"modules\":{\"test1\":[{\"module_name\":\"test1\",\"proc_name\":\"proc1\",\"param_desc\":{\"fields\":[]},\"return_desc\":{\"fields\":[]}}],\"test2\":[{\"module_name\":\"test2\",\"proc_name\":\"proc2\",\"param_desc\":{\"fields\":[]},\"return_desc\":{\"fields\":[]}}]}}",
+            ),
             ("ddl.sql", "CREATE TABLE test (id INT);"),
             ("initdb.sql", "INSERT INTO test VALUES (1);"),
             ("test1.wasm", "mock wasm content"),
@@ -353,7 +395,7 @@ mod tests {
         let config = MPKPackage {
             package_cfg: temp_dir
                 .path()
-                .join("package.cfg.toml")
+                .join("package.cfg.json")
                 .to_str()
                 .unwrap()
                 .to_string(),
@@ -407,7 +449,7 @@ mod tests {
         let mut zip_archive = zip::ZipArchive::new(package_file)?;
 
         let expected_files = [
-            "package.cfg.toml",
+            "package.cfg.json",
             "package.desc.json",
             "ddl.sql",
             "initdb.sql",

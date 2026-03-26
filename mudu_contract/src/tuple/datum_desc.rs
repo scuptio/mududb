@@ -12,10 +12,7 @@ pub struct DatumDesc {
 impl DatumDesc {
     /// Creates a new DatumDesc with the given name and type declaration
     pub fn new(name: String, dat_type: DatType) -> Self {
-        Self {
-            dat_type,
-            name,
-        }
+        Self { dat_type, name }
     }
 
     // -- Field accessors --

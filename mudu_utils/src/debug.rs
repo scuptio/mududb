@@ -3,46 +3,70 @@
 
 use std::net::SocketAddr;
 
+#[cfg(feature = "debug_trace")]
 use bytes::Bytes;
+#[cfg(feature = "debug_trace")]
 use http::{Method, StatusCode};
+#[cfg(feature = "debug_trace")]
 use http_body_util::Full;
+#[cfg(feature = "debug_trace")]
 use hyper::body::Incoming;
+#[cfg(feature = "debug_trace")]
 use hyper::server::conn::http1;
+#[cfg(feature = "debug_trace")]
 use hyper::service::service_fn;
+#[cfg(feature = "debug_trace")]
 use hyper::{Request, Response};
+#[cfg(feature = "debug_trace")]
 use hyper_util::rt::TokioIo;
+#[cfg(feature = "debug_trace")]
 use lazy_static::lazy_static;
+#[cfg(feature = "debug_trace")]
 use scc::{HashIndex, HashSet};
 
+#[cfg(feature = "debug_trace")]
 use crate::dump_task_trace;
 use crate::notifier::NotifyWait;
+#[cfg(feature = "debug_trace")]
 use crate::task::spawn_local_task;
 use mudu::common::result::RS;
+#[cfg(feature = "debug_trace")]
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
+#[cfg(feature = "debug_trace")]
 use mudu::m_error;
+#[cfg(feature = "debug_trace")]
 use tokio::net::TcpListener;
+#[cfg(feature = "debug_trace")]
 use tokio::task::LocalSet;
+#[cfg(feature = "debug_trace")]
 use tracing::error;
 
+#[cfg(feature = "debug_trace")]
 type HandleURL = fn(String) -> RS<String>;
 
+#[cfg(feature = "debug_trace")]
 lazy_static! {
     static ref HANDLE_URL: HashIndex<String, HandleURL> = HashIndex::new();
     static ref SERVER: HashSet<u16> = HashSet::new();
 }
 
+#[cfg(feature = "debug_trace")]
 pub fn register_debug_url(url: String, h: HandleURL) {
     let _ = HANDLE_URL.insert_sync(url, h);
 }
 
+#[cfg(not(feature = "debug_trace"))]
+pub fn register_debug_url(_url: String, _h: fn(String) -> RS<String>) {}
+
+#[cfg(feature = "debug_trace")]
 async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let mut response = Response::new(Full::default());
     match req.method() {
         &Method::GET => {
             let path = req.uri().path();
             match path {
-                "/task" => {
+                "/task" | "/" | "" => {
                     let dump = dump_task_trace!();
                     *response.body_mut() = Full::from(dump);
                 }
@@ -68,6 +92,7 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
     Ok(response)
 }
 
+#[cfg(feature = "debug_trace")]
 pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
     let port = addr.port();
     let r = SERVER.insert_sync(port);
@@ -76,8 +101,9 @@ pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
     }
 
     // Bind to the port and listen for incoming TCP connections
-    let listener = TcpListener::bind(addr).await
-        .map_err(|e| { m_error!(EC::IOErr, "bind to address error", e) })?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|e| m_error!(EC::IOErr, "bind to address error", e))?;
     loop {
         // When an incoming TCP connection is received grab a TCP stream for
         // client<->server communication.
@@ -87,8 +113,10 @@ pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
         // has work to do. In this case, a connection arrives on the port we are listening on and
         // the task is woken up, at which point the task is then put back on a thread, and is
         // driven forward by the runtime, eventually yielding a TCP stream.
-        let (tcp, _) = listener.accept().await
-            .map_err(|e| { m_error!(EC::IOErr, "accept error", e) })?;
+        let (tcp, _) = listener
+            .accept()
+            .await
+            .map_err(|e| m_error!(EC::IOErr, "accept error", e))?;
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
         let io = TokioIo::new(tcp);
@@ -109,6 +137,12 @@ pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
     }
 }
 
+#[cfg(not(feature = "debug_trace"))]
+pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MError> {
+    Ok(())
+}
+
+#[cfg(feature = "debug_trace")]
 pub fn debug_serve(canceler: NotifyWait, port: u16) {
     let async_debug_serve = async_debug_serve(([0, 0, 0, 0], port).into());
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -123,3 +157,6 @@ pub fn debug_serve(canceler: NotifyWait, port: u16) {
         ls.await;
     });
 }
+
+#[cfg(not(feature = "debug_trace"))]
+pub fn debug_serve(_canceler: NotifyWait, _port: u16) {}

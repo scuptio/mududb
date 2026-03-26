@@ -6,12 +6,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tree_sitter::Language;
 
-
-pub fn gen_rs<
-    O: AsRef<Path>,
-    G: AsRef<Path>,
-    M: AsRef<Path>,
->(output_path: O, grammar_path: G, md5_file:M, language: &Language) {
+pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>, M: AsRef<Path>>(
+    output_path: O,
+    grammar_path: G,
+    md5_file: M,
+    language: &Language,
+) {
     if !output_path.as_ref().exists() {
         fs::create_dir_all(output_path.as_ref()).unwrap();
     }
@@ -39,14 +39,15 @@ pub fn gen_rs<
     write_grammar_md5(&new_md5, &md5_file);
 }
 
-
-fn grammar_file_changed<P:AsRef<Path>>(s: &String, md5_file:P) -> Option<String> {
+fn grammar_file_changed<P: AsRef<Path>>(s: &String, md5_file: P) -> Option<String> {
     let mut hasher = Md5::new();
     hasher.update(s);
     let md5_hash = hasher.finalize();
     let mut buf = [0u8; 256];
     let encode_md5 = base16ct::lower::encode_str(&md5_hash, &mut buf).unwrap();
-    if !fs::exists(&md5_file).expect(format!("test file {} existing error", md5_file.as_ref().display()).as_str()) {
+    if !fs::exists(&md5_file)
+        .expect(format!("test file {} existing error", md5_file.as_ref().display()).as_str())
+    {
         return Some(encode_md5.to_string());
     }
     let previous_md5 = fs::read_to_string(md5_file).unwrap();
@@ -57,10 +58,9 @@ fn grammar_file_changed<P:AsRef<Path>>(s: &String, md5_file:P) -> Option<String>
     }
 }
 
-fn write_grammar_md5<P:AsRef<Path>>(md5: &String, md5_file_path:P) {
+fn write_grammar_md5<P: AsRef<Path>>(md5: &String, md5_file_path: P) {
     fs::write(md5_file_path, md5).expect("Failed to write md5 file");
 }
-
 
 const COMMENTS: &'static str = include_str!("text/comments.txt");
 
@@ -80,16 +80,13 @@ const ALIAS: &'static str = "ALIAS";
 const MEMBERS: &'static str = "members";
 const CONTENT: &'static str = "content";
 const NAME: &'static str = "name";
-const VALUE:&'static str = "value";
+const VALUE: &'static str = "value";
 
 struct Constant {
     node_name: HashSet<String>,
     field_name: HashSet<String>,
     seq_index: HashMap<String, Vec<usize>>,
 }
-
-
-
 
 fn format_name(names: &Vec<String>) -> String {
     let mut name_ret = String::new();
@@ -105,7 +102,12 @@ fn format_name(names: &Vec<String>) -> String {
     name_ret
 }
 
-fn visit_a_rule(language_name:&String, rule_content: &Value, names: &mut Vec<String>, constant: &mut Constant) {
+fn visit_a_rule(
+    language_name: &String,
+    rule_content: &Value,
+    names: &mut Vec<String>,
+    constant: &mut Constant,
+) {
     let map = rule_content.as_object().expect("as object");
     let value_type = map.get(TYPE).expect("must have type");
     let type_name = value_type.as_str().expect("type must be string");
@@ -194,8 +196,8 @@ fn contains_only_alphanum(s: &str) -> bool {
 
     while let Some(c) = chars.next() {
         match c {
-            '_' => {},
-            '0'..='9' => {},
+            '_' => {}
+            '0'..='9' => {}
             'a'..='z' | 'A'..='Z' => {}
             _ => return false,
         }
@@ -203,7 +205,7 @@ fn contains_only_alphanum(s: &str) -> bool {
     true
 }
 
-fn visit_rule(language_name:String, json: Value, constant: &mut Constant) {
+fn visit_rule(language_name: String, json: Value, constant: &mut Constant) {
     let map = json.as_object().expect("json must be object");
     let value_rules = map.get(RULES).expect("rules missing");
     let map_rules = value_rules
@@ -216,7 +218,7 @@ fn visit_rule(language_name:String, json: Value, constant: &mut Constant) {
     }
 }
 
-fn output_rust_file<P: AsRef<Path>>(language:&Language, path: P, constant: &Constant) {
+fn output_rust_file<P: AsRef<Path>>(language: &Language, path: P, constant: &Constant) {
     let mut node_kind_id: Vec<(String, u16)> = constant
         .node_name
         .iter()

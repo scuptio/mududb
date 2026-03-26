@@ -9,5 +9,5 @@ pub struct TemplateFileCS {
 pub struct FileInfo {
     pub namespace: String,
     pub using_stmts: Vec<String>,
-    pub blocks : Vec<String>
+    pub blocks: Vec<String>,
 }

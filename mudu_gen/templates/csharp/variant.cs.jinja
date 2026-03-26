@@ -22,7 +22,15 @@ public enum {{ variant.variant_name }}Kind {
 [MessagePackFormatter(typeof({{ variant.variant_name }}{{ case.vc_case_name }}Formatter))]
 public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.variant_name }}
 {
-    public required {{ case.vc_inner_type_name }} Inner  { get; set; }
+    {% if cfg.impl_default %}
+    [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public {{ variant.variant_name }}{{ case.vc_case_name }}()
+    {
+        Inner = {{ case.vc_inner_default_value }};
+    }
+    {% endif %}
+
+    public {% if case.vc_inner_required %}required {% endif %}{{ case.vc_inner_type_name }} Inner  { get; set; }
 
     public {{ variant.variant_name }}Kind Kind() {
         return {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
@@ -39,24 +47,32 @@ public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.vari
             case {{ variant.variant_name }}{{ case.vc_case_name }}  v:
                 return v;
             default:
-                throw new InvalidOperationException($"Unknown type: {value?.GetType()}");
+                throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
         }
     }
 }
 
-#pragma warning disable CS8633
-public class {{ variant.variant_name }}{{ case.vc_case_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}{{ case.vc_case_name }}>
-#pragma warning restore CS8633
+public class {{ variant.variant_name }}{{ case.vc_case_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}{{ case.vc_case_name }}?>
 {
-    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}{{ case.vc_case_name }} value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}{{ case.vc_case_name }}? value, MessagePackSerializerOptions options)
     {
+        if (value is null)
+        {
+            writer.WriteNil();
+            return;
+        }
 
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public {{ variant.variant_name }}{{ case.vc_case_name }} Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public {{ variant.variant_name }}{{ case.vc_case_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
-        {{ case.vc_inner_type_name }} inner = MessagePackSerializer.Deserialize<{{ case.vc_inner_type_name }}>(ref reader);
+        if (reader.TryReadNil())
+        {
+            return null;
+        }
+
+        {{ case.vc_inner_type_name }} inner = MessagePackSerializer.Deserialize<{{ case.vc_inner_type_name }}>(ref reader, options){{ case.vc_inner_deserialize_suffix }};
         return new {{ variant.variant_name }}{{ case.vc_case_name }} { Inner= inner};
     }
 }

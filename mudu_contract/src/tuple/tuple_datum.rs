@@ -55,17 +55,20 @@ fn to_tuple_desc(fields: Vec<(String, DatType)>) -> TupleFieldDesc {
 
 fn build_tuple_desc(field_name: &[String], field_ty: Vec<DatType>) -> TupleFieldDesc {
     let fields: Vec<(String, DatType)> = if field_ty.len() == field_name.len() {
-        field_ty.into_iter().enumerate().map(|(i, ty)| {
-            (field_name[i].clone(), ty)
-        }).collect()
+        field_ty
+            .into_iter()
+            .enumerate()
+            .map(|(i, ty)| (field_name[i].clone(), ty))
+            .collect()
     } else {
-        field_ty.into_iter().enumerate().map(|(i, ty)| {
-            (format!("field_{}", i), ty)
-        }).collect()
+        field_ty
+            .into_iter()
+            .enumerate()
+            .map(|(i, ty)| (format!("field_{}", i), ty))
+            .collect()
     };
     to_tuple_desc(fields)
 }
-
 
 impl<T> EnumerableDatum for T
 where
@@ -93,9 +96,7 @@ where
 }
 pub trait TupleDatumMarker {}
 
-impl <T:Datum> TupleDatumMarker for Vec<T> {
-
-}
+impl<T: Datum> TupleDatumMarker for Vec<T> {}
 
 macro_rules! impl_tuple_datum_marker {
     ($(
@@ -111,7 +112,7 @@ macro_rules! impl_tuple_datum_marker {
     };
 }
 
-impl_tuple_datum_marker!{
+impl_tuple_datum_marker! {
    i32,
    i64,
    f32,
@@ -318,19 +319,26 @@ impl_rs_tuple_datum!(
     E1, F1
 );
 
-
 #[cfg(test)]
 mod tests {
     use crate::tuple::tuple_datum;
 
     #[test]
     fn test_tuple_datum() {
-        println!("{:?}", <i32 as tuple_datum::TupleDatum>::tuple_desc_static(
-            &["test_field1".to_string()]
-        ));
-        println!("{:?}", <(i32,) as tuple_datum::TupleDatum>::tuple_desc_static(&[]));
-        println!("{:?}", <(i32, i64) as tuple_datum::TupleDatum>::tuple_desc_static(
-            &["f1".to_string(), "f2".to_string()]
-        ));
+        println!(
+            "{:?}",
+            <i32 as tuple_datum::TupleDatum>::tuple_desc_static(&["test_field1".to_string()])
+        );
+        println!(
+            "{:?}",
+            <(i32,) as tuple_datum::TupleDatum>::tuple_desc_static(&[])
+        );
+        println!(
+            "{:?}",
+            <(i32, i64) as tuple_datum::TupleDatum>::tuple_desc_static(&[
+                "f1".to_string(),
+                "f2".to_string()
+            ])
+        );
     }
 }

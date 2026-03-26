@@ -2,9 +2,9 @@ use crate::contract::data_row::DataRow;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
-use mudu_contract::tuple::tuple_key::{TupleKey, _KeyRef};
-use scc::TreeIndex;
+use mudu_contract::tuple::tuple_key::{_KeyRef, TupleKey};
 use scc::Guard;
+use scc::TreeIndex;
 use std::collections::Bound;
 use std::sync::Arc;
 
@@ -57,23 +57,23 @@ impl MemTableI {
     pub fn read_range<K: AsRef<[u8]>>(&self, begin: Bound<K>, end: Bound<K>) -> RS<Vec<DataRow>> {
         todo!()
         /*
-       let mut rows = vec![];
-       let g = Guard::new();
-       let begin_bound = begin.map(|k| _Key::new(k));
-       let end_bound = end.map(|k| _Key::new(k));
+        let mut rows = vec![];
+        let g = Guard::new();
+        let begin_bound = begin.map(|k| _Key::new(k));
+        let end_bound = end.map(|k| _Key::new(k));
 
-       let mut range = self.tree_index.range((begin_bound, end_bound), &g);
-       loop {
-           let opt = range.next();
-           match opt {
-               Some((_k, v)) => rows.push(v.clone()),
-               None => {
-                   break;
-               }
-           }
-       }
-       Ok(rows)
-       */
+        let mut range = self.tree_index.range((begin_bound, end_bound), &g);
+        loop {
+            let opt = range.next();
+            match opt {
+                Some((_k, v)) => rows.push(v.clone()),
+                None => {
+                    break;
+                }
+            }
+        }
+        Ok(rows)
+        */
     }
 
     pub fn insert_key(&self, key: Buf, row: DataRow) -> RS<Option<(Buf, DataRow)>> {

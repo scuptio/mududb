@@ -132,7 +132,11 @@ mod test {
         }
     }
 
-    fn recovery(folder: XLCfg, canceller: NotifyWait, recovery_done_notifier: NotifyWait) -> XLogService {
+    fn recovery(
+        folder: XLCfg,
+        canceller: NotifyWait,
+        recovery_done_notifier: NotifyWait,
+    ) -> XLogService {
         let (sender, s) = std::sync::mpsc::channel::<XLogService>();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -225,7 +229,7 @@ mod test {
             let r = write_log_multi_task(c, x_log, channel).await;
             r
         })
-            .unwrap();
+        .unwrap();
         vec_write_task.push(j);
 
         let c = canceler.clone();
@@ -234,7 +238,7 @@ mod test {
         let _j = spawn_local_task(canceler.clone(), "", async move {
             fsync_task.run_once().await.unwrap();
         })
-            .unwrap();
+        .unwrap();
         vec_fsync_task.push(_j);
         for j in vec_write_task {
             let opt = j
@@ -266,7 +270,7 @@ mod test {
                 let r = write_log(c, xl, ch).await;
                 r
             })
-                .unwrap();
+            .unwrap();
             vec_j.push(j);
         }
         let mut duration = Duration::default();
@@ -300,7 +304,6 @@ mod test {
             }
         }
     }
-
 
     async fn _write_log(x_log: Arc<dyn XLog>, channel: DataReceiver) -> RS<(Duration, u64)> {
         let _trace = task_trace!();
@@ -348,11 +351,9 @@ mod test {
         Ok((duration, n))
     }
 
-
     pub fn _x_log_append(data: &[u8]) {
         x_log_run(1, 10, 10, false, Some(data));
     }
-
 
     #[cfg(test)]
     mod _test {

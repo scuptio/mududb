@@ -12,7 +12,7 @@ pub fn gen_rust(
     input_ddl_path: Vec<String>,
     output_dir_path: String,
     type_desc: Option<String>,
-    language:String,
+    language: String,
 ) -> RS<()> {
     _gen_from_ddl_sql(input_ddl_path, output_dir_path, type_desc, language)?;
     Ok(())
@@ -35,10 +35,13 @@ fn _gen_from_ddl_sql(
     }
     let mut gen_result = GenResult::default();
     for file in input_ddl_path {
-        let sql_text = read_to_string(file)
-            .map_err(|e| m_error!(EC::IOErr, "open DDL SQL file error", e))?;
+        let sql_text =
+            read_to_string(file).map_err(|e| m_error!(EC::IOErr, "open DDL SQL file error", e))?;
         let gr = CodeGen::generate_entity_code_from_ddl_sql(
-            &sql_text, &lang, opt_ty_desc_path.is_some())?;
+            &sql_text,
+            &lang,
+            opt_ty_desc_path.is_some(),
+        )?;
         gen_result.extend(gr)
     }
 
@@ -47,8 +50,7 @@ fn _gen_from_ddl_sql(
         let stem = to_snake_case(&name);
         let file = format!("{}.{}", stem, extension);
         let file_path = out_path_buf.join(file);
-        fs::write(file_path, source)
-            .map_err(|e| m_error!(EC::IOErr, "write source error", e))?;
+        fs::write(file_path, source).map_err(|e| m_error!(EC::IOErr, "write source error", e))?;
     }
     if let Some(ty_desc_path) = opt_ty_desc_path {
         let content = to_json_str(&gen_result.used_defined_record_type)?;

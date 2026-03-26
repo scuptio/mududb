@@ -1,11 +1,11 @@
-use std::sync::Arc;
 use crate::lang_impl::lang::lang_handle_tuple::lang_handle_tuple;
 use crate::lang_impl::lang::non_primitive::NonPrimitiveType;
+use crate::lang_impl::lang::render::Render;
+use crate::lang_impl::rust::render_rs::create_render;
 use crate::{impl_non_primitive, impl_primitive};
 use mudu_binding::universal::uni_primitive::UniPrimitive;
 use paste::paste;
-use crate::lang_impl::lang::render::Render;
-use crate::lang_impl::rust::render_rs::create_render;
+use std::sync::Arc;
 
 impl_primitive! {
     rust,
@@ -22,8 +22,8 @@ impl_primitive! {
     (F64, "f64"),
     (Char, "char"),
     (String, "String"),
+    (Blob, "Vec<u8>"),
 }
-
 
 impl_non_primitive! {
     rust,
@@ -33,20 +33,19 @@ impl_non_primitive! {
     (Tuple, fn_handle_tuple),
 }
 
-fn fn_handle_array(inner:&String) -> String {
+fn fn_handle_array(inner: &String) -> String {
     format!("Vec<{}>", inner)
 }
 
-fn fn_handle_option(inner:&String) -> String {
+fn fn_handle_option(inner: &String) -> String {
     format!("Option<{}>", inner)
 }
 
-fn fn_handle_tuple(inner:&Vec<String>) -> String {
+fn fn_handle_tuple(inner: &Vec<String>) -> String {
     lang_handle_tuple(inner)
 }
 
-
-fn fn_handle_box(inner:&String) -> String {
+fn fn_handle_box(inner: &String) -> String {
     format!("Box<{}>", inner)
 }
 

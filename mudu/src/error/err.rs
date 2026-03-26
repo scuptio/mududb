@@ -2,7 +2,7 @@ use crate::common::serde_utils;
 use crate::error::ec::EC;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::SerializeStruct;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::error::Error;
 use std::fmt;
 use std::panic::Location;

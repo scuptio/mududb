@@ -2,7 +2,6 @@ use mudu::common::result::RS;
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::Datum;
 
-
 pub fn field_from_binary<T: Datum, B: AsRef<[u8]>>(binary: B) -> RS<T> {
     T::from_binary(binary.as_ref())
 }
@@ -36,10 +35,7 @@ pub fn attr_get_binary<R: Datum>(attribute: &Option<R>) -> RS<Option<Vec<u8>>> {
     Ok(opt_datum)
 }
 
-pub fn attr_set_binary<R: Datum, D: AsRef<[u8]>>(
-    attribute: &mut Option<R>,
-    binary: D,
-) -> RS<()> {
+pub fn attr_set_binary<R: Datum, D: AsRef<[u8]>>(attribute: &mut Option<R>, binary: D) -> RS<()> {
     match attribute {
         Some(value) => {
             *value = field_from_value(binary)?;
@@ -51,7 +47,6 @@ pub fn attr_set_binary<R: Datum, D: AsRef<[u8]>>(
     Ok(())
 }
 
-
 pub fn attr_get_value<R: Datum>(attribute: &Option<R>) -> RS<Option<DatValue>> {
     let opt_datum = match attribute {
         Some(value) => Some(value.to_value(R::dat_type())?),
@@ -60,10 +55,7 @@ pub fn attr_get_value<R: Datum>(attribute: &Option<R>) -> RS<Option<DatValue>> {
     Ok(opt_datum)
 }
 
-pub fn attr_set_value<R: Datum, D: AsRef<DatValue>>(
-    attribute: &mut Option<R>,
-    value: D,
-) -> RS<()> {
+pub fn attr_set_value<R: Datum, D: AsRef<DatValue>>(attribute: &mut Option<R>, value: D) -> RS<()> {
     match attribute {
         Some(attr) => {
             *attr = R::from_value(value.as_ref())?;

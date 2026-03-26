@@ -37,7 +37,7 @@ enum ValueKind {
     String(String),
     Record(Vec<DatValue>),
     Array(Vec<DatValue>),
-    Binary(Vec<u8>)
+    Binary(Vec<u8>),
 }
 
 macro_rules! impl_dat_value_methods {

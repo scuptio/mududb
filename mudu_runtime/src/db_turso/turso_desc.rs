@@ -13,14 +13,12 @@ pub async fn desc_projection(stmt: &Statement) -> Result<Vec<DatumDesc>, MError>
     let columns = stmt.columns();
     let mut schema = Vec::with_capacity(columns.len());
     for column in columns {
-        let type_str = column.decl_type()
-            .map_or_else(|| { Err(m_error!(EC::NoneErr, "cannot get column type")) },
-                         |t| { Ok(t.to_string()) })?;
+        let type_str = column.decl_type().map_or_else(
+            || Err(m_error!(EC::NoneErr, "cannot get column type")),
+            |t| Ok(t.to_string()),
+        )?;
         let id = sqlite_decl_type_to_id(&type_str)?;
-        let desc = DatumDesc::new(
-            column.name().to_string(),
-            DatType::default_for(id),
-        );
+        let desc = DatumDesc::new(column.name().to_string(), DatType::default_for(id));
 
         schema.push(desc);
     }
@@ -35,10 +33,11 @@ fn sqlite_decl_type_to_id(name: &str) -> RS<DatTypeID> {
         "BIGINT" => DatTypeID::I64,
         "REAL" => DatTypeID::F64,
         _ => {
-            return Err(m_error!(EC::TypeErr, format!("do not support type {}", name)));
+            return Err(m_error!(
+                EC::TypeErr,
+                format!("do not support type {}", name)
+            ));
         }
     };
     Ok(id)
 }
-
-

@@ -1,0 +1,22 @@
+use crate:game-data:coordinate/coordinate;
+use crate:game-data:polygon/polygon;
+use crate:game-data:id/id;
+use crate:game-data:resource-stock/resource-stock;
+
+interface game-data {
+    record city {
+        id: id,
+        city-type: string,
+        name: string,
+        location: coordinate,
+        population: s64,
+        military: s64,
+        economy: s64,
+        food: s64,
+        culture: s64,
+        happiness: s64,
+        resource-stock: resource-stock,
+        boundary-radius: s64,
+        boundary-polygon: polygon,
+    }
+}

@@ -55,6 +55,7 @@ def run_mudu_transpiler(
         input_source: Path,
         output_path: Path,
         lang: str,
+        module_name: str | None,
         src_mod:str,
         dst_mod:str,
         desc_path: Path,
@@ -62,6 +63,8 @@ def run_mudu_transpiler(
         enable_async: bool,
         verbose: bool
 ):
+    workspace_root = Path(__file__).resolve().parents[2]
+    mtp_manifest = workspace_root / "mudu_transpiler" / "Cargo.toml"
     desc_argv = []
     type_desc_argv = []
     async_argv = []
@@ -71,7 +74,17 @@ def run_mudu_transpiler(
         type_desc_argv = ["--type-desc", type_desc_path]
     if enable_async:
         async_argv = ["--async"]
-    command = (["mtp", "--input", input_source, "--output", output_path] +
+    module_argv = []
+    if module_name:
+        module_argv = ["--module", module_name]
+    command = ([
+                   "cargo", "run", "--quiet",
+                   "--manifest-path", mtp_manifest,
+                   "--bin", "mtp",
+                   "--",
+                   "--input", input_source, "--output", output_path
+               ] +
+               module_argv +
                desc_argv +
                type_desc_argv +
                ["--src-mod", src_mod, "--dst-mod", dst_mod]
@@ -151,6 +164,7 @@ class Transpiler:
             config_path: Path = None,
             package_desc: Path = None,
             type_desc:Path = None,
+            module_name: str | None = None,
             verbose=False
     ):
         self.source_dir = source_dir
@@ -158,6 +172,7 @@ class Transpiler:
         self.artifact_dir = artifact_dir
         self.package_desc = package_desc
         self.type_desc = type_desc
+        self.module_name = module_name
         self.verbose = verbose
         self.config = _load_config(config_path)
 
@@ -215,6 +230,7 @@ class Transpiler:
         run_mudu_transpiler(
             source_file, output_path,
             lang,
+            self.module_name,
             self.config["translate"]["src_mod"],
             self.config["translate"]["dst_mod"],
             output_desc_file,
@@ -368,18 +384,19 @@ def main():
         help="Custom type description file input"
     )
 
+    parser.add_argument(
+        "--wasm-file",
+        required=False,
+        type=Path,
+        default=None,
+        help="WASM artifact path; module name is derived from its file stem"
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
     if not args.source.exists():
         print(f"Error: Source directory does not exist: {args.source}", file=sys.stderr)
-        sys.exit(1)
-
-    # Check for required Python packages
-    try:
-        import toml
-    except ImportError:
-        print("Error: 'toml' package is required. Install with: pip install toml", file=sys.stderr)
         sys.exit(1)
 
     # Check config file if provided
@@ -399,7 +416,11 @@ def main():
     # Initialize transpiler to check config
     transpiler = Transpiler(
         args.source, args.target, args.artifact, args.config,
-        args.package_desc, args.type_desc, args.verbose)
+        args.package_desc,
+        args.type_desc,
+        args.wasm_file.stem if args.wasm_file else None,
+        args.verbose,
+    )
     if args.dry_run:
         transpiler.dry_run()
         sys.exit(0)

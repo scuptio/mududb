@@ -19,5 +19,3 @@ impl Iterator for TursoParam {
         self.inner.pop()
     }
 }
-
-

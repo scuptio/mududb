@@ -20,9 +20,7 @@ pub fn create_render() -> Arc<dyn Render> {
     Arc::new(RenderRS::new())
 }
 
-struct RenderRS {
-
-}
+struct RenderRS {}
 
 impl Render for RenderRS {
     fn render(&self, template: AbstractTemplate) -> RS<String> {
@@ -48,7 +46,7 @@ impl RenderRS {
 
     fn render_inner(&self, elements: Vec<TemplateKind>) -> RS<Vec<String>> {
         let mut code_block = Vec::with_capacity(elements.len());
-        for element in  elements {
+        for element in elements {
             match element {
                 TemplateKind::Enum((def, cfg)) => {
                     let s = Self::render_enum_rs(def, cfg)?;
@@ -66,6 +64,7 @@ impl RenderRS {
                     let s = Self::render_entity_rs(entity)?;
                     code_block.push(s);
                 }
+                TemplateKind::Table(_) => todo!(),
             }
         }
         Ok(code_block)
@@ -89,34 +88,35 @@ impl RenderRS {
         Ok(s)
     }
 
-    fn render_record_rs(def:UniRecordDef, cfg:CodegenCfg) -> RS<String> {
+    fn render_record_rs(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateRecordRS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            m_error!(EC::DecodeErr, "render rust record template error", e) })?;
+        let s = template
+            .render()
+            .map_err(|e| m_error!(EC::DecodeErr, "render rust record template error", e))?;
         Ok(s)
     }
 
-    fn render_enum_rs(def:UniEnumDef, cfg:CodegenCfg) -> RS<String> {
+    fn render_enum_rs(def: UniEnumDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateEnumRS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            m_error!(EC::DecodeErr, "render rust enum template error", e)
-        })?;
+        let s = template
+            .render()
+            .map_err(|e| m_error!(EC::DecodeErr, "render rust enum template error", e))?;
         Ok(s)
     }
 
-    fn render_variant_rs(def:UniVariantDef, cfg:CodegenCfg) -> RS<String> {
+    fn render_variant_rs(def: UniVariantDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateVariantRS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            m_error!(EC::DecodeErr, "render rust variant template error", e)
-        })?;
+        let s = template
+            .render()
+            .map_err(|e| m_error!(EC::DecodeErr, "render rust variant template error", e))?;
         Ok(s)
     }
 
     fn render_entity_rs(table_schema: RecordDef) -> RS<String> {
         let template = TemplateEntityRS::from_table_schema(&table_schema)?;
-        let s = template.render().map_err(|e| {
-            m_error!(EC::DecodeErr, "render rust entity template error", e)
-        })?;
+        let s = template
+            .render()
+            .map_err(|e| m_error!(EC::DecodeErr, "render rust entity template error", e))?;
         Ok(s)
     }
 }

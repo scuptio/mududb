@@ -699,6 +699,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "table_item"
+        },
+        {
+          "type": "SYMBOL",
           "name": "flags_items"
         },
         {
@@ -1064,12 +1068,149 @@
           }
         },
         {
-          "type": "SYMBOL",
-          "name": "_record_body"
+          "type": "FIELD",
+          "name": "record_body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "record_body"
+          }
         }
       ]
     },
-    "_record_body": {
+    "table_item": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "comment",
+          "content": {
+            "type": "REPEAT",
+            "content": {
+              "type": "SYMBOL",
+              "name": "special_comment"
+            }
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "table"
+        },
+        {
+          "type": "FIELD",
+          "name": "table_name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "id"
+          }
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_table_body"
+        }
+      ]
+    },
+    "_table_body": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_table_key_value"
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
+    "_table_key_value": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_table_key"
+        },
+        {
+          "type": "STRING",
+          "value": ","
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_table_value"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": ","
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "_table_key": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "key"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "FIELD",
+          "name": "table_key",
+          "content": {
+            "type": "SYMBOL",
+            "name": "table_key_or_value_def"
+          }
+        }
+      ]
+    },
+    "_table_value": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "value"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "FIELD",
+          "name": "table_value",
+          "content": {
+            "type": "SYMBOL",
+            "name": "table_key_or_value_def"
+          }
+        }
+      ]
+    },
+    "table_key_or_value_def": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "id"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "record_body"
+        }
+      ]
+    },
+    "record_body": {
       "type": "SEQ",
       "members": [
         {

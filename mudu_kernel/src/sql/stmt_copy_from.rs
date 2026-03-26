@@ -28,7 +28,6 @@ struct LoadParam {
     value_desc: TupleDesc,
 }
 
-
 #[async_trait]
 impl StmtCmd for StmtCopyFrom {
     async fn realize(&self, ctx: &dyn SsnCtx) -> RS<()> {

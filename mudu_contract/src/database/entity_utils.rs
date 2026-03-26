@@ -19,9 +19,11 @@ fn _entity_from_tuple<R: Entity, T: AsRef<TupleField>, D: AsRef<TupleFieldDesc>>
 ) -> RS<R> {
     let mut s = R::new_empty();
     if row.as_ref().fields().len() != desc.as_ref().fields().len() {
-        panic!("Entity from_tuple wrong length tuple fields:{}, description fields:{}",
-               row.as_ref().fields().len(),
-               desc.as_ref().fields().len());
+        panic!(
+            "Entity from_tuple wrong length tuple fields:{}, description fields:{}",
+            row.as_ref().fields().len(),
+            desc.as_ref().fields().len()
+        );
     }
     for (i, dat) in row.as_ref().fields().iter().enumerate() {
         let dd = &desc.as_ref().fields()[i];
@@ -36,9 +38,11 @@ fn _entity_from_tuple_value<R: Entity, T: AsRef<TupleValue>, D: AsRef<TupleField
 ) -> RS<R> {
     let mut s = R::new_empty();
     if row.as_ref().values().len() != desc.as_ref().fields().len() {
-        panic!("Entity from tuple value, wrong length tuple fields:{}, description fields:{}",
-               row.as_ref().values().len(),
-               desc.as_ref().fields().len());
+        panic!(
+            "Entity from tuple value, wrong length tuple fields:{}, description fields:{}",
+            row.as_ref().values().len(),
+            desc.as_ref().fields().len()
+        );
     }
     for (i, dat) in row.as_ref().values().iter().enumerate() {
         let dd = &desc.as_ref().fields()[i];
@@ -59,7 +63,6 @@ fn _entity_to_tuple<R: Entity, D: AsRef<TupleFieldDesc>>(record: &R, desc: D) ->
     }
     Ok(TupleField::new(tuple))
 }
-
 
 fn _entity_from_value<R: Entity, V: AsRef<DatValue>, D: AsRef<TupleFieldDesc>>(
     value: V,
@@ -86,8 +89,8 @@ fn _entity_from_value<R: Entity, V: AsRef<DatValue>, D: AsRef<TupleFieldDesc>>(
 fn _entity_to_value<R: Entity>(record: &R, ty: &DatType) -> RS<DatValue> {
     let mut value = vec![];
     let object_param = match ty.dat_type_id() {
-        DatTypeID::Record => { ty.expect_record_param() }
-        _ => { return Err(m_error!(EC::TypeErr, "convert object to other not support")) }
+        DatTypeID::Record => ty.expect_record_param(),
+        _ => return Err(m_error!(EC::TypeErr, "convert object to other not support")),
     };
     for (f_name, _ty) in object_param.fields() {
         let opt_value = record.get_field_value(f_name)?;
@@ -100,31 +103,22 @@ fn _entity_to_value<R: Entity>(record: &R, ty: &DatType) -> RS<DatValue> {
     Ok(DatValue::from_record(value))
 }
 
-
-pub fn entity_from_tuple_field<E:Entity, T: AsRef<TupleField>>(
-    tuple_row: T
-) -> RS<E> {
+pub fn entity_from_tuple_field<E: Entity, T: AsRef<TupleField>>(tuple_row: T) -> RS<E> {
     _entity_from_tuple(tuple_row, E::tuple_desc())
 }
 
-pub fn entity_from_tuple_value<E:Entity, T: AsRef<TupleValue>>(
-    tuple_row: T
-) -> RS<E> {
+pub fn entity_from_tuple_value<E: Entity, T: AsRef<TupleValue>>(tuple_row: T) -> RS<E> {
     _entity_from_tuple_value(tuple_row, E::tuple_desc())
 }
 
-pub fn entity_from_value<E:Entity, V: AsRef<DatValue>>(
-    value: V
-) -> RS<E> {
+pub fn entity_from_value<E: Entity, V: AsRef<DatValue>>(value: V) -> RS<E> {
     _entity_from_value(value, E::tuple_desc())
 }
 
-pub fn entity_from_textual<E: Entity>(
-    textual: &str
-) -> RS<E> {
+pub fn entity_from_textual<E: Entity>(textual: &str) -> RS<E> {
     let ty = E::dat_type();
     let value = ty.dat_type_id().fn_input()(textual, ty)
-        .map_err(|e| { m_error!(EC::TypeErr, "input from string error", e) })?;
+        .map_err(|e| m_error!(EC::TypeErr, "input from string error", e))?;
     entity_from_value(&value)
 }
 
@@ -132,15 +126,15 @@ pub fn entity_dat_type_id() -> RS<DatTypeID> {
     Ok(DatTypeID::Record)
 }
 
-pub fn entity_from_binary<E:Entity>(binary:&[u8]) -> RS<E> {
+pub fn entity_from_binary<E: Entity>(binary: &[u8]) -> RS<E> {
     let ty = E::dat_type();
     let (value, _) = ty.dat_type_id().fn_recv()(binary, ty)
-        .map_err(|e|{ m_error!(EC::TypeErr, "convert binary to entity error", e)})?;
+        .map_err(|e| m_error!(EC::TypeErr, "convert binary to entity error", e))?;
     let entity = entity_from_value(&value)?;
     Ok(entity)
 }
 
-pub fn entity_dat_type<E:Entity>() -> DatType {
+pub fn entity_dat_type<E: Entity>() -> DatType {
     let object_name = E::object_name().to_string();
     let field_desc = E::tuple_desc();
     let mut vec = Vec::new();
@@ -151,11 +145,11 @@ pub fn entity_dat_type<E:Entity>() -> DatType {
     data_type::record::new_record_type(object_name, vec)
 }
 
-pub fn entity_to_tuple<E:Entity>(entity:&E) -> RS<TupleField> {
+pub fn entity_to_tuple<E: Entity>(entity: &E) -> RS<TupleField> {
     _entity_to_tuple(entity, E::tuple_desc())
 }
 
-pub fn entity_to_binary<E:Entity>(entity:&E, ty:&DatType) -> RS<DatBinary> {
+pub fn entity_to_binary<E: Entity>(entity: &E, ty: &DatType) -> RS<DatBinary> {
     let value = entity_to_value(entity, ty)?;
     let id = ty.dat_type_id();
     let binary = id.fn_send()(&value, ty)
@@ -163,7 +157,7 @@ pub fn entity_to_binary<E:Entity>(entity:&E, ty:&DatType) -> RS<DatBinary> {
     Ok(binary)
 }
 
-pub fn entity_to_textual<E:Entity>(entity:&E,  ty:&DatType) -> RS<DatTextual> {
+pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DatType) -> RS<DatTextual> {
     let value = entity_to_value(entity, ty)?;
     let id = ty.dat_type_id();
     let textual = id.fn_output()(&value, ty)
@@ -171,10 +165,10 @@ pub fn entity_to_textual<E:Entity>(entity:&E,  ty:&DatType) -> RS<DatTextual> {
     Ok(textual)
 }
 
-pub fn entity_to_value<E:Entity>(entity:&E, ty:&DatType) -> RS<DatValue> {
+pub fn entity_to_value<E: Entity>(entity: &E, ty: &DatType) -> RS<DatValue> {
     _entity_to_value(entity, ty)
 }
 
-pub fn entity_clone_boxed<E:Entity>(entity:&E) -> Box<dyn DatumDyn> {
+pub fn entity_clone_boxed<E: Entity>(entity: &E) -> Box<dyn DatumDyn> {
     Box::new(entity.clone())
 }

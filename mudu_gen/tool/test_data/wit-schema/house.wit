@@ -1,0 +1,12 @@
+use crate:game-data:id/id;
+
+interface game-data {
+    record house {
+        fraction-id:id,
+        house-id: id,
+        name: string,
+        prestige: u64,
+        loyalty-to-faction: u64,
+        head-character-id: option<id>,
+    }
+}

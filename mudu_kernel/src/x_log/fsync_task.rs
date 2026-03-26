@@ -1,12 +1,12 @@
-use async_trait::async_trait;
 use crate::contract::lsn::LSN;
 use crate::x_log::lsn_syncer::LSNSyncer;
 use crate::x_log::x_log_file::XLogFile;
-#[cfg(all(target_os = "linux", feature = "iouring"))]
+#[cfg(target_os = "linux")]
 use crate::x_log::x_log_file_iou::f_sync_io_uring;
 use crate::x_log::xl_file_info::XLFileInfo;
-#[cfg(all(target_os = "linux", feature = "iouring"))]
+#[cfg(target_os = "linux")]
 use crate::x_log::xl_path::xl_file_path;
+use async_trait::async_trait;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu_utils::notifier::NotifyWait;
@@ -16,12 +16,8 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use tracing::error;
 
-#[cfg(all(target_os = "linux", feature = "iouring"))]
-async fn sync_io(
-    f: XLFileInfo,
-    receiver: Receiver<(Buf, LSN)>,
-    lsn_syncer: LSNSyncer,
-) -> RS<()> {
+#[cfg(target_os = "linux")]
+async fn sync_io(f: XLFileInfo, receiver: Receiver<(Buf, LSN)>, lsn_syncer: LSNSyncer) -> RS<()> {
     if f.cfg.x_log_use_io_uring {
         let path_buf = xl_file_path(
             &f.cfg.x_log_path,
@@ -42,12 +38,8 @@ async fn sync_io(
     Ok(())
 }
 
-#[cfg(not(all(target_os = "linux", feature = "iouring")))]
-async fn sync_io(
-    f: XLFileInfo,
-    receiver: Receiver<(Buf, LSN)>,
-    lsn_syncer: LSNSyncer,
-) -> RS<()> {
+#[cfg(not(target_os = "linux"))]
+async fn sync_io(f: XLFileInfo, receiver: Receiver<(Buf, LSN)>, lsn_syncer: LSNSyncer) -> RS<()> {
     let mut file = XLogFile::new(f.cfg, f.channel_name, f.file_size, f.file_no)?;
     file.f_sync_loop(receiver, lsn_syncer).await?;
     Ok(())

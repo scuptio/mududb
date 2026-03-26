@@ -40,9 +40,17 @@ mod tests {
         for (i, s) in [
             (item_from_tuple, "Entity::to_tuple -> Entity::from_tuple"),
             (item_from_value, "Entity::to_value -> Entity::from_value"),
-            (item_from_value2, "Entity::to_value -> Output Printable -> Input Printable -> Entity::from_value"),
-            (item_from_value3, "Entity::to_value -> Send Binary -> Recv Binary -> Entity::from_value"),
-        ].iter() {
+            (
+                item_from_value2,
+                "Entity::to_value -> Output Printable -> Input Printable -> Entity::from_value",
+            ),
+            (
+                item_from_value3,
+                "Entity::to_value -> Send Binary -> Recv Binary -> Entity::from_value",
+            ),
+        ]
+        .iter()
+        {
             assert_eq!(i.get_i_id(), item.get_i_id(), "{}", s);
             assert_eq!(i.get_i_name(), item.get_i_name(), "{}", s);
             assert_eq!(i.get_i_im_id(), item.get_i_im_id(), "{}", s);
@@ -50,7 +58,6 @@ mod tests {
             assert_eq!(i.get_i_price(), item.get_i_price(), "{}", s);
         }
     }
-
 
     #[test]
     fn test_vec_entity_to_array() {
@@ -76,9 +83,18 @@ mod tests {
         assert_eq!(items_from_binary.len(), items.len());
         assert_eq!(items_from_textual.len(), items.len());
         for (i, item) in items.iter().enumerate() {
-            assert_eq!(items_from_value[i].get_i_id().unwrap(), item.get_i_id().unwrap());
-            assert_eq!(items_from_binary[i].get_i_id().unwrap(), item.get_i_id().unwrap());
-            assert_eq!(items_from_textual[i].get_i_id().unwrap(), item.get_i_id().unwrap());
+            assert_eq!(
+                items_from_value[i].get_i_id().unwrap(),
+                item.get_i_id().unwrap()
+            );
+            assert_eq!(
+                items_from_binary[i].get_i_id().unwrap(),
+                item.get_i_id().unwrap()
+            );
+            assert_eq!(
+                items_from_textual[i].get_i_id().unwrap(),
+                item.get_i_id().unwrap()
+            );
         }
     }
 }

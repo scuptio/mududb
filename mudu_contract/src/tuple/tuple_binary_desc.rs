@@ -30,17 +30,15 @@ impl TupleBinaryDesc {
         for td in type_desc.iter() {
             let id = td.dat_type_id();
             match id.fn_send_type_len()(td) {
-                Ok(opt_len) => {
-                    match opt_len {
-                        Some(len) => {
-                            total_fixed_size += len as usize;
-                            fixed_count += 1;
-                        }
-                        None => {
-                            var_count += 1;
-                        }
+                Ok(opt_len) => match opt_len {
+                    Some(len) => {
+                        total_fixed_size += len as usize;
+                        fixed_count += 1;
                     }
-                }
+                    None => {
+                        var_count += 1;
+                    }
+                },
                 Err(e) => {
                     panic!("get type length error, {:?}", e);
                 }
@@ -57,38 +55,20 @@ impl TupleBinaryDesc {
         for ty in type_desc.iter() {
             let id = ty.dat_type_id();
             match id.fn_send_type_len()(ty) {
-                Ok(opt_len) => {
-                    match opt_len {
-                        Some(data_len) => {
-                            let slot = Slot::new(offset_data_fixed, data_len as _);
-                            slot_all.push(FieldDesc::new(
-                                slot.clone(),
-                                ty.clone(),
-                                true,
-                            ));
-                            offset_len_data_fixed.push(FieldDesc::new(
-                                slot,
-                                ty.clone(),
-                                true,
-                            ));
-                            offset_data_fixed += data_len;
-                        }
-                        None => {
-                            offset_slot_var += Slot::size_of() as u32;
-                            let slot = Slot::new(offset_slot_var, Slot::size_of() as u32);
-                            slot_all.push(FieldDesc::new(
-                                slot.clone(),
-                                ty.clone(),
-                                false,
-                            ));
-                            offset_len_slot_var.push(FieldDesc::new(
-                                slot,
-                                ty.clone(),
-                                false,
-                            ));
-                        }
+                Ok(opt_len) => match opt_len {
+                    Some(data_len) => {
+                        let slot = Slot::new(offset_data_fixed, data_len as _);
+                        slot_all.push(FieldDesc::new(slot.clone(), ty.clone(), true));
+                        offset_len_data_fixed.push(FieldDesc::new(slot, ty.clone(), true));
+                        offset_data_fixed += data_len;
                     }
-                }
+                    None => {
+                        offset_slot_var += Slot::size_of() as u32;
+                        let slot = Slot::new(offset_slot_var, Slot::size_of() as u32);
+                        slot_all.push(FieldDesc::new(slot.clone(), ty.clone(), false));
+                        offset_len_slot_var.push(FieldDesc::new(slot, ty.clone(), false));
+                    }
+                },
                 Err(e) => {
                     panic!("get type length error, {:?}", e);
                 }
@@ -105,7 +85,9 @@ impl TupleBinaryDesc {
         })
     }
 
-    pub fn normalized_type_desc_vec<T: Default + Clone + 'static>(vec: Vec<(DatType, T)>) -> RS<(Vec<DatType>, Vec<T>)> {
+    pub fn normalized_type_desc_vec<T: Default + Clone + 'static>(
+        vec: Vec<(DatType, T)>,
+    ) -> RS<(Vec<DatType>, Vec<T>)> {
         _normalized(vec)
     }
 
@@ -149,7 +131,9 @@ impl TupleBinaryDesc {
 }
 
 /// return the vector after normalized and the payload T of the element in the original vector
-fn _normalized<T: Default + Clone + 'static>(vec_type_desc: Vec<(DatType, T)>) -> RS<(Vec<DatType>, Vec<T>)> {
+fn _normalized<T: Default + Clone + 'static>(
+    vec_type_desc: Vec<(DatType, T)>,
+) -> RS<(Vec<DatType>, Vec<T>)> {
     let mut vec = vec_type_desc;
 
     // Collect all comparison results first to handle errors
@@ -169,7 +153,7 @@ fn _normalized<T: Default + Clone + 'static>(vec_type_desc: Vec<(DatType, T)>) -
         }
     });
     match err {
-        Some(e) => { return Err(e) }
+        Some(e) => return Err(e),
         None => {}
     }
     let mut sorted_vec = vec![];
@@ -192,7 +176,6 @@ fn is_normalized(vec_type_desc: &[DatType]) -> RS<bool> {
     Ok(true)
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
@@ -209,10 +192,13 @@ mod tests {
             DatType::new_no_param(DatTypeID::I32),
             DatType::new_no_param(DatTypeID::F32),
         ];
-        let dat_type_and_index:Vec<(DatType, usize)> = dat_types.into_iter().enumerate()
+        let dat_type_and_index: Vec<(DatType, usize)> = dat_types
+            .into_iter()
+            .enumerate()
             .map(|(i, ty)| (ty, i))
             .collect::<Vec<_>>();
-        let (norm_types, _index) = TupleBinaryDesc::normalized_type_desc_vec(dat_type_and_index).unwrap();
+        let (norm_types, _index) =
+            TupleBinaryDesc::normalized_type_desc_vec(dat_type_and_index).unwrap();
 
         let _desc = TupleBinaryDesc::from(norm_types).unwrap();
     }

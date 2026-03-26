@@ -1,12 +1,12 @@
 use mudu::common::result::RS;
 use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
 #[cfg(not(target_arch = "wasm32"))]
 use postgres::Row;
 use std::sync::{Arc, Mutex};
-use mudu_contract::tuple::tuple_value::TupleValue;
 
 pub struct ResultSetPG {
     desc: Arc<TupleFieldDesc>,

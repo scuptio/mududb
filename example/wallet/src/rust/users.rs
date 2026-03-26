@@ -33,7 +33,6 @@ pub mod object {
 
     const UPDATED_AT: &str = "updated_at";
 
-
     // entity struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Users {
@@ -50,7 +49,6 @@ pub mod object {
         created_at: AttrCreatedAt,
 
         updated_at: AttrUpdatedAt,
-
     }
 
     impl TupleDatumMarker for Users {}
@@ -81,7 +79,6 @@ pub mod object {
                 created_at: AttrCreatedAt::from(created_at),
 
                 updated_at: AttrUpdatedAt::from(updated_at),
-
             };
             s
         }
@@ -90,95 +87,59 @@ pub mod object {
             Self::default()
         }
 
-
-        pub fn set_user_id(
-            &mut self,
-            user_id: i32,
-        ) {
+        pub fn set_user_id(&mut self, user_id: i32) {
             self.user_id.update(user_id)
         }
 
-        pub fn get_user_id(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_user_id(&self) -> &Option<i32> {
             self.user_id.get()
         }
 
-        pub fn set_name(
-            &mut self,
-            name: String,
-        ) {
+        pub fn set_name(&mut self, name: String) {
             self.name.update(name)
         }
 
-        pub fn get_name(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_name(&self) -> &Option<String> {
             self.name.get()
         }
 
-        pub fn set_phone(
-            &mut self,
-            phone: String,
-        ) {
+        pub fn set_phone(&mut self, phone: String) {
             self.phone.update(phone)
         }
 
-        pub fn get_phone(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_phone(&self) -> &Option<String> {
             self.phone.get()
         }
 
-        pub fn set_email(
-            &mut self,
-            email: String,
-        ) {
+        pub fn set_email(&mut self, email: String) {
             self.email.update(email)
         }
 
-        pub fn get_email(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_email(&self) -> &Option<String> {
             self.email.get()
         }
 
-        pub fn set_password(
-            &mut self,
-            password: String,
-        ) {
+        pub fn set_password(&mut self, password: String) {
             self.password.update(password)
         }
 
-        pub fn get_password(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_password(&self) -> &Option<String> {
             self.password.get()
         }
 
-        pub fn set_created_at(
-            &mut self,
-            created_at: i32,
-        ) {
+        pub fn set_created_at(&mut self, created_at: i32) {
             self.created_at.update(created_at)
         }
 
-        pub fn get_created_at(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_created_at(&self) -> &Option<i32> {
             self.created_at.get()
         }
 
-        pub fn set_updated_at(
-            &mut self,
-            updated_at: i32,
-        ) {
+        pub fn set_updated_at(&mut self, updated_at: i32) {
             self.updated_at.update(updated_at)
         }
 
-        pub fn get_updated_at(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_updated_at(&self) -> &Option<i32> {
             self.updated_at.get()
         }
     }
@@ -186,8 +147,8 @@ pub mod object {
     impl Datum for Users {
         fn dat_type() -> &'static DatType {
             lazy_static! {
-            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Users>();
-        }
+                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Users>();
+            }
             &DAT_TYPE
         }
 
@@ -233,24 +194,16 @@ pub mod object {
 
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
-            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                
-                AttrUserId::datum_desc().clone(),
-                
-                AttrName::datum_desc().clone(),
-                
-                AttrPhone::datum_desc().clone(),
-                
-                AttrEmail::datum_desc().clone(),
-                
-                AttrPassword::datum_desc().clone(),
-                
-                AttrCreatedAt::datum_desc().clone(),
-                
-                AttrUpdatedAt::datum_desc().clone(),
-                
-            ]);
-        }
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrUserId::datum_desc().clone(),
+                    AttrName::datum_desc().clone(),
+                    AttrPhone::datum_desc().clone(),
+                    AttrEmail::datum_desc().clone(),
+                    AttrPassword::datum_desc().clone(),
+                    AttrCreatedAt::datum_desc().clone(),
+                    AttrUpdatedAt::datum_desc().clone(),
+                ]);
+            }
             &TUPLE_DESC
         }
 
@@ -260,104 +213,103 @@ pub mod object {
 
         fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
             match field {
-                USER_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.user_id.get())
+                USER_ID => attr_field_access::attr_get_binary::<_>(self.user_id.get()),
+
+                NAME => attr_field_access::attr_get_binary::<_>(self.name.get()),
+
+                PHONE => attr_field_access::attr_get_binary::<_>(self.phone.get()),
+
+                EMAIL => attr_field_access::attr_get_binary::<_>(self.email.get()),
+
+                PASSWORD => attr_field_access::attr_get_binary::<_>(self.password.get()),
+
+                CREATED_AT => attr_field_access::attr_get_binary::<_>(self.created_at.get()),
+
+                UPDATED_AT => attr_field_access::attr_get_binary::<_>(self.updated_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                NAME => {
-                    attr_field_access::attr_get_binary::<_>(self.name.get())
-            }
-
-                PHONE => {
-                    attr_field_access::attr_get_binary::<_>(self.phone.get())
-                }
-
-                EMAIL => {
-                    attr_field_access::attr_get_binary::<_>(self.email.get())
-                }
-
-                PASSWORD => {
-                    attr_field_access::attr_get_binary::<_>(self.password.get())
-                }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_binary::<_>(self.created_at.get())
-                }
-
-                UPDATED_AT => {
-                    attr_field_access::attr_get_binary::<_>(self.updated_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
         fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
             match field {
                 USER_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.user_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.user_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 NAME => {
-                    attr_field_access::attr_set_binary::<_, _>(self.name.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.name.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 PHONE => {
-                    attr_field_access::attr_set_binary::<_, _>(self.phone.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.phone.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 EMAIL => {
-                    attr_field_access::attr_set_binary::<_, _>(self.email.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.email.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 PASSWORD => {
-                    attr_field_access::attr_set_binary::<_, _>(self.password.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.password.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 CREATED_AT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.created_at.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.created_at.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 UPDATED_AT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.updated_at.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.updated_at.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
 
         fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
             match field {
-                USER_ID => {
-                    attr_field_access::attr_get_value::<_>(self.user_id.get())
+                USER_ID => attr_field_access::attr_get_value::<_>(self.user_id.get()),
+
+                NAME => attr_field_access::attr_get_value::<_>(self.name.get()),
+
+                PHONE => attr_field_access::attr_get_value::<_>(self.phone.get()),
+
+                EMAIL => attr_field_access::attr_get_value::<_>(self.email.get()),
+
+                PASSWORD => attr_field_access::attr_get_value::<_>(self.password.get()),
+
+                CREATED_AT => attr_field_access::attr_get_value::<_>(self.created_at.get()),
+
+                UPDATED_AT => attr_field_access::attr_get_value::<_>(self.updated_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                NAME => {
-                    attr_field_access::attr_get_value::<_>(self.name.get())
-                }
-
-                PHONE => {
-                    attr_field_access::attr_get_value::<_>(self.phone.get())
-                }
-
-                EMAIL => {
-                    attr_field_access::attr_get_value::<_>(self.email.get())
-                }
-
-                PASSWORD => {
-                    attr_field_access::attr_get_value::<_>(self.password.get())
-                }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_value::<_>(self.created_at.get())
-            }
-
-                UPDATED_AT => {
-                    attr_field_access::attr_get_value::<_>(self.updated_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
@@ -391,12 +343,13 @@ pub mod object {
                     attr_field_access::attr_set_value::<_, _>(self.updated_at.get_mut(), value)?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
     }
-
 
     // attribute struct definition
     #[derive(Default, Clone, Debug)]

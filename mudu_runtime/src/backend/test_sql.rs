@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use crate::backend::test_backend::tests::test_backend;
-    use crate::backend::test_pg_cli::test::{run_pg_client, TestSQL};
+    use crate::backend::test_pg_cli::test::{TestSQL, run_pg_client};
     use mudu_utils::log::log_setup;
     use std::thread::JoinHandle;
     use tracing::info;
@@ -42,7 +42,7 @@ mod test {
                        PRIMARY KEY (C1, C2)
                 );
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(0),
             ),
             TestSQL::from_command(
@@ -51,7 +51,7 @@ mod test {
                     VALUES (1,1,'aaabbbccc1',
                         1,'1323456',1);
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
             TestSQL::from_command(
@@ -60,14 +60,14 @@ mod test {
                     VALUES ('aaabbbccc2',
                         2,'13234562',2, 2, 2);
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
             TestSQL::from_command(
                 r#"
                 SELECT C4, C1, C2, C3, C2, C5 FROM T1 WHERE C1 = 1 AND C2 = 1;
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
         ];

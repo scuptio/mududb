@@ -31,7 +31,6 @@ pub mod object {
 
     const CREATED_AT: &str = "created_at";
 
-
     // entity struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Transactions {
@@ -46,7 +45,6 @@ pub mod object {
         amount: AttrAmount,
 
         created_at: AttrCreatedAt,
-
     }
 
     impl TupleDatumMarker for Transactions {}
@@ -74,7 +72,6 @@ pub mod object {
                 amount: AttrAmount::from(amount),
 
                 created_at: AttrCreatedAt::from(created_at),
-
             };
             s
         }
@@ -83,82 +80,51 @@ pub mod object {
             Self::default()
         }
 
-
-        pub fn set_trans_id(
-            &mut self,
-            trans_id: String,
-        ) {
+        pub fn set_trans_id(&mut self, trans_id: String) {
             self.trans_id.update(trans_id)
         }
 
-        pub fn get_trans_id(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_trans_id(&self) -> &Option<String> {
             self.trans_id.get()
         }
 
-        pub fn set_trans_type(
-            &mut self,
-            trans_type: String,
-        ) {
+        pub fn set_trans_type(&mut self, trans_type: String) {
             self.trans_type.update(trans_type)
         }
 
-        pub fn get_trans_type(
-            &self,
-        ) -> &Option<String> {
+        pub fn get_trans_type(&self) -> &Option<String> {
             self.trans_type.get()
         }
 
-        pub fn set_from_user(
-            &mut self,
-            from_user: i32,
-        ) {
+        pub fn set_from_user(&mut self, from_user: i32) {
             self.from_user.update(from_user)
         }
 
-        pub fn get_from_user(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_from_user(&self) -> &Option<i32> {
             self.from_user.get()
         }
 
-        pub fn set_to_user(
-            &mut self,
-            to_user: i32,
-        ) {
+        pub fn set_to_user(&mut self, to_user: i32) {
             self.to_user.update(to_user)
         }
 
-        pub fn get_to_user(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_to_user(&self) -> &Option<i32> {
             self.to_user.get()
         }
 
-        pub fn set_amount(
-            &mut self,
-            amount: i32,
-        ) {
+        pub fn set_amount(&mut self, amount: i32) {
             self.amount.update(amount)
         }
 
-        pub fn get_amount(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_amount(&self) -> &Option<i32> {
             self.amount.get()
         }
 
-        pub fn set_created_at(
-            &mut self,
-            created_at: i32,
-        ) {
+        pub fn set_created_at(&mut self, created_at: i32) {
             self.created_at.update(created_at)
         }
 
-        pub fn get_created_at(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_created_at(&self) -> &Option<i32> {
             self.created_at.get()
         }
     }
@@ -166,8 +132,8 @@ pub mod object {
     impl Datum for Transactions {
         fn dat_type() -> &'static DatType {
             lazy_static! {
-            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Transactions>();
-        }
+                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Transactions>();
+            }
             &DAT_TYPE
         }
 
@@ -213,22 +179,15 @@ pub mod object {
 
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
-            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                
-                AttrTransId::datum_desc().clone(),
-                
-                AttrTransType::datum_desc().clone(),
-                
-                AttrFromUser::datum_desc().clone(),
-                
-                AttrToUser::datum_desc().clone(),
-                
-                AttrAmount::datum_desc().clone(),
-                
-                AttrCreatedAt::datum_desc().clone(),
-                
-            ]);
-        }
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrTransId::datum_desc().clone(),
+                    AttrTransType::datum_desc().clone(),
+                    AttrFromUser::datum_desc().clone(),
+                    AttrToUser::datum_desc().clone(),
+                    AttrAmount::datum_desc().clone(),
+                    AttrCreatedAt::datum_desc().clone(),
+                ]);
+            }
             &TUPLE_DESC
         }
 
@@ -238,92 +197,92 @@ pub mod object {
 
         fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
             match field {
-                TRANS_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.trans_id.get())
+                TRANS_ID => attr_field_access::attr_get_binary::<_>(self.trans_id.get()),
+
+                TRANS_TYPE => attr_field_access::attr_get_binary::<_>(self.trans_type.get()),
+
+                FROM_USER => attr_field_access::attr_get_binary::<_>(self.from_user.get()),
+
+                TO_USER => attr_field_access::attr_get_binary::<_>(self.to_user.get()),
+
+                AMOUNT => attr_field_access::attr_get_binary::<_>(self.amount.get()),
+
+                CREATED_AT => attr_field_access::attr_get_binary::<_>(self.created_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                TRANS_TYPE => {
-                    attr_field_access::attr_get_binary::<_>(self.trans_type.get())
-            }
-
-                FROM_USER => {
-                    attr_field_access::attr_get_binary::<_>(self.from_user.get())
-                }
-
-                TO_USER => {
-                    attr_field_access::attr_get_binary::<_>(self.to_user.get())
-                }
-
-                AMOUNT => {
-                    attr_field_access::attr_get_binary::<_>(self.amount.get())
-                }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_binary::<_>(self.created_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
         fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
             match field {
                 TRANS_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.trans_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.trans_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 TRANS_TYPE => {
-                    attr_field_access::attr_set_binary::<_, _>(self.trans_type.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.trans_type.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 FROM_USER => {
-                    attr_field_access::attr_set_binary::<_, _>(self.from_user.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.from_user.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 TO_USER => {
-                    attr_field_access::attr_set_binary::<_, _>(self.to_user.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.to_user.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 AMOUNT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.amount.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.amount.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 CREATED_AT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.created_at.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.created_at.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
 
         fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
             match field {
-                TRANS_ID => {
-                    attr_field_access::attr_get_value::<_>(self.trans_id.get())
+                TRANS_ID => attr_field_access::attr_get_value::<_>(self.trans_id.get()),
+
+                TRANS_TYPE => attr_field_access::attr_get_value::<_>(self.trans_type.get()),
+
+                FROM_USER => attr_field_access::attr_get_value::<_>(self.from_user.get()),
+
+                TO_USER => attr_field_access::attr_get_value::<_>(self.to_user.get()),
+
+                AMOUNT => attr_field_access::attr_get_value::<_>(self.amount.get()),
+
+                CREATED_AT => attr_field_access::attr_get_value::<_>(self.created_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                TRANS_TYPE => {
-                    attr_field_access::attr_get_value::<_>(self.trans_type.get())
-            }
-
-                FROM_USER => {
-                    attr_field_access::attr_get_value::<_>(self.from_user.get())
-                }
-
-                TO_USER => {
-                    attr_field_access::attr_get_value::<_>(self.to_user.get())
-                }
-
-                AMOUNT => {
-                    attr_field_access::attr_get_value::<_>(self.amount.get())
-                }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_value::<_>(self.created_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
@@ -353,12 +312,13 @@ pub mod object {
                     attr_field_access::attr_set_value::<_, _>(self.created_at.get_mut(), value)?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
     }
-
 
     // attribute struct definition
     #[derive(Default, Clone, Debug)]

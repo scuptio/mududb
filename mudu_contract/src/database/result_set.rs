@@ -1,7 +1,7 @@
-use async_trait::async_trait;
-use mudu::common::result::RS;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::tuple::tuple_value::TupleValue;
+use async_trait::async_trait;
+use mudu::common::result::RS;
 
 pub trait ResultSet: Send + Sync {
     fn next(&self) -> RS<Option<TupleValue>>;

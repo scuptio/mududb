@@ -1,11 +1,11 @@
 use crate::server::incoming_session::{IncomingSession, SSPSender};
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_utils::notifier::NotifyWait;
 use mudu_utils::sync::a_task::ATask;
 use std::net::SocketAddr;
-use async_trait::async_trait;
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -29,17 +29,13 @@ impl AcceptHandleTask {
         self.wait_recovery.notified().await;
         let listener = TcpListener::bind(self.bind_addr)
             .await
-            .map_err(|_e|
-                m_error!(ER::NetErr, "bind address error")
-            )?;
+            .map_err(|_e| m_error!(ER::NetErr, "bind address error"))?;
         info!("server listen on address {}", self.bind_addr);
         let mut session_id: u64 = 0;
 
         loop {
             let r = listener.accept().await;
-            let incoming = r
-                .map_err(
-                    |_e| m_error!(ER::NetErr, "network accept error", _e))?;
+            let incoming = r.map_err(|_e| m_error!(ER::NetErr, "client accept error", _e))?;
             info!("accept connection {}", incoming.1);
             let param = IncomingSession::new(incoming.1, incoming.0);
             session_id += 1;

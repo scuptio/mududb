@@ -6,6 +6,16 @@ interface system {
     fetch: func(query-result: list<u8>) -> list<u8>;
 
     command: func(command-in: list<u8>) -> list<u8>;
+
+    open: func(open-in: list<u8>) -> list<u8>;
+
+    close: func(close-in: list<u8>) -> list<u8>;
+
+    get: func(get-in: list<u8>) -> list<u8>;
+
+    put: func(put-in: list<u8>) -> list<u8>;
+
+    range: func(range-in: list<u8>) -> list<u8>;
 }
 
 world api {

@@ -30,7 +30,7 @@ pub fn kernel_query(
         out_buf_len,
         out_mem_ptr,
         out_mem_len,
-        kernel::query_internal,
+        |input| Ok(kernel::query_internal(input)),
     )
 }
 
@@ -52,7 +52,7 @@ pub fn kernel_fetch_p1(
         output_buf_len,
         out_mem_ptr,
         out_mem_len,
-        kernel::fetch_internal,
+        |input| Ok(kernel::fetch_internal(input)),
     )
 }
 
@@ -74,7 +74,120 @@ pub fn kernel_command_p1(
         output_buf_len,
         out_mem_ptr,
         out_mem_len,
-        kernel::command_internal,
+        |input| Ok(kernel::command_internal(input)),
+    )
+}
+
+pub fn kernel_open_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    let worker_local = caller.data().worker_local().cloned();
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        move |input| kernel::open_internal_with_worker_local(input, worker_local.as_ref()),
+    )
+}
+
+pub fn kernel_close_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    let worker_local = caller.data().worker_local().cloned();
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        move |input| kernel::close_internal_with_worker_local(input, worker_local.as_ref()),
+    )
+}
+
+/// Read a value from the kernel pull-push interface.
+pub fn kernel_get_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    let worker_local = caller.data().worker_local().cloned();
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        move |input| kernel::get_internal_with_worker_local(input, worker_local.as_ref()),
+    )
+}
+
+/// Write a pull-push pair into the kernel pull-push interface.
+pub fn kernel_put_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    let worker_local = caller.data().worker_local().cloned();
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        move |input| kernel::put_internal_with_worker_local(input, worker_local.as_ref()),
+    )
+}
+
+/// Scan a half-open key range from the kernel pull-push interface.
+pub fn kernel_range_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    let worker_local = caller.data().worker_local().cloned();
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        move |input| kernel::range_internal_with_worker_local(input, worker_local.as_ref()),
     )
 }
 
@@ -105,7 +218,6 @@ pub fn kernel_get_memory_p1(
 // =============================================================================
 // Kernel Function
 // =============================================================================
-
 
 fn serialize_and_write_output(
     result: Vec<u8>,
@@ -163,9 +275,7 @@ fn write_memory_id(memory_data: &mut [u8], mem_id_ptr: u32, memory_id: u32) -> R
 // Core Host-Guest Communication
 // =============================================================================
 /// Process a single host invocation with error handling
-fn handle_wasm_guest_invoke_host_gut<
-    F: Fn(&[u8]) -> Vec<u8> + 'static,
->(
+fn handle_wasm_guest_invoke_host_gut<F: Fn(&[u8]) -> RS<Vec<u8>> + 'static>(
     caller: &mut Caller<'_, WasiContext>,
     context: *const ContextData,
     memory: &Memory,
@@ -177,7 +287,7 @@ fn handle_wasm_guest_invoke_host_gut<
     mem_id_ptr: u32,
     f: F,
 ) -> (i32, Option<MError>) {
-    let buf= memory.data(&caller);
+    let buf = memory.data(&caller);
     let _buf_ptr = param_buf_ptr as usize;
     let _buf_len = param_buf_len as usize;
     let r = check_bounds(_buf_ptr, _buf_len, buf.len());
@@ -190,7 +300,10 @@ fn handle_wasm_guest_invoke_host_gut<
     let in_param = &buf[_buf_ptr.._buf_ptr + _buf_len];
 
     // Execute the handler function
-    let result = f(in_param);
+    let result = match f(in_param) {
+        Ok(result) => result,
+        Err(e) => return (err_no::EN_INVOKE, Some(e)),
+    };
 
     // Serialize and write output
     match serialize_and_write_output(
@@ -209,9 +322,7 @@ fn handle_wasm_guest_invoke_host_gut<
 }
 
 /// Generic handler for WebAssembly guest to host invocations
-fn handle_guest_invoke_host<
-    F: Fn(&[u8]) -> Vec<u8> + 'static,
->(
+fn handle_guest_invoke_host<F: Fn(&[u8]) -> RS<Vec<u8>> + 'static>(
     caller: Caller<'_, WasiContext>,
     param_buf_ptr: u32,
     param_buf_len: u32,

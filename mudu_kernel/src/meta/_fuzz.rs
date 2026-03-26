@@ -143,10 +143,10 @@ fn write_map_to_db(
         (key_items TEXT PRIMARY KEY, value_items TEXT NOT NULL);",
             table_name
         )
-            .as_str(),
+        .as_str(),
         (),
     )
-        .unwrap();
+    .unwrap();
     let trans = conn.transaction().unwrap();
     for (k, v) in map.iter() {
         let key = to_json_string(k);
@@ -159,7 +159,7 @@ fn write_map_to_db(
             ",
                     table_name
                 )
-                    .as_str(),
+                .as_str(),
                 (key, value),
             )
             .unwrap();
@@ -176,10 +176,10 @@ fn read_map_from_db(path: String, table_name: String) -> RS<HashMap<Vec<String>,
         (key_items TEXT PRIMARY KEY, value_items TEXT NOT NULL);",
             table_name
         )
-            .as_str(),
+        .as_str(),
         (),
     )
-        .unwrap();
+    .unwrap();
     let mut stmt = conn
         .prepare(format!("SELECT key_items, value_items FROM {}", table_name).as_str())
         .unwrap();

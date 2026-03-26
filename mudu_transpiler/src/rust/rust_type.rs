@@ -1,10 +1,10 @@
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dtp_array::DTPArray;
-use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 
 #[derive(Debug, Clone)]
 pub enum RustType {
@@ -85,9 +85,7 @@ impl RustType {
             RustType::Primitive(_) => {
                 vec![self.clone()]
             }
-            RustType::Tuple(vec) => {
-                (*vec).clone()
-            }
+            RustType::Tuple(vec) => (*vec).clone(),
             _ => {
                 vec![self.clone()]
             }
@@ -96,39 +94,39 @@ impl RustType {
 
     pub fn to_dat_type(&self, custom_types: &UniTypeDesc) -> RS<DatType> {
         let dat_type = match self {
-            RustType::Primitive(s) => {
-                match s.as_str() {
-                    "i32" => { DatType::default_for(DatTypeID::I32) }
-                    "i64" => { DatType::default_for(DatTypeID::I64) }
-                    "f32" => { DatType::default_for(DatTypeID::F32) }
-                    "f64" => { DatType::default_for(DatTypeID::F64) }
-                    _ => {
-                        return Err(m_error!(EC::TypeErr, format!("not support type {}", s)))
-                    }
+            RustType::Primitive(s) => match s.as_str() {
+                "i32" => DatType::default_for(DatTypeID::I32),
+                "i64" => DatType::default_for(DatTypeID::I64),
+                "f32" => DatType::default_for(DatTypeID::F32),
+                "f64" => DatType::default_for(DatTypeID::F64),
+                _ => return Err(m_error!(EC::TypeErr, format!("not support type {}", s))),
+            },
+            RustType::Custom(s) => match s.as_str() {
+                "String" => DatType::default_for(DatTypeID::String),
+                _ => {
+                    let ty = custom_types.types.get(s).map_or_else(
+                        || Err(m_error!(EC::NoneErr, format!("no such type name:{}", s))),
+                        |t| Ok(t),
+                    )?;
+                    ty.clone().uni_to()?
                 }
-            }
-            RustType::Custom(s) => {
-                match s.as_str() {
-                    "String" => { DatType::default_for(DatTypeID::String) }
-                    _ => {
-                        let ty = custom_types.types.get(s).map_or_else(
-                            ||{ Err(m_error!(EC::NoneErr, format!("no such type name:{}", s)))},
-                            |t|{ Ok(t) }
-                        )?;
-                        ty.clone().uni_to()?
-                    }
-                }
-            }
+            },
             RustType::Generic(ident, vec) => {
                 if ident == "Vec" && vec.len() == 1 {
                     let array = DTPArray::new(vec[0].to_dat_type(custom_types)?);
                     DatType::from_array(array)
                 } else {
-                    return Err(m_error!(EC::TypeErr, format!("not support type {:?}", self)))
+                    return Err(m_error!(
+                        EC::TypeErr,
+                        format!("not support type {:?}", self)
+                    ));
                 }
             }
             _ => {
-                return Err(m_error!(EC::TypeErr, format!("not support type {:?}", self)))
+                return Err(m_error!(
+                    EC::TypeErr,
+                    format!("not support type {:?}", self)
+                ));
             }
         };
         Ok(dat_type)

@@ -6,30 +6,26 @@ use crate::service::wt_instance_pre::WTInstancePre;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_contract::procedure::package_desc::PackageDesc;
+use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use wasmtime::{Caller, Config, Engine, Linker, Module};
 
-
 pub struct WTRuntimeP1 {
     engine: Engine,
-    linker:Linker<WasiContext>,
+    linker: Linker<WasiContext>,
 }
 
 impl WTRuntimeP1 {
     pub fn build() -> RS<Self> {
         let mut cfg = Config::new();
-        cfg.async_support(false);
         let engine = Engine::new(&mut cfg)
-            .map_err(|e| {
-                m_error!(EC::InternalErr, "failed create new wasm runtime engine", e)
-            })?;
+            .map_err(|e| m_error!(EC::InternalErr, "failed create new wasm runtime engine", e))?;
         // Configure linker with host functions
         let linker = Linker::new(&engine);
-        Ok(Self {engine, linker})
+        Ok(Self { engine, linker })
     }
 
-    pub fn instantiate(& mut self) -> RS<()> {
+    pub fn instantiate(&mut self) -> RS<()> {
         register_sys_call(&mut self.linker)?;
         wasmtime_wasi::p1::add_to_linker_sync(&mut self.linker, |ctx| ctx.wasi_mut())
             .map_err(|e| m_error!(EC::MuduError, "wasmtime_wasi add_to_linker_sync error", e))?;
@@ -51,22 +47,21 @@ fn instantiate_module(
 ) -> RS<PackageModule> {
     let module = Module::from_binary(&engine, &byte_code).map_err(|e| {
         m_error!(
-                EC::MuduError,
-                format!("build module {} from binary error", name),
-                e
-            )
+            EC::MuduError,
+            format!("build module {} from binary error", name),
+            e
+        )
     })?;
 
     let instance_pre = linker.instantiate_pre(&module).map_err(|e| {
         m_error!(
-                EC::MuduError,
-                format!("instantiate module {} error", name),
-                e
-            )
+            EC::MuduError,
+            format!("instantiate module {} error", name),
+            e
+        )
     })?;
     PackageModule::new(WTInstancePre::from_p1(instance_pre), desc_vec.clone())
 }
-
 
 fn instantiate_mpk_modules(
     engine: &Engine,
@@ -74,19 +69,17 @@ fn instantiate_mpk_modules(
     package: &MuduPackage,
 ) -> RS<Vec<(String, PackageModule)>> {
     let mut modules = Vec::new();
-    let app_proc_desc: &PackageDesc = &package.package_desc;
+    let app_proc_desc: &ModProcDesc = &package.package_desc;
     for (mod_name, vec_desc) in app_proc_desc.modules() {
-        let byte_code = package.modules.get(mod_name).ok_or_else(|| {
-            m_error!(EC::NoneErr, format!("no such module named {}", mod_name))
-        })?;
-        let module =
-            instantiate_module(engine, linker, mod_name.clone(), byte_code, vec_desc)?;
+        let byte_code = package
+            .modules
+            .get(mod_name)
+            .ok_or_else(|| m_error!(EC::NoneErr, format!("no such module named {}", mod_name)))?;
+        let module = instantiate_module(engine, linker, mod_name.clone(), byte_code, vec_desc)?;
         modules.push((mod_name.clone(), module));
     }
     Ok(modules)
 }
-
-
 
 fn register_sys_call(linker: &mut Linker<WasiContext>) -> RS<()> {
     let module_name = "env";
@@ -164,6 +157,131 @@ fn register_sys_call(linker: &mut Linker<WasiContext>) -> RS<()> {
             },
         )
         .map_err(|e| m_error!(EC::MuduError, "register fetch error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_open",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_open_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register open error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_close",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_close_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register close error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_get",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_get_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register get error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_put",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_put_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register put error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_range",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_range_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register range error", e))?;
 
     linker
         .func_wrap(

@@ -1,10 +1,10 @@
-use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary::TupleSlice;
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
+use mudu::common::result::RS;
+use mudu::error::ec::EC;
+use mudu::m_error;
 
 pub fn read_slot(field_desc: &FieldDesc, tuple: &TupleSlice) -> RS<Slot> {
     let _slot = field_desc.slot();

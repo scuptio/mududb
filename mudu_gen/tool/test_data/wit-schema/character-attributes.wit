@@ -1,0 +1,10 @@
+
+
+interface game-data {
+    record character-attributes {
+        martial: u32,
+        intelligence: u32,
+        charisma: u32,
+        stewardship: u32,
+    }
+}

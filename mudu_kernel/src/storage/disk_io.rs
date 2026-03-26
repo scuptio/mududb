@@ -11,11 +11,10 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex as AsMutex;
 
-
 pub struct DiskIO {
     path: String,
     page_size: u64,
-    files: HashMap<u64, DiskFile>
+    files: HashMap<u64, DiskFile>,
 }
 
 #[derive(Clone)]
@@ -32,14 +31,14 @@ impl DiskIO {
         })
     }
 
-    pub async fn write_page(&self, page_index:PageIndex, page_block:PageBlock) -> RS<()> {
+    pub async fn write_page(&self, page_index: PageIndex, page_block: PageBlock) -> RS<()> {
         let file = self.file_get_or_create(page_index.file_id)?;
         let offset = page_index.page_id * self.page_size;
         file.write_page(offset, page_block.block()).await?;
         Ok(())
     }
 
-    pub async fn read_page(&self, page_index:PageIndex, page_block: &mut PageBlock) -> RS<()> {
+    pub async fn read_page(&self, page_index: PageIndex, page_block: &mut PageBlock) -> RS<()> {
         let file = self.file_get_or_create(page_index.file_id)?;
         let offset = page_index.page_id * self.page_size;
         file.read_page(offset, page_block.block_mut()).await?;
@@ -73,20 +72,23 @@ impl DiskFile {
 
     async fn write_page(&self, offset: u64, block: &[u8]) -> RS<()> {
         let mut file = self.file.lock().await;
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| m_error!(EC::IOErr, "seek file error", e))?;
-        file.write_all(&block).await
+        file.write_all(&block)
+            .await
             .map_err(|e| m_error!(EC::IOErr, "write block error", e))?;
         Ok(())
     }
 
     async fn read_page(&self, offset: u64, block: &mut [u8]) -> RS<()> {
         let mut file = self.file.lock().await;
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| m_error!(EC::IOErr, "seek file error", e))?;
-        file.read_exact(block).await
+        file.read_exact(block)
+            .await
             .map_err(|e| m_error!(EC::IOErr, "read block error", e))?;
         Ok(())
     }
 }
-

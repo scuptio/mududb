@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["wasip2"]
+default = ["component-model"]
 wasip1 = []
-wasip2 = []
+wasip2 = ["component-model"]
+component-model = []
 async = []
 
 [dependencies]

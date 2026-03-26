@@ -9,7 +9,7 @@ use crate::type_error::{TyEC, TyErr};
 use byteorder::ByteOrder;
 use mudu::common::endian::Endian;
 use mudu::json_value;
-use mudu::utils::json::{from_json_str, JsonValue};
+use mudu::utils::json::{JsonValue, from_json_str};
 use mudu::utils::msg_pack::{MsgPackInteger, MsgPackValue};
 use std::cmp::Ordering;
 use std::hash::Hasher;

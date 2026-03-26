@@ -1,0 +1,14 @@
+use crate:game-data:id/id;
+use crate:game-data:city/city;
+
+interface game-data {
+    /* Character Table */
+    table city-table {
+        key: {
+           city-id: id,
+        },
+        value: {
+            city: city,
+        }
+    }
+}

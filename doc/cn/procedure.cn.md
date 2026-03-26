@@ -1,57 +1,58 @@
-# 交互式 vs 过程式：选择哪种方式？
+# 交互式与过程式：应该如何选择？
 
-交互式与过程式代表了开发数据库应用的两种不同方法。
+交互式与过程式是构建数据库应用的两种不同方式。
 
-## 交互式方法
+## 交互式方式
 
-采用交互式方法时，用户通过命令行或GUI工具直接执行SQL语句，或使用客户端库及ORM映射框架。
+采用交互式方式时，用户通过命令行工具、GUI 工具、客户端库或 ORM 框架直接执行 SQL 语句。
 
-**优势**：
+**优点**：
 
-- **即时反馈**：实时查看结果
-- **快速原型设计**：适合探索和调试
-- **简单工作流**：所需配置极少
-- **新手友好**：学习曲线平缓
+- **即时反馈**：可以立即看到执行结果。
+- **快速原型开发**：适合探索、试验与调试。
+- **工作流简单**：几乎不需要额外配置。
+- **对初学者友好**：学习曲线较平缓。
 
-**劣势**：
+**缺点**：
 
-- **性能低下**：DB客户端与服务器间的通信开销
-- **正确性挑战**：易错的事务语义
+- **性能较差**：数据库客户端与服务器之间存在通信开销。
+- **正确性挑战**：事务语义更容易出错。
 
-## 过程式方法
+## 过程式方式
 
-过程式方法中，开发者使用存储过程、函数和触发器实现业务逻辑。
+采用过程式方式时，开发者使用存储过程、函数和触发器实现业务逻辑。
 
-**优势**：
+**优点**：
 
-- **性能优化**：减少网络开销
-- **代码复用**：业务逻辑集中化管理
-- **事务控制**：更好的ACID合规性
-- **增强安全性**：降低SQL注入风险
+- **性能优化**：减少网络开销。
+- **代码复用**：业务逻辑集中管理。
+- **事务控制**：更容易满足 ACID 要求。
+- **更高的安全性**：降低 SQL 注入风险。
 
-**劣势**：
+**缺点**：
 
-- **陡峭的学习曲线**：需掌握特定数据库的过程语言
-- **调试困难**：问题排查难度大
-- **供应商锁定**：不同DBMS间可移植性有限
-- **版本控制挑战**：需专用工具支持
+- **学习曲线陡峭**：需要掌握数据库特定的过程式语言。
+- **调试困难**：排查问题更加复杂。
+- **厂商锁定**：在不同 DBMS 之间的可移植性较差。
+- **版本控制困难**：通常需要专门工具支持。
 
-# Mudu可移植数据访问(MPDA)代码：统一交互式与过程式执行
+---
 
-同一份代码可同时以交互式和过程式模式运行。
+# Mudu Procedure（MP）：统一交互式与过程式执行
 
-我们旨在融合两种模式的优点，同时消除其缺陷。MPDA实现了这一目标。您可使用大多数现代语言编写MPDA——无需依赖PostgreSQL
-PL/pgSQL或MySQL存储过程等"怪异"语法。
+同一份代码既可以在交互式模式下运行，也可以在过程式模式下运行。
 
-开发过程中，MPDA如同ORM映射框架般以交互方式运行。
+MP 的目标是结合这两种方式的优势，同时避免它们常见的缺点。你可以使用大多数现代编程语言来编写 Mudu Procedure，而不必依赖 PostgreSQL PL/pgSQL 或 MySQL 存储过程这类数据库特有的过程式语法。
+
+在开发阶段，Mudu Procedure 的运行方式更接近基于 ORM 框架的交互式开发体验。
 
 ## 当前实现（Rust）
 
-Mudu运行时目前支持Rust。基于Rust的存储过程采用以下函数签名：
+Mudu Runtime 当前支持 Rust。基于 Rust 的过程使用如下函数签名：
 
-### 过程规范
+## 过程规范
 
-```
+``` 
 #[mudu_proc]
 fn {procedure_name}(
     xid: XID,
@@ -59,48 +60,51 @@ fn {procedure_name}(
 ) -> RS<{return_value_type}>
 ```
 
-### {procedure_name}:
+### {procedure_name}：
 
-有效的Rust函数名
+一个合法的 Rust 函数名。
 
-### Macro #[mudu_proc]:
+### 宏 `#[mudu_proc]`：
 
-标识函数为MPDA的宏
+用于将该函数标记为 Mudu Procedure。
 
-### 参数:
+### 参数：
 
-#### xid:
+#### xid：
 
-事务ID
+事务 ID。
 
-### {argument_list...}:
+### {argument_list...}：
 
-实现 `Entity` 特性的输入参数。
+实现 `Entity` trait 的输入参数。
 
-支持类型：`i32`, `i64`,  `String`, `f32`, `f64`。
+支持的类型：`i32`、`i64`、`String`、`f32`、`f64`。
 
-不支持：自定义结构体、枚举、数组或元组。
+不支持的类型：自定义结构体、枚举、数组或元组。
 
 ### 返回值：
 
-#### {return_value_type}:
+#### {return_value_type}：
 
-实现 `Entity` 特性的返回类型（支持类型与参数相同）。
+返回类型必须实现 [`Entity` trait](../lang.common/proc_key_traits.md)。支持的类型与参数类型相同。
 
-返回结果类型 `RS` 是 `Result` 枚举：
+结果类型别名 `RS` 定义如下：
 
 ```rust
 use mudu::error::error::ER;
-pub type RS<X> = Result<X, ER>; // ER: 错误类型
+pub type RS<X> = Result<X, ER>;  // ER: Error
 ```
 
-## MPDA中的CRUD(Create/Read/Update/Delete)操作
+在过程内部，运行时可以调用[系统调用](syscall.cn.md)，例如 SQL 系统调用（`mudu_query` / `mudu_command`）或键值系统调用（`mudu_get` / `mudu_set` / `mudu_range`）。
 
-MPDA可以调用2个API。
+## Mudu Procedure 中的 CRUD（Create/Read/Update/Delete）操作
+
+Mudu Procedure 可以调用两个核心 API：
 
 ### 1. `query`
 
-`query`SELECT语句
+`query` 用于 `SELECT` 语句。
+
 <!--
 quote_begin
 content="[Query API](../lang.common/mudu_query.md#L-L)"
@@ -108,37 +112,6 @@ content="[Query API](../lang.common/mudu_query.md#L-L)"
 <!--
 quote_begin
 content="[Query API](../../sys_interface/src/api.rs#L34-L40)"
-lang="rust"
--->
-
-```rust
-pub fn mudu_command(
-    xid: XID,
-    sql: &dyn SQLStmt,
-    params: &dyn SQLParams,
-) -> RS<u64> {
-    inner::inner_command(xid, sql, params)
-}
-```
-
-<!--quote_end-->
-<!--quote_end-->
-
-`query` 自动执行 R2O（关系对象映射），返回实现 `Entity` trait的对象结果集。
-
----
-
-## `command`
-
-用于 INSERT/UPDATE/DELETE 操作
-
-<!--
-quote_begin
-content="[Command API](../lang.common/mudu_command.md#L-L)"
--->
-<!--
-quote_begin
-content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
 lang="rust"
 -->
 
@@ -157,26 +130,56 @@ pub fn mudu_query<
 <!--quote_end-->
 <!--quote_end-->
 
-### 通用参数：
+`query` 会自动执行 R2O（relation-to-object，关系到对象）映射，并返回一个由实现 `Entity` trait 的对象组成的结果集。
 
-#### xid:
+### 2. `command`
 
-事务 ID
+`command` 用于 `INSERT`、`UPDATE` 和 `DELETE` 语句。
 
-#### sql:
+<!--
+quote_begin
+content="[Command API](../lang.common/mudu_command.md#L-L)"
+-->
+<!--
+quote_begin
+content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
+lang="rust"
+-->
 
-使用 '?' 作为参数占位符的 SQL 语句
+```rust
+pub fn mudu_command(
+    xid: XID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<u64> {
+    inner::inner_command(xid, sql, params)
+}
+```
 
-#### params:
+<!--quote_end-->
+<!--quote_end-->
 
-参数列表
+### 两者通用参数
+
+#### xid：
+
+事务 ID。
+
+#### sql：
+
+使用 `?` 作为参数占位符的 SQL 语句。
+
+#### params：
+
+参数列表。
+
 
 <!--
 quote_begin
 content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 -->
 
-## Key Traits
+## 关键 Traits
 
 ### SQLStmt
 
@@ -231,7 +234,7 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
 
 <!--quote_end-->
 
-### Datum, DatumDyn
+### Datum、DatumDyn
 
 <!--
 quote_begin
@@ -266,7 +269,7 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
 <!--quote_end-->
 <!--quote_end-->
 
-## MPDA的例子: 钱包应用转账过程
+## 示例：钱包应用中的转账过程
 
 <!--
 quote_begin
@@ -274,10 +277,9 @@ content="[Example](../lang.common/transfer_funds.md#L-L)"
 -->
 <!--
 quote_begin
-content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L105)"
+content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
-
 ```rust
 #[mudu_proc]
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
@@ -362,26 +364,26 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 ```
-
 <!--quote_end-->
 <!--quote_end-->
 
-## Mudu 过程与事务
+## MP 与事务
 
-MPDA支持两种事务执行模式：
+Mudu Procedure 支持两种事务执行模式：
 
 ### 自动模式
 
-每个过程作为独立事务运行：
+每个过程都作为一个独立事务运行。该事务会：
 
-- 过程返回 `Ok` 时自动提交
-- 过程返回 `Err` 时自动回滚
+- 在过程返回 `Ok` 时自动提交
+
+- 在过程返回 `Err` 时自动回滚
 
 ### 手动模式
 
-通过事务 ID (`xid`) 跨多个 Mudu 过程进行显式事务控制。
+可以在多个 Mudu Procedure 之间传递事务 ID（`xid`），以实现显式事务控制。
 
-#### 示例:
+#### 示例：
 
 ```
 procedure1(xid);
@@ -390,53 +392,57 @@ commit(xid); // Explicit commit
 // or rollback(xid) for explicit rollback
 ```
 
----
+# 使用 Mudu Procedure 的优势
 
-# 使用 Mudu 过程的优势
+## 1. 交互式与过程式共用同一套代码
 
-## 1. 单一代码库双模式支持
+“一次开发！”
 
-"一次开发，多处运行！"
-Mudu 过程在交互式开发和生产部署中使用完全相同的代码，消除工具切换成本，确保环境一致性。
+Mudu Procedure 在交互式开发和生产部署中使用完全相同的代码。这消除了在不同工具之间来回切换的成本，并确保不同环境中的行为保持一致。
 
 ## 2. 原生 ORM 支持
 
-无缝对象关系映射
-框架通过 `Entity` 特征提供内置 ORM 能力，自动将查询结果映射到 Rust 结构体，在保持类型安全的同时消除样板代码。
+无缝的对象关系映射。
+框架通过 `Entity` trait 提供内置 ORM 能力。它可以自动将查询结果映射为 Rust 结构体，在保持类型安全的同时减少样板转换代码。
 
-## 3. 静态分析友好
+## 3. 对静态分析更友好
 
-AI 生成代码验证
-Mudu 的强类型 API 支持：
+更利于验证 AI 生成的代码。
 
-1. 通过 `sql_stmt!` 宏在编译期检查 SQL 语法
-2. 参数和返回值的类型验证
-3. 对 AI 生成代码的早期错误检测（可靠性关键）
+Mudu 的强类型 API 提供了：
 
-## 4. 近数据处理
+1. 通过 `sql_stmt!` 宏进行 SQL 语法的编译期检查
 
-显著提升效率。
-直接在数据库中执行数据转换，例如无需导出/导入即可准备 AI 训练数据集。
+2. 对参数和返回值进行类型校验
+
+3. 更早发现 AI 生成代码中的错误，这对可靠性至关重要
+
+## 4. 数据近源处理
+
+显著提升处理效率。
+
+可以直接在数据库内部执行数据转换。
+一个例子是，在无需导出或导入数据的情况下准备 AI 训练数据集。
 
 ```rust
-// 准备AI训练数据，不必导入/导出  
+// Prepare AI training dataset without export/import
 #[mudu_proc]
 fn prepare_training_data(xid: XID) -> RS<()> {
-    mudu_command(xid, 
+    mudu_command(xid,
         sql_stmt!("..."),
         sql_param!(&[]))?;
     // Further processing...
 }
 ```
 
-优势：避免网络传输，海量数据集处理速度提升。
+优势：对于大规模数据集，可以通过避免网络传输来获得更快的处理速度。
 
-### 5. 扩展数据库能力
+## 5. 扩展数据库能力
 
-利用完整编程生态  
-集成任意 Rust crate（或未来语言生态）：
+充分利用完整的编程语言生态。
+当前你可以使用任意 Rust crate，未来也可以扩展到其他语言生态。
 
-示例，使用 `uuid` 和 `chrono` crate，
+例如，你可以使用 `uuid` 和 `chrono` 这两个 crate：
 
 ```rust
 use chrono::Utc;
@@ -462,32 +468,32 @@ fn create_order(xid: XID, user_id: i32) -> RS<String> {
 
 优势：
 
-1. 使用库（UUID、日期时间、地理空间等）
-2. 实现纯 SQL 无法完成的复杂逻辑
-3. 通过 Cargo/npm/pip 管理依赖
+1. 可以使用 UUID、时间日期、地理空间等专用库
 
-# 核心技术优势对比传统模式
+2. 可以实现纯 SQL 难以完成甚至无法完成的复杂逻辑
 
-| 特性      | 传统方案         | MPDA优势 |
-|:--------|:-------------|:-------|
-| 开发生产一致性 | CLI/存储过程代码不同 | 统一代码库  |
-| 类型安全    | 运行时 SQL 错误   | 编译期验证  |
-| 数据移动    | 需要 ETL 管道    | 库内处理   |
-| 扩展性     | 数据库特定扩展      | 通用编程库  |
+3. 可以通过 Cargo、npm、pip 等熟悉的工具管理依赖
 
---
+# 关键技术优势
 
-# MuduDB如何统一处理交互式与过程式方法?
+| 特性 | 传统方式 | MP 优势 |
+|:----------------|:---------------------------|:--------------------------|
+| 开发与生产一致性 | CLI / 存储过程使用不同代码 | 使用相同代码库 |
+| 类型安全 | SQL 错误在运行时暴露 | 编译期验证 |
+| 数据移动 | 需要 ETL 流程 | 数据库内处理 |
+| 可扩展性 | 依赖数据库专用扩展 | 可使用通用编程库 |
 
-MuduDB与传统一体式架构数据库不同，它分为两个组件：
-Mudu运行时和 DB内核。
-内核提供基础语义、事务支持及存储能力。
-运行时实现扩展功能支持与多语言生态兼容。
-运行时运行一个虚拟机执行WASM间字节码模块，主流编程语言均可编译为此类字节码。
-在执行Mudu内部过程时，运行时需与内核协同完成流程。
+# MuduDB 如何统一对待交互式与过程式方式
 
-以下用例说明其运作机制：
-假设某过程执行查询Q1/Q2、条件C1，以及高级语言实现的函数T1/T2（它们能被编译成字节码）。
+与传统单体式数据库不同，MuduDB 被拆分为两个组件：Mudu Runtime 和 DB Kernel。
+
+Kernel 提供核心基础能力、事务管理和存储能力。
+Runtime 支持多语言生态。
+它可以承载 VM（虚拟机），并执行由主流编程语言编译得到的 WASM 字节码模块。
+在 MP 执行过程中，Runtime 会与 Kernel 协作完成整个过程。
+
+为了说明这一点，考虑下面这个例子。
+假设一个过程会执行查询 `Q1` 和 `Q2`、命令 `C1`，以及函数 `T1` 和 `T2`，其中 `T1` 与 `T2` 由高级语言编写并编译为字节码。
 
 ```
 procedure {
@@ -499,12 +505,10 @@ procedure {
 }
 ```
 
-下列两图展示了两种方法的差异。
-
+下图展示了这两种方式之间的差异。
 
 <div align="center">
 <img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
 <img src="../pic/procedural_tx.png" width="26%">   
 </div>
-

@@ -1,166 +1,8 @@
 {
   "modules": {
-    "module": [
+    "wallet": [
       {
-        "module_name": "module",
-        "proc_name": "purchase",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "description"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "withdraw",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "create_user",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "name"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "email"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "transfer",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "from_user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "to_user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "deposit",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
+        "module_name": "wallet",
         "proc_name": "update_user",
         "param_desc": {
           "fields": [
@@ -200,7 +42,151 @@
         }
       },
       {
-        "module_name": "module",
+        "module_name": "wallet",
+        "proc_name": "deposit",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "delete_user",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "purchase",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "description"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "create_user",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "name"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "email"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "withdraw",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
         "proc_name": "transfer_funds",
         "param_desc": {
           "fields": [
@@ -232,8 +218,8 @@
         }
       },
       {
-        "module_name": "module",
-        "proc_name": "delete_user",
+        "module_name": "wallet",
+        "proc_name": "transfer",
         "param_desc": {
           "fields": [
             {
@@ -241,7 +227,21 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "user_id"
+              "name": "from_user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "to_user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
             }
           ]
         },

@@ -11,12 +11,10 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use std::any::Any;
 use std::sync::Arc;
 
-pub fn create_ls_conn(
-    db_path: &String,
-    app_name: &String,
-    ddl_path: &String,
-) -> RS<DBConn> {
-    Ok(DBConn::Sync(Arc::new(LSConn::new(db_path, app_name, ddl_path)?)))
+pub fn create_ls_conn(db_path: &String, app_name: &String, ddl_path: &String) -> RS<DBConn> {
+    Ok(DBConn::Sync(Arc::new(LSConn::new(
+        db_path, app_name, ddl_path,
+    )?)))
 }
 
 struct LSConn {
@@ -26,9 +24,7 @@ struct LSConn {
 pub fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection> {
     let inner = conn as &dyn Any;
     let opt_ls_conn = inner.downcast_ref::<LSConn>();
-    opt_ls_conn.map(|ls_conn| {
-        ls_conn.inner.libsql_connection()
-    })
+    opt_ls_conn.map(|ls_conn| ls_conn.inner.libsql_connection())
 }
 
 impl LSConn {
@@ -78,7 +74,7 @@ unsafe impl Sync for LSConn {}
 #[cfg(test)]
 mod test {
     use crate::db_libsql::ls_conn::create_ls_conn;
-    use libsql::{params, Connection};
+    use libsql::{Connection, params};
     use mudu::common::result::RS;
     use mudu::common::xid::XID;
     use mudu::this_file;
@@ -191,7 +187,7 @@ mod test {
                         .await
                         .unwrap();
                 })
-                    .unwrap();
+                .unwrap();
                 join.push(j);
             }
             for j in join {

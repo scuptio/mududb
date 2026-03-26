@@ -566,6 +566,15 @@ mod tests {
         RustParser::parse(&mut c).unwrap();
         c.tran_to_async();
         let s = c.render_source("app_test".to_string(), true).unwrap();
-        println!("{}", s);
+        assert!(s.contains("pub async fn proc_sys_call"));
+        assert!(s.contains("mudu_command(xid,"));
+        assert!(s.contains(")?;") || s.contains(").await?;"));
+        assert!(s.contains("mudu_command(xid,") && s.contains(").await?;"));
+        assert!(s.contains("pub async fn proc_kv"));
+        assert!(s.contains("let session_id = mudu_open().await?;"));
+        assert!(s.contains("mudu_put(session_id, &a, &b).await?;"));
+        assert!(s.contains("let value = mudu_get(session_id, &a).await?;"));
+        assert!(s.contains("let pairs = mudu_range(session_id, &a, &b).await?;"));
+        assert!(s.contains("mudu_close(session_id).await?;"));
     }
 }

@@ -1,10 +1,12 @@
+namespace {{ file.namespace }} {
+
 using MessagePack;
 using MessagePack.Formatters;
+using System.Collections.Generic;
 {% for using_stmt in file.using_stmts %}
 using {{using_stmt}};
 {% endfor %}
 
-namespace {{ file.namespace }} {
 {% for block in file.blocks %}
 {{block}}
 {% endfor %}

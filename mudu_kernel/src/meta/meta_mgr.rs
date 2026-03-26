@@ -27,7 +27,7 @@ impl MetaMgrImpl {
         let mut hash_table = HashMap::new();
         let path = PathBuf::from(path.as_ref());
         if fs::metadata(path.clone()).is_err() {
-            fs::create_dir(path.clone()).map_err(|e| { m_error!(ER::IOErr,"", e) })?;
+            fs::create_dir(path.clone()).map_err(|e| m_error!(ER::IOErr, "", e))?;
         }
 
         for entry in rs_io(fs::read_dir(path.clone()))? {
@@ -120,7 +120,10 @@ impl MetaMgr for MetaMgrImpl {
         let opt = self.get_table_by_id(oid);
         match opt {
             Some(t) => t.table_desc(),
-            None => Err(m_error!(ER::NoSuchElement, format!("no such table {}", oid))),
+            None => Err(m_error!(
+                ER::NoSuchElement,
+                format!("no such table {}", oid)
+            )),
         }
     }
 

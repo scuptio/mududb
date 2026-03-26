@@ -1,4 +1,3 @@
-
 pub enum NonPrimitiveType {
     Array(String),
     Option(String),

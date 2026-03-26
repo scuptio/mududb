@@ -11,8 +11,8 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 
-use mudu_binding::record::record_def::RecordDef;
 use mudu_binding::record::field_def::FieldDef;
+use mudu_binding::record::record_def::RecordDef;
 use sql_parser::ast::expr_compare::ExprCompare;
 use sql_parser::ast::expr_item::{ExprItem, ExprValue};
 use sql_parser::ast::expr_literal::ExprLiteral;
@@ -21,7 +21,6 @@ use sql_parser::ast::stmt_select::StmtSelect;
 use sql_parser::ast::stmt_type::StmtCommand;
 use sql_parser::ast::stmt_update::{AssignedValue, StmtUpdate};
 use std::sync::Arc;
-
 
 /// SQLResolver performs analyzing and checking the semantics of a parsed SQL statement
 pub struct SQLResolver {
@@ -92,7 +91,7 @@ impl SQLResolver {
             &table_def,
             stmt.get_where_predicate(),
             &mut vec_predicate,
-            &mut vec_placeholder
+            &mut vec_placeholder,
         )?;
         let r_update = ResolvedUpdate::new(
             table_name,
@@ -136,7 +135,8 @@ impl SQLResolver {
             let c_def = &value_columns[i];
             let desc = DatumDesc::new(
                 c_def.column_name().clone(),
-                c_def.dat_type().clone().uni_to()?);
+                c_def.dat_type().clone().uni_to()?,
+            );
 
             let item_value = match v {
                 ExprValue::ValueLiteral(l) => ItemValue::Literal(l.dat_type().clone()),
@@ -174,7 +174,8 @@ fn build_data_desc_for_name(column_name: &str, table_def: &RecordDef) -> RS<Datu
     let column_def = rs_option(opt, &format!("no such column {}", column_name))?;
     let datum_desc = DatumDesc::new(
         column_name.to_string(),
-        column_def.dat_type().clone().uni_to()?);
+        column_def.dat_type().clone().uni_to()?,
+    );
     Ok(datum_desc)
 }
 
@@ -182,7 +183,7 @@ fn real_where_predicate(
     table_def: &RecordDef,
     expr_compare_list: &Vec<ExprCompare>,
     vec_predicate: &mut Vec<(DatumDesc, Filter)>,
-    vec_placeholder: &mut Vec<DatumDesc>
+    vec_placeholder: &mut Vec<DatumDesc>,
 ) -> RS<()> {
     for predicate in expr_compare_list {
         let right = predicate.right();
@@ -238,7 +239,7 @@ fn stmt_select_to_resolved(stmt: &StmtSelect, schema_mgr: &SchemaMgr) -> RS<Reso
         &table_def,
         stmt.get_where_predicate(),
         &mut vec_predicate,
-        &mut vec_placeholder
+        &mut vec_placeholder,
     )?;
 
     let rs = ResolvedSelect::new(

@@ -1,18 +1,18 @@
 use async_trait::async_trait;
+use mudu::common::app_info::AppInfo;
 use mudu::common::result::RS;
 use mudu_contract::database::sql::DBConn;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
+use mudu_kernel::server_ur::worker_local::WorkerLocalRef;
 use mudu_utils::task_id::TaskID;
 use std::sync::Arc;
-use mudu::common::package_cfg::PackageCfg;
 
 #[async_trait]
 pub trait AppInst: Send + Sync {
+    fn cfg(&self) -> &AppInfo;
 
-    fn cfg(&self) -> &PackageCfg;
-    
     async fn task_create(&self) -> RS<TaskID>;
 
     fn task_end(&self, task_id: TaskID) -> RS<()>;
@@ -27,6 +27,7 @@ pub trait AppInst: Send + Sync {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult>;
 
     async fn invoke_async(
@@ -35,6 +36,7 @@ pub trait AppInst: Send + Sync {
         mod_name: &String,
         proc_name: &String,
         param: ProcedureParam,
+        worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult>;
 
     fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>>;

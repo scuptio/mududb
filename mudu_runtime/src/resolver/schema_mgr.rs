@@ -5,7 +5,7 @@ use mudu::m_error;
 use sql_parser::parser::ddl_parser::DDLParser;
 
 use mudu_binding::record::record_def::RecordDef;
-use mudu_type::db_type::{db_type_mgr, DBType};
+use mudu_type::db_type::{DBType, db_type_mgr};
 use scc::HashMap as SCCHashMap;
 use std::collections::HashMap;
 use std::fs;
@@ -16,7 +16,7 @@ const DDL_SQL_EXTENSION: &str = "sql";
 #[derive(Clone)]
 pub struct SchemaMgr {
     map: Arc<Mutex<HashMap<String, RecordDef>>>,
-    db_type:Arc<dyn DBType>,
+    db_type: Arc<dyn DBType>,
 }
 
 lazy_static! {

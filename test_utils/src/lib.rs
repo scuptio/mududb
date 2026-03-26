@@ -2,8 +2,8 @@ pub mod _arb_limit;
 
 pub mod _arbitrary;
 
-pub mod _arb_string;
 pub mod _arb_name;
+pub mod _arb_string;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

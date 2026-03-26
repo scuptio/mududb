@@ -6,4 +6,3 @@ pub mod rust;
 #[allow(unused)]
 #[cfg(target_arch = "wasm32")]
 pub mod generated;
-

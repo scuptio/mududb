@@ -32,6 +32,8 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/generated",
     "--artifact",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/artifact",
+    "--wasm-file",
+    "${WASM_FILE}",
     "--package-desc",
     "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
     "--type-desc",
@@ -52,7 +54,7 @@ dependencies = ["generate", "transpile", "cargo-build"]
 command = "mpk"
 args = [
     "create",
-    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.toml",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
     "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
     "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",

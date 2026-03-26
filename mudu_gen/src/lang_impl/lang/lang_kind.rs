@@ -11,7 +11,6 @@ pub enum LangKind {
     CSharp,
 }
 
-
 impl LangKind {
     pub fn to_str(&self) -> &'static str {
         match self {
@@ -24,7 +23,7 @@ impl LangKind {
         match s.as_str() {
             "rust" => Some(LangKind::Rust),
             "csharp" => Some(LangKind::CSharp),
-            _ => None
+            _ => None,
         }
     }
 

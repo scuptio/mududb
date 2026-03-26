@@ -1,12 +1,12 @@
+use crate::tuple::read_datum::{read_binary_data, read_data_capacity, read_slot};
+use crate::tuple::slot::Slot;
+use crate::tuple::tuple_binary::TupleSlice;
+use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use crate::tuple::read_datum::{read_binary_data, read_data_capacity, read_slot};
-use crate::tuple::slot::Slot;
-use crate::tuple::tuple_binary::TupleSlice;
-use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 
 pub fn update_tuple(
     index: usize,

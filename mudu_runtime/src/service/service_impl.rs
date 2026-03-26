@@ -1,17 +1,19 @@
-use tracing::info;
+use crate::service::service_trait::ServiceTrait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_utils::sync::async_task::TaskWrapper;
-use crate::service::service_trait::ServiceTrait;
+use tracing::info;
 
 pub struct ServiceImpl {
-    tasks:scc::Queue<TaskWrapper>,
+    tasks: scc::Queue<TaskWrapper>,
 }
 
 impl ServiceImpl {
     pub fn new() -> Self {
-        Self { tasks:Default::default() }
+        Self {
+            tasks: Default::default(),
+        }
     }
 }
 
@@ -33,19 +35,14 @@ impl ServiceTrait for ServiceImpl {
                 let mut result = vec![];
                 let mut joinable = vec![];
                 while let Some(task) = tasks.pop() {
-                    let join_handle =
-                        task.as_ref().async_run();
+                    let join_handle = task.as_ref().async_run();
                     task_result.push(join_handle);
                 }
-                result.resize_with(task_result.len(), ||{
-                    Some(m_error!(EC::NoneErr))
-                });
+                result.resize_with(task_result.len(), || Some(m_error!(EC::NoneErr)));
                 let mut error_count = 0;
                 for (i, join) in task_result.into_iter().enumerate() {
                     match join {
-                        Ok(r) => {
-                            joinable.push(r)
-                        },
+                        Ok(r) => joinable.push(r),
                         Err(e) => {
                             error_count += 1;
                             result[i] = Some(e);
@@ -55,7 +52,8 @@ impl ServiceTrait for ServiceImpl {
                 if error_count > 0 {
                     Ok(result)
                 } else {
-                    TaskWrapper::join_all(joinable).await
+                    TaskWrapper::join_all(joinable)
+                        .await
                         .map_err(|e| m_error!(EC::IOErr, "join error", e))?;
                     Ok(result)
                 }

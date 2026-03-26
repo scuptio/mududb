@@ -53,6 +53,54 @@ unsafe extern "C" {
         mem_id: *mut u8,
     ) -> i32;
 
+    // Reads a key from the kernel pull-push interface.
+    pub fn sys_get(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
+    pub fn sys_open(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
+    pub fn sys_close(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
+    // Writes a pull-push pair through the kernel pull-push interface.
+    pub fn sys_put(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
+    // Scans the half-open key range [start, end) through the kernel pull-push interface.
+    pub fn sys_range(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
     // Retrieves memory content using a previously obtained memory identifier.
     //
     // # Arguments
@@ -65,9 +113,5 @@ unsafe extern "C" {
     // - `out_buf_ptr` must point to valid memory of at least `out_buf_len` bytes obtained from
     //    sys_command/sys_query/sys_fetch.
     // - The kernel may write up to `out_buf_len` bytes to the output buffer
-    pub fn sys_get_memory(
-        mem_id: u32,
-        out_buf_ptr: *mut u8,
-        out_buf_len: usize,
-    ) -> i32;
+    pub fn sys_get_memory(mem_id: u32, out_buf_ptr: *mut u8, out_buf_len: usize) -> i32;
 }

@@ -150,8 +150,14 @@ mod test {
 
         // Read from file and verify
         let loaded_desc = ProcDesc::from_path(&path).unwrap();
-        println!("parameter:{}", loaded_desc.default_param_json().unwrap().to_string());
-        println!("return:{}", loaded_desc.default_return_json().unwrap().to_string());
+        println!(
+            "parameter:{}",
+            loaded_desc.default_param_json().unwrap().to_string()
+        );
+        println!(
+            "return:{}",
+            loaded_desc.default_return_json().unwrap().to_string()
+        );
         // Clean up test file
         let _ = std::fs::remove_file(&path);
     }

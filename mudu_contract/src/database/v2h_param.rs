@@ -2,9 +2,8 @@ use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::xid::XID;
-use serde::{Deserialize, Serialize};
 use mudu_type::dat_value::DatValue;
-
+use serde::{Deserialize, Serialize};
 
 pub struct QueryIn {
     xid: XID,

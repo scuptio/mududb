@@ -11,7 +11,12 @@ pub struct ColumnDef {
 }
 
 impl ColumnDef {
-    pub fn new(column_name: String, data_type_def: UniDatType, data_type_param: Option<Vec<UniDatValue>>, is_primary_key: bool) -> Self {
+    pub fn new(
+        column_name: String,
+        data_type_def: UniDatType,
+        data_type_param: Option<Vec<UniDatValue>>,
+        is_primary_key: bool,
+    ) -> Self {
         Self {
             column_name,
             data_type_def,
@@ -32,7 +37,6 @@ impl ColumnDef {
     pub fn is_primary_key(&self) -> bool {
         self.is_primary_key
     }
-
 
     pub fn column_name(&self) -> &String {
         &self.column_name

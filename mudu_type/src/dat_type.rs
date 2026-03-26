@@ -11,7 +11,7 @@ use crate::type_error::TyErr;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
 use paste::paste;
-use serde::{Deserialize,  Serialize};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// Data type param object
@@ -20,8 +20,6 @@ pub struct DatType {
     id: DatTypeID,
     param: Option<DTPKind>,
 }
-
-
 
 unsafe impl Send for DatType {}
 
@@ -142,7 +140,6 @@ impl DatType {
         }
     }
 }
-
 
 impl Order for DatType {
     fn cmp_ord(&self, other: &Self) -> RS<Ordering> {

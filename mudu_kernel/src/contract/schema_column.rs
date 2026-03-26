@@ -65,7 +65,6 @@ impl SchemaColumn {
     }
 }
 
-
 #[cfg(any(test, feature = "test"))]
 impl<'a> Arbitrary<'a> for SchemaColumn {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {

@@ -65,9 +65,9 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Verify Install Script (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 script/build/install_binaries.py --dry-run
+
       - name: Test
         run: cargo test --release
-
-      - name: Build(Linux iouring)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo build --features iouring

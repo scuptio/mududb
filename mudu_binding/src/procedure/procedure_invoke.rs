@@ -6,6 +6,7 @@ use mudu::m_error;
 use mudu::utils::json::JsonValue;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
+use std::future::Future;
 use std::slice;
 use tracing::{error, info};
 
@@ -18,12 +19,13 @@ fn _invoke_proc(
     Ok(result)
 }
 
-async fn _invoke_proc_async<F>(param: Vec<u8>, f: F) -> RS<ProcedureResult>
+async fn _invoke_proc_async<F, Fut>(param: Vec<u8>, f: F) -> RS<ProcedureResult>
 where
-    F: AsyncFn(&ProcedureParam) -> RS<ProcedureResult>,
+    F: FnOnce(ProcedureParam) -> Fut,
+    Fut: Future<Output = RS<ProcedureResult>>,
 {
     let r = deserialize_param(&param)?;
-    let result = f(&r).await?;
+    let result = f(r).await?;
     Ok(result)
 }
 
@@ -56,9 +58,10 @@ pub fn invoke_procedure(param: Vec<u8>, f: fn(ProcedureParam) -> RS<ProcedureRes
     handle_procedure::procedure_serialize_result(r)
 }
 
-pub async fn invoke_procedure_async<F>(param: Vec<u8>, f: F) -> Vec<u8>
+pub async fn invoke_procedure_async<F, Fut>(param: Vec<u8>, f: F) -> Vec<u8>
 where
-    F: AsyncFn(&ProcedureParam) -> RS<ProcedureResult>,
+    F: FnOnce(ProcedureParam) -> Fut,
+    Fut: Future<Output = RS<ProcedureResult>>,
 {
     let r = _invoke_proc_async(param, f).await;
     handle_procedure::procedure_serialize_result(r)
@@ -100,7 +103,6 @@ fn _invoke_wrapper(
         })?;
         param
     };
-    info!("invoke function, param {:?}", &param);
     let result = f(&param);
     info!("invoke function, return {:?}", &result);
     let out_buf = unsafe {

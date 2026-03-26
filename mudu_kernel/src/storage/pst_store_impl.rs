@@ -41,7 +41,10 @@ impl PstStoreImpl {
     }
 
     pub fn run_flush(&self) -> RS<()> {
-        let mut guard = self.inner.lock().map_err(|_e| m_error!(ER::MutexError, ""))?;
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_e| m_error!(ER::MutexError, ""))?;
         guard.run_flush()?;
         Ok(())
     }
@@ -54,8 +57,8 @@ struct Inner {
 
 impl Inner {
     fn new(path: String, receiver: Receiver<Vec<PstOp>>) -> RS<Inner> {
-        let connection = Connection::open(path)
-            .map_err(|e| m_error!(ER::IOErr, "open sqlite db error", e))?;
+        let connection =
+            Connection::open(path).map_err(|e| m_error!(ER::IOErr, "open sqlite db error", e))?;
         Ok(Self {
             receiver,
             connection,
@@ -175,7 +178,7 @@ impl Inner {
             insert_kv.key,
             insert_kv.value
         ])
-            .map_err(|e| m_error!(ER::IOErr, "", e))?;
+        .map_err(|e| m_error!(ER::IOErr, "", e))?;
         Ok(())
     }
 
@@ -189,7 +192,7 @@ impl Inner {
             table_id,
             tuple_id,
         ])
-            .map_err(|e| m_error!(ER::IOErr, "", e))?;
+        .map_err(|e| m_error!(ER::IOErr, "", e))?;
         Ok(())
     }
 

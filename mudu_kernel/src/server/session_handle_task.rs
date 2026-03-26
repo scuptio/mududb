@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use crate::server::incoming_session::SSPReceiver;
 use crate::x_engine::thd_ctx::ThdCtx;
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_utils::notifier::NotifyWait;
 use mudu_utils::sync::a_task::ATask;
@@ -15,7 +15,12 @@ pub struct SessionHandleTask {
 }
 
 impl SessionHandleTask {
-    pub fn new(thd_ctx: ThdCtx, name: String, receiver: SSPReceiver, canceller: NotifyWait) -> Self {
+    pub fn new(
+        thd_ctx: ThdCtx,
+        name: String,
+        receiver: SSPReceiver,
+        canceller: NotifyWait,
+    ) -> Self {
         Self {
             thd_ctx,
             name,

@@ -1,4 +1,5 @@
 mod test_tool;
+mod test_tool_wit_schema;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use mudu::common::result::RS;
@@ -31,11 +32,16 @@ struct MessageConfig {
     pub input: String,
     pub output: String,
     pub lang: String,
-    pub namespace:Option<String>,
+    pub namespace: Option<String>,
 }
 
 fn run_gen_message(config: &MessageConfig) -> RS<()> {
-    gen_message(&config.input, config.output.clone(), config.lang.clone(),config.namespace.clone())?;
+    gen_message(
+        &config.input,
+        config.output.clone(),
+        config.lang.clone(),
+        config.namespace.clone(),
+    )?;
     Ok(())
 }
 
@@ -52,7 +58,7 @@ fn run_gen_entity(config: &EntityConfig) -> RS<()> {
 // parse the arguments
 fn parse_arguments<I, T>(args: I) -> RS<ArgMatches>
 where
-    I: IntoIterator<Item=T>,
+    I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
     let command = Command::new("mgen")
@@ -145,12 +151,9 @@ where
                         .help("Namespace"),
                 ),
         );
-    let r_matches = command
-        .try_get_matches_from(args);
+    let r_matches = command.try_get_matches_from(args);
     let matches = match r_matches {
-        Ok(matches) => {
-            matches
-        }
+        Ok(matches) => matches,
         Err(e) => {
             if e.kind() == clap::error::ErrorKind::DisplayHelp
                 || e.kind() == clap::error::ErrorKind::DisplayVersion
@@ -177,12 +180,11 @@ fn process_arguments(matches: ArgMatches) -> RS<()> {
             let config = handle_message_command(sub_args)?;
             run_gen_message(&config)
         }
-        Some((cmd, _)) => {
-            Err(m_error!(EC::NoneErr, format!("unknow command: {}", cmd)))
-        }
-        None => {
-            Err(m_error!(EC::NoneErr, "Provide a sub-command. Use --help to show help"))
-        }
+        Some((cmd, _)) => Err(m_error!(EC::NoneErr, format!("unknow command: {}", cmd))),
+        None => Err(m_error!(
+            EC::NoneErr,
+            "Provide a sub-command. Use --help to show help"
+        )),
     }
 }
 
@@ -229,8 +231,7 @@ fn handle_message_command(sub_args: &ArgMatches) -> RS<MessageConfig> {
         .map(|s| s.clone())
         .unwrap_or_else(|| "rust".to_string());
 
-    let namespace = sub_args.get_one::<String>("namespace")
-        .cloned();
+    let namespace = sub_args.get_one::<String>("namespace").cloned();
 
     Ok(MessageConfig {
         input,
@@ -242,7 +243,7 @@ fn handle_message_command(sub_args: &ArgMatches) -> RS<MessageConfig> {
 
 fn main_inner<I, T>(args: I) -> RS<()>
 where
-    I: IntoIterator<Item=T>,
+    I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
     let matches = parse_arguments(args)?;

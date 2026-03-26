@@ -6,7 +6,7 @@ use mudu::common::result::RS;
 pub struct ResultBatch {
     oid: OID,
     eof: bool,
-    rows:Vec<TupleValue>,
+    rows: Vec<TupleValue>,
 }
 
 impl ResultBatch {
@@ -21,7 +21,7 @@ impl ResultBatch {
             rows: vec,
         })
     }
-    pub fn from_result_set(oid:OID, rs:&dyn ResultSet) -> RS<Self> {
+    pub fn from_result_set(oid: OID, rs: &dyn ResultSet) -> RS<Self> {
         let mut vec = Vec::new();
         while let Some(n) = rs.next()? {
             vec.push(n);
@@ -29,19 +29,19 @@ impl ResultBatch {
         Ok(Self {
             oid,
             eof: true,
-            rows:vec
+            rows: vec,
         })
     }
 
-    pub fn from(oid:OID, rows:Vec<TupleValue>, eof:bool) -> ResultBatch {
-        ResultBatch {oid,eof,rows}
+    pub fn from(oid: OID, rows: Vec<TupleValue>, eof: bool) -> ResultBatch {
+        ResultBatch { oid, eof, rows }
     }
 
     pub fn new(oid: OID) -> ResultBatch {
         Self {
             oid,
-            eof:false,
-            rows:Vec::new(),
+            eof: false,
+            rows: Vec::new(),
         }
     }
 

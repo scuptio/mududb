@@ -39,7 +39,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
-        sql_params!(&(from_user_id, )),
+        sql_params!(&(from_user_id,)),
     )?;
 
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
@@ -140,7 +140,7 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&(user_id, )),
+        sql_params!(&(user_id,)),
     )?;
 
     let wallet = wallet_rs
@@ -243,7 +243,7 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&(user_id, )),
+        sql_params!(&(user_id,)),
     )?;
 
     let wallet = wallet_rs
@@ -290,7 +290,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     let sender_wallet = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
-        sql_params!(&(from_user_id, )),
+        sql_params!(&(from_user_id,)),
     )?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Sender wallet not found"))?;
@@ -303,7 +303,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     let receiver_exists = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?"),
-        sql_params!(&(to_user_id.clone(), )),
+        sql_params!(&(to_user_id.clone(),)),
     )?
     .next_record()?
     .is_some();

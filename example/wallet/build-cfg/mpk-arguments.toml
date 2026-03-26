@@ -1,4 +1,4 @@
-package-cfg = "package/package.cfg.toml"
+package-cfg = "package/package.cfg.json"
 package-desc = "package/package.desc.json"
 ddl-sql = "sql/sql.sql"
 initdb-sql = "sql/init.sql"

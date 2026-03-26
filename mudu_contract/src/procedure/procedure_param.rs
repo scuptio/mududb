@@ -27,9 +27,13 @@ impl ProcedureParam {
         let vec = tuple.to_value(desc.fields())?;
         Ok(Self::new(xid, 0, vec))
     }
-    
+
     pub fn new(xid: XID, procedure_id: u64, param: Vec<DatValue>) -> ProcedureParam {
-        Self { xid, procedure_id, param_list: param }
+        Self {
+            xid,
+            procedure_id,
+            param_list: param,
+        }
     }
 
     pub fn param_list(&self) -> &Vec<DatValue> {

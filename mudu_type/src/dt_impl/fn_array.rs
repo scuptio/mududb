@@ -7,7 +7,7 @@ use crate::dt_fn_convert::FnBase;
 use crate::dtp_array::DTPArray;
 use crate::type_error::{TyEC, TyErr};
 use mudu::utils::bin_size::BinSize;
-use mudu::utils::json::{from_json_str, JsonValue};
+use mudu::utils::json::{JsonValue, from_json_str};
 use mudu::utils::msg_pack::MsgPackValue;
 
 pub fn fn_array_in(s: &str, dat_type: &DatType) -> Result<DatValue, TyErr> {

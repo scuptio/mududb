@@ -44,10 +44,10 @@ impl MemStoreImpl {
         let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().read_key(key),
-            None => Err(m_error!(ER::NoSuchElement, format!(
-                "table id {} not found in store",
-                oid
-            ))),
+            None => Err(m_error!(
+                ER::NoSuchElement,
+                format!("table id {} not found in store", oid)
+            )),
         }
     }
 
@@ -60,10 +60,10 @@ impl MemStoreImpl {
         let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().read_range(begin, end),
-            None => Err(m_error!(ER::NoSuchElement, format!(
-                "table id {} not found in store",
-                oid
-            ))),
+            None => Err(m_error!(
+                ER::NoSuchElement,
+                format!("table id {} not found in store", oid)
+            )),
         }
     }
 
@@ -71,10 +71,10 @@ impl MemStoreImpl {
         let opt = self.hash.get_sync(&oid);
         match opt {
             Some(e) => e.get().insert_key(key, row),
-            None => Err(m_error!(ER::NoSuchElement, format!(
-                "table id {} not found in store",
-                oid
-            ))),
+            None => Err(m_error!(
+                ER::NoSuchElement,
+                format!("table id {} not found in store", oid)
+            )),
         }
     }
 }

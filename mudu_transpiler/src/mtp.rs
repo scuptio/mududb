@@ -80,15 +80,11 @@ pub enum CommandType {
 
 /// Common arguments shared by all subcommands
 #[derive(Parser, Clone)]
-pub struct CommonArgs {
-
-}
+pub struct CommonArgs {}
 
 /// Rust-specific arguments
 #[derive(Parser, Clone)]
-pub struct RustArgs {
-
-}
+pub struct RustArgs {}
 
 /// Execute the CLI command based on parsed arguments
 pub fn execute(args: Args) -> Result<(), String> {
@@ -106,7 +102,7 @@ pub fn execute(args: Args) -> Result<(), String> {
 }
 
 /// Handle Rust transpilation
-fn handle_rust(args:Args) -> Result<(), String> {
+fn handle_rust(args: Args) -> Result<(), String> {
     if args.verbose {
         println!("Source language: Rust");
         println!("Input file: {}", args.input);
@@ -137,7 +133,7 @@ fn handle_rust(args:Args) -> Result<(), String> {
 }
 
 /// Handle C# transpilation
-fn handle_csharp(args:Args) -> Result<(), String> {
+fn handle_csharp(args: Args) -> Result<(), String> {
     if args.verbose {
         println!("Source language: C#");
         println!("Input file: {}", args.input);
@@ -186,7 +182,7 @@ fn handle_assemblyscript(args: Args) -> Result<(), String> {
 
 pub fn main_inner<I, T>(args: I) -> RS<()>
 where
-    I: IntoIterator<Item=T>,
+    I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
     let args = Args::parse_from(args);

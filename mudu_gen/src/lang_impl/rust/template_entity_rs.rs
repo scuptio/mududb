@@ -14,8 +14,6 @@ pub struct TemplateEntityRS {
 impl TemplateEntityRS {
     pub fn from_table_schema(table_schema: &RecordDef) -> RS<Self> {
         let info = EntityInfo::from_record_def(table_schema, &LangKind::Rust)?;
-        Ok(Self {
-            table: info,
-        })
+        Ok(Self { table: info })
     }
 }

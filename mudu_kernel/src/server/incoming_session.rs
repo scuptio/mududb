@@ -28,9 +28,7 @@ impl IncomingSession {
     pub async fn session_handler_task(self, ctx: ThdCtx) -> RS<()> {
         let session_mgr = SessionMgr::new(ctx);
         let r = process_socket(self.tcp_socket, None, session_mgr).await;
-        r.map_err(|e| {
-            m_error!(ER::NetErr, "PG Wire handle error", e)
-        })?;
+        r.map_err(|e| m_error!(ER::NetErr, "PG Wire handle error", e))?;
         Ok(())
     }
 }

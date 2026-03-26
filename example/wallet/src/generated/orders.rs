@@ -29,7 +29,6 @@ pub mod object {
 
     const CREATED_AT: &str = "created_at";
 
-
     // entity struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Orders {
@@ -42,7 +41,6 @@ pub mod object {
         amount: AttrAmount,
 
         created_at: AttrCreatedAt,
-
     }
 
     impl TupleDatumMarker for Orders {}
@@ -67,7 +65,6 @@ pub mod object {
                 amount: AttrAmount::from(amount),
 
                 created_at: AttrCreatedAt::from(created_at),
-
             };
             s
         }
@@ -76,69 +73,43 @@ pub mod object {
             Self::default()
         }
 
-
-        pub fn set_order_id(
-            &mut self,
-            order_id: i32,
-        ) {
+        pub fn set_order_id(&mut self, order_id: i32) {
             self.order_id.update(order_id)
         }
 
-        pub fn get_order_id(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_order_id(&self) -> &Option<i32> {
             self.order_id.get()
         }
 
-        pub fn set_user_id(
-            &mut self,
-            user_id: i32,
-        ) {
+        pub fn set_user_id(&mut self, user_id: i32) {
             self.user_id.update(user_id)
         }
 
-        pub fn get_user_id(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_user_id(&self) -> &Option<i32> {
             self.user_id.get()
         }
 
-        pub fn set_merch_id(
-            &mut self,
-            merch_id: i32,
-        ) {
+        pub fn set_merch_id(&mut self, merch_id: i32) {
             self.merch_id.update(merch_id)
         }
 
-        pub fn get_merch_id(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_merch_id(&self) -> &Option<i32> {
             self.merch_id.get()
         }
 
-        pub fn set_amount(
-            &mut self,
-            amount: i32,
-        ) {
+        pub fn set_amount(&mut self, amount: i32) {
             self.amount.update(amount)
         }
 
-        pub fn get_amount(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_amount(&self) -> &Option<i32> {
             self.amount.get()
         }
 
-        pub fn set_created_at(
-            &mut self,
-            created_at: i32,
-        ) {
+        pub fn set_created_at(&mut self, created_at: i32) {
             self.created_at.update(created_at)
         }
 
-        pub fn get_created_at(
-            &self,
-        ) -> &Option<i32> {
+        pub fn get_created_at(&self) -> &Option<i32> {
             self.created_at.get()
         }
     }
@@ -146,8 +117,8 @@ pub mod object {
     impl Datum for Orders {
         fn dat_type() -> &'static DatType {
             lazy_static! {
-            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Orders>();
-        }
+                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Orders>();
+            }
             &DAT_TYPE
         }
 
@@ -193,20 +164,14 @@ pub mod object {
 
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
-            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                
-                AttrOrderId::datum_desc().clone(),
-                
-                AttrUserId::datum_desc().clone(),
-                
-                AttrMerchId::datum_desc().clone(),
-                
-                AttrAmount::datum_desc().clone(),
-                
-                AttrCreatedAt::datum_desc().clone(),
-                
-            ]);
-        }
+                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                    AttrOrderId::datum_desc().clone(),
+                    AttrUserId::datum_desc().clone(),
+                    AttrMerchId::datum_desc().clone(),
+                    AttrAmount::datum_desc().clone(),
+                    AttrCreatedAt::datum_desc().clone(),
+                ]);
+            }
             &TUPLE_DESC
         }
 
@@ -216,80 +181,81 @@ pub mod object {
 
         fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
             match field {
-                ORDER_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.order_id.get())
+                ORDER_ID => attr_field_access::attr_get_binary::<_>(self.order_id.get()),
+
+                USER_ID => attr_field_access::attr_get_binary::<_>(self.user_id.get()),
+
+                MERCH_ID => attr_field_access::attr_get_binary::<_>(self.merch_id.get()),
+
+                AMOUNT => attr_field_access::attr_get_binary::<_>(self.amount.get()),
+
+                CREATED_AT => attr_field_access::attr_get_binary::<_>(self.created_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                USER_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.user_id.get())
-            }
-
-                MERCH_ID => {
-                    attr_field_access::attr_get_binary::<_>(self.merch_id.get())
-                }
-
-                AMOUNT => {
-                    attr_field_access::attr_get_binary::<_>(self.amount.get())
-                }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_binary::<_>(self.created_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
         fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
             match field {
                 ORDER_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.order_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.order_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 USER_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.user_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.user_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 MERCH_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(self.merch_id.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.merch_id.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 AMOUNT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.amount.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.amount.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
                 CREATED_AT => {
-                    attr_field_access::attr_set_binary::<_, _>(self.created_at.get_mut(), binary.as_ref())?;
+                    attr_field_access::attr_set_binary::<_, _>(
+                        self.created_at.get_mut(),
+                        binary.as_ref(),
+                    )?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
 
         fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
             match field {
-                ORDER_ID => {
-                    attr_field_access::attr_get_value::<_>(self.order_id.get())
+                ORDER_ID => attr_field_access::attr_get_value::<_>(self.order_id.get()),
+
+                USER_ID => attr_field_access::attr_get_value::<_>(self.user_id.get()),
+
+                MERCH_ID => attr_field_access::attr_get_value::<_>(self.merch_id.get()),
+
+                AMOUNT => attr_field_access::attr_get_value::<_>(self.amount.get()),
+
+                CREATED_AT => attr_field_access::attr_get_value::<_>(self.created_at.get()),
+
+                _ => {
+                    panic!("unknown name");
                 }
-
-                USER_ID => {
-                    attr_field_access::attr_get_value::<_>(self.user_id.get())
-                }
-
-                MERCH_ID => {
-                    attr_field_access::attr_get_value::<_>(self.merch_id.get())
-                }
-
-                AMOUNT => {
-                    attr_field_access::attr_get_value::<_>(self.amount.get())
-            }
-
-                CREATED_AT => {
-                    attr_field_access::attr_get_value::<_>(self.created_at.get())
-                }
-
-                _ => { panic!("unknown name"); }
             }
         }
 
@@ -315,12 +281,13 @@ pub mod object {
                     attr_field_access::attr_set_value::<_, _>(self.created_at.get_mut(), value)?;
                 }
 
-                _ => { panic!("unknown name"); }
+                _ => {
+                    panic!("unknown name");
+                }
             }
             Ok(())
         }
     }
-
 
     // attribute struct definition
     #[derive(Default, Clone, Debug)]

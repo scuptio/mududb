@@ -13,6 +13,9 @@ mod fn_array;
 #[cfg(any(test, feature = "test"))]
 mod fn_array_arb;
 mod fn_array_param;
+mod fn_binary;
+#[cfg(any(test, feature = "test"))]
+mod fn_binary_arb;
 #[cfg(any(test, feature = "test"))]
 mod fn_f32_arb;
 #[cfg(any(test, feature = "test"))]
@@ -27,6 +30,3 @@ mod fn_object_arb;
 mod fn_object_param;
 #[cfg(any(test, feature = "test"))]
 mod fn_string_arb;
-mod fn_binary;
-#[cfg(any(test, feature = "test"))]
-mod fn_binary_arb;
