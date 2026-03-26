@@ -1,9 +1,43 @@
 {
   "modules": {
-    "module": [
+    "vote": [
       {
-        "module_name": "module",
-        "proc_name": "withdraw_vote",
+        "module_name": "vote",
+        "proc_name": "create_user",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "phone"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "vote",
+        "proc_name": "cast_vote",
         "param_desc": {
           "fields": [
             {
@@ -27,6 +61,25 @@
                 }
               },
               "name": "vote_id"
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "String",
+                      "param": {
+                        "String": {
+                          "length": 65536
+                        }
+                      }
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "option_ids"
             }
           ]
         },
@@ -35,7 +88,7 @@
         }
       },
       {
-        "module_name": "module",
+        "module_name": "vote",
         "proc_name": "get_vote_result",
         "param_desc": {
           "fields": [
@@ -118,185 +171,7 @@
         }
       },
       {
-        "module_name": "module",
-        "proc_name": "cast_vote",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "vote_id"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "String",
-                      "param": {
-                        "String": {
-                          "length": 65536
-                        }
-                      }
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "option_ids"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "create_vote",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "creator_id"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "topic"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "vote_type"
-            },
-            {
-              "dat_type": {
-                "id": "I64",
-                "param": null
-              },
-              "name": "max_choices"
-            },
-            {
-              "dat_type": {
-                "id": "I64",
-                "param": null
-              },
-              "name": "end_time"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "visibility_rule"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "module",
-        "proc_name": "add_option",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "vote_id"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "option_text"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "module",
+        "module_name": "vote",
         "proc_name": "get_voting_history",
         "param_desc": {
           "fields": [
@@ -383,8 +258,8 @@
         }
       },
       {
-        "module_name": "module",
-        "proc_name": "create_user",
+        "module_name": "vote",
+        "proc_name": "add_option",
         "param_desc": {
           "fields": [
             {
@@ -396,7 +271,18 @@
                   }
                 }
               },
-              "name": "phone"
+              "name": "vote_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "option_text"
             }
           ]
         },
@@ -414,6 +300,120 @@
               "name": "0"
             }
           ]
+        }
+      },
+      {
+        "module_name": "vote",
+        "proc_name": "create_vote",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "creator_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "topic"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "vote_type"
+            },
+            {
+              "dat_type": {
+                "id": "I64",
+                "param": null
+              },
+              "name": "max_choices"
+            },
+            {
+              "dat_type": {
+                "id": "I64",
+                "param": null
+              },
+              "name": "end_time"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "visibility_rule"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "vote",
+        "proc_name": "withdraw_vote",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "vote_id"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
         }
       }
     ]

@@ -14,17 +14,8 @@ use crate::contract::table_desc::TableDesc;
 use crate::storage::pst_op_ch::PstOpCh;
 use crate::tx::tx_ctx::TxCtx;
 use crate::x_engine::api::{
-    AlterTable,
-    OptDelete,
-    OptInsert,
-    OptRead,
-    OptUpdate,
-    Predicate,
-    RSCursor,
-    RangeData,
-    VecDatum,
-    VecSelTerm,
-    XContract,
+    AlterTable, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum,
+    VecSelTerm, XContract,
 };
 use mudu::common::buf::Buf;
 use mudu::common::id::{ThdID, OID};
@@ -192,7 +183,10 @@ impl ThdCtxInner {
         for (id, dat) in datum.iter() {
             let opt = table_desc.oid2col().get(id);
             let field = rs_of_opt(opt, || {
-                m_error!(ER::IOErr, format!("no column {} in table {}", id, table_desc.id()))
+                m_error!(
+                    ER::IOErr,
+                    format!("no column {} in table {}", id, table_desc.id())
+                )
             })?;
             let datum_index = field.datum_index();
             update_tuple(datum_index, dat, table_desc.value_desc(), tuple, &mut delta)?;
@@ -255,14 +249,15 @@ impl ThdCtxInner {
         match opt {
             Some(lock_r) => match lock_r {
                 LockResult::Locked => Ok(()),
-                LockResult::LockFailed => {
-                    Err(m_error!(ER::TxErr, format!("transaction {} lock failed", xid)))
-                }
+                LockResult::LockFailed => Err(m_error!(
+                    ER::TxErr,
+                    format!("transaction {} lock failed", xid)
+                )),
             },
-            None => Err(m_error!(ER::TxErr, format!(
-                "transaction {} lock failed",
-                tx_ctx.xid()
-            ))),
+            None => Err(m_error!(
+                ER::TxErr,
+                format!("transaction {} lock failed", tx_ctx.xid())
+            )),
         }
     }
 
@@ -285,9 +280,10 @@ impl ThdCtxInner {
         self.lock_x(&tx_ctx, table_id, key.clone()).await?;
         let opt = self.tree_store.get_key(table_id, key.clone()).await?;
         if opt.is_some() {
-            return Err(m_error!(ER::ExistingSuchElement, format!(
-                "existing key for table {}",
-                table_id)));
+            return Err(m_error!(
+                ER::ExistingSuchElement,
+                format!("existing key for table {}", table_id)
+            ));
         }
         let data_row = DataRow::new();
         tx_ctx.insert(table_id, key, value, data_row).await?;
@@ -310,19 +306,25 @@ impl ThdCtxInner {
         let data_row = match opt {
             Some(row) => row,
             None => {
-                return Err(m_error!(ER::NoSuchElement, format!(
-                    "no existing key for table {} update",
-                    table_id
-                )));
+                return Err(m_error!(
+                    ER::NoSuchElement,
+                    format!("no existing key for table {} update", table_id)
+                ));
             }
         };
         let opt_tuple_id = data_row.tuple_id().await?;
         let tuple_id = rs_of_opt(opt_tuple_id, || {
-            m_error!(ER::NoSuchElement, format!("no existing key for table {} update", table_id))
+            m_error!(
+                ER::NoSuchElement,
+                format!("no existing key for table {} update", table_id)
+            )
         })?;
         let opt_tuple_version = data_row.read_latest().await?;
         let tuple_version = rs_of_opt(opt_tuple_version, || {
-            m_error!(ER::NoSuchElement, format!("no existing key for table {} update", table_id))
+            m_error!(
+                ER::NoSuchElement,
+                format!("no existing key for table {} update", table_id)
+            )
         })?;
         let tuple = tuple_version.tuple();
         let vec_delta = Self::val_update_tuple(tuple, values, &desc)?;

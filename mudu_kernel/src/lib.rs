@@ -1,22 +1,23 @@
 #![feature(generic_atomic)]
 #![allow(dead_code)]
 #![allow(unused)]
-pub mod fuzz;
-mod common;
-mod io;
-mod x_log;
 mod collection;
+mod common;
 mod contract;
+pub mod fuzz;
+pub mod index;
+mod io;
 mod meta;
+pub mod x_log;
 
 mod command;
 mod executor;
 
-mod sql;
 pub mod server;
+mod sql;
 mod test;
 
-mod storage;
+pub mod server_ur;
+pub mod storage;
 mod tx;
 mod x_engine;
-

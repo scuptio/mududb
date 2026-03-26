@@ -161,6 +161,7 @@ module.exports = grammar({
         $.resource_item,
         $.variant_items,
         $.record_item,
+        $.table_item,
         $.flags_items,
         $.enum_items,
         $.type_item,
@@ -202,8 +203,40 @@ module.exports = grammar({
       seq('type', field('alias', $.id), '=', field('type', $.ty), ';'),
 
     record_item: ($) =>
-      seq(field('comment', repeat($.special_comment)), 'record', field('record_name', $.id), $._record_body),
-    _record_body: ($) => seq('{', $._record_fields, '}'),
+      seq(
+          field('comment', repeat($.special_comment)),
+          'record',
+          field('record_name', $.id),
+          field('record_body', $.record_body)
+      ),
+
+    table_item: ($) =>
+      seq(
+          field('comment', repeat($.special_comment)),
+          'table',
+          field('table_name', $.id),
+          $._table_body
+      ),
+
+    _table_body: ($)  => seq('{', $._table_key_value, '}'),
+
+    _table_key_value: ($) => seq(
+        $._table_key,
+        ',',
+        $._table_value,
+        optional(',')
+    ),
+
+    _table_key: ($) => seq('key', ':', field('table_key', $.table_key_or_value_def)),
+
+    _table_value: ($) => seq('value', ':', field('table_value', $.table_key_or_value_def)),
+
+    table_key_or_value_def: ($) => choice(
+        $.id,
+        $.record_body,
+    ),
+
+    record_body: ($) => seq('{', $._record_fields, '}'),
     _record_fields: ($) => commaSeparatedList(field('record_field', $.record_field)),
     record_field: ($) => seq(field('comment', repeat($.special_comment)), field('record_field_name', $.id), ':', field('record_field_type', $.ty)),
 

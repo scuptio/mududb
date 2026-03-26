@@ -50,30 +50,22 @@ impl DBConn {
 
     pub async fn execute_silent(&self, sql: String) -> RS<()> {
         match self {
-            DBConn::Sync(conn) => {
-                conn.exec_silent(&sql)
-            }
-            DBConn::Async(conn) => {
-                conn.exec_silent(sql).await
-            }
+            DBConn::Sync(conn) => conn.exec_silent(&sql),
+            DBConn::Async(conn) => conn.exec_silent(sql).await,
         }
     }
 
     pub fn expected_sync(&self) -> RS<&dyn DBConnSync> {
         match self {
-            DBConn::Sync(s) => { Ok(s.as_ref()) }
-            DBConn::Async(_) => {
-                unsafe { std::hint::unreachable_unchecked() }
-            }
+            DBConn::Sync(s) => Ok(s.as_ref()),
+            DBConn::Async(_) => unsafe { std::hint::unreachable_unchecked() },
         }
     }
 
     pub fn expected_async(&self) -> RS<&dyn DBConnAsync> {
         match self {
-            DBConn::Sync(_) => {
-                unsafe { std::hint::unreachable_unchecked() }
-            }
-            DBConn::Async(s) => { Ok(s.as_ref()) }
+            DBConn::Sync(_) => unsafe { std::hint::unreachable_unchecked() },
+            DBConn::Async(s) => Ok(s.as_ref()),
         }
     }
 }
@@ -292,11 +284,7 @@ impl Context {
         self.inner.command(sql, param)
     }
 
-    pub async fn command_async(
-        &self,
-        sql: Box<dyn SQLStmt>,
-        param: Box<dyn SQLParams>,
-    ) -> RS<u64> {
+    pub async fn command_async(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
         self.inner.command_async(sql, param).await
     }
 
@@ -312,7 +300,6 @@ impl Context {
         self.inner.query_next()
     }
 }
-
 
 pub fn mudu_query<R: Entity>(
     xid: XID,

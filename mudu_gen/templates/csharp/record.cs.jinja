@@ -3,11 +3,20 @@
 {% endif %}
 [MessagePackObject]
 public struct {{ record.record_name }} {
+    {% if cfg.impl_default %}
+    [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public {{ record.record_name }}()
+    {
+        {% for field in record.record_fields %}
+        {{ field.rf_name }} = {{ field.rf_default_value }};
+        {% endfor %}
+    }
+    {% endif %}
     {% for field in record.record_fields %}
     {% if field.rf_comments.len() > 0 %}
     {{ field.rf_comments }}
     {% endif %}
     [Key({{field.rf_index}})]
-    public {{ field.rf_type }} {{ field.rf_name }} { get; set; }
+    public {% if field.rf_required %}required {% endif %}{{ field.rf_type }} {{ field.rf_name }} { get; set; }
     {% endfor %}
 }

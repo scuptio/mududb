@@ -1,12 +1,12 @@
-use mudu::common::result::RS;
-use mudu_type::dat_value::DatValue;
-use mudu_type::datum::{Datum, DatumDyn};
 use crate::database::entity_utils;
-use mudu::m_error;
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu::common::result::RS;
 use mudu::error::ec::EC;
+use mudu::m_error;
+use mudu_type::dat_value::DatValue;
+use mudu_type::datum::{Datum, DatumDyn};
 use paste::paste;
 
 pub trait Entity: private::Sealed + Datum {
@@ -33,15 +33,13 @@ pub trait Entity: private::Sealed + Datum {
     }
 }
 
-
 mod private {
     pub trait Sealed {}
 }
 impl<U: Entity> private::Sealed for U {}
 
-const OBJECT_NAME_PREFIX:&str = "object";
-const OBJECT_FIELD_PREFIX:&str = "field";
-
+const OBJECT_NAME_PREFIX: &str = "object";
+const OBJECT_FIELD_PREFIX: &str = "field";
 
 macro_rules! impl_entity_trait {
     ($(($variant_upper:ident, $variant_lower:ident, $datum_type:ty)),+ $(,)?) => {
@@ -95,7 +93,6 @@ macro_rules! impl_entity_trait {
         )+
     };
 }
-
 
 impl_entity_trait!(
     (I32, i32, i32),

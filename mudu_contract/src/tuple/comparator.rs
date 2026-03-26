@@ -87,11 +87,7 @@ fn _compare_binary<
     }
 }
 
-fn _compare_binary_equal(
-    data_type: &DatTypeID,
-    value1: &DatValue,
-    value2: &DatValue,
-) -> RS<bool> {
+fn _compare_binary_equal(data_type: &DatTypeID, value1: &DatValue, value2: &DatValue) -> RS<bool> {
     let opt_equal = data_type.fn_equal();
     let f = match opt_equal {
         None => return Err(m_error!(EC::FunctionNotImplemented)),

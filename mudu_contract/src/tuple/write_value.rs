@@ -1,11 +1,11 @@
+use crate::tuple::field_desc::FieldDesc;
+use crate::tuple::slot::Slot;
+use crate::tuple::tuple_binary::TupleSlice;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
-use crate::tuple::field_desc::FieldDesc;
-use crate::tuple::slot::Slot;
-use crate::tuple::tuple_binary::TupleSlice;
 
 pub fn write_slot_to_buf(value_offset: usize, value_size: usize, buf: &mut [u8]) -> RS<()> {
     let slot = Slot::new(value_offset as u32, value_size as u32);

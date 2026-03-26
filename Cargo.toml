@@ -6,8 +6,10 @@ members = [
     "mudu_type",
     "mudu_contract",
     "mudu_binding",
+    "example/pull-push",
     "example/wallet",
     "example/vote",
+    "example/key-value",
     "mudu_runtime",
     "mudu_gen",
     "sql_parser",
@@ -17,13 +19,14 @@ members = [
     "mudu_macro_test",
     "mudu_wasm",
     "mudu_utils",
+    "mudu_api_sync",
     "sys_interface",
     "mudu_kernel",
     "test_utils",
     "mudud",
     "mudu_package",
-    "mudu_transpiler"
-]
+    "mudu_transpiler",
+    "mudu_cli"]
 
 [workspace.dependencies]
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
@@ -41,6 +44,8 @@ tree-sitter-language = { version = "0.1.6" }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 project-root = { version = "0.2.2" }
 mudu_runtime = { path = "mudu_runtime" }
+mudu_kernel = { path = "mudu_kernel" }
+mudu_cli = { path = "mudu_cli" }
 mudu_macro = { path = "mudu_macro" }
 mudu_utils = { path = "mudu_utils" }
 mudu_type = { path = "mudu_type" }
@@ -52,7 +57,7 @@ console-subscriber = { version = "0.5.0" }
 tokio = { version = "1.40.0", features = ["full"] }
 rmp-serde = { version = "1.3.0" }
 rmpv = { version = "1.3.0" }
-rusqlite = { version = "0.38.0", features = ["bundled"] }
+rusqlite = { package = "libsql-rusqlite", version = "0.9.29" }
 scc = { version = "3.3.1" }
 clap = { version = "4.5.49" }
 cc = { version = "1.2.49" }

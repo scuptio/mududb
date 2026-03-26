@@ -7,18 +7,23 @@ use sys_interface::api::{mudu_command, mudu_query};
 
 /**mudu-proc**/
 pub fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
-    let _affected_rows = mudu_command(xid,
-                                      &r#"
+    let _affected_rows = mudu_command(
+        xid,
+        &r#"
 CREATE TABLE wallets
 (
     user_id    INT PRIMARY KEY,
     balance    INT,
     updated_at INT
-);"#.to_string(), &vec![])?;
+);"#
+        .to_string(),
+        &vec![],
+    )?;
 
     for i in 1..=2 {
-        let _affected_rows = mudu_command(xid,
-                                          &r#"
+        let _affected_rows = mudu_command(
+            xid,
+            &r#"
 INSERT INTO wallets
 (
     user_id,
@@ -28,7 +33,10 @@ INSERT INTO wallets
     ?,
     ?,
     ?
-)"#.to_string(), &(i, 100i32, 10000i32))?;
+)"#
+            .to_string(),
+            &(i, 100i32, 10000i32),
+        )?;
     }
 
     let wallet_rs = mudu_query::<Wallets>(
@@ -43,14 +51,19 @@ INSERT INTO wallets
         let s = value.to_textual(Wallets::dat_type())?;
         result.push_str(&s);
         result.push('\n');
-    };
-    Ok(((a + b as i32), format!("xid:{}, a={}, b={}, c={}, result {}", xid, a, b, c, result)))
+    }
+    Ok((
+        (a + b as i32),
+        format!("xid:{}, a={}, b={}, c={}, result {}", xid, a, b, c, result),
+    ))
 }
-
 
 /**mudu-proc**/
 pub fn proc2_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
-    Ok(((a + b as i32), format!("xid:{}, a={}, b={}, c={}", xid, a, b, c)))
+    Ok((
+        (a + b as i32),
+        format!("xid:{}, a={}, b={}, c={}", xid, a, b, c),
+    ))
 }
 
 #[allow(unused)]

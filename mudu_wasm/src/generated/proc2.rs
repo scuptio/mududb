@@ -7,18 +7,24 @@ use sys_interface::api::{mudu_command, mudu_query};
 
 /**mudu-proc**/
 pub async fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
-    let _affected_rows = mudu_command(xid,
-                                      &r#"
+    let _affected_rows = mudu_command(
+        xid,
+        &r#"
 CREATE TABLE wallets
 (
     user_id    INT PRIMARY KEY,
     balance    INT,
     updated_at INT
-);"#.to_string(), &vec![]).await?;
+);"#
+        .to_string(),
+        &vec![],
+    )
+    .await?;
 
     for i in 1..=2 {
-        let _affected_rows = mudu_command(xid,
-                                          &r#"
+        let _affected_rows = mudu_command(
+            xid,
+            &r#"
 INSERT INTO wallets
 (
     user_id,
@@ -28,14 +34,19 @@ INSERT INTO wallets
     ?,
     ?,
     ?
-)"#.to_string(), &(i, 100i32, 10000i32)).await?;
+)"#
+            .to_string(),
+            &(i, 100i32, 10000i32),
+        )
+        .await?;
     }
 
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets;"),
         sql_params!(&()),
-    ).await?;
+    )
+    .await?;
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
@@ -43,14 +54,19 @@ INSERT INTO wallets
         let s = value.to_textual(Wallets::dat_type())?;
         result.push_str(&s);
         result.push('\n');
-    };
-    Ok(((a + b as i32), format!("xid:{}, a={}, b={}, c={}, result {}", xid, a, b, c, result)))
+    }
+    Ok((
+        (a + b as i32),
+        format!("xid:{}, a={}, b={}, c={}, result {}", xid, a, b, c, result),
+    ))
 }
-
 
 /**mudu-proc**/
 pub fn proc2_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
-    Ok(((a + b as i32), format!("xid:{}, a={}, b={}, c={}", xid, a, b, c)))
+    Ok((
+        (a + b as i32),
+        format!("xid:{}, a={}, b={}, c={}", xid, a, b, c),
+    ))
 }
 
 #[allow(unused)]
@@ -317,117 +333,64 @@ pub mod object {
         }
     }
 } // end mod object
- fn mp2_proc2_mtp(param:Vec<u8>) -> Vec<u8> {
-    ::mudu_binding::procedure::procedure_invoke::invoke_procedure(
-        param,
-        mudu_inner_p2_proc2_mtp,
-    )
+fn mp2_proc2_mtp(param: Vec<u8>) -> Vec<u8> {
+    ::mudu_binding::procedure::procedure_invoke::invoke_procedure(param, mudu_inner_p2_proc2_mtp)
 }
 
-pub  fn mudu_inner_p2_proc2_mtp(
-    param: &::mudu_contract::procedure::procedure_param::ProcedureParam,
-) -> ::mudu::common::result::RS<
-    ::mudu_contract::procedure::procedure_result::ProcedureResult,
-> {
+pub fn mudu_inner_p2_proc2_mtp(
+    param: ::mudu_contract::procedure::procedure_param::ProcedureParam,
+) -> ::mudu::common::result::RS<::mudu_contract::procedure::procedure_result::ProcedureResult> {
     let return_desc = mudu_result_desc_proc2_mtp().clone();
     let res = proc2_mtp(
         param.session_id(),
-        
-            ::mudu_type::datum::value_to_typed::<
-                i32,
-                _,
-            >(&param.param_list()[0], "i32")?,
-        
-            ::mudu_type::datum::value_to_typed::<
-                i64,
-                _,
-            >(&param.param_list()[1], "i64")?,
-        
-            ::mudu_type::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[2], "String")?,
-        
+        ::mudu_type::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mudu_type::datum::value_to_typed::<i64, _>(&param.param_list()[1], "i64")?,
+        ::mudu_type::datum::value_to_typed::<String, _>(&param.param_list()[2], "String")?,
     );
     let tuple = res;
-    Ok(
-        ::mudu_contract::procedure::procedure_result::ProcedureResult::from(
-            tuple,
-            &return_desc,
-        )?,
-    )
+    Ok(::mudu_contract::procedure::procedure_result::ProcedureResult::from(tuple, &return_desc)?)
 }
 
-pub fn mudu_argv_desc_proc2_mtp()  -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            <(
-                
-                    i32,
-                
-                    i64,
-                
-                    String,
-                
-            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum
-            >::tuple_desc_static(
-                &{
-                    let _vec: Vec<String> = <[_]>::into_vec(
-                            std::boxed::Box::new([
-                            
-                                "a",
-                            
-                                "b",
-                            
-                                "c",
-                            
-
-                            ]),
-                        )
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect();
-                    _vec
-                },
-            )
-        }
-    )
-}
-
-pub fn mudu_result_desc_proc2_mtp() -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            <(
-                
-                    i32,
-                
-                    String,
-                
-            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(
-                &[],
-            )
-        }
-    )
-}
-
-pub fn mudu_proc_desc_proc2_mtp()  -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mudu_contract::procedure::proc_desc::ProcDesc,
+pub fn mudu_argv_desc_proc2_mtp()
+-> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc,
     > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mudu_contract::procedure::proc_desc::ProcDesc::new(
-                "module".to_string(),
-                "proc2_mtp".to_string(),
-                mudu_argv_desc_proc2_mtp().clone(),
-                mudu_result_desc_proc2_mtp().clone(),
-                false
-            )
-        })
+    ARGV_DESC.get_or_init(|| {
+        <(i32, i64, String) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(
+            &{
+                let _vec: Vec<String> = <[_]>::into_vec(std::boxed::Box::new(["a", "b", "c"]))
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                _vec
+            },
+        )
+    })
+}
+
+pub fn mudu_result_desc_proc2_mtp()
+-> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        <(i32, String) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
+    })
+}
+
+pub fn mudu_proc_desc_proc2_mtp() -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mudu_contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mudu_contract::procedure::proc_desc::ProcDesc::new(
+            "mod_0".to_string(),
+            "proc2_mtp".to_string(),
+            mudu_argv_desc_proc2_mtp().clone(),
+            mudu_result_desc_proc2_mtp().clone(),
+            false,
+        )
+    })
 }
 
 mod mod_proc2_mtp {
@@ -438,7 +401,7 @@ mod mod_proc2_mtp {
                 export mp2-proc2-mtp: func(param:list<u8>) -> list<u8>;
             }
         "##,
-        
+
     });
 
     #[allow(non_camel_case_types)]
@@ -446,124 +409,77 @@ mod mod_proc2_mtp {
     struct GuestProc2Mtp {}
 
     impl Guest for GuestProc2Mtp {
-         fn mp2_proc2_mtp(param:Vec<u8>) -> Vec<u8> {
+        fn mp2_proc2_mtp(param: Vec<u8>) -> Vec<u8> {
             super::mp2_proc2_mtp(param)
         }
     }
 
     export!(GuestProc2Mtp);
 }
-async fn mp2_proc_sys_call_mtp(param:Vec<u8>) -> Vec<u8> {
+async fn mp2_proc_sys_call_mtp(param: Vec<u8>) -> Vec<u8> {
     ::mudu_binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
         mudu_inner_p2_proc_sys_call_mtp,
-    ).await
+    )
+    .await
 }
 
 pub async fn mudu_inner_p2_proc_sys_call_mtp(
-    param: &::mudu_contract::procedure::procedure_param::ProcedureParam,
-) -> ::mudu::common::result::RS<
-    ::mudu_contract::procedure::procedure_result::ProcedureResult,
-> {
+    param: ::mudu_contract::procedure::procedure_param::ProcedureParam,
+) -> ::mudu::common::result::RS<::mudu_contract::procedure::procedure_result::ProcedureResult> {
     let return_desc = mudu_result_desc_proc_sys_call_mtp().clone();
     let res = proc_sys_call_mtp(
         param.session_id(),
-        
-            ::mudu_type::datum::value_to_typed::<
-                i32,
-                _,
-            >(&param.param_list()[0], "i32")?,
-        
-            ::mudu_type::datum::value_to_typed::<
-                i64,
-                _,
-            >(&param.param_list()[1], "i64")?,
-        
-            ::mudu_type::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[2], "String")?,
-        
-    ).await;
+        ::mudu_type::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mudu_type::datum::value_to_typed::<i64, _>(&param.param_list()[1], "i64")?,
+        ::mudu_type::datum::value_to_typed::<String, _>(&param.param_list()[2], "String")?,
+    )
+    .await;
     let tuple = res;
-    Ok(
-        ::mudu_contract::procedure::procedure_result::ProcedureResult::from(
-            tuple,
-            &return_desc,
-        )?,
-    )
+    Ok(::mudu_contract::procedure::procedure_result::ProcedureResult::from(tuple, &return_desc)?)
 }
 
-pub fn mudu_argv_desc_proc_sys_call_mtp()  -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            <(
-                
-                    i32,
-                
-                    i64,
-                
-                    String,
-                
-            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum
-            >::tuple_desc_static(
-                &{
-                    let _vec: Vec<String> = <[_]>::into_vec(
-                            std::boxed::Box::new([
-                            
-                                "a",
-                            
-                                "b",
-                            
-                                "c",
-                            
-
-                            ]),
-                        )
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect();
-                    _vec
-                },
-            )
-        }
-    )
-}
-
-pub fn mudu_result_desc_proc_sys_call_mtp() -> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            <(
-                
-                    i32,
-                
-                    String,
-                
-            ) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(
-                &[],
-            )
-        }
-    )
-}
-
-pub fn mudu_proc_desc_proc_sys_call_mtp()  -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mudu_contract::procedure::proc_desc::ProcDesc,
+pub fn mudu_argv_desc_proc_sys_call_mtp()
+-> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc,
     > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mudu_contract::procedure::proc_desc::ProcDesc::new(
-                "module".to_string(),
-                "proc_sys_call_mtp".to_string(),
-                mudu_argv_desc_proc_sys_call_mtp().clone(),
-                mudu_result_desc_proc_sys_call_mtp().clone(),
-                false
-            )
-        })
+    ARGV_DESC.get_or_init(|| {
+        <(i32, i64, String) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(
+            &{
+                let _vec: Vec<String> = <[_]>::into_vec(std::boxed::Box::new(["a", "b", "c"]))
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                _vec
+            },
+        )
+    })
+}
+
+pub fn mudu_result_desc_proc_sys_call_mtp()
+-> &'static ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mudu_contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        <(i32, String) as ::mudu_contract::tuple::tuple_datum::TupleDatum>::tuple_desc_static(&[])
+    })
+}
+
+pub fn mudu_proc_desc_proc_sys_call_mtp() -> &'static ::mudu_contract::procedure::proc_desc::ProcDesc
+{
+    static _PROC_DESC: std::sync::OnceLock<::mudu_contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mudu_contract::procedure::proc_desc::ProcDesc::new(
+            "mod_0".to_string(),
+            "proc_sys_call_mtp".to_string(),
+            mudu_argv_desc_proc_sys_call_mtp().clone(),
+            mudu_result_desc_proc_sys_call_mtp().clone(),
+            false,
+        )
+    })
 }
 
 mod mod_proc_sys_call_mtp {
@@ -582,7 +498,7 @@ mod mod_proc_sys_call_mtp {
     struct GuestProcSysCallMtp {}
 
     impl Guest for GuestProcSysCallMtp {
-        async fn mp2_proc_sys_call_mtp(param:Vec<u8>) -> Vec<u8> {
+        async fn mp2_proc_sys_call_mtp(param: Vec<u8>) -> Vec<u8> {
             super::mp2_proc_sys_call_mtp(param).await
         }
     }

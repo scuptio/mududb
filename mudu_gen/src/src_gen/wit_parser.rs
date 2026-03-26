@@ -1,41 +1,41 @@
-use std::collections::HashSet;
+use crate::src_gen::wit_def::WitDef;
 use crate::ts_const;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_def::{
+    EnumCase, RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef, VariantCase,
+};
 use mudu_binding::universal::uni_primitive::UniPrimitive;
-use mudu_binding::universal::uni_def::{EnumCase, UniEnumDef, UniRecordDef, RecordField, VariantCase, UniVariantDef};
-use tree_sitter::{Language, Node, Parser, Point, Tree};
 use mudu_binding::universal::uni_result_type::UniResultType;
+use std::collections::HashSet;
+use tree_sitter::{Language, Node, Parser, Point, Tree};
 use tree_sitter_wit;
-use crate::src_gen::wit_def::WitDef;
 
-pub struct WitParser {
-
-}
+pub struct WitParser {}
 
 fn wit_language() -> Language {
     tree_sitter_wit::LANGUAGE.into()
 }
 
 pub struct ParseContext {
-    text:String,
+    text: String,
 }
 
 impl ParseContext {
-    fn text(&self) -> &str   {
+    fn text(&self) -> &str {
         &self.text
     }
 
-    fn text_of_node(&self, node: &Node) -> String {
-        node.utf8_text(self.text.as_bytes())
-            .unwrap()
+    fn text_of_node(&self, node: &Node) -> RS<String> {
+        Ok(node
+            .utf8_text(self.text.as_bytes())
+            .map_err(|e| m_error!(EC::ParseErr, "faile to convert to utf8", e))?
             .trim()
-            .to_string()
+            .to_string())
     }
 }
-
 
 pub struct AdvancedErrorAnalyzer {
     common_errors: HashSet<String>,
@@ -183,16 +183,21 @@ impl AnalysisReport {
         println!("❌ find {} error(s)", self.errors.len());
 
         for (i, error) in self.errors.iter().enumerate() {
-            println!("\n{}. {} error", i + 1, match error.error_type {
-                ErrorType::MissingToken => "missing token",
-                ErrorType::UnexpectedToken => "unexpected token",
-                ErrorType::SyntaxError => "syntax error",
-                _ => "unknown error",
-            });
+            println!(
+                "\n{}. {} error",
+                i + 1,
+                match error.error_type {
+                    ErrorType::MissingToken => "missing token",
+                    ErrorType::UnexpectedToken => "unexpected token",
+                    ErrorType::SyntaxError => "syntax error",
+                    _ => "unknown error",
+                }
+            );
 
-            println!("   location: {} row, {} column",
-                     error.start.row + 1,
-                     error.start.column + 1
+            println!(
+                "   location: {} row, {} column",
+                error.start.row + 1,
+                error.start.column + 1
             );
 
             if !error.text.is_empty() {
@@ -209,7 +214,6 @@ impl AnalysisReport {
     }
 }
 impl WitParser {
-
     pub fn new() -> WitParser {
         Self {}
     }
@@ -224,12 +228,14 @@ impl WitParser {
             let report = analyzer.analyze(&tree, text);
             report.print(&text);
         }
-        let context = ParseContext { text: text.to_string() };
+        let context = ParseContext {
+            text: text.to_string(),
+        };
         self.traverse_tree(&context, &node, &mut wit_dat)?;
         Ok(wit_dat)
     }
 
-    fn traverse_tree(&self, context:&ParseContext, node:&Node, wit_dat:&mut WitDef) -> RS<()> {
+    fn traverse_tree(&self, context: &ParseContext, node: &Node, wit_dat: &mut WitDef) -> RS<()> {
         let kind = node.kind();
         match kind {
             ts_const::ts_kind_name::S_TOPLEVEL_USE_ITEM => {
@@ -239,6 +245,10 @@ impl WitParser {
             ts_const::ts_kind_name::S_INTERFACE_ITEM => {
                 let interface_name = self.visit_interface_item(context, node)?;
                 wit_dat.interface.push(interface_name);
+            }
+            ts_const::ts_kind_name::S_TABLE_ITEM => {
+                let table_def = self.visit_table_item(context, node)?;
+                wit_dat.tables.push(table_def);
             }
             ts_const::ts_kind_name::S_RECORD_ITEM => {
                 let record_def = self.visit_record_item(context, &node)?;
@@ -261,21 +271,26 @@ impl WitParser {
         Ok(())
     }
 
-    fn visit_use_item(&self, context: &ParseContext, node:&Node) -> RS<Vec<String>> {
+    fn visit_use_item(&self, context: &ParseContext, node: &Node) -> RS<Vec<String>> {
         let mut path = Vec::new();
         self.visit_use_item_inner(context, node, &mut path)?;
         Ok(path)
     }
 
-    fn visit_interface_item(&self, context: &ParseContext, node:&Node) -> RS<String> {
+    fn visit_interface_item(&self, context: &ParseContext, node: &Node) -> RS<String> {
         let name_node = expected_get_filed(node, ts_const::ts_field_name::NAME)?;
-        let name = context.text_of_node(&name_node);
+        let name = context.text_of_node(&name_node)?;
         Ok(name)
     }
-    fn visit_use_item_inner(&self, context: &ParseContext, node:&Node, path:&mut Vec<String>) -> RS<()> {
+    fn visit_use_item_inner(
+        &self,
+        context: &ParseContext,
+        node: &Node,
+        path: &mut Vec<String>,
+    ) -> RS<()> {
         let mut cursor = node.walk();
         if node.kind() == ts_const::ts_kind_name::S_ID {
-            let s = context.text_of_node(node);
+            let s = context.text_of_node(node)?;
             path.push(s);
         }
         for c in node.children(&mut cursor) {
@@ -283,60 +298,140 @@ impl WitParser {
         }
         Ok(())
     }
-    fn visit_record_item(&self, context:&ParseContext, node:&Node) -> RS<UniRecordDef> {
+
+    fn visit_table_item(&self, context: &ParseContext, node: &Node) -> RS<UniTableDef> {
+        let mut table = UniTableDef {
+            table_comments: String::new(),
+            table_name: String::new(),
+            table_key: vec![],
+            table_value: vec![],
+        };
+        if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
+            table.table_comments = context.text_of_node(&comment)?
+        }
+
+        // table name
+        let name_node = expected_get_filed(node, ts_const::ts_field_name::TABLE_NAME)?;
+        table.table_name = context.text_of_node(&name_node)?;
+
+        let key_node = expected_get_filed(node, ts_const::ts_field_name::TABLE_KEY)?;
+        table.table_key = self.visit_table_key_or_value(context, &key_node)?;
+        let value_node = expected_get_filed(node, ts_const::ts_field_name::TABLE_VALUE)?;
+        table.table_value = self.visit_table_key_or_value(context, &value_node)?;
+        Ok(table)
+    }
+
+    fn visit_table_key_or_value(
+        &self,
+        context: &ParseContext,
+        node: &Node,
+    ) -> RS<Vec<RecordField>> {
+        let _name_ts = context.text_of_node(&node)?;
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let kind = child.kind();
+            match kind {
+                ts_const::ts_kind_name::S_ID => {
+                    let name = context.text_of_node(&child)?;
+                    return Ok(vec![RecordField {
+                        rf_comments: String::new(),
+                        rf_name: String::new(),
+                        rf_type: UniDatType::Identifier(name),
+                    }]);
+                }
+                ts_const::ts_kind_name::S_RECORD_BODY => {
+                    return self.visit_record_body(context, &child);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(vec![])
+    }
+
+    fn visit_record_item(&self, context: &ParseContext, node: &Node) -> RS<UniRecordDef> {
         let mut record = UniRecordDef {
             record_comments: String::new(),
             record_name: String::new(),
             record_fields: Vec::new(),
         };
         if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-            record.record_comments = comment.utf8_text(context.text().as_bytes())
-                .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+            record.record_comments = comment
+                .utf8_text(context.text().as_bytes())
+                .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
                 .to_string();
         }
 
         // record name
         let name_node = expected_get_filed(node, ts_const::ts_field_name::RECORD_NAME)?;
-        record.record_name = name_node.utf8_text(context.text().as_bytes())
-            .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+        record.record_name = name_node
+            .utf8_text(context.text().as_bytes())
+            .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
             .to_string();
 
-
         // fields
-        let mut field_cursor = node.walk();
-        for field_node in node.children_by_field_name(ts_const::ts_field_name::RECORD_FIELD, &mut field_cursor) {
-            let field = self.visit_record_field(context, &field_node)?;
-            record.record_fields.push(field);
-        }
+        let record_body = expected_get_filed(node, ts_const::ts_field_name::RECORD_BODY)?;
+        record.record_fields = self.visit_record_body(context, &record_body)?;
         Ok(record)
+    }
+
+    fn visit_record_body(&self, context: &ParseContext, node: &Node) -> RS<Vec<RecordField>> {
+        let mut fields = Vec::new();
+        let mut field_cursor = node.walk();
+        for field_node in
+            node.children_by_field_name(ts_const::ts_field_name::RECORD_FIELD, &mut field_cursor)
+        {
+            let field = self.visit_record_field(context, &field_node)?;
+            fields.push(field);
+        }
+        Ok(fields)
     }
 
     fn visit_record_field(&self, context: &ParseContext, node: &Node) -> RS<RecordField> {
         let mut field_comments = String::new();
         if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-            field_comments = comment.utf8_text(context.text().as_bytes())
-                .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+            field_comments = comment
+                .utf8_text(context.text().as_bytes())
+                .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
                 .to_string();
         }
-        let n_name = node.child_by_field_name(ts_const::ts_field_name::RECORD_FIELD_NAME)
-            .map_or_else(||{ Err(m_error!(EC::ParseErr, "parse error, expected record field name")) }, |child| { Ok(child)})?;
-        let field_name = context.text_of_node(&n_name);
-        let n_type = node.child_by_field_name(ts_const::ts_field_name::RECORD_FIELD_TYPE)
-            .map_or_else(||{ Err(m_error!(EC::ParseErr, "parse error, expected record field type")) }, |child| { Ok(child)})?;
+        let n_name = node
+            .child_by_field_name(ts_const::ts_field_name::RECORD_FIELD_NAME)
+            .map_or_else(
+                || {
+                    Err(m_error!(
+                        EC::ParseErr,
+                        "parse error, expected record field name"
+                    ))
+                },
+                |child| Ok(child),
+            )?;
+        let field_name = context.text_of_node(&n_name)?;
+        let n_type = node
+            .child_by_field_name(ts_const::ts_field_name::RECORD_FIELD_TYPE)
+            .map_or_else(
+                || {
+                    Err(m_error!(
+                        EC::ParseErr,
+                        "parse error, expected record field type"
+                    ))
+                },
+                |child| Ok(child),
+            )?;
         let field_type = self.visit_type(context, &n_type)?;
         Ok(RecordField {
             rf_comments: field_comments,
             rf_name: field_name,
-            rf_type: field_type
+            rf_type: field_type,
         })
     }
 
-
-    fn visit_enum_item(&self, context:&ParseContext, node:&Node) -> RS<UniEnumDef>{
+    fn visit_enum_item(&self, context: &ParseContext, node: &Node) -> RS<UniEnumDef> {
         let mut enum_comments = String::new();
         if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-            enum_comments = comment.utf8_text(context.text().as_bytes())
-                .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+            enum_comments = comment
+                .utf8_text(context.text().as_bytes())
+                .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
                 .to_string();
         }
         let mut enum_def = UniEnumDef {
@@ -347,20 +442,25 @@ impl WitParser {
 
         // get enum name
         if let Some(name_node) = node.child_by_field_name(ts_const::ts_field_name::ENUM_NAME) {
-            enum_def.enum_name = context.text_of_node(&name_node);
+            enum_def.enum_name = context.text_of_node(&name_node)?;
         }
 
         let mut case_cursor = node.walk();
-        for (i, case_node) in node.children_by_field_name(ts_const::ts_field_name::ENUM_CASE, &mut case_cursor).enumerate() {
+        for (i, case_node) in node
+            .children_by_field_name(ts_const::ts_field_name::ENUM_CASE, &mut case_cursor)
+            .enumerate()
+        {
             let mut comments = String::new();
             if let Some(comment) = case_node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-                comments = comment.utf8_text(context.text().as_bytes())
-                    .map_err(|e|m_error!(EC::ParseErr, "parse error to retrieve comments", e))?
+                comments = comment
+                    .utf8_text(context.text().as_bytes())
+                    .map_err(|e| m_error!(EC::ParseErr, "parse error to retrieve comments", e))?
                     .to_string();
             }
 
-            let node_case_name = expected_get_filed(&case_node, ts_const::ts_field_name::ENUM_CASE_NAME)?;
-            let case_name = context.text_of_node(&node_case_name);
+            let node_case_name =
+                expected_get_filed(&case_node, ts_const::ts_field_name::ENUM_CASE_NAME)?;
+            let case_name = context.text_of_node(&node_case_name)?;
             let enum_case = EnumCase {
                 ec_name: case_name,
                 ec_comments: comments,
@@ -382,17 +482,19 @@ impl WitParser {
         };
 
         if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-            let comments = comment.utf8_text(context.text().as_bytes())
-                .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+            let comments = comment
+                .utf8_text(context.text().as_bytes())
+                .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
                 .to_string();
             variant_def.variant_comments = comments;
         }
         let name_node = expected_get_filed(node, ts_const::ts_field_name::VARIANT_NAME)?;
-        variant_def.variant_name = context.text_of_node(&name_node);
-
+        variant_def.variant_name = context.text_of_node(&name_node)?;
 
         let mut case_cursor = node.walk();
-        for case_node in node.children_by_field_name(ts_const::ts_field_name::VARIANT_CASE, &mut case_cursor) {
+        for case_node in
+            node.children_by_field_name(ts_const::ts_field_name::VARIANT_CASE, &mut case_cursor)
+        {
             let case = self.visit_variant_case(context, &case_node)?;
             variant_def.variant_cases.push(case);
         }
@@ -407,16 +509,19 @@ impl WitParser {
         };
 
         if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
-            let comments = comment.utf8_text(context.text().as_bytes())
-                .map_err(|e|m_error!(EC::ParseErr, "parse error", e))?
+            let comments = comment
+                .utf8_text(context.text().as_bytes())
+                .map_err(|e| m_error!(EC::ParseErr, "parse error", e))?
                 .to_string();
             variant_case_def.vc_comments = comments;
         }
 
         let name_node = expected_get_filed(node, ts_const::ts_field_name::VARIANT_CASE_NAME)?;
-        variant_case_def.vc_case_name = context.text_of_node(&name_node);
+        variant_case_def.vc_case_name = context.text_of_node(&name_node)?;
 
-        if let Some(case_type) = node.child_by_field_name(ts_const::ts_field_name::VARIANT_CASE_TYPE) {
+        if let Some(case_type) =
+            node.child_by_field_name(ts_const::ts_field_name::VARIANT_CASE_TYPE)
+        {
             let inner_type = self.visit_type(&context, &case_type)?;
             variant_case_def.vc_case_type = Some(inner_type);
         }
@@ -424,12 +529,15 @@ impl WitParser {
     }
 
     fn visit_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
-        let child =  node.child(0)
-            .map_or_else(||{
-                Err(m_error!(EC::ParseErr, "parse error, expected has a child of type node"))
-            }, |n|{
-                Ok(n)
-            })?;
+        let child = node.child(0).map_or_else(
+            || {
+                Err(m_error!(
+                    EC::ParseErr,
+                    "parse error, expected has a child of type node"
+                ))
+            },
+            |n| Ok(n),
+        )?;
         let ty = self.parse_type_node(context, &child)?;
         Ok(ty)
     }
@@ -476,11 +584,17 @@ impl WitParser {
             None
         };
 
-        Ok(UniDatType::Result(UniResultType { ok: opt_ok, err: opt_err }))
+        Ok(UniDatType::Result(UniResultType {
+            ok: opt_ok,
+            err: opt_err,
+        }))
     }
 
     fn parse_custom_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
-        let type_name = context.text_of_node(&node);
+        let type_name = context.text_of_node(&node)?;
+        if type_name == "blob" {
+            return Ok(UniDatType::Primitive(UniPrimitive::Blob));
+        }
         Ok(UniDatType::Identifier(type_name))
     }
     fn parse_box_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
@@ -511,27 +625,29 @@ impl WitParser {
             ts_const::ts_kind_name::S_ID => self.parse_custom_type(context, node)?,
             ts_const::ts_kind_name::S_BOX => self.parse_box_type(context, node)?,
             _ => {
-                println!("kind {}, text {}", node.kind(), context.text_of_node(&node));
-                return Err(m_error!(EC::NotImplemented, "do not support type"))
+                println!(
+                    "kind {}, text {}",
+                    node.kind(),
+                    context.text_of_node(&node)?
+                );
+                return Err(m_error!(EC::NotImplemented, "do not support type"));
             }
         };
         Ok(ty)
     }
 }
 
-
 fn expected_get_filed<'t>(node: &Node<'t>, name: &str) -> RS<Node<'t>> {
     let optional = node.child_by_field_name(name);
-    optional
-        .map_or_else(
-            || {
-                Err(m_error!(EC::NoneErr, format!("parse error, expected get field {}", name)))
-            },
-            |t|
-                {
-                    Ok(t)
-                },
-        )
+    optional.map_or_else(
+        || {
+            Err(m_error!(
+                EC::NoneErr,
+                format!("parse error, expected get field {}", name)
+            ))
+        },
+        |t| Ok(t),
+    )
 }
 
 #[cfg(test)]
@@ -544,10 +660,9 @@ mod test {
     #[test]
     fn test() {
         let path = PathBuf::from(this_file!());
-        let path = path.parent().unwrap().to_path_buf()
-            .join("contract.wit");
+        let path = path.parent().unwrap().to_path_buf().join("contract.wit");
         let str = fs::read_to_string(path).unwrap();
-        let parser = WitParser{};
+        let parser = WitParser {};
         let wit_dat = parser.parse_text(&str).unwrap();
         println!("{:#?}", wit_dat);
     }

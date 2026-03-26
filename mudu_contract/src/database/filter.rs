@@ -1,6 +1,5 @@
 use mudu_type::dat_typed::DatTyped;
 
-
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpType {
     Equal,

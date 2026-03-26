@@ -1,0 +1,20 @@
+[package]
+name = "mudu_cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "mcli"
+path = "src/main.rs"
+
+[dependencies]
+mudu = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_contract = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+async-trait = "0.1.89"
+base64 = "0.22.1"
+reqwest = { version = "0.12.23", features = ["json"] }

@@ -1,10 +1,9 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use crate::storage::page_block::PageUpdate;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-static LSN:AtomicU64 = AtomicU64::new(0);
+static LSN: AtomicU64 = AtomicU64::new(0);
 
-
-pub fn lsn_init(n:u64) {
+pub fn lsn_init(n: u64) {
     LSN.store(n, Ordering::SeqCst)
 }
 
@@ -13,21 +12,19 @@ pub fn next_lsn() -> u64 {
 }
 
 pub struct LogEntry {
-    lsn:u64,
-    file_id:u64,
-    page_id:u64,
-    update:Vec<PageUpdate>,
+    lsn: u64,
+    file_id: u64,
+    page_id: u64,
+    update: Vec<PageUpdate>,
 }
 
-
-
 impl LogEntry {
-    pub fn new(file_id:u64, page_id:u64) -> LogEntry {
+    pub fn new(file_id: u64, page_id: u64) -> LogEntry {
         Self {
             lsn: next_lsn(),
             file_id,
             page_id,
-            update:vec![],
+            update: vec![],
         }
     }
 

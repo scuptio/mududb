@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-pub const PAGE_TAIL_SIZE:usize = 64usize;
-pub const PAGE_HEADER_SIZE:usize = 64usize;
+pub const PAGE_TAIL_SIZE: usize = 64usize;
+pub const PAGE_HEADER_SIZE: usize = 64usize;
 
-pub const DATA_HEADER_SIZE:usize = 64usize;
-pub const EXTEND_HEADER_SIZE:usize = 64usize;
+pub const DATA_HEADER_SIZE: usize = 64usize;
+pub const EXTEND_HEADER_SIZE: usize = 64usize;
 
 pub fn offset_page_id() -> usize {
     0
@@ -27,16 +27,14 @@ pub fn page_offset_range_page_id() -> Range<usize> {
 }
 
 pub fn page_offset_range_lsn() -> Range<usize> {
-    offset_lsn()..offset_lsn()+ size_lsn()
+    offset_lsn()..offset_lsn() + size_lsn()
 }
 
 fn payload_offset_extent_meta_range() -> Range<usize> {
     0..PAGE_HEADER_SIZE + EXTEND_HEADER_SIZE
 }
 
-struct OffsetPage {
-
-}
+struct OffsetPage {}
 
 impl OffsetPage {
     pub fn total() -> Range<usize> {
@@ -51,13 +49,9 @@ impl OffsetPage {
         page_offset_range_page_id()
     }
 }
-pub struct LayoutExtentHeader {
+pub struct LayoutExtentHeader {}
 
-}
-
-pub struct LayoutDataHeader {
-
-}
+pub struct LayoutDataHeader {}
 
 impl LayoutExtentHeader {
     pub fn size() -> usize {
@@ -78,12 +72,12 @@ impl LayoutExtentHeader {
 
     pub fn range_start_page() -> Range<usize> {
         let start = Self::range_extent_id().end;
-        start ..start + size_of::<u64>()
+        start..start + size_of::<u64>()
     }
 
     pub fn range_page_count() -> Range<usize> {
         let start = Self::range_start_page().end;
-        start ..start + size_of::<u64>()
+        start..start + size_of::<u64>()
     }
 
     pub fn offset_bitmap() -> usize {
@@ -93,7 +87,7 @@ impl LayoutExtentHeader {
 
 impl LayoutDataHeader {
     fn range_of_page() -> Range<usize> {
-        PAGE_HEADER_SIZE.. PAGE_HEADER_SIZE + DATA_HEADER_SIZE
+        PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + DATA_HEADER_SIZE
     }
 
     fn range_free_begin() -> Range<usize> {
@@ -102,6 +96,6 @@ impl LayoutDataHeader {
 
     fn range_free_end_page() -> Range<usize> {
         let start = Self::range_free_begin().end;
-        start ..start + size_of::<u64>()
+        start..start + size_of::<u64>()
     }
 }

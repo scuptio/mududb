@@ -1,11 +1,11 @@
-# Interactive vs. Procedural: Which Is Your Choice?
+# Interactive vs. Procedural: Which Should You Choose?
 
-Interactive and procedural approaches represent two distinct methods for developing database applications.
+Interactive and procedural approaches are two distinct ways to build database applications.
 
-## Interactive Approach:
+## Interactive Approach
 
-When using the interactive approach, users directly execute SQL statements via command-line or GUI tools, or utilize
-client libraries or ORM mapping frameworks.
+With the interactive approach, users execute SQL statements directly through command-line tools, GUI tools, client
+libraries, or ORM frameworks.
 
 **Advantages**:
 
@@ -25,7 +25,7 @@ client libraries or ORM mapping frameworks.
 
 ## Procedural Approach
 
-In the procedural approach, developers implement business logic using stored procedures, functions, and triggers.
+With the procedural approach, developers implement business logic with stored procedures, functions, and triggers.
 
 **Advantages**:
 
@@ -49,23 +49,23 @@ In the procedural approach, developers implement business logic using stored pro
 
 ---
 
-# Mudu Portable Data Access(MPDA) Code: Unified Interactive and Procedural Execution
+# Mudu Procedure (MP): Unified Interactive and Procedural Execution
 
-One piece of code can run both interactively and procedurally.
+The same code can run in both interactive and procedural modes.
 
-We aim to combine the advantages of both modes while eliminating their drawbacks. MPDA achieves this. You can
-write Mudu Procedures in most modern languages—without relying on "weird" or "ugly" syntax like PostgreSQL PL/pgSQL or
-MySQL’s stored procedures.
+MP is designed to combine the strengths of both approaches while avoiding their typical drawbacks. You can write
+Mudu Procedures in most modern languages, without relying on database-specific procedural syntax such as PostgreSQL
+PL/pgSQL or MySQL stored procedures.
 
-During development, Mudu Procedures run interactively like an ORM mapping framework.
+During development, Mudu Procedures run interactively, much like code built on top of an ORM framework.
 
 ## Current Implementation (Rust)
 
-Mudu Runtime currently supports Rust. A Rust-based stored procedure uses the following function signature:
+Mudu Runtime currently supports Rust. A Rust-based procedure uses the following function signature:
 
 ## Procedure specification
 
-```
+``` 
 #[mudu_proc]
 fn {procedure_name}(
     xid: XID,
@@ -75,23 +75,23 @@ fn {procedure_name}(
 
 ### {procedure_name}:
 
-Valid Rust function name.
+A valid Rust function name.
 
 ### Macro #[mudu_proc]:
 
-Macro identifying the function as a Mudu procedure.
+Marks the function as a Mudu procedure.
 
 ### Parameters:
 
 #### xid:
 
-Transaction ID.
+The transaction ID.
 
 ### {argument_list...}:
 
-Input arguments implementing the `Entity` trait.
+Input arguments that implement the `Entity` trait.
 
-Supported types:  `i32`, `i64`, `String`, `f32`, `f64`.
+Supported types: `i32`, `i64`, `String`, `f32`, `f64`.
 
 Unsupported: Custom structs, enums, arrays, or tuples.
 
@@ -99,22 +99,23 @@ Unsupported: Custom structs, enums, arrays, or tuples.
 
 #### {return_value_type}:
 
-Return type implementing the `Entity` trait (same supported types as arguments).
+The return type must implement the [`Entity` trait](../lang.common/proc_key_traits.md). The supported types are the
+same as the argument types.
 
-Return Result Type `RS` is `Result` enum:
+The result type alias `RS` is defined as:
 
 ```rust
 use mudu::error::error::ER;
 pub type RS<X> = Result<X, ER>;  // ER: Error
 ```
 
-## CRUD(Create/Read/Update/Delete) Operations in Mudu Procedures
+## CRUD (Create/Read/Update/Delete) Operations in Mudu Procedures
 
 There are two key APIs that a Mudu procedure can invoke:
 
 ### 1. `query`
 
-`query` for SELECT statements
+`query` is used for `SELECT` statements.
 
 <!--
 quote_begin
@@ -123,36 +124,6 @@ content="[Query API](../lang.common/mudu_query.md#L-L)"
 <!--
 quote_begin
 content="[Query API](../../sys_interface/src/api.rs#L34-L40)"
-lang="rust"
--->
-
-```rust
-pub fn mudu_command(
-    xid: XID,
-    sql: &dyn SQLStmt,
-    params: &dyn SQLParams,
-) -> RS<u64> {
-    inner::inner_command(xid, sql, params)
-}
-```
-
-<!--quote_end-->
-<!--quote_end-->
-
-`query` Performs R2O(relation to object) mapping automatically, returning a result set of objects implementing the
-`Entity` trait.
-
-### 2. `command`
-
-`command` for INSERT/UPDATE/DELETE
-
-<!--
-quote_begin
-content="[Command API](../lang.common/mudu_command.md#L-L)"
--->
-<!--
-quote_begin
-content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
 lang="rust"
 -->
 
@@ -171,19 +142,49 @@ pub fn mudu_query<
 <!--quote_end-->
 <!--quote_end-->
 
-### Parameters for Both:
+`query` automatically performs R2O (relation-to-object) mapping and returns a result set of objects that implement
+the `Entity` trait.
+
+### 2. `command`
+
+`command` is used for `INSERT`, `UPDATE`, and `DELETE` statements.
+
+<!--
+quote_begin
+content="[Command API](../lang.common/mudu_command.md#L-L)"
+-->
+<!--
+quote_begin
+content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
+lang="rust"
+-->
+
+```rust
+pub fn mudu_command(
+    xid: XID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<u64> {
+    inner::inner_command(xid, sql, params)
+}
+```
+
+<!--quote_end-->
+<!--quote_end-->
+
+### Parameters for Both
 
 #### xid:
 
-Transaction ID.
+The transaction ID.
 
 #### sql:
 
-SQL statement with ? as parameter placeholders.
+An SQL statement that uses `?` as parameter placeholders.
 
 #### params:
 
-Parameter list.
+The parameter list.
 
 
 <!--
@@ -281,7 +282,7 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
 <!--quote_end-->
 <!--quote_end-->
 
-## A Example: A Wallet APP's Transfer Procedure
+## Example: A Wallet App Transfer Procedure
 
 <!--
 quote_begin
@@ -289,10 +290,9 @@ content="[Example](../lang.common/transfer_funds.md#L-L)"
 -->
 <!--
 quote_begin
-content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L105)"
+content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
-
 ```rust
 #[mudu_proc]
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
@@ -377,25 +377,24 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 ```
-
 <!--quote_end-->
 <!--quote_end-->
 
-## MPDA and Transaction
+## MP and Transactions
 
-Mudu procedure supports 2 transaction execution modes:
+Mudu procedures support two transaction execution modes:
 
 ### Automatic Mode
 
 Each procedure runs as an independent transaction. The transaction:
 
-- Commits automatically if the procedure returns Ok
+- Commits automatically if the procedure returns `Ok`
 
-- Rollback automatically if the procedure returns Err
+- Rolls back automatically if the procedure returns `Err`
 
 ### Manual Mode
 
-Pass a transaction ID (xid) across multiple Mudu procedures for explicit transaction control.
+Pass a transaction ID (`xid`) across multiple Mudu procedures for explicit transaction control.
 
 #### Example:
 
@@ -417,48 +416,48 @@ context switching between tools and ensures consistency across environments.
 
 ## 2. Native ORM Support
 
-Seamless object-relational mapping
-The framework provides built-in ORM capabilities through the Entity trait. It automatically maps query results to Rust
-structs, eliminating boilerplate conversion code while maintaining type safety.
+Seamless object-relational mapping.
+The framework provides built-in ORM capabilities through the `Entity` trait. It automatically maps query results to
+Rust structs, eliminating boilerplate conversion code while preserving type safety.
 
 ## 3. Static Analysis Friendly
 
-AI-generated code validation
+Better validation for AI-generated code.
 
 Mudu's strongly-typed API enables:
 
-1. Compile-time checks for SQL syntax via sql_stmt! macro
+1. Compile-time checks for SQL syntax via the `sql_stmt!` macro
 
 2. Type validation of parameters and return values
 
-3. Early error detection for AI-generated code (critical for reliability)
+3. Early error detection for AI-generated code, which is critical for reliability
 
 ## 4. Data Proximity Processing
 
-Massive efficiency gains。
+Major efficiency gains.
 
 Execute data transformations directly in the database.
-An example is preparing AI training dataset without export/import.
+One example is preparing AI training datasets without export/import steps.
 
 ```rust
-// Prepare AI training dataset without export/import  
+// Prepare AI training dataset without export/import
 #[mudu_proc]
 fn prepare_training_data(xid: XID) -> RS<()> {
-    mudu_command(xid, 
+    mudu_command(xid,
         sql_stmt!("..."),
         sql_param!(&[]))?;
     // Further processing...
 }
 ```
 
-Benefit: Faster for large datasets by avoiding network transfer.
+Benefit: Faster processing for large datasets by avoiding network transfer.
 
-### 5. Extended Database Capabilities
+## 5. Extended Database Capabilities
 
-Leverage full programming ecosystems
-Tap into any Rust crate (or future language ecosystems):
+Leverage full programming ecosystems.
+You can use any Rust crate today, and potentially other language ecosystems in the future.
 
-Example, use `uuid` and `chrono` crate,
+For example, you can use the `uuid` and `chrono` crates:
 
 ```rust
 use chrono::Utc;
@@ -484,15 +483,15 @@ fn create_order(xid: XID, user_id: i32) -> RS<String> {
 
 Advantages:
 
-1. Use specialized libraries (UUID, datetime, geospatial, etc.)
+1. Use specialized libraries such as UUID, datetime, and geospatial libraries
 
-2. Implement complex logic impossible in pure SQL
+2. Implement complex logic that is difficult or impossible in pure SQL
 
-3. Maintain dependency management through Cargo/npm/pip
+3. Manage dependencies through familiar tools such as Cargo, npm, or pip
 
 # Key Technical Advantages
 
-| Feature         | Traditional Approach       | MPDA Advantage            |
+| Feature         | Traditional Approach       | MP Advantage              |
 |:----------------|:---------------------------|:--------------------------|
 | Dev-Prod Parity | Different code for CLI/SPs | Identical codebase        |
 | Type Safety     | Runtime SQL errors         | Compile-time validation   |
@@ -501,17 +500,16 @@ Advantages:
 
 # How MuduDB Treats the Interactive and Procedural Approach Uniformly
 
-MuduDB differs from traditional monolithic-architecture databases by splitting into two components: Mudu Runtime and DB
-Kernel.
+Unlike traditional monolithic databases, MuduDB is split into two components: Mudu Runtime and the DB Kernel.
 
-Kernel provides basis foundations, transactions, and storage capabilities.
-Runtime supports for multi-language ecosystems.
-This runtime can host a VM(Virtual Machine) and execute intermediate WASM bytecode modules, into which mainstream
-programming languages can be compiled.
-During a MPDA execution, the runtime collaborates with kernel to complete the process.
-To illustrate this point, consider the following example:
-Suppose a procedure executes queries Q1, Q2, condition C1, and functions T1, T2 (implemented in a high-level language
-and can be compiled to the bytecode).
+The kernel provides the core foundations, transaction management, and storage capabilities.
+The runtime supports a multi-language ecosystem.
+It can host a VM (Virtual Machine) and execute WASM bytecode modules compiled from mainstream programming languages.
+During MP execution, the runtime collaborates with the kernel to complete the procedure.
+
+To illustrate this, consider the following example.
+Suppose a procedure executes queries `Q1` and `Q2`, a command `C1`, and functions `T1` and `T2`, which are written in
+a high-level language and compiled to bytecode.
 
 ```
 procedure {
@@ -523,11 +521,10 @@ procedure {
 }
 ```
 
-The following two figures show the difference of the two approaches.
+The following figures show the difference between the two approaches.
 
 <div align="center">
 <img src="../pic/interactive_tx.png" width="20%">
 &nbsp&nbsp&nbsp&nbsp
 <img src="../pic/procedural_tx.png" width="26%">   
 </div>
-

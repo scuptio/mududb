@@ -9,15 +9,15 @@ use mudu_binding::universal::uni_def::UniRecordDef;
 #[template(path = "csharp/record.cs.jinja", escape = "none")]
 pub struct TemplateRecordCS {
     #[allow(unused)]
-    pub cfg:CodegenCfg,
+    pub cfg: CodegenCfg,
     pub record: RecordInfo,
 }
 
 impl TemplateRecordCS {
-    pub fn from(record_def: UniRecordDef, cfg:CodegenCfg) -> RS<Self> {
+    pub fn from(record_def: UniRecordDef, cfg: CodegenCfg) -> RS<Self> {
         Ok(Self {
             record: RecordInfo::from(record_def, LangKind::CSharp)?,
-            cfg
+            cfg,
         })
     }
 }

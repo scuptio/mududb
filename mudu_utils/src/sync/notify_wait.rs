@@ -2,7 +2,7 @@ use crate::sync::a_mutex::AMutex;
 use crate::sync::s_mutex::SMutex;
 use mudu::common::result::RS;
 use std::sync::Arc;
-use tokio::sync::oneshot::{channel, Receiver, Sender};
+use tokio::sync::oneshot::{Receiver, Sender, channel};
 
 pub fn create_notify_wait<T: Send + Sync + Clone + 'static>() -> (Notify<T>, Wait<T>) {
     let (s, r) = channel();

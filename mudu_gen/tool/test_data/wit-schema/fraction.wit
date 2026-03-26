@@ -1,0 +1,19 @@
+use crate:game-data:id/id;
+
+
+interface game-data {
+    /* ==============================
+     Faction Core Record
+     ============================== */
+
+    record faction {
+        fraction-id: id,
+        name: string,
+        food: u64,
+        population: u64,
+        happiness: u64,
+        stability: u64,
+        culture: u64,
+        technology: u64,
+    }
+}

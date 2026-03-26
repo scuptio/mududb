@@ -1,12 +1,12 @@
 use mudu_type::dat_value::DatValue;
 
 pub struct TupleValue {
-    value:Vec<DatValue>
+    value: Vec<DatValue>,
 }
 
 impl TupleValue {
-    pub fn from(value:Vec<DatValue>) -> TupleValue {
-        Self {value}
+    pub fn from(value: Vec<DatValue>) -> TupleValue {
+        Self { value }
     }
 
     pub fn values(&self) -> &[DatValue] {

@@ -20,16 +20,15 @@ pub struct SessionCtx {
 }
 
 struct SessionCtxInner {
-    conn:Connection,
+    conn: Connection,
     _app_name: String,
 }
-
 
 impl SessionCtx {
     pub fn new(db_path: String) -> Self {
         Self {
             db_path,
-            inner: Arc::new(AMutex::new(None))
+            inner: Arc::new(AMutex::new(None)),
         }
     }
 
@@ -42,26 +41,24 @@ impl SessionCtx {
     pub async fn connection(&self) -> RS<Connection> {
         let inner = self.inner.lock().await;
         inner.as_ref().map_or_else(
-            || { Err(m_error!(EC::NoneErr)) },
-            |inner| { Ok(inner.conn.clone()) })
+            || Err(m_error!(EC::NoneErr)),
+            |inner| Ok(inner.conn.clone()),
+        )
     }
 }
-
 
 impl SessionCtxInner {
     async fn open(db_path: &String, app_name: &String) -> RS<Self> {
         let conn_str = format!("db={} app={} db_type=LibSQL", db_path, app_name);
         let db_conn = DBConnector::connect(&conn_str).await?;
         let libsql_conn = DBConnector::get_libsql_conn(db_conn.expected_sync()?)
-            .map_or_else(|| { Err(m_error!(EC::NoneErr)) }, |c| { Ok(c) })?;
+            .map_or_else(|| Err(m_error!(EC::NoneErr)), |c| Ok(c))?;
         Ok(Self {
             conn: libsql_conn,
             _app_name: app_name.clone(),
         })
     }
 }
-
-
 
 impl PgWireServerHandlers for SessionCtx {
     fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {

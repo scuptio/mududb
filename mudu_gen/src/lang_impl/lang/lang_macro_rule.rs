@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! impl_primitive {
     (
@@ -24,8 +23,6 @@ macro_rules! impl_primitive {
     };
 }
 
-
-
 #[macro_export]
 macro_rules! impl_non_primitive {
     (
@@ -49,9 +46,6 @@ macro_rules! impl_non_primitive {
         }
     };
 }
-
-
-
 
 #[macro_export]
 macro_rules! impl_lang {

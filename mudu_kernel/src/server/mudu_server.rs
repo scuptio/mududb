@@ -225,8 +225,7 @@ impl MuduServer {
         let r_thd = thread::Builder::new()
             .name(name.clone())
             .spawn(move || Self::_thread_task(canceller, name, tasks));
-        let thd = r_thd.map_err(|e|
-            m_error!(ER::ThreadErr, "create thread error", e))?;
+        let thd = r_thd.map_err(|e| m_error!(ER::ThreadErr, "create thread error", e))?;
         Ok(thd)
     }
 
@@ -234,8 +233,7 @@ impl MuduServer {
         let r_thd = thread::Builder::new()
             .name(name.clone())
             .spawn(move || task.run_once());
-        let thd = r_thd.map_err(|e|
-            m_error!(ER::ThreadErr, "spawn new thread error", e))?;
+        let thd = r_thd.map_err(|e| m_error!(ER::ThreadErr, "spawn new thread error", e))?;
         Ok(thd)
     }
 
@@ -243,9 +241,7 @@ impl MuduServer {
         let r_tokio_runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build();
-        let runtime = r_tokio_runtime.map_err(|e|
-            m_error!(ER::TokioErr, "tokio error", e)
-        )?;
+        let runtime = r_tokio_runtime.map_err(|e| m_error!(ER::TokioErr, "tokio error", e))?;
         let ls = LocalSet::new();
 
         for task in tasks {

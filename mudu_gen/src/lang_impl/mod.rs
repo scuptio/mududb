@@ -5,9 +5,8 @@ use mudu_binding::universal::uni_primitive::UniPrimitive;
 use paste::paste;
 
 pub mod csharp;
-pub mod rust;
 pub mod lang;
-
+pub mod rust;
 
 impl_lang! {
     (Rust, rust),

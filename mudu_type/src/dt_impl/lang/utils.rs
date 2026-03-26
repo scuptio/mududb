@@ -24,7 +24,8 @@ pub fn lang_type_name_2_dat_type_id(
 ) -> HashMap<String, (DatTypeID, Vec<DatTypeID>)> {
     let mut name2id = HashMap::new();
     for (id, s) in id_name {
-        if !name2id.contains_key(*s) {} else {
+        if !name2id.contains_key(*s) {
+        } else {
             let opt = name2id.get_mut(*s);
             match opt {
                 Some((t, vec)) => {

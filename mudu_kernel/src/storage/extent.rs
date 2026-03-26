@@ -1,18 +1,18 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::storage::constant::LayoutExtentHeader;
 use mcslock::raw::Mutex;
 use mcslock::relax::Spin;
-use tokio::sync::RwLock;
 use mudu::common::endian;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use crate::storage::constant::LayoutExtentHeader;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 struct ExtentMeta {
     // file id and table space id would not to be persistent
-    file_id:u64,
-    table_space_id:u64,
+    file_id: u64,
+    table_space_id: u64,
     // extent header info
     extent_id: u64,
     start_page: u64,
@@ -21,11 +21,11 @@ struct ExtentMeta {
 
 struct ExtentData {
     meta: ExtentMeta,
-    payload:Mutex<ExtentPayload, Spin>,
+    payload: Mutex<ExtentPayload, Spin>,
 }
 #[derive(Clone)]
 pub struct Extent {
-    inner:Arc<ExtentData>
+    inner: Arc<ExtentData>,
 }
 
 impl Extent {
@@ -34,46 +34,36 @@ impl Extent {
     }
 
     pub fn new(
-        file_id:u64,
-        table_space_id:u64,
+        file_id: u64,
+        table_space_id: u64,
         extent_id: u64,
         start_page: u64,
         page_count: u64,
     ) -> Extent {
         Self {
-            inner:Arc::new(
-                ExtentData {
-                    meta : ExtentMeta::new(
-                        file_id, table_space_id,
-                        extent_id, start_page, page_count),
-                    payload: Mutex::new(ExtentPayload::new(page_count)),
-                }
-            )
+            inner: Arc::new(ExtentData {
+                meta: ExtentMeta::new(file_id, table_space_id, extent_id, start_page, page_count),
+                payload: Mutex::new(ExtentPayload::new(page_count)),
+            }),
         }
     }
 
-
     // from binary exclude page header and page tailer
-    pub fn from(
-        file_id:u64,
-        table_space_id:u64,
-        slice:&[u8]) -> RS<Extent> {
-        let meta = ExtentMeta::from(
-            file_id, table_space_id,
-            slice)?;
+    pub fn from(file_id: u64, table_space_id: u64, slice: &[u8]) -> RS<Extent> {
+        let meta = ExtentMeta::from(file_id, table_space_id, slice)?;
         let payload = ExtentPayload::from(slice, &meta)?;
         Ok(Self {
-            inner:Arc::new(ExtentData{
+            inner: Arc::new(ExtentData {
                 meta,
-                payload: Mutex::new(payload)
-            })
+                payload: Mutex::new(payload),
+            }),
         })
     }
 
     pub fn extent_allocate_page(&self) -> Option<u64> {
-        self.inner.payload.lock_then(|payload|{
-            payload.allocate_page()
-        })
+        self.inner
+            .payload
+            .lock_then(|payload| payload.allocate_page())
     }
 
     pub fn file_id(&self) -> u64 {
@@ -83,17 +73,14 @@ impl Extent {
 
 pub struct ExtentPayload {
     bitmap: QuadBitmap,
-    next_write_page:u64,
-    full_page_count:u64,
+    next_write_page: u64,
+    full_page_count: u64,
 }
 
 impl ExtentMeta {
-    fn from(
-        file_id:u64,
-        table_space_id:u64,
-        vec:&[u8]) -> RS<ExtentMeta> {
+    fn from(file_id: u64, table_space_id: u64, vec: &[u8]) -> RS<ExtentMeta> {
         if vec.len() < LayoutExtentHeader::size() {
-            return Err(m_error!(EC::FatalError, "cannot fit into extent meta data"))
+            return Err(m_error!(EC::FatalError, "cannot fit into extent meta data"));
         }
         let extent_id = endian::read_u64(&vec[LayoutExtentHeader::range_extent_id()]);
         let start_page = endian::read_u64(&vec[LayoutExtentHeader::range_start_page()]);
@@ -108,8 +95,8 @@ impl ExtentMeta {
     }
 
     fn new(
-        file_id:u64,
-        tablespace_id:u64,
+        file_id: u64,
+        tablespace_id: u64,
         extent_id: u64,
         start_page: u64,
         page_count: u64,
@@ -131,33 +118,44 @@ impl ExtentMeta {
         let n = LayoutExtentHeader::size();
         let mut vec = Vec::with_capacity(n);
         vec.resize(n, 0);
-        endian::write_u64(&mut vec[LayoutExtentHeader::range_extent_id()], self.extent_id);
-        endian::write_u64(&mut vec[LayoutExtentHeader::range_start_page()], self.start_page);
-        endian::write_u64(&mut vec[LayoutExtentHeader::range_page_count()], self.page_count);
+        endian::write_u64(
+            &mut vec[LayoutExtentHeader::range_extent_id()],
+            self.extent_id,
+        );
+        endian::write_u64(
+            &mut vec[LayoutExtentHeader::range_start_page()],
+            self.start_page,
+        );
+        endian::write_u64(
+            &mut vec[LayoutExtentHeader::range_page_count()],
+            self.page_count,
+        );
         vec
     }
 }
 
 impl ExtentPayload {
-    fn from(vec:&[u8], meta:&ExtentMeta) -> RS<Self> {
+    fn from(vec: &[u8], meta: &ExtentMeta) -> RS<Self> {
         let bitmap_off = LayoutExtentHeader::offset_bitmap();
         let bytes = Self::bytes_of_bitmap(meta.data_pages());
-        let bitmap = QuadBitmap::from(&vec[bitmap_off.. bitmap_off + bytes]);
-        let (next_write_page, _) = bitmap.find_first_state012().unwrap_or((0, QuadState::State0));
+        let bitmap = QuadBitmap::from(&vec[bitmap_off..bitmap_off + bytes]);
+        let (next_write_page, _) = bitmap
+            .find_first_state012()
+            .unwrap_or((0, QuadState::State0));
         let full_page_count = meta.data_pages() - bitmap.count_state012() as u64;
         let extent = Self {
             bitmap,
-            next_write_page:next_write_page as _,
+            next_write_page: next_write_page as _,
             full_page_count,
         };
         Ok(extent)
     }
 
-    fn bytes_of_bitmap(page_count:u64) -> usize {
-        (page_count as usize)/4
+    fn bytes_of_bitmap(page_count: u64) -> usize {
+        (page_count as usize) / 4
     }
 
-    fn new(pages:u64) -> Self {
+    fn new(pages: u64) -> Self {
         let bitmap = QuadBitmap::new(pages as usize);
         Self {
             bitmap,
@@ -181,7 +179,7 @@ impl ExtentPayload {
     }
 
     /// Free a page in this extent
-    fn free_page(&mut self, page_number: u64, meta:&ExtentMeta) -> bool {
+    fn free_page(&mut self, page_number: u64, meta: &ExtentMeta) -> bool {
         if page_number >= meta.start_page && page_number < meta.start_page + meta.data_pages() {
             let offset = (page_number - meta.start_page) as usize;
             self.bitmap.set(offset, QuadState::State0);
@@ -201,7 +199,7 @@ impl ExtentPayload {
         self.bitmap.count_state0()
     }
 
-    fn to_vec(&self, meta:&ExtentMeta) -> Vec<u8> {
+    fn to_vec(&self, meta: &ExtentMeta) -> Vec<u8> {
         let size = self.bitmap.data.len();
         let mut vec = Vec::with_capacity(size);
         vec.resize(size, 0);
@@ -209,7 +207,7 @@ impl ExtentPayload {
         vec
     }
 
-    fn size(meta:&ExtentMeta) -> usize {
+    fn size(meta: &ExtentMeta) -> usize {
         LayoutExtentHeader::size() + (meta.data_pages() as usize) / 4
     }
 }
@@ -217,10 +215,10 @@ impl ExtentPayload {
 /// Four-state enumeration, each state represented by 2 bits
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum QuadState {
-    State0 = 0b00,  // 00
-    State1 = 0b01,  // 01
-    State2 = 0b10,  // 10
-    State3 = 0b11,  // 11
+    State0 = 0b00, // 00
+    State1 = 0b01, // 01
+    State2 = 0b10, // 10
+    State3 = 0b11, // 11
 }
 
 /// Bitmap that stores QuadState values efficiently (2 bits per state)
@@ -243,11 +241,11 @@ impl QuadBitmap {
         }
     }
 
-    pub fn from(vec:&[u8]) -> Self {
+    pub fn from(vec: &[u8]) -> Self {
         let len = vec.len() * 4;
         Self {
-            data:vec.to_vec(),
-            len
+            data: vec.to_vec(),
+            len,
         }
     }
 
@@ -609,11 +607,9 @@ impl std::fmt::Debug for QuadBitmap {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     // Example usage and demonstration
     #[test]
@@ -622,32 +618,33 @@ mod tests {
         let mut bitmap = QuadBitmap::new(10);
 
         // Set various states
-        bitmap.set(0, QuadState::State3).unwrap();  // Skip this one
-        bitmap.set(1, QuadState::State3).unwrap();  // Skip this one
-        bitmap.set(2, QuadState::State1).unwrap();  // First State0/1/2
-        bitmap.set(3, QuadState::State3).unwrap();  // Skip
-        bitmap.set(4, QuadState::State0).unwrap();  // Second State0/1/2
-        bitmap.set(5, QuadState::State2).unwrap();  // Third State0/1/2
-        bitmap.set(6, QuadState::State3).unwrap();  // Skip
-        bitmap.set(7, QuadState::State3).unwrap();  // Skip
+        bitmap.set(0, QuadState::State3).unwrap(); // Skip this one
+        bitmap.set(1, QuadState::State3).unwrap(); // Skip this one
+        bitmap.set(2, QuadState::State1).unwrap(); // First State0/1/2
+        bitmap.set(3, QuadState::State3).unwrap(); // Skip
+        bitmap.set(4, QuadState::State0).unwrap(); // Second State0/1/2
+        bitmap.set(5, QuadState::State2).unwrap(); // Third State0/1/2
+        bitmap.set(6, QuadState::State3).unwrap(); // Skip
+        bitmap.set(7, QuadState::State3).unwrap(); // Skip
 
         println!("Bitmap: {:?}", bitmap);
 
         // Find first State0, State1, or State2
         if let Some((pos, state)) = bitmap.find_first_state012() {
-            println!("First State0/1/2 at position {}: {:?}", pos, state);  // Expected: position 2, State1
+            println!("First State0/1/2 at position {}: {:?}", pos, state); // Expected: position 2, State1
         } else {
             println!("No State0, State1, or State2 found");
         }
 
         // Find from specific position
         if let Some((pos, state)) = bitmap.find_first_state012_from(3) {
-            println!("First State0/1/2 from position 3: {} - {:?}", pos, state);  // Expected: position 4, State0
+            println!("First State0/1/2 from position 3: {} - {:?}", pos, state);
+            // Expected: position 4, State0
         }
 
         // Find all State0/1/2 positions
         let all_state012 = bitmap.find_all_state012();
-        println!("All State0/1/2 positions: {:?}", all_state012);  // Expected: [(2, State1), (4, State0), (5, State2)]
+        println!("All State0/1/2 positions: {:?}", all_state012); // Expected: [(2, State1), (4, State0), (5, State2)]
 
         // Test case: Only State3
         let mut bitmap2 = QuadBitmap::new(4);
@@ -658,7 +655,7 @@ mod tests {
 
         match bitmap2.find_first_state012() {
             Some((pos, state)) => println!("Found {:?} at {}", state, pos),
-            None => println!("No State0, State1, or State2 found in bitmap2"),  // Expected output
+            None => println!("No State0, State1, or State2 found in bitmap2"), // Expected output
         }
 
         // Test optimized version
@@ -672,7 +669,7 @@ mod tests {
         let mut bitmap = QuadBitmap::new(6);
         bitmap.set(0, QuadState::State3).unwrap();
         bitmap.set(1, QuadState::State3).unwrap();
-        bitmap.set(2, QuadState::State1).unwrap();  // First match
+        bitmap.set(2, QuadState::State1).unwrap(); // First match
         bitmap.set(3, QuadState::State0).unwrap();
         bitmap.set(4, QuadState::State3).unwrap();
         bitmap.set(5, QuadState::State2).unwrap();
@@ -688,7 +685,10 @@ mod tests {
         bitmap.set(3, QuadState::State1).unwrap();
         bitmap.set(5, QuadState::State2).unwrap();
 
-        assert_eq!(bitmap.find_first_state012_from(5), Some((5, QuadState::State2)));
+        assert_eq!(
+            bitmap.find_first_state012_from(5),
+            Some((5, QuadState::State2))
+        );
     }
 
     #[test]
@@ -743,7 +743,13 @@ mod tests {
         bitmap.set(7, QuadState::State1).unwrap();
 
         // Both methods should return the same result
-        assert_eq!(bitmap.find_first_state012(), bitmap.find_first_state012_fast());
-        assert_eq!(bitmap.find_first_state012_from(3), bitmap.find_first_state012_from_fast(3));
+        assert_eq!(
+            bitmap.find_first_state012(),
+            bitmap.find_first_state012_fast()
+        );
+        assert_eq!(
+            bitmap.find_first_state012_from(3),
+            bitmap.find_first_state012_from_fast(3)
+        );
     }
 }

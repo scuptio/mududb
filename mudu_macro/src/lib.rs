@@ -2,9 +2,8 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, GenericArgument, ItemFn, PathArguments, ReturnType, Type};
-
+use quote::{ToTokens, quote};
+use syn::{GenericArgument, ItemFn, PathArguments, ReturnType, Type, parse_macro_input};
 
 const RESULT_TYPE_NAME: &str = "RS";
 #[proc_macro_attribute]
@@ -14,43 +13,78 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
     // function name
     let fn_name = &input_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
-    let fn_proc_p2_str = format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name);
+    let fn_proc_p2_str = format!(
+        "{}{}",
+        mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX,
+        fn_name
+    );
 
     let fn_wrapper_p2_ident = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
 
     let exported_mod = syn::Ident::new(
-        &format!("mod_{}{}", mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX, fn_name),
+        &format!(
+            "mod_{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_P2_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
     let component_ident = syn::Ident::new(
-        &format!("Component{}", ::mudu::utils::case_convert::to_pascal_case(&fn_name_str)),
+        &format!(
+            "Component{}",
+            ::mudu::utils::case_convert::to_pascal_case(&fn_name_str)
+        ),
         fn_name.span(),
     );
 
     let fn_wrapper_ident = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_PREFIX, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
 
     let fn_inner_ident = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
 
     let fn_inner_ident_p2 = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX_P2, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_INNER_PREFIX_P2,
+            fn_name
+        ),
         fn_name.span(),
     );
 
     let fn_argv_desc = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_ARGV_DESC_PREFIX, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_ARGV_DESC_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
     let fn_result_desc = syn::Ident::new(
-        &format!("{}{}", mudu_contract::procedure::proc::MUDU_PROC_RESULT_DESC_PREFIX, fn_name),
+        &format!(
+            "{}{}",
+            mudu_contract::procedure::proc::MUDU_PROC_RESULT_DESC_PREFIX,
+            fn_name
+        ),
         fn_name.span(),
     );
     let fn_proc_desc = syn::Ident::new(
@@ -122,13 +156,16 @@ pub fn mudu_proc(_args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let exported = ::mudu::utils::case_convert::to_kebab_case(&fn_proc_p2_str);
-    let wit_inline = format!(r##"
+    let wit_inline = format!(
+        r##"
 package mudu:{};
 
 world mudu-app-{} {{
     export {}: func(param:list<u8>) -> list<u8>;
 }}
-"##, exported, exported, exported);
+"##,
+        exported, exported, exported
+    );
 
     let output = quote! {
 
@@ -287,7 +324,6 @@ fn is_tuple_type(ty: &Type) -> bool {
     false
 }
 
-
 // return (result type, inner type), eg. (Result<T, MError>, T)
 fn handle_return_type(item_fn: &ItemFn) -> RS<(Type, Type)> {
     let return_type = &item_fn.sig.output;
@@ -295,35 +331,44 @@ fn handle_return_type(item_fn: &ItemFn) -> RS<(Type, Type)> {
         ReturnType::Default => {
             panic!("A Mudu Procedure cannot return \"()\"")
         }
-        ReturnType::Type(_, ty) => {
-            ty
-        }
+        ReturnType::Type(_, ty) => ty,
     };
     let ty_path = if let Type::Path(type_path) = &(**box_type) {
         if let Some(segment) = type_path.path.segments.last() {
             if segment.ident == RESULT_TYPE_NAME {
                 type_path
             } else {
-                return Err(m_error!(EC::ParseErr,
+                return Err(m_error!(
+                    EC::ParseErr,
                     format!("Expected Result type, found {}", segment.ident)
                 ));
             }
         } else {
-            return Err(m_error!(EC::ParseErr,"Expected Result type"));
+            return Err(m_error!(EC::ParseErr, "Expected Result type"));
         }
     } else {
-        return Err(m_error!(EC::ParseErr,"Expected Result type"));
+        return Err(m_error!(EC::ParseErr, "Expected Result type"));
     };
 
     // test generics parameters, it must be RS<T>,
     let generics = if let PathArguments::AngleBracketed(args) =
-        &ty_path.path.segments.last().unwrap().arguments {
+        &ty_path.path.segments.last().unwrap().arguments
+    {
         &args.args
     } else {
-        return Err(m_error!(EC::ParseErr,"Result type must have generic parameters"));
+        return Err(m_error!(
+            EC::ParseErr,
+            "Result type must have generic parameters"
+        ));
     };
     if generics.len() != 1 {
-        return Err(m_error!(EC::ParseErr,format!("Result must have exactly 2 generic parameters, found {}", generics.len())));
+        return Err(m_error!(
+            EC::ParseErr,
+            format!(
+                "Result must have exactly 2 generic parameters, found {}",
+                generics.len()
+            )
+        ));
     }
 
     // retrieve T and E type in Result<T, E>
@@ -334,4 +379,3 @@ fn handle_return_type(item_fn: &ItemFn) -> RS<(Type, Type)> {
 
     Ok((*box_type.clone(), t_type.clone()))
 }
-

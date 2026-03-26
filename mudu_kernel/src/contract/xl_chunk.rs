@@ -77,7 +77,7 @@ pub async fn write_chunk_to_u_file(
     body: &[u8],
     chunk_seq: Option<(u32, bool)>,
 ) -> RS<usize> {
-    let _trace = task_trace!();
+    let _ = task_trace!();
     const HEADER_SIZE: usize = LOG_C_COMMON_HDR_SIZE + LOG_C_HDR_SEQ_SIZE;
     const TAIL_SIZE: usize = LOG_C_TAIL_SIZE;
     let mut buf: [u8; HEADER_SIZE + TAIL_SIZE] = [0; HEADER_SIZE + TAIL_SIZE];

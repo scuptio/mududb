@@ -1,9 +1,9 @@
-use async_trait::async_trait;
 use crate::x_log::lsn_allocator::LSNAllocator;
 use crate::x_log::lsn_syncer::LSNSyncer;
 use crate::x_log::x_log_file::XLogFile;
 use crate::x_log::xl_cfg::XLCfg;
 use crate::x_log::xl_file_info::XLFileInfo;
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_utils::notifier::NotifyWait;
 use mudu_utils::sync::a_task::ATask;

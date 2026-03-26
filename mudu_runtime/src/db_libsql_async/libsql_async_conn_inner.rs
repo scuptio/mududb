@@ -1,17 +1,18 @@
 use mudu::common::result::RS;
-use mudu::common::xid::{new_xid, XID};
+use mudu::common::xid::{XID, new_xid};
 use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 
+use crate::db_libsql_async::libsql_desc::desc_projection;
 use crate::db_libsql_async::param::LibSQLParam;
 use crate::db_libsql_async::result_set::LibSQLAsyncResultSet;
-use crate::db_libsql_async::libsql_desc::desc_projection;
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use lazy_static::lazy_static;
+use libsql::{Builder, Connection, Database, Statement, Transaction, params_from_iter};
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
@@ -24,7 +25,6 @@ use scc::HashMap as SCCHashMap;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use libsql::{params_from_iter, Transaction, Builder, Connection, Database, Statement};
 
 pub fn create_libsql_conn(
     db_path: &String,
@@ -33,7 +33,6 @@ pub fn create_libsql_conn(
 ) -> RS<Arc<dyn DBConnSync>> {
     todo!()
 }
-
 
 pub struct LibSQLAsyncConnInner {
     conn: Connection,
@@ -47,19 +46,15 @@ lazy_static! {
     static ref TURSO_DB: SCCHashMap<String, Arc<Database>> = SCCHashMap::new();
 }
 
-
-
 async fn get_db(db_path: &String) -> RS<Arc<Database>> {
     let opt_db = TURSO_DB.get_async(db_path).await;
     match opt_db {
-        Some(db) => {
-            Ok(db.get().clone())
-        }
+        Some(db) => Ok(db.get().clone()),
         None => {
-            let db = Builder::new_local(db_path).build().await
-                .map_err(|e| {
-                    m_error!(EC::IOErr, format!("open database error {}", db_path), e)
-                })?;
+            let db = Builder::new_local(db_path)
+                .build()
+                .await
+                .map_err(|e| m_error!(EC::IOErr, format!("open database error {}", db_path), e))?;
             let arc_db = Arc::new(db);
             let _ = TURSO_DB.insert_async(db_path.clone(), arc_db.clone()).await;
             Ok(arc_db)
@@ -70,10 +65,15 @@ async fn get_db(db_path: &String) -> RS<Arc<Database>> {
 impl LibSQLAsyncConnInner {
     pub async fn new(db_path: String) -> RS<Self> {
         let db = get_db(&db_path).await?;
-        let connection = db.connect().map_err(|e| {
-            m_error!(EC::IOErr, format!("connect db error {}", db_path), e)
-        })?;
-        Ok(Self { conn: connection, trans: None, xid: 0, cached_prepared: Default::default() })
+        let connection = db
+            .connect()
+            .map_err(|e| m_error!(EC::IOErr, format!("connect db error {}", db_path), e))?;
+        Ok(Self {
+            conn: connection,
+            trans: None,
+            xid: 0,
+            cached_prepared: Default::default(),
+        })
     }
 
     async fn add_prepared(&self, sql: String, prepared: Prepared) {
@@ -83,12 +83,9 @@ impl LibSQLAsyncConnInner {
     async fn prepared(&self, sql: String, query: bool) -> RS<(String, Prepared)> {
         let opt = self.cached_prepared.remove_async(&sql).await;
         match opt {
-            Some(e) => {
-                Ok(e)
-            }
+            Some(e) => Ok(e),
             None => {
-                let stmt = self.conn.prepare(&sql).await
-                    .map_err(db_error)?;
+                let stmt = self.conn.prepare(&sql).await.map_err(db_error)?;
                 let prepared = if query {
                     Prepared::new_query_stmt(stmt).await?
                 } else {
@@ -99,7 +96,6 @@ impl LibSQLAsyncConnInner {
         }
     }
 }
-
 
 pub struct Prepared {
     stmt: Statement,
@@ -132,7 +128,11 @@ impl PreparedStmt for PreparedStmtImpl {
 impl Prepared {
     async fn query(&mut self, params: Box<dyn SQLParams>) -> RS<Arc<dyn ResultSetAsync>> {
         let libsql_param = to_libsql_params(params.as_ref())?;
-        let rows = self.stmt.query(params_from_iter(libsql_param)).await.map_err(db_error)?;
+        let rows = self
+            .stmt
+            .query(params_from_iter(libsql_param))
+            .await
+            .map_err(db_error)?;
         let desc = self.project_tuple_desc.clone();
         self.stmt.reset();
         Ok(Arc::new(LibSQLAsyncResultSet::new(rows, desc)))
@@ -140,7 +140,11 @@ impl Prepared {
 
     async fn execute(&mut self, params: Box<dyn SQLParams>) -> RS<u64> {
         let libsql_param = to_libsql_params(params.as_ref())?;
-        let rows = self.stmt.execute(params_from_iter(libsql_param)).await.map_err(db_error)?;
+        let rows = self
+            .stmt
+            .execute(params_from_iter(libsql_param))
+            .await
+            .map_err(db_error)?;
         self.stmt.reset();
         Ok(rows as u64)
     }
@@ -180,7 +184,10 @@ fn db_error<E: Error + 'static>(e: E) -> MError {
 fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
     let desc = sql_param.param_tuple_desc()?;
     if desc.fields().len() as u64 != sql_param.size() {
-        return Err(m_error!(EC::DBInternalError, "parameter and description mismatch"))
+        return Err(m_error!(
+            EC::DBInternalError,
+            "parameter and description mismatch"
+        ));
     }
     let n = sql_param.size();
     let mut vec = Vec::with_capacity(n as usize);
@@ -196,30 +203,14 @@ fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
 fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
     let id = ty.dat_type_id();
     let v = match id {
-        DatTypeID::I32 => {
-            libsql::Value::Integer(datum.expect_i32().clone() as _)
-        }
-        DatTypeID::I64 => {
-            libsql::Value::Integer(datum.expect_i64().clone() as _)
-        }
-        DatTypeID::F32 => {
-            libsql::Value::Real(datum.expect_f32().clone() as _)
-        }
-        DatTypeID::F64 => {
-            libsql::Value::Real(datum.expect_f64().clone() as _)
-        }
-        DatTypeID::String => {
-            libsql::Value::Text(datum.expect_string().clone())
-        }
-        DatTypeID::Array => {
-            libsql::Value::Blob(datum.to_binary(ty)?.into())
-        }
-        DatTypeID::Record => {
-            libsql::Value::Blob(datum.to_binary(ty)?.into())
-        }
-        DatTypeID::Binary => {
-            libsql::Value::Blob(datum.to_binary(ty)?.into())
-        }
+        DatTypeID::I32 => libsql::Value::Integer(datum.expect_i32().clone() as _),
+        DatTypeID::I64 => libsql::Value::Integer(datum.expect_i64().clone() as _),
+        DatTypeID::F32 => libsql::Value::Real(datum.expect_f32().clone() as _),
+        DatTypeID::F64 => libsql::Value::Real(datum.expect_f64().clone() as _),
+        DatTypeID::String => libsql::Value::Text(datum.expect_string().clone()),
+        DatTypeID::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        DatTypeID::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        DatTypeID::Binary => libsql::Value::Blob(datum.to_binary(ty)?.into()),
     };
     Ok(v)
 }
@@ -245,20 +236,16 @@ impl LibSQLAsyncConnInner {
     pub async fn rollback_tx(&mut self) -> RS<()> {
         let opt_trans = self.move_tx();
         match opt_trans {
-            Some(trans) => {
-                trans.rollback().await.map_err(db_error)
-            }
-            None => { Ok(()) }
+            Some(trans) => trans.rollback().await.map_err(db_error),
+            None => Ok(()),
         }
     }
 
     pub async fn commit_tx(&mut self) -> RS<()> {
         let opt_trans = self.move_tx();
         match opt_trans {
-            Some(trans) => {
-                trans.commit().await.map_err(db_error)
-            }
-            None => { Ok(()) }
+            Some(trans) => trans.commit().await.map_err(db_error),
+            None => Ok(()),
         }
     }
     pub async fn prepare(&self, sql_stmt: Box<dyn SQLStmt>) -> RS<Arc<dyn PreparedStmt>> {
@@ -269,9 +256,10 @@ impl LibSQLAsyncConnInner {
         }))
     }
 
-    pub async fn query(&self,
-                       sql_stmt: Box<dyn SQLStmt>,
-                       sql_params: Box<dyn SQLParams>,
+    pub async fn query(
+        &self,
+        sql_stmt: Box<dyn SQLStmt>,
+        sql_params: Box<dyn SQLParams>,
     ) -> RS<(Arc<dyn ResultSetAsync>)> {
         let sql_str = sql_stmt.to_string();
         let (sql_str, mut prepared) = self.prepared(sql_str, true).await?;
@@ -280,7 +268,11 @@ impl LibSQLAsyncConnInner {
         result
     }
 
-    pub async fn command(&self, sql_stmt: Box<dyn SQLStmt>, sql_params: Box<dyn SQLParams>) -> RS<u64> {
+    pub async fn command(
+        &self,
+        sql_stmt: Box<dyn SQLStmt>,
+        sql_params: Box<dyn SQLParams>,
+    ) -> RS<u64> {
         let sql = sql_stmt.to_string();
         let (sql, mut prepared) = self.prepared(sql, false).await?;
         let result = prepared.execute(sql_params).await;
@@ -288,7 +280,3 @@ impl LibSQLAsyncConnInner {
         result
     }
 }
-
-
-
-

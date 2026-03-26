@@ -1,9 +1,9 @@
-use mudu::common::result::RS;
-use mudu_binding::record::field_def::FieldDef;
-use mudu_binding::record::record_def::RecordDef;
 use crate::ast::parser::SQLParser;
 use crate::ast::stmt_create_table::StmtCreateTable;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
+use mudu::common::result::RS;
+use mudu_binding::record::field_def::FieldDef;
+use mudu_binding::record::record_def::RecordDef;
 
 /// DDLParser
 /// parser DDL SQL statement, and convert the Create Table SQL statement to a TableDef object,
@@ -46,11 +46,7 @@ impl DDLParser {
             })
             .collect();
 
-        let table_def = RecordDef::new(
-            stmt.table_name().clone(),
-            column_def_vec,
-        );
+        let table_def = RecordDef::new(stmt.table_name().clone(), column_def_vec);
         Ok(table_def)
     }
 }
-

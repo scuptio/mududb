@@ -17,13 +17,9 @@ fn convert_expr_compare_equal(
 
 fn convert_expr_compare(expr: &ExprCompare, desc: &TableDesc) -> RS<(OID, Datum)> {
     match expr.op() {
-        ValueCompare::EQ => {
-            match (expr.left(), expr.right()) {
-                _ => {
-                    Err(todo!())
-                }
-            }
-        }
+        ValueCompare::EQ => match (expr.left(), expr.right()) {
+            _ => Err(todo!()),
+        },
         _ => Err(todo!()),
     }
 }

@@ -5,7 +5,7 @@ use mudu_type::dat_value::DatValue;
 
 pub trait EnumerableDatum {
     fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>>;
-    
+
     fn to_binary(&self, datum_desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>>;
 
     fn tuple_desc(&self, field_name: &[String]) -> RS<TupleFieldDesc>;

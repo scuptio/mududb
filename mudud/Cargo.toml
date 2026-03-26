@@ -3,8 +3,13 @@ name = "mudud"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+debug_trace = ["mudu_runtime/debug_trace", "mudu_utils/debug_trace"]
+
 [dependencies]
 mudu_runtime = { workspace = true }
 mudu = { workspace = true }
 mudu_utils = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true }
+libc = "0.2"

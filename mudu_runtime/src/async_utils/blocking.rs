@@ -5,7 +5,7 @@ use std::thread;
 
 pub fn run_async<F, T>(future: F) -> RS<F::Output>
 where
-    F: Future<Output=T> + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
     let thread = thread::Builder::new().spawn(move || {

@@ -1,0 +1,20 @@
+use crate:game-data:id/id;
+use crate:game-data:resource-stock/resource-stock;
+use crate:game-data:fraction-member-table/fraction-member-table;
+
+interface game-data {
+    /* Top-level Faction Table */
+    table faction-table {
+        key: {
+            faction-id: id,
+        },
+        value: {
+          faction: faction,
+          main-house-id: option<id>,
+          characters : character-table,
+          houses : house-table,
+          cities : city-table,
+          chronicle : chronicle-table,
+        },
+    }
+}

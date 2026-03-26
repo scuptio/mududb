@@ -5,25 +5,21 @@ use mudu_type::dat_value::DatValue;
 
 #[derive(Debug, Clone)]
 pub struct ProcedureResult {
-    return_list:Vec<DatValue>,
+    return_list: Vec<DatValue>,
 }
 
 impl ProcedureResult {
     pub fn into(self) -> Vec<DatValue> {
         self.return_list
     }
-    
+
     pub fn from<T: TupleDatum>(result_tuple: RS<T>, desc: &TupleFieldDesc) -> RS<Self> {
         match result_tuple {
             Ok(t) => {
                 let vec = t.to_value(desc.fields())?;
-                Ok(Self {
-                    return_list:vec
-                })
+                Ok(Self { return_list: vec })
             }
-            Err(e) => {
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -32,7 +28,7 @@ impl ProcedureResult {
         Ok(t)
     }
 
-    pub fn new(return_list:Vec<DatValue>) -> ProcedureResult {
+    pub fn new(return_list: Vec<DatValue>) -> ProcedureResult {
         Self { return_list }
     }
 

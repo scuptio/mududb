@@ -20,10 +20,7 @@ pub struct MappedAMutexGuard<'a, T: ?Sized> {
 // As long as T: Send, it's fine to send and share Mutex<T> between threads.
 // If T was not Send, sending and sharing a Mutex<T> would be bad, since you can
 // access T through Mutex<T>.
-unsafe impl<T> Send for AMutex<T>
-where
-    T: ?Sized + Send,
-{}
+unsafe impl<T> Send for AMutex<T> where T: ?Sized + Send {}
 unsafe impl<T> Sync for AMutex<T> where T: ?Sized + Send {}
 unsafe impl<T> Sync for AMutexGuard<'_, T> where T: ?Sized + Send + Sync {}
 

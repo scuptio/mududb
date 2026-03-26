@@ -1,10 +1,10 @@
+use crate::tuple::datum_desc::DatumDesc;
+use crate::tuple::enumerable_datum::EnumerableDatum;
+use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::DatumDyn;
-use crate::tuple::datum_desc::DatumDesc;
-use crate::tuple::enumerable_datum::EnumerableDatum;
-use crate::tuple::tuple_field_desc::TupleFieldDesc;
 
 pub trait VecDynDatum: EnumerableDatum {}
 

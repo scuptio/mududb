@@ -3,7 +3,7 @@ use crate::db_libsql::ls_desc;
 use crate::db_libsql::ls_trans::LSTrans;
 use as_slice::AsSlice;
 use lazy_static::lazy_static;
-use libsql::{params, Builder, Connection, Database, Error};
+use libsql::{Builder, Connection, Database, Error, params};
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC;
@@ -233,7 +233,7 @@ impl LSAsyncConnInner {
         }
     }
 
-    fn async_query<SQL: AsSQLStmtRef, PARAMS: AsSlice<Element=Item>, Item: AsDatumDynRef>(
+    fn async_query<SQL: AsSQLStmtRef, PARAMS: AsSlice<Element = Item>, Item: AsDatumDynRef>(
         &self,
         sql: SQL,
         param: PARAMS,
@@ -278,7 +278,7 @@ impl LSAsyncConnInner {
             async move |tx, s| tx.query(&s, params!([]), _desc.clone()).await,
             &sql,
         )
-            .await?;
+        .await?;
         Ok((rs, result_desc))
     }
 
@@ -336,7 +336,7 @@ impl LSAsyncConnInner {
             async move |tx, s| tx.command(&s, params!([])).await,
             &sql,
         )
-            .await?;
+        .await?;
         Ok(affected_rows)
     }
 

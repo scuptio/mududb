@@ -1,23 +1,25 @@
 use std::cell::RefCell;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, Stream};
+use futures::{Sink, Stream, stream};
 use pgwire::api::auth::md5pass::hash_md5_password;
 use pgwire::api::auth::{AuthSource, LoginInfo, Password};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag};
+use pgwire::api::results::{
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
+};
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::PortalStore;
-use pgwire::api::{ClientInfo, ClientPortalStore, Type, METADATA_DATABASE};
-
+use pgwire::api::{ClientInfo, ClientPortalStore, METADATA_DATABASE, Type};
 
 use mudu::common::xid::XID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use pgwire::messages::data::DataRow;
 use pgwire::messages::PgWireBackendMessage;
+use pgwire::messages::data::DataRow;
 
 use crate::backend::session_ctx::SessionCtx;
 use libsql::params::Params;
@@ -44,11 +46,11 @@ impl Session {
 }
 
 pub struct DummyAuthSource {
-    context:SessionCtx,
+    context: SessionCtx,
 }
 
 impl DummyAuthSource {
-    pub fn new(context:SessionCtx) -> Self {
+    pub fn new(context: SessionCtx) -> Self {
         Self { context }
     }
 }
@@ -65,52 +67,55 @@ impl AuthSource for DummyAuthSource {
         info!("login info: {:?}", info);
         let salt = vec![0, 0, 0, 0];
         let password = "root";
-        let user = info.user().as_ref().map_or_else(|| {
-            Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr))))
-        }, |e| {
-            Ok(e.to_string())
-        })?;
-        let hash_password =
-            hash_md5_password(&user, password, salt.as_ref());
-        let db = info.database()
-            .map_or_else(|| {
-                Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr))))
-            }, |e| {
-                Ok(e.to_string())
-            })?;
-        self.context.open(&db).await
+        let user = info.user().as_ref().map_or_else(
+            || Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr)))),
+            |e| Ok(e.to_string()),
+        )?;
+        let hash_password = hash_md5_password(&user, password, salt.as_ref());
+        let db = info.database().map_or_else(
+            || Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr)))),
+            |e| Ok(e.to_string()),
+        )?;
+        self.context
+            .open(&db)
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
     }
 }
 
-
 #[async_trait]
 impl SimpleQueryHandler for Session {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection().await
+        let conn = self
+            .ctx
+            .connection()
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let stmt = conn
-            .prepare(query).await
+            .prepare(query)
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if query.to_uppercase().starts_with("SELECT") {
             let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
-            let rows = stmt.query(()).await
+            let rows = stmt
+                .query(())
+                .await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
             let s = encode_row_data(rows, header.clone());
             Ok(vec![Response::Query(QueryResponse::new(header, s))])
         } else {
-            conn.execute(query, ()).await
+            conn.execute(query, ())
+                .await
                 .map(|affected_rows| {
-                    vec![Response::Execution(Tag::new("OK").with_rows(affected_rows as usize))]
+                    vec![Response::Execution(
+                        Tag::new("OK").with_rows(affected_rows as usize),
+                    )]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
@@ -133,24 +138,28 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection().await
+        let conn = self
+            .ctx
+            .connection()
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        let param_types = target.parameter_types.iter()
-            .map(|e|{
-                e.as_ref().unwrap().clone()
-            }).collect::<Vec<_>>();
+        let param_types = target
+            .parameter_types
+            .iter()
+            .map(|e| e.as_ref().unwrap().clone())
+            .collect::<Vec<_>>();
         let stmt = conn
-            .prepare(&target.statement).await
+            .prepare(&target.statement)
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
 
         row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
             .map(|fields| DescribeStatementResponse::new(param_types, fields))
     }
-
 
     async fn do_describe_portal<C>(
         &self,
@@ -159,14 +168,18 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<DescribePortalResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection().await
+        let conn = self
+            .ctx
+            .connection()
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let stmt = conn
-            .prepare(&_target.statement.statement).await
+            .prepare(&_target.statement.statement)
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         row_desc_from_stmt(&stmt, &_target.result_column_format).map(DescribePortalResponse::new)
     }
@@ -179,25 +192,33 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let conn = self.ctx.connection().await
+        let conn = self
+            .ctx
+            .connection()
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let query = &portal.statement.statement;
-        let stmt = conn.prepare(query).await
+        let stmt = conn
+            .prepare(query)
+            .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let params = get_params(portal);
         if query.to_uppercase().starts_with("SELECT") {
             let header = Arc::new(row_desc_from_stmt(&stmt, &portal.result_column_format)?);
-            let rows = stmt.query(Params::Positional(params)).await
+            let rows = stmt
+                .query(Params::Positional(params))
+                .await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
 
             let s = encode_row_data(rows, header.clone());
             Ok(Response::Query(QueryResponse::new(header, s)))
         } else {
-            stmt.execute(Params::Positional(params)).await
+            stmt.execute(Params::Positional(params))
+                .await
                 .map(|affected_rows| Response::Execution(Tag::new("OK").with_rows(affected_rows)))
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
@@ -208,12 +229,17 @@ unsafe impl Send for Session {}
 
 unsafe impl Sync for Session {}
 
-
 fn get_params(portal: &Portal<String>) -> Vec<Value> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.statement.parameter_types.get(i)
-            .unwrap().as_ref().unwrap().clone();
+        let param_type = portal
+            .statement
+            .parameter_types
+            .get(i)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone();
         // we only support a small amount of types for demo
         match &param_type {
             &Type::BOOL => {
@@ -252,7 +278,6 @@ fn get_params(portal: &Portal<String>) -> Vec<Value> {
 
     results
 }
-
 
 fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
@@ -318,16 +343,18 @@ fn encode_row_data(
 }
 
 #[allow(unused)]
-fn get_database<C>(client:&C) -> PgWireResult<String>
-    where C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+fn get_database<C>(client: &C) -> PgWireResult<String>
+where
+    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
 {
-    let database = client.metadata().get(METADATA_DATABASE)
-        .map_or_else(
-            ||{
-                Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr, "Database not found"))))
-            },
-            |s| {
-                Ok(s.to_string())
-            })?;
+    let database = client.metadata().get(METADATA_DATABASE).map_or_else(
+        || {
+            Err(PgWireError::ApiError(Box::new(m_error!(
+                EC::InternalErr,
+                "Database not found"
+            ))))
+        },
+        |s| Ok(s.to_string()),
+    )?;
     Ok(database)
 }

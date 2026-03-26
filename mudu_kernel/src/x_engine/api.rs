@@ -18,7 +18,6 @@ pub trait RSCursor: Send + Sync {
     async fn next(&self) -> RS<Option<TupleRow>>;
 }
 
-
 pub type Filter = Operator;
 
 /// object id and datum

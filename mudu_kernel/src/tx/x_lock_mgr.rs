@@ -71,7 +71,10 @@ impl _XLockMgrInner {
             match opt {
                 Some(e) => e.get().clone(),
                 None => {
-                    return Err(m_error!(ER::NoSuchElement, format!("no such table {:}", table_id)));
+                    return Err(m_error!(
+                        ER::NoSuchElement,
+                        format!("no such table {:}", table_id)
+                    ));
                 }
             }
         };

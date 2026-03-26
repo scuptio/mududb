@@ -9,7 +9,7 @@ use crate::dat_value::DatValue;
 use crate::type_error::{TyEC, TyErr};
 use byteorder::ByteOrder;
 use mudu::json_value;
-use mudu::utils::json::{from_json_str, JsonValue};
+use mudu::utils::json::{JsonValue, from_json_str};
 use mudu::utils::msg_pack::MsgPackValue;
 
 pub fn fn_f64_in_textual(v: &str, _dt: &DatType) -> Result<DatValue, TyErr> {

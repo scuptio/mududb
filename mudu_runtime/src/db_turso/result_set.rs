@@ -1,18 +1,16 @@
-use turso::{Row, Rows};
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
 use std::sync::Arc;
-use async_trait::async_trait;
 use tokio::sync::Mutex;
-use mudu_contract::tuple::tuple_value::TupleValue;
-
-
+use turso::{Row, Rows};
 
 pub struct TursoResultSet {
     inner: Arc<ResultSetInner>,
@@ -22,7 +20,6 @@ pub struct ResultSetInner {
     row: Mutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
 }
-
 
 impl TursoResultSet {
     pub fn new(rows: Rows, desc: Arc<TupleFieldDesc>) -> TursoResultSet {
@@ -43,7 +40,6 @@ impl ResultSetAsync for TursoResultSet {
         &self.inner.tuple_desc.as_ref()
     }
 }
-
 
 impl ResultSetInner {
     fn new(row: Rows, tuple_desc: Arc<TupleFieldDesc>) -> ResultSetInner {
@@ -79,27 +75,27 @@ fn turso_db_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleValu
         let n = i;
         let internal = match desc.dat_type_id() {
             DatTypeID::I32 => {
-                let val = row
-                    .get::<i32>(n)
-                    .map_err(|e| m_error!(EC::DBInternalError, "turso db get item of row error", e))?;
+                let val = row.get::<i32>(n).map_err(|e| {
+                    m_error!(EC::DBInternalError, "turso db get item of row error", e)
+                })?;
                 DatValue::from_i32(val)
             }
             DatTypeID::I64 => {
-                let val = row
-                    .get::<i64>(n)
-                    .map_err(|e| m_error!(EC::DBInternalError, "turso db get item of row error", e))?;
+                let val = row.get::<i64>(n).map_err(|e| {
+                    m_error!(EC::DBInternalError, "turso db get item of row error", e)
+                })?;
                 DatValue::from_i64(val)
             }
             DatTypeID::F32 => {
-                let val = row
-                    .get::<f64>(n)
-                    .map_err(|e| m_error!(EC::DBInternalError, "turso db get item of row error", e))?;
+                let val = row.get::<f64>(n).map_err(|e| {
+                    m_error!(EC::DBInternalError, "turso db get item of row error", e)
+                })?;
                 DatValue::from_f64(val)
             }
             DatTypeID::F64 => {
-                let val = row
-                    .get::<f64>(n)
-                    .map_err(|_e| m_error!(EC::DBInternalError, "turso db get item of row error"))?;
+                let val = row.get::<f64>(n).map_err(|_e| {
+                    m_error!(EC::DBInternalError, "turso db get item of row error")
+                })?;
                 DatValue::from_f64(val)
             }
             DatTypeID::String => {

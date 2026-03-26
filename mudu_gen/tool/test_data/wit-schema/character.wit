@@ -1,0 +1,25 @@
+use crate:game-data:id/id;
+use crate:game-data:character-attributes/character-attributes;
+
+
+interface game-data {
+    record character {
+        character-id: id,
+        house-id: id,
+        name: string,
+        age: u32,
+        is-alive: bool,
+        loyalty: u64,
+        influence: u64,
+
+        father-id: option<id>,
+        mother-id: option<id>,
+        spouse-id: option<id>,
+
+        children-ids: list<id>,
+
+        traits: list<string>,
+
+        attributes: character-attributes,
+    }
+}

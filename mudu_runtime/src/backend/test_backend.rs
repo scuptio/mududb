@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 pub mod tests {
     use crate::backend::backend::Backend;
@@ -22,9 +21,12 @@ pub mod tests {
             data_path: test_db_path(),
             listen_ip: "0.0.0.0".to_string(),
             http_listen_port: 8000,
+            http_worker_threads: 1,
             pg_listen_port: 5432,
+            component_target: None,
             enable_p2: true,
             enable_async: false,
+            ..Default::default()
         };
         cfg
     }
@@ -34,5 +36,4 @@ pub mod tests {
         Backend::sync_serve(cfg)?;
         Ok(())
     }
-
 }

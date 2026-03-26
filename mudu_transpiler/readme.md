@@ -37,22 +37,49 @@ procedures compile to WebAssembly (WASM) and execute natively within MuduDB.
 ## Mudu Transpiler(mtp) command line
 
 ```
-Mudu Transpiler(mtp), transpile source code to Mudu procedure
+Transpiles source code from various programming languages to Mudu procedure format
 
-Usage: mtp.exe [OPTIONS] --input <FILE> --output <FILE> [COMMAND]
+Usage: mtp [OPTIONS] --input <INPUT> --output <OUTPUT> <COMMAND>
 
 Commands:
-  rust            Transpile Rust source code
-  csharp          Transpile C# source code
-  python          Transpile Python source code
-  golang          Transpile Go source code
-  assemblyscript  Transpile AssemblyScript source code
-  help            Print this message or the help of the given subcommand(s)
+  rust             Transpile Rust source code
+  c-sharp          Transpile C# source code
+  python           Transpile Python source code
+  golang           Transpile Go source code
+  assembly-script  Transpile AssemblyScript source code
+  help             Print this message or the help of the given subcommand(s)
 
 Options:
-  -v, --verbose        Enable verbose output
-  -i, --input <FILE>   Input file path
-  -o, --output <FILE>  Output file path
-  -h, --help           Print help
-  -V, --version        Print version
+  -i, --input <INPUT>
+          Input file path
+
+  -o, --output <OUTPUT>
+          Output file path
+
+  -m, --module <MODULE>
+          MPK module name
+
+  -s, --src-mod <SRC_MOD>
+          Source Rust code module name
+
+  -d, --dst-mod <DST_MOD>
+          Destination Rust code module name
+
+  -a, --async
+          Enable compile to async (Rust-specific)
+
+  -t, --type-desc <TYPE_DESC_FILE>
+          Custom type description file
+
+  -v, --verbose
+          Enable verbose output
+
+  -p, --package-desc <PACKAGE_DESC>
+          Procedure description file
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```

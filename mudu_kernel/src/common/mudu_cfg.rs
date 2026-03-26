@@ -68,14 +68,9 @@ pub fn load_mudu_conf(opt_cfg_path: Option<String>) -> RS<MuduCfg> {
 
 fn read_mudu_conf<P: AsRef<Path>>(path: P) -> RS<MuduCfg> {
     let r = fs::read_to_string(path);
-    let s = r.map_err(|e|
-        m_error!(ER::IOErr, "read Mudu configuration error", e)
-    )?;
+    let s = r.map_err(|e| m_error!(ER::IOErr, "read Mudu configuration error", e))?;
     let r = toml::from_str::<MuduCfg>(s.as_str());
-    let cfg =
-        r.map_err(|e|
-            m_error!(ER::IOErr, "deserialization configuration file error", e)
-        )?;
+    let cfg = r.map_err(|e| m_error!(ER::IOErr, "deserialization configuration file error", e))?;
     Ok(cfg)
 }
 
@@ -84,15 +79,11 @@ fn write_mudu_conf<P: AsRef<Path>>(path: P, cfg: &MuduCfg) -> RS<()> {
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)
-                .map_err(|e| {
-                    m_error!(ER::IOErr, "create directory error", e)
-                })?;
+                .map_err(|e| m_error!(ER::IOErr, "create directory error", e))?;
         }
     }
     let r = toml::to_string(cfg);
-    let s = r.map_err(|e| {
-        m_error!(ER::EncodeErr, "serialize configuration error", e)
-    })?;
+    let s = r.map_err(|e| m_error!(ER::EncodeErr, "serialize configuration error", e))?;
 
     let r = fs::write(path, s);
     r.map_err(|e| m_error!(ER::IOErr, "write configuration file error", e))?;

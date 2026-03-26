@@ -62,7 +62,6 @@ impl Decode for XLBatch {
     }
 }
 
-
 #[allow(unused)]
 pub mod _fuzz {
     #[allow(dead_code)]

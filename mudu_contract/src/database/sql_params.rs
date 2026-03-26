@@ -5,14 +5,11 @@ use mudu_type::dat_type::DatType;
 use mudu_type::datum::DatumDyn;
 use paste::paste;
 
-
 pub trait ToDatum {
     fn to_datum(&self) -> RS<&dyn DatumDyn>;
 }
 
-
 //pub trait DatumDyn: DatumDyn {}
-
 
 pub trait SQLParams: Send + Sync {
     #[doc(hidden)]
@@ -113,7 +110,6 @@ impl SQLParams for () {
     }
 }
 
-
 impl<T: DatumDyn + SQLParamMarker> SQLParams for T {
     #[inline]
     fn size(&self) -> u64 {
@@ -139,7 +135,6 @@ impl<T: DatumDyn> SQLParams for (T,) {
         Some(&self.0)
     }
 }
-
 
 pub trait SQLParamMarker {}
 macro_rules! impl_sql_param_datum_marker {

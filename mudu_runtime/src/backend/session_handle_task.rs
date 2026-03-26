@@ -16,7 +16,7 @@ pub struct SessionHandleTask {
 }
 
 impl SessionHandleTask {
-    pub fn new(db_path:String, receiver: Vec<Receiver<IncomingSession>>, waiter: Waiter) -> Self {
+    pub fn new(db_path: String, receiver: Vec<Receiver<IncomingSession>>, waiter: Waiter) -> Self {
         Self {
             receiver,
             thd_ctx: SessionCtx::new(db_path),
@@ -32,17 +32,11 @@ impl SessionHandleTask {
         let name = self.name;
         for (i, receiver) in receivers.into_iter().enumerate() {
             let name_i = format!("{}_{}", name, i);
-            handle_one_receiver_connect(
-                canceller.clone(),
-                receiver,
-                ctx.clone(),
-                name_i,
-            ).await?;
+            handle_one_receiver_connect(canceller.clone(), receiver, ctx.clone(), name_i).await?;
         }
         Ok(())
     }
 }
-
 
 async fn handle_one_receiver_connect(
     waiter: Waiter,
@@ -84,7 +78,7 @@ impl AsyncLocalTask for SessionHandleTask {
         self.name.clone()
     }
 
-    fn async_run_local(self) -> impl Future<Output=RS<()>> {
+    fn async_run_local(self) -> impl Future<Output = RS<()>> {
         self.serve_handle_connect()
     }
 }

@@ -12,7 +12,8 @@ mod tests {
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use mudu_utils::log::log_setup_ex;
     use mudu_utils::notifier::NotifyWait;
-    use mudu_utils::task::{spawn_task, this_task_id};
+    use mudu_utils::task::spawn_task;
+    use mudu_utils::task_trace::this_task_id;
     use std::env::temp_dir;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -39,7 +40,6 @@ mod tests {
         test_runtime_simple(TestProc::ProcSysCall)
     }
 
-
     #[test]
     fn test_async() {
         test_runtime_simple(TestProc::ProvSysCallAsync)
@@ -62,12 +62,18 @@ mod tests {
         path.to_str().unwrap().to_string()
     }
 
-    async fn test_async_runtime_simple(enable_p2: bool, test_kind: TestProc) -> RS<()> {
+    async fn test_async_runtime_simple(enable_component: bool, test_kind: TestProc) -> RS<()> {
         let pkg_path = wasm_mod_path();
         let db_path = db_path();
-        let enable_async = test_kind == TestProc::ProvSysCallAsync ||
-            test_kind == TestProc::ProcSysCall;
-        let service = create_runtime_service(&pkg_path, &db_path, None, RuntimeOpt { enable_p2, enable_async }).await?;
+        let enable_async =
+            test_kind == TestProc::ProvSysCallAsync || test_kind == TestProc::ProcSysCall;
+        let service = create_runtime_service(
+            &pkg_path,
+            &db_path,
+            None,
+            RuntimeOpt::from_legacy_enable_p2(enable_component, enable_async),
+        )
+        .await?;
 
         let stopper = NotifyWait::new();
         let task = spawn_task(stopper.clone(), "test session task", async move {
@@ -90,7 +96,6 @@ mod tests {
         opt.unwrap_or_else(|| Ok(()))
     }
 
-
     async fn async_session(service: Arc<dyn Runtime>) -> RS<()> {
         println!("task id {}", this_task_id());
         let tuple = (1i32, 100i64, "string argument".to_string());
@@ -98,10 +103,13 @@ mod tests {
         let param = ProcedureParam::from_tuple(0, tuple, &desc)?;
         let app_name = "app1".to_string();
         let app = service
-            .app(app_name.clone()).await
+            .app(app_name.clone())
+            .await
             .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app named {}", app_name)))?;
         let id = app.task_create().await?;
-        let proc_result = app.invoke(id, &"mod_0".to_string(), &"proc".to_string(), param).await?;
+        let proc_result = app
+            .invoke(id, &"mod_0".to_string(), &"proc".to_string(), param, None)
+            .await?;
         let result = proc_result.to::<(i32, String)>(&<(i32, String)>::tuple_desc_static(&[]))?;
         println!("result: {:?}", result);
         app.task_end(id)?;
@@ -115,10 +123,19 @@ mod tests {
         let param = ProcedureParam::from_tuple(0, tuple, &desc)?;
         let app_name = "app1".to_string();
         let app = service
-            .app(app_name.clone()).await
+            .app(app_name.clone())
+            .await
             .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app named {}", app_name)))?;
         let id = app.task_create().await?;
-        let proc_result = app.invoke_async(id, &"mod_0".to_string(), &"proc_sys_call_mtp".to_string(), param).await?;
+        let proc_result = app
+            .invoke_async(
+                id,
+                &"mod_0".to_string(),
+                &"proc_sys_call_mtp".to_string(),
+                param,
+                None,
+            )
+            .await?;
         let result = proc_result.to::<(i32, String)>(&<(i32, String)>::tuple_desc_static(&[]))?;
         println!("result: {:?}", result);
         app.task_end(id)?;
@@ -133,10 +150,19 @@ mod tests {
         let param = ProcedureParam::from_tuple(0, tuple, &desc)?;
         let app_name = "app1".to_string();
         let app = service
-            .app(app_name.clone()).await
+            .app(app_name.clone())
+            .await
             .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app named {}", app_name)))?;
         let id = app.task_create().await?;
-        let proc_result = app.invoke_async(id, &"mod_0".to_string(), &"proc_sys_call".to_string(), param).await?;
+        let proc_result = app
+            .invoke_async(
+                id,
+                &"mod_0".to_string(),
+                &"proc_sys_call".to_string(),
+                param,
+                None,
+            )
+            .await?;
         let result = proc_result.to::<(i32, String)>(&<(i32, String)>::tuple_desc_static(&[]))?;
         println!("result: {:?}", result);
         app.task_end(id)?;

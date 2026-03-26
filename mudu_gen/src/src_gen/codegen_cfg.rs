@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodegenCfg {
-    pub impl_inner_func:bool,
+    pub impl_inner_func: bool,
     pub impl_serialize: bool,
     pub impl_default: bool,
     pub impl_display: bool,
@@ -31,4 +30,3 @@ impl Default for CodegenCfg {
         }
     }
 }
-

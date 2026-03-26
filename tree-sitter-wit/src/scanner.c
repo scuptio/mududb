@@ -1,6 +1,7 @@
 #include "tree_sitter/alloc.h"
 #include "tree_sitter/parser.h"
 
+#include <stddef.h>
 #include <wctype.h>
 
 enum TokenType {
@@ -10,15 +11,24 @@ enum TokenType {
     LINE_DOC_CONTENT,
 };
 
-void *tree_sitter_wit_external_scanner_create(void) {}
+void *tree_sitter_wit_external_scanner_create(void) {
+    return NULL;
+}
 
-void tree_sitter_wit_external_scanner_destroy(void *payload) {}
+void tree_sitter_wit_external_scanner_destroy(void *payload) {
+    (void)payload;
+}
 
 unsigned tree_sitter_wit_external_scanner_serialize(void *payload, char *buffer) {
-    return 1;
+    (void)payload;
+    (void)buffer;
+    return 0;
 }
 
 void tree_sitter_wit_external_scanner_deserialize(void *payload, const char *buffer, unsigned length) {
+    (void)payload;
+    (void)buffer;
+    (void)length;
 }
 
 static inline void advance(TSLexer *lexer) { lexer->advance(lexer, false); }
@@ -170,6 +180,7 @@ static inline bool process_block_comment(TSLexer *lexer, const bool *valid_symbo
 
 
 bool tree_sitter_wit_external_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
+    (void)payload;
     // The documentation states that if the lexical analysis fails for some reason
     // they will mark every state as valid and pass it to the external scanner
     // However, we can't do anything to help them recover in that case so we
@@ -205,4 +216,3 @@ bool tree_sitter_wit_external_scanner_scan(void *payload, TSLexer *lexer, const 
 
     return false;
 }
-

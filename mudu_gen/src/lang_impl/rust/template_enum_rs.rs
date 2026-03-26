@@ -8,12 +8,12 @@ use mudu_binding::universal::uni_def::UniEnumDef;
 #[derive(Template)]
 #[template(path = "rust/enum.rs.jinja", escape = "none")]
 pub struct TemplateEnumRS {
-    pub cfg:CodegenCfg,
-    pub enum_def:EnumInfo,
+    pub cfg: CodegenCfg,
+    pub enum_def: EnumInfo,
 }
 
 impl TemplateEnumRS {
-    pub fn from(enum_def: UniEnumDef, cfg:CodegenCfg) -> RS<TemplateEnumRS> {
+    pub fn from(enum_def: UniEnumDef, cfg: CodegenCfg) -> RS<TemplateEnumRS> {
         Ok(Self {
             cfg,
             enum_def: EnumInfo::from(enum_def, LangKind::Rust)?,

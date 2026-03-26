@@ -1,11 +1,10 @@
 <!--
 quote_begin
-content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L105)"
+content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
-
 ```rust
-#[mudu_proc]
+/**mudu-proc**/
 pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
@@ -24,7 +23,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
-        sql_params!(&from_user_id),
+        sql_params!(&(from_user_id,)),
     )?;
 
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
@@ -88,5 +87,4 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     Ok(())
 }
 ```
-
 <!--quote_end-->

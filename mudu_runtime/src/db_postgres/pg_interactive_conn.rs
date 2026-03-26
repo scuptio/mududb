@@ -21,7 +21,9 @@ use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use std::sync::{Arc, Mutex};
 
 pub fn create_pg_interactive_conn(conn_str: &String, ddl_path: &String) -> RS<DBConn> {
-    Ok(DBConn::Sync(Arc::new(PGInteractive::new(conn_str, ddl_path)?)))
+    Ok(DBConn::Sync(Arc::new(PGInteractive::new(
+        conn_str, ddl_path,
+    )?)))
 }
 
 struct PGInteractive {

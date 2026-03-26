@@ -48,18 +48,18 @@ impl TupleFieldDesc {
         let binary_desc = TupleBinaryDesc::from(normalized_type_descs)?;
         Ok((binary_desc, index_mapping))
     }
-    
+
     pub fn serialize_to(&self) -> RS<Vec<u8>> {
         let vec = serde_utils::serialize_sized_to_vec(self)?;
         Ok(vec)
     }
-    
-    pub fn deserialize_from(slice:&[u8]) -> RS<Self> {
+
+    pub fn deserialize_from(slice: &[u8]) -> RS<Self> {
         let (d, _) = serde_utils::deserialize_sized_from::<Self>(slice)?;
         Ok(d)
     }
 
-    pub fn to_record_type(&self, name:String) -> RS<DatType> {
+    pub fn to_record_type(&self, name: String) -> RS<DatType> {
         let mut vec = Vec::with_capacity(self.fields.len());
         for d in self.fields.iter() {
             vec.push((d.name().to_string(), d.dat_type().clone()));

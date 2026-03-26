@@ -17,5 +17,4 @@ impl StmtCopyTo {
     }
 }
 
-
 impl StmtCopyTo {}

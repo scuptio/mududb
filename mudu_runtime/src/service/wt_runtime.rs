@@ -1,25 +1,28 @@
 use crate::service::mudu_package::MuduPackage;
 use crate::service::package_module::PackageModule;
 use crate::service::runtime_opt::RuntimeOpt;
+use crate::service::wt_runtime_component::WTRuntimeComponent;
 use crate::service::wt_runtime_p1::WTRuntimeP1;
-use crate::service::wt_runtime_p2::WTRuntimeP2;
 use mudu::common::result::RS;
 
-
 pub struct WTRuntime {
-    inner:WTRuntimeKind
+    inner: WTRuntimeKind,
 }
 
 impl WTRuntime {
     pub fn build_p1() -> RS<Self> {
-        Ok(Self {inner: WTRuntimeKind::build_p1()?})
+        Ok(Self {
+            inner: WTRuntimeKind::build_p1()?,
+        })
     }
 
-    pub fn build_p2(runtime_opt: &RuntimeOpt) -> RS<Self> {
-        Ok(Self { inner: WTRuntimeKind::build_p2(runtime_opt)? })
+    pub fn build_component(runtime_opt: &RuntimeOpt) -> RS<Self> {
+        Ok(Self {
+            inner: WTRuntimeKind::build_component(runtime_opt)?,
+        })
     }
 
-    pub fn instantiate(& mut self) -> RS<()> {
+    pub fn instantiate(&mut self) -> RS<()> {
         self.inner.instantiate()
     }
 
@@ -30,30 +33,29 @@ impl WTRuntime {
 
 enum WTRuntimeKind {
     P1(WTRuntimeP1),
-    P2(WTRuntimeP2),
+    Component(WTRuntimeComponent),
 }
-
 
 impl WTRuntimeKind {
     fn build_p1() -> RS<Self> {
         Ok(Self::P1(WTRuntimeP1::build()?))
     }
 
-    fn build_p2(runtime_opt: &RuntimeOpt) -> RS<Self> {
-        Ok(Self::P2(WTRuntimeP2::build(runtime_opt)?))
+    fn build_component(runtime_opt: &RuntimeOpt) -> RS<Self> {
+        Ok(Self::Component(WTRuntimeComponent::build(runtime_opt)?))
     }
 
-    fn instantiate(& mut self) -> RS<()> {
+    fn instantiate(&mut self) -> RS<()> {
         match self {
-            WTRuntimeKind::P1(r) => { r.instantiate() }
-            WTRuntimeKind::P2(r) => { r.instantiate() }
+            WTRuntimeKind::P1(r) => r.instantiate(),
+            WTRuntimeKind::Component(r) => r.instantiate(),
         }
     }
 
     fn compile_modules(&self, package: &MuduPackage) -> RS<Vec<(String, PackageModule)>> {
         match self {
-            WTRuntimeKind::P1(r) => { r.compile_modules(package) }
-            WTRuntimeKind::P2(r) => { r.compile_modules(package) }
+            WTRuntimeKind::P1(r) => r.compile_modules(package),
+            WTRuntimeKind::Component(r) => r.compile_modules(package),
         }
     }
 }

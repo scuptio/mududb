@@ -23,9 +23,7 @@ impl<T> UniqueInner<T> {
         };
         let mut ret = None;
         std::mem::swap(&mut ret, &mut guard);
-        ret.unwrap_or_else(|| {
-            panic!("error, inner into can be invoked only once")
-        })
+        ret.unwrap_or_else(|| panic!("error, inner into can be invoked only once"))
     }
 
     pub fn map_inner<R, M: Fn(&T) -> R>(&self, map: M) -> Option<R> {

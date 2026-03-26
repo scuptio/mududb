@@ -1,13 +1,12 @@
-use std::hash::{Hash, Hasher};
-use serde::{Deserialize, Serialize};
 use crate::storage::page_id;
+use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PageIndex {
-    pub file_id:u64,
-    pub page_id:u64,
+    pub file_id: u64,
+    pub page_id: u64,
 }
-
 
 impl PageIndex {
     pub fn invalid_index() -> Self {
@@ -17,11 +16,10 @@ impl PageIndex {
         }
     }
 
-    pub fn new(file_id:u64, page_id:u64) -> PageIndex {
-        Self {file_id,page_id}
+    pub fn new(file_id: u64, page_id: u64) -> PageIndex {
+        Self { file_id, page_id }
     }
 }
-
 
 impl PartialEq<Self> for PageIndex {
     fn eq(&self, other: &Self) -> bool {
@@ -29,9 +27,7 @@ impl PartialEq<Self> for PageIndex {
     }
 }
 
-impl Eq for PageIndex {
-
-}
+impl Eq for PageIndex {}
 
 impl Hash for PageIndex {
     fn hash<H: Hasher>(&self, state: &mut H) {

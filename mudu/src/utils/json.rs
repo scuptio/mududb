@@ -4,8 +4,8 @@ use crate::m_error;
 use std::fs;
 use std::path::Path;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub type JsonNumber = serde_json::Number;
 pub type JsonValue = serde_json::Value;
@@ -22,16 +22,11 @@ macro_rules! json_value {
 
 pub fn to_json_str<S: Serialize>(value: &S) -> RS<String> {
     serde_json::to_string_pretty(value)
-        .map_err(
-            |e| m_error!(EC::EncodeErr, "error when encoding json", e)
-        )
+        .map_err(|e| m_error!(EC::EncodeErr, "error when encoding json", e))
 }
 
 pub fn from_json_str<D: DeserializeOwned>(s: &str) -> RS<D> {
-    serde_json::from_str(s)
-        .map_err(|e|
-            m_error!(EC::DecodeErr, "error when decoding json", e)
-        )
+    serde_json::from_str(s).map_err(|e| m_error!(EC::DecodeErr, "error when decoding json", e))
 }
 
 pub fn to_json_value<S: Serialize>(value: &S) -> RS<JsonValue> {

@@ -1,6 +1,7 @@
+use mudu_kernel::server_ur::worker_local::WorkerLocalRef;
 use std::sync::atomic::AtomicU32;
-use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::p1::WasiP1Ctx;
 
 pub struct ContextData {
     auto_increase: AtomicU32,
@@ -9,16 +10,17 @@ pub struct ContextData {
 
 pub struct WasiContext {
     data: ContextData,
+    worker_local: Option<WorkerLocalRef>,
     // .. other custom state here ..
     wasi: WasiP1Ctx,
 }
 
-pub fn build_wasi_p1_context() -> WasiContext {
+pub fn build_wasi_p1_context(worker_local: Option<WorkerLocalRef>) -> WasiContext {
     let wasi = WasiCtxBuilder::new()
         .inherit_stdio()
         .inherit_args()
         .build_p1();
-    let context = WasiContext::new(wasi);
+    let context = WasiContext::new(wasi, worker_local);
     context
 }
 
@@ -50,9 +52,10 @@ impl ContextData {
 }
 
 impl WasiContext {
-    pub fn new(wasi: WasiP1Ctx) -> Self {
+    pub fn new(wasi: WasiP1Ctx, worker_local: Option<WorkerLocalRef>) -> Self {
         WasiContext {
             data: ContextData::new(),
+            worker_local,
             wasi,
         }
     }
@@ -67,5 +70,9 @@ impl WasiContext {
 
     pub fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
         &mut self.wasi
+    }
+
+    pub fn worker_local(&self) -> Option<&WorkerLocalRef> {
+        self.worker_local.as_ref()
     }
 }

@@ -100,7 +100,7 @@ impl SimpleQueryHandler for Session {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let query = self.parser.parse_sql::<C>(client, query, &[]).await?;
         let query_types = query.stmts();
@@ -129,7 +129,7 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -150,7 +150,7 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<DescribePortalResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -165,9 +165,9 @@ impl ExtendedQueryHandler for Session {
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement=Self::Statement>,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let root_stmt = portal.statement.statement.clone();
         let r = do_query(todo!(), self).await?;
@@ -183,11 +183,10 @@ impl SsnCtx for Session {
     fn begin_tx(&self, xid: XID) -> RS<()> {
         let mut x = self.xid.borrow_mut();
         match *x {
-            Some(id) => Err(
-                m_error!(ER::ExistingSuchElement, format!(
-                "existing transaction in current session {}",
-                id
-            ))),
+            Some(id) => Err(m_error!(
+                ER::ExistingSuchElement,
+                format!("existing transaction in current session {}", id)
+            )),
             None => {
                 *x = Some(xid);
                 Ok(())

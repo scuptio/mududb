@@ -1,0 +1,8 @@
+use crate:game-data:coordinate/coordinate;
+
+interface game-data {
+    record polygon {
+        shell: list<coordinate>,
+        holes: list<list<coordinate>>
+    }
+}

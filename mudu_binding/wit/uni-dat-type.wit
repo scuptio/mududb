@@ -11,7 +11,6 @@ variant uni-dat-type {
     tuple(list<uni-dat-type>),
     result(uni-result-type),
     box(box<uni-dat-type),
-    identifier(string),
-    binary
+    identifier(string)
 }
 }

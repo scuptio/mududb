@@ -29,17 +29,13 @@ impl AcceptHandleTask {
         self.wait_recovery.wait().await;
         let listener = TcpListener::bind(self.bind_addr)
             .await
-            .map_err(|_e|
-                m_error!(ER::NetErr, "bind address error")
-            )?;
+            .map_err(|_e| m_error!(ER::NetErr, "bind address error"))?;
         info!("server listen on address {}", self.bind_addr);
         let mut session_id: u64 = 0;
 
         loop {
             let r = listener.accept().await;
-            let incoming = r
-                .map_err(
-                    |_e| m_error!(ER::NetErr, "network accept error", _e))?;
+            let incoming = r.map_err(|_e| m_error!(ER::NetErr, "client accept error", _e))?;
             info!("accept connection {}", incoming.1);
 
             let param = IncomingSession::new(incoming.1, incoming.0);
@@ -71,7 +67,7 @@ impl AsyncLocalTask for AcceptHandleTask {
         self.name.clone()
     }
 
-    fn async_run_local(self) -> impl Future<Output=RS<()>> {
+    fn async_run_local(self) -> impl Future<Output = RS<()>> {
         self.server_accept()
     }
 }

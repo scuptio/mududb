@@ -9,12 +9,12 @@ use mudu_binding::universal::uni_def::UniEnumDef;
 #[template(path = "csharp/enum.cs.jinja", escape = "none")]
 pub struct TemplateEnumCS {
     #[allow(unused)]
-    pub cfg:CodegenCfg,
-    pub enum_def:EnumInfo,
+    pub cfg: CodegenCfg,
+    pub enum_def: EnumInfo,
 }
 
 impl TemplateEnumCS {
-    pub fn from(enum_def: UniEnumDef, cfg:CodegenCfg) -> RS<TemplateEnumCS> {
+    pub fn from(enum_def: UniEnumDef, cfg: CodegenCfg) -> RS<TemplateEnumCS> {
         Ok(Self {
             cfg,
             enum_def: EnumInfo::from(enum_def, LangKind::CSharp)?,

@@ -24,8 +24,8 @@ pub async fn f_sync_io_uring(
         |u| lsn_syncer.ready(u),
         IOUSetting::default(),
     )
-        .await
-        .map_err(|e| m_error!(EC::IOErr, "io_uring event loop", e))?;
+    .await
+    .map_err(|e| m_error!(EC::IOErr, "io_uring event loop", e))?;
 
     Ok(())
 }

@@ -11,7 +11,7 @@ use crate::dtp_object::DTPRecord;
 use crate::type_error::{TyEC, TyErr};
 use mudu::utils::bin_size::BinSize;
 use mudu::utils::bin_slot::BinSlot;
-use mudu::utils::json::{from_json_str, JsonMap, JsonValue};
+use mudu::utils::json::{JsonMap, JsonValue, from_json_str};
 use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
 
 pub fn fn_object_in(s: &str, dat_type: &DatType) -> Result<DatValue, TyErr> {

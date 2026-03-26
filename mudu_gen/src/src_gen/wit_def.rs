@@ -1,9 +1,10 @@
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
+use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
 
 #[derive(Debug, Clone)]
 pub struct WitDef {
-    pub interface:Vec<String>,
-    pub use_path:Vec<Vec<String>>,
+    pub interface: Vec<String>,
+    pub use_path: Vec<Vec<String>>,
+    pub tables: Vec<UniTableDef>,
     pub records: Vec<UniRecordDef>,
     pub variants: Vec<UniVariantDef>,
     pub enums: Vec<UniEnumDef>,
@@ -14,6 +15,7 @@ impl WitDef {
         Self {
             interface: vec![],
             use_path: vec![],
+            tables: vec![],
             records: vec![],
             variants: vec![],
             enums: vec![],

@@ -2,7 +2,6 @@ use crate::tuple::datum_desc::DatumDesc;
 use mudu_type::dat_type::DatType;
 use mudu_type::datum::Datum;
 
-
 pub trait AttrValue<T: Datum>: private::Sealed<T> + Sized {
     fn attr_dat_type() -> DatType {
         T::dat_type().clone()

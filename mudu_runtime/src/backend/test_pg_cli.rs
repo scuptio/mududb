@@ -33,9 +33,18 @@ pub mod test {
         }
     }
 
-    pub fn run_pg_client(pg_host: String, database:String, user: String, password: String, vec_sql: Vec<TestSQL>) {
+    pub fn run_pg_client(
+        pg_host: String,
+        database: String,
+        user: String,
+        password: String,
+        vec_sql: Vec<TestSQL>,
+    ) {
         let mut client = loop {
-            let connect_str = format!("host={} dbname={} user={} password={}", pg_host, database, user, password);
+            let connect_str = format!(
+                "host={} dbname={} user={} password={}",
+                pg_host, database, user, password
+            );
             let r = Client::connect(&connect_str, NoTls);
             match r {
                 Ok(c) => break c,

@@ -48,7 +48,7 @@ mod test {
                        PRIMARY KEY (C1, C2)
                 );
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(0),
             ),
             TestSQL::from_command(
@@ -57,7 +57,7 @@ mod test {
                     VALUES (1,1,'aaabbbccc1',
                         1,'1323456',1);
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
             TestSQL::from_command(
@@ -66,14 +66,14 @@ mod test {
                     VALUES ('aaabbbccc2',
                         2,'13234562',2, 2, 2);
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
             TestSQL::from_command(
                 r#"
                 SELECT C4, C1, C2, C3, C2, C5 FROM T1 WHERE C1 = 1 AND C2 = 1;
                 "#
-                    .to_string(),
+                .to_string(),
                 Ok(1),
             ),
         ];

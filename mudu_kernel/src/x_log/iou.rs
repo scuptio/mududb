@@ -88,13 +88,13 @@ async fn iou_event_loop_handle<
         &on_completion,
         &setting,
     )
-        .await
+    .await
 }
 
 struct IoWrite {
     file_index: u32,
     buf_index: u32,
-    data_size: u32,
+    submit_size: u32,
     file_offset: u64,
 }
 
@@ -169,13 +169,17 @@ fn write_to_iovec_one<U: Clone + Debug + Send + 'static>(
     let write = IoWrite {
         file_index: file_offset.file_index,
         buf_index: iovec_index as u32,
-        data_size: buf_offset as u32,
+        // O_DIRECT writes must use an aligned length. The original payload
+        // length is still preserved by the caller's record framing.
+        submit_size: to_write_len as u32,
         file_offset: file_offset.offset,
     };
     let buf_num = iovec_buf.buf.len();
     iovec_buf.next_buf_index = (iovec_index + 1) % buf_num;
     iovec_buf.available_buf -= 1;
-    file_offset.offset += buf_offset as u64;
+    // Keep the next write offset aligned as well, otherwise subsequent
+    // io_uring fixed-buffer writes can fail with EINVAL.
+    file_offset.offset += to_write_len;
     io_write.push(write);
 
     write_index
@@ -373,7 +377,7 @@ fn iou_submit<U: Clone + Debug + Send + 'static>(
                 cqe,
                 ring.fds[op.file_index as usize],
                 buf_iovec.vec.iov_base as _,
-                op.data_size as _,
+                op.submit_size as _,
                 op.file_offset as _,
                 op.buf_index as _,
             )
@@ -413,6 +417,14 @@ fn iou_complete<U: Clone + Debug + Send + 'static, C: Fn(Vec<U>)>(
             break;
         } else if r < 0 {
             return Err(iou_error!("io_uring_peek_cqe error {}", r));
+        }
+        let completion_result = unsafe { (*cqe_ptr).res };
+        if completion_result < 0 {
+            unsafe { rliburing::io_uring_cqe_seen(&mut ring.ring, cqe_ptr) };
+            return Err(iou_error!(
+                "io_uring write completion error {}",
+                completion_result
+            ));
         }
         let buf_index = unsafe { (*cqe_ptr).user_data } as usize;
         io_vec_buf.available_buf += 1;
@@ -470,9 +482,9 @@ async fn _io_uring_event_loop<
         for _i in 0..setting.buffer_count {
             buf_iovec.push(IoVec {
                 vec: iovec {
-                iov_base: ptr.add((_i * buf_size) as usize),
-                iov_len: buf_size as usize,
-                }
+                    iov_base: ptr.add((_i * buf_size) as usize),
+                    iov_len: buf_size as usize,
+                },
             });
         }
         ptr
@@ -496,6 +508,6 @@ async fn _io_uring_event_loop<
         on_completion,
         setting,
     )
-        .await?;
+    .await?;
     Ok(())
 }

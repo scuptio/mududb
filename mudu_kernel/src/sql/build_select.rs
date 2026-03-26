@@ -16,7 +16,10 @@ pub fn visit_select_term(
     let mut type_desc_vec = vec![];
     for (i, term) in select_term.iter().enumerate() {
         let oid = table_desc.name2oid().get(term.field().name()).map_or(
-            Err(m_error!(ER::NoSuchElement, format!("{}", term.field().name()))),
+            Err(m_error!(
+                ER::NoSuchElement,
+                format!("{}", term.field().name())
+            )),
             |id| Ok(*id),
         )?;
         ids.push(oid);

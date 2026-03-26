@@ -21,7 +21,11 @@ impl RuntimeImpl {
             let path = PathBuf::from(ps);
             if !path.exists() {
                 std::fs::create_dir_all(&path).map_err(|e| {
-                    m_error!(EC::IOErr, format!("error creating database directory: {}", ps), e)
+                    m_error!(
+                        EC::IOErr,
+                        format!("error creating database directory: {}", ps),
+                        e
+                    )
                 })?
             } else {
                 if !path.is_dir() {
@@ -60,17 +64,15 @@ unsafe impl Send for RuntimeImpl {}
 pub async fn create_runtime_service(
     package_path: &String,
     db_path: &String,
-    opt_initialized_notifier:Option<Notifier>,
-    rt_opt: RuntimeOpt
+    opt_initialized_notifier: Option<Notifier>,
+    rt_opt: RuntimeOpt,
 ) -> RS<Arc<dyn Runtime>> {
     let runtime = RuntimeImpl::new(package_path, db_path, rt_opt).await?;
     match opt_initialized_notifier {
         Some(notifier) => {
             notifier.notify_all();
         }
-        None => {
-
-        }
+        None => {}
     }
     Ok(Arc::new(runtime))
 }

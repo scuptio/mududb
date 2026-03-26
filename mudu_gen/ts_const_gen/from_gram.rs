@@ -6,12 +6,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tree_sitter::Language;
 
-
-pub fn gen_rs<
-    O: AsRef<Path>,
-    G: AsRef<Path>,
-    M: AsRef<Path>,
->(output_path: O, grammar_path: G, md5_file:M, language: Language) {
+pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>, M: AsRef<Path>>(
+    output_path: O,
+    grammar_path: G,
+    md5_file: M,
+    language: Language,
+) {
     if !output_path.as_ref().exists() {
         fs::create_dir_all(output_path.as_ref()).unwrap();
     }
@@ -39,8 +39,7 @@ pub fn gen_rs<
     write_grammar_md5(&new_md5, &md5_file);
 }
 
-
-fn grammar_file_changed<P:AsRef<Path>>(s: &String, md5_file:P) -> Option<String> {
+fn grammar_file_changed<P: AsRef<Path>>(s: &String, md5_file: P) -> Option<String> {
     let mut hasher = Md5::new();
     hasher.update(s);
     let md5_hash = hasher.finalize();
@@ -54,10 +53,9 @@ fn grammar_file_changed<P:AsRef<Path>>(s: &String, md5_file:P) -> Option<String>
     }
 }
 
-fn write_grammar_md5<P:AsRef<Path>>(md5: &String, md5_file_path:P) {
+fn write_grammar_md5<P: AsRef<Path>>(md5: &String, md5_file_path: P) {
     fs::write(md5_file_path, md5).expect("Failed to write md5 file");
 }
-
 
 const COMMENTS: &'static str = include_str!("comments.txt");
 
@@ -83,9 +81,6 @@ struct Constant {
     seq_index: HashMap<String, Vec<usize>>,
 }
 
-
-
-
 fn format_name(names: &Vec<String>) -> String {
     let mut name_ret = String::new();
     for (i, name) in names.iter().enumerate() {
@@ -100,7 +95,12 @@ fn format_name(names: &Vec<String>) -> String {
     name_ret
 }
 
-fn visit_a_rule(language_name:&String, rule_content: &Value, names: &mut Vec<String>, constant: &mut Constant) {
+fn visit_a_rule(
+    language_name: &String,
+    rule_content: &Value,
+    names: &mut Vec<String>,
+    constant: &mut Constant,
+) {
     let map = rule_content.as_object().expect("as object");
     let value_type = map.get(TYPE).expect("must have type");
     let type_name = value_type.as_str().expect("type must be string");
@@ -172,7 +172,7 @@ fn visit_a_rule(language_name:&String, rule_content: &Value, names: &mut Vec<Str
     names.pop();
 }
 
-fn visit_rule(language_name:String, json: Value, constant: &mut Constant) {
+fn visit_rule(language_name: String, json: Value, constant: &mut Constant) {
     let map = json.as_object().expect("json must be object");
     let value_rules = map.get(RULES).expect("rules missing");
     let map_rules = value_rules
@@ -185,7 +185,7 @@ fn visit_rule(language_name:String, json: Value, constant: &mut Constant) {
     }
 }
 
-fn output_rust_file<P: AsRef<Path>>(language:&Language, path: P, constant: &Constant) {
+fn output_rust_file<P: AsRef<Path>>(language: &Language, path: P, constant: &Constant) {
     let mut node_kind_id: Vec<(String, u16)> = constant
         .node_name
         .iter()

@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(any(test, feature = "test"))]
 use test_utils::_arb_limit;
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SchemaTable {
     oid: OID,

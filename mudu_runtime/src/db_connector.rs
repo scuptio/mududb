@@ -1,4 +1,5 @@
 use crate::db_libsql::ls_conn::{create_ls_conn, db_conn_get_libsql_connection};
+use crate::db_libsql_async::libsql_async_conn::create_libsql_async_conn;
 use crate::db_postgres::pg_interactive_conn::create_pg_interactive_conn;
 use crate::db_turso::turso_conn::create_turso_conn;
 use libsql::Connection;
@@ -9,7 +10,6 @@ use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::sql::DBConn;
 use std::str::FromStr;
 use strum_macros::EnumString;
-use crate::db_libsql_async::libsql_async_conn::create_libsql_async_conn;
 
 pub struct DBConnector {}
 
@@ -55,10 +55,8 @@ impl DBConnector {
         let app_name = opt_app.unwrap_or(String::default());
         let params = merge_to_string(passing_param);
         let db_path = match opt_db_path {
-            Some(db_path) => { db_path }
-            None => {
-                return Err(m_error!(EC::DBInternalError, "no db path specified"))
-            }
+            Some(db_path) => db_path,
+            None => return Err(m_error!(EC::DBInternalError, "no db path specified")),
         };
         match opt_db_type {
             Some(db_type) => match db_type {
@@ -81,7 +79,7 @@ fn parse_key_value(s: &str) -> RS<(String, String)> {
     if parts.len() != 2 {
         return Err(m_error!(
             EC::ParseErr,
-            format!("Invalid key-value pair: '{}'", s)
+            format!("Invalid pull-push pair: '{}'", s)
         ));
     }
 

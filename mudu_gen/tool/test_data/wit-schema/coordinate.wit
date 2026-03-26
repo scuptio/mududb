@@ -1,0 +1,7 @@
+
+interface game-data {
+    record coordinate {
+        x: f64,
+        y: f64
+    }
+}

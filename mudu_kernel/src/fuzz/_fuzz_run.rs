@@ -9,7 +9,6 @@ type FuzzRun = fn(&[u8]);
 
 lazy_static! {
     static ref _FUZZ_RUN: Vec<(&'static str, FuzzRun)> = vec![
-
         (
             "_de_en_x_l_up_tuple",
             crate::contract::xl_d_up_tuple::_fuzz::_de_en_x_l_up_tuple,

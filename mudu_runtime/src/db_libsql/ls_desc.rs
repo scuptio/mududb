@@ -31,10 +31,7 @@ pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<Datum
     for i in 0..column_count {
         let column = &columns[i];
         let id = sqlite_decl_type_to_id(column.decl_type().unwrap())?;
-        let desc = DatumDesc::new(
-            column.name().to_string(),
-            DatType::default_for(id),
-        );
+        let desc = DatumDesc::new(column.name().to_string(), DatType::default_for(id));
 
         schema.push(desc);
     }

@@ -12,7 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-
 pub struct RuntimeSimple {
     rt_opt: RuntimeOpt,
     db_path: String,
@@ -21,10 +20,7 @@ pub struct RuntimeSimple {
     apps: SCCHashMap<String, AppInstImpl>,
 }
 
-async fn load_package_files<P1, F>(
-    package_dir_path: P1,
-    handle_package_file: F,
-) -> RS<()>
+async fn load_package_files<P1, F>(package_dir_path: P1, handle_package_file: F) -> RS<()>
 where
     P1: AsRef<Path>,
     F: AsyncFn(String) -> RS<()>,
@@ -40,9 +36,13 @@ where
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-                    let path_str = path.as_path().to_str().ok_or_else(|| {
-                        m_error!(EC::IOErr, format!("path {:?} to str error", path))
-                    })?.to_string();
+                    let path_str = path
+                        .as_path()
+                        .to_str()
+                        .ok_or_else(|| {
+                            m_error!(EC::IOErr, format!("path {:?} to str error", path))
+                        })?
+                        .to_string();
                     handle_package_file(path_str).await?;
                 }
             }
@@ -86,9 +86,13 @@ fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
     }
 }
 impl RuntimeSimple {
-    pub async fn new(package_path: &String, db_path: &String, rt_opt: RuntimeOpt) -> RS<RuntimeSimple> {
-        let wt_runtime = if rt_opt.enable_p2 {
-            WTRuntime::build_p2(&rt_opt)?
+    pub async fn new(
+        package_path: &String,
+        db_path: &String,
+        rt_opt: RuntimeOpt,
+    ) -> RS<RuntimeSimple> {
+        let wt_runtime = if rt_opt.uses_component_model() {
+            WTRuntime::build_component(&rt_opt)?
         } else {
             WTRuntime::build_p1()?
         };
@@ -97,7 +101,7 @@ impl RuntimeSimple {
             package_path: package_path.clone(),
             db_path: db_path.clone(),
             wt_runtime,
-            apps: Default::default()
+            apps: Default::default(),
         })
     }
 
@@ -126,17 +130,22 @@ impl RuntimeSimple {
         load_package_files(&self.package_path, async |path| {
             self.init_mpk(path).await?;
             Ok(())
-        }).await?;
+        })
+        .await?;
         Ok(())
     }
 
     async fn init_mpk<P: AsRef<Path>>(&self, path: P) -> RS<String> {
         let app_package = load_package_from_file(path.as_ref())?;
         let modules = self.wt_runtime.compile_modules(&app_package)?;
-        let app_instance =
-            AppInstImpl::build(
-                &self.db_path, &app_package, modules,
-                self.rt_opt.enable_p2, self.rt_opt.enable_async).await?;
+        let app_instance = AppInstImpl::build(
+            &self.db_path,
+            &app_package,
+            modules,
+            self.rt_opt.target,
+            self.rt_opt.enable_async,
+        )
+        .await?;
         let mpk_name = app_instance.name().clone();
         let _ = self
             .apps
@@ -175,4 +184,3 @@ impl RuntimeSimple {
         Ok(())
     }
 }
-

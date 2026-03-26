@@ -23,7 +23,7 @@ pub async fn run_query_stmt(
     ctx: &dyn SsnCtx,
 ) -> RS<(
     Arc<Vec<FieldInfo>>,
-    impl Stream<Item=PgWireResult<DataRow>>,
+    impl Stream<Item = PgWireResult<DataRow>>,
 )> {
     let xid = get_tx(ctx).await?;
     let r = run_query_stmt_gut(stmt, ctx).await;
@@ -44,7 +44,7 @@ pub async fn run_query_stmt_gut(
     ctx: &dyn SsnCtx,
 ) -> RS<(
     Arc<Vec<FieldInfo>>,
-    impl Stream<Item=PgWireResult<DataRow>>,
+    impl Stream<Item = PgWireResult<DataRow>>,
 )> {
     let (exec, fields) = build_query_exec(stmt, ctx).await?;
     let stream = encode_pg_wire_row_data(&*exec, &fields).await?;
@@ -95,14 +95,15 @@ fn dt_id_to_pg_type(dt: TypeID) -> PGDataType {
 async fn encode_pg_wire_row_data(
     rows: &dyn QueryExec,
     fields: &Arc<Vec<FieldInfo>>,
-) -> RS<impl Stream<Item=PgWireResult<DataRow>>> {
+) -> RS<impl Stream<Item = PgWireResult<DataRow>>> {
     let mut results: Vec<PgWireResult<DataRow>> = Vec::new();
     let cols = fields.len();
     let mut has_err = false;
     let tuple_desc = rows.tuple_desc()?;
     while let Ok(Some(row)) = rows.next().await {
         if row.fields().len() != cols || tuple_desc.fields().len() != cols {
-            return Err(m_error!(ER::FatalError,
+            return Err(m_error!(
+                ER::FatalError,
                 "fatal error: non consistent column number"
             ));
         }
@@ -111,11 +112,8 @@ async fn encode_pg_wire_row_data(
             if let Some(datum) = row.get(idx) {
                 let field_desc = &tuple_desc.fields()[idx];
                 let dat_type_id = field_desc.dat_type_id();
-                let (internal, _) = dat_type_id.fn_recv()
-                    (&datum, field_desc.dat_type()).map_err(|e| {
-                    m_error!(ER::TypeBaseErr, "recv error", e)
-                })?;
-
+                let (internal, _) = dat_type_id.fn_recv()(&datum, field_desc.dat_type())
+                    .map_err(|e| m_error!(ER::TypeBaseErr, "recv error", e))?;
 
                 let r = match dat_type_id {
                     DatTypeID::I32 => encoder.encode_field(&internal.to_i32()),

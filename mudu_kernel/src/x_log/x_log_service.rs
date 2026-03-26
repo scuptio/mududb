@@ -38,9 +38,8 @@ impl XLogService {
         if !fs::exists(&cfg.x_log_path)
             .map_err(|e| m_error!(ER::IOErr, "XLogService::new, fs::exists error", e))?
         {
-            fs::create_dir_all(&cfg.x_log_path).map_err(|e| {
-                m_error!(ER::IOErr, "XLogService::new, fs::create_dir_all error", e)
-            })?
+            fs::create_dir_all(&cfg.x_log_path)
+                .map_err(|e| m_error!(ER::IOErr, "XLogService::new, fs::create_dir_all error", e))?
         }
         for _n in 0..cfg.x_log_channels {
             let (sender, receiver) = channel(10000);

@@ -5,8 +5,8 @@ edition = "2024"
 
 [features]
 default = ["transpile"]
-macro = ["sys_interface/wasip1", "sys_interface/wasip2"]
-transpile = ["sys_interface/wasip2", "sys_interface/async"]
+macro = ["sys_interface/wasip1", "sys_interface/component-model"]
+transpile = ["sys_interface/component-model", "sys_interface/async"]
 
 [lib]
 crate-type = ["cdylib"]
