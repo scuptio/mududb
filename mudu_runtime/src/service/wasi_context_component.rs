@@ -41,7 +41,8 @@ pub fn build_wasi_component_context(worker_local: Option<WorkerLocalRef>) -> Was
 pub mod sync_host {
     use super::WasiContextComponent;
     use crate::service::kernel_function_p2::{
-        host_close, host_command, host_fetch, host_get, host_open, host_put, host_query, host_range,
+        host_batch, host_close, host_command, host_fetch, host_get, host_open, host_put, host_query,
+        host_range,
     };
     use wasmtime::component::bindgen;
 
@@ -57,6 +58,10 @@ pub mod sync_host {
 
         fn command(&mut self, command_in: Vec<u8>) -> Vec<u8> {
             host_command(command_in)
+        }
+
+        fn batch(&mut self, batch_in: Vec<u8>) -> Vec<u8> {
+            host_batch(batch_in)
         }
 
         fn open(&mut self, open_in: Vec<u8>) -> Vec<u8> {
@@ -84,8 +89,8 @@ pub mod sync_host {
 pub mod async_host {
     use super::WasiContextComponent;
     use crate::service::kernel_function_p2_async::{
-        async_host_close, async_host_command, async_host_fetch, async_host_get, async_host_open,
-        async_host_put, async_host_query, async_host_range,
+        async_host_batch, async_host_close, async_host_command, async_host_fetch, async_host_get,
+        async_host_open, async_host_put, async_host_query, async_host_range,
     };
     use wasmtime::component::bindgen;
 
@@ -108,6 +113,10 @@ pub mod async_host {
 
         async fn command(&mut self, command_in: Vec<u8>) -> Vec<u8> {
             async_host_command(command_in).await
+        }
+
+        async fn batch(&mut self, batch_in: Vec<u8>) -> Vec<u8> {
+            async_host_batch(batch_in).await
         }
 
         async fn open(&mut self, open_in: Vec<u8>) -> Vec<u8> {

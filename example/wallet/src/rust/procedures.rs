@@ -7,7 +7,7 @@ use mudu_contract::database::attr_value::AttrValue;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_type::datum::DatumDyn;
 use std::time::{SystemTime, UNIX_EPOCH};
-use sys_interface::api::{mudu_command, mudu_query};
+use sys_interface::sync_api::{mudu_command, mudu_query};
 use uuid::Uuid;
 
 fn current_timestamp() -> i64 {
@@ -38,9 +38,10 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // Check whether the transfer-out account exists and has sufficient balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?;"),
         sql_params!(&(from_user_id,)),
-    )?;
+    )
+    ?;
 
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
         row
@@ -55,9 +56,10 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // Check the user account existing
     let to_wallet = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?;"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?;"),
         sql_params!(&(to_user_id)),
-    )?;
+    )
+    ?;
     let _to_wallet = if let Some(row) = to_wallet.next_record()? {
         row
     } else {
@@ -70,7 +72,8 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ? WHERE user_id = ?;"),
         sql_params!(&(amount, from_user_id)),
-    )?;
+    )
+    ?;
     if deduct_updated_rows != 1 {
         return Err(m_error!(MuduError, "transfer fund failed"));
     }
@@ -79,7 +82,8 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance + ? WHERE user_id = ?;"),
         sql_params!(&(amount, to_user_id)),
-    )?;
+    )
+    ?;
     if increase_updated_rows != 1 {
         return Err(m_error!(MuduError, "transfer fund failed"));
     }
@@ -96,7 +100,8 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
         "#
         ),
         sql_params!(&(id, from_user_id, to_user_id, amount)),
-    )?;
+    )
+    ?;
     if insert_rows != 1 {
         return Err(m_error!(MuduError, "transfer fund failed"));
     }
@@ -123,9 +128,10 @@ pub fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()
     // Create wallet with 0 balance
     let wallet_created = mudu_command(
         xid,
-        sql_stmt!(&"INSERT INTO wallets (user_id, balance) VALUES (?, ?)"),
-        sql_params!(&(user_id, 0)),
-    )?;
+        sql_stmt!(&"INSERT INTO wallets (user_id, balance, updated_at) VALUES (?, ?, ?)"),
+        sql_params!(&(user_id, 0, now)),
+    )
+    ?;
 
     if wallet_created != 1 {
         return Err(m_error!(MuduError, "Failed to create wallet"));
@@ -139,9 +145,10 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
         sql_params!(&(user_id,)),
-    )?;
+    )
+    ?;
 
     let wallet = wallet_rs
         .next_record()?
@@ -159,14 +166,16 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
         xid,
         sql_stmt!(&"DELETE FROM wallets WHERE user_id = ?"),
         sql_params!(&(user_id,)),
-    )?;
+    )
+    ?;
 
     // Delete user
     mudu_command(
         xid,
         sql_stmt!(&"DELETE FROM users WHERE user_id = ?"),
         sql_params!(&(user_id,)),
-    )?;
+    )
+    ?;
 
     Ok(())
 }
@@ -215,7 +224,8 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance + ?, updated_at = ? WHERE user_id = ?"),
         sql_params!(&(amount, now, user_id)),
-    )?;
+    )
+    ?;
 
     if updated != 1 {
         return Err(m_error!(MuduError, "User wallet not found"));
@@ -225,7 +235,7 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     mudu_command(
         xid,
         sql_stmt!(
-            &"INSERT INTO transactions (transaction_id, type, to_user_id, amount, created_at) VALUES (?, ?, ?, ?, ?)"
+            &"INSERT INTO transactions (trans_id, trans_type, to_user, amount, created_at) VALUES (?, ?, ?, ?, ?)"
         ),
         sql_params!(&(tx_id, "DEPOSIT".to_string(), user_id, amount, now)),
     )?;
@@ -242,9 +252,10 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
     // Check balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
         sql_params!(&(user_id,)),
-    )?;
+    )
+    ?;
 
     let wallet = wallet_rs
         .next_record()?
@@ -262,13 +273,14 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ?, updated_at = ? WHERE user_id = ?"),
         sql_params!(&(amount, now, user_id)),
-    )?;
+    )
+    ?;
 
     // Entity transaction
     mudu_command(
         xid,
         sql_stmt!(
-            &"INSERT INTO transactions (transaction_id, type, from_user_id, amount, created_at) VALUES (?, ?, ?, ?, ?)"
+            &"INSERT INTO transactions (trans_id, trans_type, from_user, amount, created_at) VALUES (?, ?, ?, ?, ?)"
         ),
         sql_params!(&(tx_id, "WITHDRAW".to_string(), user_id, amount, now)),
     )?;
@@ -289,9 +301,10 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     // Check sender balance
     let sender_wallet = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
         sql_params!(&(from_user_id,)),
-    )?
+    )
+    ?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Sender wallet not found"))?;
 
@@ -302,9 +315,10 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     // Check receiver exists
     let receiver_exists = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
         sql_params!(&(to_user_id.clone(),)),
-    )?
+    )
+    ?
     .next_record()?
     .is_some();
 
@@ -320,14 +334,16 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ?, updated_at = ? WHERE user_id = ?"),
         sql_params!(&(amount, now, from_user_id)),
-    )?;
+    )
+    ?;
 
     // Credit receiver
     mudu_command(
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance + ?, updated_at = ? WHERE user_id = ?"),
         sql_params!(&(amount, now, to_user_id)),
-    )?;
+    )
+    ?;
 
     // Entity transaction
     mudu_command(
@@ -350,6 +366,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
 
 /**mudu-proc**/
 pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<()> {
+    let _ = description;
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
     }
@@ -357,9 +374,10 @@ pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<
     // Check balance
     let wallet = mudu_query::<Wallets>(
         xid,
-        sql_stmt!(&"SELECT balance FROM wallets WHERE user_id = ?"),
+        sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
         sql_params!(&(user_id,)),
-    )?
+    )
+    ?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Wallet not found"))?;
 
@@ -375,22 +393,16 @@ pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<
         xid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ?, updated_at = ? WHERE user_id = ?"),
         sql_params!(&(amount, now, user_id)),
-    )?;
+    )
+    ?;
 
     // Entity transaction
     mudu_command(
         xid,
         sql_stmt!(
-            &"INSERT INTO transactions (transaction_id, type, from_user_id, amount, description, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+            &"INSERT INTO transactions (trans_id, trans_type, from_user, amount, created_at) VALUES (?, ?, ?, ?, ?)"
         ),
-        sql_params!(&(
-            tx_id,
-            "PURCHASE".to_string(),
-            user_id,
-            amount,
-            description,
-            now
-        )),
+        sql_params!(&(tx_id, "PURCHASE".to_string(), user_id, amount, now)),
     )?;
 
     Ok(())

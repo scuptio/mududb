@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct HttpApiCapabilities {
     pub enable_invoke: bool,
     pub enable_uninstall: bool,

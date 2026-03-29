@@ -13,8 +13,8 @@ mudu_type = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_binding = { workspace = true}
 wit-bindgen = { workspace = true }
-uuid = { version = "1.17.0", features = ["v4"] }
-lazy_static = "1.5.0"
+uuid = { workspace = true }
+lazy_static = { workspace = true }
 sys_interface = { workspace = true, features = ["async"] }
-chrono = "0.4.42"
-fallible-iterator = "0.3.0"
+chrono = { workspace = true }
+fallible-iterator = { workspace = true }

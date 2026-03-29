@@ -1,0 +1,1 @@
+-- No SQL initialization is required for the ycsb key/value benchmark.

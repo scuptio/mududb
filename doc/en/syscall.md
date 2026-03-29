@@ -6,6 +6,13 @@ Mudu procedures can call three groups of system APIs:
 - SQL APIs for relational CRUD operations
 - KV APIs for session-scoped key-value access
 
+The stable syscall entry points are:
+
+- `sys_interface::sync_api` for synchronous/native handwritten procedure code
+- `sys_interface::async_api` for async generated/component procedure code
+
+`sys_interface::api` is kept only as a compatibility re-export layer.
+
 ## Session Management Syscalls
 
 ### 1. `open`
@@ -16,17 +23,17 @@ Open a system session and return its `OID`.
 quote_begin
 content="[Open API](../lang.common/mudu_open.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Open API](../../sys_interface/src/api.rs#L91-L93)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_open() -> RS<OID> {
-    crate::inner_p1::inner_open()
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_open() -> RS<OID> {
+    /* ... */
 }
 ```
-<!--quote_end-->
 <!--quote_end-->
 
 ### 2. `close`
@@ -37,17 +44,17 @@ Close a system session.
 quote_begin
 content="[Close API](../lang.common/mudu_close.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Close API](../../sys_interface/src/api.rs#L122-L124)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_close(session_id: OID) -> RS<()> {
-    crate::inner_p1::inner_close(session_id)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_close(session_id: OID) -> RS<()> {
+    /* ... */
 }
 ```
-<!--quote_end-->
 <!--quote_end-->
 
 ### Parameters for Session Management
@@ -66,21 +73,25 @@ System session ID returned by `open`.
 quote_begin
 content="[Query API](../lang.common/mudu_query.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Query API](../../sys_interface/src/api.rs#L13-L19)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
-    crate::inner_p1::inner_query(oid, sql, params)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_query<R: Entity>(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<RecordSet<R>> {
+    /* ... */
 }
 ```
-<!--quote_end-->
 <!--quote_end-->
 
 `query` performs R2O (relation to object) mapping automatically, returning a result set of objects implementing the
@@ -94,17 +105,39 @@ pub fn mudu_query<R: Entity>(
 quote_begin
 content="[Command API](../lang.common/mudu_command.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Command API](../../sys_interface/src/api.rs#L60-L62)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
-    crate::inner_p1::inner_command(oid, sql, params)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+    /* ... */
 }
 ```
 <!--quote_end-->
+
+### 3. `batch`
+
+`batch` executes a batch SQL string through the batch syscall path. It currently targets libsql-backed runtime
+sessions and reuses the same serialized argument and return format as `command`.
+
+<!--
+quote_begin
+content="[Batch API](../lang.common/mudu_batch.md#L-L)"
+-->
+```rust
+// sync_api
+pub fn mudu_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+    /* ... */
+}
+```
 <!--quote_end-->
 
 ### Parameters for Both
@@ -119,7 +152,8 @@ SQL statement with `?` as parameter placeholders.
 
 #### params
 
-Parameter list.
+Parameter list. For `batch`, the current host implementation requires an empty parameter list because
+`libsql::execute_batch` executes raw SQL text.
 
 ## KV APIs
 
@@ -131,38 +165,38 @@ Read a value by key from the current system session.
 quote_begin
 content="[Get API](../lang.common/mudu_get.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Get API](../../sys_interface/src/api.rs#L153-L155)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
-    crate::inner_p1::inner_get(session_id, key)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+    /* ... */
 }
 ```
 <!--quote_end-->
-<!--quote_end-->
 
-### 2. `set`
+### 2. `put`
 
 Write a key-value pair into the current system session. The underlying syscall name is `mudu_put`.
 
 <!--
 quote_begin
-content="[Set API](../lang.common/mudu_set.md#L-L)"
--->
-<!--
-quote_begin
-content="[Set API](../../sys_interface/src/api.rs#L184-L186)"
-lang="rust"
+content="[Put API](../lang.common/mudu_put.md#L-L)"
 -->
 ```rust
+// sync_api
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
-    crate::inner_p1::inner_put(session_id, key, value)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
+    /* ... */
 }
 ```
-<!--quote_end-->
 <!--quote_end-->
 
 ### 3. `range`
@@ -173,21 +207,25 @@ Scan key-value pairs in the current system session within a key range.
 quote_begin
 content="[Range API](../lang.common/mudu_range.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Range API](../../sys_interface/src/api.rs#L215-L221)"
-lang="rust"
--->
 ```rust
+// sync_api
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],
     end_key: &[u8],
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
-    crate::inner_p1::inner_range(session_id, start_key, end_key)
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_range(
+    session_id: OID,
+    start_key: &[u8],
+    end_key: &[u8],
+) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
+    /* ... */
 }
 ```
-<!--quote_end-->
 <!--quote_end-->
 
 ### Parameters for KV APIs

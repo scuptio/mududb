@@ -9,8 +9,13 @@ use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 use turso::{Row, Rows};
+
+pub trait ResultSetLease: Send + Sync {
+    fn release(self: Box<Self>);
+}
 
 pub struct TursoResultSet {
     inner: Arc<ResultSetInner>,
@@ -19,11 +24,16 @@ pub struct TursoResultSet {
 pub struct ResultSetInner {
     row: Mutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
+    lease: StdMutex<Option<Box<dyn ResultSetLease>>>,
 }
 
 impl TursoResultSet {
-    pub fn new(rows: Rows, desc: Arc<TupleFieldDesc>) -> TursoResultSet {
-        let inner = ResultSetInner::new(rows, desc);
+    pub fn new(
+        rows: Rows,
+        desc: Arc<TupleFieldDesc>,
+        lease: Option<Box<dyn ResultSetLease>>,
+    ) -> TursoResultSet {
+        let inner = ResultSetInner::new(rows, desc, lease);
         Self {
             inner: Arc::new(inner),
         }
@@ -42,10 +52,15 @@ impl ResultSetAsync for TursoResultSet {
 }
 
 impl ResultSetInner {
-    fn new(row: Rows, tuple_desc: Arc<TupleFieldDesc>) -> ResultSetInner {
+    fn new(
+        row: Rows,
+        tuple_desc: Arc<TupleFieldDesc>,
+        lease: Option<Box<dyn ResultSetLease>>,
+    ) -> ResultSetInner {
         Self {
             row: Mutex::new(row),
             tuple_desc,
+            lease: StdMutex::new(lease),
         }
     }
 
@@ -60,7 +75,28 @@ impl ResultSetInner {
                 let items = turso_db_row_to_tuple_item(row, self.tuple_desc.fields())?;
                 Ok(Some(items))
             }
-            None => Ok(None),
+            None => {
+                self.release_lease();
+                Ok(None)
+            }
+        }
+    }
+
+    fn release_lease(&self) {
+        if let Ok(mut guard) = self.lease.lock() {
+            if let Some(lease) = guard.take() {
+                lease.release();
+            }
+        }
+    }
+}
+
+impl Drop for ResultSetInner {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.lease.lock() {
+            if let Some(lease) = guard.take() {
+                lease.release();
+            }
         }
     }
 }

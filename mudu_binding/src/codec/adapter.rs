@@ -1,7 +1,7 @@
 use mudu::common::id::OID;
 use mudu::error::ec::EC;
+use mudu::error::err::ErrorSource;
 use mudu::error::err::MError;
-use mudu::m_error;
 
 use crate::universal::uni_error::UniError;
 use crate::universal::uni_oid::UniOid;
@@ -18,12 +18,23 @@ pub fn error_to_mu(error: MError) -> UniError {
     UniError {
         err_code: error.ec().to_u32(),
         err_msg: error.message().to_string(),
+        err_src: error.err_src().to_json_str(),
+        err_loc: error.loc().to_string(),
     }
 }
 
 pub fn error_from_mu(error: UniError) -> MError {
     let error_code = EC::from_u32(error.err_code).unwrap_or(EC::InternalErr);
-    m_error!(error_code, error.err_msg.to_string())
+    let src = if error.err_src.is_empty() {
+        None
+    } else {
+        ErrorSource::from_json_str(&error.err_src).into_error_source()
+    };
+    if error.err_loc.is_empty() {
+        MError::new_with_ec_msg_opt_src(error_code, error.err_msg.to_string(), src)
+    } else {
+        MError::new(error_code, error.err_msg.to_string(), src, error.err_loc)
+    }
 }
 
 #[cfg(test)]

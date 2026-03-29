@@ -274,8 +274,11 @@ fn with_session_id(request: Value, session_id: u128) -> AppResult<Value> {
         .cloned()
         .ok_or_else(|| "request JSON must be an object".to_string())?;
     request.insert(
-        "session_id".to_string(),
-        Value::String(session_id.to_string()),
+        "oid".to_string(),
+        json!({
+            "h": (session_id >> 64) as u64,
+            "l": session_id as u64,
+        }),
     );
     Ok(Value::Object(request))
 }
@@ -510,7 +513,7 @@ mod tests {
     #[test]
     fn with_session_id_injects_string_value() {
         let request = with_session_id(json!({"key": "user-1"}), 99).unwrap();
-        assert_eq!(request["session_id"], json!("99"));
+        assert_eq!(request["oid"], json!({"h": 0, "l": 99}));
         assert_eq!(request["key"], json!("user-1"));
     }
 

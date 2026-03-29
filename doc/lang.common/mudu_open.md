@@ -1,11 +1,17 @@
 <!--
 quote_begin
-content="[Open API](../../sys_interface/src/api.rs#L91-L93)"
+content="[Open API](../../sys_interface/src/sync_api.rs#L1)"
 lang="rust"
 -->
 ```rust
+// sync_api
 pub fn mudu_open() -> RS<OID> {
-    crate::inner_p1::inner_open()
+    /* ... */
+}
+
+// async_api
+pub async fn mudu_open() -> RS<OID> {
+    /* ... */
 }
 ```
 <!--quote_end-->

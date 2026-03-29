@@ -14,14 +14,14 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::{
-    ProcedureInvokeResponse, encode_error_response, encode_procedure_invoke_response,
+    encode_error_response, encode_procedure_invoke_response, ProcedureInvokeResponse,
 };
-use mudu_contract::protocol::{SessionCreateResponse, encode_session_create_response};
+use mudu_contract::protocol::{encode_session_create_response, SessionCreateResponse};
 use std::collections::{HashMap, VecDeque};
 use std::fs::OpenOptions;
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
@@ -104,7 +104,7 @@ impl WorkerRingLoop {
     ) -> RS<Self> {
         let mut ring: rliburing::io_uring = unsafe { std::mem::zeroed() };
         let mut param: rliburing::io_uring_params = unsafe { std::mem::zeroed() };
-        let worker_id = worker.worker_id();
+        let worker_id = worker.worker_index();
         let rc = unsafe { rliburing::io_uring_queue_init_params(1024, &mut ring, &mut param) };
         if rc != 0 {
             return Err(m_error!(
@@ -336,7 +336,7 @@ impl WorkerRingLoop {
                     server_iouring::set_connection_options(conn_fd)?;
                     let conn_id = self.conn_id_alloc.fetch_add(1, Ordering::Relaxed);
                     let target_worker = self.worker.route_connection(conn_id, remote_addr);
-                    if target_worker == self.worker.worker_id() {
+                    if target_worker == self.worker.worker_index() {
                         self.register_connection(conn_id, conn_fd, remote_addr)?;
                     } else {
                         self.dispatch_mailbox_message(

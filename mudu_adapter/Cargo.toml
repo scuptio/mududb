@@ -1,0 +1,28 @@
+[package]
+name = "mudu_adapter"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+debug_trace = ["dep:async-backtrace", "mudu_utils/debug_trace"]
+
+[dependencies]
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_cli = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+rusqlite = { workspace = true, features = ["column_decltype"] }
+postgres = { workspace = true }
+tokio-postgres = { workspace = true }
+mysql = { workspace = true }
+mysql_async = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmpv = { workspace = true }
+rmp-serde = { workspace = true }
+tokio = { workspace = true }
+lazy_static = { workspace = true }
+async-backtrace = { workspace = true, optional = true }

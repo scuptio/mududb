@@ -1,6 +1,7 @@
 use mudu::common::endian::{read_u128, write_u128};
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::result_batch::ResultBatch;
@@ -51,6 +52,14 @@ where
     let result = f(param_binary)?;
     let affected_rows = mudu_binding::system::command_invoke::deserialize_command_result(&result)?;
     Ok(affected_rows)
+}
+
+#[allow(unused)]
+pub fn invoke_host_batch<F>(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams, f: F) -> RS<u64>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    invoke_host_command(oid, sql, params, f)
 }
 
 #[allow(unused)]
@@ -237,17 +246,20 @@ pub fn deserialize_session_range_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8
 }
 
 pub fn serialize_open_param() -> Vec<u8> {
-    Vec::new()
+    serialize_open_argv_param(&UniSessionOpenArgv::default())
 }
 
-pub fn deserialize_open_param(input: &[u8]) -> RS<()> {
-    if !input.is_empty() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
-            "open does not accept parameters"
-        ));
+pub fn serialize_open_argv_param(argv: &UniSessionOpenArgv) -> Vec<u8> {
+    mudu::common::serde_utils::serialize_to_vec(argv)
+        .unwrap_or_else(|e| panic!("serialize open argv error: {}", e))
+}
+
+pub fn deserialize_open_param(input: &[u8]) -> RS<UniSessionOpenArgv> {
+    if input.is_empty() {
+        return Ok(UniSessionOpenArgv::default());
     }
-    Ok(())
+    let (argv, _) = mudu::common::serde_utils::deserialize_from::<UniSessionOpenArgv>(input)?;
+    Ok(argv)
 }
 
 pub fn serialize_open_result(session_id: OID) -> Vec<u8> {
@@ -334,6 +346,15 @@ where
     deserialize_open_result(&result)
 }
 
+pub fn invoke_host_open_argv<F>(argv: &UniSessionOpenArgv, f: F) -> RS<OID>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_open_argv_param(argv);
+    let result = f(param_binary)?;
+    deserialize_open_result(&result)
+}
+
 pub fn invoke_host_close<F>(session_id: OID, f: F) -> RS<()>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -411,6 +432,19 @@ where
 }
 
 #[allow(unused)]
+pub async fn async_invoke_host_batch<F>(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+    f: F,
+) -> RS<u64>
+where
+    F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    async_invoke_host_command(oid, sql, params, f).await
+}
+
+#[allow(unused)]
 pub async fn async_invoke_host_query<R: Entity, F>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -446,6 +480,15 @@ where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
 {
     let param_binary = serialize_open_param();
+    let result = f(param_binary).await?;
+    deserialize_open_result(&result)
+}
+
+pub async fn async_invoke_host_open_argv<F>(argv: &UniSessionOpenArgv, f: F) -> RS<OID>
+where
+    F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_open_argv_param(argv);
     let result = f(param_binary).await?;
     deserialize_open_result(&result)
 }

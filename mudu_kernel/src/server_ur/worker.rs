@@ -3,6 +3,7 @@ use crate::server_ur::routing::{
     route_worker, RoutingContext, RoutingMode, SessionOpenConfig, SessionOpenTransferAction,
 };
 use crate::server_ur::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
+use crate::server_ur::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::storage::worker_kv_store::{KvItem, WorkerKvStore, WorkerSnapshot};
 use crate::x_log::worker_kv_log::{WorkerKvLog, WorkerLogLayout};
 use mudu::common::id::OID;
@@ -24,13 +25,16 @@ use std::sync::Arc;
 /// Linux native `io_uring` loop and the non-Linux fallback loop so upper
 /// layers do not need target-specific worker abstractions.
 pub struct IoUringWorker {
-    worker_id: usize,
+    worker_index: usize,
+    worker_id: OID,
+    partition_ids: Vec<OID>,
     worker_count: usize,
     routing_mode: RoutingMode,
     store: WorkerKvStore,
     log_layout: WorkerLogLayout,
     procedure_runtime: Option<ProcInvokerPtr>,
     sessions: Arc<WorkerSessions>,
+    registry: Arc<WorkerRegistry>,
 }
 
 #[derive(Default)]
@@ -61,23 +65,27 @@ unsafe impl Sync for SessionContext {}
 
 impl IoUringWorker {
     pub fn new(
-        worker_id: usize,
+        identity: WorkerIdentity,
         worker_count: usize,
         routing_mode: RoutingMode,
         log_dir: String,
         log_chunk_size: u64,
         procedure_runtime: Option<ProcInvokerPtr>,
+        registry: Arc<WorkerRegistry>,
     ) -> RS<Self> {
-        let log_layout = WorkerLogLayout::new(log_dir, worker_log_oid(worker_id), log_chunk_size)?;
+        let log_layout = WorkerLogLayout::new(log_dir, identity.worker_id, log_chunk_size)?;
         let log = WorkerKvLog::new(log_layout.clone())?;
         Ok(Self {
-            worker_id,
+            worker_index: identity.worker_index,
+            worker_id: identity.worker_id,
+            partition_ids: identity.partition_ids,
             worker_count,
             routing_mode,
-            store: WorkerKvStore::new(worker_id, log),
+            store: WorkerKvStore::new(identity.worker_index, log),
             log_layout,
             procedure_runtime,
             sessions: Arc::new(WorkerSessions::default()),
+            registry,
         })
     }
 
@@ -426,16 +434,24 @@ impl IoUringWorker {
         Ok(ProcedureInvokeResponse::new(result))
     }
 
-    pub fn worker_id(&self) -> usize {
+    pub fn worker_index(&self) -> usize {
+        self.worker_index
+    }
+
+    pub fn worker_id(&self) -> OID {
         self.worker_id
     }
 
-    pub fn partition_id(&self) -> usize {
-        self.worker_id
+    pub fn partition_ids(&self) -> &[OID] {
+        &self.partition_ids
     }
 
     pub fn worker_count(&self) -> usize {
         self.worker_count
+    }
+
+    pub fn registry(&self) -> &Arc<WorkerRegistry> {
+        &self.registry
     }
 
     pub fn log_layout(&self) -> WorkerLogLayout {
@@ -447,13 +463,17 @@ impl IoUringWorker {
     }
 
     pub fn open_session_with_config(&self, conn_id: u64, config: SessionOpenConfig) -> RS<OID> {
-        if config.partition_id() != self.partition_id() {
+        if config.target_worker_index() != self.worker_index()
+            || config.worker_id() != self.worker_id()
+        {
             return Err(m_error!(
                 EC::InternalErr,
                 format!(
-                    "session open landed on worker {}, expected partition {}",
-                    self.partition_id(),
-                    config.partition_id()
+                    "session open landed on worker index {} worker id {}, expected worker index {} worker id {}",
+                    self.worker_index(),
+                    self.worker_id(),
+                    config.target_worker_index(),
+                    config.worker_id()
                 )
             ));
         }
@@ -577,6 +597,20 @@ impl WorkerLocal for IoUringWorker {
         ))
     }
 
+    fn open_argv(&self, worker_id: OID) -> RS<OID> {
+        if worker_id == 0 {
+            self.open()
+        } else {
+            Err(m_error!(
+                EC::NotImplemented,
+                format!(
+                    "open on worker {} requires a session-bound worker local context",
+                    worker_id
+                )
+            ))
+        }
+    }
+
     fn close(&self, session_id: OID) -> RS<()> {
         self.close_session_by_id(session_id)
     }
@@ -602,6 +636,21 @@ impl WorkerLocal for IoUringWorker {
 impl WorkerLocal for SessionBoundWorkerLocal {
     fn open(&self) -> RS<OID> {
         self.worker.open_session(self.current_session_id)
+    }
+
+    fn open_argv(&self, worker_id: OID) -> RS<OID> {
+        if worker_id == 0 || worker_id == self.worker.worker_id() {
+            self.open()
+        } else {
+            Err(m_error!(
+                EC::NotImplemented,
+                format!(
+                    "worker-local open cannot move from worker {} to worker {}",
+                    self.worker.worker_id(),
+                    worker_id
+                )
+            ))
+        }
     }
 
     fn close(&self, session_id: OID) -> RS<()> {
@@ -693,8 +742,10 @@ mod tests {
     use super::*;
     use crate::server_ur::procedure_runtime::ProcInvoker;
     use crate::server_ur::worker_local::{WorkerExecute, WorkerLocal};
+    use crate::server_ur::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
     use async_trait::async_trait;
     use futures::FutureExt;
+    use mudu::common::id::gen_oid;
     use std::env::temp_dir;
     use std::sync::{Arc, Mutex};
 
@@ -721,18 +772,40 @@ mod tests {
         }
     }
 
+    fn test_registry(worker_count: usize) -> (String, Arc<WorkerRegistry>) {
+        let dir = temp_dir()
+            .join(format!("worker_test_{}", gen_oid()))
+            .to_string_lossy()
+            .into_owned();
+        let registry = load_or_create_worker_registry(&dir, worker_count).unwrap();
+        (dir, registry)
+    }
+
+    fn test_worker(
+        worker_index: usize,
+        worker_count: usize,
+        log_dir: &str,
+        registry: Arc<WorkerRegistry>,
+        procedure_runtime: Option<ProcInvokerPtr>,
+    ) -> IoUringWorker {
+        let identity = registry.worker(worker_index).cloned().unwrap();
+        IoUringWorker::new(
+            identity,
+            worker_count,
+            RoutingMode::ConnectionId,
+            log_dir.to_string(),
+            4096,
+            procedure_runtime,
+            registry,
+        )
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn worker_invokes_configured_procedure_runtime() {
         let runtime = Arc::new(RecordingProcedureRuntime::default());
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            Some(runtime.clone()),
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, Some(runtime.clone()));
 
         let response = worker
             .handle_procedure_request(
@@ -762,15 +835,8 @@ mod tests {
 
     #[test]
     fn worker_session_lifecycle_is_connection_scoped() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_id = worker.create_session(7).unwrap();
         assert!(worker.close_session(7, session_id).unwrap());
@@ -793,15 +859,8 @@ mod tests {
 
     #[test]
     fn worker_implements_worker_local_interface() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_id = worker.create_session(1).unwrap();
         let local = SessionBoundWorkerLocal {
@@ -823,15 +882,8 @@ mod tests {
 
     #[test]
     fn worker_rollback_discards_staged_writes() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_id = worker.create_session(1).unwrap();
         let local = SessionBoundWorkerLocal {
@@ -853,29 +905,18 @@ mod tests {
 
     #[test]
     fn worker_can_transfer_connection_sessions_between_partitions() {
-        let source = IoUringWorker::new(
-            0,
-            2,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
-        let target = IoUringWorker::new(
-            1,
-            2,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(2);
+        let source = test_worker(0, 2, &log_dir, registry.clone(), None);
+        let target = test_worker(1, 2, &log_dir, registry.clone(), None);
 
         let conn_id = 41;
         let session_a = source.create_session(conn_id).unwrap();
         let session_b = source.create_session(conn_id).unwrap();
-        let action = SessionOpenTransferAction::new(7, SessionOpenConfig::new(session_a, 1));
+        let target_identity = registry.worker(1).unwrap();
+        let action = SessionOpenTransferAction::new(
+            7,
+            SessionOpenConfig::new(session_a, target_identity.worker_id, 1),
+        );
 
         let transferred = source
             .prepare_connection_transfer(conn_id, Some(action))
@@ -903,15 +944,8 @@ mod tests {
 
     #[test]
     fn worker_rejects_transfer_with_active_transaction() {
-        let worker = IoUringWorker::new(
-            0,
-            2,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(2);
+        let worker = test_worker(0, 2, &log_dir, registry.clone(), None);
         let conn_id = 51;
         let session_id = worker.create_session(conn_id).unwrap();
         worker
@@ -923,7 +957,7 @@ mod tests {
                 conn_id,
                 Some(SessionOpenTransferAction::new(
                     1,
-                    SessionOpenConfig::new(session_id, 1),
+                    SessionOpenConfig::new(session_id, registry.worker(1).unwrap().worker_id, 1),
                 )),
             )
             .unwrap_err();
@@ -932,15 +966,8 @@ mod tests {
 
     #[test]
     fn worker_snapshot_isolation_hides_later_commits_from_existing_tx() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
@@ -962,15 +989,8 @@ mod tests {
 
     #[test]
     fn worker_snapshot_isolation_range_stays_stable_for_existing_tx() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
@@ -994,15 +1014,8 @@ mod tests {
 
     #[test]
     fn worker_first_committer_wins_without_locks() {
-        let worker = IoUringWorker::new(
-            0,
-            1,
-            RoutingMode::ConnectionId,
-            temp_dir().to_string_lossy().into_owned(),
-            4096,
-            None,
-        )
-        .unwrap();
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, registry, None);
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();

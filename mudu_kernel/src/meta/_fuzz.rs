@@ -1,4 +1,5 @@
 use arbitrary::Unstructured;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
@@ -136,66 +137,26 @@ fn write_map_to_db(
     table_name: String,
     map: HashMap<Vec<String>, Vec<String>>,
 ) -> RS<()> {
-    let mut conn = rusqlite::Connection::open(path).unwrap();
-    conn.execute(
-        format!(
-            "CREATE TABLE IF NOT EXISTS {} \
-        (key_items TEXT PRIMARY KEY, value_items TEXT NOT NULL);",
-            table_name
-        )
-        .as_str(),
-        (),
-    )
-    .unwrap();
-    let trans = conn.transaction().unwrap();
-    for (k, v) in map.iter() {
-        let key = to_json_string(k);
-        let value = to_json_string(v);
-        trans
-            .execute(
-                format!(
-                    "INSERT INTO {} (key_items, value_items) VALUES(?1, ?2)\
-            ON CONFLICT(key_items) DO NOTHING;\
-            ",
-                    table_name
-                )
-                .as_str(),
-                (key, value),
-            )
-            .unwrap();
+    let mut db = FuzzDb::load(&path)?;
+    let table = db.tables.entry(table_name).or_default();
+    for (k, v) in map {
+        if !table.iter().any(|row| row.key_items == k) {
+            table.push(FuzzRow {
+                key_items: k,
+                value_items: v,
+            });
+        }
     }
-    trans.commit().unwrap();
-    Ok(())
+    db.save(&path)
 }
 
 fn read_map_from_db(path: String, table_name: String) -> RS<HashMap<Vec<String>, Vec<String>>> {
-    let conn = rusqlite::Connection::open(path).unwrap();
-    conn.execute(
-        format!(
-            "CREATE TABLE IF NOT EXISTS {} \
-        (key_items TEXT PRIMARY KEY, value_items TEXT NOT NULL);",
-            table_name
-        )
-        .as_str(),
-        (),
-    )
-    .unwrap();
-    let mut stmt = conn
-        .prepare(format!("SELECT key_items, value_items FROM {}", table_name).as_str())
-        .unwrap();
+    let db = FuzzDb::load(&path)?;
     let mut map = HashMap::new();
-    let iter = stmt
-        .query_map([], |row| {
-            let k: String = row.get(0).unwrap();
-            let v: String = row.get(1).unwrap();
-            Ok((k, v))
-        })
-        .unwrap();
-    for r in iter {
-        let (k, v) = r.unwrap();
-        let key = from_json_string(&k);
-        let value = from_json_string(&v);
-        map.insert(key, value);
+    if let Some(rows) = db.tables.get(&table_name) {
+        for row in rows {
+            map.insert(row.key_items.clone(), row.value_items.clone());
+        }
     }
     Ok(map)
 }
@@ -206,4 +167,37 @@ fn to_json_string(vec: &Vec<String>) -> String {
 
 fn from_json_string(json: &String) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(json).unwrap()
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct FuzzDb {
+    tables: HashMap<String, Vec<FuzzRow>>,
+}
+
+impl FuzzDb {
+    fn load(path: &str) -> RS<Self> {
+        if !PathBuf::from(path).exists() {
+            return Ok(Self::default());
+        }
+        let text = fs::read_to_string(path).unwrap();
+        Ok(serde_json::from_str(&text).unwrap())
+    }
+
+    fn save(&self, path: &str) -> RS<()> {
+        let parent = PathBuf::from(path).parent().map(|p| p.to_path_buf());
+        if let Some(parent) = parent {
+            if !fs::exists(&parent).unwrap() {
+                fs::create_dir_all(parent).unwrap();
+            }
+        }
+        let text = serde_json::to_string_pretty(self).unwrap();
+        fs::write(path, text).unwrap();
+        Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct FuzzRow {
+    key_items: Vec<String>,
+    value_items: Vec<String>,
 }

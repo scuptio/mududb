@@ -5,7 +5,7 @@ lang="rust"
 -->
 ```rust
 /**mudu-proc**/
-pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
         return Err(m_error!(
@@ -21,7 +21,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Check whether the transfer-out account exists and has sufficient balance
     let wallet_rs = mudu_query::<Wallets>(
-        xid,
+        oid,
         sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
         sql_params!(&(from_user_id,)),
     )?;
@@ -38,7 +38,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Check the user account existing
     let to_wallet = mudu_query::<Wallets>(
-        xid,
+        oid,
         sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?;"),
         sql_params!(&(to_user_id)),
     )?;
@@ -51,7 +51,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // Perform a transfer operation
     // 1. Deduct the balance of the account transferred out
     let deduct_updated_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ? WHERE user_id = ?;"),
         sql_params!(&(amount, from_user_id)),
     )?;
@@ -60,7 +60,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(&"UPDATE wallets SET balance = balance + ? WHERE user_id = ?;"),
         sql_params!(&(amount, to_user_id)),
     )?;
@@ -71,7 +71,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // 3. Entity the transaction
     let id = Uuid::new_v4().to_string();
     let insert_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(
             &r#"
         INSERT INTO transactions

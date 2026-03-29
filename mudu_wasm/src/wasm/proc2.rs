@@ -4,7 +4,7 @@ use mudu::common::xid::XID;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_macro::mudu_proc;
 use mudu_type::datum::{Datum, DatumDyn};
-use sys_interface::api::{mudu_command, mudu_query};
+use sys_interface::sync_api::{mudu_command, mudu_query};
 
 #[mudu_proc]
 pub fn proc_sys_call(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {

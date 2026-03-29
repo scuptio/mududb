@@ -31,20 +31,76 @@ use actix_web::http::StatusCode;
 use actix_web::{App, HttpResponse, HttpServer, Responder, delete, get, post, web};
 use async_trait::async_trait;
 use base64::Engine;
+use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu::utils::json::JsonValue;
 use mudu_binding::procedure::procedure_invoke;
+use mudu_binding::universal::uni_oid::UniOid;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_utils::notifier::Waiter;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::Arc;
 use tracing::error;
+
+fn serialize_oid_as_unioid<S>(oid: &OID, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    UniOid::from(*oid).serialize(serializer)
+}
+
+fn deserialize_oid_from_unioid<'de, D>(deserializer: D) -> Result<OID, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(UniOid::deserialize(deserializer)?.to_oid())
+}
+
+fn serialize_oid_vec_as_unioid<S>(oids: &[OID], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let uni_oids: Vec<UniOid> = oids.iter().copied().map(UniOid::from).collect();
+    uni_oids.serialize(serializer)
+}
+
+fn deserialize_oid_vec_from_unioid<'de, D>(deserializer: D) -> Result<Vec<OID>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Vec::<UniOid>::deserialize(deserializer)?
+        .into_iter()
+        .map(|oid| oid.to_oid())
+        .collect())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkerTopology {
+    pub worker_index: usize,
+    #[serde(
+        serialize_with = "serialize_oid_as_unioid",
+        deserialize_with = "deserialize_oid_from_unioid"
+    )]
+    pub worker_id: OID,
+    #[serde(
+        serialize_with = "serialize_oid_vec_as_unioid",
+        deserialize_with = "deserialize_oid_vec_from_unioid"
+    )]
+    pub partitions: Vec<OID>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ServerTopology {
+    pub worker_count: usize,
+    pub workers: Vec<WorkerTopology>,
+}
 
 #[cfg(target_os = "linux")]
 use crate::backend::app_mgr::AppMgr;
@@ -71,6 +127,13 @@ pub trait HttpApi: Send + Sync {
         proc_name: &str,
         body: String,
     ) -> RS<Value>;
+
+    async fn server_topology(&self) -> RS<ServerTopology> {
+        Err(m_error!(
+            EC::NotImplemented,
+            "server topology is not supported"
+        ))
+    }
 
     async fn uninstall_app(&self, app_name: &str) -> RS<()> {
         Err(m_error!(
@@ -167,12 +230,29 @@ fn configure_routes(cfg: &mut web::ServiceConfig, capabilities: HttpApiCapabilit
     cfg.service(app_list)
         .service(app_proc_list)
         .service(app_proc_detail)
+        .service(server_topology)
         .service(install);
     if capabilities.enable_invoke {
         cfg.service(invoke);
     }
     if capabilities.enable_uninstall {
         cfg.service(uninstall);
+    }
+}
+
+#[get("/mudu/server/topology")]
+async fn server_topology(context: web::Data<HttpApiContext>) -> impl Responder {
+    match context.api.server_topology().await {
+        Ok(topology) => HttpResponse::Ok().json(serde_json::json!({
+            "status": 0,
+            "message": "ok",
+            "data": topology,
+        })),
+        Err(e) => HttpResponse::Ok().json(serde_json::json!({
+            "status": 1001,
+            "message": "fail to get server topology",
+            "data": e,
+        })),
     }
 }
 
@@ -435,11 +515,16 @@ async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
 mod test {
     use super::*;
     use actix_web::{App, test};
+    #[cfg(target_os = "linux")]
     use mudu::common::app_info::AppInfo;
+    #[cfg(target_os = "linux")]
     use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
+    #[cfg(target_os = "linux")]
     use mudu_contract::procedure::procedure_result::ProcedureResult;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
+    #[cfg(target_os = "linux")]
     use mudu_kernel::server_ur::procedure_runtime::ProcInvoker;
+    #[cfg(target_os = "linux")]
     use std::sync::Mutex;
 
     struct MockHttpApi;
@@ -612,10 +697,16 @@ mod test {
     #[cfg(target_os = "linux")]
     #[actix_web::test]
     async fn iouring_http_api_invokes_over_bridge() {
+        let log_dir =
+            std::env::temp_dir().join(format!("http_api_test_{}", mudu::common::id::gen_oid()));
+        let registry =
+            mudu_kernel::server_ur::worker_registry::load_or_create_worker_registry(&log_dir, 4)
+                .unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let api = IoUringHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            registry,
             Arc::new(MockClientFactory {
                 requests: requests.clone(),
             }),

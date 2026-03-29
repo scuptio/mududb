@@ -78,6 +78,27 @@ pub fn kernel_command_p1(
     )
 }
 
+pub fn kernel_batch_p1(
+    caller: Caller<'_, WasiContext>,
+    param_buf_ptr: u32,
+    param_buf_len: u32,
+    output_buf_ptr: u32,
+    output_buf_len: u32,
+    out_mem_ptr: u32,
+    out_mem_len: u32,
+) -> i32 {
+    handle_guest_invoke_host::<_>(
+        caller,
+        param_buf_ptr,
+        param_buf_len,
+        output_buf_ptr,
+        output_buf_len,
+        out_mem_ptr,
+        out_mem_len,
+        |input| Ok(kernel::batch_internal(input)),
+    )
+}
+
 pub fn kernel_open_p1(
     caller: Caller<'_, WasiContext>,
     param_buf_ptr: u32,

@@ -19,6 +19,21 @@ fn main() {
 
 fn serve() -> RS<()> {
     let cfg = load_mududb_cfg(None)?;
+    info!(
+        server_mode = ?cfg.server_mode,
+        runtime_target = ?cfg.runtime_target(),
+        listen_ip = %cfg.listen_ip,
+        http_listen_port = cfg.http_listen_port,
+        pg_listen_port = cfg.pg_listen_port,
+        tcp_listen_port = cfg.tcp_listen_port,
+        http_worker_threads = cfg.http_worker_threads,
+        enable_p2 = cfg.enable_p2,
+        enable_async = cfg.enable_async,
+        routing_mode = ?cfg.routing_mode,
+        data_path = %cfg.data_path,
+        mpk_path = %cfg.mpk_path,
+        "mudud starting"
+    );
     #[cfg(unix)]
     block_shutdown_signals()?;
     let (stop_notifier, stop_waiter) = notify_wait();

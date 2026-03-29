@@ -567,6 +567,7 @@ mod tests {
         c.tran_to_async();
         let s = c.render_source("app_test".to_string(), true).unwrap();
         assert!(s.contains("pub async fn proc_sys_call"));
+        assert!(s.contains("use sys_interface::async_api::"));
         assert!(s.contains("mudu_command(xid,"));
         assert!(s.contains(")?;") || s.contains(").await?;"));
         assert!(s.contains("mudu_command(xid,") && s.contains(").await?;"));

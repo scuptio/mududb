@@ -3,15 +3,24 @@ name = "sys_interface"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 default = ["component-model"]
 wasip1 = []
 wasip2 = ["component-model"]
 component-model = []
 async = []
+standalone-adapter = ["dep:mudu_adapter"]
+uniffi-bindings = ["dep:uniffi", "dep:thiserror", "dep:tokio"]
 
 [dependencies]
 mudu = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_binding = {workspace = true}
 wit-bindgen = { workspace = true }
+mudu_adapter = { workspace = true, optional = true }
+uniffi = { workspace = true, features = ["tokio"], optional = true }
+thiserror = { version = "2.0.17", optional = true }
+tokio = { workspace = true, optional = true }

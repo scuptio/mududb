@@ -31,12 +31,24 @@ pub fn command_internal(command_in: &[u8]) -> Vec<u8> {
     let r = _command_internal(command_in);
     mudu_binding::system::command_invoke::serialize_command_result(r)
 }
+
+pub fn batch_internal(batch_in: &[u8]) -> Vec<u8> {
+    let r = _batch_internal(batch_in);
+    mudu_binding::system::command_invoke::serialize_command_result(r)
+}
+
 fn _command_internal(command_in: &[u8]) -> RS<u64> {
     let (oid, stmt, param) =
         mudu_binding::system::command_invoke::deserialize_command_param(command_in)?;
     let context = get_context(oid)?;
     let r = context.command(stmt.as_ref(), param.as_ref())?;
     Ok(r)
+}
+
+fn _batch_internal(batch_in: &[u8]) -> RS<u64> {
+    let (oid, stmt, param) = mudu_binding::system::command_invoke::deserialize_command_param(batch_in)?;
+    let context = get_context(oid)?;
+    context.batch(stmt.as_ref(), param.as_ref())
 }
 
 /// Execute a SQL query with parameters
@@ -64,12 +76,24 @@ pub async fn async_command_internal(command_in: Vec<u8>) -> Vec<u8> {
     let r = _async_command_internal(command_in).await;
     mudu_binding::system::command_invoke::serialize_command_result(r)
 }
+
+pub async fn async_batch_internal(batch_in: Vec<u8>) -> Vec<u8> {
+    let r = _async_batch_internal(batch_in).await;
+    mudu_binding::system::command_invoke::serialize_command_result(r)
+}
+
 async fn _async_command_internal(command_in: Vec<u8>) -> RS<u64> {
     let (oid, stmt, param) =
         mudu_binding::system::command_invoke::deserialize_command_param(&command_in)?;
     let context = get_context(oid)?;
     let r = context.command_async(stmt, param).await?;
     Ok(r)
+}
+
+async fn _async_batch_internal(batch_in: Vec<u8>) -> RS<u64> {
+    let (oid, stmt, param) = mudu_binding::system::command_invoke::deserialize_command_param(&batch_in)?;
+    let context = get_context(oid)?;
+    context.batch_async(stmt, param).await
 }
 
 fn get_context(oid: OID) -> RS<Context> {
@@ -87,9 +111,9 @@ pub fn open_internal_with_worker_local(
     open_in: &[u8],
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
-    sys_interface::host::deserialize_open_param(open_in)?;
+    let open_argv = sys_interface::host::deserialize_open_param(open_in)?;
     let worker_local = require_worker_local(worker_local)?;
-    let opened = worker_local.open()?;
+    let opened = worker_local.open_argv(open_argv.worker_oid())?;
     Ok(sys_interface::host::serialize_open_result(opened))
 }
 

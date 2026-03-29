@@ -92,4 +92,9 @@ impl DBConnAsync for LibSQLAsyncConn {
             async move |inner: MutexGuard<LibSQLAsyncConnInner>| inner.command(sql, param).await;
         self.handle_inner(f).await
     }
+
+    async fn batch(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
+        let f = async move |inner: MutexGuard<LibSQLAsyncConnInner>| inner.batch(sql, param).await;
+        self.handle_inner(f).await
+    }
 }

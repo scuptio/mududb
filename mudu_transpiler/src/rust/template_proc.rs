@@ -10,12 +10,14 @@ pub struct ArgumentInfo {
     pub arg_name: String,
     pub arg_type: String,
     pub arg_index: usize,
+    pub is_binary: bool,
 }
 
 pub struct ReturnInfo {
     pub ret_type: String,
     #[allow(unused)]
     pub ret_index: usize,
+    pub is_binary: bool,
 }
 
 pub struct ProcedureInfo {
@@ -32,6 +34,7 @@ pub struct ProcedureInfo {
     pub package_name: String,
     pub argument_list: Vec<ArgumentInfo>,
     pub return_tuple: Vec<ReturnInfo>,
+    pub return_len: usize,
     pub opt_async: String,
     pub opt_dot_await: String,
     pub opt_underline_async: String,

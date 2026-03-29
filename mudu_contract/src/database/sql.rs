@@ -147,6 +147,10 @@ impl ContextInner {
         self.conn.expected_sync()?.command(sql, param)
     }
 
+    fn batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.conn.expected_sync()?.batch(sql, param)
+    }
+
     async fn query_raw_async(
         &self,
         sql: Box<dyn SQLStmt>,
@@ -157,6 +161,10 @@ impl ContextInner {
 
     async fn command_async(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
         self.conn.expected_async()?.execute(sql, param).await
+    }
+
+    async fn batch_async(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
+        self.conn.expected_async()?.batch(sql, param).await
     }
 
     fn cache_result(&self, result: (Arc<dyn ResultSet>, Arc<TupleFieldDesc>)) -> RS<QueryResult> {
@@ -288,6 +296,14 @@ impl Context {
         self.inner.command_async(sql, param).await
     }
 
+    pub fn batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.inner.batch(sql, param)
+    }
+
+    pub async fn batch_async(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
+        self.inner.batch_async(sql, param).await
+    }
+
     // for naive implementation
     pub fn cache_result(
         &self,
@@ -315,4 +331,10 @@ pub fn mudu_command(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u6
     let r = Context::context(xid);
     let context = rs_option(r, &format!("mudu_command, no such transaction {}", xid))?;
     context.command(sql, param)
+}
+
+pub fn mudu_batch(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+    let r = Context::context(xid);
+    let context = rs_option(r, &format!("mudu_batch, no such transaction {}", xid))?;
+    context.batch(sql, param)
 }

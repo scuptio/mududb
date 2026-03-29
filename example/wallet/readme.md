@@ -1,7 +1,7 @@
-# install postgresql-client
+# Install PostgreSQL Client
 
-## linux
+## Linux
 
-## windows
+## Windows
 
 #

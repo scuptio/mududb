@@ -1,0 +1,50 @@
+{
+  "modules": {
+    "game_backend": [
+      {
+        "module_name": "game_backend",
+        "proc_name": "event",
+        "param_desc": {
+          "fields": []
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "Binary",
+                "param": null
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "game_backend",
+        "proc_name": "command",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "Binary",
+                "param": null
+              },
+              "name": "message"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "Binary",
+                "param": null
+              },
+              "name": "0"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

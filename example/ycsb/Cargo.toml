@@ -1,0 +1,41 @@
+[package]
+name = "ycsb"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+debug_trace = [
+    "dep:async-backtrace"
+]
+benchmark-runner = [
+    "dep:clap",
+    "dep:mudu_adapter",
+    "dep:mudu_cli",
+    "dep:mudu_utils",
+    "dep:tokio",
+    "debug_trace",
+    "sys_interface/standalone-adapter",
+]
+
+[dependencies]
+mudu = { workspace = true }
+mudu_type = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_adapter = { workspace = true, optional = true }
+mudu_cli = { workspace = true, optional = true }
+mudu_utils = { workspace = true, optional = true, features = ["debug_trace"] }
+sys_interface = { workspace = true, features = ["async"] }
+wit-bindgen = { workspace = true }
+clap = { workspace = true, optional = true, features = ["derive"] }
+tokio = { workspace = true, optional = true }
+async-backtrace = { workspace = true, optional = true }
+
+[[bin]]
+name = "ycsb-benchmark"
+path = "src/bin/ycsb_benchmark.rs"
+required-features = ["benchmark-runner"]

@@ -147,6 +147,12 @@ impl ParseContext {
         } else {
             self.text.clone()
         };
+        src = if enable_async {
+            src.replace("sys_interface::sync_api", "sys_interface::async_api")
+                .replace("sys_interface::api", "sys_interface::async_api")
+        } else {
+            src.replace("sys_interface::api", "sys_interface::sync_api")
+        };
         for (_, function) in self.mudu_procedure.iter() {
             let template = function_to_template(function, module_name.clone(), enable_async);
             let source = template
@@ -372,6 +378,7 @@ fn function_to_template(
     let return_tuple = function.return_type.as_ref().map_or_else(
         || vec![],
         |return_type| {
+            let ret_types = return_type.as_ret_type();
             return_type
                 .to_ret_type_str()
                 .into_iter()
@@ -379,6 +386,7 @@ fn function_to_template(
                 .map(|(i, e)| ReturnInfo {
                     ret_type: e,
                     ret_index: i,
+                    is_binary: ret_types[i].is_vec_u8(),
                 })
                 .collect()
         },
@@ -391,6 +399,7 @@ fn function_to_template(
             arg_name: n.clone(),
             arg_type: t.to_type_str(),
             arg_index: i,
+            is_binary: t.is_vec_u8(),
         })
         .collect::<Vec<ArgumentInfo>>();
 
@@ -409,6 +418,10 @@ fn function_to_template(
             package_name: module_name,
             argument_list,
             return_tuple,
+            return_len: function
+                .return_type
+                .as_ref()
+                .map_or(0, |return_type| return_type.as_ret_type().len()),
             opt_async,
             opt_dot_await,
             opt_underline_async,

@@ -68,7 +68,7 @@ Mudu Runtime currently supports Rust. A Rust-based procedure uses the following 
 ``` 
 #[mudu_proc]
 fn {procedure_name}(
-    xid: XID,
+    oid: OID,
     {argument_list...}
 ) -> RS<{return_value_type}>
 ```
@@ -83,24 +83,26 @@ Marks the function as a Mudu procedure.
 
 ### Parameters:
 
-#### xid:
+#### oid:
 
-The transaction ID.
+The current system session ID passed into the procedure.
 
 ### {argument_list...}:
 
-Input arguments that implement the `Entity` trait.
+Input arguments must be representable by Mudu's datum / tuple conversion system.
 
-Supported types: `i32`, `i64`, `String`, `f32`, `f64`.
+Commonly used supported forms include scalar values such as `i32`, `i64`, `String`, `f32`, and `f64`, as well as
+container forms used by current examples such as `Vec<String>`.
 
-Unsupported: Custom structs, enums, arrays, or tuples.
+The exact supported surface is defined by the current `mudu_macro` / `mudu_type` implementation rather than a fixed
+short whitelist in this document.
 
 ### Return value:
 
 #### {return_value_type}:
 
-The return type must implement the [`Entity` trait](../lang.common/proc_key_traits.md). The supported types are the
-same as the argument types.
+The return value must also be representable by Mudu's datum / tuple conversion system.
+In current implementations this includes scalar values, tuple return values, and `Vec<T>` style result containers.
 
 The result type alias `RS` is defined as:
 
@@ -111,7 +113,9 @@ pub type RS<X> = Result<X, ER>;  // ER: Error
 
 ## CRUD (Create/Read/Update/Delete) Operations in Mudu Procedures
 
-There are two key APIs that a Mudu procedure can invoke:
+There are two key APIs that a Mudu procedure can invoke.
+For stable imports, handwritten synchronous procedure code should use `sys_interface::sync_api`, while generated async
+procedure code should use `sys_interface::async_api`.
 
 ### 1. `query`
 
@@ -121,25 +125,27 @@ There are two key APIs that a Mudu procedure can invoke:
 quote_begin
 content="[Query API](../lang.common/mudu_query.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Query API](../../sys_interface/src/api.rs#L34-L40)"
-lang="rust"
--->
-
 ```rust
-pub fn mudu_query<
-    R: Entity
->(
-    xid: XID,
+use sys_interface::sync_api::mudu_query;
+use sys_interface::async_api::mudu_query as mudu_query_async;
+
+pub fn mudu_query<R: Entity>(
+    oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
-    inner::inner_query(xid, sql, params)
+    /* ... */
+}
+
+pub async fn mudu_query_async<R: Entity>(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<RecordSet<R>> {
+    /* ... */
 }
 ```
 
-<!--quote_end-->
 <!--quote_end-->
 
 `query` automatically performs R2O (relation-to-object) mapping and returns a result set of objects that implement
@@ -153,30 +159,65 @@ the `Entity` trait.
 quote_begin
 content="[Command API](../lang.common/mudu_command.md#L-L)"
 -->
-<!--
-quote_begin
-content="[Command API](../../sys_interface/src/api.rs#L11-L19)"
-lang="rust"
--->
-
 ```rust
+use sys_interface::sync_api::mudu_command;
+use sys_interface::async_api::mudu_command as mudu_command_async;
+
 pub fn mudu_command(
-    xid: XID,
+    oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
 ) -> RS<u64> {
-    inner::inner_command(xid, sql, params)
+    /* ... */
+}
+
+pub async fn mudu_command_async(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<u64> {
+    /* ... */
 }
 ```
 
 <!--quote_end-->
+
+### 3. `batch`
+
+`batch` is the SQL batch variant of `command`. It keeps the same API surface and return shape, but it is intended for
+raw batch SQL text executed by the runtime through `libsql::execute_batch`.
+
+<!--
+quote_begin
+content="[Batch API](../lang.common/mudu_batch.md#L-L)"
+-->
+```rust
+use sys_interface::sync_api::mudu_batch;
+use sys_interface::async_api::mudu_batch as mudu_batch_async;
+
+pub fn mudu_batch(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<u64> {
+    /* ... */
+}
+
+pub async fn mudu_batch_async(
+    oid: OID,
+    sql: &dyn SQLStmt,
+    params: &dyn SQLParams,
+) -> RS<u64> {
+    /* ... */
+}
+```
 <!--quote_end-->
 
 ### Parameters for Both
 
-#### xid:
+#### oid:
 
-The transaction ID.
+The current system session identifier passed into the procedure.
 
 #### sql:
 
@@ -185,6 +226,7 @@ An SQL statement that uses `?` as parameter placeholders.
 #### params:
 
 The parameter list.
+For `batch`, the current libsql-backed implementation requires this list to be empty.
 
 
 <!--
@@ -295,7 +337,7 @@ lang="rust"
 -->
 ```rust
 #[mudu_proc]
-pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
         return Err(m_error!(
@@ -311,7 +353,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Check whether the transfer-out account exists and has sufficient balance
     let wallet_rs = mudu_query::<Wallets>(
-        xid,
+        oid,
         sql_stmt!(&"SELECT user_id, balance FROM wallets WHERE user_id = ?;"),
         sql_params!(&from_user_id),
     )?;
@@ -328,7 +370,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Check the user account existing
     let to_wallet = mudu_query::<Wallets>(
-        xid,
+        oid,
         sql_stmt!(&"SELECT user_id FROM wallets WHERE user_id = ?;"),
         sql_params!(&(to_user_id)),
     )?;
@@ -341,7 +383,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // Perform a transfer operation
     // 1. Deduct the balance of the account transferred out
     let deduct_updated_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(&"UPDATE wallets SET balance = balance - ? WHERE user_id = ?;"),
         sql_params!(&(amount, from_user_id)),
     )?;
@@ -350,7 +392,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(&"UPDATE wallets SET balance = balance + ? WHERE user_id = ?;"),
         sql_params!(&(amount, to_user_id)),
     )?;
@@ -361,7 +403,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
     // 3. Entity the transaction
     let id = Uuid::new_v4().to_string();
     let insert_rows = mudu_command(
-        xid,
+        oid,
         sql_stmt!(
             &r#"
         INSERT INTO transactions
@@ -394,15 +436,15 @@ Each procedure runs as an independent transaction. The transaction:
 
 ### Manual Mode
 
-Pass a transaction ID (`xid`) across multiple Mudu procedures for explicit transaction control.
+Pass a shared session identifier (`oid`) across multiple Mudu procedures for explicit transaction control.
 
 #### Example:
 
 ```
-procedure1(xid);
-procedure2(xid);
-commit(xid); // Explicit commit
-// or rollback(xid) for explicit rollback
+procedure1(oid);
+procedure2(oid);
+commit(oid); // Explicit commit
+// or rollback(oid) for explicit rollback
 ```
 
 # Benefits of Using Mudu Procedures
@@ -442,8 +484,8 @@ One example is preparing AI training datasets without export/import steps.
 ```rust
 // Prepare AI training dataset without export/import
 #[mudu_proc]
-fn prepare_training_data(xid: XID) -> RS<()> {
-    mudu_command(xid,
+fn prepare_training_data(oid: OID) -> RS<()> {
+    mudu_command(oid,
         sql_stmt!("..."),
         sql_param!(&[]))?;
     // Further processing...
@@ -464,13 +506,13 @@ use chrono::Utc;
 use uuid::Uuid;
 
 #[mudu_proc]
-fn create_order(xid: XID, user_id: i32) -> RS<String> {
+fn create_order(oid: OID, user_id: i32) -> RS<String> {
     // Do something ....
 
     let order_id = Uuid::new_v4().to_string();
     let created_at = Utc::now().naive_utc();
     
-    mudu_command(xid,
+    mudu_command(oid,
         sql_stmt!("INSERT INTO orders (id, user_id, created_at) 
                    VALUES (?, ?, ?)"),
         sql_param!(&[&order_id, &user_id, &created_at]))?;

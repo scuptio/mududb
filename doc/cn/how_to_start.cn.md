@@ -14,7 +14,7 @@ git clone https://github.com/scuptio/mududb.git
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip build-essential curl liburing-dev
+sudo apt-get install -y python3 python3-pip clang build-essential curl liburing-dev
 ```
 
 这些软件包的用途如下：
@@ -89,6 +89,23 @@ touch ${HOME}/.mudu/mududb_cfg.toml
 ## 使用 MuduDB
 
 ### 1. 启动 `mudud`
+
+启动 `mudud` 前，请先确认服务进程拥有足够高的打开文件数限制。若软限制 `nofile` 仍是 `1024` 这类较低值，在较高连接数下可能出现 session 建立失败或整体卡住的问题，即使你当前交互 shell 的限制更高也是如此。
+
+如果是在当前 shell 中直接启动本地 `mudud`，可以先提升限制再启动：
+
+```bash
+ulimit -n 65535
+mudud
+```
+
+如果 `mudud` 由 `systemd` 或其他 supervisor 启动，还需要在对应服务配置中提升文件描述符限制，例如设置 `LimitNOFILE=65535`。
+
+启动后可以用下面的命令确认实际生效的限制：
+
+```bash
+cat /proc/$(pgrep -x mudud)/limits | rg 'open files'
+```
 
 ```bash
 mudud

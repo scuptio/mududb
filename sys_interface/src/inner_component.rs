@@ -1,10 +1,11 @@
 use crate::host::{
-    invoke_host_close, invoke_host_command, invoke_host_open, invoke_host_query,
+    invoke_host_batch, invoke_host_close, invoke_host_command, invoke_host_open, invoke_host_query,
     invoke_host_session_get, invoke_host_session_put, invoke_host_session_range,
 };
 use crate::inner_component::mududb::api::system;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -30,8 +31,18 @@ pub fn inner_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<
 }
 
 #[allow(unused)]
+pub fn inner_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+    invoke_host_batch(oid, sql, params, |param| Ok(system::batch(&param)))
+}
+
+#[allow(unused)]
 pub fn inner_open() -> RS<OID> {
     invoke_host_open(|param| Ok(system::open(&param)))
+}
+
+#[allow(unused)]
+pub fn inner_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
+    crate::host::invoke_host_open_argv(argv, |param| Ok(system::open(&param)))
 }
 
 #[allow(unused)]

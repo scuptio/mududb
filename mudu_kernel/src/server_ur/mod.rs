@@ -20,13 +20,14 @@ pub mod server;
 mod server_iouring;
 #[cfg(target_os = "linux")]
 mod transferred_connection;
-#[cfg(target_os = "linux")]
-mod worker_mailbox;
 pub mod worker;
 #[cfg(target_os = "linux")]
 mod worker_connection;
 pub mod worker_local;
 #[cfg(target_os = "linux")]
 mod worker_local_log;
+#[cfg(target_os = "linux")]
+mod worker_mailbox;
+pub mod worker_registry;
 #[cfg(target_os = "linux")]
 mod worker_ring_loop;

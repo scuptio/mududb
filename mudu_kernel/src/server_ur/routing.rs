@@ -1,8 +1,10 @@
 use crate::server_ur::fsm::ConnectionState;
+use crate::server_ur::worker_registry::WorkerRegistry;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use serde::de::{self, Deserializer};
 use serde::Deserialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -33,7 +35,8 @@ pub struct ConnectionTransfer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionOpenConfig {
     session_id: OID,
-    partition_id: usize,
+    worker_id: OID,
+    target_worker_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,8 +47,48 @@ pub struct SessionOpenTransferAction {
 
 #[derive(Debug, Deserialize)]
 struct RawSessionOpenConfig {
+    #[serde(deserialize_with = "deserialize_oid_json")]
     session_id: OID,
-    partition_id: usize,
+    #[serde(default, deserialize_with = "deserialize_opt_oid_json")]
+    worker_id: Option<OID>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawUniOid {
+    h: u64,
+    l: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawOidJson {
+    Number(u64),
+    String(String),
+    UniOid(RawUniOid),
+}
+
+fn deserialize_oid_json<'de, D>(deserializer: D) -> Result<OID, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match RawOidJson::deserialize(deserializer)? {
+        RawOidJson::Number(value) => Ok(value as OID),
+        RawOidJson::String(value) => value.parse::<OID>().map_err(de::Error::custom),
+        RawOidJson::UniOid(value) => Ok(((value.h as u128) << 64) | (value.l as u128)),
+    }
+}
+
+fn deserialize_opt_oid_json<'de, D>(deserializer: D) -> Result<Option<OID>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<RawOidJson>::deserialize(deserializer)?
+        .map(|value| match value {
+            RawOidJson::Number(value) => Ok(value as OID),
+            RawOidJson::String(value) => value.parse::<OID>().map_err(de::Error::custom),
+            RawOidJson::UniOid(value) => Ok(((value.h as u128) << 64) | (value.l as u128)),
+        })
+        .transpose()
 }
 
 impl RoutingContext {
@@ -103,10 +146,11 @@ impl ConnectionTransfer {
 }
 
 impl SessionOpenConfig {
-    pub fn new(session_id: OID, partition_id: usize) -> Self {
+    pub fn new(session_id: OID, worker_id: OID, target_worker_index: usize) -> Self {
         Self {
             session_id,
-            partition_id,
+            worker_id,
+            target_worker_index,
         }
     }
 
@@ -114,8 +158,12 @@ impl SessionOpenConfig {
         self.session_id
     }
 
-    pub fn partition_id(&self) -> usize {
-        self.partition_id
+    pub fn worker_id(&self) -> OID {
+        self.worker_id
+    }
+
+    pub fn target_worker_index(&self) -> usize {
+        self.target_worker_index
     }
 }
 
@@ -147,28 +195,43 @@ pub fn route_worker(ctx: &RoutingContext, mode: RoutingMode, worker_count: usize
 
 pub fn parse_session_open_config(
     config_json: Option<&str>,
-    default_partition_id: usize,
-    worker_count: usize,
+    default_worker_index: usize,
+    default_worker_id: OID,
+    registry: &WorkerRegistry,
 ) -> RS<SessionOpenConfig> {
-    let config = match config_json {
+    match config_json {
         Some(raw) => {
             let parsed: RawSessionOpenConfig = serde_json::from_str(raw)
                 .map_err(|e| m_error!(EC::ParseErr, "parse session open config json error", e))?;
-            SessionOpenConfig::new(parsed.session_id, parsed.partition_id)
+            let worker_id = parsed.worker_id.unwrap_or(default_worker_id);
+            if worker_id == 0 {
+                return Ok(SessionOpenConfig::new(
+                    parsed.session_id,
+                    default_worker_id,
+                    default_worker_index,
+                ));
+            }
+            let target_worker_index =
+                registry
+                    .worker_index_by_worker_id(worker_id)
+                    .ok_or_else(|| {
+                        m_error!(
+                            EC::NoSuchElement,
+                            format!("no such worker id {}", worker_id)
+                        )
+                    })?;
+            Ok(SessionOpenConfig::new(
+                parsed.session_id,
+                worker_id,
+                target_worker_index,
+            ))
         }
-        None => SessionOpenConfig::new(0, default_partition_id),
-    };
-    if config.partition_id() >= worker_count.max(1) {
-        return Err(m_error!(
-            EC::ParseErr,
-            format!(
-                "partition_id {} is out of range for {} workers",
-                config.partition_id(),
-                worker_count
-            )
-        ));
+        None => Ok(SessionOpenConfig::new(
+            0,
+            default_worker_id,
+            default_worker_index,
+        )),
     }
-    Ok(config)
 }
 
 fn stable_hash(value: &str) -> usize {

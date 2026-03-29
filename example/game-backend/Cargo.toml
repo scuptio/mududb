@@ -1,0 +1,18 @@
+[package]
+name = "game-backend"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mudu = { workspace = true }
+mudu_type = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = { workspace = true }
+sys_interface = { workspace = true, features = ["async"] }
+wit-bindgen = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }

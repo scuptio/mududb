@@ -1,6 +1,6 @@
 use crate::extern_c;
 use crate::host::{
-    invoke_host_close, invoke_host_command, invoke_host_open, invoke_host_query,
+    invoke_host_batch, invoke_host_close, invoke_host_command, invoke_host_open, invoke_host_query,
     invoke_host_session_get, invoke_host_session_put, invoke_host_session_range,
 };
 use mudu::common::endian::read_u32;
@@ -8,6 +8,7 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -28,8 +29,18 @@ pub fn inner_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<
 }
 
 #[allow(unused)]
+pub fn inner_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+    invoke_host_batch(oid, sql, params, __sys_batch)
+}
+
+#[allow(unused)]
 pub fn inner_open() -> RS<OID> {
     invoke_host_open(__sys_open)
+}
+
+#[allow(unused)]
+pub fn inner_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
+    crate::host::invoke_host_open_argv(argv, __sys_open)
 }
 
 #[allow(unused)]
@@ -136,6 +147,10 @@ fn __sys_command(command_in: &[u8]) -> RS<Vec<u8>> {
     __sys_call(command_in, ___sys_command, "sys_command")
 }
 
+fn __sys_batch(batch_in: &[u8]) -> RS<Vec<u8>> {
+    __sys_call(batch_in, ___sys_batch, "sys_batch")
+}
+
 fn __sys_fetch(result_cursor: &[u8]) -> RS<Vec<u8>> {
     __sys_call(result_cursor, ___sys_fetch, "sys_fetch")
 }
@@ -190,6 +205,26 @@ fn ___sys_command(
 ) -> i32 {
     unsafe {
         extern_c::sys_command(
+            param_buf_ptr,
+            param_buf_len,
+            out_buf_ptr,
+            out_buf_len,
+            out_len,
+            mem_id,
+        )
+    }
+}
+
+fn ___sys_batch(
+    param_buf_ptr: *const u8,
+    param_buf_len: usize,
+    out_buf_ptr: *mut u8,
+    out_buf_len: usize,
+    out_len: *mut u8,
+    mem_id: *mut u8,
+) -> i32 {
+    unsafe {
+        extern_c::sys_batch(
             param_buf_ptr,
             param_buf_len,
             out_buf_ptr,

@@ -64,6 +64,10 @@ impl DBConnSync for LSConn {
     fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
         self.inner.sync_command(sql, param)
     }
+
+    fn batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.inner.sync_batch(sql, param)
+    }
 }
 
 unsafe impl Send for LSConn {}

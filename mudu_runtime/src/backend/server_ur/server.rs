@@ -32,7 +32,6 @@ impl IoUringBackend {
             })?;
         let worker_count = cfg.effective_worker_threads();
         let app_mgr = Arc::new(MuduAppMgr::new(cfg.clone()));
-        spawn_management_thread(cfg.clone(), app_mgr.clone(), stop.clone())?;
         let procedure_runtimes = runtime.block_on(async {
             let mut runtimes = Vec::with_capacity(worker_count);
             for _ in 0..worker_count {
@@ -52,9 +51,15 @@ impl IoUringBackend {
             cfg.data_path.clone(),
             routing_mode,
             None,
-        )
+        )?
         .with_log_chunk_size(cfg.io_uring_log_chunk_size)
         .with_worker_procedure_runtimes(procedure_runtimes);
+        spawn_management_thread(
+            cfg.clone(),
+            app_mgr.clone(),
+            server_cfg.worker_registry(),
+            stop.clone(),
+        )?;
         KernelIoUringTcpBackend::sync_serve_with_stop(server_cfg, stop)
     }
 }
