@@ -13,7 +13,7 @@ Install the native build dependencies first:
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip build-essential curl liburing-dev
+sudo apt-get install -y python3 python3-pip clang build-essential curl liburing-dev
 ```
 
 These packages are used for:
@@ -87,6 +87,23 @@ touch ${HOME}/.mudu/mududb_cfg.toml
 ## Use MuduDB
 
 ### 1. Start `mudud`
+
+Before starting `mudud`, make sure the server process has a sufficiently high open-files limit. A low soft `nofile` limit such as `1024` can cause stalls or failed session setup under higher connection counts, even if your interactive shell is configured differently.
+
+For a shell-launched local server, you can raise it before starting `mudud`:
+
+```bash
+ulimit -n 65535
+mudud
+```
+
+If `mudud` is launched by `systemd` or another supervisor, configure the service-level file descriptor limit there as well, for example `LimitNOFILE=65535`.
+
+You can verify the live limit after startup with:
+
+```bash
+cat /proc/$(pgrep -x mudud)/limits | rg 'open files'
+```
 
 ```bash
 mudud

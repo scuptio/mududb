@@ -12,9 +12,14 @@ mudu = { workspace = true }
 mudu_type = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_binding = { workspace = true }
-uuid = { version = "1.17.0", features = ["v4"] }
-lazy_static = "1.5.0"
-sys_interface = { workspace = true, features = ["async"] }
+uuid = { workspace = true }
+lazy_static = { workspace = true }
 wit-bindgen = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sys_interface = { workspace = true, features = ["async"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sys_interface = { workspace = true, features = ["async", "standalone-adapter"] }
 
 [dev-dependencies]

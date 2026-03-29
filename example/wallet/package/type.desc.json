@@ -29,56 +29,6 @@
         ]
       }
     ],
-    "Transactions": [
-      2,
-      {
-        "record_name": "transactions",
-        "record_fields": [
-          {
-            "field_name": "trans_id",
-            "field_type": [
-              0,
-              12
-            ]
-          },
-          {
-            "field_name": "trans_type",
-            "field_type": [
-              0,
-              12
-            ]
-          },
-          {
-            "field_name": "from_user",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "to_user",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "amount",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "created_at",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
     "Orders": [
       2,
       {
@@ -171,6 +121,56 @@
           },
           {
             "field_name": "updated_at",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "Transactions": [
+      2,
+      {
+        "record_name": "transactions",
+        "record_fields": [
+          {
+            "field_name": "trans_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "trans_type",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "from_user",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "to_user",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "amount",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "created_at",
             "field_type": [
               0,
               6

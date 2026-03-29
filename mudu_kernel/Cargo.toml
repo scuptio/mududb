@@ -13,32 +13,31 @@ mudu = { workspace = true, features = ["test"] }
 
 mudu_type = { workspace = true, features = ["test"] }
 mudu_contract = { workspace = true }
-uuid = { version = "1.8.0", features = ["v4"] }
+uuid = { workspace = true }
 short-uuid = "0.2.0"
 
-serde = "1.0.210"
+serde = { workspace = true }
 
-tokio = { version = "1.40.0", features = ["full"] }
-lazy_static = "1.5.0"
+tokio = { workspace = true }
+lazy_static = { workspace = true }
 
 regex = { version = "1.11.0" }
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true }
 
-async-trait = { version = "0.1.83" }
+async-trait = { workspace = true }
 arbitrary = { version = "1.4.2", features = ["derive"] }
-tracing = { version = "0.1.40" }
-chrono = { version = "0.4.38" }
-async-backtrace = { version = "0.2.7" }
+tracing = { workspace = true }
+chrono = { workspace = true }
+async-backtrace = { workspace = true }
 pgwire = { workspace = true }
-futures = { version = "0.3.30", features = [] }
+futures = { workspace = true }
 scc = {workspace = true}
-project-root = { version = "0.2.2" }
+project-root = { workspace = true }
 toml = { workspace = true }
 home = { version = "0.5.9" }
-rusqlite = { workspace = true }
 csv-async = { version = "1.3.0" }
 async-std = { version = "1.13.0" }
-libc = { version = "0.2.164" }
+libc = { workspace = true }
 sql_parser = { workspace = true }
 test_utils = { workspace = true }
 mudu_utils = { workspace = true }
@@ -55,4 +54,4 @@ rliburing = { git = "https://github.com/scuptio/rliburing.git" }
 
 
 [dev-dependencies]
-postgres = { version = "0.19.9" }
+postgres = { workspace = true }

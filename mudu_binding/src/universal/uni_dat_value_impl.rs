@@ -58,9 +58,7 @@ impl UniDatValue {
                 }
                 DatValue::from_record(vec)
             }
-            UniDatValue::Binary(_data) => {
-                unimplemented!()
-            }
+            UniDatValue::Binary(data) => DatValue::from_binary(data),
         };
         Ok(value)
     }

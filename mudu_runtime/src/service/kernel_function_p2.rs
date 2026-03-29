@@ -9,6 +9,10 @@ pub fn host_command(command_in: Vec<u8>) -> Vec<u8> {
     kernel::command_internal(&command_in)
 }
 
+pub fn host_batch(batch_in: Vec<u8>) -> Vec<u8> {
+    kernel::batch_internal(&batch_in)
+}
+
 pub fn host_open(open_in: Vec<u8>, worker_local: Option<&WorkerLocalRef>) -> Vec<u8> {
     kernel::open_internal_with_worker_local(&open_in, worker_local)
         .unwrap_or_else(|e| panic!("worker-local open is not available: {}", e))

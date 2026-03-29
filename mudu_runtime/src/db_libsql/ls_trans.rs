@@ -67,6 +67,16 @@ impl LSTrans {
         Ok(affected_rows)
     }
 
+    pub async fn batch(&self, sql: &str) -> RS<u64> {
+        let before = self.trans.total_changes();
+        let _ = self
+            .trans
+            .execute_batch(sql)
+            .await
+            .map_err(|e| m_error!(EC::DBInternalError, "batch error", e))?;
+        Ok(self.trans.total_changes().saturating_sub(before))
+    }
+
     pub async fn commit(self) -> RS<()> {
         self.trans
             .commit()

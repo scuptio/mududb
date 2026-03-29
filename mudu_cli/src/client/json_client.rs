@@ -1,5 +1,8 @@
 use crate::client::async_client::{AsyncClient, AsyncClientImpl};
 use base64::Engine;
+use mudu_binding::universal::uni_dat_value::UniDatValue;
+use mudu_binding::universal::uni_oid::UniOid;
+use mudu_binding::universal::uni_primitive_value::UniPrimitiveValue;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -53,9 +56,9 @@ where
         let response = self
             .inner
             .put(PutRequest::new(
-                request.session_id,
-                decode_json_bytes(request.key)?,
-                decode_json_bytes(request.value)?,
+                request.oid.to_oid(),
+                json_value_to_universal_bytes(request.key)?,
+                json_value_to_universal_bytes(request.value)?,
             ))
             .await?;
         Ok(json!({ "ok": response.ok() }))
@@ -67,12 +70,12 @@ where
         let response = self
             .inner
             .get(GetRequest::new(
-                request.session_id,
-                decode_json_bytes(request.key)?,
+                request.oid.to_oid(),
+                json_value_to_universal_bytes(request.key)?,
             ))
             .await?;
         match response.into_value() {
-            Some(value) => encode_json_bytes(&value),
+            Some(value) => universal_bytes_to_json_value(&value),
             None => Ok(Value::Null),
         }
     }
@@ -83,9 +86,9 @@ where
         let response = self
             .inner
             .range_scan(RangeScanRequest::new(
-                request.session_id,
-                decode_json_bytes(request.start_key)?,
-                decode_json_bytes(request.end_key)?,
+                request.oid.to_oid(),
+                json_value_to_universal_bytes(request.start_key)?,
+                json_value_to_universal_bytes(request.end_key)?,
             ))
             .await?;
         let items = response
@@ -129,30 +132,27 @@ struct JsonCommandRequest {
 
 #[derive(Debug, Deserialize)]
 struct JsonGetRequest {
-    #[serde(deserialize_with = "deserialize_session_id")]
-    session_id: u128,
+    oid: UniOid,
     key: Value,
 }
 
 #[derive(Debug, Deserialize)]
 struct JsonPutRequest {
-    #[serde(deserialize_with = "deserialize_session_id")]
-    session_id: u128,
+    oid: UniOid,
     key: Value,
     value: Value,
 }
 
 #[derive(Debug, Deserialize)]
 struct JsonRangeRequest {
-    #[serde(deserialize_with = "deserialize_session_id")]
-    session_id: u128,
+    oid: UniOid,
     start_key: Value,
     end_key: Value,
 }
 
 #[derive(Debug, Deserialize)]
 struct JsonInvokeRequest {
-    #[serde(deserialize_with = "deserialize_session_id")]
+    #[serde(deserialize_with = "deserialize_u128_session_id")]
     session_id: u128,
     procedure_name: String,
     procedure_parameters: Value,
@@ -165,7 +165,7 @@ enum JsonSessionId {
     String(String),
 }
 
-fn deserialize_session_id<'de, D>(deserializer: D) -> Result<u128, D::Error>
+fn deserialize_u128_session_id<'de, D>(deserializer: D) -> Result<u128, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -173,6 +173,90 @@ where
         JsonSessionId::Number(value) => Ok(value as u128),
         JsonSessionId::String(value) => value.parse::<u128>().map_err(de::Error::custom),
     }
+}
+
+fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
+    match value {
+        Value::Null => Ok(UniDatValue::from_binary(
+            serde_json::to_vec(&Value::Null)
+                .map_err(|e| m_error!(EC::EncodeErr, "encode null payload error", e))?,
+        )),
+        Value::Bool(inner) => Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_bool(inner))),
+        Value::Number(inner) => {
+            if let Some(value) = inner.as_i64() {
+                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_i64(value)))
+            } else if let Some(value) = inner.as_u64() {
+                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_u64(value)))
+            } else if let Some(value) = inner.as_f64() {
+                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_f64(value)))
+            } else {
+                Err(m_error!(EC::DecodeErr, "unsupported numeric json payload"))
+            }
+        }
+        Value::String(inner) => Ok(UniDatValue::from_primitive(
+            UniPrimitiveValue::from_string(inner),
+        )),
+        Value::Array(inner) => inner
+            .into_iter()
+            .map(json_value_to_uni_dat_value)
+            .collect::<RS<Vec<_>>>()
+            .map(UniDatValue::from_array),
+        Value::Object(mut object) => {
+            if object.len() == 1 && object.contains_key("base64") {
+                let encoded = object
+                    .remove("base64")
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                    .ok_or_else(|| m_error!(EC::DecodeErr, "base64 payload must be a string"))?;
+                return base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map(UniDatValue::from_binary)
+                    .map_err(|e| m_error!(EC::DecodeErr, "decode base64 payload error", e));
+            }
+            serde_json::to_vec(&Value::Object(object))
+                .map(UniDatValue::from_binary)
+                .map_err(|e| m_error!(EC::EncodeErr, "encode json object payload error", e))
+        }
+    }
+}
+
+fn json_value_to_universal_bytes(value: Value) -> RS<Vec<u8>> {
+    serde_json::to_vec(&json_value_to_uni_dat_value(value)?)
+        .map_err(|e| m_error!(EC::EncodeErr, "encode universal kv value error", e))
+}
+
+fn decode_uni_dat_value(bytes: &[u8]) -> RS<UniDatValue> {
+    serde_json::from_slice(bytes)
+        .map_err(|e| m_error!(EC::DecodeErr, "decode universal kv value error", e))
+}
+
+fn uni_dat_value_to_json_value(value: UniDatValue) -> RS<Value> {
+    match value {
+        UniDatValue::Primitive(inner) => match inner {
+            UniPrimitiveValue::Bool(v) => Ok(Value::Bool(v)),
+            UniPrimitiveValue::U8(v) => Ok(json!(v)),
+            UniPrimitiveValue::I8(v) => Ok(json!(v)),
+            UniPrimitiveValue::U16(v) => Ok(json!(v)),
+            UniPrimitiveValue::I16(v) => Ok(json!(v)),
+            UniPrimitiveValue::U32(v) => Ok(json!(v)),
+            UniPrimitiveValue::I32(v) => Ok(json!(v)),
+            UniPrimitiveValue::U64(v) => Ok(json!(v)),
+            UniPrimitiveValue::I64(v) => Ok(json!(v)),
+            UniPrimitiveValue::F32(v) => Ok(json!(v)),
+            UniPrimitiveValue::F64(v) => Ok(json!(v)),
+            UniPrimitiveValue::Char(v) => Ok(json!(v.to_string())),
+            UniPrimitiveValue::String(v) => Ok(Value::String(v)),
+        },
+        UniDatValue::Array(items) | UniDatValue::Record(items) => items
+            .into_iter()
+            .map(uni_dat_value_to_json_value)
+            .collect::<RS<Vec<_>>>()
+            .map(Value::Array),
+        UniDatValue::Binary(bytes) => encode_json_bytes(&bytes),
+    }
+}
+
+fn universal_bytes_to_json_value(bytes: &[u8]) -> RS<Value> {
+    uni_dat_value_to_json_value(decode_uni_dat_value(bytes)?)
 }
 
 fn decode_json_bytes(value: Value) -> RS<Vec<u8>> {
@@ -203,8 +287,8 @@ fn encode_json_bytes(bytes: &[u8]) -> RS<Value> {
 
 fn key_value_to_json(key_value: KeyValue) -> RS<Value> {
     Ok(json!({
-        "key": encode_json_bytes(key_value.key())?,
-        "value": encode_json_bytes(key_value.value())?,
+        "key": universal_bytes_to_json_value(key_value.key())?,
+        "value": universal_bytes_to_json_value(key_value.value())?,
     }))
 }
 
@@ -214,7 +298,8 @@ mod tests {
     use crate::client::async_client::AsyncClient;
     use async_trait::async_trait;
     use mudu_contract::protocol::{
-        GetResponse, ProcedureInvokeResponse, PutResponse, RangeScanResponse, ServerResponse,
+        GetResponse, KeyValue, ProcedureInvokeResponse, PutResponse, RangeScanResponse,
+        ServerResponse,
         SessionCloseRequest, SessionCloseResponse, SessionCreateRequest, SessionCreateResponse,
     };
 
@@ -240,7 +325,7 @@ mod tests {
         }
     }
 
-    #[async_trait(?Send)]
+    #[async_trait]
     impl AsyncClient for MockAsyncIoUringTcpClient {
         async fn query(&mut self, request: ClientRequest) -> RS<ServerResponse> {
             self.last_query = Some(request);
@@ -260,7 +345,7 @@ mod tests {
         async fn get(&mut self, request: GetRequest) -> RS<GetResponse> {
             self.last_get = Some(request);
             Ok(GetResponse::new(Some(
-                serde_json::to_vec(&json!({"value": 7})).unwrap(),
+                json_value_to_universal_bytes(json!("value-1")).unwrap(),
             )))
         }
 
@@ -273,10 +358,13 @@ mod tests {
             self.last_range = Some(request);
             Ok(RangeScanResponse::new(vec![
                 KeyValue::new(
-                    serde_json::to_vec(&json!("a")).unwrap(),
-                    serde_json::to_vec(&json!({"value": 1})).unwrap(),
+                    json_value_to_universal_bytes(json!("a")).unwrap(),
+                    json_value_to_universal_bytes(json!({"value": 1})).unwrap(),
                 ),
-                KeyValue::new(vec![0xff, 0x00], vec![0x01, 0x02]),
+                KeyValue::new(
+                    json_value_to_universal_bytes(json!({"base64": "/wA="})).unwrap(),
+                    json_value_to_universal_bytes(json!({"base64": "AQI="})).unwrap(),
+                ),
             ]))
         }
 
@@ -336,7 +424,7 @@ mod tests {
 
         let put = client
             .put(json!({
-                "session_id": 7,
+                "oid": {"h": 0, "l": 7},
                 "key": {"user": "u1"},
                 "value": {"score": 9}
             }))
@@ -346,16 +434,16 @@ mod tests {
 
         let get = client
             .get(json!({
-                "session_id": 7,
+                "oid": {"h": 0, "l": 7},
                 "key": {"user": "u1"}
             }))
             .await
             .unwrap();
-        assert_eq!(get, json!({"value": 7}));
+        assert_eq!(get, json!("value-1"));
 
         let range = client
             .range(json!({
-                "session_id": 7,
+                "oid": {"h": 0, "l": 7},
                 "start_key": "a",
                 "end_key": "z"
             }))
@@ -381,15 +469,15 @@ mod tests {
 
         let inner = client.into_inner();
         assert_eq!(
-            serde_json::from_slice::<Value>(inner.last_put.unwrap().key()).unwrap(),
+            universal_bytes_to_json_value(inner.last_put.unwrap().key()).unwrap(),
             json!({"user": "u1"})
         );
         assert_eq!(
-            serde_json::from_slice::<Value>(inner.last_get.unwrap().key()).unwrap(),
+            universal_bytes_to_json_value(inner.last_get.unwrap().key()).unwrap(),
             json!({"user": "u1"})
         );
         assert_eq!(
-            serde_json::from_slice::<Value>(inner.last_range.unwrap().start_key()).unwrap(),
+            universal_bytes_to_json_value(inner.last_range.unwrap().start_key()).unwrap(),
             json!("a")
         );
         assert_eq!(
@@ -399,20 +487,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn json_client_accepts_string_session_id() {
+    async fn json_client_accepts_large_universal_oid() {
         let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
+        let session_id = 312629621299694386177868034580325764009u128;
         client
             .put(json!({
-                "session_id": "312629621299694386177868034580325764009",
+                "oid": serde_json::to_value(UniOid::from_oid(session_id)).unwrap(),
                 "key": "user-1",
                 "value": "value-1"
             }))
             .await
             .unwrap();
         let inner = client.into_inner();
-        assert_eq!(
-            inner.last_put.unwrap().session_id(),
-            312629621299694386177868034580325764009u128
-        );
+        assert_eq!(inner.last_put.unwrap().session_id(), session_id);
     }
 }

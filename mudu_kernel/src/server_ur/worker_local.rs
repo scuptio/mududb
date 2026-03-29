@@ -13,6 +13,17 @@ pub enum WorkerExecute {
 pub trait WorkerLocal: Send + Sync {
     fn open(&self) -> RS<OID>;
 
+    fn open_argv(&self, worker_id: OID) -> RS<OID> {
+        if worker_id == 0 {
+            self.open()
+        } else {
+            Err(mudu::m_error!(
+                mudu::error::ec::EC::NotImplemented,
+                format!("worker-local open on worker {} is not supported", worker_id)
+            ))
+        }
+    }
+
     fn close(&self, session_id: OID) -> RS<()>;
 
     fn execute(&self, session_id: OID, instruction: WorkerExecute) -> RS<()>;

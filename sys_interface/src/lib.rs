@@ -1,5 +1,13 @@
 pub mod api;
+mod api_impl;
+pub mod async_api;
 pub mod host;
+pub mod sync_api;
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi;
+
+#[cfg(feature = "uniffi-bindings")]
+::uniffi::setup_scaffolding!();
 
 #[cfg(all(
     target_arch = "wasm32",

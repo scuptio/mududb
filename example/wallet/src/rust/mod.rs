@@ -1,5 +1,5 @@
 pub mod orders;
-mod procedures;
+pub(crate) mod procedures;
 pub mod transactions;
 pub mod users;
 pub mod wallets;

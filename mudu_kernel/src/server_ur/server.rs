@@ -4,6 +4,7 @@ use crate::server_ur::routing::{
 };
 use crate::server_ur::worker::IoUringWorker;
 use crate::server_ur::worker_local::WorkerLocal;
+use crate::server_ur::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
 use crossbeam_queue::SegQueue;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
@@ -44,6 +45,7 @@ pub struct IoUringTcpServerConfig {
     routing_mode: RoutingMode,
     procedure_runtime: Option<ProcInvokerPtr>,
     worker_procedure_runtimes: Option<Vec<ProcInvokerPtr>>,
+    worker_registry: Arc<WorkerRegistry>,
 }
 
 impl IoUringTcpServerConfig {
@@ -59,8 +61,9 @@ impl IoUringTcpServerConfig {
         log_dir: String,
         routing_mode: RoutingMode,
         procedure_runtime: Option<ProcInvokerPtr>,
-    ) -> Self {
-        Self {
+    ) -> RS<Self> {
+        let worker_registry = load_or_create_worker_registry(&log_dir, worker_count)?;
+        Ok(Self {
             worker_count,
             listen_ip,
             listen_port,
@@ -69,7 +72,8 @@ impl IoUringTcpServerConfig {
             routing_mode,
             procedure_runtime,
             worker_procedure_runtimes: None,
-        }
+            worker_registry,
+        })
     }
 
     pub fn with_log_chunk_size(mut self, log_chunk_size: u64) -> Self {
@@ -110,6 +114,10 @@ impl IoUringTcpServerConfig {
 
     pub fn routing_mode(&self) -> RoutingMode {
         self.routing_mode
+    }
+
+    pub fn worker_registry(&self) -> Arc<WorkerRegistry> {
+        self.worker_registry.clone()
     }
 
     pub fn procedure_runtime(&self) -> Option<ProcInvokerPtr> {
@@ -233,6 +241,17 @@ fn sync_serve_fallback(cfg: IoUringTcpServerConfig, stop: Arc<AtomicBool>) -> RS
         let log_chunk_size = cfg.log_chunk_size();
         let routing_mode = cfg.routing_mode();
         let procedure_runtime = cfg.procedure_runtime_for_worker(worker_id);
+        let worker_identity = cfg
+            .worker_registry()
+            .worker(worker_id)
+            .cloned()
+            .ok_or_else(|| {
+                m_error!(
+                    EC::NoSuchElement,
+                    format!("missing worker identity {}", worker_id)
+                )
+            })?;
+        let worker_registry = cfg.worker_registry();
         let inbox = inboxes[worker_id].clone();
         let all_inboxes = inboxes.clone();
         let conn_id_alloc = conn_id_alloc.clone();
@@ -244,12 +263,13 @@ fn sync_serve_fallback(cfg: IoUringTcpServerConfig, stop: Arc<AtomicBool>) -> RS
             .name(format!("iouring-tcp-worker-{worker_id}"))
             .spawn(move || {
                 let worker = IoUringWorker::new(
-                    worker_id,
+                    worker_identity,
                     worker_count,
                     routing_mode,
                     log_dir,
                     log_chunk_size,
                     procedure_runtime,
+                    worker_registry,
                 )?;
                 run_worker_loop(worker, listener, inbox, all_inboxes, conn_id_alloc, stop)
             })
@@ -337,7 +357,7 @@ fn drain_accepted_connections(
                 progressed = true;
                 let conn_id = conn_id_alloc.fetch_add(1, Ordering::Relaxed);
                 let target_worker = worker.route_connection(conn_id, remote_addr);
-                if target_worker == worker.worker_id() {
+                if target_worker == worker.worker_index() {
                     register_connection(connections, conn_id, remote_addr, stream)?;
                 } else {
                     enqueue_transfer(
@@ -650,10 +670,11 @@ fn dispatch_frame(
             let request = decode_session_create_request(frame)?;
             let config = parse_session_open_config(
                 request.config_json(),
-                worker.partition_id(),
-                worker.worker_count(),
+                worker.worker_index(),
+                worker.worker_id(),
+                worker.registry().as_ref(),
             )?;
-            if config.partition_id() == worker.partition_id() {
+            if config.target_worker_index() == worker.worker_index() {
                 Ok(DispatchFrameResult::Immediate(
                     encode_session_create_response(
                         frame.header().request_id(),
@@ -666,7 +687,7 @@ fn dispatch_frame(
                 let action = SessionOpenTransferAction::new(frame.header().request_id(), config);
                 let session_ids = worker.prepare_connection_transfer(conn_id, Some(action))?;
                 Ok(DispatchFrameResult::Transfer {
-                    target_worker: config.partition_id(),
+                    target_worker: config.target_worker_index(),
                     session_ids,
                     action,
                 })

@@ -3,6 +3,8 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
 use mudu::common::xid::XID;
+use mudu::error::ec::EC;
+use mudu::m_error;
 use mudu_contract::database::db_conn::DBConnAsync;
 use mudu_contract::database::prepared_stmt::PreparedStmt;
 use mudu_contract::database::result_set::ResultSetAsync;
@@ -82,5 +84,12 @@ impl DBConnAsync for TursoConn {
     async fn execute(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {
         let f = async move |inner: MutexGuard<TursoConnInner>| inner.command(sql, param).await;
         self.handle_inner(f).await
+    }
+
+    async fn batch(&self, _sql: Box<dyn SQLStmt>, _param: Box<dyn SQLParams>) -> RS<u64> {
+        Err(m_error!(
+            EC::NotImplemented,
+            "batch syscall is only implemented for libsql backends"
+        ))
     }
 }

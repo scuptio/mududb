@@ -3,7 +3,7 @@
     "wallet": [
       {
         "module_name": "wallet",
-        "proc_name": "update_user",
+        "proc_name": "create_user",
         "param_desc": {
           "fields": [
             {
@@ -34,49 +34,6 @@
                 }
               },
               "name": "email"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
-        "proc_name": "deposit",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
-        "proc_name": "delete_user",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id"
             }
           ]
         },
@@ -122,7 +79,82 @@
       },
       {
         "module_name": "wallet",
-        "proc_name": "create_user",
+        "proc_name": "delete_user",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "deposit",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "transfer_funds",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "from_user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "to_user_id"
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "update_user",
         "param_desc": {
           "fields": [
             {
@@ -171,38 +203,6 @@
                 "param": null
               },
               "name": "user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
-        "proc_name": "transfer_funds",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "from_user_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "to_user_id"
             },
             {
               "dat_type": {

@@ -2,7 +2,7 @@ use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use sys_interface::api::{mudu_get, mudu_put, mudu_range};
+use sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
 
 fn kv_data_key(user_key: &str) -> String {
     format!("user/{user_key}")

@@ -26,8 +26,8 @@ Put:
 
 ```bash
 mcli put --json '{
-  "key": {"user": "u1"},
-  "value": {"score": 9}
+  "key": "user-1",
+  "value": "value-1"
 }'
 ```
 
@@ -35,7 +35,7 @@ Get:
 
 ```bash
 mcli get --json '{
-  "key": {"user": "u1"}
+  "key": "user-1"
 }'
 ```
 
@@ -79,8 +79,4 @@ JSON request bodies can be supplied in three ways:
 - `--json-file request.json`
 - `--json-file -` to read from stdin
 
-Binary fields may be passed as ordinary JSON values or as:
-
-```json
-{"base64":"..."}
-```
+`put`, `get`, and `range` accept ordinary JSON values for keys and values. `mcli` still creates and injects a temporary session automatically.

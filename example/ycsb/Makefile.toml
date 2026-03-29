@@ -1,0 +1,50 @@
+[env]
+
+PACKAGE_NAME = "ycsb"
+WASM_ARTIFACT_NAME = "ycsb"
+PROFILE = "release"
+TARGET = "wasm32-wasip2"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${WASM_ARTIFACT_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+
+[tasks.transpile]
+command = "python3"
+args = [
+    "../../script/build/transpiler.py",
+    "--config",
+        "${CARGO_MAKE_WORKING_DIRECTORY}/build-cfg/transpiler-cfg.toml",
+    "--source",
+        "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
+    "--target",
+        "${CARGO_MAKE_WORKING_DIRECTORY}/src/generated",
+    "--artifact",
+        "${CARGO_MAKE_WORKING_DIRECTORY}/src/artifact",
+    "--wasm-file",
+        "${WASM_FILE}",
+    "--package-desc",
+        "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+]
+
+[tasks.cargo-build]
+dependencies = ["transpile"]
+command = "cargo"
+args = ["build", "--target", "${TARGET}", "--${PROFILE}", "--lib"]
+
+[tasks.mpk_package]
+dependencies = ["transpile", "cargo-build"]
+command = "mpk"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.package]
+alias = "mpk_package"
+
+[tasks.default]
+alias = "package"

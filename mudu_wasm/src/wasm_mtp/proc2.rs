@@ -3,7 +3,7 @@ use mudu::common::xid::XID;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_type::datum::{Datum, DatumDyn};
 use object::Wallets;
-use sys_interface::api::{mudu_command, mudu_query};
+use sys_interface::sync_api::{mudu_command, mudu_query};
 
 /**mudu-proc**/
 pub fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {

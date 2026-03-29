@@ -25,6 +25,8 @@ pub trait DBConnSync: Sync + Send + Any {
     ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)>;
 
     fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64>;
+
+    fn batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64>;
 }
 
 #[async_trait]
@@ -46,4 +48,6 @@ pub trait DBConnAsync: Sync + Send + Any {
     ) -> RS<Arc<dyn ResultSetAsync>>;
 
     async fn execute(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64>;
+
+    async fn batch(&self, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64>;
 }

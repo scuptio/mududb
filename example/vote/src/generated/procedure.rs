@@ -11,7 +11,7 @@ use mudu::error::ec::EC::MuduError;
 use mudu::m_error;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::{sql_params, sql_stmt};
-use sys_interface::api::{mudu_command, mudu_query};
+use sys_interface::async_api::{mudu_command, mudu_query};
 use uuid::Uuid;
 
 // User management

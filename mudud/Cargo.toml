@@ -12,4 +12,4 @@ mudu = { workspace = true }
 mudu_utils = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
-libc = "0.2"
+libc = { workspace = true }

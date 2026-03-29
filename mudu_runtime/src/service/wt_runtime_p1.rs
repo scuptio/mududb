@@ -8,6 +8,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_contract::procedure::proc_desc::ProcDesc;
+use wasmtime::component::Component;
 use wasmtime::{Caller, Config, Engine, Linker, Module};
 
 pub struct WTRuntimeP1 {
@@ -45,13 +46,26 @@ fn instantiate_module(
     byte_code: &Vec<u8>,
     desc_vec: &Vec<ProcDesc>,
 ) -> RS<PackageModule> {
-    let module = Module::from_binary(&engine, &byte_code).map_err(|e| {
-        m_error!(
-            EC::MuduError,
-            format!("build module {} from binary error", name),
-            e
-        )
-    })?;
+    let module = match Module::from_binary(&engine, &byte_code) {
+        Ok(module) => module,
+        Err(module_err) => {
+            if Component::from_binary(engine, byte_code).is_ok() {
+                return Err(m_error!(
+                    EC::MuduError,
+                    format!(
+                        "package module {} is a WebAssembly component, but runtime target is P1; set enable_p2 = true or component_target = \"p2\"",
+                        name
+                    ),
+                    module_err
+                ));
+            }
+            return Err(m_error!(
+                EC::MuduError,
+                format!("build module {} from binary error", name),
+                module_err
+            ));
+        }
+    };
 
     let instance_pre = linker.instantiate_pre(&module).map_err(|e| {
         m_error!(
@@ -132,6 +146,31 @@ fn register_sys_call(linker: &mut Linker<WasiContext>) -> RS<()> {
             },
         )
         .map_err(|e| m_error!(EC::MuduError, "register command error", e))?;
+
+    linker
+        .func_wrap(
+            module_name,
+            "sys_batch",
+            |caller: Caller<'_, WasiContext>,
+             param_buf_ptr: u32,
+             param_buf_len: u32,
+             out_buf_ptr: u32,
+             out_buf_len: u32,
+             out_mem_ptr: u32,
+             out_mem_len: u32|
+             -> i32 {
+                kernel_function_p1::kernel_batch_p1(
+                    caller,
+                    param_buf_ptr,
+                    param_buf_len,
+                    out_buf_ptr,
+                    out_buf_len,
+                    out_mem_ptr,
+                    out_mem_len,
+                )
+            },
+        )
+        .map_err(|e| m_error!(EC::MuduError, "register batch error", e))?;
 
     linker
         .func_wrap(

@@ -10,7 +10,7 @@ use mudu::m_error;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine};
+use wasmtime::{Config, Engine, Module};
 use wasmtime_wasi::p2::add_to_linker_sync;
 
 pub struct WTRuntimeComponent {
@@ -83,13 +83,26 @@ fn instantiate_component(
     byte_code: &Vec<u8>,
     desc_vec: &Vec<ProcDesc>,
 ) -> RS<PackageModule> {
-    let component = Component::from_binary(&engine, &byte_code).map_err(|e| {
-        m_error!(
-            EC::MuduError,
-            format!("build component {} from binary error", name),
-            e
-        )
-    })?;
+    let component = match Component::from_binary(&engine, &byte_code) {
+        Ok(component) => component,
+        Err(component_err) => {
+            if Module::from_binary(engine, byte_code).is_ok() {
+                return Err(m_error!(
+                    EC::MuduError,
+                    format!(
+                        "package module {} is a WebAssembly module, but runtime target is component; disable enable_p2 or rebuild the package for wasm32-wasip2",
+                        name
+                    ),
+                    component_err
+                ));
+            }
+            return Err(m_error!(
+                EC::MuduError,
+                format!("build component {} from binary error", name),
+                component_err
+            ));
+        }
+    };
 
     let instance_pre = linker.instantiate_pre(&component).map_err(|e| {
         m_error!(

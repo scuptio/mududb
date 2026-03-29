@@ -9,6 +9,10 @@ pub async fn async_host_command(command_in: Vec<u8>) -> Vec<u8> {
     kernel::async_command_internal(command_in).await
 }
 
+pub async fn async_host_batch(batch_in: Vec<u8>) -> Vec<u8> {
+    kernel::async_batch_internal(batch_in).await
+}
+
 pub async fn async_host_open(open_in: Vec<u8>, worker_local: Option<&WorkerLocalRef>) -> Vec<u8> {
     kernel::async_open_internal_with_worker_local(open_in, worker_local).await
 }

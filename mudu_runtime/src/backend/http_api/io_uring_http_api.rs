@@ -1,6 +1,6 @@
 use super::{
-    AsyncIoUringInvokeClientFactory, HttpApi, TokioIoUringInvokeClientFactory, find_app,
-    parse_json_object_body, to_param,
+    AsyncIoUringInvokeClientFactory, HttpApi, ServerTopology, TokioIoUringInvokeClientFactory,
+    WorkerTopology, find_app, parse_json_object_body, to_param,
 };
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mududb_cfg::MuduDBCfg;
@@ -9,20 +9,27 @@ use mudu::common::result::RS;
 use mudu::utils::json::JsonValue;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_contract::procedure::proc_desc::ProcDesc;
+use mudu_kernel::server_ur::worker_registry::WorkerRegistry;
 use serde_json::Value;
 use std::sync::Arc;
 
 pub struct IoUringHttpApi {
     app_mgr: Arc<dyn AppMgr>,
     tcp_addr: String,
+    worker_registry: Arc<WorkerRegistry>,
     client_factory: Arc<dyn AsyncIoUringInvokeClientFactory>,
 }
 
 impl IoUringHttpApi {
-    pub fn new(app_mgr: Arc<dyn AppMgr>, cfg: &MuduDBCfg) -> Self {
+    pub fn new(
+        app_mgr: Arc<dyn AppMgr>,
+        cfg: &MuduDBCfg,
+        worker_registry: Arc<WorkerRegistry>,
+    ) -> Self {
         Self::with_client_factory(
             app_mgr,
             format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port),
+            worker_registry,
             Arc::new(TokioIoUringInvokeClientFactory),
         )
     }
@@ -30,11 +37,13 @@ impl IoUringHttpApi {
     pub fn with_client_factory(
         app_mgr: Arc<dyn AppMgr>,
         tcp_addr: String,
+        worker_registry: Arc<WorkerRegistry>,
         client_factory: Arc<dyn AsyncIoUringInvokeClientFactory>,
     ) -> Self {
         Self {
             app_mgr,
             tcp_addr,
+            worker_registry,
             client_factory,
         }
     }
@@ -94,6 +103,22 @@ impl HttpApi for IoUringHttpApi {
 
     async fn install_mpk(&self, mpk_binary: Vec<u8>) -> RS<()> {
         self.app_mgr.install(mpk_binary).await
+    }
+
+    async fn server_topology(&self) -> RS<ServerTopology> {
+        Ok(ServerTopology {
+            worker_count: self.worker_registry.workers().len(),
+            workers: self
+                .worker_registry
+                .workers()
+                .iter()
+                .map(|worker| WorkerTopology {
+                    worker_index: worker.worker_index,
+                    worker_id: worker.worker_id,
+                    partitions: worker.partition_ids.clone(),
+                })
+                .collect(),
+        })
     }
 
     async fn uninstall_app(&self, app_name: &str) -> RS<()> {

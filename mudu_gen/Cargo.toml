@@ -17,8 +17,8 @@ mudu_contract = { workspace = true }
 askama = {workspace = true}
 serde = { workspace = true }
 rust-format = "0.3.4"
-paste = "1.0.15"
-lazy_static = "1.5.0"
+paste = { workspace = true }
+lazy_static = { workspace = true }
 mudu_binding = {workspace = true}
 [build-dependencies]
 md-5 = { workspace = true }
@@ -33,6 +33,5 @@ path = "src/lib.rs"
 [[bin]]
 name = "mgen"
 path = "tool/main.rs"
-
 
 

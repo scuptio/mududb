@@ -7,7 +7,7 @@ cargo install cargo-fuzz
 
 ```
 
-Install llvm-tools, for run coverage
+Install llvm-tools to run coverage
 
 ```shell
 rustup component add llvm-tools
@@ -34,7 +34,7 @@ Install llvm-tools-preview tools,
 rustup component add llvm-tools-preview
 ```
 
-Otherwise, cargo fuzz coverage would complain errors:
+Otherwise, `cargo fuzz coverage` would fail with errors:
 
 ```
 Caused by:
@@ -63,7 +63,7 @@ Caused by:
 
 4. Generate golden corpus (in folder /[path_to_project]/fuzz/golden_corpus)
    ```shell
-   GOLDEN_CORPUS=ture cargo +nightly fuzz coverage [target]
+   GOLDEN_CORPUS=true cargo +nightly fuzz coverage [target]
    ```
 
    

@@ -26,11 +26,15 @@ VALUES (2,
 
 
 INSERT INTO wallets (user_id,
-                     balance)
+                     balance,
+                     updated_at)
 VALUES (1,
-        10000);
+        10000,
+        0);
 
 INSERT INTO wallets (user_id,
-                     balance)
+                     balance,
+                     updated_at)
 VALUES (2,
-        10000);
+        10000,
+        0);

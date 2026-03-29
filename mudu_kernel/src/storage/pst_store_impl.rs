@@ -4,8 +4,10 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_utils::sync::s_task::STask;
-use rusqlite::{params, Connection, Statement, Transaction};
-use std::str::FromStr;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -52,50 +54,26 @@ impl PstStoreImpl {
 
 struct Inner {
     receiver: Receiver<Vec<PstOp>>,
-    connection: Connection,
+    path: PathBuf,
+    state: PersistedStore,
 }
 
 impl Inner {
     fn new(path: String, receiver: Receiver<Vec<PstOp>>) -> RS<Inner> {
-        let connection =
-            Connection::open(path).map_err(|e| m_error!(ER::IOErr, "open sqlite db error", e))?;
+        let path = PathBuf::from(path);
+        let state = PersistedStore::load(&path)?;
         Ok(Self {
             receiver,
-            connection,
+            path,
+            state,
         })
     }
 
     fn create(&mut self) -> RS<()> {
-        let ddl1 = r#"
-            CREATE TABLE IF NOT EXISTS data (
-                table_id TEXT ,
-                tuple_id TEXT,
-                ts_min INTEGER NOT NULL,
-                ts_max INTEGER NOT NULL,
-                tuple_key BLOB NOT NULL,
-                tuple_value BLOB NOT NULL,
-                PRIMARY KEY(table_id, tuple_id)
-            );
-            "#;
-        let ddl2 = r#"
-            CREATE TABLE IF NOT EXISTS delta (
-                table_id TEXT ,
-                tuple_id TEXT,
-                ts_min INTEGER NOT NULL,
-                ts_max INTEGER NOT NULL,
-                tuple_delta BLOB NOT NULL,
-                PRIMARY KEY(table_id, tuple_id, ts_min)
-            );
-            "#;
-        let _ = self
-            .connection
-            .execute(ddl1, ())
-            .map_err(|e| m_error!(ER::IOErr, "create table data error", e))?;
-
-        let _ = self
-            .connection
-            .execute(ddl2, ())
-            .map_err(|e| m_error!(ER::IOErr, "create table delta error", e))?;
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| m_error!(ER::IOErr, "create pst store dir error", e))?;
+        }
         Ok(())
     }
 
@@ -109,51 +87,40 @@ impl Inner {
                 vec_cmds.extend(c);
             }
 
-            let ok = Self::write(&mut self.connection, vec_cmds)?;
+            let ok = Self::write(&self.path, &mut self.state, vec_cmds)?;
             if !ok {
                 // stopped
                 break;
             }
         }
-        self.connection
-            .cache_flush()
-            .map_err(|e| m_error!(ER::IOErr, "", e))?;
         Ok(())
     }
 
-    fn write(connection: &mut Connection, cmds: Vec<PstOp>) -> RS<bool> {
-        let tran = connection
-            .transaction()
-            .map_err(|e| m_error!(ER::IOErr, "start transaction error", e))?;
-
+    fn write(path: &Path, state: &mut PersistedStore, cmds: Vec<PstOp>) -> RS<bool> {
         let mut notify = vec![];
         let mut stop = None;
-        {
-            let mut stmt = Self::prepare_statement(&tran)?;
-            for c in cmds {
-                match c {
-                    PstOp::InsertKV(insert_kv) => {
-                        Self::insert_kv(&mut stmt.stmt_insert_kv, insert_kv)?;
-                    }
-                    PstOp::UpdateV(update_v) => {
-                        Self::update_v(&mut stmt.stmt_update_v, update_v)?;
-                    }
-                    PstOp::DeleteKV(delete_kv) => {
-                        Self::delete_kv(&mut stmt.stmt_delete_kv, delete_kv)?;
-                    }
-                    PstOp::WriteDelta(_) => {}
-                    PstOp::Flush(n) => {
-                        notify.push(n);
-                    }
-                    PstOp::Stop(n) => {
-                        stop = Some(n);
-                        break;
-                    }
+        for c in cmds {
+            match c {
+                PstOp::InsertKV(insert_kv) => {
+                    Self::insert_kv(state, insert_kv);
+                }
+                PstOp::UpdateV(update_v) => {
+                    Self::update_v(state, update_v)?;
+                }
+                PstOp::DeleteKV(delete_kv) => {
+                    Self::delete_kv(state, delete_kv);
+                }
+                PstOp::WriteDelta(_) => {}
+                PstOp::Flush(n) => {
+                    notify.push(n);
+                }
+                PstOp::Stop(n) => {
+                    stop = Some(n);
+                    break;
                 }
             }
         }
-        tran.commit()
-            .map_err(|e| m_error!(ER::IOErr, "commit transaction error", e))?;
+        state.save(path)?;
         for n in notify {
             let _ = n.send(());
         }
@@ -167,74 +134,34 @@ impl Inner {
         Ok(true)
     }
 
-    fn insert_kv(stmt: &mut Statement, insert_kv: InsertKV) -> RS<()> {
-        let table_id = oid_2_text(insert_kv.table_id);
-        let tuple_id = oid_2_text(insert_kv.tuple_id);
-        stmt.execute(params![
-            table_id,
-            tuple_id,
-            insert_kv.timestamp.c_min() as i64,
-            insert_kv.timestamp.c_max() as i64,
-            insert_kv.key,
-            insert_kv.value
-        ])
-        .map_err(|e| m_error!(ER::IOErr, "", e))?;
+    fn insert_kv(state: &mut PersistedStore, insert_kv: InsertKV) {
+        let row_key = PersistedKey::new(insert_kv.table_id, insert_kv.tuple_id);
+        let row = PersistedRow {
+            table_id: oid_2_text(insert_kv.table_id),
+            tuple_id: oid_2_text(insert_kv.tuple_id),
+            ts_min: insert_kv.timestamp.c_min(),
+            ts_max: insert_kv.timestamp.c_max(),
+            tuple_key: insert_kv.key,
+            tuple_value: insert_kv.value,
+        };
+        state.data.insert(row_key.as_map_key(), row);
+    }
+
+    fn update_v(state: &mut PersistedStore, update_v: UpdateV) -> RS<()> {
+        let row_key = PersistedKey::new(update_v.table_id, update_v.tuple_id).as_map_key();
+        let row = state
+            .data
+            .get_mut(&row_key)
+            .ok_or_else(|| m_error!(ER::IOErr, "update missing pst row"))?;
+        row.ts_min = update_v.timestamp.c_min();
+        row.ts_max = update_v.timestamp.c_max();
+        row.tuple_value = update_v.value;
         Ok(())
     }
 
-    fn update_v(stmt: &mut Statement, update_v: UpdateV) -> RS<()> {
-        let table_id = oid_2_text(update_v.table_id);
-        let tuple_id = oid_2_text(update_v.tuple_id);
-        stmt.execute(params![
-            update_v.timestamp.c_min() as i64,
-            update_v.timestamp.c_max() as i64,
-            update_v.value,
-            table_id,
-            tuple_id,
-        ])
-        .map_err(|e| m_error!(ER::IOErr, "", e))?;
-        Ok(())
-    }
-
-    fn delete_kv(stmt: &mut Statement, delete_kv: DeleteKV) -> RS<()> {
-        let table_id = oid_2_text(delete_kv.table_id);
-        let tuple_id = oid_2_text(delete_kv.tuple_id);
-        stmt.execute(params![table_id, tuple_id])
-            .map_err(|e| m_error!(ER::IOErr, "", e))?;
-        Ok(())
-    }
-
-    fn prepare_statement<'a>(tran: &'a Transaction<'a>) -> RS<SQLStmt<'a>> {
-        let insert_kv = r#"
-            INSERT INTO data (
-                table_id, tuple_id,
-                ts_min, ts_max,
-                tuple_key, tuple_value
-            ) VALUES (?, ?, ?, ?, ?, ?)"#;
-        let update_value = r#"
-            UPDATE data SET
-                ts_min = ?,
-                ts_max = ?,
-                tuple_value = ?
-            WHERE table_id = ? AND tuple_id = ?
-            "#;
-        let delete_kv = r#"
-            DELETE FROM data WHERE table_id = ? AND tuple_id = ?
-        "#;
-        let stmt_insert_kv = tran
-            .prepare(insert_kv)
-            .map_err(|e| m_error!(ER::IOErr, "prepare put key value error", e))?;
-        let stmt_update_v = tran
-            .prepare(update_value)
-            .map_err(|e| m_error!(ER::IOErr, "prepare update value error", e))?;
-        let stmt_delete_kv = tran
-            .prepare(delete_kv)
-            .map_err(|e| m_error!(ER::IOErr, "prepare delete key value error", e))?;
-        Ok(SQLStmt {
-            stmt_insert_kv,
-            stmt_update_v,
-            stmt_delete_kv,
-        })
+    fn delete_kv(state: &mut PersistedStore, delete_kv: DeleteKV) {
+        let row_key = PersistedKey::new(delete_kv.table_id, delete_kv.tuple_id).as_map_key();
+        state.data.remove(&row_key);
     }
 }
 
@@ -242,13 +169,60 @@ fn oid_2_text(oid: OID) -> String {
     oid.to_string()
 }
 
-fn text_2_oid(str: &str) -> RS<OID> {
-    OID::from_str(str).map_err(|e| m_error!(ER::ParseErr, format!("parse string {} error", str), e))
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedStore {
+    data: BTreeMap<String, PersistedRow>,
 }
-struct SQLStmt<'c> {
-    stmt_insert_kv: Statement<'c>,
-    stmt_update_v: Statement<'c>,
-    stmt_delete_kv: Statement<'c>,
+
+impl PersistedStore {
+    fn load(path: &Path) -> RS<Self> {
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let text = fs::read_to_string(path)
+            .map_err(|e| m_error!(ER::IOErr, "read pst store file error", e))?;
+        serde_json::from_str(&text).map_err(|e| m_error!(ER::ParseErr, "parse pst store file error", e))
+    }
+
+    fn save(&self, path: &Path) -> RS<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| m_error!(ER::IOErr, "create pst store dir error", e))?;
+        }
+        let text = serde_json::to_string_pretty(self)
+            .map_err(|e| m_error!(ER::ParseErr, "serialize pst store file error", e))?;
+        let tmp_path = path.with_extension("json.tmp");
+        fs::write(&tmp_path, text)
+            .map_err(|e| m_error!(ER::IOErr, "write pst store temp file error", e))?;
+        fs::rename(&tmp_path, path)
+            .map_err(|e| m_error!(ER::IOErr, "replace pst store file error", e))?;
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistedRow {
+    table_id: String,
+    tuple_id: String,
+    ts_min: u64,
+    ts_max: u64,
+    tuple_key: Vec<u8>,
+    tuple_value: Vec<u8>,
+}
+
+struct PersistedKey {
+    table_id: OID,
+    tuple_id: OID,
+}
+
+impl PersistedKey {
+    fn new(table_id: OID, tuple_id: OID) -> Self {
+        Self { table_id, tuple_id }
+    }
+
+    fn as_map_key(&self) -> String {
+        format!("{}:{}", self.table_id, self.tuple_id)
+    }
 }
 
 impl STask for PstStoreImpl {

@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio::task::LocalSet;
+use tracing::info;
 
 #[cfg(target_os = "linux")]
 use crate::backend::server_ur::server::IoUringBackend;
@@ -24,7 +25,19 @@ impl Backend {
     }
 
     pub fn sync_serve_with_stop(cfg: MuduDBCfg, stop: Waiter) -> RS<()> {
+        info!(
+            server_mode = ?cfg.server_mode,
+            runtime_target = ?cfg.runtime_target(),
+            enable_async = cfg.enable_async,
+            enable_p2 = cfg.enable_p2,
+            listen_ip = %cfg.listen_ip,
+            http_listen_port = cfg.http_listen_port,
+            pg_listen_port = cfg.pg_listen_port,
+            tcp_listen_port = cfg.tcp_listen_port,
+            "starting mudud backend"
+        );
         if cfg.server_mode == ServerMode::IOUring {
+            info!("selected io_uring backend");
             // The new backend is isolated behind a dedicated mode so the
             // legacy HTTP/PG paths keep their exact startup behavior.
             #[cfg(target_os = "linux")]
@@ -39,6 +52,7 @@ impl Backend {
             }
         }
 
+        info!("selected legacy backend");
         let service = Service::new();
         let (init_db_notifier, init_db_waiter) = notify_wait();
 

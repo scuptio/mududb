@@ -31,6 +31,15 @@ unsafe extern "C" {
         mem_id: *mut u8,
     ) -> i32;
 
+    pub fn sys_batch(
+        param_buf_ptr: *const u8,
+        param_buf_len: usize,
+        out_buf_ptr: *mut u8,
+        out_buf_len: usize,
+        out_len: *mut u8,
+        mem_id: *mut u8,
+    ) -> i32;
+
     // Similar to sys_command but semantically used for query operations.
     // Shares the same signature and safety requirements as `sys_command`.
     pub fn sys_query(

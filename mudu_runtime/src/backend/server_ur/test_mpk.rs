@@ -206,7 +206,7 @@ fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
         cfg.data_path.clone(),
         KernelRoutingMode::ConnectionId,
         None,
-    )
+    )?
     .with_log_chunk_size(cfg.io_uring_log_chunk_size)
     .with_worker_procedure_runtimes(procedure_runtimes);
 

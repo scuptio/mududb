@@ -1,6 +1,6 @@
 use crate::server_ur::pending_procedure_invocation::PendingProcedureInvocation;
 use crate::server_ur::procedure_task::{FrameDispatch, SessionTransferDispatch};
-use crate::server_ur::routing::{SessionOpenTransferAction, parse_session_open_config};
+use crate::server_ur::routing::{parse_session_open_config, SessionOpenTransferAction};
 use crate::server_ur::server::IoUringTcpServerConfig;
 use crate::server_ur::worker::IoUringWorker;
 use crate::server_ur::worker_local_log::WorkerLocalLog;
@@ -11,12 +11,12 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::{
-    Frame, GetResponse, HEADER_LEN, KeyValue, MessageType, PutResponse, RangeScanResponse,
-    ServerResponse, SessionCloseResponse, SessionCreateResponse, decode_client_request,
-    decode_get_request, decode_procedure_invoke_request, decode_put_request,
+    decode_client_request, decode_get_request, decode_procedure_invoke_request, decode_put_request,
     decode_range_scan_request, decode_session_close_request, decode_session_create_request,
     encode_get_response, encode_put_response, encode_range_scan_response, encode_server_response,
-    encode_session_close_response, encode_session_create_response,
+    encode_session_close_response, encode_session_create_response, Frame, GetResponse, KeyValue,
+    MessageType, PutResponse, RangeScanResponse, ServerResponse, SessionCloseResponse,
+    SessionCreateResponse, HEADER_LEN,
 };
 use mudu_utils::notifier::Waiter;
 use socket2::{Domain, Protocol, Socket, Type};
@@ -94,6 +94,17 @@ pub(crate) fn sync_serve_iouring(cfg: IoUringTcpServerConfig, stop: Waiter) -> R
         let all_mailboxes = mailboxes.clone();
         let all_mailbox_fds = mailbox_fds.clone();
         let procedure_runtime = cfg.procedure_runtime_for_worker(worker_id);
+        let worker_identity = cfg
+            .worker_registry()
+            .worker(worker_id)
+            .cloned()
+            .ok_or_else(|| {
+                m_error!(
+                    EC::NoSuchElement,
+                    format!("missing worker identity {}", worker_id)
+                )
+            })?;
+        let worker_registry = cfg.worker_registry();
         let routing_mode = cfg.routing_mode();
         let log_dir = cfg.log_dir().to_string();
         let log_chunk_size = cfg.log_chunk_size();
@@ -106,12 +117,13 @@ pub(crate) fn sync_serve_iouring(cfg: IoUringTcpServerConfig, stop: Waiter) -> R
             .spawn(move || {
                 let listener_fd = create_listener_fd(listen_addr)?;
                 let worker = IoUringWorker::new(
-                    worker_id,
+                    worker_identity,
                     worker_count,
                     routing_mode,
                     log_dir.clone(),
                     log_chunk_size,
                     procedure_runtime,
+                    worker_registry,
                 )?;
                 let log = WorkerLocalLog::open(worker.log_layout())?;
                 let mut loop_state = WorkerRingLoop::new(
@@ -287,10 +299,11 @@ pub fn dispatch_frame_iouring(
             let request = decode_session_create_request(frame)?;
             let config = parse_session_open_config(
                 request.config_json(),
-                worker.partition_id(),
-                worker.worker_count(),
+                worker.worker_index(),
+                worker.worker_id(),
+                worker.registry().as_ref(),
             )?;
-            if config.partition_id() == worker.partition_id() {
+            if config.target_worker_index() == worker.worker_index() {
                 let session_id = worker.open_session_with_config(conn_id, config)?;
                 Ok(FrameDispatch::Immediate(encode_session_create_response(
                     frame.header().request_id(),
@@ -300,7 +313,7 @@ pub fn dispatch_frame_iouring(
                 let action = SessionOpenTransferAction::new(frame.header().request_id(), config);
                 let session_ids = worker.prepare_connection_transfer(conn_id, Some(action))?;
                 Ok(FrameDispatch::Transfer(SessionTransferDispatch::new(
-                    config.partition_id(),
+                    config.target_worker_index(),
                     session_ids,
                     action,
                 )))

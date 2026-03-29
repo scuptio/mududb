@@ -121,6 +121,11 @@ impl SchemaMgr {
         }
     }
 
+    pub fn table_names(&self) -> Vec<String> {
+        let g = self.map.lock().unwrap();
+        g.keys().cloned().collect()
+    }
+
     fn load_from_sql_text(&self, sql_text: &String, parser: &DDLParser) -> RS<()> {
         let table_def_list = parser.parse(sql_text)?;
         for table_def in table_def_list {

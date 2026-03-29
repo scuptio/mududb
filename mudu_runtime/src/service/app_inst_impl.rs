@@ -104,7 +104,7 @@ impl AppInstImplInner {
         }
         SchemaMgr::add_mgr(app_cfg.name.clone(), schema_mgr.clone());
         let sql_text = ddl_sql.to_string() + init_sql.as_str();
-        initdb(db_path, &app_cfg.name, &sql_text, enable_async).await?;
+        initdb(db_path, &app_cfg.name, &sql_text, &schema_mgr, enable_async).await?;
         Ok(Self {
             package_cfg: app_cfg.clone(),
             enable_async,
@@ -286,9 +286,15 @@ async fn new_conn(db_path: &String, app_name: &String, enable_async: bool) -> RS
     Ok(db_conn)
 }
 
-async fn initdb(db_path: &String, app_name: &String, sql: &String, enable_async: bool) -> RS<()> {
+async fn initdb(
+    db_path: &String,
+    app_name: &String,
+    sql: &String,
+    schema_mgr: &SchemaMgr,
+    enable_async: bool,
+) -> RS<()> {
     let init_db_lock = PathBuf::from(&db_path).join(format!("{}.lock", app_name));
-    if init_db_lock.exists() {
+    if init_db_lock.exists() && is_schema_initialized(db_path, app_name, schema_mgr, enable_async).await? {
         return Ok(());
     }
     let conn = new_conn(db_path, app_name, enable_async).await?;
@@ -301,6 +307,22 @@ async fn initdb(db_path: &String, app_name: &String, sql: &String, enable_async:
         )
     })?;
     Ok(())
+}
+
+async fn is_schema_initialized(
+    db_path: &String,
+    app_name: &String,
+    schema_mgr: &SchemaMgr,
+    enable_async: bool,
+) -> RS<bool> {
+    let conn = new_conn(db_path, app_name, enable_async).await?;
+    for table_name in schema_mgr.table_names() {
+        let verify_sql = format!("SELECT 1 FROM {} LIMIT 1;", table_name);
+        if conn.execute_silent(verify_sql).await.is_err() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[async_trait]

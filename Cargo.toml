@@ -1,15 +1,17 @@
 [workspace]
-resolver = "1"
+resolver = "2"
 
 members = [
     "mudu",
+    "mudu_adapter",
     "mudu_type",
     "mudu_contract",
     "mudu_binding",
-    "example/pull-push",
     "example/wallet",
     "example/vote",
+    "example/game-backend",
     "example/key-value",
+    "example/ycsb",
     "mudu_runtime",
     "mudu_gen",
     "sql_parser",
@@ -32,6 +34,7 @@ members = [
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
 test_utils = { path = "test_utils" }
 sys_interface = { path = "sys_interface" }
+mudu_adapter = { path = "mudu_adapter" }
 mudu = { path = "mudu" }
 mudu_binding = { path = "mudu_binding" }
 md-5 = { version = "0.11.0-rc.0" }
@@ -54,16 +57,36 @@ serde = { version = "1.0.228", features = ["default", "derive", "serde_derive"] 
 serde_repr = {version = "0.1.20"}
 tracing-subscriber = "0.3.20"
 console-subscriber = { version = "0.5.0" }
-tokio = { version = "1.40.0", features = ["full"] }
+tokio = { version = "1.47.1", features = ["full"] }
 rmp-serde = { version = "1.3.0" }
 rmpv = { version = "1.3.0" }
-rusqlite = { package = "libsql-rusqlite", version = "0.9.29" }
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+postgres = { version = "0.19.10" }
+tokio-postgres = { version = "0.7.15" }
+mysql = { version = "28.0.0" }
+mysql_async = { version = "0.36.1" }
 scc = { version = "3.3.1" }
-clap = { version = "4.5.49" }
+clap = { version = "4.5.50" }
 cc = { version = "1.2.49" }
-base16ct = { version = "0.3.0" }
+base16ct = { version = "1.0.0" }
 askama = {version = "0.15.0" }
-toml = { version = "0.9.8", features = ["preserve_order"] }
-wit-bindgen = { version = "0.50.0" }
+toml = { version = "1.1.0", features = ["preserve_order"] }
+wit-bindgen = { version = "0.54.0" }
 tracing = { version = "0.1.43" }
-pgwire = { version = "0.37.0", default-features = false, features = ["server-api-ring", "pg-ext-types"]}
+pgwire = { version = "0.38.2", default-features = false, features = ["server-api-ring", "pg-ext-types"]}
+lazy_static = { version = "1.5.0" }
+uuid = { version = "1.18.1", features = ["v4", "js"] }
+async-trait = { version = "0.1.89" }
+futures = { version = "0.3.31" }
+hex = { version = "0.4.3" }
+byteorder = { version = "1.5.0" }
+paste = { version = "1.0.15" }
+reqwest = { version = "0.13.2", features = ["json"] }
+base64 = { version = "0.22.1" }
+anyhow = { version = "1.0.100" }
+libc = { version = "0.2.164" }
+fallible-iterator = { version = "0.3.0" }
+chrono = { version = "0.4.42" }
+async-backtrace = { version = "0.2.7" }
+uniffi = { version = "0.31.0", features = ["scaffolding-ffi-buffer-fns"] }
+zip = { version = "8.4.0" }

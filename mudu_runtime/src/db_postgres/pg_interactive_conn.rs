@@ -77,6 +77,13 @@ impl DBConnSync for PGInteractive {
     fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
         self.command_inner(sql, param)
     }
+
+    fn batch(&self, _sql: &dyn SQLStmt, _param: &dyn SQLParams) -> RS<u64> {
+        Err(m_error!(
+            EC::NotImplemented,
+            "batch syscall is only implemented for libsql backends"
+        ))
+    }
 }
 
 impl PGInteractive {

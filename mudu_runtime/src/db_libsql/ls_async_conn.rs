@@ -19,6 +19,7 @@ use std::io::{BufRead, BufReader, Cursor};
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct LSSyncConn {
@@ -62,6 +63,7 @@ impl LockedTrans {
 
 fn mudu_lib_db_file<P: AsRef<Path>>(db_path: P, app_name: String) -> RS<String> {
     let path = PathBuf::from(db_path.as_ref()).join(app_name);
+    info!("db path {}", path.display());
     let opt = path.to_str();
     match opt {
         Some(t) => Ok(t.to_string()),
@@ -146,6 +148,18 @@ impl LSSyncConn {
         let desc = param.param_tuple_desc()?;
         self.inner
             .async_command(sql_text, params_boxed, desc.into_fields())
+    }
+
+    pub fn sync_batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        let sql_text = sql.to_string();
+        let n = param.size();
+        if n != 0 {
+            return Err(m_error!(
+                EC::NotImplemented,
+                "batch syscall does not support SQL parameters"
+            ));
+        }
+        self.inner.async_batch(sql_text)
     }
 
     pub fn sync_commit(&self) -> RS<()> {
@@ -330,6 +344,12 @@ impl LSAsyncConnInner {
         result
     }
 
+    fn async_batch(&self, sql: String) -> RS<u64> {
+        let conn = self.conn.clone();
+        let trans = self.trans.clone();
+        blocking::run_async(async move { Self::async_batch_gut(conn, trans, sql).await })?
+    }
+
     async fn async_command_gut(trans: LockedTrans, sql: String) -> RS<u64> {
         let affected_rows = Self::transaction(
             trans,
@@ -338,6 +358,25 @@ impl LSAsyncConnInner {
         )
         .await?;
         Ok(affected_rows)
+    }
+
+    async fn async_batch_gut(conn: Connection, trans: LockedTrans, sql: String) -> RS<u64> {
+        let opt_trans = trans.tx_move()?;
+        match opt_trans {
+            Some(tx) => {
+                let result = tx.batch(&sql).await;
+                trans.tx_set(Some(tx))?;
+                result
+            }
+            None => {
+                let before = conn.total_changes();
+                let _ = conn
+                    .execute_batch(&sql)
+                    .await
+                    .map_err(|e| m_error!(EC::DBInternalError, "batch error", e))?;
+                Ok(conn.total_changes().saturating_sub(before))
+            }
+        }
     }
 
     fn async_commit(&self) -> RS<()> {

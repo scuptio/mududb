@@ -11,5 +11,4 @@ mudu_contract = {workspace = true}
 serde = { workspace = true }
 tracing = { workspace = true }
 serde_repr = {workspace = true}
-hex = "0.4.3"
-
+hex = { workspace = true }

@@ -15,6 +15,15 @@ pub enum RustType {
 }
 
 impl RustType {
+    pub fn is_vec_u8(&self) -> bool {
+        match self {
+            RustType::Generic(ident, vec) if ident == "Vec" && vec.len() == 1 => {
+                matches!(&vec[0], RustType::Primitive(inner) if inner == "u8")
+            }
+            _ => false,
+        }
+    }
+
     pub fn as_ret_type(&self) -> Vec<RustType> {
         match self {
             RustType::Generic(_, vec) => {
@@ -112,7 +121,9 @@ impl RustType {
                 }
             },
             RustType::Generic(ident, vec) => {
-                if ident == "Vec" && vec.len() == 1 {
+                if self.is_vec_u8() {
+                    DatType::new_no_param(DatTypeID::Binary)
+                } else if ident == "Vec" && vec.len() == 1 {
                     let array = DTPArray::new(vec[0].to_dat_type(custom_types)?);
                     DatType::from_array(array)
                 } else {
