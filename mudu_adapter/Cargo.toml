@@ -26,8 +26,6 @@ tokio = { workspace = true }
 lazy_static = { workspace = true }
 async-backtrace = { workspace = true, optional = true }
 
-[target.'cfg(windows)'.dependencies]
-rusqlite = { workspace = true, features = ["bundled", "column_decltype"] }
 
-[target.'cfg(not(windows))'.dependencies]
-rusqlite = { workspace = true, features = ["column_decltype"] }
+#[cfg(not(target_arch = "wasm32"))]
+rusqlite = { workspace = true, features = ["bundled", "column_decltype"] }
