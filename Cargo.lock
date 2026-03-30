@@ -4111,7 +4111,6 @@ dependencies = [
  "sql_parser",
  "strum 0.27.2",
  "strum_macros 0.27.2",
- "sys_interface",
  "tokio",
  "toml 1.1.0+spec-1.1.0",
  "tracing",

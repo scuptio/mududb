@@ -14,7 +14,6 @@ debug_trace = ["mudu_kernel/debug_trace", "mudu_utils/debug_trace"]
 mudu_type = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_binding = { workspace = true }
-sys_interface = { workspace = true }
 mudu_kernel = { workspace = true }
 mudu_cli = { workspace = true }
 as-slice = { version = "0.2.1" }

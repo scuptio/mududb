@@ -2,6 +2,7 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_binding::codec::handle_sys_session;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql::Context;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
@@ -111,20 +112,20 @@ pub fn open_internal_with_worker_local(
     open_in: &[u8],
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
-    let open_argv = sys_interface::host::deserialize_open_param(open_in)?;
+    let open_argv = handle_sys_session::deserialize_open_param(open_in)?;
     let worker_local = require_worker_local(worker_local)?;
     let opened = worker_local.open_argv(open_argv.worker_oid())?;
-    Ok(sys_interface::host::serialize_open_result(opened))
+    Ok(handle_sys_session::serialize_open_result(opened))
 }
 
 pub fn close_internal_with_worker_local(
     close_in: &[u8],
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
-    let session_id: OID = sys_interface::host::deserialize_close_param(close_in)?;
+    let session_id: OID = handle_sys_session::deserialize_close_param(close_in)?;
     let worker_local = require_worker_local(worker_local)?;
     worker_local.close(session_id)?;
-    Ok(sys_interface::host::serialize_close_result())
+    Ok(handle_sys_session::serialize_close_result())
 }
 
 pub fn get_internal(get_in: &[u8]) -> Vec<u8> {
@@ -137,13 +138,11 @@ pub fn get_internal_with_worker_local(
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let result =
-        sys_interface::host::deserialize_session_get_param(get_in).and_then(|(session_id, key)| {
+        handle_sys_session::deserialize_session_get_param(get_in).and_then(|(session_id, key)| {
             let worker_local = require_worker_local(worker_local)?;
             worker_local.get(session_id, &key)
         });
-    Ok(sys_interface::host::serialize_get_result(
-        result?.as_deref(),
-    ))
+    Ok(handle_sys_session::serialize_get_result(result?.as_deref()))
 }
 
 pub fn put_internal(put_in: &[u8]) -> Vec<u8> {
@@ -155,14 +154,14 @@ pub fn put_internal_with_worker_local(
     put_in: &[u8],
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
-    let result = sys_interface::host::deserialize_session_put_param(put_in).and_then(
+    let result = handle_sys_session::deserialize_session_put_param(put_in).and_then(
         |(session_id, key, value)| {
             let worker_local = require_worker_local(worker_local)?;
             worker_local.put(session_id, key, value)
         },
     );
     result?;
-    Ok(sys_interface::host::serialize_put_result())
+    Ok(handle_sys_session::serialize_put_result())
 }
 
 pub fn range_internal(range_in: &[u8]) -> Vec<u8> {
@@ -174,7 +173,7 @@ pub fn range_internal_with_worker_local(
     range_in: &[u8],
     worker_local: Option<&WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
-    let result = sys_interface::host::deserialize_session_range_param(range_in).and_then(
+    let result = handle_sys_session::deserialize_session_range_param(range_in).and_then(
         |(session_id, start, end)| {
             let worker_local = require_worker_local(worker_local)?;
             Ok(worker_local
@@ -184,7 +183,7 @@ pub fn range_internal_with_worker_local(
                 .collect::<Vec<_>>())
         },
     );
-    Ok(sys_interface::host::serialize_range_result(&result?))
+    Ok(handle_sys_session::serialize_range_result(&result?))
 }
 
 pub async fn async_get_internal(get_in: Vec<u8>) -> Vec<u8> {
@@ -264,7 +263,7 @@ mod tests {
 
     #[test]
     fn kv_syscalls_require_worker_local() {
-        let get = sys_interface::host::serialize_session_get_param(1, b"alpha");
+        let get = handle_sys_session::serialize_session_get_param(1, b"alpha");
         let err = get_internal_with_worker_local(&get, None).unwrap_err();
         assert!(
             err.to_string()
