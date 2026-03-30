@@ -161,7 +161,7 @@ fn reserve_port() -> Option<u16> {
 async fn wait_until_server_ready_async(port: u16) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if TokioTcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        if AsyncPerfClient::connect(port).await.is_ok() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
@@ -302,6 +302,8 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
     let worker_count = 2usize;
     let data_dir = temp_dir().join(format!("mududb_iouring_recovery_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&data_dir).unwrap();
+    let registry = load_or_create_worker_registry(&data_dir, worker_count)?;
+    let target_worker = registry.worker(0).unwrap();
 
     let (stop_notifier, server_thread) =
         spawn_iouring_server(port, worker_count, &data_dir, 64 * 1024 * 1024);
@@ -309,6 +311,15 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
 
     {
         let mut client = AsyncPerfClient::connect(port).await?;
+        client.session_id = client
+            .create_session(Some(
+                serde_json::json!({
+                    "session_id": "0",
+                    "worker_id": target_worker.worker_id.to_string(),
+                })
+                .to_string(),
+            ))
+            .await?;
         client.put(b"alpha".to_vec(), b"one".to_vec()).await?;
         client.put(b"beta".to_vec(), b"two".to_vec()).await?;
         assert_eq!(client.get(b"alpha".to_vec()).await?, Some(b"one".to_vec()));
@@ -324,6 +335,15 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
 
     {
         let mut client = AsyncPerfClient::connect(port).await?;
+        client.session_id = client
+            .create_session(Some(
+                serde_json::json!({
+                    "session_id": "0",
+                    "worker_id": target_worker.worker_id.to_string(),
+                })
+                .to_string(),
+            ))
+            .await?;
         assert_eq!(client.get(b"alpha".to_vec()).await?, Some(b"one".to_vec()));
         assert_eq!(client.get(b"beta".to_vec()).await?, Some(b"two".to_vec()));
     }
