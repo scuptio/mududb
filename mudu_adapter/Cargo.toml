@@ -13,7 +13,6 @@ mudu_binding = { workspace = true }
 mudu_cli = { workspace = true }
 mudu_type = { workspace = true }
 mudu_utils = { workspace = true }
-rusqlite = { workspace = true, features = ["column_decltype"] }
 postgres = { workspace = true }
 tokio-postgres = { workspace = true }
 mysql = { workspace = true }
@@ -26,3 +25,9 @@ rmp-serde = { workspace = true }
 tokio = { workspace = true }
 lazy_static = { workspace = true }
 async-backtrace = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { workspace = true, features = ["bundled", "column_decltype"] }
+
+[target.'cfg(not(windows))'.dependencies]
+rusqlite = { workspace = true, features = ["column_decltype"] }
