@@ -5,18 +5,12 @@ edition = "2024"
 
 [features]
 default = ["transpile"]
-macro = ["sys_interface/component-model"]
-transpile = ["sys_interface/component-model", "sys_interface/async"]
+transpile = ["mududb/component-model", "mududb/async"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-mudu = { workspace = true }
-mudu_type = { workspace = true }
-mudu_contract = { workspace = true }
-mudu_binding = { workspace = true }
+mududb = { workspace = true }
 wit-bindgen = { workspace = true }
-mudu_macro = { workspace = true }
-sys_interface = { workspace = true }
 lazy_static = { workspace = true }

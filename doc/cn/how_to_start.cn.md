@@ -14,7 +14,16 @@ git clone https://github.com/scuptio/mududb.git
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip clang build-essential curl liburing-dev
+sudo apt-get install -y \
+    python3 \
+    python3-pip \
+    python-is-python3 \
+    build-essential \
+    curl liburing-dev \
+    clang \
+    libclang-dev \
+    llvm-dev \
+    pkgconf
 ```
 
 这些软件包的用途如下：
@@ -23,8 +32,7 @@ sudo apt-get install -y python3 python3-pip clang build-essential curl liburing-
 - `build-essential`：Linux 上原生编译所需
 - `curl`：用于通过 `rustup` 安装 Rust
 - `liburing-dev`：仅 Linux 上由 `mudu_kernel` 使用原生 `io_uring` 后端时需要
-
-如果你是在 Windows 上构建，则不需要 `liburing-dev`，因为原生 `io_uring` 路径仅适用于 Linux。
+- `clang`、`libclang-dev`、`llvm-dev`：*[bindgen](https://github.com/rust-lang/rust-bindgen)* 需要
 
 ### Rust 工具链
 

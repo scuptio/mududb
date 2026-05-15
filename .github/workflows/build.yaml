@@ -3,13 +3,45 @@ name: Build
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+      - '.github/run-actions-locally.md'
   pull_request:
     branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+      - '.github/run-actions-locally.md'
+  workflow_dispatch:
+    inputs:
+      clean_cargo:
+        description: 'Run cargo clean before build'
+        required: false
+        type: boolean
+        default: false
+      release_test:
+        description: 'Run tests in release mode'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      ENABLE_CARGO_CLEAN: ${{ github.event.inputs.clean_cargo || 'true' }}
+      ENABLE_RELEASE_TEST: ${{ github.event.inputs.release_test || 'true' }}
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_RELEASE_DEBUG: 0
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -21,24 +53,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v5
 
-      - name: Installing Prerequisites (Linux)
+      - name: Setup Rust Nightly
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/rust-nightly-setup
+        with:
+          rust_target: ${{ matrix.rust_target }}
+
+      - name: Free disk space
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y python3 pip build-essential curl liburing-dev
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
-
-      - name: Install Rust Nightly
-        run: |
-          rustup toolchain install nightly
-          rustup default nightly
-
-      - name: Install rustfmt
-        run: rustup component add rustfmt --toolchain nightly
-
-      - name: Update Rust Toolchain
-        run: rustup update nightly
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
 
       - name: Cache Cargo Registry
         uses: actions/cache@v3
@@ -46,20 +75,34 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-nightly
 
-      - name: Clean cargo cache
+      - name: Clean cargo cache (optional)
+        if: env.ENABLE_CARGO_CLEAN == 'true'
         run: cargo clean
 
-      - name: Build
-        run: cargo build --release
+      - name: Check (debug)
+        if: env.ENABLE_RELEASE_TEST != 'true'
+        run: cargo check
+
+      - name: Check (release)
+        if: env.ENABLE_RELEASE_TEST == 'true'
+        run: cargo check --release
 
       - name: Verify Install Script (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: python3 script/build/install_binaries.py --dry-run
 
-      - name: Test
+      - name: Inspect io_uring Environment (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: bash script/build/inspect_iouring_env.sh
+
+      - name: Test (debug)
+        if: env.ENABLE_RELEASE_TEST != 'true'
+        run: cargo test
+
+      - name: Test (release)
+        if: env.ENABLE_RELEASE_TEST == 'true'
         run: cargo test --release

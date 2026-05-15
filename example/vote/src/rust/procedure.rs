@@ -4,18 +4,18 @@ use crate::rust::vote_history_item::object::VoteHistoryItem;
 use crate::rust::vote_result::object::VoteResult;
 use crate::rust::votes::object::Votes;
 use fallible_iterator::FallibleIterator;
-use mudu::common::result::RS;
-use mudu::common::xid::XID;
-use mudu::error::ec::EC::MuduError;
-use mudu::m_error;
-use mudu_contract::database::entity_set::RecordSet;
-use mudu_contract::{sql_params, sql_stmt};
-use sys_interface::sync_api::{mudu_command, mudu_query};
+use mududb::common::result::RS;
+use mududb::common::xid::XID;
+use mududb::error::ec::EC::MuduError;
+use mududb::m_error;
+use mududb::contract::database::entity_set::RecordSet;
+use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
 // User management
 /**mudu-proc**/
 pub fn create_user(xid: XID, phone: String) -> RS<String> {
-    let user_id = mudu_sys::random::next_uuid_v4_string();
+    let user_id = mududb::sys::random::next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO users (user_id, phone) VALUES (?, ?)"),
@@ -36,7 +36,7 @@ pub fn create_vote(
     visibility_rule: String,
 ) -> RS<String> {
     // Validate input
-    if end_time <= mudu_sys::time::utc_now().timestamp() {
+    if end_time <= mududb::sys::time::utc_now().timestamp() {
         return Err(m_error!(
             MuduError,
             "End time must be in future".to_string()
@@ -61,7 +61,7 @@ pub fn create_vote(
         ));
     }
 
-    let vote_id = mudu_sys::random::next_uuid_v4_string();
+    let vote_id = mududb::sys::random::next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(
@@ -76,7 +76,7 @@ pub fn create_vote(
 // Add option to vote
 /**mudu-proc**/
 pub fn add_option(xid: XID, vote_id: String, option_text: String) -> RS<String> {
-    let option_id = mudu_sys::random::next_uuid_v4_string();
+    let option_id = mududb::sys::random::next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO options (option_id, vote_id, option_text) VALUES (?, ?, ?)"),
@@ -97,7 +97,7 @@ pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<Str
     .next()?
     .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
-    if mudu_sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
+    if mududb::sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(m_error!(MuduError, "Voting has ended".to_string()));
     }
 
@@ -130,8 +130,8 @@ pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<Str
     }
 
     // Create vote action
-    let action_id = mudu_sys::random::next_uuid_v4_string();
-    let action_time = mudu_sys::time::utc_now().timestamp();
+    let action_id = mududb::sys::random::next_uuid_v4_string();
+    let action_time = mududb::sys::time::utc_now().timestamp();
     mudu_command(
         xid,
         sql_stmt!(
@@ -143,7 +143,7 @@ pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<Str
 
     // Create vote choices
     for option_id in option_ids {
-        let choice_id = mudu_sys::random::next_uuid_v4_string();
+        let choice_id = mududb::sys::random::next_uuid_v4_string();
         mudu_command(
             xid,
             sql_stmt!(
@@ -168,7 +168,7 @@ pub fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
     .next()?
     .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
-    if mudu_sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
+    if mududb::sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(m_error!(
             MuduError,
             "Voting has ended, cannot withdraw".to_string()
@@ -209,7 +209,7 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
     .next()?
     .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
 
-    let now = mudu_sys::time::utc_now().timestamp();
+    let now = mududb::sys::time::utc_now().timestamp();
     let vote_ended = now > vote.get_end_time().unwrap() as i64;
 
     // Check visibility rules
@@ -284,7 +284,7 @@ pub fn get_voting_history(xid: XID, user_id: String) -> RS<Vec<VoteHistoryItem>>
 
     let mut history = Vec::new();
     for action in actions {
-        let vote_ended = (mudu_sys::time::utc_now().timestamp()
+        let vote_ended = (mududb::sys::time::utc_now().timestamp()
             > action.get_action_time().unwrap() as i64) as i32;
         history.push(VoteHistoryItem::new(
             Some(action.get_vote_id().as_ref().unwrap().to_string()),
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn create_vote_rejects_invalid_vote_type_and_single_choice_mismatch() {
-        let future = mudu_sys::time::utc_now().timestamp() + 3600;
+        let future = mududb::sys::time::utc_now().timestamp() + 3600;
 
         let vote_type_err = create_vote(
             1,
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn create_vote_rejects_invalid_visibility_rule() {
-        let future = mudu_sys::time::utc_now().timestamp() + 3600;
+        let future = mududb::sys::time::utc_now().timestamp() + 3600;
         let err = create_vote(
             1,
             "creator".to_string(),

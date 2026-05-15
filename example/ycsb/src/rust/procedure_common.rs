@@ -1,6 +1,6 @@
-use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mududb::common::result::RS;
+use mududb::error::ec::EC;
+use mududb::m_error;
 
 pub fn kv_data_key(user_key: &str) -> String {
     format!("user/{user_key}")

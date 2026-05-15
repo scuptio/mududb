@@ -1,0 +1,10 @@
+--container-architecture linux/amd64
+-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest
+--pull=false
+--action-offline-mode
+--container-options
+--privileged
+--container-options
+--security-opt=seccomp=unconfined
+--container-options
+--security-opt=apparmor=unconfined

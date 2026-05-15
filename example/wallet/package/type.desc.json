@@ -1,48 +1,5 @@
 {
   "types": {
-    "Orders": [
-      2,
-      {
-        "record_name": "orders",
-        "record_fields": [
-          {
-            "field_name": "order_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "user_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "merch_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "amount",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "created_at",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
     "Users": [
       2,
       {
@@ -100,11 +57,18 @@
         ]
       }
     ],
-    "Wallets": [
+    "Orders": [
       2,
       {
-        "record_name": "wallets",
+        "record_name": "orders",
         "record_fields": [
+          {
+            "field_name": "order_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
           {
             "field_name": "user_id",
             "field_type": [
@@ -113,14 +77,21 @@
             ]
           },
           {
-            "field_name": "balance",
+            "field_name": "merch_id",
             "field_type": [
               0,
               6
             ]
           },
           {
-            "field_name": "updated_at",
+            "field_name": "amount",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "created_at",
             "field_type": [
               0,
               6
@@ -171,6 +142,35 @@
           },
           {
             "field_name": "created_at",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "Wallets": [
+      2,
+      {
+        "record_name": "wallets",
+        "record_fields": [
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "balance",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "updated_at",
             "field_type": [
               0,
               6

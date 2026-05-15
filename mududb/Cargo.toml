@@ -1,0 +1,31 @@
+[package]
+name = "mududb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mudu = { workspace = true, optional = true }
+mudu_type = { workspace = true, optional = true }
+mudu_contract = { workspace = true, optional = true }
+mudu_binding = { workspace = true, optional = true }
+mudu_sys = { workspace = true, optional = true }
+sys_interface = { path = "../sys_interface", optional = true, default-features = false }
+
+[features]
+default = ["app"]
+app = [
+    "dep:mudu",
+    "dep:mudu_type",
+    "dep:mudu_contract",
+    "dep:mudu_binding",
+    "dep:mudu_sys",
+    "component-model",
+]
+interface = ["dep:sys_interface"]
+component-model = ["interface", "sys_interface/component-model"]
+wasip2 = ["interface", "sys_interface/wasip2"]
+async = ["interface", "sys_interface/async"]
+# Enables local standalone syscall execution via the in-process adapter.
+# Use this for local tests/debug runs without an external host/runtime.
+standalone-adapter = ["interface", "sys_interface/standalone-adapter"]
+uniffi-bindings = ["interface", "sys_interface/uniffi-bindings"]

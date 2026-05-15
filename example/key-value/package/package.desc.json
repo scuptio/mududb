@@ -3,6 +3,51 @@
     "key_value": [
       {
         "module_name": "key_value",
+        "proc_name": "kv_read_modify_write",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "append_value"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "key_value",
         "proc_name": "kv_insert",
         "param_desc": {
           "fields": [
@@ -89,7 +134,7 @@
       },
       {
         "module_name": "key_value",
-        "proc_name": "kv_read_modify_write",
+        "proc_name": "kv_read",
         "param_desc": {
           "fields": [
             {
@@ -102,17 +147,6 @@
                 }
               },
               "name": "user_key"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "append_value"
             }
           ]
         },
@@ -163,40 +197,6 @@
         },
         "return_desc": {
           "fields": []
-        }
-      },
-      {
-        "module_name": "key_value",
-        "proc_name": "kv_read",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "user_key"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
         }
       }
     ]

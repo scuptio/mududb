@@ -2412,12 +2412,8 @@ name = "game-backend"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_type",
+ "mududb",
  "serde_json",
- "sys_interface",
  "uuid",
  "wit-bindgen 0.54.0",
 ]
@@ -3274,12 +3270,8 @@ dependencies = [
 name = "key-value"
 version = "0.1.0"
 dependencies = [
- "mudu",
  "mudu_adapter",
- "mudu_binding",
- "mudu_contract",
- "mudu_type",
- "sys_interface",
+ "mududb",
  "wit-bindgen 0.54.0",
 ]
 
@@ -3781,12 +3773,7 @@ name = "mod_0"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_macro",
- "mudu_type",
- "sys_interface",
+ "mududb",
  "wit-bindgen 0.54.0",
 ]
 
@@ -3954,32 +3941,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mudu_macro"
-version = "0.1.0"
-dependencies = [
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_type",
- "proc-macro2",
- "quote",
- "syn 2.0.111",
- "wit-bindgen 0.54.0",
-]
-
-[[package]]
-name = "mudu_macro_test"
-version = "0.1.0"
-dependencies = [
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_macro",
- "mudu_type",
- "wit-bindgen 0.54.0",
-]
-
-[[package]]
 name = "mudu_package"
 version = "0.1.0"
 dependencies = [
@@ -4120,6 +4081,31 @@ dependencies = [
  "mudu_sys",
  "mudu_utils",
  "tracing",
+]
+
+[[package]]
+name = "mududb"
+version = "0.1.0"
+dependencies = [
+ "mudu",
+ "mudu_binding",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "sys_interface",
+]
+
+[[package]]
+name = "mudup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest",
+ "serde",
+ "sha2",
+ "tokio",
+ "toml 1.1.0+spec-1.1.0",
 ]
 
 [[package]]
@@ -6731,16 +6717,11 @@ dependencies = [
  "async-backtrace",
  "clap",
  "lazy_static",
- "mudu",
  "mudu_adapter",
- "mudu_binding",
  "mudu_cli",
- "mudu_contract",
  "mudu_runtime",
- "mudu_sys",
- "mudu_type",
  "mudu_utils",
- "sys_interface",
+ "mududb",
  "testing",
  "tokio",
  "wit-bindgen 0.54.0",
@@ -7150,12 +7131,7 @@ dependencies = [
  "chrono",
  "fallible-iterator 0.3.0",
  "lazy_static",
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_sys",
- "mudu_type",
- "sys_interface",
+ "mududb",
  "uuid",
  "wit-bindgen 0.54.0",
 ]
@@ -7175,13 +7151,7 @@ name = "wallet"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
- "mudu",
- "mudu_binding",
- "mudu_contract",
- "mudu_sys",
- "mudu_type",
- "sys_interface",
- "uuid",
+ "mududb",
  "wit-bindgen 0.54.0",
 ]
 
@@ -8516,15 +8486,10 @@ version = "0.1.0"
 dependencies = [
  "async-backtrace",
  "clap",
- "mudu",
  "mudu_adapter",
- "mudu_binding",
  "mudu_cli",
- "mudu_contract",
- "mudu_sys",
- "mudu_type",
  "mudu_utils",
- "sys_interface",
+ "mududb",
  "tokio",
  "wit-bindgen 0.54.0",
 ]

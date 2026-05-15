@@ -1,5 +1,5 @@
-use mudu::common::id::OID;
-use mudu::common::result::RS;
+use mududb::common::id::OID;
+use mududb::common::result::RS;
 
 /**mudu-proc**/
 pub fn command(oid: OID, message: Vec<u8>) -> RS<Vec<u8>> {

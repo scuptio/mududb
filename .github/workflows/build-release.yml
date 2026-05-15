@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-release:
+    name: Build Release - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            asset_suffix: x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Release Version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "${GITHUB_REF_NAME}" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="v$(date -u +'%Y%m%d.%H%M')"
+          fi
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Resolved version: ${VERSION}"
+
+      - name: Setup Rust Nightly
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/rust-nightly-setup
+        with:
+          rust_target: ${{ matrix.rust_target }}
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release
+
+      - name: Build Release Binaries
+        run: |
+          RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/../lib" \
+            cargo build --release --target ${{ matrix.rust_target }}
+
+      - name: Collect Binaries
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_DIR="target/release-artifacts/${VERSION}"
+          PACKAGE_DIR="${ARTIFACT_DIR}/${VERSION}"
+          BIN_DIR="${PACKAGE_DIR}/bin"
+          LIB_DIR="${PACKAGE_DIR}/lib"
+          SOURCE_LIB_LIST_FILE="build-release/lib-list.txt"
+          LIB_LIST_FILE="${LIB_DIR}/lib-list.txt"
+          MANIFEST_FILE="${PACKAGE_DIR}/manifest.txt"
+          rm -rf "${ARTIFACT_DIR}"
+          mkdir -p "${BIN_DIR}" "${LIB_DIR}"
+
+          # Define supported binaries and their descriptions
+          declare -A BIN_MAP
+          BIN_MAP=(
+            ["mudu_package"]="mpk"
+            ["mudu_gen"]="mgen"
+            ["mudu_transpiler"]="mtp"
+            ["mudud"]="mudud"
+            ["mudu_cli"]="mcli"
+          )
+
+          TARGET_DIR="target/${{ matrix.rust_target }}/release"
+
+          for pkg_name in "${!BIN_MAP[@]}"; do
+            bin_name="${BIN_MAP[$pkg_name]}"
+            bin_path="$TARGET_DIR/$bin_name"
+            if [[ -f "$bin_path" ]]; then
+              cp "$bin_path" "${BIN_DIR}/"
+              echo "Copied $bin_name to ${BIN_DIR}/"
+            else
+              echo "WARNING: Binary $bin_name not found at $bin_path"
+            fi
+          done
+
+          SUFFIX="${{ matrix.asset_suffix }}"
+          ARCHIVE_NAME="mududb-${VERSION}-${SUFFIX}.tar.gz"
+          ARCHIVE_URI="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+
+          if [[ ! -f "${SOURCE_LIB_LIST_FILE}" ]]; then
+            echo "ERROR: Dynamic library list not found at ${SOURCE_LIB_LIST_FILE}"
+            exit 1
+          fi
+          cp "${SOURCE_LIB_LIST_FILE}" "${LIB_LIST_FILE}"
+
+          {
+            echo "name=mududb"
+            echo "version=${VERSION}"
+            echo "target=${{ matrix.rust_target }}"
+            echo "archive=${ARCHIVE_NAME}"
+            echo "archive_uri=${ARCHIVE_URI}"
+            echo "bin_dir=bin"
+            echo "lib_dir=lib"
+            echo "lib_list=lib/lib-list.txt"
+            echo ""
+            echo "[files]"
+            find "${PACKAGE_DIR}" -type f -printf "%P\n" | sort
+          } > "${MANIFEST_FILE}"
+
+          # Create tarball with a top-level <version>/ directory.
+          tar -czf "${ARTIFACT_DIR}/${ARCHIVE_NAME}" -C "${ARTIFACT_DIR}" "${VERSION}"
+          
+          echo "archive=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+
+          # Generate SHA256 checksums
+          sha256sum "${ARTIFACT_DIR}/${ARCHIVE_NAME}" > "${ARTIFACT_DIR}/${ARCHIVE_NAME}.sha256"
+          echo "Generated checksum file"
+
+      - name: Generate Changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_DIR="target/release-artifacts/${VERSION}"
+          CHANGELOG_FILE="${ARTIFACT_DIR}/CHANGELOG_RELEASE.md"
+          mkdir -p "${ARTIFACT_DIR}"
+          echo "# Changelog: ${VERSION}" > "${CHANGELOG_FILE}"
+          echo "" >> "${CHANGELOG_FILE}"
+          echo "## Changes" >> "${CHANGELOG_FILE}"
+          echo "" >> "${CHANGELOG_FILE}"
+          
+          # Get previous tag or use initial commit
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "${VERSION}" | head -1)
+          if [[ -n "$PREV_TAG" ]]; then
+            echo "Changes since ${PREV_TAG}:" >> "${CHANGELOG_FILE}"
+            echo "" >> "${CHANGELOG_FILE}"
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" >> "${CHANGELOG_FILE}"
+          else
+            echo "Initial release:" >> "${CHANGELOG_FILE}"
+            echo "" >> "${CHANGELOG_FILE}"
+            git log --pretty=format:"- %s (%h)" >> "${CHANGELOG_FILE}"
+          fi
+          
+          echo "" >> "${CHANGELOG_FILE}"
+          echo "" >> "${CHANGELOG_FILE}"
+          echo "**Full Commit History**: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}" >> "${CHANGELOG_FILE}"
+
+      - name: Normalize Local Artifact Ownership
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_ROOT="target/release-artifacts"
+          ARTIFACT_DIR="${ARTIFACT_ROOT}/${VERSION}"
+
+          # When act runs with --bind as root, keep generated local files owned by
+          # the host checkout owner instead of root.
+          if [[ "$(id -u)" -eq 0 ]]; then
+            WORKSPACE_OWNER="$(stat -c '%u:%g' "${GITHUB_WORKSPACE:-.}")"
+            chown "${WORKSPACE_OWNER}" "${ARTIFACT_ROOT}" || true
+            chown -R "${WORKSPACE_OWNER}" "${ARTIFACT_DIR}"
+          fi
+
+      - name: Create GitHub Release
+        if: ${{ env.GITHUB_TOKEN != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "MuduDB ${{ steps.version.outputs.version }}"
+          body_path: target/release-artifacts/${{ steps.version.outputs.version }}/CHANGELOG_RELEASE.md
+          files: |
+            target/release-artifacts/${{ steps.version.outputs.version }}/*.tar.gz
+            target/release-artifacts/${{ steps.version.outputs.version }}/*.sha256
+          draft: false
+          prerelease: ${{ inputs.prerelease || false }}
+          generate_release_notes: false
+
+      - name: Skip GitHub Release
+        if: ${{ env.GITHUB_TOKEN == '' }}
+        run: |
+          echo "GITHUB_TOKEN is not set; skipping GitHub release publishing."
+
+      - name: Verify Release Assets
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_DIR="target/release-artifacts/${VERSION}"
+
+          echo "Release artifacts:"
+          ls -lh "${ARTIFACT_DIR}/"
+          echo ""
+          echo "Checksums:"
+          cat "${ARTIFACT_DIR}"/*.sha256 || true

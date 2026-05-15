@@ -2,7 +2,6 @@ use crate::wasm::proc2::object::Wallets;
 use mudu::common::result::RS;
 use mudu::common::xid::XID;
 use mudu_contract::{sql_params, sql_stmt};
-use mudu_macro::mudu_proc;
 use mudu_type::datum::{Datum, DatumDyn};
 use sys_interface::sync_api::{
     mudu_close, mudu_command, mudu_get, mudu_open, mudu_put, mudu_query, mudu_range,

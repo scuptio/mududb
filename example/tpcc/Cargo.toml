@@ -18,19 +18,14 @@ benchmark-runner = [
     "dep:mudu_utils",
     "dep:tokio",
     "debug_trace",
-    "sys_interface/standalone-adapter",
+    "mududb/standalone-adapter",
 ]
 
 [dependencies]
-mudu = { workspace = true }
-mudu_sys = { workspace = true }
-mudu_type = { workspace = true }
-mudu_contract = { workspace = true }
-mudu_binding = { workspace = true }
+mududb = { workspace = true, features = ["async"] }
 mudu_adapter = { workspace = true, optional = true }
 mudu_cli = { workspace = true, optional = true }
 mudu_utils = { workspace = true, optional = true, features = ["debug_trace"] }
-sys_interface = { workspace = true, features = ["async"] }
 wit-bindgen = { workspace = true }
 lazy_static = { workspace = true }
 clap = { workspace = true, optional = true, features = ["derive"] }
@@ -40,7 +35,7 @@ async-backtrace = { workspace = true, optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 mudu_adapter = { workspace = true }
 mudu_runtime = { workspace = true }
-sys_interface = { workspace = true, features = ["standalone-adapter"] }
+mududb = { workspace = true, features = ["async", "standalone-adapter"] }
 testing = { path = "../../testing" }
 
 [[bin]]

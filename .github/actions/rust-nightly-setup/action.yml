@@ -1,0 +1,56 @@
+name: Rust Nightly Setup
+
+description: Install Linux prerequisites and setup Rust nightly toolchain for local and GitHub runners
+
+inputs:
+  rust_target:
+    description: Rust target triple to add
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Installing Prerequisites (Linux)
+      shell: bash
+      run: |
+        if command -v sudo >/dev/null 2>&1; then
+          sudo apt-get update -y
+          sudo apt-get install -y python3 pip build-essential curl liburing-dev clang libclang-dev llvm-dev
+        else
+          apt-get update -y
+          apt-get install -y python3 pip build-essential curl liburing-dev clang libclang-dev llvm-dev
+        fi
+
+    - name: Install rustup
+      shell: bash
+      run: |
+        if ! command -v rustup >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain nightly
+        fi
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+    - name: Install Rust Nightly
+      shell: bash
+      run: |
+        if ! rustup toolchain list | grep -q '^nightly'; then
+          rustup toolchain install nightly --profile minimal
+        fi
+        rustup default nightly
+
+    - name: Install rustfmt
+      shell: bash
+      run: |
+        rustup component add rustfmt --toolchain nightly
+        HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+        if [ -n "$HOST_TRIPLE" ]; then
+          rustup component add rustfmt --toolchain "nightly-${HOST_TRIPLE}"
+        fi
+
+    - name: Add Rust target
+      if: ${{ inputs.rust_target != '' }}
+      shell: bash
+      run: |
+        if ! rustup target list --installed --toolchain nightly | grep -q "^${{ inputs.rust_target }}$"; then
+          rustup target add "${{ inputs.rust_target }}"
+        fi

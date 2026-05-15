@@ -58,7 +58,7 @@
       },
       {
         "module_name": "mod_0",
-        "proc_name": "proc2_mtp",
+        "proc_name": "proc_sys_call_mtp",
         "param_desc": {
           "fields": [
             {
@@ -113,7 +113,7 @@
       },
       {
         "module_name": "mod_0",
-        "proc_name": "proc_sys_call_mtp",
+        "proc_name": "proc2_mtp",
         "param_desc": {
           "fields": [
             {

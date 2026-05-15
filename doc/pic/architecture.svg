@@ -13,7 +13,7 @@
 
 	<style type="text/css">
 	<![CDATA[
-		.st1 {fill:#feffff;stroke:none;stroke-width:0.25}
+		.st1 {fill:#ffffff;stroke:none;stroke-width:0.25}
 		.st2 {fill:none;stroke:#3f3f3f;stroke-width:4}
 		.st3 {fill:none;stroke:#a5a5a5;stroke-width:2}
 		.st4 {fill:none;stroke:none;stroke-width:2}
@@ -21,12 +21,12 @@
 		.st6 {font-size:1em}
 		.st7 {fill:#4672c4;font-size:1em}
 		.st8 {fill:#ff0000;font-size:1em}
-		.st9 {fill:#ff0000;font-family:微软雅黑;font-size:1em}
+		.st9 {fill:#ff0000;font-family:Calibri;font-size:1em}
 		.st10 {fill:#ff0000;font-family:Calibri;font-size:1.33333em;font-style:italic;font-weight:bold}
 		.st11 {fill:#203864;font-size:1.125em}
 		.st12 {marker-end:url(#mrkr4-42);stroke:#4672c4;stroke-linecap:round;stroke-linejoin:round;stroke-width:4}
 		.st13 {fill:#4672c4;fill-opacity:1;stroke:#4672c4;stroke-opacity:1;stroke-width:0.61349693251534}
-		.st14 {fill:#4672c4;font-family:微软雅黑;font-size:1em}
+		.st14 {fill:#4672c4;font-family:Calibri;font-size:1em}
 		.st15 {fill:none;stroke:#000000;stroke-width:1}
 		.st16 {fill:#203864;font-family:Calibri;font-size:1.16666em;font-style:italic;font-weight:bold}
 		.st17 {marker-end:url(#mrkr4-88);stroke:#c55a11;stroke-linecap:round;stroke-linejoin:round;stroke-width:4}

@@ -1,20 +1,20 @@
 pub mod object {
 use lazy_static::lazy_static;
-use mudu::common::result::RS;
-use mudu_type::dat_binary::DatBinary;
-use mudu_type::dat_textual::DatTextual;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
-use mudu_type::datum::{Datum, DatumDyn};
-use mudu_contract::database::attr_field_access;
-use mudu_contract::database::attr_value::AttrValue;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_utils;
-use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_contract::tuple::tuple_datum::TupleDatumMarker;
-use mudu_contract::database::sql_params::SQLParamMarker;
+use mududb::common::result::RS;
+use mududb::contract::database::attr_field_access;
+use mududb::contract::database::attr_value::AttrValue;
+use mududb::contract::database::entity::Entity;
+use mududb::contract::database::entity_utils;
+use mududb::contract::database::sql_params::SQLParamMarker;
+use mududb::contract::tuple::datum_desc::DatumDesc;
+use mududb::contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mududb::contract::tuple::tuple_datum::TupleDatumMarker;
+use mududb::types::dat_binary::DatBinary;
+use mududb::types::dat_textual::DatTextual;
+use mududb::types::dat_type::DatType;
+use mududb::types::dat_type_id::DatTypeID;
+use mududb::types::dat_value::DatValue;
+use mududb::types::datum::{Datum, DatumDyn};
 
 // constant definition
 const ITEM:&str = "item";

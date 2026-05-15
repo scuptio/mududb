@@ -17,12 +17,14 @@ Use `sync_api` for synchronous native code, or add `async` and use `async_api` f
 sys_interface = { path = "../sys_interface", features = ["standalone-adapter"] }
 ```
 
+
 For async native code:
 
 ```toml
 [dependencies]
 sys_interface = { path = "../sys_interface", features = ["standalone-adapter", "async"] }
 ```
+
 
 After that, native builds can directly call the standalone adapter through:
 

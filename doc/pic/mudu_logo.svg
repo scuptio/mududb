@@ -1,60 +1,20 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="_图层_1" data-name="图层 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1085.72 633.91">
-    <defs>
-        <style>
-            .cls-1, .cls-2, .cls-3, .cls-4 {
-            stroke-miterlimit: 10;
-            }
-
-            .cls-1, .cls-3 {
-            stroke: #00a0e9;
-            }
-
-            .cls-1, .cls-3, .cls-5 {
-            fill: #00a0e9;
-            }
-
-            .cls-2, .cls-4 {
-            stroke: #231815;
-            }
-
-            .cls-2, .cls-4, .cls-6 {
-            fill: #231815;
-            }
-
-            .cls-3, .cls-4 {
-            stroke-width: 30px;
-            }
-
-            .cls-7 {
-            font-family: DengXian-Bold, DengXian;
-            font-size: 72px;
-            font-weight: 700;
-            }
-        </style>
-    </defs>
-    <polyline class="cls-4" points="298.7 17.32 341.22 59.84 371.07 89.7 383.51 102.13 399.08 117.7 412.09 130.71"/>
-    <polyline class="cls-4" points="160.15 10.61 202.67 53.13 232.53 82.98 244.96 95.41 260.53 110.98 273.54 123.99"/>
-    <polyline class="cls-4"
-              points="86.19 308.14 128.71 265.62 158.56 235.77 170.99 223.33 186.56 207.76 199.57 194.75"/>
-    <polyline class="cls-4" points="44.79 494.31 87.31 451.79 117.16 421.94 129.59 409.51 145.16 393.94 158.18 380.93"/>
-    <polyline class="cls-4"
-              points="143.95 373.91 166.28 396.24 181.95 411.91 188.48 418.44 196.66 426.62 203.49 433.45"/>
-    <polyline class="cls-4"
-              points="264.94 502.28 307.46 544.8 337.31 574.65 349.75 587.09 365.32 602.66 378.33 615.67"/>
-    <polyline class="cls-4"
-              points="337.53 194.07 380.05 236.59 409.9 266.45 422.34 278.88 437.91 294.45 450.92 307.46"/>
-    <polyline class="cls-3"
-              points="269.26 512.86 269.26 363.08 269.26 257.92 269.26 214.12 269.26 159.28 269.26 113.44"/>
-    <polyline class="cls-3" points="265.72 265.82 170.06 170.15 102.89 102.98 74.92 75.01 39.88 39.97 10.61 10.7"/>
-    <polyline class="cls-3" points="527.91 10.7 432.24 106.37 365.08 173.53 337.11 201.51 302.07 236.54 272.8 265.82"/>
-    <polyline class="cls-3" points="527.91 623.31 432.24 527.64 365.08 460.47 337.11 432.5 302.07 397.46 272.8 368.19"/>
-    <polyline class="cls-3" points="265.72 368.19 170.06 463.86 102.89 531.02 74.92 559 39.88 594.03 10.61 623.31"/>
-    <text class="cls-7" transform="translate(343.74 389.31)">
-        <tspan class="cls-5" x="0" y="0">Mu</tspan>
-        <tspan class="cls-2" x="108.56" y="0">du</tspan>
-        <tspan class="cls-1" x="193.96" y="0">D</tspan>
-        <tspan class="cls-6" x="245.6" y="0">B</tspan>
-    </text>
-    <text/>
+<svg id="图层_1" data-name="图层 1" xmlns="http://www.w3.org/2000/svg" width="630.95996" height="634.76762" viewBox="0 0 630.95996 634.76762">
+  <rect x="0" y="0" width="630.95996" height="634.76762" fill="#ffffff"/>
+  <rect x="330.62589" y="145.30804" width="59.99713" height="159.99859" transform="translate(-53.68846 318.55631) rotate(-45.00205)" style="fill: #231916"/>
+  <rect x="330.62397" y="0.23068" width="59.99997" height="159.99719" transform="translate(48.89373 276.04884) rotate(-45.00002)" style="fill: #231916"/>
+  <rect x="176.77835" y="0.9855" width="59.99717" height="159.99859" transform="translate(3.29553 167.47655) rotate(-44.99798)" style="fill: #231916"/>
+  <rect x="48.99874" y="195.30753" width="159.99965" height="59.9993" transform="translate(-121.53284 154.75498) rotate(-44.9995)" style="fill: #231916"/>
+  <rect x="126.45284" y="332.97488" width="59.99999" height="159.99464" transform="translate(-246.1915 229.13614) rotate(-45.00001)" style="fill: #231916"/>
+  <rect x="5.58355" y="382.97223" width="159.9993" height="59.99994" transform="translate(-266.94857 179.02349) rotate(-44.99997)" style="fill: #231916"/>
+  <rect x="272.33734" y="471.6347" width="59.9972" height="159.9986" transform="translate(-301.50733 372.88816) rotate(-44.99849)" style="fill: #231916"/>
+  <rect x="224.55618" y="113.62829" width="60" height="400" style="fill: #00a1e9"/>
+  <g>
+    <rect x="118.49087" y="-29.05578" width="59.99786" height="359.99823" transform="translate(-63.24138 146.75638) rotate(-44.99932)" style="fill: #00a1e9"/>
+    <rect x="180.62315" y="120.94488" width="359.99858" height="59.99715" transform="translate(-1.10694 296.76503) rotate(-45.0009)" style="fill: #00a1e9"/>
+  </g>
+  <g>
+    <rect x="334.29506" y="308.7256" width="59.99929" height="359.99751" transform="translate(-238.88086 398.28977) rotate(-45)" style="fill: #00a1e9"/>
+    <rect x="-27.83579" y="458.72449" width="359.99716" height="59.99998" transform="translate(-301.01295 248.28991) rotate(-45)" style="fill: #00a1e9"/>
+  </g>
+  <text transform="translate(312.48399 376.71302)" style="font-size: 85px;fill: #009fe8;stroke: #009fe8;stroke-miterlimit: 10;stroke-width: 3px;font-family: DengXian-Bold, DengXian;font-weight: 700;letter-spacing: -0.05em">Mu<tspan x="119.66406" y="0" style="fill: #231815;stroke: #231815">du</tspan><tspan x="211.97754" y="0">D</tspan><tspan x="268.69629" y="0" style="fill: #231815;stroke: #231815">B</tspan></text>
 </svg>

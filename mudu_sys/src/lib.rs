@@ -20,3 +20,14 @@ pub mod random {
 pub mod time {
     pub use crate::api::time::{instant_now, system_time_now, utc_now};
 }
+
+pub fn io_uring_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::uring::IoUring::new(8).is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
