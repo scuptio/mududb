@@ -5,6 +5,7 @@ use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
@@ -12,9 +13,16 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tracing::info;
 
 #[test]
 fn interactive_mcli_shell_io_uring() -> RS<()> {
+    log_setup("info");
+    if !mudu_sys::io_uring_available() {
+        info!("skip interactive mcli io_uring test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable interactive mcli io_uring test: io_uring available");
     let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
         eprintln!("skip interactive mcli io_uring test: local TCP/HTTP bind is not permitted");
         return Ok(());
@@ -31,6 +39,12 @@ fn interactive_mcli_shell_io_uring() -> RS<()> {
 
 #[test]
 fn interactive_mcli_shell_io_uring_tui() -> RS<()> {
+    log_setup("info");
+    if !mudu_sys::io_uring_available() {
+        info!("skip interactive mcli io_uring tui test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable interactive mcli io_uring tui test: io_uring available");
     let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
         eprintln!("skip interactive mcli io_uring tui test: local TCP/HTTP bind is not permitted");
         return Ok(());

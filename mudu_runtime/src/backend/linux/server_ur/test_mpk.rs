@@ -12,6 +12,7 @@ use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvokerPtr;
 use mudu_kernel::server::routing::RoutingMode as KernelRoutingMode;
 use mudu_kernel::server::server::{IoUringTcpBackend, IoUringTcpServerConfig};
+use mudu_utils::log::log_setup;
 use mudu_utils::notifier::notify_wait;
 use std::env::temp_dir;
 use std::net::TcpListener;
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use tracing::info;
 
 fn reserve_port() -> Option<u16> {
     match TcpListener::bind("127.0.0.1:0") {
@@ -181,6 +183,13 @@ fn invoke_and_decode<T: TupleDatum>(
 #[test]
 #[ignore = "requires Linux io_uring, cargo make, wasm32-wasip2 target, and example/key-value package build"]
 fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
+    log_setup("info");
+    if !mudu_sys::io_uring_available() {
+        info!("skip key-value io_uring test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable key-value io_uring test: io_uring available");
+
     let package_path = ensure_kv_package_built()?;
     let mpk_dir = temp_dir_with_prefix("mududb_kv_mpk");
     let data_dir = temp_dir_with_prefix("mududb_kv_data");

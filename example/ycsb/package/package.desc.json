@@ -3,51 +3,6 @@
     "ycsb": [
       {
         "module_name": "ycsb",
-        "proc_name": "ycsb_read_modify_write",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "user_key"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "append_value"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "ycsb",
         "proc_name": "ycsb_read",
         "param_desc": {
           "fields": [
@@ -158,6 +113,51 @@
                       }
                     },
                     "max_size": null
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "ycsb",
+        "proc_name": "ycsb_read_modify_write",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_key"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "append_value"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
                   }
                 }
               },

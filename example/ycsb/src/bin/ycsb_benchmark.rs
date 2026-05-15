@@ -1,9 +1,9 @@
 use clap::Parser;
-use mudu::common::result::RS;
-use mudu::common::xid::XID;
-use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
+use mududb::common::result::RS;
+use mududb::common::xid::XID;
+use mududb::binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_cli::management::{ServerTopology, fetch_server_topology};
-use mudu_contract::database::sql_stmt_text::SQLStmtText;
+use mududb::contract::database::sql_stmt_text::SQLStmtText;
 use mudu_utils::debug::debug_serve;
 use mudu_utils::notifier::NotifyWait;
 use mudu_utils::task::spawn_task;
@@ -13,11 +13,11 @@ use std::sync::Barrier as StdBarrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-use sys_interface::async_api::{
+use mududb::sys_interface::async_api::{
     mudu_close as mudu_close_async, mudu_command as mudu_command_async,
     mudu_open_argv as mudu_open_argv_async,
 };
-use sys_interface::sync_api::{mudu_close, mudu_command as mudu_command_sync, mudu_open_argv};
+use mududb::sys_interface::sync_api::{mudu_close, mudu_command as mudu_command_sync, mudu_open_argv};
 use tokio::runtime::Builder;
 use tokio::sync::{Barrier as TokioBarrier, Semaphore};
 use ycsb::rust::procedure::{
@@ -133,8 +133,8 @@ impl DebugHttpServer {
             .name("ycsb-debug-http".to_string())
             .spawn(move || debug_serve(thread_canceler, port))
             .map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::ThreadErr,
+                mududb::m_error!(
+                    mududb::error::ec::EC::ThreadErr,
                     "spawn ycsb debug http server error",
                     e
                 )
@@ -161,14 +161,14 @@ impl ProgressReporter {
         let handle = thread::Builder::new()
             .name(format!("ycsb-progress-{}", phase.as_str()))
             .spawn(move || {
-                let start = mudu_sys::time::instant_now();
+                let start = mududb::sys::time::instant_now();
                 let mut last_completed = 0;
                 let mut last_report = start;
                 loop {
-                    mudu_sys::task::sleep_blocking(PROGRESS_REPORT_INTERVAL);
+                    mududb::sys::task::sleep_blocking(PROGRESS_REPORT_INTERVAL);
                     let started = thread_tracker.started.load(Ordering::Relaxed).min(total);
                     let completed = thread_tracker.completed.load(Ordering::Relaxed).min(total);
-                    let now = mudu_sys::time::instant_now();
+                    let now = mududb::sys::time::instant_now();
                     let delta = completed.saturating_sub(last_completed);
                     let delta_secs = now.duration_since(last_report).as_secs_f64().max(0.000_001);
                     let total_secs = now.duration_since(start).as_secs_f64().max(0.000_001);
@@ -230,8 +230,8 @@ impl Drop for DebugHttpServer {
 impl PartitionRouting {
     fn slot(&self, partition_index: usize) -> RS<PartitionSlot> {
         self.slots.get(partition_index).copied().ok_or_else(|| {
-            mudu::m_error!(
-                mudu::error::ec::EC::NoSuchElement,
+            mududb::m_error!(
+                mududb::error::ec::EC::NoSuchElement,
                 format!("no routing slot for partition index {}", partition_index)
             )
         })
@@ -286,8 +286,8 @@ fn run_async_mode(args: Args) -> RS<()> {
         .enable_all()
         .build()
         .map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::TokioErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::TokioErr,
                 "build ycsb benchmark runtime error",
                 e
             )
@@ -298,15 +298,15 @@ fn run_async_mode(args: Args) -> RS<()> {
             run_async(args).await
         })?;
         let output = join.await.map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "join ycsb benchmark root task error",
                 e
             )
         })?;
         output.ok_or_else(|| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "ycsb benchmark root task canceled"
             )
         })?
@@ -319,7 +319,7 @@ fn run_sync_mode(args: Args) -> RS<()> {
     let value_template = Arc::new(build_value(args.field_length));
     let routing = Arc::new(load_partition_routing_sync(partition_count)?);
 
-    let load_start = mudu_sys::time::instant_now();
+    let load_start = mududb::sys::time::instant_now();
     run_workers_sync(
         &args,
         connection_count,
@@ -329,7 +329,7 @@ fn run_sync_mode(args: Args) -> RS<()> {
     )?;
     let load_elapsed = load_start.elapsed();
 
-    let run_start = mudu_sys::time::instant_now();
+    let run_start = mududb::sys::time::instant_now();
     let counters = run_workers_sync(
         &args,
         connection_count,
@@ -356,7 +356,7 @@ async fn run_async(args: Args) -> RS<()> {
     let value_template = Arc::new(build_value(args.field_length));
     let routing = Arc::new(load_partition_routing_async(partition_count).await?);
 
-    let load_start = mudu_sys::time::instant_now();
+    let load_start = mududb::sys::time::instant_now();
     run_workers_async(
         &args,
         connection_count,
@@ -367,7 +367,7 @@ async fn run_async(args: Args) -> RS<()> {
     .await?;
     let load_elapsed = load_start.elapsed();
 
-    let run_start = mudu_sys::time::instant_now();
+    let run_start = mududb::sys::time::instant_now();
     let counters = run_workers_async(
         &args,
         connection_count,
@@ -471,8 +471,8 @@ fn run_workers_sync(
     let mut total = Counters::default();
     for handle in handles {
         let counters = handle.join().map_err(|_| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "ycsb worker thread panicked"
             )
         })??;
@@ -542,15 +542,15 @@ async fn run_workers_async(
     let mut total = Counters::default();
     for handle in handles {
         let counters = handle.await.map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "ycsb async worker task failed",
                 e
             )
         })?;
         let counters = counters.ok_or_else(|| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "ycsb async worker task canceled"
             )
         })??;
@@ -632,8 +632,8 @@ async fn run_worker_async(
     let worker_id = slot.worker_id;
     let xid = {
         let _permit = open_limit.acquire_owned().await.map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::ThreadErr,
                 "acquire ycsb async open permit error",
                 e
             )
@@ -691,8 +691,8 @@ fn load_partition_routing_sync(partition_count: usize) -> RS<PartitionRouting> {
         .enable_all()
         .build()
         .map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::TokioErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::TokioErr,
                 "build ycsb topology runtime error",
                 e
             )
@@ -702,7 +702,7 @@ fn load_partition_routing_sync(partition_count: usize) -> RS<PartitionRouting> {
         Err(err) if topology_is_unsupported(&err) => {
             return Ok(default_partition_routing(partition_count));
         }
-        Err(err) => return Err(mudu::m_error!(mudu::error::ec::EC::NetErr, err)),
+        Err(err) => return Err(mududb::m_error!(mududb::error::ec::EC::NetErr, err)),
     };
     build_partition_routing(partition_count, topology)
 }
@@ -716,7 +716,7 @@ async fn load_partition_routing_async(partition_count: usize) -> RS<PartitionRou
         Err(err) if topology_is_unsupported(&err) => {
             return Ok(default_partition_routing(partition_count));
         }
-        Err(err) => return Err(mudu::m_error!(mudu::error::ec::EC::NetErr, err)),
+        Err(err) => return Err(mududb::m_error!(mududb::error::ec::EC::NetErr, err)),
     };
     build_partition_routing(partition_count, topology)
 }
@@ -751,8 +751,8 @@ fn build_partition_routing(
     }
     slots.sort_by_key(|slot| slot.partition_id);
     if slots.len() < partition_count {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::NoneErr,
+        return Err(mududb::m_error!(
+            mududb::error::ec::EC::NoneErr,
             format!(
                 "requested {} partitions but topology only exposes {}",
                 partition_count,

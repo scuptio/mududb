@@ -17,6 +17,11 @@ use tracing::{debug, info};
 #[test]
 fn copy_from_to_roundtrip_iouring() -> RS<()> {
     log_setup("debug");
+    if !mudu_sys::io_uring_available() {
+        info!("skip copy roundtrip iouring test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable copy roundtrip iouring test: io_uring available");
     let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
         eprintln!("skip copy roundtrip test: local TCP/HTTP bind is not permitted");
         return Ok(());
@@ -170,7 +175,15 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
                     json!({ "app_name": current_app, "sql": statement, "kind": "execute" })
                 };
                 debug!(sql = %statement, is_query = looks_like_query(&statement), "sending sql");
-                outputs.push(client.command(request).await?);
+                let output = tokio::time::timeout(Duration::from_secs(10), client.command(request))
+                    .await
+                    .map_err(|_| {
+                        mudu::m_error!(
+                            mudu::error::ec::EC::TokioErr,
+                            "interactive mcli command timed out"
+                        )
+                    })??;
+                outputs.push(output);
                 debug!("received sql response");
             }
 

@@ -13,7 +13,16 @@ Install the native build dependencies first:
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip clang build-essential curl liburing-dev
+sudo apt-get install -y \
+    python3 \
+    python3-pip \
+    python-is-python3 \
+    build-essential \
+    curl liburing-dev \
+    clang \
+    libclang-dev \
+    llvm-dev \
+    pkgconf
 ```
 
 These packages are used for:
@@ -22,8 +31,8 @@ These packages are used for:
 - `build-essential`: required for native compilation on Linux
 - `curl`: used to install Rust via `rustup`
 - `liburing-dev`: required only for the Linux native `io_uring` backend used by `mudu_kernel`
+- `clang`, `libclang-dev`, `llvm-dev`: required by *[bindgen](https://github.com/rust-lang/rust-bindgen)*
 
-If you are building on Windows, you do not need `liburing-dev`, because the native `io_uring` path is Linux-only.
 
 ### Rust toolchain
 

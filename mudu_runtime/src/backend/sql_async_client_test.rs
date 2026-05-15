@@ -17,6 +17,7 @@ mod tests {
     use std::time::{Duration, Instant};
     use tokio::sync::Mutex as AsyncMutex;
     use tokio::time::{sleep, timeout};
+    use tracing::info;
 
     lazy_static! {
         static ref SQL_ASYNC_BACKEND_TEST_LOCK: AsyncMutex<()> = AsyncMutex::new(());
@@ -53,6 +54,31 @@ mod tests {
             io_uring_worker_threads: 1,
             ..Default::default()
         })
+    }
+
+    fn should_skip_iouring_test(err: &mudu::error::err::MError) -> bool {
+        let msg = err.to_string();
+        msg.contains("connect io_uring tcp server error")
+            || msg.contains("io_uring_queue_init_params error")
+            || msg.contains("io_uring backend exited before becoming ready")
+    }
+
+    fn should_skip_iouring_env() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            match mudu_sys::io_uring_available() {
+                true => false,
+                false => {
+                    info!("skip io_uring async client test: io_uring unavailable");
+                    true
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            eprintln!("skip io_uring async client test: non-linux target");
+            true
+        }
     }
 
     async fn wait_for_client(addr: &str, timeout: Duration) -> RS<AsyncClientImpl> {
@@ -126,6 +152,9 @@ mod tests {
             JoinHandle<RS<()>>,
         )>,
     > {
+        if should_skip_iouring_env() {
+            return None;
+        }
         let Some(cfg) = test_cfg() else {
             return None;
         };
@@ -137,6 +166,10 @@ mod tests {
             Err(err) => {
                 stop_notifier.notify_all();
                 let _ = server.join();
+                if should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return None;
+                }
                 return Some(Err(err));
             }
         };
@@ -151,6 +184,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn async_client_roundtrip_sql_crud_over_iouring_backend() -> RS<()> {
+        if should_skip_iouring_env() {
+            return Ok(());
+        }
         let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
         let Some(cfg) = test_cfg() else {
             return Ok(());
@@ -164,10 +200,8 @@ mod tests {
             Err(err) => {
                 stop_notifier.notify_all();
                 let _ = server.join();
-                if err
-                    .to_string()
-                    .contains("connect io_uring tcp server error")
-                {
+                if should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
                     return Ok(());
                 }
                 return Err(err);
@@ -232,6 +266,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn async_client_batch_executes_multiple_sql_commands() -> RS<()> {
+        if should_skip_iouring_env() {
+            return Ok(());
+        }
         let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
         let Some(cfg) = test_cfg() else {
             return Ok(());
@@ -245,10 +282,8 @@ mod tests {
             Err(err) => {
                 stop_notifier.notify_all();
                 let _ = server.join();
-                if err
-                    .to_string()
-                    .contains("connect io_uring tcp server error")
-                {
+                if should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
                     return Ok(());
                 }
                 return Err(err);

@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "mududb",
     "testing",
     "mudu",
     "mudu_sys",
@@ -20,8 +21,6 @@ members = [
     "sql_parser",
     "tree-sitter-sql",
     "tree-sitter-wit",
-    "mudu_macro",
-    "mudu_macro_test",
     "mudu_wasm",
     "mudu_utils",
     "mudu_api_sync",
@@ -31,7 +30,11 @@ members = [
     "mudud",
     "mudu_package",
     "mudu_transpiler",
-    "mudu_cli"]
+    "mudu_cli",
+    "mudup"]
+
+[profile.release]
+panic = "abort"
 
 [workspace.dependencies]
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
@@ -39,6 +42,7 @@ test_utils = { path = "test_utils" }
 sys_interface = { path = "sys_interface" }
 mudu_adapter = { path = "mudu_adapter" }
 mudu = { path = "mudu" }
+mududb = { path = "mududb" }
 mudu_sys = { path = "mudu_sys" }
 mudu_binding = { path = "mudu_binding" }
 md-5 = { version = "0.11.0-rc.0" }
@@ -49,11 +53,11 @@ tree-sitter-wit = { path = "tree-sitter-wit" }
 tree-sitter = { version = "0.26.2" }
 tree-sitter-language = { version = "0.1.6" }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
+sha2 = { version = "0.10.9" }
 project-root = { version = "0.2.2" }
 mudu_runtime = { path = "mudu_runtime" }
 mudu_kernel = { path = "mudu_kernel" }
 mudu_cli = { path = "mudu_cli" }
-mudu_macro = { path = "mudu_macro" }
 mudu_utils = { path = "mudu_utils" }
 mudu_type = { path = "mudu_type" }
 mudu_contract = { path = "mudu_contract" }

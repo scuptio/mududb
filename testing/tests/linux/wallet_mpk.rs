@@ -11,12 +11,14 @@ use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 use testing::{reserve_port, wait_until_port_ready};
+use tracing::info;
 
 #[test]
 fn wallet_mpk_http_end_to_end() -> RS<()> {
@@ -118,6 +120,13 @@ fn wallet_mpk_http_end_to_end() -> RS<()> {
 
 #[test]
 fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
+    log_setup("info");
+    if !mudu_sys::io_uring_available() {
+        info!("skip wallet mudu_cli io_uring test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable wallet mudu_cli io_uring test: io_uring available");
+
     let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
         eprintln!("skip wallet mudu_cli io_uring test: local TCP/HTTP bind is not permitted");
         return Ok(());

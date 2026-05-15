@@ -1,338 +1,326 @@
 pub mod object {
-    use lazy_static::lazy_static;
-    use mudu::common::result::RS;
-    use mudu_contract::database::attr_field_access;
-    use mudu_contract::database::attr_value::AttrValue;
-    use mudu_contract::database::entity::Entity;
-    use mudu_contract::database::entity_utils;
-    use mudu_contract::database::sql_params::SQLParamMarker;
-    use mudu_contract::tuple::datum_desc::DatumDesc;
-    use mudu_contract::tuple::tuple_datum::TupleDatumMarker;
-    use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-    use mudu_type::dat_binary::DatBinary;
-    use mudu_type::dat_textual::DatTextual;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
-    use mudu_type::datum::{Datum, DatumDyn};
+use lazy_static::lazy_static;
+use mududb::common::result::RS;
+use mududb::contract::database::attr_field_access;
+use mududb::contract::database::attr_value::AttrValue;
+use mududb::contract::database::entity::Entity;
+use mududb::contract::database::entity_utils;
+use mududb::contract::database::sql_params::SQLParamMarker;
+use mududb::contract::tuple::datum_desc::DatumDesc;
+use mududb::contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mududb::contract::tuple::tuple_datum::TupleDatumMarker;
+use mududb::types::dat_binary::DatBinary;
+use mududb::types::dat_textual::DatTextual;
+use mududb::types::dat_type::DatType;
+use mududb::types::dat_type_id::DatTypeID;
+use mududb::types::dat_value::DatValue;
+use mududb::types::datum::{Datum, DatumDyn};
 
-    // constant definition
-    const USERS: &str = "users";
+// constant definition
+const USERS:&str = "users";
 
-    const USER_ID: &str = "user_id";
+const USER_ID:&str = "user_id";
 
-    const PHONE: &str = "phone";
+const PHONE:&str = "phone";
 
-    // entity struct definition
-    #[derive(Debug, Clone, Default)]
-    pub struct Users {
-        user_id: AttrUserId,
 
-        phone: AttrPhone,
+// entity struct definition
+#[derive(Debug, Clone, Default)]
+pub struct Users {
+    
+    user_id: AttrUserId,
+    
+    phone: AttrPhone,
+    
+}
+
+impl TupleDatumMarker for Users {}
+
+impl SQLParamMarker for Users {}
+
+impl Users {
+    pub fn new(
+        user_id: Option<String>,
+        phone: Option<String>,
+        
+    ) -> Self {
+        let s = Self {
+            
+            user_id : AttrUserId::from(user_id),
+            
+            phone : AttrPhone::from(phone),
+            
+        };
+        s
     }
 
-    impl TupleDatumMarker for Users {}
-
-    impl SQLParamMarker for Users {}
-
-    impl Users {
-        pub fn new(user_id: Option<String>, phone: Option<String>) -> Self {
-            let s = Self {
-                user_id: AttrUserId::from(user_id),
-
-                phone: AttrPhone::from(phone),
-            };
-            s
-        }
-
-        pub fn new_empty() -> Self {
-            Self::default()
-        }
-
-        pub fn set_user_id(&mut self, user_id: String) {
-            self.user_id.update(user_id)
-        }
-
-        pub fn get_user_id(&self) -> &Option<String> {
-            self.user_id.get()
-        }
-
-        pub fn set_phone(&mut self, phone: String) {
-            self.phone.update(phone)
-        }
-
-        pub fn get_phone(&self) -> &Option<String> {
-            self.phone.get()
-        }
+    pub fn new_empty() -> Self {
+        Self::default()
     }
 
-    impl Datum for Users {
-        fn dat_type() -> &'static DatType {
-            lazy_static! {
-                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Users>();
+    
+    pub fn set_user_id(
+        &mut self,
+        user_id: String,
+    ) {
+        self.user_id.update(user_id)
+    }
+
+    pub fn get_user_id(
+        &self,
+    ) -> &Option<String> {
+        self.user_id.get()
+    }
+    
+    pub fn set_phone(
+        &mut self,
+        phone: String,
+    ) {
+        self.phone.update(phone)
+    }
+
+    pub fn get_phone(
+        &self,
+    ) -> &Option<String> {
+        self.phone.get()
+    }
+    
+}
+
+impl Datum for Users {
+    fn dat_type() -> &'static DatType {
+        lazy_static! {
+            static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Users>();
+        }
+        &DAT_TYPE
+    }
+
+    fn from_binary(binary: &[u8]) -> RS<Self> {
+        entity_utils::entity_from_binary(binary)
+    }
+
+    fn from_value(value: &DatValue) -> RS<Self> {
+        entity_utils::entity_from_value(value)
+    }
+
+    fn from_textual(textual: &str) -> RS<Self> {
+        entity_utils::entity_from_textual(textual)
+    }
+}
+
+impl DatumDyn for Users {
+    fn dat_type_id(&self) -> RS<DatTypeID> {
+        entity_utils::entity_dat_type_id()
+    }
+
+    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
+        entity_utils::entity_to_binary(self, dat_type)
+    }
+
+    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
+        entity_utils::entity_to_textual(self, dat_type)
+    }
+
+    fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
+        entity_utils::entity_to_value(self, dat_type)
+    }
+
+    fn clone_boxed(&self) -> Box<dyn DatumDyn> {
+        entity_utils::entity_clone_boxed(self)
+    }
+}
+
+impl Entity for Users {
+    fn new_empty() -> Self {
+        Self::new_empty()
+    }
+
+    fn tuple_desc() -> &'static TupleFieldDesc {
+        lazy_static! {
+            static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
+                
+                AttrUserId::datum_desc().clone(),
+                
+                AttrPhone::datum_desc().clone(),
+                
+            ]);
+        }
+        &TUPLE_DESC
+    }
+
+    fn object_name() -> &'static str {
+        USERS
+    }
+
+    fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
+        match field {
+            
+            USER_ID => {
+                attr_field_access::attr_get_binary::<_>(self.user_id.get())
             }
-            &DAT_TYPE
-        }
-
-        fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity_utils::entity_from_binary(binary)
-        }
-
-        fn from_value(value: &DatValue) -> RS<Self> {
-            entity_utils::entity_from_value(value)
-        }
-
-        fn from_textual(textual: &str) -> RS<Self> {
-            entity_utils::entity_from_textual(textual)
-        }
-    }
-
-    impl DatumDyn for Users {
-        fn dat_type_id(&self) -> RS<DatTypeID> {
-            entity_utils::entity_dat_type_id()
-        }
-
-        fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
-            entity_utils::entity_to_binary(self, dat_type)
-        }
-
-        fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
-            entity_utils::entity_to_textual(self, dat_type)
-        }
-
-        fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
-            entity_utils::entity_to_value(self, dat_type)
-        }
-
-        fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity_utils::entity_clone_boxed(self)
-        }
-    }
-
-    impl Entity for Users {
-        fn new_empty() -> Self {
-            Self::new_empty()
-        }
-
-        fn tuple_desc() -> &'static TupleFieldDesc {
-            lazy_static! {
-                static ref TUPLE_DESC: TupleFieldDesc = TupleFieldDesc::new(vec![
-                    AttrUserId::datum_desc().clone(),
-                    AttrPhone::datum_desc().clone(),
-                ]);
+            
+            PHONE => {
+                attr_field_access::attr_get_binary::<_>(self.phone.get())
             }
-            &TUPLE_DESC
+            
+            _ => { panic!("unknown name"); }
         }
+    }
 
-        fn object_name() -> &'static str {
-            USERS
-        }
-
-        fn get_field_binary(&self, field: &str) -> RS<Option<Vec<u8>>> {
-            match field {
-                USER_ID => attr_field_access::attr_get_binary::<_>(self.user_id.get()),
-
-                PHONE => attr_field_access::attr_get_binary::<_>(self.phone.get()),
-
-                _ => {
-                    panic!("unknown name");
-                }
+    fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
+        match field {
+            
+            USER_ID => {
+                attr_field_access::attr_set_binary::<_, _>(self.user_id.get_mut(), binary.as_ref())?;
             }
-        }
-
-        fn set_field_binary<B: AsRef<[u8]>>(&mut self, field: &str, binary: B) -> RS<()> {
-            match field {
-                USER_ID => {
-                    attr_field_access::attr_set_binary::<_, _>(
-                        self.user_id.get_mut(),
-                        binary.as_ref(),
-                    )?;
-                }
-
-                PHONE => {
-                    attr_field_access::attr_set_binary::<_, _>(
-                        self.phone.get_mut(),
-                        binary.as_ref(),
-                    )?;
-                }
-
-                _ => {
-                    panic!("unknown name");
-                }
+            
+            PHONE => {
+                attr_field_access::attr_set_binary::<_, _>(self.phone.get_mut(), binary.as_ref())?;
             }
-            Ok(())
+            
+            _ => { panic!("unknown name"); }
         }
+        Ok(())
+    }
 
-        fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
-            match field {
-                USER_ID => attr_field_access::attr_get_value::<_>(self.user_id.get()),
-
-                PHONE => attr_field_access::attr_get_value::<_>(self.phone.get()),
-
-                _ => {
-                    panic!("unknown name");
-                }
+    fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
+        match field {
+            
+            USER_ID => {
+                attr_field_access::attr_get_value::<_>(self.user_id.get())
             }
-        }
-
-        fn set_field_value<B: AsRef<DatValue>>(&mut self, field: &str, value: B) -> RS<()> {
-            match field {
-                USER_ID => {
-                    attr_field_access::attr_set_value::<_, _>(self.user_id.get_mut(), value)?;
-                }
-
-                PHONE => {
-                    attr_field_access::attr_set_value::<_, _>(self.phone.get_mut(), value)?;
-                }
-
-                _ => {
-                    panic!("unknown name");
-                }
+            
+            PHONE => {
+                attr_field_access::attr_get_value::<_>(self.phone.get())
             }
-            Ok(())
+            
+            _ => { panic!("unknown name"); }
         }
     }
 
-    // attribute struct definition
-    #[derive(Default, Clone, Debug)]
-    pub struct AttrUserId {
-        is_dirty: bool,
-        value: Option<String>,
-    }
-
-    impl AttrUserId {
-        fn from(value: Option<String>) -> Self {
-            Self {
-                is_dirty: false,
-                value,
+    fn set_field_value<B: AsRef<DatValue>>(&mut self, field: &str, value: B) -> RS<()> {
+        match field {
+            
+            USER_ID => {
+                attr_field_access::attr_set_value::<_, _>(self.user_id.get_mut(), value)?;
             }
-        }
-
-        fn get(&self) -> &Option<String> {
-            &self.value
-        }
-
-        fn get_mut(&mut self) -> &mut Option<String> {
-            &mut self.value
-        }
-
-        fn set(&mut self, value: Option<String>) {
-            self.value = value
-        }
-
-        fn update(&mut self, value: String) {
-            self.is_dirty = true;
-            self.value = Some(value)
-        }
-    }
-
-    impl AttrValue<String> for AttrUserId {
-        fn dat_type() -> &'static DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
-        }
-
-        fn datum_desc() -> &'static DatumDesc {
-            static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
-        }
-
-        fn object_name() -> &'static str {
-            USERS
-        }
-
-        fn attr_name() -> &'static str {
-            USER_ID
-        }
-    }
-
-    // attribute struct definition
-    #[derive(Default, Clone, Debug)]
-    pub struct AttrPhone {
-        is_dirty: bool,
-        value: Option<String>,
-    }
-
-    impl AttrPhone {
-        fn from(value: Option<String>) -> Self {
-            Self {
-                is_dirty: false,
-                value,
+            
+            PHONE => {
+                attr_field_access::attr_set_value::<_, _>(self.phone.get_mut(), value)?;
             }
+            
+            _ => { panic!("unknown name"); }
         }
+        Ok(())
+    }
+}
 
-        fn get(&self) -> &Option<String> {
-            &self.value
-        }
 
-        fn get_mut(&mut self) -> &mut Option<String> {
-            &mut self.value
-        }
+// attribute struct definition
+#[derive(Default, Clone, Debug)]
+pub struct AttrUserId {
+    is_dirty:bool,
+    value: Option<String>
+}
 
-        fn set(&mut self, value: Option<String>) {
-            self.value = value
-        }
-
-        fn update(&mut self, value: String) {
-            self.is_dirty = true;
-            self.value = Some(value)
+impl AttrUserId {
+    fn from(value:Option<String>) -> Self {
+        Self {
+            is_dirty: false,
+            value
         }
     }
 
-    impl AttrValue<String> for AttrPhone {
-        fn dat_type() -> &'static DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
-        }
+    fn get(&self) -> &Option<String> {
+        &self.value
+    }
 
-        fn datum_desc() -> &'static DatumDesc {
-            static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
-        }
+    fn get_mut(&mut self) -> &mut Option<String> {
+        &mut self.value
+    }
 
-        fn object_name() -> &'static str {
-            USERS
-        }
+    fn set(&mut self, value:Option<String>) {
+        self.value = value
+    }
 
-        fn attr_name() -> &'static str {
-            PHONE
+    fn update(&mut self, value: String) {
+        self.is_dirty = true;
+        self.value = Some(value)
+    }
+}
+
+impl AttrValue<String> for AttrUserId {
+    fn dat_type() -> &'static DatType {
+        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+    }
+
+    fn datum_desc() -> &'static DatumDesc {
+        static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+    }
+
+    fn object_name() -> &'static str {
+        USERS
+    }
+
+    fn attr_name() -> &'static str {
+        USER_ID
+    }
+}
+
+// attribute struct definition
+#[derive(Default, Clone, Debug)]
+pub struct AttrPhone {
+    is_dirty:bool,
+    value: Option<String>
+}
+
+impl AttrPhone {
+    fn from(value:Option<String>) -> Self {
+        Self {
+            is_dirty: false,
+            value
         }
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::Users;
-        use mudu_contract::database::entity::Entity;
-        use mudu_type::datum::{Datum, DatumDyn};
-
-        #[test]
-        fn users_roundtrip_value_binary_and_field_access() {
-            let user = Users::new(Some("u-1".to_string()), Some("13800138000".to_string()));
-
-            let value = user.to_value(Users::dat_type()).unwrap();
-            let from_value = Users::from_value(&value).unwrap();
-            assert_eq!(from_value.get_user_id().as_deref(), Some("u-1"));
-            assert_eq!(from_value.get_phone().as_deref(), Some("13800138000"));
-
-            let binary = user.to_binary(Users::dat_type()).unwrap();
-            let from_binary = Users::from_binary(binary.as_ref()).unwrap();
-            assert_eq!(from_binary.get_phone().as_deref(), Some("13800138000"));
-
-            let mut updated = Users::new_empty();
-            updated
-                .set_field_value(
-                    "user_id",
-                    mudu_type::dat_value::DatValue::from_string("u-2".to_string()),
-                )
-                .unwrap();
-            updated
-                .set_field_value(
-                    "phone",
-                    mudu_type::dat_value::DatValue::from_string("13900139000".to_string()),
-                )
-                .unwrap();
-            assert_eq!(updated.get_user_id().as_deref(), Some("u-2"));
-            assert_eq!(updated.get_phone().as_deref(), Some("13900139000"));
-        }
+    fn get(&self) -> &Option<String> {
+        &self.value
     }
+
+    fn get_mut(&mut self) -> &mut Option<String> {
+        &mut self.value
+    }
+
+    fn set(&mut self, value:Option<String>) {
+        self.value = value
+    }
+
+    fn update(&mut self, value: String) {
+        self.is_dirty = true;
+        self.value = Some(value)
+    }
+}
+
+impl AttrValue<String> for AttrPhone {
+    fn dat_type() -> &'static DatType {
+        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+    }
+
+    fn datum_desc() -> &'static DatumDesc {
+        static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+    }
+
+    fn object_name() -> &'static str {
+        USERS
+    }
+
+    fn attr_name() -> &'static str {
+        PHONE
+    }
+}
+
+
 }

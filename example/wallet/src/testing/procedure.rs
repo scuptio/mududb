@@ -1,13 +1,13 @@
 use crate::rust::procedures;
 use crate::rust::transactions::object::Transactions;
 use crate::rust::wallets::object::Wallets;
-use mudu::common::id::OID;
-use mudu_contract::database::entity_set::RecordSet;
-use mudu_contract::{sql_params, sql_stmt};
+use mududb::common::id::OID;
+use mududb::contract::database::entity_set::RecordSet;
+use mududb::contract::{sql_params, sql_stmt};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
-use sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
+use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
 
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -205,7 +205,7 @@ impl TestDb {
         rs.next_record().unwrap()
     }
 
-    fn query_count<P: mudu_contract::database::sql_params::SQLParams>(
+    fn query_count<P: mududb::contract::database::sql_params::SQLParams>(
         &self,
         sql: &str,
         params: &P,
@@ -214,7 +214,7 @@ impl TestDb {
         rs.next_record().unwrap().unwrap()
     }
 
-    fn query_string<P: mudu_contract::database::sql_params::SQLParams>(
+    fn query_string<P: mududb::contract::database::sql_params::SQLParams>(
         &self,
         sql: &str,
         params: &P,
@@ -224,13 +224,13 @@ impl TestDb {
     }
 
     fn query_records<
-        R: mudu_contract::database::entity::Entity,
-        P: mudu_contract::database::sql_params::SQLParams,
+        R: mududb::contract::database::entity::Entity,
+        P: mududb::contract::database::sql_params::SQLParams,
     >(
         &self,
         sql: &str,
         params: &P,
-    ) -> mudu_contract::database::entity_set::RecordSet<R> {
+    ) -> mududb::contract::database::entity_set::RecordSet<R> {
         mudu_query::<R>(self.current_session(), sql_stmt!(&sql), params).unwrap()
     }
 
@@ -252,7 +252,7 @@ impl Drop for TestDb {
 }
 
 fn unique_db_path() -> PathBuf {
-    let nanos = mudu_sys::time::system_time_now()
+    let nanos = mududb::sys::time::system_time_now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();

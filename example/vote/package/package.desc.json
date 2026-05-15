@@ -3,7 +3,7 @@
     "vote": [
       {
         "module_name": "vote",
-        "proc_name": "create_user",
+        "proc_name": "add_option",
         "param_desc": {
           "fields": [
             {
@@ -15,7 +15,18 @@
                   }
                 }
               },
-              "name": "phone"
+              "name": "vote_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "option_text"
             }
           ]
         },
@@ -80,6 +91,39 @@
                 }
               },
               "name": "option_ids"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "vote",
+        "proc_name": "withdraw_vote",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "user_id"
+            },
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "vote_id"
             }
           ]
         },
@@ -259,51 +303,6 @@
       },
       {
         "module_name": "vote",
-        "proc_name": "add_option",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "vote_id"
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "option_text"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "vote",
         "proc_name": "create_vote",
         "param_desc": {
           "fields": [
@@ -385,7 +384,7 @@
       },
       {
         "module_name": "vote",
-        "proc_name": "withdraw_vote",
+        "proc_name": "create_user",
         "param_desc": {
           "fields": [
             {
@@ -397,8 +396,12 @@
                   }
                 }
               },
-              "name": "user_id"
-            },
+              "name": "phone"
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
             {
               "dat_type": {
                 "id": "String",
@@ -408,12 +411,9 @@
                   }
                 }
               },
-              "name": "vote_id"
+              "name": "0"
             }
           ]
-        },
-        "return_desc": {
-          "fields": []
         }
       }
     ]

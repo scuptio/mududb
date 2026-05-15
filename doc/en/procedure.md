@@ -66,7 +66,7 @@ Mudu Runtime currently supports Rust. A Rust-based procedure uses the following 
 ## Procedure specification
 
 ``` 
-#[mudu_proc]
+/**mudu-proc**/
 fn {procedure_name}(
     oid: OID,
     {argument_list...}
@@ -77,9 +77,9 @@ fn {procedure_name}(
 
 A valid Rust function name.
 
-### Macro #[mudu_proc]:
+### Marker `/**mudu-proc**/`:
 
-Marks the function as a Mudu procedure.
+Marks the following function as a Mudu procedure for the transpiler.
 
 ### Parameters:
 
@@ -94,7 +94,7 @@ Input arguments must be representable by Mudu's datum / tuple conversion system.
 Commonly used supported forms include scalar values such as `i32`, `i64`, `String`, `f32`, and `f64`, as well as
 container forms used by current examples such as `Vec<String>`.
 
-The exact supported surface is defined by the current `mudu_macro` / `mudu_type` implementation rather than a fixed
+The exact supported surface is defined by the current `mudu_type` conversion and transpiler implementation rather than a fixed
 short whitelist in this document.
 
 ### Return value:
@@ -336,7 +336,7 @@ content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
 ```rust
-#[mudu_proc]
+/**mudu-proc**/
 pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
@@ -483,7 +483,7 @@ One example is preparing AI training datasets without export/import steps.
 
 ```rust
 // Prepare AI training dataset without export/import
-#[mudu_proc]
+/**mudu-proc**/
 fn prepare_training_data(oid: OID) -> RS<()> {
     mudu_command(oid,
         sql_stmt!("..."),
@@ -505,7 +505,7 @@ For example, you can use the `uuid` and `chrono` crates:
 use chrono::Utc;
 use uuid::Uuid;
 
-#[mudu_proc]
+/**mudu-proc**/
 fn create_order(oid: OID, user_id: i32) -> RS<String> {
     // Do something ....
 

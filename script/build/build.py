@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import platform
 import shutil
@@ -32,6 +33,12 @@ class Logger:
 
     def init_colors(self):
         """Initialize color support for Windows"""
+        self.RED = Color.RED
+        self.GREEN = Color.GREEN
+        self.YELLOW = Color.YELLOW
+        self.BLUE = Color.BLUE
+        self.NC = Color.NC
+
         if self.system == "windows":
             try:
                 import colorama
@@ -297,6 +304,8 @@ build.py --prerequisite                         # Install prerequisite and setup
 build.py --build                                # Build project (with release)
 build.py --build --mode debug --features X      # Debug build with X feature
 build.py --clean --test                         # Clean cache and run tests
+build.py --package                              # Build packages from script/build-cfg/package-list.json
+build.py --package --package-list cfg.json      # Build packages from a custom package list
 """
     )
 
@@ -365,6 +374,11 @@ build.py --clean --test                         # Clean cache and run tests
         action="store_true",
         help="Create example .mpk package"
     )
+    parser.add_argument(
+        "--package-list",
+        default="script/build-cfg/package-list.json",
+        help="JSON file listing .mpk package project directories"
+    )
 
     return parser.parse_args()
 
@@ -386,6 +400,7 @@ class BuildScript:
         self.toggle_setup_rust = self.args.setup_rust
         self.toggle_build_project = self.args.build
         self.toggle_build_package = self.args.package
+        self.package_list_path = self.args.package_list
         self.toggle_install_tools = self.args.install_tools
         self.verbose = self.args.verbose
         self.build_features = ""
@@ -642,21 +657,73 @@ class BuildScript:
             return True
 
         work_dir = os.getcwd()
+        package_projects = self.load_package_projects(work_dir)
+        if package_projects is None:
+            return False
 
-        for path in [
-            "mudu_wasm",
-            "example/vote",
-            "example/wallet"
-        ]:
-            os.chdir(path)
-            cmd = "cargo make package".format(path)
+        for path in package_projects:
+            project_dir = os.path.join(work_dir, path)
+            if not os.path.isdir(project_dir):
+                self.logger.error(f"{path}, package project directory does not exist")
+                return False
+
+            os.chdir(project_dir)
+            makefile = "Makefile.toml"
+            if not os.path.exists(makefile) and os.path.exists("makefile.toml"):
+                makefile = "makefile.toml"
+            if not os.path.exists(makefile):
+                self.logger.error(f"{path}, cargo-make file not found")
+                os.chdir(work_dir)
+                return False
+            cmd = f"cargo make --makefile {makefile} package"
             if not self.run_command(cmd, capture_output=True):
                 self.logger.error("{}, build package failed".format(path))
+                os.chdir(work_dir)
                 return False
             os.chdir(work_dir)
         self.show_artifact()
 
         return True
+
+    def load_package_projects(self, work_dir: str) -> Optional[List[str]]:
+        """Load package project directories from JSON config."""
+        package_list_path = self.package_list_path
+        if not os.path.isabs(package_list_path):
+            package_list_path = os.path.join(work_dir, package_list_path)
+
+        if not os.path.exists(package_list_path):
+            self.logger.error(f"Package list file not found: {package_list_path}")
+            return None
+
+        try:
+            with open(package_list_path, "r", encoding="utf-8") as f:
+                package_list = json.load(f)
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid package list JSON: {package_list_path}: {e}")
+            return None
+        except OSError as e:
+            self.logger.error(f"Failed to read package list: {package_list_path}: {e}")
+            return None
+
+        if isinstance(package_list, dict):
+            package_list = package_list.get("packages")
+
+        if not isinstance(package_list, list):
+            self.logger.error("Package list must be a JSON array or an object with a 'packages' array")
+            return None
+
+        projects = []
+        for item in package_list:
+            if not isinstance(item, str) or not item.strip():
+                self.logger.error("Package project entries must be non-empty strings")
+                return None
+            projects.append(item.strip())
+
+        if not projects:
+            self.logger.error("Package list is empty")
+            return None
+
+        return projects
 
     def show_configuration(self):
         """Display build configuration"""

@@ -1,17 +1,17 @@
 use clap::{Parser, ValueEnum};
-use mudu::common::result::RS;
-use mudu::error::ec::EC::NotImplemented;
-use mudu::m_error;
-use mudu_binding::procedure::procedure_invoke;
+use mududb::common::result::RS;
+use mududb::error::ec::EC::NotImplemented;
+use mududb::m_error;
+use mududb::binding::procedure::procedure_invoke;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
 use mudu_cli::management::install_app_package;
-use mudu_contract::procedure::procedure_param::ProcedureParam;
-use mudu_contract::tuple::tuple_datum::TupleDatum;
-use mudu_contract::{sql_params, sql_stmt};
+use mududb::contract::procedure::procedure_param::ProcedureParam;
+use mududb::contract::tuple::tuple_datum::TupleDatum;
+use mududb::contract::{sql_params, sql_stmt};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-use sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
+use mududb::sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
 use tpcc::rust::procedure::{
     tpcc_delivery, tpcc_new_order, tpcc_order_status, tpcc_payment, tpcc_seed, tpcc_stock_level,
 };
@@ -159,27 +159,27 @@ async fn run_tcp(args: Args) -> RS<()> {
     let start = Instant::now();
     if let Some(mpk_path) = &args.mpk {
         let mpk_binary = fs::read(mpk_path)
-            .map_err(|e| m_error!(mudu::error::ec::EC::IOErr, "read tpcc mpk error", e))?;
+            .map_err(|e| m_error!(mududb::error::ec::EC::IOErr, "read tpcc mpk error", e))?;
         install_app_package(&args.http_addr, mpk_binary)
             .await
-            .map_err(|e| m_error!(mudu::error::ec::EC::NetErr, "install tpcc mpk error", e))?;
+            .map_err(|e| m_error!(mududb::error::ec::EC::NetErr, "install tpcc mpk error", e))?;
     }
 
     let mut client = AsyncClientImpl::connect(&args.tcp_addr)
         .await
         .map_err(|e| {
             m_error!(
-                mudu::error::ec::EC::NetErr,
+                mududb::error::ec::EC::NetErr,
                 "connect tpcc tcp client error",
                 e
             )
         })?;
     let session_id = client
-        .create_session(mudu_contract::protocol::SessionCreateRequest::new(None))
+        .create_session(mududb::contract::protocol::SessionCreateRequest::new(None))
         .await
         .map_err(|e| {
             m_error!(
-                mudu::error::ec::EC::NetErr,
+                mududb::error::ec::EC::NetErr,
                 "create tpcc tcp session error",
                 e
             )
@@ -263,13 +263,13 @@ async fn run_tcp(args: Args) -> RS<()> {
     }
 
     let _ = client
-        .close_session(mudu_contract::protocol::SessionCloseRequest::new(
+        .close_session(mududb::contract::protocol::SessionCloseRequest::new(
             session_id,
         ))
         .await
         .map_err(|e| {
             m_error!(
-                mudu::error::ec::EC::NetErr,
+                mududb::error::ec::EC::NetErr,
                 "close tpcc tcp session error",
                 e
             )
@@ -392,7 +392,7 @@ async fn invoke_void<T: TupleDatum>(
 ) -> RS<()> {
     let payload = serialize_param(tuple)?;
     let result_binary = client
-        .invoke_procedure(mudu_contract::protocol::ProcedureInvokeRequest::new(
+        .invoke_procedure(mududb::contract::protocol::ProcedureInvokeRequest::new(
             session_id,
             procedure_name.to_string(),
             payload,
@@ -400,7 +400,7 @@ async fn invoke_void<T: TupleDatum>(
         .await
         .map_err(|e| {
             m_error!(
-                mudu::error::ec::EC::NetErr,
+                mududb::error::ec::EC::NetErr,
                 "invoke void procedure error",
                 e
             )
@@ -419,7 +419,7 @@ async fn invoke_typed<T: TupleDatum, R: TupleDatum>(
 ) -> RS<R> {
     let payload = serialize_param(tuple)?;
     let result_binary = client
-        .invoke_procedure(mudu_contract::protocol::ProcedureInvokeRequest::new(
+        .invoke_procedure(mududb::contract::protocol::ProcedureInvokeRequest::new(
             session_id,
             procedure_name.to_string(),
             payload,
@@ -427,7 +427,7 @@ async fn invoke_typed<T: TupleDatum, R: TupleDatum>(
         .await
         .map_err(|e| {
             m_error!(
-                mudu::error::ec::EC::NetErr,
+                mududb::error::ec::EC::NetErr,
                 "invoke typed procedure error",
                 e
             )
@@ -465,7 +465,7 @@ async fn main() {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::{Args, BenchmarkMode, run_sync, run_tcp};
-    use mudu::common::result::RS;
+    use mududb::common::result::RS;
     use mudu_runtime::backend::backend::Backend;
     use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, ServerMode};
     use mudu_utils::notifier::{Notifier, notify_wait};
@@ -519,8 +519,8 @@ mod tests {
         fn stop(self) -> RS<()> {
             self.stop.notify_all();
             self.handle.join().map_err(|_| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::ThreadErr,
+                mududb::m_error!(
+                    mududb::error::ec::EC::ThreadErr,
                     "join tpcc benchmark mudud thread error"
                 )
             })?
@@ -537,15 +537,15 @@ mod tests {
         let db_path = temp_dir("db");
         let mpk_path = temp_dir("mpk");
         fs::create_dir_all(&db_path).map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::IOErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::IOErr,
                 "create tpcc benchmark db dir error",
                 e
             )
         })?;
         fs::create_dir_all(&mpk_path).map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::IOErr,
+            mududb::m_error!(
+                mududb::error::ec::EC::IOErr,
                 "create tpcc benchmark mpk dir error",
                 e
             )

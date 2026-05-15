@@ -9,18 +9,18 @@ use crate::rust::procedure_common::{
 };
 use crate::rust::stock::object::Stock;
 use crate::rust::warehouse::object::Warehouse;
-use mudu::common::result::RS;
-use mudu::common::xid::XID;
-use mudu::error::ec::EC::MuduError;
-use mudu::m_error;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::{sql_params, sql_stmt};
-use sys_interface::sync_api::{mudu_command, mudu_query};
+use mududb::common::result::RS;
+use mududb::common::xid::XID;
+use mududb::error::ec::EC::MuduError;
+use mududb::m_error;
+use mududb::contract::database::entity::Entity;
+use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
 fn query_one_entity<R: Entity>(
     xid: XID,
     sql: &str,
-    params: &dyn mudu_contract::database::sql_params::SQLParams,
+    params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<R> {
     mudu_query::<R>(xid, sql_stmt!(&sql), params)?
         .next_record()?
@@ -30,7 +30,7 @@ fn query_one_entity<R: Entity>(
 fn query_entities<R: Entity>(
     xid: XID,
     sql: &str,
-    params: &dyn mudu_contract::database::sql_params::SQLParams,
+    params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<Vec<R>> {
     let mut result_set = mudu_query::<R>(xid, sql_stmt!(&sql), params)?;
     let mut values = Vec::new();
@@ -43,7 +43,7 @@ fn query_entities<R: Entity>(
 fn query_count_i32(
     xid: XID,
     sql: &str,
-    params: &dyn mudu_contract::database::sql_params::SQLParams,
+    params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<i32> {
     let value = mudu_query::<i64>(xid, sql_stmt!(&sql), params)?
         .next_record()?
@@ -347,7 +347,7 @@ pub fn tpcc_payment(
             &"INSERT INTO history (h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         ),
         sql_params!(&(
-            mudu_sys::random::next_uuid_v4_string(),
+            mududb::sys::random::next_uuid_v4_string(),
             customer_id,
             district_id,
             warehouse_id,
@@ -463,10 +463,10 @@ mod tests {
         tpcc_delivery, tpcc_new_order, tpcc_order_status, tpcc_payment, tpcc_seed, tpcc_stock_level,
     };
     use crate::test_lock;
-    use mudu_contract::{sql_params, sql_stmt};
+    use mududb::contract::{sql_params, sql_stmt};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open};
+    use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open};
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = SystemTime::now()

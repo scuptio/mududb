@@ -1,0 +1,11 @@
+{
+  "packages": [
+    "mudu_wasm",
+    "example/game-backend",
+    "example/key-value",
+    "example/tpcc",
+    "example/vote",
+    "example/wallet",
+    "example/ycsb"
+  ]
+}

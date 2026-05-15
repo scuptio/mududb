@@ -1,0 +1,17 @@
+[package]
+name = "mudup"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "mudup"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+reqwest = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }

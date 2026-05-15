@@ -12,10 +12,16 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tracing::info;
 
 #[test]
 fn test_mudud_restart_persistence_iouring() -> RS<()> {
     log_setup("info");
+    if !mudu_sys::io_uring_available() {
+        info!("skip restart persistence iouring test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable restart persistence iouring test: io_uring available");
     let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
         eprintln!("skip test: local TCP/HTTP bind is not permitted");
         return Ok(());

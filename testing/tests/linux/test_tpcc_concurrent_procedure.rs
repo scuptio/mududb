@@ -26,17 +26,16 @@ use mudu_utils::debug::debug_serve;
 fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
     let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     log_setup(&log_level);
+    if !mudu_sys::io_uring_available() {
+        info!("skip tpcc concurrent test: io_uring unavailable");
+        return Ok(());
+    }
+    info!("enable tpcc concurrent test: io_uring available");
     let _ = thread::spawn(move || {
         debug_serve(Default::default(), 1801);
     });
 
     info!(log_level = %log_level, "starting tpcc concurrent procedure test");
-
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
-        eprintln!("skip tpcc concurrent test: local TCP/HTTP bind is not permitted");
-        return Ok(());
-    };
-    let _server = ctx.start_server()?;
 
     let cfg = TpccBenchCfg::from_env();
     info!(
@@ -60,6 +59,12 @@ fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
         return Ok(());
     };
     debug!(mpk_path = %mpk_path.display(), "resolved tpcc mpk path");
+
+    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
+        eprintln!("skip tpcc concurrent test: local TCP/HTTP bind is not permitted");
+        return Ok(());
+    };
+    let _server = ctx.start_server()?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

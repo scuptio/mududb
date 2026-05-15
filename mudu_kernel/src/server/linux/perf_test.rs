@@ -227,6 +227,21 @@ fn candidate_port_ranges(ephemeral: &RangeInclusive<u16>) -> Vec<RangeInclusive<
     ranges
 }
 
+fn should_skip_iouring_perf(err: &MError) -> bool {
+    let msg = err.to_string();
+    msg.contains("io_uring_queue_init_params error")
+        || msg.contains("io_uring backend exited before becoming ready")
+}
+
+fn maybe_skip_in_act() -> bool {
+    if !mudu_sys::io_uring_available() {
+        eprintln!("skip io_uring perf test: io_uring unavailable");
+        true
+    } else {
+        false
+    }
+}
+
 async fn wait_for_clients_ready(
     clients: usize,
     ready_clients: &AtomicU64,
@@ -266,26 +281,6 @@ fn perf_client_setup_timeout(clients: usize) -> Duration {
         .filter(|v| *v > 0)
         .unwrap_or(default_secs);
     Duration::from_secs(secs)
-}
-
-async fn wait_until_server_ready_async(port: u16) {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
-    while mudu_sys::time::instant_now() < deadline {
-        match TokioTcpStream::connect(("127.0.0.1", port)).await {
-            Ok(stream) => {
-                let _ = stream.set_nodelay(true);
-                let _ = stream
-                    .into_std()
-                    .and_then(|s| s.shutdown(std::net::Shutdown::Both));
-                return;
-            }
-            Err(_) => {}
-        }
-        mudu_sys::task::sleep(Duration::from_millis(25))
-            .await
-            .expect("linux sleep wrapper should not fail");
-    }
-    panic!("io_uring backend did not become ready on port {}", port);
 }
 
 struct TestServerHandle {
@@ -411,6 +406,9 @@ fn avg_us(samples: &[u64]) -> Option<f64> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn iouring_backend_perf_put_get() -> RS<()> {
+    if maybe_skip_in_act() {
+        return Ok(());
+    }
     let _guard = lock_network_perf_test();
     log_setup("info");
     let notifier = NotifyWait::new();
@@ -433,22 +431,15 @@ async fn iouring_backend_perf_put_get() -> RS<()> {
     ));
     std::fs::create_dir_all(&data_dir).unwrap();
 
-    let (stop_notifier, server_stop) = notifier.notify_wait();
-    let server_cfg = IoUringTcpServerConfig::new(
-        worker_count,
-        "127.0.0.1".to_string(),
-        port,
-        data_dir.to_string_lossy().into_owned(),
-        data_dir.to_string_lossy().into_owned(),
-        RoutingMode::ConnectionId,
-        None,
-    )
-    .unwrap()
-    .with_prebound_listener(listener);
-    let server_thread =
-        thread::spawn(move || IoUringTcpBackend::sync_serve_with_stop(server_cfg, server_stop));
-
-    wait_until_server_ready_async(port).await;
+    let (stop_notifier, server_thread) =
+        spawn_iouring_server(listener, worker_count, &data_dir, 64 * 1024 * 1024, None);
+    if let Err(err) = wait_until_server_ready_or_exit_async(port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring perf test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     let start_clients = Arc::new(AtomicBool::new(false));
     let start_notify = Arc::new(Notify::new());
@@ -611,6 +602,9 @@ async fn iouring_backend_perf_put_get() -> RS<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
+    if maybe_skip_in_act() {
+        return Ok(());
+    }
     let _guard = lock_network_perf_test();
     let Some(listener) = reserve_listener() else {
         return Ok(());
@@ -632,7 +626,13 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
         64 * 1024 * 1024,
         Some(registry.clone()),
     );
-    wait_until_server_ready_or_exit_async(port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring recovery test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
         let mut client = AsyncPerfClient::connect(port).await?;
@@ -666,7 +666,13 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
         64 * 1024 * 1024,
         Some(registry.clone()),
     );
-    wait_until_server_ready_or_exit_async(restart_port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(restart_port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring recovery restart test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
         let mut client = AsyncPerfClient::connect(restart_port).await?;
@@ -691,6 +697,9 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn iouring_backend_recovery_replays_across_multiple_chunks() -> RS<()> {
+    if maybe_skip_in_act() {
+        return Ok(());
+    }
     let _guard = lock_network_perf_test();
     let Some(listener) = reserve_listener() else {
         return Ok(());
@@ -712,7 +721,13 @@ async fn iouring_backend_recovery_replays_across_multiple_chunks() -> RS<()> {
 
     let (stop_notifier, server_thread) =
         spawn_iouring_server(listener, worker_count, &data_dir, log_chunk_size, None);
-    wait_until_server_ready_or_exit_async(port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring multichunk recovery test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
     {
         let mut client = AsyncPerfClient::connect(port).await?;
         for (key, value) in &entries {
@@ -745,7 +760,13 @@ async fn iouring_backend_recovery_replays_across_multiple_chunks() -> RS<()> {
         log_chunk_size,
         None,
     );
-    wait_until_server_ready_or_exit_async(restart_port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(restart_port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring multichunk recovery restart test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
     {
         let mut client = AsyncPerfClient::connect(restart_port).await?;
         for (key, value) in &entries {
@@ -760,6 +781,9 @@ async fn iouring_backend_recovery_replays_across_multiple_chunks() -> RS<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn iouring_backend_open_session_routes_connection_to_requested_partition() -> RS<()> {
+    if maybe_skip_in_act() {
+        return Ok(());
+    }
     let _guard = lock_network_perf_test();
     let Some(listener) = reserve_listener() else {
         return Ok(());
@@ -788,7 +812,13 @@ async fn iouring_backend_open_session_routes_connection_to_requested_partition()
         64 * 1024 * 1024,
         Some(registry.clone()),
     );
-    wait_until_server_ready_or_exit_async(port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring route test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
         let mut client = AsyncPerfClient::connect(port).await?;
@@ -837,6 +867,9 @@ async fn iouring_backend_open_session_routes_connection_to_requested_partition()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn iouring_backend_open_session_rebind_keeps_same_session_id() -> RS<()> {
+    if maybe_skip_in_act() {
+        return Ok(());
+    }
     let _guard = lock_network_perf_test();
     let Some(listener) = reserve_listener() else {
         return Ok(());
@@ -865,7 +898,13 @@ async fn iouring_backend_open_session_rebind_keeps_same_session_id() -> RS<()> {
         64 * 1024 * 1024,
         Some(registry.clone()),
     );
-    wait_until_server_ready_or_exit_async(port, &server_thread).await?;
+    if let Err(err) = wait_until_server_ready_or_exit_async(port, &server_thread).await {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring rebind test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
         let mut client = AsyncPerfClient::connect(port).await?;

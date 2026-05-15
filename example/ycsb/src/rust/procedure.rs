@@ -1,9 +1,9 @@
 use crate::rust::procedure_common::{decode_utf8, kv_data_key};
-use mudu::common::result::RS;
-use mudu::common::xid::XID;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
+use mududb::common::result::RS;
+use mududb::common::xid::XID;
+use mududb::error::ec::EC;
+use mududb::m_error;
+use mududb::sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
 
 fn read_value(session_id: XID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
@@ -63,7 +63,7 @@ mod tests {
     use crate::test_lock;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use sys_interface::sync_api::{mudu_close, mudu_open};
+    use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = SystemTime::now()
