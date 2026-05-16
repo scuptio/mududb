@@ -1,5 +1,5 @@
 # Example mududb configuration for the Linux io_uring runtime path.
-# Copy the values you need into ${HOME}/.mudu/mududb_cfg.toml or point mudud
+# Copy the values you need into ${HOME}/.mududb/mududb_cfg.toml or point mudud
 # at an equivalent config file in your deployment environment.
 
 # The path to install application package

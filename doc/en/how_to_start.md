@@ -1,11 +1,43 @@
 # How to Start
 
+## Quick Install with `mudup`
+
+This path is for server deployment and daily usage. It does not require building MuduDB from source.
+
+### 1. Install `mudup`
+
+Install `mudup` from the release artifact, then verify:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL  https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
+mudup --help
+```
+
+### 2. Install MuduDB and its toolchain
+
+```bash
+mudup install
+```
+
+This installs and activates the latest release (`mudud`, `mcli`, `mpk`, `mgen`, `mtp`).
+
+### 3. Verify installation
+
+```bash
+mudud --version
+mcli --version
+```
+
+`mudup install` also creates `${HOME}/.mududb/mududb_cfg.toml` with default values if it does not already exist.
+
+## Source Build (For Development)
+
 ## Clone the Repository
 
 ```bash
 git clone https://github.com/scuptio/mududb.git
 ```
-## Prerequisite Setup(Ubuntu or Debian)
+## Prerequisite Setup (Ubuntu or Debian)
 
 ### System packages
 
@@ -62,7 +94,7 @@ The example applications are driven by `cargo-make` task files, so installing it
 cargo install cargo-make
 ```
 
-## Install Tools and MuduDB Server
+## Install Tools and MuduDB Server (Development Build)
 
 ```bash
 python script/build/install_binaries.py
@@ -90,11 +122,11 @@ python script/build/install_binaries.py --all-workspace-bins
 Create the configuration file at:
 
 ```bash
-mkdir -p ${HOME}/.mudu
-touch ${HOME}/.mudu/mududb_cfg.toml
+mkdir -p ${HOME}/.mududb
+touch ${HOME}/.mududb/mududb_cfg.toml
 ```
 
-If the file does not exist, `mudud` also creates `${HOME}/.mudu/mududb_cfg.toml` automatically on first start with default values.
+If the file does not exist, `mudud` also creates `${HOME}/.mududb/mududb_cfg.toml` automatically on first start with default values.
 
 ## Use MuduDB
 
