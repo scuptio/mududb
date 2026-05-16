@@ -1,5 +1,37 @@
 # 如何开始
 
+## 使用 `mudup` 快速安装
+
+该路径用于服务器部署和日常使用，不需要从源码构建 MuduDB。
+
+### 1. 安装 `mudup`
+
+先从发布产物安装 `mudup`，然后执行：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL  https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
+mudup --help
+```
+
+### 2. 安装 MuduDB及其工具链
+
+```bash
+mudup install
+```
+
+该命令会安装并激活最新版本（`mudud`、`mcli`、`mpk`、`mgen`、`mtp`）。
+
+### 3. 验证安装
+
+```bash
+mudud --version
+mcli --version
+```
+
+如果 `${HOME}/.mududb/mududb_cfg.toml` 不存在，`mudup install` 会自动创建默认配置文件。
+
+## 源码安装（用于开发部署）
+
 ## 克隆仓库
 
 ```bash
@@ -63,7 +95,7 @@ python -m pip install toml tomli-w
 cargo install cargo-make
 ```
 
-## 安装工具与 MuduDB Server
+## 安装工具与 MuduDB Server（开发构建）
 
 ```bash
 python script/build/install_binaries.py
@@ -91,11 +123,11 @@ python script/build/install_binaries.py --all-workspace-bins
 在以下位置创建配置文件：
 
 ```bash
-mkdir -p ${HOME}/.mudu
-touch ${HOME}/.mudu/mududb_cfg.toml
+mkdir -p ${HOME}/.mududb
+touch ${HOME}/.mududb/mududb_cfg.toml
 ```
 
-如果该文件不存在，`mudud` 首次启动时也会按默认值自动创建 `${HOME}/.mudu/mududb_cfg.toml`。
+如果该文件不存在，`mudud` 首次启动时也会按默认值自动创建 `${HOME}/.mududb/mududb_cfg.toml`。
 
 ## 使用 MuduDB
 

@@ -30,8 +30,7 @@ members = [
     "mudud",
     "mudu_package",
     "mudu_transpiler",
-    "mudu_cli",
-    "mudup"]
+    "mudu_cli"]
 
 [profile.release]
 panic = "abort"

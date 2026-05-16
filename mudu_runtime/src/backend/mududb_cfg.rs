@@ -146,7 +146,7 @@ impl Default for MuduDBCfg {
     }
 }
 
-const MUDUDB_CFG_TOML_PATH: &str = ".mudu/mududb_cfg.toml";
+const MUDUDB_CFG_TOML_PATH: &str = ".mududb/mududb_cfg.toml";
 
 impl MuduDBCfg {
     pub fn component_target(&self) -> ComponentTarget {
