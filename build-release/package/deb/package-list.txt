@@ -1,0 +1,3 @@
+x86_64-unknown-linux-gnu https://archive.ubuntu.com/ubuntu/pool/main/libu/liburing/liburing2_2.5-1build1_amd64.deb
+aarch64-unknown-linux-gnu https://ports.ubuntu.com/ubuntu-ports/pool/main/libu/liburing/liburing2_2.5-1build1_arm64.deb
+armv7-unknown-linux-gnueabihf https://ports.ubuntu.com/ubuntu-ports/pool/main/libu/liburing/liburing2_2.5-1build1_armhf.deb
