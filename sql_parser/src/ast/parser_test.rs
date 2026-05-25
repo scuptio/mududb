@@ -8,6 +8,10 @@ mod tests {
     use crate::ast::stmt_type::{StmtCommand, StmtType};
     use crate::ast::stmt_update::AssignedValue;
     use mudu::common::result::RS;
+    use mudu_binding::universal::uni_dat_type::UniDatType;
+    use mudu_binding::universal::uni_dat_value::UniDatValue;
+    use mudu_binding::universal::uni_scalar::UniScalar;
+    use mudu_binding::universal::uni_scalar_value::UniScalarValue;
     use project_root::get_project_root;
     use std::fs;
     use std::path::Path;
@@ -87,6 +91,56 @@ mod tests {
             mudu_type::dat_type_id::DatTypeID::I64
         );
         assert!(matches!(predicate.2, ValueCompare::LE));
+    }
+
+    #[test]
+    fn parse_decimal_literal_preserves_numeric_type() {
+        let stmts = parse_sql("select id from users where amount = 12.34;").unwrap();
+
+        let StmtType::Select(stmt) = &stmts[0] else {
+            panic!("expected select");
+        };
+        let predicate = &stmt.get_where_predicate()[0];
+        match predicate.right() {
+            ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) => {
+                assert_eq!(
+                    literal.dat_type().dat_type().dat_type_id(),
+                    mudu_type::dat_type_id::DatTypeID::Numeric
+                );
+                assert_eq!(
+                    literal
+                        .dat_type()
+                        .dat_internal()
+                        .expect_numeric()
+                        .to_plain_string(),
+                    "12.34"
+                );
+            }
+            other => panic!("expected numeric literal on right side, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_decimal_literal_preserves_trailing_fractional_zeros() {
+        let stmts = parse_sql("select id from users where amount = 12.3400;").unwrap();
+
+        let StmtType::Select(stmt) = &stmts[0] else {
+            panic!("expected select");
+        };
+        let predicate = &stmt.get_where_predicate()[0];
+        match predicate.right() {
+            ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) => {
+                assert_eq!(
+                    literal
+                        .dat_type()
+                        .dat_internal()
+                        .expect_numeric()
+                        .to_plain_string(),
+                    "12.3400"
+                );
+            }
+            other => panic!("expected numeric literal on right side, got {other:?}"),
+        }
     }
 
     #[test]
@@ -281,6 +335,183 @@ mod tests {
     );";
         let r = parse_sql(sql);
         assert!(r.is_ok());
+    }
+
+    #[test]
+    fn parse_create_table_numeric_type_preserves_precision_and_scale() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE ledger (
+                id BIGINT PRIMARY KEY,
+                amount NUMERIC(18, 2)
+            );
+            ",
+        )
+        .unwrap();
+
+        let amount = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "amount")
+            .expect("amount column");
+        assert!(matches!(
+            amount.data_type(),
+            UniDatType::Scalar(UniScalar::Numeric)
+        ));
+        let params = amount
+            .data_type_param()
+            .as_ref()
+            .expect("numeric params should exist");
+        assert_eq!(params.len(), 2);
+        assert!(matches!(
+            params[0],
+            UniDatValue::Scalar(UniScalarValue::I64(18))
+        ));
+        assert!(matches!(
+            params[1],
+            UniDatValue::Scalar(UniScalarValue::I64(2))
+        ));
+    }
+
+    #[test]
+    fn parse_create_table_decimal_alias_maps_to_numeric_scalar() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE ledger (
+                id BIGINT PRIMARY KEY,
+                amount DECIMAL(9, 4)
+            );
+            ",
+        )
+        .unwrap();
+
+        let amount = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "amount")
+            .expect("amount column");
+        assert!(matches!(
+            amount.data_type(),
+            UniDatType::Scalar(UniScalar::Numeric)
+        ));
+        let params = amount.data_type_param().as_ref().expect("decimal params");
+        assert!(matches!(
+            params[0],
+            UniDatValue::Scalar(UniScalarValue::I64(9))
+        ));
+        assert!(matches!(
+            params[1],
+            UniDatValue::Scalar(UniScalarValue::I64(4))
+        ));
+    }
+
+    #[test]
+    fn parse_create_table_numeric_without_params_keeps_numeric_type_without_param_payload() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE ledger (
+                id BIGINT PRIMARY KEY,
+                amount NUMERIC
+            );
+            ",
+        )
+        .unwrap();
+
+        let amount = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "amount")
+            .expect("amount column");
+        assert!(matches!(
+            amount.data_type(),
+            UniDatType::Scalar(UniScalar::Numeric)
+        ));
+        assert!(amount.data_type_param().is_none());
+    }
+
+    #[test]
+    fn parse_create_table_temporal_types_preserve_scalar_kinds_and_precision() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE events (
+                id BIGINT PRIMARY KEY,
+                event_date DATE,
+                event_time TIME(3),
+                created_at TIMESTAMP(4),
+                published_at TIMESTAMPTZ(2)
+            );
+            ",
+        )
+        .unwrap();
+
+        let columns = stmt.non_primary_columns();
+        assert!(matches!(
+            columns[0].data_type(),
+            UniDatType::Scalar(UniScalar::Date)
+        ));
+        assert!(columns[0].data_type_param().is_none());
+
+        assert!(matches!(
+            columns[1].data_type(),
+            UniDatType::Scalar(UniScalar::Time)
+        ));
+        let time_params = columns[1]
+            .data_type_param()
+            .as_ref()
+            .expect("time params should exist");
+        assert_eq!(time_params.len(), 1);
+        assert!(matches!(
+            time_params[0],
+            UniDatValue::Scalar(UniScalarValue::I64(3))
+        ));
+
+        assert!(matches!(
+            columns[2].data_type(),
+            UniDatType::Scalar(UniScalar::Timestamp)
+        ));
+        let timestamp_params = columns[2]
+            .data_type_param()
+            .as_ref()
+            .expect("timestamp params should exist");
+        assert_eq!(timestamp_params.len(), 1);
+        assert!(matches!(
+            timestamp_params[0],
+            UniDatValue::Scalar(UniScalarValue::I64(4))
+        ));
+
+        assert!(matches!(
+            columns[3].data_type(),
+            UniDatType::Scalar(UniScalar::TimestampTz)
+        ));
+        let timestamptz_params = columns[3]
+            .data_type_param()
+            .as_ref()
+            .expect("timestamptz params should exist");
+        assert_eq!(timestamptz_params.len(), 1);
+        assert!(matches!(
+            timestamptz_params[0],
+            UniDatValue::Scalar(UniScalarValue::I64(2))
+        ));
+    }
+
+    #[test]
+    fn parse_create_table_temporal_types_without_precision_keep_no_param_payload() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE audit_log (
+                id BIGINT PRIMARY KEY,
+                event_time TIME,
+                created_at TIMESTAMP,
+                published_at TIMESTAMPTZ
+            );
+            ",
+        )
+        .unwrap();
+
+        let columns = stmt.non_primary_columns();
+        assert!(columns[0].data_type_param().is_none());
+        assert!(columns[1].data_type_param().is_none());
+        assert!(columns[2].data_type_param().is_none());
     }
 
     #[test]

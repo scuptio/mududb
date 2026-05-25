@@ -6,6 +6,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::sql::DBConn;
+use mudu_kernel::async_rt::contract::AsyncRuntime;
 use mudu_kernel::mudu_conn::mudu_conn_async::MuduConnAsync;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -22,6 +23,13 @@ enum DBType {
 
 impl DBConnector {
     pub async fn connect(connect_string: &str) -> RS<DBConn> {
+        Self::connect_with_async_runtime(connect_string, None).await
+    }
+
+    pub async fn connect_with_async_runtime(
+        connect_string: &str,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    ) -> RS<DBConn> {
         let db_str_param = parse_db_connect_string(connect_string);
         let mut passing_param = Vec::new();
         let mut opt_ddl_path = None;
@@ -60,7 +68,7 @@ impl DBConnector {
             Some(db_type) => match db_type {
                 DBType::LibSQL => create_ls_conn(&db_path, &app_name, &ddl_path),
                 DBType::LibSQLAsync => create_libsql_async_conn(&db_path, &app_name).await,
-                DBType::MuduDB => create_mudu_conn().await,
+                DBType::MuduDB => create_mudu_conn(async_runtime).await,
             },
             None => Err(m_error!(EC::ParseErr, "not a valid DB type")),
         }
@@ -71,8 +79,10 @@ impl DBConnector {
     }
 }
 
-async fn create_mudu_conn() -> RS<DBConn> {
-    Ok(DBConn::Async(Arc::new(MuduConnAsync::new()?)))
+async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<DBConn> {
+    Ok(DBConn::Async(Arc::new(MuduConnAsync::new_with_runtime(
+        async_runtime,
+    )?)))
 }
 
 fn parse_key_value(s: &str) -> RS<(String, String)> {

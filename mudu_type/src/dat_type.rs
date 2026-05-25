@@ -5,8 +5,12 @@ use crate::dt_impl::dat_table::get_fn_param;
 use crate::dt_info::DTInfo;
 use crate::dtp_array::DTPArray;
 use crate::dtp_kind::DTPKind;
+use crate::dtp_numeric::DTPNumeric;
 use crate::dtp_object::DTPRecord;
 use crate::dtp_string::DTPString;
+use crate::dtp_time::DTPTime;
+use crate::dtp_timestamp::DTPTimestamp;
+use crate::dtp_timestamptz::DTPTimestampTz;
 use crate::type_error::TyErr;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
@@ -27,7 +31,7 @@ unsafe impl Sync for DatType {}
 
 impl DatType {
     pub fn default_for(id: DatTypeID) -> DatType {
-        if !id.is_primitive_type() {
+        if !id.is_scalar_type() {
             panic!("DatType::default_for({:?})", id);
         }
         let opt = id.opt_fn_param();
@@ -80,7 +84,7 @@ impl DatType {
     }
 
     pub fn name(&self) -> String {
-        if self.id.is_primitive_type() {
+        if self.id.is_scalar_type() {
             self.id.name().to_string()
         } else {
             match &self.param {
@@ -213,6 +217,10 @@ impl Default for DatType {
 
 impl_dat_type_methods! {
     (DTPString, String, string),
+    (DTPNumeric, Numeric, numeric),
+    (DTPTime, Time, time),
+    (DTPTimestamp, Timestamp, timestamp),
+    (DTPTimestampTz, TimestampTz, timestamptz),
     (DTPRecord, Record, record),
     (DTPArray, Array, array),
 }

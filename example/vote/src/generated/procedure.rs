@@ -6,10 +6,10 @@ use crate::generated::votes::object::Votes;
 use fallible_iterator::FallibleIterator;
 use mududb::common::result::RS;
 use mududb::common::xid::XID;
-use mududb::error::ec::EC::MuduError;
-use mududb::m_error;
 use mududb::contract::database::entity_set::RecordSet;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::error::ec::EC::MuduError;
+use mududb::m_error;
 use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 
 // User management
@@ -373,508 +373,6 @@ mod tests {
         );
     }
 }
-async fn mp2_add_option(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_add_option,
-    ).await
-}
-
-pub async fn mudu_inner_p2_add_option(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
-    let res = add_option(
-        param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[0], "String")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[1], "String")?,
-            
-        
-    ).await;
-    match res {
-        Ok(tuple) => {
-            let return_list = {
-                
-                vec![
-                    
-                    ::mududb::types::datum::value_from_typed(&tuple, "String")?
-                    
-                ]
-                
-            };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_add_option()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "vote_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "option_text".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_add_option() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_add_option()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
-    > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "vote".to_string(),
-                "add_option".to_string(),
-                mudu_argv_desc_add_option().clone(),
-                mudu_result_desc_add_option().clone(),
-                false
-            )
-        })
-}
-
-mod mod_add_option {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-add-option;
-            world mudu-app-mp2-add-option {
-                export mp2-add-option: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestAddOption {}
-
-    impl Guest for GuestAddOption {
-        async fn mp2_add_option(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_add_option(param).await
-        }
-    }
-
-    export!(GuestAddOption);
-}
-async fn mp2_cast_vote(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_cast_vote,
-    ).await
-}
-
-pub async fn mudu_inner_p2_cast_vote(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
-    let res = cast_vote(
-        param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[0], "String")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[1], "String")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                Vec<String, >,
-                _,
-            >(&param.param_list()[2], "Vec<String, >")?,
-            
-        
-    ).await;
-    match res {
-        Ok(tuple) => {
-            let return_list = {
-                
-                vec![]
-                
-            };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_cast_vote()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "user_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "vote_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "option_ids".to_string(),
-                    
-                    <Vec<String, > as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_cast_vote() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_cast_vote()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
-    > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "vote".to_string(),
-                "cast_vote".to_string(),
-                mudu_argv_desc_cast_vote().clone(),
-                mudu_result_desc_cast_vote().clone(),
-                false
-            )
-        })
-}
-
-mod mod_cast_vote {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-cast-vote;
-            world mudu-app-mp2-cast-vote {
-                export mp2-cast-vote: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestCastVote {}
-
-    impl Guest for GuestCastVote {
-        async fn mp2_cast_vote(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_cast_vote(param).await
-        }
-    }
-
-    export!(GuestCastVote);
-}
-async fn mp2_withdraw_vote(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_withdraw_vote,
-    ).await
-}
-
-pub async fn mudu_inner_p2_withdraw_vote(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
-    let res = withdraw_vote(
-        param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[0], "String")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[1], "String")?,
-            
-        
-    ).await;
-    match res {
-        Ok(tuple) => {
-            let return_list = {
-                
-                vec![]
-                
-            };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_withdraw_vote()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "user_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "vote_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_withdraw_vote() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_withdraw_vote()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
-    > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "vote".to_string(),
-                "withdraw_vote".to_string(),
-                mudu_argv_desc_withdraw_vote().clone(),
-                mudu_result_desc_withdraw_vote().clone(),
-                false
-            )
-        })
-}
-
-mod mod_withdraw_vote {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-withdraw-vote;
-            world mudu-app-mp2-withdraw-vote {
-                export mp2-withdraw-vote: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestWithdrawVote {}
-
-    impl Guest for GuestWithdrawVote {
-        async fn mp2_withdraw_vote(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_withdraw_vote(param).await
-        }
-    }
-
-    export!(GuestWithdrawVote);
-}
-async fn mp2_get_vote_result(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_get_vote_result,
-    ).await
-}
-
-pub async fn mudu_inner_p2_get_vote_result(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
-    let res = get_vote_result(
-        param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[0], "String")?,
-            
-        
-    ).await;
-    match res {
-        Ok(tuple) => {
-            let return_list = {
-                
-                vec![
-                    
-                    ::mududb::types::datum::value_from_typed(&tuple, "VoteResult")?
-                    
-                ]
-                
-            };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_get_vote_result()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "vote_id".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_get_vote_result() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <VoteResult as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_get_vote_result()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
-    > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "vote".to_string(),
-                "get_vote_result".to_string(),
-                mudu_argv_desc_get_vote_result().clone(),
-                mudu_result_desc_get_vote_result().clone(),
-                false
-            )
-        })
-}
-
-mod mod_get_vote_result {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-get-vote-result;
-            world mudu-app-mp2-get-vote-result {
-                export mp2-get-vote-result: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestGetVoteResult {}
-
-    impl Guest for GuestGetVoteResult {
-        async fn mp2_get_vote_result(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_get_vote_result(param).await
-        }
-    }
-
-    export!(GuestGetVoteResult);
-}
 async fn mp2_get_voting_history(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -991,7 +489,7 @@ mod mod_get_voting_history {
     }
 
     export!(GuestGetVotingHistory);
-}
+}
 async fn mp2_create_vote(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1178,7 +676,7 @@ mod mod_create_vote {
     }
 
     export!(GuestCreateVote);
-}
+}
 async fn mp2_create_user(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1295,4 +793,506 @@ mod mod_create_user {
     }
 
     export!(GuestCreateUser);
+}
+async fn mp2_cast_vote(param:Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_cast_vote,
+    ).await
 }
+
+pub async fn mudu_inner_p2_cast_vote(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<
+    ::mududb::contract::procedure::procedure_result::ProcedureResult,
+> {
+    let res = cast_vote(
+        param.session_id(),
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[0], "String")?,
+            
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[1], "String")?,
+            
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                Vec<String, >,
+                _,
+            >(&param.param_list()[2], "Vec<String, >")?,
+            
+        
+    ).await;
+    match res {
+        Ok(tuple) => {
+            let return_list = {
+                
+                vec![]
+                
+            };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_cast_vote()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "user_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "vote_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "option_ids".to_string(),
+                    
+                    <Vec<String, > as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_result_desc_cast_vote() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_proc_desc_cast_vote()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mududb::contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+                "vote".to_string(),
+                "cast_vote".to_string(),
+                mudu_argv_desc_cast_vote().clone(),
+                mudu_result_desc_cast_vote().clone(),
+                false
+            )
+        })
+}
+
+mod mod_cast_vote {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-cast-vote;
+            world mudu-app-mp2-cast-vote {
+                export mp2-cast-vote: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestCastVote {}
+
+    impl Guest for GuestCastVote {
+        async fn mp2_cast_vote(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_cast_vote(param).await
+        }
+    }
+
+    export!(GuestCastVote);
+}
+async fn mp2_add_option(param:Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_add_option,
+    ).await
+}
+
+pub async fn mudu_inner_p2_add_option(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<
+    ::mududb::contract::procedure::procedure_result::ProcedureResult,
+> {
+    let res = add_option(
+        param.session_id(),
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[0], "String")?,
+            
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[1], "String")?,
+            
+        
+    ).await;
+    match res {
+        Ok(tuple) => {
+            let return_list = {
+                
+                vec![
+                    
+                    ::mududb::types::datum::value_from_typed(&tuple, "String")?
+                    
+                ]
+                
+            };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_add_option()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "vote_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "option_text".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_result_desc_add_option() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "0".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_proc_desc_add_option()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mududb::contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+                "vote".to_string(),
+                "add_option".to_string(),
+                mudu_argv_desc_add_option().clone(),
+                mudu_result_desc_add_option().clone(),
+                false
+            )
+        })
+}
+
+mod mod_add_option {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-add-option;
+            world mudu-app-mp2-add-option {
+                export mp2-add-option: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestAddOption {}
+
+    impl Guest for GuestAddOption {
+        async fn mp2_add_option(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_add_option(param).await
+        }
+    }
+
+    export!(GuestAddOption);
+}
+async fn mp2_withdraw_vote(param:Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_withdraw_vote,
+    ).await
+}
+
+pub async fn mudu_inner_p2_withdraw_vote(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<
+    ::mududb::contract::procedure::procedure_result::ProcedureResult,
+> {
+    let res = withdraw_vote(
+        param.session_id(),
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[0], "String")?,
+            
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[1], "String")?,
+            
+        
+    ).await;
+    match res {
+        Ok(tuple) => {
+            let return_list = {
+                
+                vec![]
+                
+            };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_withdraw_vote()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "user_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "vote_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_result_desc_withdraw_vote() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_proc_desc_withdraw_vote()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mududb::contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+                "vote".to_string(),
+                "withdraw_vote".to_string(),
+                mudu_argv_desc_withdraw_vote().clone(),
+                mudu_result_desc_withdraw_vote().clone(),
+                false
+            )
+        })
+}
+
+mod mod_withdraw_vote {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-withdraw-vote;
+            world mudu-app-mp2-withdraw-vote {
+                export mp2-withdraw-vote: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestWithdrawVote {}
+
+    impl Guest for GuestWithdrawVote {
+        async fn mp2_withdraw_vote(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_withdraw_vote(param).await
+        }
+    }
+
+    export!(GuestWithdrawVote);
+}
+async fn mp2_get_vote_result(param:Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_get_vote_result,
+    ).await
+}
+
+pub async fn mudu_inner_p2_get_vote_result(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<
+    ::mududb::contract::procedure::procedure_result::ProcedureResult,
+> {
+    let res = get_vote_result(
+        param.session_id(),
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[0], "String")?,
+            
+        
+    ).await;
+    match res {
+        Ok(tuple) => {
+            let return_list = {
+                
+                vec![
+                    
+                    ::mududb::types::datum::value_from_typed(&tuple, "VoteResult")?
+                    
+                ]
+                
+            };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_get_vote_result()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "vote_id".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_result_desc_get_vote_result() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "0".to_string(),
+                    
+                    <VoteResult as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_proc_desc_get_vote_result()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mududb::contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+                "vote".to_string(),
+                "get_vote_result".to_string(),
+                mudu_argv_desc_get_vote_result().clone(),
+                mudu_result_desc_get_vote_result().clone(),
+                false
+            )
+        })
+}
+
+mod mod_get_vote_result {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-get-vote-result;
+            world mudu-app-mp2-get-vote-result {
+                export mp2-get-vote-result: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestGetVoteResult {}
+
+    impl Guest for GuestGetVoteResult {
+        async fn mp2_get_vote_result(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_get_vote_result(param).await
+        }
+    }
+
+    export!(GuestGetVoteResult);
+}

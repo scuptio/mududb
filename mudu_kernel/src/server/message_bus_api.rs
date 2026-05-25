@@ -86,9 +86,11 @@ pub trait MessageBus: Send + Sync {
 }
 
 pub type MessageBusRef = Arc<dyn MessageBus>;
+pub type ServerInstanceId = OID;
 
-fn message_bus_registry() -> &'static Mutex<HashMap<OID, MessageBusRef>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<OID, MessageBusRef>>> = OnceLock::new();
+fn message_bus_registry() -> &'static Mutex<HashMap<(ServerInstanceId, OID), MessageBusRef>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<(ServerInstanceId, OID), MessageBusRef>>> =
+        OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -226,32 +228,48 @@ pub(crate) fn current_message_bus() -> RS<MessageBusRef> {
     })
 }
 
-pub(crate) fn register_worker_message_bus(worker_id: OID, message_bus: &MessageBusRef) -> RS<()> {
+pub(crate) fn register_worker_message_bus(
+    server_instance_id: ServerInstanceId,
+    worker_id: OID,
+    message_bus: &MessageBusRef,
+) -> RS<()> {
     let mut registry = message_bus_registry()
         .lock()
         .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
-    registry.insert(worker_id, message_bus.clone());
+    registry.insert((server_instance_id, worker_id), message_bus.clone());
     Ok(())
 }
 
-pub(crate) fn unregister_worker_message_bus(worker_id: OID) -> RS<()> {
+pub(crate) fn unregister_worker_message_bus(
+    server_instance_id: ServerInstanceId,
+    worker_id: OID,
+) -> RS<()> {
     let mut registry = message_bus_registry()
         .lock()
         .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
-    let Some(_bus) = registry.remove(&worker_id) else {
+    let Some(_bus) = registry.remove(&(server_instance_id, worker_id)) else {
         return Ok(());
     };
     Ok(())
 }
 
-pub(crate) fn message_bus_for_worker(worker_id: OID) -> RS<MessageBusRef> {
+pub(crate) fn message_bus_for_worker(
+    server_instance_id: ServerInstanceId,
+    worker_id: OID,
+) -> RS<MessageBusRef> {
     let registry = message_bus_registry()
         .lock()
         .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
-    registry.get(&worker_id).cloned().ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
-            format!("message bus for worker {} is not registered", worker_id)
-        )
-    })
+    registry
+        .get(&(server_instance_id, worker_id))
+        .cloned()
+        .ok_or_else(|| {
+            m_error!(
+                EC::NoSuchElement,
+                format!(
+                    "message bus for server {} worker {} is not registered",
+                    server_instance_id, worker_id
+                )
+            )
+        })
 }

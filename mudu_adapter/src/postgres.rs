@@ -16,13 +16,13 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
+use mudu_utils::sync::a_rwlock::ARwLock;
 use postgres::types::Type;
 use postgres::{Client, NoTls, Row};
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client as AsyncClient, NoTls as AsyncNoTls};
 
@@ -36,8 +36,8 @@ struct PgAsyncSession {
 
 lazy_static! {
     static ref SESSIONS: SccHashMap<OID, PgClientRef> = SccHashMap::new();
-    static ref ASYNC_SESSIONS: RwLock<HashMap<OID, Arc<PgAsyncSession>>> =
-        RwLock::new(HashMap::new());
+    static ref ASYNC_SESSIONS: ARwLock<HashMap<OID, Arc<PgAsyncSession>>> =
+        ARwLock::new(HashMap::new());
 }
 
 fn connect() -> RS<Client> {
@@ -55,7 +55,7 @@ async fn connect_async() -> RS<PgAsyncSession> {
     let (client, connection) = tokio_postgres::connect(&url, AsyncNoTls)
         .await
         .map_err(|e| m_error!(EC::DBInternalError, "connect postgres error", e))?;
-    let connection_task = tokio::spawn(async move {
+    let connection_task = mudu_sys::task_async::spawn_tokio(async move {
         let _ = connection.await;
     });
     initialize_schema_async(&client).await?;

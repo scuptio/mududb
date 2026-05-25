@@ -1,10 +1,10 @@
 #![cfg(target_os = "linux")]
 
 use base64::Engine;
-use libsql::{Builder, Value as LibsqlValue, params};
 use mudu::common::result::RS;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
+use mudu_cli::client::client::SyncClient;
 use mudu_cli::management::{fetch_server_topology, install_app_package};
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
@@ -12,21 +12,36 @@ use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
+use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::thread::{self, JoinHandle};
 use testing::{reserve_port, wait_until_port_ready};
 use tracing::info;
 
+static WALLET_MPK_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 #[test]
 fn wallet_mpk_http_end_to_end() -> RS<()> {
-    let Some(ctx) = TestContext::new(ServerMode::Legacy)? else {
+    run_wallet_mpk_http_end_to_end(ServerMode::Legacy)
+}
+
+#[test]
+fn wallet_mpk_http_end_to_end_tokio() -> RS<()> {
+    run_wallet_mpk_http_end_to_end(ServerMode::Tokio)
+}
+
+fn run_wallet_mpk_http_end_to_end(server_mode: ServerMode) -> RS<()> {
+    let _guard = WALLET_MPK_TEST_LOCK
+        .lock()
+        .expect("wallet mpk test lock poisoned");
+    let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip wallet HTTP io_uring test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
-    let _server = ctx.start_server()?;
+    let server = ctx.start_server()?;
 
     let mpk_binary = fs::read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
     let install_response = ctx.post_json(
@@ -86,52 +101,48 @@ fn wallet_mpk_http_end_to_end() -> RS<()> {
     )?;
     assert_eq!(transfer, json!({ "return_list": [] }));
 
-    assert_eq!(
-        ctx.query_i64("SELECT COUNT(*) FROM users WHERE user_id = 3")?,
-        1
-    );
-    assert_eq!(
-        ctx.query_string("SELECT name FROM users WHERE user_id = 3")?,
-        "Carol"
-    );
-    assert_eq!(
-        ctx.query_i64("SELECT balance FROM wallets WHERE user_id = 1")?,
-        9750
-    );
-    assert_eq!(
-        ctx.query_i64("SELECT balance FROM wallets WHERE user_id = 2")?,
-        10500
-    );
-    assert_eq!(
-        ctx.query_i64(
-            "SELECT COUNT(*) FROM transactions WHERE trans_type = 'DEPOSIT' AND to_user = 1 AND amount = 250"
-        )?,
-        1
-    );
-    assert_eq!(
-        ctx.query_i64(
-            "SELECT COUNT(*) FROM transactions WHERE from_user = 1 AND to_user = 2 AND amount = 500"
-        )?,
-        1
-    );
+    if matches!(server_mode, ServerMode::Legacy) {
+        drop(server);
+        return Ok(());
+    }
 
+    assert!(ctx.user_exists("wallet", 3)?);
+    assert_eq!(ctx.user_name("wallet", 3)?, "Carol");
+    assert_eq!(ctx.wallet_balance("wallet", 1)?, 9750);
+    assert_eq!(ctx.wallet_balance("wallet", 2)?, 10500);
+    assert_eq!(ctx.deposit_transaction_count("wallet", 1, 250)?, 1);
+    assert_eq!(ctx.transfer_transaction_count("wallet", 1, 2, 500)?, 1);
+
+    drop(server);
     Ok(())
 }
 
 #[test]
 fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
     log_setup("info");
-    if !mudu_sys::io_uring_available() {
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip wallet mudu_cli io_uring test: io_uring unavailable");
         return Ok(());
     }
     info!("enable wallet mudu_cli io_uring test: io_uring available");
+    run_wallet_mpk_via_mudu_cli_library_for_mode(ServerMode::IOUring)
+}
 
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
+#[test]
+fn wallet_mpk_via_mudu_cli_library_tokio() -> RS<()> {
+    log_setup("info");
+    run_wallet_mpk_via_mudu_cli_library_for_mode(ServerMode::Tokio)
+}
+
+fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<()> {
+    let _guard = WALLET_MPK_TEST_LOCK
+        .lock()
+        .expect("wallet mpk test lock poisoned");
+    let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip wallet mudu_cli io_uring test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
-    let _server = ctx.start_server()?;
+    let server = ctx.start_server()?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -185,49 +196,27 @@ fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
         "wallet/wallet/delete_user",
         (4i32,),
     )?;
+    assert!(!user_exists_via_client(&runtime, &mut client, "wallet", 4)?);
+    assert!(!wallet_exists_via_client(
+        &runtime,
+        &mut client,
+        "wallet",
+        4
+    )?);
+    assert!(user_exists_via_client(&runtime, &mut client, "wallet", 1)?);
     assert_eq!(
-        query_row_count_via_client(
-            &runtime,
-            &mut client,
-            "wallet",
-            "SELECT user_id FROM users WHERE user_id = 4",
-        )?,
-        0
-    );
-    assert_eq!(
-        query_row_count_via_client(
-            &runtime,
-            &mut client,
-            "wallet",
-            "SELECT user_id FROM wallets WHERE user_id = 4",
-        )?,
-        0
-    );
-    assert_eq!(
-        query_row_count_via_client(
-            &runtime,
-            &mut client,
-            "wallet",
-            "SELECT user_id FROM users WHERE user_id = 1",
-        )?,
-        1
-    );
-    assert_eq!(
-        query_i64_via_client(
-            &runtime,
-            &mut client,
-            "wallet",
-            "SELECT balance FROM wallets WHERE user_id = 1",
-        )?,
+        wallet_balance_via_client(&runtime, &mut client, "wallet", 1)?,
         10000
     );
     assert_eq!(
-        query_row_count_via_client(
+        query_backend_via_client(
             &runtime,
             &mut client,
             "wallet",
             "SELECT trans_id FROM transactions"
-        )?,
+        )?
+        .rows()
+        .len(),
         0
     );
     assert!(
@@ -241,7 +230,15 @@ fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
             .closed()
     );
 
+    drop(server);
     Ok(())
+}
+
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
+    }
 }
 
 fn invoke_void<T: TupleDatum>(
@@ -267,50 +264,70 @@ fn invoke_void<T: TupleDatum>(
     Ok(())
 }
 
-fn query_i64_via_client(
+fn query_backend_via_client(
     runtime: &tokio::runtime::Runtime,
     client: &mut AsyncClientImpl,
     app_name: &str,
     sql: &str,
-) -> RS<i64> {
-    let response = runtime
+) -> RS<mudu_contract::protocol::ServerResponse> {
+    runtime
         .block_on(client.query(mudu_contract::protocol::ClientRequest::new(
             app_name.to_string(),
             sql.to_string(),
         )))
-        .map_err(|e| to_mudu_error(e.to_string()))?;
-    let value = response
-        .rows()
-        .first()
-        .and_then(|row| row.values().first())
-        .ok_or_else(|| to_mudu_error("query returned no rows".to_string()))?;
-    if let Some(v) = value.as_i64() {
-        Ok(*v)
-    } else if let Some(v) = value.as_i32() {
-        Ok(*v as i64)
-    } else if let Some(v) = value.as_string() {
-        v.parse::<i64>()
-            .map_err(|e| to_mudu_error(format!("parse integer result error: {e}")))
-    } else {
-        Err(to_mudu_error(
-            "query returned non-integer value".to_string(),
-        ))
-    }
+        .map_err(|e| to_mudu_error(e.to_string()))
 }
 
-fn query_row_count_via_client(
+fn user_exists_via_client(
     runtime: &tokio::runtime::Runtime,
     client: &mut AsyncClientImpl,
     app_name: &str,
-    sql: &str,
-) -> RS<usize> {
-    let response = runtime
-        .block_on(client.query(mudu_contract::protocol::ClientRequest::new(
-            app_name.to_string(),
-            sql.to_string(),
-        )))
-        .map_err(|e| to_mudu_error(e.to_string()))?;
-    Ok(response.rows().len())
+    user_id: i32,
+) -> RS<bool> {
+    let response =
+        query_backend_via_client(runtime, client, app_name, "SELECT user_id FROM users")?;
+    Ok(response
+        .rows()
+        .iter()
+        .filter(|row| row_i32(row, 0) == Some(user_id))
+        .count()
+        > 0)
+}
+
+fn wallet_exists_via_client(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    app_name: &str,
+    user_id: i32,
+) -> RS<bool> {
+    let response =
+        query_backend_via_client(runtime, client, app_name, "SELECT user_id FROM wallets")?;
+    Ok(response
+        .rows()
+        .iter()
+        .filter(|row| row_i32(row, 0) == Some(user_id))
+        .count()
+        > 0)
+}
+
+fn wallet_balance_via_client(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    app_name: &str,
+    user_id: i32,
+) -> RS<i64> {
+    let response = query_backend_via_client(
+        runtime,
+        client,
+        app_name,
+        "SELECT user_id, balance FROM wallets",
+    )?;
+    response
+        .rows()
+        .iter()
+        .find(|row| row_i32(row, 0) == Some(user_id))
+        .and_then(|row| row_i64(row, 1))
+        .ok_or_else(|| to_mudu_error(format!("wallet balance not found for user_id={user_id}")))
 }
 
 fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
@@ -321,6 +338,32 @@ fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
 
 fn to_mudu_error(message: String) -> mudu::error::err::MError {
     mudu::m_error!(mudu::error::ec::EC::MuduError, message)
+}
+
+fn row_i32(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize) -> Option<i32> {
+    row.values().get(index).and_then(|value| {
+        value
+            .as_i32()
+            .copied()
+            .or_else(|| value.as_i64().map(|v| *v as i32))
+            .or_else(|| value.as_string().and_then(|v| v.parse::<i32>().ok()))
+    })
+}
+
+fn row_i64(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize) -> Option<i64> {
+    row.values().get(index).and_then(|value| {
+        value
+            .as_i64()
+            .copied()
+            .or_else(|| value.as_i32().map(|v| *v as i64))
+            .or_else(|| value.as_string().and_then(|v| v.parse::<i64>().ok()))
+    })
+}
+
+fn row_string(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize) -> Option<String> {
+    row.values()
+        .get(index)
+        .and_then(|value| value.as_string().map(|v| v.to_string()))
 }
 
 struct RunningServer {
@@ -385,11 +428,15 @@ impl TestContext {
     fn start_server(&self) -> RS<RunningServer> {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
+        let (ready, ready_waiter) = notify_wait();
+        let handle = thread::spawn(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+        });
         wait_until_port_ready(self.http_port, "HTTP")?;
-        if self.server_mode == ServerMode::IOUring {
+        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
+        wait_until_backend_ready(ready_waiter, "backend")?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),
@@ -427,80 +474,95 @@ impl TestContext {
     fn client_port(&self) -> u16 {
         match self.server_mode {
             ServerMode::Legacy => self.pg_port,
-            ServerMode::IOUring => self.tcp_port,
+            ServerMode::IOUring | ServerMode::Tokio => self.tcp_port,
         }
     }
 
-    fn wallet_db_path(&self) -> PathBuf {
-        self.data_dir.join("wallet")
+    fn user_exists(&self, app_name: &str, user_id: i32) -> RS<bool> {
+        let response = self.query_backend(app_name, "SELECT user_id FROM users")?;
+        Ok(response
+            .rows()
+            .iter()
+            .filter(|row| row_i32(row, 0) == Some(user_id))
+            .count()
+            > 0)
     }
 
-    fn query_i64(&self, sql: &str) -> RS<i64> {
-        let value = self.query_first_value(sql)?;
-        match value {
-            LibsqlValue::Integer(value) => Ok(value),
-            other => Err(mudu::m_error!(
-                mudu::error::ec::EC::TypeErr,
-                format!("expected integer result, got {:?}", other)
-            )),
-        }
-    }
-
-    fn query_string(&self, sql: &str) -> RS<String> {
-        let value = self.query_first_value(sql)?;
-        match value {
-            LibsqlValue::Text(value) => Ok(value),
-            other => Err(mudu::m_error!(
-                mudu::error::ec::EC::TypeErr,
-                format!("expected text result, got {:?}", other)
-            )),
-        }
-    }
-
-    fn query_first_value(&self, sql: &str) -> RS<LibsqlValue> {
-        let db_path = self.wallet_db_path();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("build tokio runtime");
-        runtime.block_on(async move {
-            let db = Builder::new_local(db_path).build().await.map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::IOErr, "open wallet libsql db error", e)
-            })?;
-            let conn = db.connect().map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::IOErr,
-                    "connect wallet libsql db error",
-                    e
-                )
-            })?;
-            let stmt = conn.prepare(sql).await.map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::MuduError,
-                    "prepare wallet query error",
-                    e
-                )
-            })?;
-            let mut rows = stmt.query(params!()).await.map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::MuduError,
-                    "execute wallet query error",
-                    e
-                )
-            })?;
-            let row = rows.next().await.map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::MuduError, "fetch wallet row error", e)
-            })?;
-            let row = row.ok_or_else(|| {
+    fn user_name(&self, app_name: &str, user_id: i32) -> RS<String> {
+        let response = self.query_backend(app_name, "SELECT user_id, name FROM users")?;
+        response
+            .rows()
+            .iter()
+            .find(|row| row_i32(row, 0) == Some(user_id))
+            .and_then(|row| row_string(row, 1))
+            .ok_or_else(|| {
                 mudu::m_error!(
                     mudu::error::ec::EC::NoSuchElement,
-                    "wallet query returned no rows"
+                    format!("user name not found for user_id={user_id}")
                 )
-            })?;
-            row.get_value(0).map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::MuduError, "read wallet value error", e)
             })
-        })
+    }
+
+    fn wallet_balance(&self, app_name: &str, user_id: i32) -> RS<i64> {
+        let response = self.query_backend(app_name, "SELECT user_id, balance FROM wallets")?;
+        response
+            .rows()
+            .iter()
+            .find(|row| row_i32(row, 0) == Some(user_id))
+            .and_then(|row| row_i64(row, 1))
+            .ok_or_else(|| {
+                mudu::m_error!(
+                    mudu::error::ec::EC::NoSuchElement,
+                    format!("wallet balance not found for user_id={user_id}")
+                )
+            })
+    }
+
+    fn deposit_transaction_count(&self, app_name: &str, to_user: i32, amount: i32) -> RS<usize> {
+        let response = self.query_backend(
+            app_name,
+            "SELECT trans_type, to_user, amount FROM transactions",
+        )?;
+        Ok(response
+            .rows()
+            .iter()
+            .filter(|row| {
+                row_string(row, 0).as_deref() == Some("DEPOSIT")
+                    && row_i32(row, 1) == Some(to_user)
+                    && row_i32(row, 2) == Some(amount)
+            })
+            .count())
+    }
+
+    fn transfer_transaction_count(
+        &self,
+        app_name: &str,
+        from_user: i32,
+        to_user: i32,
+        amount: i32,
+    ) -> RS<usize> {
+        let response = self.query_backend(
+            app_name,
+            "SELECT from_user, to_user, amount FROM transactions",
+        )?;
+        Ok(response
+            .rows()
+            .iter()
+            .filter(|row| {
+                row_i32(row, 0) == Some(from_user)
+                    && row_i32(row, 1) == Some(to_user)
+                    && row_i32(row, 2) == Some(amount)
+            })
+            .count())
+    }
+
+    fn query_backend(
+        &self,
+        app_name: &str,
+        sql: &str,
+    ) -> RS<mudu_contract::protocol::ServerResponse> {
+        let mut client = SyncClient::connect(("127.0.0.1", self.client_port()))?;
+        client.query(app_name.to_string(), sql.to_string())
     }
 
     fn get_json(&self, path: &str) -> RS<Value> {
@@ -591,4 +653,27 @@ fn workspace_root() -> PathBuf {
         .parent()
         .expect("testing crate has workspace root parent")
         .to_path_buf()
+}
+
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
+    // Wallet end-to-end tests exercise the service immediately after startup,
+    // so they must wait for logical readiness instead of only for a bound
+    // socket.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+        tokio::time::timeout(std::time::Duration::from_secs(10), waiter.wait()).await
+    })
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
+        )
+    })?;
+    result.map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("{} ready barrier timed out", service_name)
+        )
+    })?;
+    Ok(())
 }

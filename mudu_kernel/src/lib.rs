@@ -1,3 +1,4 @@
+pub mod async_rt;
 mod common;
 pub mod contract;
 pub mod fuzz;
@@ -16,3 +17,5 @@ pub mod server;
 pub mod storage;
 mod tx;
 pub mod x_engine;
+
+pub use mudu_sys::tokio;

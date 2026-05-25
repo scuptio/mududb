@@ -4,7 +4,6 @@ use crate::x_engine::x_param::PCreatePartitionPlacement;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::task_trace;
 use std::sync::Arc;
 
 pub struct CreatePartitionPlacement {
@@ -31,7 +30,7 @@ impl CmdExec for CreatePartitionPlacement {
     }
 
     async fn run(&self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         let inner = self.inner.lock().await;
         inner
             .meta_mgr

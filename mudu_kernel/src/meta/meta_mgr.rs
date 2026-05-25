@@ -10,6 +10,8 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
+use mudu_utils::sync::a_mutex::AMutex;
+use tracing::trace;
 
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::partition_rule::PartitionRuleDesc;
@@ -35,7 +37,7 @@ use crate::meta::schema_catalog::{
 use crate::storage::relation::relation::Relation;
 
 type MetaMgrRegistry = HashMap<String, Vec<Weak<MetaMgrImpl>>>;
-type DdlLockRegistry = HashMap<String, Weak<tokio::sync::Mutex<()>>>;
+type DdlLockRegistry = HashMap<String, Weak<AMutex<()>>>;
 
 fn registry() -> &'static StdMutex<MetaMgrRegistry> {
     static REGISTRY: OnceLock<StdMutex<MetaMgrRegistry>> = OnceLock::new();
@@ -47,19 +49,19 @@ fn ddl_lock_registry() -> &'static StdMutex<DdlLockRegistry> {
     DDL_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-fn ddl_lock_for(path: &str) -> Arc<tokio::sync::Mutex<()>> {
+fn ddl_lock_for(path: &str) -> Arc<AMutex<()>> {
     let mut guard = ddl_lock_registry().lock().unwrap();
     if let Some(existing) = guard.get(path).and_then(Weak::upgrade) {
         return existing;
     }
-    let created = Arc::new(tokio::sync::Mutex::new(()));
+    let created = Arc::new(AMutex::new(()));
     let _ = guard.insert(path.to_string(), Arc::downgrade(&created));
     created
 }
 
 pub struct MetaMgrImpl {
     path: String,
-    ddl_lock: Arc<tokio::sync::Mutex<()>>,
+    ddl_lock: Arc<AMutex<()>>,
     schema_catalog: Relation,
     partition_rule_catalog: Relation,
     partition_binding_catalog: Relation,
@@ -193,13 +195,19 @@ impl MetaMgrImpl {
     }
 
     pub async fn create_table_inner(&self, schema: &SchemaTable) -> RS<()> {
+        trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr create_table_inner start");
         let _ddl_guard = self.ddl_lock.lock().await;
+        trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr create_table_inner acquired ddl lock");
         if self.table.contains_sync(schema.table_name()) {
             return Err(m_error!(ER::ExistingSuchElement, ""));
         }
 
+        trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr writing schema to catalog");
         write_schema_to_catalog(&self.schema_catalog, schema, self.next_catalog_xid()).await?;
-        self.broadcast_create(schema)
+        trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr wrote schema to catalog");
+        let r = self.broadcast_create(schema);
+        trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr broadcast create done");
+        r
     }
 
     pub async fn drop_table_inner(&self, oid: OID) -> RS<()> {
@@ -483,13 +491,20 @@ unsafe impl Send for MetaMgrImpl {}
 #[cfg(test)]
 mod tests {
     use std::env::temp_dir;
-
+    use std::future::Future;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
-
     use crate::contract::schema_column::SchemaColumn;
 
     use super::*;
+
+    fn block_on<F>(fut: F) -> F::Output
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        mudu_sys::task_async::block_on_tokio_current_thread(fut).unwrap()
+    }
 
     fn test_schema() -> SchemaTable {
         SchemaTable::new(
@@ -516,9 +531,10 @@ mod tests {
         let dir = temp_dir().join(format!("meta_mgr_catalog_{}", mudu::common::id::gen_oid()));
         let mgr = Arc::new(MetaMgrImpl::new(&dir).unwrap());
         mgr.register_global();
-
+        let _mgr = mgr.clone();
         let schema = test_schema();
-        futures::executor::block_on(mgr.create_table(&schema)).unwrap();
+        let _schema = schema.clone();
+        let _ = block_on(async move { _mgr.create_table(&_schema).await });
         assert_eq!(
             crate::meta::schema_catalog::load_schemas_from_catalog(&mgr.schema_catalog)
                 .unwrap()
@@ -528,24 +544,37 @@ mod tests {
         drop(mgr);
 
         let reopened = MetaMgrImpl::new(&dir).unwrap();
-        let table = futures::executor::block_on(reopened.get_table_by_id(schema.id())).unwrap();
+        let schema_id = schema.id();
+        let table = block_on(async move {
+            reopened.get_table_by_id(schema_id).await
+        }).unwrap();
         assert_eq!(table.name(), schema.table_name());
     }
 
     #[test]
-    fn meta_mgr_broadcasts_ddl_to_peer_instances() {
+    fn meta_mgr_broadcasts_ddl_to_peer_instances()  {
+        block_on(async move {
+            let r = _meta_mgr_broadcasts_ddl_to_peer_instances().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_broadcasts_ddl_to_peer_instances() -> RS<()> {
         let dir = temp_dir().join(format!("meta_mgr_peer_{}", mudu::common::id::gen_oid()));
-        let mgr1 = Arc::new(MetaMgrImpl::new(&dir).unwrap());
+        let mgr1 = Arc::new(MetaMgrImpl::new(&dir)?);
         mgr1.register_global();
-        let mgr2 = Arc::new(MetaMgrImpl::new(&dir).unwrap());
+        let mgr2 = Arc::new(MetaMgrImpl::new(&dir)?);
         mgr2.register_global();
 
         let schema = test_schema();
-        futures::executor::block_on(mgr1.create_table(&schema)).unwrap();
-        let table = futures::executor::block_on(mgr2.get_table_by_id(schema.id())).unwrap();
+        mgr1.create_table(&schema).await?;
+        let table = mgr2.get_table_by_id(schema.id()).await?;
         assert_eq!(table.name(), schema.table_name());
 
-        futures::executor::block_on(mgr2.drop_table(schema.id())).unwrap();
-        assert!(futures::executor::block_on(mgr1.get_table_by_id(schema.id())).is_err());
+        mgr2.drop_table(schema.id()).await?;
+        assert!(mgr1.get_table_by_id(schema.id()).await.is_err());
+        Ok(())
     }
+
+
+
 }

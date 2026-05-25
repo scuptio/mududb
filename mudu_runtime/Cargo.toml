@@ -31,7 +31,6 @@ uuid = { workspace = true }
 serde_json = { workspace = true }
 actix-web = "4.11.0"
 actix-cors = "0.7.1"
-tokio = { workspace = true }
 mudu_utils = { workspace = true }
 tracing = { workspace = true }
 strum = { version = "0.27.2" }
@@ -51,3 +50,6 @@ futures = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 scc = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

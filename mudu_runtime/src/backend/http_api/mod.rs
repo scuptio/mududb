@@ -10,21 +10,11 @@ use http_api_context::HttpApiContext;
 mod legacy_http_api;
 pub use legacy_http_api::LegacyHttpApi;
 
-#[cfg(target_os = "linux")]
-#[path = "linux/tokio_iouring_invoke_client_factory.rs"]
-mod tokio_iouring_invoke_client_factory;
-#[cfg(target_os = "linux")]
-pub use tokio_iouring_invoke_client_factory::TokioIoUringInvokeClientFactory;
-
-#[cfg(target_os = "linux")]
-#[path = "linux/tokio_iouring_invoke_client.rs"]
-mod tokio_iouring_invoke_client;
-
-#[cfg(target_os = "linux")]
-#[path = "linux/io_uring_http_api.rs"]
-mod io_uring_http_api;
-#[cfg(target_os = "linux")]
-pub use io_uring_http_api::IoUringHttpApi;
+mod kernel_http_api;
+mod kernel_invoke_client;
+mod kernel_invoke_client_factory;
+pub use kernel_http_api::KernelHttpApi;
+pub use kernel_invoke_client_factory::KernelInvokeClientFactory;
 
 use crate::backend::mududb_cfg::MuduDBCfg;
 use crate::service::app_inst::AppInst;
@@ -52,6 +42,7 @@ use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::Arc;
 use tracing::error;
+use mudu_utils::scoped_task_trace;
 
 fn serialize_oid_as_unioid<S>(oid: &OID, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -136,11 +127,8 @@ pub struct PartitionRouteResponse {
     pub routes: Vec<PartitionRouteEntry>,
 }
 
-#[cfg(target_os = "linux")]
 use crate::backend::app_mgr::AppMgr;
-#[cfg(target_os = "linux")]
 use crate::backend::mudu_app_mgr::ListOption;
-#[cfg(target_os = "linux")]
 use crate::service::app_list::AppListItem;
 
 #[async_trait(?Send)]
@@ -184,9 +172,8 @@ pub trait HttpApi: Send + Sync {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[async_trait(?Send)]
-pub trait AsyncIoUringInvokeClient: Send {
+pub trait AsyncKernelInvokeClient: Send {
     async fn create_session(&mut self, config_json: Option<String>) -> RS<u128>;
     async fn invoke_procedure(
         &mut self,
@@ -197,10 +184,9 @@ pub trait AsyncIoUringInvokeClient: Send {
     async fn close_session(&mut self, session_id: u128) -> RS<bool>;
 }
 
-#[cfg(target_os = "linux")]
 #[async_trait(?Send)]
-pub trait AsyncIoUringInvokeClientFactory: Send + Sync {
-    async fn connect(&self, addr: &str) -> RS<Box<dyn AsyncIoUringInvokeClient>>;
+pub trait AsyncKernelInvokeClientFactory: Send + Sync {
+    async fn connect(&self, addr: &str) -> RS<Box<dyn AsyncKernelInvokeClient>>;
 }
 
 pub async fn serve_http_api(
@@ -229,6 +215,7 @@ pub async fn serve_http_api_on_listener_with_stop(
     worker_threads: usize,
     stop: Option<Waiter>,
 ) -> std::io::Result<()> {
+    scoped_task_trace!();
     let payload_limit = 500 * 1024 * 1024;
     let data = web::Data::new(HttpApiContext { api });
 
@@ -258,7 +245,8 @@ pub async fn serve_http_api_on_listener_with_stop(
 
     if let Some(stop) = stop {
         let handle = server.handle();
-        mudu_sys::task::spawn_tokio(async move {
+        mudu_sys::task_async::spawn_tokio(async move {
+            scoped_task_trace!();
             stop.wait().await;
             handle.stop(true).await;
         });
@@ -350,6 +338,7 @@ async fn app_proc_list(
     path: web::Path<String>,
     context: web::Data<HttpApiContext>,
 ) -> impl Responder {
+    scoped_task_trace!();
     let app_name = path.into_inner();
     match context.api.list_procedures(&app_name).await {
         Ok(procedures) => http_ok(
@@ -371,6 +360,7 @@ async fn app_proc_detail(
     path: web::Path<(String, String, String)>,
     context: web::Data<HttpApiContext>,
 ) -> impl Responder {
+    scoped_task_trace!();
     let (app_name, mod_name, proc_name) = path.into_inner();
     match context
         .api
@@ -539,7 +529,6 @@ async fn legacy_invoke_async_proc(
     procedure_invoke::result_to_json(result)
 }
 
-#[cfg(target_os = "linux")]
 async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
     let listed_apps = app_mgr
         .list(&ListOption {
@@ -557,28 +546,18 @@ async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
 mod test {
     use super::*;
     use actix_web::{App, test};
-    #[cfg(target_os = "linux")]
     use mudu::common::app_info::AppInfo;
-    #[cfg(target_os = "linux")]
     use mudu::common::id::gen_oid;
-    #[cfg(target_os = "linux")]
     use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
-    #[cfg(target_os = "linux")]
     use mudu_contract::procedure::procedure_result::ProcedureResult;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
-    #[cfg(target_os = "linux")]
     use mudu_kernel::contract::partition_rule::{
         PartitionBound, PartitionRuleDesc, RangePartitionDef,
     };
-    #[cfg(target_os = "linux")]
     use mudu_kernel::contract::partition_rule_binding::PartitionPlacement;
-    #[cfg(target_os = "linux")]
     use mudu_kernel::meta::meta_mgr_factory::MetaMgrFactory;
-    #[cfg(target_os = "linux")]
     use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
-    #[cfg(target_os = "linux")]
     use mudu_type::dat_type_id::DatTypeID;
-    #[cfg(target_os = "linux")]
     use std::sync::Mutex;
 
     struct MockHttpApi;
@@ -653,16 +632,14 @@ mod test {
         assert_eq!(uninstall_resp.status(), StatusCode::NOT_FOUND);
     }
 
-    #[cfg(target_os = "linux")]
     struct MockClient {
         session_id: u128,
         closed: bool,
         requests: Arc<Mutex<Vec<String>>>,
     }
 
-    #[cfg(target_os = "linux")]
     #[async_trait(?Send)]
-    impl AsyncIoUringInvokeClient for MockClient {
+    impl AsyncKernelInvokeClient for MockClient {
         async fn create_session(&mut self, _config_json: Option<String>) -> RS<u128> {
             Ok(self.session_id)
         }
@@ -691,16 +668,14 @@ mod test {
         }
     }
 
-    #[cfg(target_os = "linux")]
     struct MockClientFactory {
         requests: Arc<Mutex<Vec<String>>>,
         fail_close: bool,
     }
 
-    #[cfg(target_os = "linux")]
     #[async_trait(?Send)]
-    impl AsyncIoUringInvokeClientFactory for MockClientFactory {
-        async fn connect(&self, _addr: &str) -> RS<Box<dyn AsyncIoUringInvokeClient>> {
+    impl AsyncKernelInvokeClientFactory for MockClientFactory {
+        async fn connect(&self, _addr: &str) -> RS<Box<dyn AsyncKernelInvokeClient>> {
             Ok(Box::new(MockClient {
                 session_id: 9,
                 closed: self.fail_close,
@@ -709,10 +684,8 @@ mod test {
         }
     }
 
-    #[cfg(target_os = "linux")]
     struct MockAppMgr;
 
-    #[cfg(target_os = "linux")]
     #[async_trait(?Send)]
     impl AppMgr for MockAppMgr {
         async fn install(&self, _mpk_binary: Vec<u8>) -> RS<()> {
@@ -752,16 +725,15 @@ mod test {
         }
     }
 
-    #[cfg(target_os = "linux")]
     #[actix_web::test]
-    async fn iouring_http_api_invokes_over_bridge() {
+    async fn kernel_http_api_invokes_over_bridge() {
         let log_dir =
             std::env::temp_dir().join(format!("http_api_test_{}", mudu::common::id::gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let api = IoUringHttpApi::with_client_factory(
+        let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
             registry,
@@ -791,9 +763,8 @@ mod test {
         );
     }
 
-    #[cfg(target_os = "linux")]
     #[actix_web::test]
-    async fn iouring_http_api_routes_point_and_range_by_rule_name() {
+    async fn kernel_http_api_routes_point_and_range_by_rule_name() {
         let log_dir = std::env::temp_dir().join(format!(
             "http_api_route_test_{}",
             mudu::common::id::gen_oid()
@@ -839,7 +810,7 @@ mod test {
             .await
             .unwrap();
 
-        let api = IoUringHttpApi::with_client_factory(
+        let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
             registry,
@@ -879,9 +850,8 @@ mod test {
         assert_eq!(range.routes[1].worker_id, w1);
     }
 
-    #[cfg(target_os = "linux")]
     #[actix_web::test]
-    async fn iouring_http_api_lists_metadata_and_topology() {
+    async fn kernel_http_api_lists_metadata_and_topology() {
         let log_dir = std::env::temp_dir().join(format!(
             "http_api_meta_list_{}",
             mudu::common::id::gen_oid()
@@ -896,7 +866,7 @@ mod test {
                 .to_string(),
         )
         .unwrap();
-        let api = IoUringHttpApi::with_client_factory(
+        let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
             registry.clone(),
@@ -923,9 +893,8 @@ mod test {
         assert_eq!(topology.workers.len(), registry.workers().len());
     }
 
-    #[cfg(target_os = "linux")]
     #[actix_web::test]
-    async fn iouring_http_api_surfaces_close_session_failure() {
+    async fn kernel_http_api_surfaces_close_session_failure() {
         let log_dir = std::env::temp_dir().join(format!(
             "http_api_close_err_{}",
             mudu::common::id::gen_oid()
@@ -940,7 +909,7 @@ mod test {
                 .to_string(),
         )
         .unwrap();
-        let api = IoUringHttpApi::with_client_factory(
+        let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
             registry,
@@ -958,9 +927,8 @@ mod test {
         assert!(err.to_string().contains("close session failed"));
     }
 
-    #[cfg(target_os = "linux")]
     #[actix_web::test]
-    async fn iouring_http_api_rejects_mixed_route_request_shapes() {
+    async fn kernel_http_api_rejects_mixed_route_request_shapes() {
         let log_dir = std::env::temp_dir().join(format!(
             "http_api_route_shape_{}",
             mudu::common::id::gen_oid()
@@ -986,7 +954,7 @@ mod test {
         );
         meta_mgr.create_partition_rule(&rule).await.unwrap();
 
-        let api = IoUringHttpApi::with_client_factory(
+        let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
             registry,

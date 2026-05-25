@@ -214,7 +214,10 @@ impl WorkerSessionManager {
     }
 
     pub(crate) fn has_session_tx(&self, session_id: OID) -> RS<bool> {
-        Ok(self.session_context(session_id)?.tx_manager_cloned().is_some())
+        Ok(self
+            .session_context(session_id)?
+            .tx_manager_cloned()
+            .is_some())
     }
 
     pub(crate) fn begin_session_tx(&self, session_id: OID, tx_mgr: Arc<dyn TxMgr>) -> RS<()> {

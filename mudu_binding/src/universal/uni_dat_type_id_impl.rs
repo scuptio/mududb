@@ -19,6 +19,11 @@ impl UniDatTypeId {
             Self::Array => DatTypeID::Array,
             Self::Record => DatTypeID::Record,
             Self::Binary => DatTypeID::Binary,
+            Self::Numeric => DatTypeID::Numeric,
+            Self::Date => DatTypeID::Date,
+            Self::Time => DatTypeID::Time,
+            Self::Timestamp => DatTypeID::Timestamp,
+            Self::TimestampTz => DatTypeID::TimestampTz,
             _ => return Err(m_error!(EC::TypeErr, "unsupported universal data type id")),
         };
         Ok(ty_id)
@@ -36,6 +41,11 @@ impl UniDatTypeId {
             DatTypeID::Array => Self::Array,
             DatTypeID::Record => Self::Record,
             DatTypeID::Binary => Self::Binary,
+            DatTypeID::Numeric => Self::Numeric,
+            DatTypeID::Date => Self::Date,
+            DatTypeID::Time => Self::Time,
+            DatTypeID::Timestamp => Self::Timestamp,
+            DatTypeID::TimestampTz => Self::TimestampTz,
         };
         Ok(uni_ty)
     }

@@ -1,5 +1,5 @@
 use mudu_api_rust::{
-    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDatValue, UniOid, UniPrimitiveValue,
+    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDatValue, UniOid, UniScalarValue,
     UniQueryArgv, UniSqlParam, UniSqlStmt,
 };
 
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .into(),
         },
         param_list: UniSqlParam {
-            params: vec![UniDatValue::Primitive(UniPrimitiveValue::I32(10))],
+            params: vec![UniDatValue::Scalar(UniScalarValue::I32(10))],
         },
     };
 
@@ -46,15 +46,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for row in result.result_set.row_set {
         let id = match &row.fields[0] {
-            UniDatValue::Primitive(UniPrimitiveValue::I64(value)) => *value,
+            UniDatValue::Scalar(UniScalarValue::I64(value)) => *value,
             other => return Err(format!("unexpected id field: {other:?}").into()),
         };
         let name = match &row.fields[1] {
-            UniDatValue::Primitive(UniPrimitiveValue::String(value)) => value.clone(),
+            UniDatValue::Scalar(UniScalarValue::String(value)) => value.clone(),
             other => return Err(format!("unexpected name field: {other:?}").into()),
         };
         let score = match &row.fields[2] {
-            UniDatValue::Primitive(UniPrimitiveValue::I64(value)) => *value,
+            UniDatValue::Scalar(UniScalarValue::I64(value)) => *value,
             other => return Err(format!("unexpected score field: {other:?}").into()),
         };
 
@@ -72,8 +72,8 @@ async fn insert_user(name: &str, score: i32) -> Result<(), Box<dyn std::error::E
         },
         param_list: UniSqlParam {
             params: vec![
-                UniDatValue::Primitive(UniPrimitiveValue::String(name.to_string())),
-                UniDatValue::Primitive(UniPrimitiveValue::I32(score)),
+                UniDatValue::Scalar(UniScalarValue::String(name.to_string())),
+                UniDatValue::Scalar(UniScalarValue::I32(score)),
             ],
         },
     };

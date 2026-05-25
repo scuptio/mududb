@@ -1,4 +1,5 @@
 #[derive(Debug, Default, Clone)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(in crate::server) struct WorkerLoopStats {
     pub worker_id: usize,
     pub submit_calls: u64,

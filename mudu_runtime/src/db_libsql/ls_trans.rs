@@ -13,8 +13,8 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
+use mudu_utils::sync::a_mutex::AMutex;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub struct LSTrans {
     xid: XID,
@@ -26,7 +26,7 @@ struct LSResultSet {
 }
 
 struct ResultSetInner {
-    row: Mutex<Rows>,
+    row: AMutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
 }
 
@@ -112,7 +112,7 @@ impl ResultSet for LSResultSet {
 impl ResultSetInner {
     fn new(row: Rows, tuple_desc: Arc<TupleFieldDesc>) -> ResultSetInner {
         Self {
-            row: Mutex::new(row),
+            row: AMutex::new(row),
             tuple_desc,
         }
     }

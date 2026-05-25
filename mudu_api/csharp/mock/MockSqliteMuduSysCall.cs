@@ -192,30 +192,30 @@ public static class MockSqliteMuduSysCall
     {
         return value switch
         {
-            Universal.UniDatValuePrimitive primitive => ToDbPrimitive(primitive.Inner),
+            Universal.UniDatValueScalar scalar => ToDbScalar(scalar.Inner),
             Universal.UniDatValueBinary binary => binary.Inner,
             _ => throw new global::System.NotSupportedException($"Unsupported sqlite parameter type: {value.GetType().Name}"),
         };
     }
 
-    private static object ToDbPrimitive(UniPrimitiveValue value)
+    private static object ToDbScalar(UniScalarValue value)
     {
         return value switch
         {
-            Universal.UniPrimitiveValueBool v => v.Inner ? 1L : 0L,
-            Universal.UniPrimitiveValueU8 v => (long)v.Inner,
-            Universal.UniPrimitiveValueI8 v => (long)v.Inner,
-            Universal.UniPrimitiveValueU16 v => (long)v.Inner,
-            Universal.UniPrimitiveValueI16 v => (long)v.Inner,
-            Universal.UniPrimitiveValueU32 v => (long)v.Inner,
-            Universal.UniPrimitiveValueI32 v => v.Inner,
-            Universal.UniPrimitiveValueU64 v => unchecked((long)v.Inner),
-            Universal.UniPrimitiveValueI64 v => v.Inner,
-            Universal.UniPrimitiveValueF32 v => (double)v.Inner,
-            Universal.UniPrimitiveValueF64 v => v.Inner,
-            Universal.UniPrimitiveValueChar v => v.Inner.ToString(),
-            Universal.UniPrimitiveValueString v => v.Inner,
-            _ => throw new global::System.NotSupportedException($"Unsupported sqlite primitive parameter: {value.GetType().Name}"),
+            Universal.UniScalarValueBool v => v.Inner ? 1L : 0L,
+            Universal.UniScalarValueU8 v => (long)v.Inner,
+            Universal.UniScalarValueI8 v => (long)v.Inner,
+            Universal.UniScalarValueU16 v => (long)v.Inner,
+            Universal.UniScalarValueI16 v => (long)v.Inner,
+            Universal.UniScalarValueU32 v => (long)v.Inner,
+            Universal.UniScalarValueI32 v => v.Inner,
+            Universal.UniScalarValueU64 v => unchecked((long)v.Inner),
+            Universal.UniScalarValueI64 v => v.Inner,
+            Universal.UniScalarValueF32 v => (double)v.Inner,
+            Universal.UniScalarValueF64 v => v.Inner,
+            Universal.UniScalarValueChar v => v.Inner.ToString(),
+            Universal.UniScalarValueString v => v.Inner,
+            _ => throw new global::System.NotSupportedException($"Unsupported sqlite scalar parameter: {value.GetType().Name}"),
         };
     }
 
@@ -267,13 +267,13 @@ public static class MockSqliteMuduSysCall
         var normalized = (sqliteTypeName ?? string.Empty).ToUpperInvariant();
         return normalized switch
         {
-            "INTEGER" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.I64 },
-            "REAL" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.F64 },
-            "TEXT" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.String },
-            "BLOB" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.Blob },
-            "BOOLEAN" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.Bool },
-            "BOOL" => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.Bool },
-            _ => new Universal.UniDatTypePrimitive { Inner = UniPrimitive.String },
+            "INTEGER" => new Universal.UniDatTypeScalar { Inner = UniScalar.I64 },
+            "REAL" => new Universal.UniDatTypeScalar { Inner = UniScalar.F64 },
+            "TEXT" => new Universal.UniDatTypeScalar { Inner = UniScalar.String },
+            "BLOB" => new Universal.UniDatTypeScalar { Inner = UniScalar.Blob },
+            "BOOLEAN" => new Universal.UniDatTypeScalar { Inner = UniScalar.Bool },
+            "BOOL" => new Universal.UniDatTypeScalar { Inner = UniScalar.Bool },
+            _ => new Universal.UniDatTypeScalar { Inner = UniScalar.String },
         };
     }
 
@@ -285,41 +285,41 @@ public static class MockSqliteMuduSysCall
             {
                 Inner = bytes
             },
-            string text => new Universal.UniDatValuePrimitive
+            string text => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueString { Inner = text }
+                Inner = new Universal.UniScalarValueString { Inner = text }
             },
-            double f64 => new Universal.UniDatValuePrimitive
+            double f64 => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueF64 { Inner = f64 }
+                Inner = new Universal.UniScalarValueF64 { Inner = f64 }
             },
-            float f32 => new Universal.UniDatValuePrimitive
+            float f32 => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueF32 { Inner = f32 }
+                Inner = new Universal.UniScalarValueF32 { Inner = f32 }
             },
-            long i64 => new Universal.UniDatValuePrimitive
+            long i64 => new Universal.UniDatValueScalar
             {
-                Inner = CreateIntegerPrimitive(i64, sqliteTypeName)
+                Inner = CreateIntegerScalar(i64, sqliteTypeName)
             },
-            int i32 => new Universal.UniDatValuePrimitive
+            int i32 => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueI32 { Inner = i32 }
+                Inner = new Universal.UniScalarValueI32 { Inner = i32 }
             },
-            short i16 => new Universal.UniDatValuePrimitive
+            short i16 => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueI16 { Inner = i16 }
+                Inner = new Universal.UniScalarValueI16 { Inner = i16 }
             },
-            byte u8 => new Universal.UniDatValuePrimitive
+            byte u8 => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueU8 { Inner = u8 }
+                Inner = new Universal.UniScalarValueU8 { Inner = u8 }
             },
-            bool b => new Universal.UniDatValuePrimitive
+            bool b => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueBool { Inner = b }
+                Inner = new Universal.UniScalarValueBool { Inner = b }
             },
-            _ => new Universal.UniDatValuePrimitive
+            _ => new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueString
+                Inner = new Universal.UniScalarValueString
                 {
                     Inner = Convert.ToString(value, global::System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty
                 }
@@ -327,15 +327,15 @@ public static class MockSqliteMuduSysCall
         };
     }
 
-    private static UniPrimitiveValue CreateIntegerPrimitive(long value, string? sqliteTypeName)
+    private static UniScalarValue CreateIntegerScalar(long value, string? sqliteTypeName)
     {
         var normalized = (sqliteTypeName ?? string.Empty).ToUpperInvariant();
         if (normalized == "BOOLEAN" || normalized == "BOOL")
         {
-            return new Universal.UniPrimitiveValueBool { Inner = value != 0 };
+            return new Universal.UniScalarValueBool { Inner = value != 0 };
         }
 
-        return new Universal.UniPrimitiveValueI64 { Inner = value };
+        return new Universal.UniScalarValueI64 { Inner = value };
     }
 
     private static UniError ToUniError(global::System.Exception ex)

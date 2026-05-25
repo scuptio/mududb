@@ -7,6 +7,7 @@ use crate::service::wt_runtime::WTRuntime;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_kernel::async_rt::contract::AsyncRuntime;
 use scc::HashMap as SCCHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -141,6 +142,7 @@ impl RuntimeSimple {
             self.rt_opt.component_target(),
             self.rt_opt.enable_async,
             self.rt_opt.sever_mode,
+            self.rt_opt.async_runtime(),
         )
         .await?;
         let mpk_name = app_instance.name().clone();
@@ -179,5 +181,9 @@ impl RuntimeSimple {
     pub async fn install(&self, pkg_path: String) -> RS<()> {
         self.install_pkg(pkg_path).await?;
         Ok(())
+    }
+
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+        self.rt_opt.async_runtime()
     }
 }

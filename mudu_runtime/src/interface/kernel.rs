@@ -8,6 +8,7 @@ use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql::Context;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
+use mudu_utils::task_trace;
 
 /// Execute a SQL query with parameters
 pub fn query_internal(query_in: &[u8]) -> Vec<u8> {
@@ -76,7 +77,20 @@ pub async fn async_fetch_internal(_: Vec<u8>) -> Vec<u8> {
 
 /// Execute a SQL command with parameters
 pub async fn async_command_internal(command_in: Vec<u8>) -> Vec<u8> {
+    let trace = task_trace!();
+    trace.watch(
+        "procedure.host.command.stage",
+        "async_command_internal_start",
+    );
     let r = _async_command_internal(command_in).await;
+    trace.watch(
+        "procedure.host.command.stage",
+        if r.is_ok() {
+            "async_command_internal_done"
+        } else {
+            "async_command_internal_error"
+        },
+    );
     mudu_binding::system::command_invoke::serialize_command_result(r)
 }
 
@@ -89,8 +103,7 @@ async fn _async_command_internal(command_in: Vec<u8>) -> RS<u64> {
     let (oid, stmt, param) =
         mudu_binding::system::command_invoke::deserialize_command_param(&command_in)?;
     let context = get_context(oid)?;
-    let r = context.command_async(stmt, param).await?;
-    Ok(r)
+    context.command_async(stmt, param).await
 }
 
 async fn _async_batch_internal(batch_in: Vec<u8>) -> RS<u64> {

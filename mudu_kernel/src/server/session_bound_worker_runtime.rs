@@ -2,7 +2,7 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::server::message_bus_api::{message_bus_for_worker, MessageBusRef};
 use crate::server::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
 use crate::server::routing::{SessionOpenConfig, SessionOpenTransferAction};
-use crate::server::worker::IoUringWorker;
+use crate::server::worker::WorkerRuntime;
 use crate::server::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
 use crate::server::worker_registry::WorkerRegistry;
 use crate::server::worker_snapshot::KvItem;
@@ -20,12 +20,12 @@ use std::sync::Arc;
 use crate::x_engine::api::XContract;
 
 struct SessionBoundWorkerRuntime {
-    worker: Arc<IoUringWorker>,
+    worker: Arc<WorkerRuntime>,
     current_session_id: OID,
 }
 
 pub(crate) fn new_session_bound_worker_runtime(
-    worker: IoUringWorker,
+    worker: WorkerRuntime,
     current_session_id: OID,
 ) -> WorkerRuntimeRef {
     Arc::new(SessionBoundWorkerRuntime {
@@ -49,7 +49,8 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
     }
 
     fn message_bus(&self) -> MessageBusRef {
-        message_bus_for_worker(self.worker.worker_id()).expect("message bus is not registered")
+        message_bus_for_worker(self.worker.server_instance_id(), self.worker.worker_id())
+            .expect("message bus is not registered")
     }
 
     async fn open_async(&self) -> RS<OID> {

@@ -69,9 +69,7 @@ pub fn mudu_open() -> RS<OID> {
 
 pub async fn mudu_open_async() -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
-    tokio::task::spawn_blocking(mudu_open)
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async open task error", e))?
+    mudu_sys::task_async::spawn_blocking(mudu_open).await?
 }
 
 pub fn mudu_close(session_id: OID) -> RS<()> {
@@ -87,9 +85,7 @@ pub fn mudu_close(session_id: OID) -> RS<()> {
 
 pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
-    tokio::task::spawn_blocking(move || mudu_close(session_id))
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async close task error", e))?
+    mudu_sys::task_async::spawn_blocking(move || mudu_close(session_id)).await?
 }
 
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
@@ -99,9 +95,7 @@ pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
 pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let _trace = mudu_utils::task_trace!();
     let key = key.to_vec();
-    tokio::task::spawn_blocking(move || crate::kv::get(session_id, &key))
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async get task error", e))?
+    mudu_sys::task_async::spawn_blocking(move || crate::kv::get(session_id, &key)).await?
 }
 
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
@@ -112,9 +106,7 @@ pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()>
     let _trace = mudu_utils::task_trace!();
     let key = key.to_vec();
     let value = value.to_vec();
-    tokio::task::spawn_blocking(move || crate::kv::put(session_id, &key, &value))
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async put task error", e))?
+    mudu_sys::task_async::spawn_blocking(move || crate::kv::put(session_id, &key, &value)).await?
 }
 
 pub fn mudu_range(
@@ -133,9 +125,8 @@ pub async fn mudu_range_async(
     let _trace = mudu_utils::task_trace!();
     let start_key = start_key.to_vec();
     let end_key = end_key.to_vec();
-    tokio::task::spawn_blocking(move || crate::kv::range(session_id, &start_key, &end_key))
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async range task error", e))?
+    mudu_sys::task_async::spawn_blocking(move || crate::kv::range(session_id, &start_key, &end_key))
+        .await?
 }
 
 pub fn mudu_query<R: Entity>(
@@ -177,7 +168,7 @@ pub async fn mudu_query_async<R: Entity>(
     let sql_text = sql.to_sql_string();
     let sqlite_params = to_sqlite_values(params)?;
     let (desc, tuple_rows) =
-        tokio::task::spawn_blocking(move || -> RS<(TupleFieldDesc, Vec<TupleValue>)> {
+        mudu_sys::task_async::spawn_blocking(move || -> RS<(TupleFieldDesc, Vec<TupleValue>)> {
             kv::ensure_session_exists(oid)?;
             let conn = open_connection()?;
             let mut stmt = conn
@@ -196,8 +187,7 @@ pub async fn mudu_query_async<R: Entity>(
             }
             Ok((desc, tuple_rows))
         })
-        .await
-        .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async query task error", e))??;
+        .await??;
     Ok(RecordSet::new(
         Arc::new(LocalResultSet::new(tuple_rows)),
         Arc::new(desc),
@@ -236,7 +226,7 @@ pub async fn mudu_command_async(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLPar
     let _trace = mudu_utils::task_trace!();
     let sql_text = sql.to_sql_string();
     let sqlite_params = to_sqlite_values(params)?;
-    tokio::task::spawn_blocking(move || {
+    mudu_sys::task_async::spawn_blocking(move || {
         kv::ensure_session_exists(oid)?;
         let conn = open_connection()?;
         let mut stmt = conn
@@ -247,8 +237,7 @@ pub async fn mudu_command_async(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLPar
             .map_err(|e| m_error!(EC::DBInternalError, "execute sqlite command error", e))?;
         Ok(changed as u64)
     })
-    .await
-    .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async command task error", e))?
+    .await?
 }
 
 pub async fn mudu_batch_async(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
@@ -260,13 +249,12 @@ pub async fn mudu_batch_async(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParam
         ));
     }
     let sql_text = sql.to_sql_string();
-    tokio::task::spawn_blocking(move || -> RS<u64> {
+    mudu_sys::task_async::spawn_blocking(move || -> RS<u64> {
         kv::ensure_session_exists(oid)?;
         let conn = open_connection()?;
         conn.execute_batch(&sql_text)
             .map_err(|e| m_error!(EC::DBInternalError, "execute sqlite batch error", e))?;
         Ok(conn.changes() as u64)
     })
-    .await
-    .map_err(|e| m_error!(EC::ThreadErr, "join sqlite async batch task error", e))?
+    .await?
 }

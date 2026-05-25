@@ -1,5 +1,6 @@
 pub enum DTKind {
-    Primitive,
+    Scalar,
     Array,
-    Object,
+    Record,
+    Binary,
 }

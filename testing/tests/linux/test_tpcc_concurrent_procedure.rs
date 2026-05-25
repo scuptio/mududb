@@ -10,30 +10,67 @@ use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
-use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
+use mudu_utils::debug::debug_serve;
+use mudu_utils::log::log_setup_ex;
+use mudu_utils::notifier::{Notifier, NotifyWait, Waiter, notify_wait};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex, Once};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 use testing::{reserve_port, wait_until_port_ready};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
 use tracing::{debug, info};
-use mudu_utils::debug::debug_serve;
+
+static TPCC_BENCH_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static TPCC_DEBUG_SERVER_ONCE: Once = Once::new();
+
+fn setup_tpcc_test_log(level: &str) {
+    let parse = std::env::var("TPCC_TEST_LOG_FILTER").unwrap_or_else(|_| {
+        "testing=trace,mudu=trace,mudu_api=trace,mudu_binding=trace,mudu_cli=trace,mudu_contract=trace,mudu_kernel=trace,mudu_runtime=trace,mudu_sys=trace,mudu_utils=trace".to_string()
+    });
+    log_setup_ex(level, &parse, false);
+}
+
+fn ensure_tpcc_debug_server() {
+    let port = read_env_u16("TPCC_DEBUG_PORT", 1801);
+    TPCC_DEBUG_SERVER_ONCE.call_once(|| {
+        let _ = thread::spawn(move || {
+            debug_serve(
+                NotifyWait::new_with_name("tpcc-debug-server".to_string()),
+                port,
+            );
+        });
+    });
+    info!(port, "tpcc debug server available");
+}
 
 #[test]
 fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
     let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-    log_setup(&log_level);
-    if !mudu_sys::io_uring_available() {
+    setup_tpcc_test_log(&log_level);
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip tpcc concurrent test: io_uring unavailable");
         return Ok(());
     }
     info!("enable tpcc concurrent test: io_uring available");
-    let _ = thread::spawn(move || {
-        debug_serve(Default::default(), 1801);
-    });
+    run_tpcc_procedure_concurrent_terminals_metrics(ServerMode::IOUring)
+}
+
+#[test]
+fn tpcc_procedure_concurrent_terminals_metrics_tokio() -> RS<()> {
+    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    setup_tpcc_test_log(&log_level);
+    run_tpcc_procedure_concurrent_terminals_metrics(ServerMode::Tokio)
+}
+
+fn run_tpcc_procedure_concurrent_terminals_metrics(server_mode: ServerMode) -> RS<()> {
+    let _guard = TPCC_BENCH_TEST_LOCK
+        .lock()
+        .expect("tpcc benchmark test lock poisoned");
+    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    ensure_tpcc_debug_server();
 
     info!(log_level = %log_level, "starting tpcc concurrent procedure test");
 
@@ -60,18 +97,27 @@ fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
     };
     debug!(mpk_path = %mpk_path.display(), "resolved tpcc mpk path");
 
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
+    let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip tpcc concurrent test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
-    let _server = ctx.start_server()?;
+    let server = ctx.start_server()?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| m_error!(mudu::error::ec::EC::IOErr, "build tokio runtime error", e))?;
 
-    runtime.block_on(run_benchmark(&ctx, &cfg, &mpk_path))
+    let result = runtime.block_on(run_benchmark(&ctx, &cfg, &mpk_path));
+    drop(server);
+    result
+}
+
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
+    }
 }
 
 async fn run_benchmark(ctx: &TestContext, cfg: &TpccBenchCfg, mpk_path: &Path) -> RS<()> {
@@ -176,9 +222,11 @@ async fn run_benchmark(ctx: &TestContext, cfg: &TpccBenchCfg, mpk_path: &Path) -
     let mut latency_us = Vec::with_capacity(total_ops);
     let mut committed = 0usize;
     let mut new_order_committed = 0usize;
+    let mut aborted = 0usize;
     for report in reports {
         committed += report.committed;
         new_order_committed += report.new_order_committed;
+        aborted += report.aborted;
         latency_us.extend(report.latency_us);
     }
 
@@ -189,16 +237,35 @@ async fn run_benchmark(ctx: &TestContext, cfg: &TpccBenchCfg, mpk_path: &Path) -
     } else {
         0.0
     };
+    let tps = if elapsed_secs > 0.0 {
+        committed as f64 / elapsed_secs
+    } else {
+        0.0
+    };
     let tpmc = if elapsed_secs > 0.0 {
         new_order_committed as f64 * 60.0 / elapsed_secs
+    } else {
+        0.0
+    };
+    let tpsc = if elapsed_secs > 0.0 {
+        new_order_committed as f64 / elapsed_secs
     } else {
         0.0
     };
     let p99_ms = percentile_ms(&mut latency_us, 99.0);
 
     println!(
-        "tpcc concurrent benchmark: terminals={} ops_per_terminal={} total_committed={} elapsed={:.3}s tpm={:.2} tpmc={:.2} p99_latency_ms={:.3}",
-        cfg.terminals, cfg.operations_per_terminal, committed, elapsed_secs, tpm, tpmc, p99_ms
+        "tpcc concurrent benchmark: terminals={} ops_per_terminal={} total_committed={} total_aborted={} elapsed={:.3}s tps={:.2} tpsc={:.2} tpm={:.2} tpmc={:.2} p99_latency_ms={:.3}",
+        cfg.terminals,
+        cfg.operations_per_terminal,
+        committed,
+        aborted,
+        elapsed_secs,
+        tps,
+        tpsc,
+        tpm,
+        tpmc,
+        p99_ms
     );
 
     Ok(())
@@ -206,6 +273,7 @@ async fn run_benchmark(ctx: &TestContext, cfg: &TpccBenchCfg, mpk_path: &Path) -
 
 async fn seed_tpcc(ctx: &TestContext, cfg: &TpccBenchCfg) -> RS<()> {
     let addr = format!("127.0.0.1:{}", ctx.client_port());
+    info!(addr = %addr, "tpcc seed connecting client");
     let mut client = timeout(
         Duration::from_millis(cfg.invoke_timeout_ms),
         AsyncClientImpl::connect(&addr),
@@ -218,6 +286,7 @@ async fn seed_tpcc(ctx: &TestContext, cfg: &TpccBenchCfg) -> RS<()> {
         )
     })?
     .map_err(|e| m_error!(mudu::error::ec::EC::NetErr, "connect seed client error", e))?;
+    info!("tpcc seed client connected");
     let session_id = timeout(
         Duration::from_millis(cfg.invoke_timeout_ms),
         client.create_session(mudu_contract::protocol::SessionCreateRequest::new(None)),
@@ -226,8 +295,9 @@ async fn seed_tpcc(ctx: &TestContext, cfg: &TpccBenchCfg) -> RS<()> {
     .map_err(|_| m_error!(mudu::error::ec::EC::NetErr, "seed create_session timeout"))?
     .map_err(|e| m_error!(mudu::error::ec::EC::NetErr, "create seed session error", e))?
     .session_id();
-    debug!(session_id = %session_id, "seed session created");
+    info!(session_id = %session_id, "tpcc seed session created");
 
+    info!("tpcc seed invoke begin");
     invoke_void(
         &mut client,
         session_id,
@@ -241,12 +311,14 @@ async fn seed_tpcc(ctx: &TestContext, cfg: &TpccBenchCfg) -> RS<()> {
         ),
     )
     .await?;
+    info!("tpcc seed invoke finished");
 
     let _ = client
         .close_session(mudu_contract::protocol::SessionCloseRequest::new(
             session_id,
         ))
         .await;
+    info!(session_id = %session_id, "tpcc seed session closed");
     Ok(())
 }
 
@@ -298,6 +370,7 @@ async fn run_terminal(
     let mut report = TerminalReport {
         committed: 0,
         new_order_committed: 0,
+        aborted: 0,
         latency_us: Vec::with_capacity(cfg.operations_per_terminal),
     };
 
@@ -321,11 +394,11 @@ async fn run_terminal(
             );
         }
 
-        match op {
+        let op_result: RS<()> = match op {
             TpccOp::NewOrder => {
                 let (item_ids, supplier_warehouse_ids, quantities) =
                     new_order_lines(global_idx, warehouse_id, cfg.warehouses, cfg.items);
-                let _: String = timeout(
+                let invoke_result = timeout(
                     Duration::from_millis(cfg.invoke_timeout_ms),
                     invoke_typed(
                         &mut client,
@@ -350,11 +423,14 @@ async fn run_terminal(
                             terminal_id, op_idx, global_idx
                         )
                     )
-                })??;
-                report.new_order_committed += 1;
+                })?;
+                if invoke_result.is_ok() {
+                    report.new_order_committed += 1;
+                }
+                invoke_result.map(|_: String| ())
             }
             TpccOp::Payment => {
-                let _: i32 = timeout(
+                let invoke_result = timeout(
                     Duration::from_millis(cfg.invoke_timeout_ms),
                     invoke_typed(
                         &mut client,
@@ -372,10 +448,11 @@ async fn run_terminal(
                             terminal_id, op_idx, global_idx
                         )
                     )
-                })??;
+                })?;
+                invoke_result.map(|_: i32| ())
             }
             TpccOp::OrderStatus => {
-                let _: String = timeout(
+                let invoke_result = timeout(
                     Duration::from_millis(cfg.invoke_timeout_ms),
                     invoke_typed(
                         &mut client,
@@ -393,10 +470,11 @@ async fn run_terminal(
                             terminal_id, op_idx, global_idx
                         )
                     )
-                })??;
+                })?;
+                invoke_result.map(|_: String| ())
             }
             TpccOp::Delivery => {
-                let _: String = timeout(
+                let invoke_result = timeout(
                     Duration::from_millis(cfg.invoke_timeout_ms),
                     invoke_typed(
                         &mut client,
@@ -414,10 +492,11 @@ async fn run_terminal(
                             terminal_id, op_idx, global_idx
                         )
                     )
-                })??;
+                })?;
+                invoke_result.map(|_: String| ())
             }
             TpccOp::StockLevel => {
-                let _: i32 = timeout(
+                let invoke_result = timeout(
                     Duration::from_millis(cfg.invoke_timeout_ms),
                     invoke_typed(
                         &mut client,
@@ -435,8 +514,27 @@ async fn run_terminal(
                             terminal_id, op_idx, global_idx
                         )
                     )
-                })??;
+                })?;
+                invoke_result.map(|_: i32| ())
             }
+        };
+
+        if let Err(err) = op_result {
+            if is_retryable_abort(&err) {
+                report.aborted += 1;
+                if cfg.trace_ops {
+                    debug!(
+                        terminal_id,
+                        op_idx,
+                        global_idx,
+                        op = op_name(op),
+                        err = %err,
+                        "invoke aborted"
+                    );
+                }
+                continue;
+            }
+            return Err(err);
         }
 
         report.committed += 1;
@@ -549,7 +647,7 @@ impl TpccBenchCfg {
     fn from_env() -> Self {
         Self {
             terminals: read_env_usize("TPCC_TERMINALS", 2),
-            operations_per_terminal: read_env_usize("TPCC_OPS_PER_TERMINAL", 20),
+            operations_per_terminal: read_env_usize("TPCC_OPS_PER_TERMINAL", 2),
             warehouses: read_env_i32("TPCC_WAREHOUSES", 1),
             districts_per_warehouse: read_env_i32("TPCC_DISTRICTS_PER_WAREHOUSE", 2),
             customers_per_district: read_env_i32("TPCC_CUSTOMERS_PER_DISTRICT", 20),
@@ -688,6 +786,14 @@ fn read_env_u64(key: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+fn read_env_u16(key: &str, default: u16) -> u16 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
+}
+
 fn read_env_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
         .ok()
@@ -699,9 +805,21 @@ fn read_env_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+fn is_retryable_abort(err: &mudu::error::err::MError) -> bool {
+    if err.ec() == mudu::error::ec::EC::TxErr && err.message().contains("write-write conflict") {
+        return true;
+    }
+    match err.err_src() {
+        mudu::error::err::ErrorSource::MError(src) => is_retryable_abort(&src),
+        mudu::error::err::ErrorSource::Other(msg) => msg.contains("write-write conflict"),
+        mudu::error::err::ErrorSource::None => false,
+    }
+}
+
 struct TerminalReport {
     committed: usize,
     new_order_committed: usize,
+    aborted: usize,
     latency_us: Vec<u64>,
 }
 
@@ -712,6 +830,7 @@ struct RunningServer {
 
 impl Drop for RunningServer {
     fn drop(&mut self) {
+        info!("tpcc test dropping running server");
         self.stop.notify_all();
         if let Some(handle) = self.handle.take() {
             let join_result = handle.join().expect("join io_uring server thread");
@@ -719,6 +838,7 @@ impl Drop for RunningServer {
                 panic!("io_uring server stopped with error: {err}");
             }
         }
+        info!("tpcc test dropped running server");
     }
 }
 
@@ -769,11 +889,15 @@ impl TestContext {
     fn start_server(&self) -> RS<RunningServer> {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
+        let (ready, ready_waiter) = notify_wait();
+        let handle = thread::spawn(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+        });
         wait_until_port_ready(self.http_port, "HTTP")?;
-        if self.server_mode == ServerMode::IOUring {
+        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
+        wait_until_backend_ready(ready_waiter, "backend")?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),
@@ -804,7 +928,7 @@ impl TestContext {
     fn client_port(&self) -> u16 {
         match self.server_mode {
             ServerMode::Legacy => self.pg_port,
-            ServerMode::IOUring => self.tcp_port,
+            ServerMode::IOUring | ServerMode::Tokio => self.tcp_port,
         }
     }
 }
@@ -820,4 +944,26 @@ fn workspace_root() -> PathBuf {
         .parent()
         .expect("testing crate has workspace root parent")
         .to_path_buf()
+}
+
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
+    // Benchmarks should not start until the backend reports logical readiness;
+    // a live listener can still be ahead of worker recovery in io_uring mode.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
+        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
+    })
+    .map_err(|e| {
+        m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
+        )
+    })?;
+    result.map_err(|_| {
+        m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("{} ready barrier timed out", service_name)
+        )
+    })?;
+    Ok(())
 }

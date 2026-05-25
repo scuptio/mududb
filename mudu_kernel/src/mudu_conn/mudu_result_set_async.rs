@@ -3,14 +3,14 @@ use mudu::common::result::RS;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
+use mudu_utils::sync::f_mutex::FMutex;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::contract::query_exec::QueryExec;
 
 pub struct MuduResultSetAsync {
     desc: Arc<TupleFieldDesc>,
-    inner: Mutex<ResultRows>,
+    inner: FMutex<ResultRows>,
 }
 
 struct ResultRows {
@@ -22,7 +22,7 @@ impl MuduResultSetAsync {
     pub fn from_rows(rows: Vec<TupleValue>, desc: TupleFieldDesc) -> Self {
         Self {
             desc: Arc::new(desc),
-            inner: Mutex::new(ResultRows { rows, index: 0 }),
+            inner: FMutex::new(ResultRows { rows, index: 0 }),
         }
     }
 

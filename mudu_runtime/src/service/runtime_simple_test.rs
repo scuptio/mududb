@@ -11,7 +11,7 @@ mod tests {
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use mudu_utils::log::log_setup_ex;
     use mudu_utils::notifier::NotifyWait;
-    use mudu_utils::task::spawn_task;
+    use mudu_utils::task_async::spawn_task;
     use mudu_utils::task_trace::this_task_id;
     use std::env::temp_dir;
     use std::path::PathBuf;
@@ -40,8 +40,8 @@ mod tests {
     }
 
     fn test_runtime_simple(test_kind: TestProc) {
-        log_setup_ex("debug", "", false);
-        tokio::runtime::Builder::new_multi_thread()
+        log_setup_ex("info", "", false);
+        mudu_sys::tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .unwrap()
@@ -70,6 +70,7 @@ mod tests {
                 component_target: crate::service::runtime_opt::ComponentTarget::P2,
                 enable_async,
                 sever_mode: Default::default(),
+                async_runtime: None,
             },
         )
         .await?;

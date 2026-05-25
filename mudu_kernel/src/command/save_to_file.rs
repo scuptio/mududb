@@ -1,7 +1,7 @@
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::table_desc::TableDesc;
-use crate::io::file;
+use crate::io::file as async_file;
 use crate::x_engine::api::{OptRead, Predicate, RangeData, VecSelTerm, XContract};
 use crate::x_engine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -167,64 +167,8 @@ impl _SaveToFile {
                 )
             )
         })?;
-
-        let file = file::open(
-            &self.file_path,
-            libc::O_CREAT | libc::O_TRUNC | libc::O_WRONLY | file::cloexec_flag(),
-            0o644,
-        )
-        .await
-        .map_err(|e| {
-            m_error!(
-                ER::IOErr,
-                format!(
-                    "save failed, create csv file {} error, {}",
-                    self.file_path, e
-                )
-            )
-        })?;
-        let mut offset = 0usize;
-        while offset < payload.len() {
-            let written = file::write(&file, payload[offset..].to_vec(), offset as u64)
-                .await
-                .map_err(|e| {
-                    m_error!(
-                        ER::IOErr,
-                        format!(
-                            "save failed, write csv file {} error, {}",
-                            self.file_path, e
-                        )
-                    )
-                })?;
-            if written == 0 {
-                return Err(m_error!(
-                    ER::IOErr,
-                    format!(
-                        "save failed, write csv file {} wrote zero bytes",
-                        self.file_path
-                    )
-                ));
-            }
-            offset += written;
-        }
-        file::flush(&file).await.map_err(|e| {
-            m_error!(
-                ER::IOErr,
-                format!(
-                    "save failed, flush csv file {} error, {}",
-                    self.file_path, e
-                )
-            )
-        })?;
-        file::close(file).await.map_err(|e| {
-            m_error!(
-                ER::IOErr,
-                format!(
-                    "save failed, close csv file {} error, {}",
-                    self.file_path, e
-                )
-            )
-        })?;
+        let file_path = normalized_copy_path(&self.file_path);
+        write_csv_payload(&file_path, payload).await?;
         Ok(rows)
     }
 
@@ -283,4 +227,55 @@ impl _SaveToFile {
         }
         Ok(ordered)
     }
+}
+
+async fn write_csv_payload(path: &str, payload: Vec<u8>) -> RS<()> {
+    // io_uring workers also have a Tokio runtime, so checking for a current
+    // Tokio handle is not a valid backend switch. Keep COPY TO on the shared
+    // kernel async file path instead of falling back to `mudu_sys::tokio::fs`.
+    let file = async_file::open(
+        path,
+        libc::O_CREAT | libc::O_TRUNC | libc::O_WRONLY | async_file::cloexec_flag(),
+        0o644,
+    )
+    .await
+    .map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("save failed, open csv file {} error, {}", path, e)
+        )
+    })?;
+    let write_result = async_file::write(&file, payload, 0).await.map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("save failed, write csv file {} error, {}", path, e)
+        )
+    });
+    let flush_result = async_file::flush(&file).await;
+    let close_result = async_file::close(file).await;
+    write_result?;
+    flush_result.map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("save failed, flush csv file {} error, {}", path, e)
+        )
+    })?;
+    close_result.map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("save failed, close csv file {} error, {}", path, e)
+        )
+    })?;
+    Ok(())
+}
+
+fn normalized_copy_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'')
+            || (bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"'))
+    {
+        return path[1..path.len() - 1].to_string();
+    }
+    path.to_string()
 }

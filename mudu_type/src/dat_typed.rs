@@ -1,6 +1,11 @@
 use crate::dat_type::DatType;
 use crate::dat_type_id::DatTypeID;
 use crate::dat_value::DatValue;
+use mudu::data_type::date::DateValue;
+use mudu::data_type::numeric::Numeric;
+use mudu::data_type::time::TimeValue;
+use mudu::data_type::timestamp::TimestampValue;
+use mudu::data_type::timestamptz::TimestampTzValue;
 
 #[derive(Clone, Debug)]
 pub struct DatTyped {
@@ -55,6 +60,41 @@ impl DatTyped {
         Self::new(
             DatType::default_for(DatTypeID::String),
             DatValue::from_string(val),
+        )
+    }
+
+    pub fn from_numeric(val: Numeric) -> Self {
+        Self::new(
+            DatType::default_for(DatTypeID::Numeric),
+            DatValue::from_numeric(val),
+        )
+    }
+
+    pub fn from_date(val: DateValue) -> Self {
+        Self::new(
+            DatType::default_for(DatTypeID::Date),
+            DatValue::from_date(val),
+        )
+    }
+
+    pub fn from_time(val: TimeValue) -> Self {
+        Self::new(
+            DatType::default_for(DatTypeID::Time),
+            DatValue::from_time(val),
+        )
+    }
+
+    pub fn from_timestamp(val: TimestampValue) -> Self {
+        Self::new(
+            DatType::default_for(DatTypeID::Timestamp),
+            DatValue::from_timestamp(val),
+        )
+    }
+
+    pub fn from_timestamptz(val: TimestampTzValue) -> Self {
+        Self::new(
+            DatType::default_for(DatTypeID::TimestampTz),
+            DatValue::from_timestamptz(val),
         )
     }
 

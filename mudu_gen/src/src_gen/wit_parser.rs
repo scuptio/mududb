@@ -7,8 +7,8 @@ use mudu_binding::universal::uni_dat_type::UniDatType;
 use mudu_binding::universal::uni_def::{
     EnumCase, RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef, VariantCase,
 };
-use mudu_binding::universal::uni_primitive::UniPrimitive;
 use mudu_binding::universal::uni_result_type::UniResultType;
+use mudu_binding::universal::uni_scalar::UniScalar;
 use std::collections::HashSet;
 use tree_sitter::{Language, Node, Parser, Point, Tree};
 use tree_sitter_wit;
@@ -593,7 +593,7 @@ impl WitParser {
     fn parse_custom_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let type_name = context.text_of_node(&node)?;
         if type_name == "blob" {
-            return Ok(UniDatType::Primitive(UniPrimitive::Blob));
+            return Ok(UniDatType::Scalar(UniScalar::Blob));
         }
         Ok(UniDatType::Identifier(type_name))
     }
@@ -605,19 +605,19 @@ impl WitParser {
 
     fn parse_type_node(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let ty = match node.kind() {
-            ts_const::ts_kind_name::S_BOOL => UniDatType::Primitive(UniPrimitive::Bool),
-            ts_const::ts_kind_name::S_U8 => UniDatType::Primitive(UniPrimitive::U8),
-            ts_const::ts_kind_name::S_U16 => UniDatType::Primitive(UniPrimitive::U16),
-            ts_const::ts_kind_name::S_U32 => UniDatType::Primitive(UniPrimitive::U32),
-            ts_const::ts_kind_name::S_U64 => UniDatType::Primitive(UniPrimitive::U64),
-            ts_const::ts_kind_name::S_S8 => UniDatType::Primitive(UniPrimitive::U8),
-            ts_const::ts_kind_name::S_S16 => UniDatType::Primitive(UniPrimitive::I16),
-            ts_const::ts_kind_name::S_S32 => UniDatType::Primitive(UniPrimitive::I32),
-            ts_const::ts_kind_name::S_S64 => UniDatType::Primitive(UniPrimitive::I64),
-            ts_const::ts_kind_name::S_F32 => UniDatType::Primitive(UniPrimitive::F32),
-            ts_const::ts_kind_name::S_F64 => UniDatType::Primitive(UniPrimitive::F64),
-            ts_const::ts_kind_name::S_CHAR => UniDatType::Primitive(UniPrimitive::Char),
-            ts_const::ts_kind_name::S_STRING => UniDatType::Primitive(UniPrimitive::String),
+            ts_const::ts_kind_name::S_BOOL => UniDatType::Scalar(UniScalar::Bool),
+            ts_const::ts_kind_name::S_U8 => UniDatType::Scalar(UniScalar::U8),
+            ts_const::ts_kind_name::S_U16 => UniDatType::Scalar(UniScalar::U16),
+            ts_const::ts_kind_name::S_U32 => UniDatType::Scalar(UniScalar::U32),
+            ts_const::ts_kind_name::S_U64 => UniDatType::Scalar(UniScalar::U64),
+            ts_const::ts_kind_name::S_S8 => UniDatType::Scalar(UniScalar::U8),
+            ts_const::ts_kind_name::S_S16 => UniDatType::Scalar(UniScalar::I16),
+            ts_const::ts_kind_name::S_S32 => UniDatType::Scalar(UniScalar::I32),
+            ts_const::ts_kind_name::S_S64 => UniDatType::Scalar(UniScalar::I64),
+            ts_const::ts_kind_name::S_F32 => UniDatType::Scalar(UniScalar::F32),
+            ts_const::ts_kind_name::S_F64 => UniDatType::Scalar(UniScalar::F64),
+            ts_const::ts_kind_name::S_CHAR => UniDatType::Scalar(UniScalar::Char),
+            ts_const::ts_kind_name::S_STRING => UniDatType::Scalar(UniScalar::String),
             ts_const::ts_kind_name::S_TUPLE => self.parse_tuple_type(context, node)?,
             ts_const::ts_kind_name::S_LIST => self.parse_list_type(context, node)?,
             ts_const::ts_kind_name::S_OPTION => self.parse_option_type(context, node)?,

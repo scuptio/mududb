@@ -1,23 +1,25 @@
 use clap::Parser;
-use mududb::common::result::RS;
-use mududb::common::xid::XID;
-use mududb::binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_cli::management::{ServerTopology, fetch_server_topology};
-use mududb::contract::database::sql_stmt_text::SQLStmtText;
 use mudu_utils::debug::debug_serve;
 use mudu_utils::notifier::NotifyWait;
-use mudu_utils::task::spawn_task;
+use mudu_utils::task_async::spawn_task;
 use mudu_utils::task_trace;
+use mududb::binding::universal::uni_session_open_argv::UniSessionOpenArgv;
+use mududb::common::result::RS;
+use mududb::common::xid::XID;
+use mududb::contract::database::sql_stmt_text::SQLStmtText;
+use mududb::sys_interface::async_api::{
+    mudu_close as mudu_close_async, mudu_command as mudu_command_async,
+    mudu_open_argv as mudu_open_argv_async,
+};
+use mududb::sys_interface::sync_api::{
+    mudu_close, mudu_command as mudu_command_sync, mudu_open_argv,
+};
 use std::sync::Arc;
 use std::sync::Barrier as StdBarrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-use mududb::sys_interface::async_api::{
-    mudu_close as mudu_close_async, mudu_command as mudu_command_async,
-    mudu_open_argv as mudu_open_argv_async,
-};
-use mududb::sys_interface::sync_api::{mudu_close, mudu_command as mudu_command_sync, mudu_open_argv};
 use tokio::runtime::Builder;
 use tokio::sync::{Barrier as TokioBarrier, Semaphore};
 use ycsb::rust::procedure::{
@@ -491,7 +493,7 @@ async fn run_workers_async(
     value_template: Arc<String>,
     phase: WorkerPhase,
 ) -> RS<Counters> {
-    let _ = task_trace!();
+    mudu_utils::scoped_task_trace!();
     let next_insert = Arc::new(AtomicUsize::new(args.record_count));
     let progress = ProgressReporter::start(
         phase,
@@ -626,7 +628,7 @@ async fn run_worker_async(
     start_barrier: Option<Arc<TokioBarrier>>,
     phase: WorkerPhase,
 ) -> RS<Counters> {
-    let _ = task_trace!();
+    mudu_utils::scoped_task_trace!();
     let partition_index = worker_partition(worker_idx, args.partition_count);
     let slot = routing.slot(partition_index)?;
     let worker_id = slot.worker_id;
@@ -902,7 +904,7 @@ async fn run_run_phase_async(
     next_insert: &AtomicUsize,
     progress: Option<&ProgressTracker>,
 ) -> RS<()> {
-    let _ = task_trace!();
+    mudu_utils::scoped_task_trace!();
     let (start, end) = shard_bounds(args.operation_count, connection_count, worker_idx);
     let (key_start, key_end) = shard_bounds(args.record_count, connection_count, worker_idx);
     let mut owned_keys = (key_start..key_end).collect::<Vec<_>>();

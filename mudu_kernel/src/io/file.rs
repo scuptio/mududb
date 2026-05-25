@@ -1,23 +1,29 @@
 use std::any::Any;
+#[cfg(target_os = "linux")]
 use std::ffi::CString;
-use std::future::{poll_fn, Future};
+use std::future::poll_fn;
+#[cfg(target_os = "linux")]
+use std::future::Future;
 use std::mem::ManuallyDrop;
 use std::path::Path;
+#[cfg(target_os = "linux")]
 use std::pin::Pin;
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::task::{Context, Poll};
 
 #[cfg(target_os = "linux")]
 use crate::io::user_io::completion_error;
-use crate::io::user_io::{complete_op, op_state, poll_op, try_take_op, OpState};
+#[cfg(target_os = "linux")]
+use crate::io::user_io::{complete_op, op_state};
+use crate::io::user_io::{poll_op, try_take_op, OpState};
 #[cfg(target_os = "linux")]
 use crate::io::worker_ring::{with_current_ring, WorkerLocalRing, WorkerRingOp};
-#[cfg(not(target_os = "linux"))]
-use crate::io::worker_ring::{with_current_ring, WorkerRingOp};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-
+use mudu_utils::sync::a_mutex::AMutex;
+use mudu_utils::{scoped_task_trace, task_trace};
 #[cfg(unix)]
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 #[cfg(windows)]
@@ -26,12 +32,13 @@ use std::os::windows::io::{FromRawHandle, IntoRawHandle, RawHandle};
 #[cfg(windows)]
 type RawFd = usize;
 
-pub type File = tokio::fs::File;
-pub type TFile = tokio::fs::File;
+pub type File = mudu_sys::tokio::fs::File;
+pub type TFile = mudu_sys::tokio::fs::File;
 
 #[derive(Debug)]
 pub struct IoFile {
     fd: RawFd,
+    portable_io_lock: Arc<AMutex<()>>,
 }
 
 #[derive(Clone)]
@@ -50,6 +57,7 @@ pub struct OptionWrite {
     pub blind_write: bool,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) enum FileIoRequest {
     Open(FileOpenRequest),
     Close(FileCloseRequest),
@@ -58,6 +66,7 @@ pub(crate) enum FileIoRequest {
     Flush(FileFlushRequest),
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) enum FileInflightOp {
     Open(Box<FileOpenRequest>),
     Close(Box<FileCloseRequest>),
@@ -69,6 +78,7 @@ pub(crate) enum FileInflightOp {
     Flush(Box<FileFlushRequest>),
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) struct FileOpenRequest {
     path: CString,
     flags: i32,
@@ -76,11 +86,13 @@ pub(crate) struct FileOpenRequest {
     state: Arc<OpState<RawFd>>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) struct FileCloseRequest {
     fd: RawFd,
     state: Arc<OpState<()>>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) struct FileReadRequest {
     fd: RawFd,
     len: usize,
@@ -88,6 +100,7 @@ pub(crate) struct FileReadRequest {
     state: Arc<OpState<Vec<u8>>>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) struct FileWriteRequest {
     fd: RawFd,
     offset: u64,
@@ -97,6 +110,7 @@ pub(crate) struct FileWriteRequest {
     state: Arc<OpState<usize>>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) struct FileFlushRequest {
     fd: RawFd,
     payload: Option<Box<dyn Any + Send>>,
@@ -110,6 +124,7 @@ impl Default for IoFile {
             fd: 0,
             #[cfg(windows)]
             fd: 0,
+            portable_io_lock: Arc::new(AMutex::new(())),
         }
     }
 }
@@ -127,28 +142,68 @@ impl IoFile {
     }
 
     pub fn new(fd: RawFd) -> Self {
-        Self { fd }
+        Self {
+            fd,
+            portable_io_lock: Arc::new(AMutex::new(())),
+        }
     }
 }
 pub async fn open<P: AsRef<Path>>(path: P, flags: i32, mode: u32) -> RS<IoFile> {
-    let path = CString::new(path.as_ref().as_os_str().as_encoded_bytes())
-        .map_err(|_| m_error!(EC::ParseErr, "path contains NUL byte"))?;
-    let fd = FileOpenFuture::new(path, flags, mode).await?;
-    Ok(IoFile { fd })
+    scoped_task_trace!();
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        let path = CString::new(path.as_ref().as_os_str().as_encoded_bytes())
+            .map_err(|_| m_error!(EC::ParseErr, "path contains NUL byte"))?;
+        let fd = FileOpenFuture::new(path, flags, mode).await?;
+        return Ok(IoFile::from_raw_fd(fd));
+    }
+
+    open_async_portable(path.as_ref(), flags, mode).await
 }
 
 pub async fn close(file: IoFile) -> RS<()> {
-    FileCloseFuture::new(file.fd).await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return FileCloseFuture::new(file.fd).await;
+    }
+
+    close_async_portable(file).await
 }
 
 pub async fn read(file: &IoFile, len: usize, offset: u64) -> RS<Vec<u8>> {
-    FileReadFuture::new(file.fd, len, offset).await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return FileReadFuture::new(file.fd, len, offset).await;
+    }
+
+    read_async_portable(file, len, offset).await
+}
+
+pub async fn metadata_len<P: AsRef<Path>>(path: P) -> RS<u64> {
+    mudu_sys::fs::metadata_len(path.as_ref())
+        .map_err(|e| m_error!(EC::IOErr, "read file metadata error", e))
+}
+
+pub fn metadata_len_by_file(file: &IoFile) -> RS<u64> {
+    with_std_file(file, |std_file| {
+        std_file
+            .metadata()
+            .map(|metadata| metadata.len())
+            .map_err(|e| m_error!(EC::IOErr, "read file metadata by fd error", e))
+    })
 }
 
 pub async fn write(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<usize> {
-    write_submit_option(file, data, offset, OptionWrite::default())?
-        .wait()
-        .await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return write_submit_option(file, data, offset, OptionWrite::default())?
+            .wait()
+            .await;
+    }
+
+    let len = data.len();
+    write_async_portable(file, data, offset).await?;
+    Ok(len)
 }
 
 pub fn open_sync(path: &Path, flags: i32, mode: u32) -> RS<IoFile> {
@@ -192,9 +247,17 @@ pub async fn write_option(
     offset: u64,
     option: OptionWrite,
 ) -> RS<usize> {
-    write_submit_option(file, data, offset, option)?
-        .wait()
-        .await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return write_submit_option(file, data, offset, option)?
+            .wait()
+            .await;
+    }
+
+    let len = data.len();
+    let _ = option;
+    write_async_portable(file, data, offset).await?;
+    Ok(len)
 }
 
 pub fn write_submit(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<WriteHandle> {
@@ -202,6 +265,25 @@ pub fn write_submit(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<WriteHandle
 }
 
 pub fn write_submit_option(
+    file: &IoFile,
+    data: Vec<u8>,
+    offset: u64,
+    option: OptionWrite,
+) -> RS<WriteHandle> {
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return write_submit_option_iouring(file, data, offset, option);
+    }
+
+    let _ = (file, data, offset, option);
+    Err(m_error!(
+        EC::NotImplemented,
+        "file write submit requires a worker ring; use async write outside io_uring workers"
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn write_submit_option_iouring(
     file: &IoFile,
     data: Vec<u8>,
     offset: u64,
@@ -222,11 +304,22 @@ pub fn write_submit_option(
 }
 
 pub async fn flush(file: &IoFile) -> RS<()> {
-    flush_submit(file)?.wait().await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return flush_submit(file)?.wait().await;
+    }
+
+    flush_async_portable(file).await
 }
 
 pub async fn flush_lsn(file: &IoFile, ready_lsn: Vec<u32>) -> RS<Vec<u32>> {
-    flush_submit_lsn(file, ready_lsn)?.wait().await
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return flush_submit_lsn(file, ready_lsn)?.wait().await;
+    }
+
+    flush_async_portable(file).await?;
+    Ok(ready_lsn)
 }
 
 pub fn flush_submit(file: &IoFile) -> RS<FlushHandle<()>> {
@@ -238,6 +331,23 @@ pub fn flush_submit_lsn(file: &IoFile, ready_lsn: Vec<u32>) -> RS<FlushHandle<Ve
 }
 
 fn flush_submit_payload<P>(file: &IoFile, payload: P) -> RS<FlushHandle<P>>
+where
+    P: Send + 'static,
+{
+    #[cfg(target_os = "linux")]
+    if crate::io::worker_ring::has_current_worker_ring() {
+        return flush_submit_payload_iouring(file, payload);
+    }
+
+    let _ = (file, payload);
+    Err(m_error!(
+        EC::NotImplemented,
+        "file flush submit requires a worker ring; use async flush outside io_uring workers"
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn flush_submit_payload_iouring<P>(file: &IoFile, payload: P) -> RS<FlushHandle<P>>
 where
     P: Send + 'static,
 {
@@ -260,7 +370,7 @@ impl IoFile {
     }
 
     pub(crate) fn from_raw_fd(fd: RawFd) -> Self {
-        Self { fd }
+        Self::new(fd)
     }
 }
 
@@ -299,6 +409,7 @@ where
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileOpenRequest {
     fn new(path: CString, flags: i32, mode: u32, state: Arc<OpState<RawFd>>) -> Self {
         Self {
@@ -326,6 +437,7 @@ impl FileOpenRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileCloseRequest {
     fn new(fd: RawFd, state: Arc<OpState<()>>) -> Self {
         Self { fd, state }
@@ -340,6 +452,7 @@ impl FileCloseRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileReadRequest {
     fn new(fd: RawFd, len: usize, offset: u64, state: Arc<OpState<Vec<u8>>>) -> Self {
         Self {
@@ -367,6 +480,7 @@ impl FileReadRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileWriteRequest {
     fn new(
         fd: RawFd,
@@ -422,6 +536,7 @@ impl FileWriteRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileFlushRequest {
     fn new<P>(fd: RawFd, payload: P, state: Arc<OpState<Box<dyn Any + Send>>>) -> Self
     where
@@ -455,12 +570,14 @@ impl FileFlushRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
 enum FileFutureState<T> {
     Init,
     Pending(Arc<OpState<T>>),
     Done,
 }
 
+#[cfg(target_os = "linux")]
 struct FileOpenFuture {
     path: Option<CString>,
     flags: i32,
@@ -468,11 +585,13 @@ struct FileOpenFuture {
     state: FileFutureState<RawFd>,
 }
 
+#[cfg(target_os = "linux")]
 struct FileCloseFuture {
     fd: RawFd,
     state: FileFutureState<()>,
 }
 
+#[cfg(target_os = "linux")]
 struct FileReadFuture {
     fd: RawFd,
     len: usize,
@@ -480,22 +599,7 @@ struct FileReadFuture {
     state: FileFutureState<Vec<u8>>,
 }
 
-#[allow(dead_code)]
-struct FileWriteFuture {
-    fd: RawFd,
-    offset: u64,
-    data: Option<Vec<u8>>,
-    option: OptionWrite,
-    state: FileFutureState<usize>,
-}
-
-#[allow(dead_code)]
-struct FileFlushFuture<P> {
-    fd: RawFd,
-    payload: Option<P>,
-    state: FileFutureState<Box<dyn Any + Send>>,
-}
-
+#[cfg(target_os = "linux")]
 impl FileOpenFuture {
     fn new(path: CString, flags: i32, mode: u32) -> Self {
         Self {
@@ -507,6 +611,7 @@ impl FileOpenFuture {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileCloseFuture {
     fn new(fd: RawFd) -> Self {
         Self {
@@ -516,6 +621,7 @@ impl FileCloseFuture {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl FileReadFuture {
     fn new(fd: RawFd, len: usize, offset: u64) -> Self {
         Self {
@@ -527,30 +633,7 @@ impl FileReadFuture {
     }
 }
 
-#[allow(dead_code)]
-impl FileWriteFuture {
-    fn new(fd: RawFd, offset: u64, data: Vec<u8>, option: OptionWrite) -> Self {
-        Self {
-            fd,
-            offset,
-            data: Some(data),
-            option,
-            state: FileFutureState::Init,
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl<P> FileFlushFuture<P> {
-    fn new(fd: RawFd, payload: P) -> Self {
-        Self {
-            fd,
-            payload: Some(payload),
-            state: FileFutureState::Init,
-        }
-    }
-}
-
+#[cfg(target_os = "linux")]
 impl Future for FileOpenFuture {
     type Output = RS<RawFd>;
 
@@ -583,6 +666,7 @@ impl Future for FileOpenFuture {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Future for FileCloseFuture {
     type Output = RS<()>;
 
@@ -614,6 +698,7 @@ impl Future for FileCloseFuture {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Future for FileReadFuture {
     type Output = RS<Vec<u8>>;
 
@@ -637,92 +722,6 @@ impl Future for FileReadFuture {
                 Poll::Ready(result) => {
                     self.state = FileFutureState::Done;
                     Poll::Ready(result)
-                }
-                Poll::Pending => Poll::Pending,
-            },
-            FileFutureState::Done => Poll::Pending,
-        }
-    }
-}
-
-impl Future for FileWriteFuture {
-    type Output = RS<usize>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &self.state {
-            FileFutureState::Init => {
-                let state = op_state();
-                let data = self.data.take().unwrap();
-                let total_len = data.len();
-                if let Err(err) = with_current_ring(|ring| {
-                    ring.register(WorkerRingOp::File(FileIoRequest::Write(
-                        FileWriteRequest::new(
-                            self.fd,
-                            self.offset,
-                            data,
-                            self.option.blind_write,
-                            state.clone(),
-                        ),
-                    )))
-                    .map(|_| ())
-                }) {
-                    self.state = FileFutureState::Done;
-                    return Poll::Ready(Err(err));
-                }
-                if self.option.blind_write {
-                    self.state = FileFutureState::Done;
-                    return Poll::Ready(Ok(total_len));
-                }
-                self.state = FileFutureState::Pending(state);
-                self.poll(cx)
-            }
-            FileFutureState::Pending(state) => match poll_op(state, cx) {
-                Poll::Ready(result) => {
-                    self.state = FileFutureState::Done;
-                    Poll::Ready(result)
-                }
-                Poll::Pending => Poll::Pending,
-            },
-            FileFutureState::Done => Poll::Pending,
-        }
-    }
-}
-
-impl<P> Future for FileFlushFuture<P>
-where
-    P: Send + Unpin + 'static,
-{
-    type Output = RS<P>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().get_mut();
-        match &this.state {
-            FileFutureState::Init => {
-                let state = op_state();
-                let payload = this
-                    .payload
-                    .take()
-                    .expect("flush future payload must be present before registration");
-                if let Err(err) = with_current_ring(|ring| {
-                    ring.register(WorkerRingOp::File(FileIoRequest::Flush(
-                        FileFlushRequest::new(this.fd, payload, state.clone()),
-                    )))
-                    .map(|_| ())
-                }) {
-                    this.state = FileFutureState::Done;
-                    return Poll::Ready(Err(err));
-                }
-                this.state = FileFutureState::Pending(state);
-                self.poll(cx)
-            }
-            FileFutureState::Pending(state) => match poll_op(state, cx) {
-                Poll::Ready(result) => {
-                    this.state = FileFutureState::Done;
-                    Poll::Ready(result.and_then(|payload| {
-                        payload.downcast::<P>().map(|boxed| *boxed).map_err(|_| {
-                            m_error!(EC::InternalErr, "file flush payload type mismatch")
-                        })
-                    }))
                 }
                 Poll::Pending => Poll::Pending,
             },
@@ -843,6 +842,96 @@ pub(crate) fn complete_file_io(
     }
 }
 
+async fn open_async_portable(path: &Path, flags: i32, _mode: u32) -> RS<IoFile> {
+    mudu_sys::fs::open(path, flags, _mode)
+        .map(std_file_to_io_file)
+        .map_err(|e| m_error!(EC::IOErr, "open file error", e))
+}
+
+async fn close_async_portable(file: IoFile) -> RS<()> {
+    close_sync(file)
+}
+
+async fn read_async_portable(file: &IoFile, len: usize, offset: u64) -> RS<Vec<u8>> {
+    let trace = task_trace!();
+    trace.watch("portable_io.op", "read");
+    trace.watch("portable_io.offset", &offset.to_string());
+    trace.watch("portable_io.len", &len.to_string());
+    trace.watch("portable_io.stage", "lock_wait");
+    let _guard = file.portable_io_lock.lock().await;
+    trace.watch("portable_io.stage", "locked");
+    let result = read_async_portable_std(clone_std_file(file)?, len, offset).await;
+    trace.watch(
+        "portable_io.stage",
+        if result.is_ok() {
+            "read_done"
+        } else {
+            "read_err"
+        },
+    );
+    result
+}
+
+async fn read_async_portable_std(std_file: std::fs::File, len: usize, offset: u64) -> RS<Vec<u8>> {
+    mudu_sys::fs::read_exact_at(&std_file, len, offset)
+        .map_err(|e| m_error!(EC::IOErr, "read file error", e))
+}
+
+async fn write_async_portable(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<()> {
+    let trace = task_trace!();
+    trace.watch("portable_io.op", "write");
+    trace.watch("portable_io.offset", &offset.to_string());
+    trace.watch("portable_io.len", &data.len().to_string());
+    trace.watch("portable_io.stage", "lock_wait");
+    let _guard = file.portable_io_lock.lock().await;
+    trace.watch("portable_io.stage", "locked");
+    let result = write_async_portable_std(clone_std_file(file)?, data, offset).await;
+    trace.watch(
+        "portable_io.stage",
+        if result.is_ok() {
+            "write_done"
+        } else {
+            "write_err"
+        },
+    );
+    result
+}
+
+async fn write_async_portable_std(std_file: std::fs::File, data: Vec<u8>, offset: u64) -> RS<()> {
+    mudu_sys::fs::write_all_at(&std_file, &data, offset)
+        .map_err(|e| m_error!(EC::IOErr, "write file error", e))
+}
+
+async fn flush_async_portable_std(std_file: std::fs::File) -> RS<()> {
+    mudu_sys::fs::fsync(&std_file).map_err(|e| m_error!(EC::IOErr, "fsync file error", e))
+}
+
+async fn flush_async_portable(file: &IoFile) -> RS<()> {
+    let trace = task_trace!();
+    trace.watch("portable_io.op", "flush");
+    trace.watch("portable_io.stage", "lock_wait");
+    let _guard = file.portable_io_lock.lock().await;
+    trace.watch("portable_io.stage", "locked");
+    let result = flush_async_portable_std(clone_std_file(file)?).await;
+    trace.watch(
+        "portable_io.stage",
+        if result.is_ok() {
+            "flush_done"
+        } else {
+            "flush_err"
+        },
+    );
+    result
+}
+
+fn clone_std_file(file: &IoFile) -> RS<std::fs::File> {
+    with_std_file(file, |std_file| {
+        std_file
+            .try_clone()
+            .map_err(|e| m_error!(EC::IOErr, "clone file handle for tokio io error", e))
+    })
+}
+
 fn std_file_to_io_file(file: std::fs::File) -> IoFile {
     #[cfg(unix)]
     {
@@ -877,7 +966,7 @@ fn io_file_into_std(file: IoFile) -> std::fs::File {
 mod tests {
     use super::*;
     use crate::io::worker_ring::{set_current_worker_ring, unset_current_worker_ring};
-    use tokio::task::yield_now;
+    use mudu_sys::tokio::task::yield_now;
 
     fn install_test_ring() -> Arc<WorkerLocalRing> {
         let ring = Arc::new(WorkerLocalRing::new());
@@ -888,7 +977,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn open_enqueues_request_and_returns_file() {
         let ring = install_test_ring();
-        let task = tokio::spawn(async { open("/tmp/test-open", libc::O_RDONLY, 0).await });
+        let task =
+            mudu_sys::tokio::spawn(async { open("/tmp/test-open", libc::O_RDONLY, 0).await });
         yield_now().await;
 
         match ring.take_pending().unwrap().unwrap().1 {
@@ -907,8 +997,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn read_enqueues_request_and_receives_payload() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 21 };
-        let task = tokio::spawn(async move { read(&file, 8, 12).await });
+        let file = IoFile::new(21);
+        let task = mudu_sys::tokio::spawn(async move { read(&file, 8, 12).await });
         yield_now().await;
 
         match ring.take_pending().unwrap().unwrap().1 {
@@ -929,9 +1019,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn write_flush_and_close_enqueue_requests() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 33 };
+        let file = IoFile::new(33);
 
-        let write_task = tokio::spawn(async move { write(&file, vec![9, 8, 7], 4).await });
+        let write_task =
+            mudu_sys::tokio::spawn(async move { write(&file, vec![9, 8, 7], 4).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::File(FileIoRequest::Write(request)) => {
@@ -944,8 +1035,8 @@ mod tests {
         }
         assert_eq!(write_task.await.unwrap().unwrap(), 3);
 
-        let file = IoFile { fd: 33 };
-        let flush_task = tokio::spawn(async move { flush(&file).await });
+        let file = IoFile::new(33);
+        let flush_task = mudu_sys::tokio::spawn(async move { flush(&file).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::File(FileIoRequest::Flush(request)) => {
@@ -956,7 +1047,7 @@ mod tests {
         }
         flush_task.await.unwrap().unwrap();
 
-        let close_task = tokio::spawn(async move { close(IoFile { fd: 33 }).await });
+        let close_task = mudu_sys::tokio::spawn(async move { close(IoFile::new(33)).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::File(FileIoRequest::Close(request)) => {
@@ -972,7 +1063,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn write_submit_and_wait_split_registration_from_completion() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 44 };
+        let file = IoFile::new(44);
 
         let handle = write_submit(&file, vec![5, 6, 7], 16).unwrap();
         match ring.take_pending().unwrap().unwrap().1 {
@@ -991,9 +1082,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn blind_write_returns_after_registration() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 55 };
+        let file = IoFile::new(55);
 
-        let write_task = tokio::spawn(async move {
+        let write_task = mudu_sys::tokio::spawn(async move {
             write_option(
                 &file,
                 vec![1, 2, 3, 4],
@@ -1021,7 +1112,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn flush_submit_lsn_and_wait_split_registration_from_completion() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 61 };
+        let file = IoFile::new(61);
 
         let handle = flush_submit_lsn(&file, vec![10, 11]).unwrap();
         match ring.take_pending().unwrap().unwrap().1 {
@@ -1039,8 +1130,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn flush_lsn_enqueues_request_and_returns_payload() {
         let ring = install_test_ring();
-        let file = IoFile { fd: 41 };
-        let task = tokio::spawn(async move { flush_lsn(&file, vec![7, 8, 9]).await });
+        let file = IoFile::new(41);
+        let task = mudu_sys::tokio::spawn(async move { flush_lsn(&file, vec![7, 8, 9]).await });
         yield_now().await;
 
         match ring.take_pending().unwrap().unwrap().1 {
@@ -1057,9 +1148,50 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn open_without_current_ring_returns_error() {
+    async fn open_without_current_ring_uses_tokio_io() {
         unset_current_worker_ring();
-        let err = open("/tmp/test-open", libc::O_RDONLY, 0).await.unwrap_err();
-        assert_eq!(err.ec(), EC::NoSuchElement);
+        let path = std::env::temp_dir().join(format!(
+            "mudu-portable-file-{}",
+            mudu::common::id::gen_oid()
+        ));
+        let file = open(
+            &path,
+            libc::O_CREAT | libc::O_TRUNC | libc::O_RDWR | cloexec_flag(),
+            0o644,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(write(&file, b"abcdef".to_vec(), 0).await.unwrap(), 6);
+        flush(&file).await.unwrap();
+        assert_eq!(read(&file, 3, 2).await.unwrap(), b"cde".to_vec());
+        close(file).await.unwrap();
+
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+    use mudu::common::id::gen_oid;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn portable_async_file_ops_use_tokio_io() {
+        let path = std::env::temp_dir().join(format!("mudu-portable-file-{}", gen_oid()));
+        let file = open(
+            &path,
+            libc::O_CREAT | libc::O_TRUNC | libc::O_RDWR | cloexec_flag(),
+            0o644,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(write(&file, b"abcdef".to_vec(), 0).await.unwrap(), 6);
+        flush(&file).await.unwrap();
+        assert_eq!(read(&file, 3, 2).await.unwrap(), b"cde".to_vec());
+        close(file).await.unwrap();
+
+        let _ = std::fs::remove_file(path);
     }
 }

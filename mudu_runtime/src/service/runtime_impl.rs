@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_kernel::async_rt::contract::AsyncRuntime;
 use mudu_utils::notifier::Notifier;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,6 +55,10 @@ impl Runtime for RuntimeImpl {
 
     async fn install(&self, pkg_path: String) -> RS<()> {
         self.inner.install(pkg_path).await
+    }
+
+    fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+        self.inner.async_runtime()
     }
 }
 

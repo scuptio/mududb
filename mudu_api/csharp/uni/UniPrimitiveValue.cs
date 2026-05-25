@@ -10,40 +10,40 @@ using System.Collections.Generic;
 
 // Annotate inheritance types
 
-[Union(0, typeof(UniPrimitiveValueBool))]
+[Union(0, typeof(UniScalarValueBool))]
 
-[Union(1, typeof(UniPrimitiveValueU8))]
+[Union(1, typeof(UniScalarValueU8))]
 
-[Union(2, typeof(UniPrimitiveValueI8))]
+[Union(2, typeof(UniScalarValueI8))]
 
-[Union(3, typeof(UniPrimitiveValueU16))]
+[Union(3, typeof(UniScalarValueU16))]
 
-[Union(4, typeof(UniPrimitiveValueI16))]
+[Union(4, typeof(UniScalarValueI16))]
 
-[Union(5, typeof(UniPrimitiveValueU32))]
+[Union(5, typeof(UniScalarValueU32))]
 
-[Union(6, typeof(UniPrimitiveValueI32))]
+[Union(6, typeof(UniScalarValueI32))]
 
-[Union(7, typeof(UniPrimitiveValueU64))]
+[Union(7, typeof(UniScalarValueU64))]
 
-[Union(8, typeof(UniPrimitiveValueI64))]
+[Union(8, typeof(UniScalarValueI64))]
 
-[Union(9, typeof(UniPrimitiveValueF32))]
+[Union(9, typeof(UniScalarValueF32))]
 
-[Union(10, typeof(UniPrimitiveValueF64))]
+[Union(10, typeof(UniScalarValueF64))]
 
-[Union(11, typeof(UniPrimitiveValueChar))]
+[Union(11, typeof(UniScalarValueChar))]
 
-[Union(12, typeof(UniPrimitiveValueString))]
+[Union(12, typeof(UniScalarValueString))]
 
-[Union(13, typeof(UniPrimitiveValueBlob))]
+[Union(13, typeof(UniScalarValueBlob))]
 
-public interface UniPrimitiveValue
+public interface UniScalarValue
 {
-    public UniPrimitiveValueKind Kind();
+    public UniScalarValueKind Kind();
 }
 
-public enum UniPrimitiveValueKind {
+public enum UniScalarValueKind {
 
    Bool = 0,
 
@@ -77,12 +77,12 @@ public enum UniPrimitiveValueKind {
 
 
 
-[MessagePackFormatter(typeof(UniPrimitiveValueBoolFormatter))]
-public class UniPrimitiveValueBool : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueBoolFormatter))]
+public class UniScalarValueBool : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueBool()
+    public UniScalarValueBool()
     {
         Inner = false;
     }
@@ -90,19 +90,19 @@ public class UniPrimitiveValueBool : UniPrimitiveValue
 
     public bool Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.Bool;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.Bool;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.Bool;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.Bool;
     }
 
-    public static UniPrimitiveValueBool AsBool(UniPrimitiveValue value)
+    public static UniScalarValueBool AsBool(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueBool  v:
+            case UniScalarValueBool  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -110,9 +110,9 @@ public class UniPrimitiveValueBool : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueBoolFormatter : IMessagePackFormatter<UniPrimitiveValueBool?>
+public class UniScalarValueBoolFormatter : IMessagePackFormatter<UniScalarValueBool?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueBool? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueBool? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -123,7 +123,7 @@ public class UniPrimitiveValueBoolFormatter : IMessagePackFormatter<UniPrimitive
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueBool? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueBool? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -131,16 +131,16 @@ public class UniPrimitiveValueBoolFormatter : IMessagePackFormatter<UniPrimitive
         }
 
         bool inner = MessagePackSerializer.Deserialize<bool>(ref reader, options);
-        return new UniPrimitiveValueBool { Inner= inner};
+        return new UniScalarValueBool { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueU8Formatter))]
-public class UniPrimitiveValueU8 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueU8Formatter))]
+public class UniScalarValueU8 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueU8()
+    public UniScalarValueU8()
     {
         Inner = 0;
     }
@@ -148,19 +148,19 @@ public class UniPrimitiveValueU8 : UniPrimitiveValue
 
     public byte Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.U8;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.U8;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.U8;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.U8;
     }
 
-    public static UniPrimitiveValueU8 AsU8(UniPrimitiveValue value)
+    public static UniScalarValueU8 AsU8(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueU8  v:
+            case UniScalarValueU8  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -168,9 +168,9 @@ public class UniPrimitiveValueU8 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueU8Formatter : IMessagePackFormatter<UniPrimitiveValueU8?>
+public class UniScalarValueU8Formatter : IMessagePackFormatter<UniScalarValueU8?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueU8? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueU8? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -181,7 +181,7 @@ public class UniPrimitiveValueU8Formatter : IMessagePackFormatter<UniPrimitiveVa
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueU8? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueU8? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -189,16 +189,16 @@ public class UniPrimitiveValueU8Formatter : IMessagePackFormatter<UniPrimitiveVa
         }
 
         byte inner = MessagePackSerializer.Deserialize<byte>(ref reader, options);
-        return new UniPrimitiveValueU8 { Inner= inner};
+        return new UniScalarValueU8 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueI8Formatter))]
-public class UniPrimitiveValueI8 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueI8Formatter))]
+public class UniScalarValueI8 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueI8()
+    public UniScalarValueI8()
     {
         Inner = 0;
     }
@@ -206,19 +206,19 @@ public class UniPrimitiveValueI8 : UniPrimitiveValue
 
     public byte Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.I8;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.I8;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.I8;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.I8;
     }
 
-    public static UniPrimitiveValueI8 AsI8(UniPrimitiveValue value)
+    public static UniScalarValueI8 AsI8(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueI8  v:
+            case UniScalarValueI8  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -226,9 +226,9 @@ public class UniPrimitiveValueI8 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueI8Formatter : IMessagePackFormatter<UniPrimitiveValueI8?>
+public class UniScalarValueI8Formatter : IMessagePackFormatter<UniScalarValueI8?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueI8? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueI8? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -239,7 +239,7 @@ public class UniPrimitiveValueI8Formatter : IMessagePackFormatter<UniPrimitiveVa
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueI8? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueI8? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -247,16 +247,16 @@ public class UniPrimitiveValueI8Formatter : IMessagePackFormatter<UniPrimitiveVa
         }
 
         byte inner = MessagePackSerializer.Deserialize<byte>(ref reader, options);
-        return new UniPrimitiveValueI8 { Inner= inner};
+        return new UniScalarValueI8 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueU16Formatter))]
-public class UniPrimitiveValueU16 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueU16Formatter))]
+public class UniScalarValueU16 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueU16()
+    public UniScalarValueU16()
     {
         Inner = 0;
     }
@@ -264,19 +264,19 @@ public class UniPrimitiveValueU16 : UniPrimitiveValue
 
     public ushort Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.U16;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.U16;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.U16;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.U16;
     }
 
-    public static UniPrimitiveValueU16 AsU16(UniPrimitiveValue value)
+    public static UniScalarValueU16 AsU16(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueU16  v:
+            case UniScalarValueU16  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -284,9 +284,9 @@ public class UniPrimitiveValueU16 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueU16Formatter : IMessagePackFormatter<UniPrimitiveValueU16?>
+public class UniScalarValueU16Formatter : IMessagePackFormatter<UniScalarValueU16?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueU16? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueU16? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -297,7 +297,7 @@ public class UniPrimitiveValueU16Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueU16? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueU16? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -305,16 +305,16 @@ public class UniPrimitiveValueU16Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         ushort inner = MessagePackSerializer.Deserialize<ushort>(ref reader, options);
-        return new UniPrimitiveValueU16 { Inner= inner};
+        return new UniScalarValueU16 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueI16Formatter))]
-public class UniPrimitiveValueI16 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueI16Formatter))]
+public class UniScalarValueI16 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueI16()
+    public UniScalarValueI16()
     {
         Inner = 0;
     }
@@ -322,19 +322,19 @@ public class UniPrimitiveValueI16 : UniPrimitiveValue
 
     public short Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.I16;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.I16;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.I16;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.I16;
     }
 
-    public static UniPrimitiveValueI16 AsI16(UniPrimitiveValue value)
+    public static UniScalarValueI16 AsI16(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueI16  v:
+            case UniScalarValueI16  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -342,9 +342,9 @@ public class UniPrimitiveValueI16 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueI16Formatter : IMessagePackFormatter<UniPrimitiveValueI16?>
+public class UniScalarValueI16Formatter : IMessagePackFormatter<UniScalarValueI16?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueI16? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueI16? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -355,7 +355,7 @@ public class UniPrimitiveValueI16Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueI16? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueI16? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -363,16 +363,16 @@ public class UniPrimitiveValueI16Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         short inner = MessagePackSerializer.Deserialize<short>(ref reader, options);
-        return new UniPrimitiveValueI16 { Inner= inner};
+        return new UniScalarValueI16 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueU32Formatter))]
-public class UniPrimitiveValueU32 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueU32Formatter))]
+public class UniScalarValueU32 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueU32()
+    public UniScalarValueU32()
     {
         Inner = 0;
     }
@@ -380,19 +380,19 @@ public class UniPrimitiveValueU32 : UniPrimitiveValue
 
     public uint Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.U32;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.U32;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.U32;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.U32;
     }
 
-    public static UniPrimitiveValueU32 AsU32(UniPrimitiveValue value)
+    public static UniScalarValueU32 AsU32(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueU32  v:
+            case UniScalarValueU32  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -400,9 +400,9 @@ public class UniPrimitiveValueU32 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueU32Formatter : IMessagePackFormatter<UniPrimitiveValueU32?>
+public class UniScalarValueU32Formatter : IMessagePackFormatter<UniScalarValueU32?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueU32? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueU32? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -413,7 +413,7 @@ public class UniPrimitiveValueU32Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueU32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueU32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -421,16 +421,16 @@ public class UniPrimitiveValueU32Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         uint inner = MessagePackSerializer.Deserialize<uint>(ref reader, options);
-        return new UniPrimitiveValueU32 { Inner= inner};
+        return new UniScalarValueU32 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueI32Formatter))]
-public class UniPrimitiveValueI32 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueI32Formatter))]
+public class UniScalarValueI32 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueI32()
+    public UniScalarValueI32()
     {
         Inner = 0;
     }
@@ -438,19 +438,19 @@ public class UniPrimitiveValueI32 : UniPrimitiveValue
 
     public int Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.I32;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.I32;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.I32;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.I32;
     }
 
-    public static UniPrimitiveValueI32 AsI32(UniPrimitiveValue value)
+    public static UniScalarValueI32 AsI32(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueI32  v:
+            case UniScalarValueI32  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -458,9 +458,9 @@ public class UniPrimitiveValueI32 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueI32Formatter : IMessagePackFormatter<UniPrimitiveValueI32?>
+public class UniScalarValueI32Formatter : IMessagePackFormatter<UniScalarValueI32?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueI32? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueI32? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -471,7 +471,7 @@ public class UniPrimitiveValueI32Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueI32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueI32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -479,16 +479,16 @@ public class UniPrimitiveValueI32Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         int inner = MessagePackSerializer.Deserialize<int>(ref reader, options);
-        return new UniPrimitiveValueI32 { Inner= inner};
+        return new UniScalarValueI32 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueU64Formatter))]
-public class UniPrimitiveValueU64 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueU64Formatter))]
+public class UniScalarValueU64 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueU64()
+    public UniScalarValueU64()
     {
         Inner = 0;
     }
@@ -496,19 +496,19 @@ public class UniPrimitiveValueU64 : UniPrimitiveValue
 
     public ulong Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.U64;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.U64;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.U64;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.U64;
     }
 
-    public static UniPrimitiveValueU64 AsU64(UniPrimitiveValue value)
+    public static UniScalarValueU64 AsU64(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueU64  v:
+            case UniScalarValueU64  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -516,9 +516,9 @@ public class UniPrimitiveValueU64 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueU64Formatter : IMessagePackFormatter<UniPrimitiveValueU64?>
+public class UniScalarValueU64Formatter : IMessagePackFormatter<UniScalarValueU64?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueU64? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueU64? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -529,7 +529,7 @@ public class UniPrimitiveValueU64Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueU64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueU64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -537,16 +537,16 @@ public class UniPrimitiveValueU64Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         ulong inner = MessagePackSerializer.Deserialize<ulong>(ref reader, options);
-        return new UniPrimitiveValueU64 { Inner= inner};
+        return new UniScalarValueU64 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueI64Formatter))]
-public class UniPrimitiveValueI64 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueI64Formatter))]
+public class UniScalarValueI64 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueI64()
+    public UniScalarValueI64()
     {
         Inner = 0;
     }
@@ -554,19 +554,19 @@ public class UniPrimitiveValueI64 : UniPrimitiveValue
 
     public long Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.I64;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.I64;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.I64;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.I64;
     }
 
-    public static UniPrimitiveValueI64 AsI64(UniPrimitiveValue value)
+    public static UniScalarValueI64 AsI64(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueI64  v:
+            case UniScalarValueI64  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -574,9 +574,9 @@ public class UniPrimitiveValueI64 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueI64Formatter : IMessagePackFormatter<UniPrimitiveValueI64?>
+public class UniScalarValueI64Formatter : IMessagePackFormatter<UniScalarValueI64?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueI64? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueI64? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -587,7 +587,7 @@ public class UniPrimitiveValueI64Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueI64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueI64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -595,16 +595,16 @@ public class UniPrimitiveValueI64Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         long inner = MessagePackSerializer.Deserialize<long>(ref reader, options);
-        return new UniPrimitiveValueI64 { Inner= inner};
+        return new UniScalarValueI64 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueF32Formatter))]
-public class UniPrimitiveValueF32 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueF32Formatter))]
+public class UniScalarValueF32 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueF32()
+    public UniScalarValueF32()
     {
         Inner = 0;
     }
@@ -612,19 +612,19 @@ public class UniPrimitiveValueF32 : UniPrimitiveValue
 
     public float Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.F32;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.F32;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.F32;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.F32;
     }
 
-    public static UniPrimitiveValueF32 AsF32(UniPrimitiveValue value)
+    public static UniScalarValueF32 AsF32(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueF32  v:
+            case UniScalarValueF32  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -632,9 +632,9 @@ public class UniPrimitiveValueF32 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueF32Formatter : IMessagePackFormatter<UniPrimitiveValueF32?>
+public class UniScalarValueF32Formatter : IMessagePackFormatter<UniScalarValueF32?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueF32? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueF32? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -645,7 +645,7 @@ public class UniPrimitiveValueF32Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueF32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueF32? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -653,16 +653,16 @@ public class UniPrimitiveValueF32Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         float inner = MessagePackSerializer.Deserialize<float>(ref reader, options);
-        return new UniPrimitiveValueF32 { Inner= inner};
+        return new UniScalarValueF32 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueF64Formatter))]
-public class UniPrimitiveValueF64 : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueF64Formatter))]
+public class UniScalarValueF64 : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueF64()
+    public UniScalarValueF64()
     {
         Inner = 0;
     }
@@ -670,19 +670,19 @@ public class UniPrimitiveValueF64 : UniPrimitiveValue
 
     public double Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.F64;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.F64;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.F64;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.F64;
     }
 
-    public static UniPrimitiveValueF64 AsF64(UniPrimitiveValue value)
+    public static UniScalarValueF64 AsF64(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueF64  v:
+            case UniScalarValueF64  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -690,9 +690,9 @@ public class UniPrimitiveValueF64 : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueF64Formatter : IMessagePackFormatter<UniPrimitiveValueF64?>
+public class UniScalarValueF64Formatter : IMessagePackFormatter<UniScalarValueF64?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueF64? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueF64? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -703,7 +703,7 @@ public class UniPrimitiveValueF64Formatter : IMessagePackFormatter<UniPrimitiveV
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueF64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueF64? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -711,16 +711,16 @@ public class UniPrimitiveValueF64Formatter : IMessagePackFormatter<UniPrimitiveV
         }
 
         double inner = MessagePackSerializer.Deserialize<double>(ref reader, options);
-        return new UniPrimitiveValueF64 { Inner= inner};
+        return new UniScalarValueF64 { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueCharFormatter))]
-public class UniPrimitiveValueChar : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueCharFormatter))]
+public class UniScalarValueChar : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueChar()
+    public UniScalarValueChar()
     {
         Inner = '\0';
     }
@@ -728,19 +728,19 @@ public class UniPrimitiveValueChar : UniPrimitiveValue
 
     public char Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.Char;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.Char;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.Char;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.Char;
     }
 
-    public static UniPrimitiveValueChar AsChar(UniPrimitiveValue value)
+    public static UniScalarValueChar AsChar(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueChar  v:
+            case UniScalarValueChar  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -748,9 +748,9 @@ public class UniPrimitiveValueChar : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueCharFormatter : IMessagePackFormatter<UniPrimitiveValueChar?>
+public class UniScalarValueCharFormatter : IMessagePackFormatter<UniScalarValueChar?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueChar? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueChar? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -761,7 +761,7 @@ public class UniPrimitiveValueCharFormatter : IMessagePackFormatter<UniPrimitive
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueChar? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueChar? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -769,16 +769,16 @@ public class UniPrimitiveValueCharFormatter : IMessagePackFormatter<UniPrimitive
         }
 
         char inner = MessagePackSerializer.Deserialize<char>(ref reader, options);
-        return new UniPrimitiveValueChar { Inner= inner};
+        return new UniScalarValueChar { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueStringFormatter))]
-public class UniPrimitiveValueString : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueStringFormatter))]
+public class UniScalarValueString : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueString()
+    public UniScalarValueString()
     {
         Inner = string.Empty;
     }
@@ -786,19 +786,19 @@ public class UniPrimitiveValueString : UniPrimitiveValue
 
     public required string Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.String;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.String;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.String;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.String;
     }
 
-    public static UniPrimitiveValueString AsString(UniPrimitiveValue value)
+    public static UniScalarValueString AsString(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueString  v:
+            case UniScalarValueString  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -806,9 +806,9 @@ public class UniPrimitiveValueString : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueStringFormatter : IMessagePackFormatter<UniPrimitiveValueString?>
+public class UniScalarValueStringFormatter : IMessagePackFormatter<UniScalarValueString?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueString? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueString? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -819,7 +819,7 @@ public class UniPrimitiveValueStringFormatter : IMessagePackFormatter<UniPrimiti
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueString? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueString? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -827,16 +827,16 @@ public class UniPrimitiveValueStringFormatter : IMessagePackFormatter<UniPrimiti
         }
 
         string inner = MessagePackSerializer.Deserialize<string>(ref reader, options)!;
-        return new UniPrimitiveValueString { Inner= inner};
+        return new UniScalarValueString { Inner= inner};
     }
 }
 
-[MessagePackFormatter(typeof(UniPrimitiveValueBlobFormatter))]
-public class UniPrimitiveValueBlob : UniPrimitiveValue
+[MessagePackFormatter(typeof(UniScalarValueBlobFormatter))]
+public class UniScalarValueBlob : UniScalarValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniPrimitiveValueBlob()
+    public UniScalarValueBlob()
     {
         Inner = [];
     }
@@ -844,19 +844,19 @@ public class UniPrimitiveValueBlob : UniPrimitiveValue
 
     public required byte[] Inner  { get; set; }
 
-    public UniPrimitiveValueKind Kind() {
-        return UniPrimitiveValueKind.Blob;
+    public UniScalarValueKind Kind() {
+        return UniScalarValueKind.Blob;
     }
 
-    public static UniPrimitiveValueKind KindStatic() {
-        return UniPrimitiveValueKind.Blob;
+    public static UniScalarValueKind KindStatic() {
+        return UniScalarValueKind.Blob;
     }
 
-    public static UniPrimitiveValueBlob AsBlob(UniPrimitiveValue value)
+    public static UniScalarValueBlob AsBlob(UniScalarValue value)
     {
         switch (value)
         {
-            case UniPrimitiveValueBlob  v:
+            case UniScalarValueBlob  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -864,9 +864,9 @@ public class UniPrimitiveValueBlob : UniPrimitiveValue
     }
 }
 
-public class UniPrimitiveValueBlobFormatter : IMessagePackFormatter<UniPrimitiveValueBlob?>
+public class UniScalarValueBlobFormatter : IMessagePackFormatter<UniScalarValueBlob?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniPrimitiveValueBlob? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniScalarValueBlob? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -877,7 +877,7 @@ public class UniPrimitiveValueBlobFormatter : IMessagePackFormatter<UniPrimitive
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniPrimitiveValueBlob? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniScalarValueBlob? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -885,7 +885,7 @@ public class UniPrimitiveValueBlobFormatter : IMessagePackFormatter<UniPrimitive
         }
 
         byte[] inner = MessagePackSerializer.Deserialize<byte[]>(ref reader, options)!;
-        return new UniPrimitiveValueBlob { Inner= inner};
+        return new UniScalarValueBlob { Inner= inner};
     }
 }
 

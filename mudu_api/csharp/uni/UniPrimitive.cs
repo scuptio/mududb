@@ -7,7 +7,7 @@ using System.Collections.Generic;
 
 
 
-public enum UniPrimitive {
+public enum UniScalar {
     
     
     Bool = 0,

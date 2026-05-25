@@ -93,10 +93,25 @@ impl RequestCtx {
         &self,
         request: mudu_contract::protocol::ProcedureInvokeRequest,
     ) -> RS<HandleResult> {
+        let trace = mudu_utils::task_trace!();
+        trace.watch("procedure.kernel.request_ctx.stage", "handle_request_start");
+        trace.watch(
+            "procedure.kernel.request_ctx.session_id",
+            &request.session_id().to_string(),
+        );
+        trace.watch(
+            "procedure.kernel.request_ctx.name",
+            request.procedure_name(),
+        );
         let response = self
             .worker
             .handle_procedure_request(self.conn_id, &request)
             .await?;
+        trace.watch("procedure.kernel.request_ctx.stage", "handle_request_done");
+        trace.watch(
+            "procedure.kernel.request_ctx.stage",
+            "encode_response_start",
+        );
         Ok(HandleResult::Response(encode_procedure_invoke_response(
             self.request_id,
             &ProcedureInvokeResponse::new(response.into_result()),

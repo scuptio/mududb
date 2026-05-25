@@ -14,19 +14,21 @@ use mudu_contract::protocol::{
     encode_batch_request, encode_client_request_with_message_type, encode_session_create_request,
     ClientRequest, Frame, FrameHeader, MessageType, SessionCreateRequest, HEADER_LEN,
 };
+use mudu_utils::sync::a_mutex::{AMutex, AMutexGuard};
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, OnceLock};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::sync::Mutex as AsyncMutex;
 
+use crate::async_rt::contract::{AsyncRuntime, AsyncStream};
 use crate::mudu_conn::mudu_prepared_stmt::MuduPreparedStmt;
 use crate::server::worker_local::{try_current_worker_local, WorkerExecute, WorkerLocalRef};
 use crate::sql::describer::Describer;
 
 static DEFAULT_REMOTE_ADDR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static DEFAULT_REMOTE_WORKER_ID: OnceLock<Mutex<Option<OID>>> = OnceLock::new();
+static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<Mutex<Option<Arc<dyn AsyncRuntime>>>> =
+    OnceLock::new();
 
 enum ConnBackend {
     WorkerLocal(WorkerLocalRef),
@@ -36,19 +38,20 @@ enum ConnBackend {
 struct RemoteWorkerConn {
     addr: String,
     worker_id: Option<OID>,
-    session_id: AsyncMutex<Option<OID>>,
-    stream: AsyncMutex<Option<RemoteProtocolClient>>,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    session_id: Mutex<Option<OID>>,
+    stream: AMutex<Option<RemoteProtocolClient>>,
 }
 
 struct RemoteProtocolClient {
-    stream: TcpStream,
+    stream: Box<dyn AsyncStream>,
     next_request_id: u64,
 }
 
 pub struct MuduConnAsync {
     backend: ConnBackend,
     parser: Arc<SQLParser>,
-    session_id: Arc<AsyncMutex<Option<OID>>>,
+    session_id: Arc<Mutex<Option<OID>>>,
 }
 
 pub fn set_default_remote_addr(addr: Option<String>) {
@@ -65,6 +68,24 @@ pub fn set_default_remote_worker_id(worker_id: Option<OID>) {
     }
 }
 
+pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) {
+    let slot = DEFAULT_REMOTE_ASYNC_RUNTIME.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = async_runtime;
+    }
+}
+
+pub fn clear_default_remote_if_current(addr: &str, worker_id: Option<OID>) {
+    let current_addr = default_remote_addr();
+    let current_worker_id = default_remote_worker_id();
+    if current_addr.as_deref() != Some(addr) || current_worker_id != worker_id {
+        return;
+    }
+    set_default_remote_addr(None);
+    set_default_remote_worker_id(None);
+    set_default_remote_async_runtime(None);
+}
+
 fn default_remote_addr() -> Option<String> {
     DEFAULT_REMOTE_ADDR
         .get()
@@ -77,13 +98,23 @@ fn default_remote_worker_id() -> Option<OID> {
         .and_then(|slot| slot.lock().ok().and_then(|guard| *guard))
 }
 
+fn default_remote_async_runtime() -> Option<Arc<dyn AsyncRuntime>> {
+    DEFAULT_REMOTE_ASYNC_RUNTIME
+        .get()
+        .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()))
+}
+
 impl MuduConnAsync {
     pub fn new() -> RS<Self> {
+        Self::new_with_runtime(default_remote_async_runtime())
+    }
+
+    pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
         if let Some(worker_local) = try_current_worker_local() {
             return Ok(Self {
                 backend: ConnBackend::WorkerLocal(worker_local),
                 parser: Arc::new(SQLParser::new()),
-                session_id: Arc::new(AsyncMutex::new(None)),
+                session_id: Arc::new(Mutex::new(None)),
             });
         }
         let addr = default_remote_addr().ok_or_else(|| {
@@ -96,13 +127,14 @@ impl MuduConnAsync {
         let remote = Arc::new(RemoteWorkerConn {
             addr,
             worker_id: default_remote_worker_id(),
-            session_id: AsyncMutex::new(None),
-            stream: AsyncMutex::new(None),
+            async_runtime,
+            session_id: Mutex::new(None),
+            stream: AMutex::new(None),
         });
         Ok(Self {
             backend: ConnBackend::Remote(remote),
             parser,
-            session_id: Arc::new(AsyncMutex::new(None)),
+            session_id: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -118,12 +150,18 @@ impl MuduConnAsync {
     async fn ensure_session_id(&self) -> RS<OID> {
         match &self.backend {
             ConnBackend::WorkerLocal(worker_local) => {
-                let mut guard = self.session_id.lock().await;
-                if let Some(session_id) = *guard {
+                let trace = mudu_utils::task_trace!();
+                if let Some(session_id) = *self.session_id.lock().unwrap() {
+                    trace.watch("mudu_conn.ensure_session_id.stage", "cached");
                     return Ok(session_id);
                 }
                 let session_id = worker_local.open_async().await?;
+                let mut guard = self.session_id.lock().unwrap();
+                if let Some(existing) = *guard {
+                    return Ok(existing);
+                }
                 *guard = Some(session_id);
+                trace.watch("mudu_conn.ensure_session_id.stage", "store_done");
                 Ok(session_id)
             }
             ConnBackend::Remote(remote) => remote.ensure_session_id().await,
@@ -132,27 +170,28 @@ impl MuduConnAsync {
 
     async fn active_session_id(&self) -> RS<OID> {
         match &self.backend {
-            ConnBackend::WorkerLocal(_) => {
-                let guard = self.session_id.lock().await;
-                guard.ok_or_else(|| m_error!(EC::NoSuchElement, "no active session"))
-            }
+            ConnBackend::WorkerLocal(_) => self
+                .session_id
+                .lock()
+                .unwrap()
+                .ok_or_else(|| m_error!(EC::NoSuchElement, "no active session")),
             ConnBackend::Remote(remote) => remote.active_session_id().await,
         }
     }
 }
 
 impl RemoteWorkerConn {
-    async fn client(&self) -> RS<tokio::sync::MutexGuard<'_, Option<RemoteProtocolClient>>> {
+    async fn client(&self) -> RS<AMutexGuard<'_, Option<RemoteProtocolClient>>> {
         let mut guard = self.stream.lock().await;
         if guard.is_none() {
-            *guard = Some(RemoteProtocolClient::connect(&self.addr).await?);
+            *guard =
+                Some(RemoteProtocolClient::connect(&self.addr, self.async_runtime.clone()).await?);
         }
         Ok(guard)
     }
 
     async fn ensure_session_id(&self) -> RS<OID> {
-        let mut guard = self.session_id.lock().await;
-        if let Some(session_id) = *guard {
+        if let Some(session_id) = *self.session_id.lock().unwrap() {
             return Ok(session_id);
         }
         let mut client_guard = self.client().await?;
@@ -171,13 +210,19 @@ impl RemoteWorkerConn {
             encode_session_create_request(request_id, &SessionCreateRequest::new(config_json))?;
         let frame = client.send_and_receive(&payload).await?;
         let session_id = decode_session_create_response(&frame)?.session_id();
+        let mut guard = self.session_id.lock().unwrap();
+        if let Some(existing) = *guard {
+            return Ok(existing);
+        }
         *guard = Some(session_id);
         Ok(session_id)
     }
 
     async fn active_session_id(&self) -> RS<OID> {
-        let guard = self.session_id.lock().await;
-        guard.ok_or_else(|| m_error!(EC::NoSuchElement, "no active session"))
+        self.session_id
+            .lock()
+            .unwrap()
+            .ok_or_else(|| m_error!(EC::NoSuchElement, "no active session"))
     }
 
     async fn batch_sql(&self, sql: String) -> RS<u64> {
@@ -211,17 +256,21 @@ impl RemoteWorkerConn {
 }
 
 impl RemoteProtocolClient {
-    async fn connect(addr: &str) -> RS<Self> {
-        let stream = TcpStream::connect(addr).await.map_err(|e| {
+    async fn connect(addr: &str, async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
+        let addr: SocketAddr = addr.parse().map_err(|e| {
             m_error!(
-                EC::NetErr,
-                format!("connect io_uring tcp server error: addr={addr}"),
+                EC::ParseErr,
+                format!("parse remote mududb addr error: {addr}"),
                 e
             )
         })?;
-        stream
-            .set_nodelay(true)
-            .map_err(|e| m_error!(EC::NetErr, format!("set tcp nodelay error: addr={addr}"), e))?;
+        let stream = match async_runtime.or_else(default_remote_async_runtime) {
+            Some(async_runtime) => async_runtime.net().connect_tcp(addr).await?,
+            None => {
+                let runtime = crate::async_rt::tokio::runtime::TokioRuntime::new();
+                runtime.net().connect_tcp(addr).await?
+            }
+        };
         Ok(Self {
             stream,
             next_request_id: 1,
@@ -239,25 +288,15 @@ impl RemoteProtocolClient {
             .write_all(payload)
             .await
             .map_err(|e| m_error!(EC::NetErr, "write request frame error", e))?;
-        self.stream
-            .flush()
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "flush request frame error", e))?;
 
         let mut header = [0u8; HEADER_LEN];
-        self.stream
-            .read_exact(&mut header)
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "read response header error", e))?;
+        read_exact(self.stream.as_mut(), &mut header).await?;
         let payload_len = FrameHeader::decode_header_bytes(&header)?.payload_len() as usize;
         let mut frame_bytes = Vec::with_capacity(HEADER_LEN + payload_len);
         frame_bytes.extend_from_slice(&header);
         if payload_len > 0 {
             let mut body = vec![0u8; payload_len];
-            self.stream
-                .read_exact(&mut body)
-                .await
-                .map_err(|e| m_error!(EC::NetErr, "read response payload error", e))?;
+            read_exact(self.stream.as_mut(), &mut body).await?;
             frame_bytes.extend_from_slice(&body);
         }
         let frame = Frame::decode(&frame_bytes)?;
@@ -267,6 +306,21 @@ impl RemoteProtocolClient {
         }
         Ok(frame)
     }
+}
+
+async fn read_exact(stream: &mut dyn AsyncStream, buf: &mut [u8]) -> RS<()> {
+    let mut done = 0usize;
+    while done < buf.len() {
+        let n = stream.read(&mut buf[done..]).await?;
+        if n == 0 {
+            return Err(m_error!(
+                EC::NetErr,
+                "unexpected eof while reading remote response"
+            ));
+        }
+        done += n;
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -307,12 +361,15 @@ impl DBConnAsync for MuduConnAsync {
     }
 
     async fn begin_tx(&self) -> RS<XID> {
+        let trace = mudu_utils::task_trace!();
         let session_id = self.ensure_session_id().await?;
+        trace.watch("mudu_conn.begin_tx.stage", "ensure_session_id_done");
         match &self.backend {
             ConnBackend::WorkerLocal(worker_local) => {
                 worker_local
                     .execute_async(session_id, WorkerExecute::BeginTx)
                     .await?;
+                trace.watch("mudu_conn.begin_tx.stage", "execute_async_done");
                 Ok(session_id)
             }
             ConnBackend::Remote(_) => Err(m_error!(

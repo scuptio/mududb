@@ -1,10 +1,10 @@
-use crate:universal:uni-primitive/uni-primitive;
+use crate:universal:uni-scalar/uni-scalar;
 use crate:universal:uni-record-type/uni-record-type;
 use crate:universal:uni-result-type/uni-result-type;
 
 interface universal {
 variant uni-dat-type {
-    primitive(uni-primitive),
+    scalar(uni-scalar),
     array(box<uni-dat-type>),
     record(uni-record-type),
     option(box<uni-dat-type>),

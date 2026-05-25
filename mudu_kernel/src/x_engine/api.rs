@@ -53,6 +53,8 @@ pub enum Predicate {
     CNF(Vec<Vec<(AttrIndex, Filter)>>),
     /// disjunctive normal form, it is a disjunction of conjunctions of literals
     DNF(Vec<Vec<(AttrIndex, Filter)>>),
+    /// equality over a left prefix of the primary key, evaluated during range reads
+    KeyPrefixEq(Vec<(AttrIndex, DatBin)>),
 }
 
 /// alter table parameter

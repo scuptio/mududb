@@ -2081,14 +2081,6 @@
           "named": true
         },
         {
-          "type": "keyword_timestamp",
-          "named": true
-        },
-        {
-          "type": "keyword_timestamptz",
-          "named": true
-        },
-        {
           "type": "keyword_uuid",
           "named": true
         },
@@ -2118,6 +2110,14 @@
         },
         {
           "type": "time",
+          "named": true
+        },
+        {
+          "type": "timestamp",
+          "named": true
+        },
+        {
+          "type": "timestamptz",
           "named": true
         },
         {
@@ -3536,12 +3536,12 @@
     "fields": {}
   },
   {
-    "type": "keyword_timestamp",
+    "type": "keyword_timestamp_base",
     "named": true,
     "fields": {}
   },
   {
-    "type": "keyword_timestamptz",
+    "type": "keyword_timestamptz_base",
     "named": true,
     "fields": {}
   },
@@ -4643,7 +4643,7 @@
     "type": "time",
     "named": true,
     "fields": {
-      "size": {
+      "precision": {
         "multiple": false,
         "required": false,
         "types": [
@@ -4660,6 +4660,58 @@
       "types": [
         {
           "type": "keyword_time",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "timestamp",
+    "named": true,
+    "fields": {
+      "precision": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "keyword_timestamp_base",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "timestamptz",
+    "named": true,
+    "fields": {
+      "precision": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "keyword_timestamptz_base",
           "named": true
         }
       ]

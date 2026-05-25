@@ -3,8 +3,8 @@ use scc::HashSet;
 
 use crate::task_context::TaskContext;
 
-pub use crate::task::this_task_id;
-use crate::task::try_this_task_id;
+pub use crate::task_async::this_task_id;
+use crate::task_async::try_this_task_id;
 
 pub struct TaskTrace {
     watch: HashSet<String>,

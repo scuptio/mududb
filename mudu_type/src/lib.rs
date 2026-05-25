@@ -1,7 +1,6 @@
 #![feature(box_into_inner)]
 pub mod array;
 pub mod dat_binary;
-pub mod dat_prim;
 pub mod dat_textual;
 pub mod dat_type;
 pub mod dat_type_id;
@@ -27,9 +26,14 @@ pub mod dt_function;
 pub mod dt_of_datum;
 pub mod dtp_array;
 pub mod dtp_kind;
+pub mod dtp_numeric;
 pub mod dtp_object;
 pub mod dtp_string;
+pub mod dtp_time;
+pub mod dtp_timestamp;
+pub mod dtp_timestamptz;
 pub mod record;
+pub mod scalar_type;
 pub mod string;
 pub mod type_error;
 //pub mod universal;

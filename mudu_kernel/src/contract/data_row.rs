@@ -112,6 +112,7 @@ impl DataRow {
     }
 
     pub async fn tuple_id(&self) -> RS<Option<OID>> {
+        mudu_utils::scoped_task_trace!();
         self.tuple_id_sync()
     }
 

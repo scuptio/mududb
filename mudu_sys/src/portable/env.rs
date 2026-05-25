@@ -3,9 +3,11 @@ use crate::api::fs::SysFs;
 use crate::api::net::SysNet;
 use crate::api::random::SysRandom;
 use crate::api::sync::SysSync;
-use crate::api::task::SysTask;
+use crate::api::task_async::SysTaskAsync;
+use crate::api::task_sync::SysTaskSync;
 use crate::api::time::SysTime;
-use async_trait::async_trait;
+use crate::portable::task_async::PortableTaskAsync;
+use crate::portable::task_sync::PortableTaskSync;
 use chrono::{DateTime, Utc};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -13,7 +15,7 @@ use mudu::m_error;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 use uuid::Uuid;
 
 pub struct PortableSysEnv {
@@ -21,7 +23,8 @@ pub struct PortableSysEnv {
     random: PortableRandom,
     fs: PortableFs,
     net: UnsupportedNet,
-    task: PortableTask,
+    task_async: PortableTaskAsync,
+    task_sync: PortableTaskSync,
     sync: UnsupportedSync,
 }
 
@@ -32,7 +35,8 @@ impl PortableSysEnv {
             random: PortableRandom,
             fs: PortableFs,
             net: UnsupportedNet,
-            task: PortableTask,
+            task_async: PortableTaskAsync,
+            task_sync: PortableTaskSync,
             sync: UnsupportedSync,
         }
     }
@@ -55,8 +59,12 @@ impl SysEnv for PortableSysEnv {
         &self.net
     }
 
-    fn task(&self) -> &dyn SysTask {
-        &self.task
+    fn task_async(&self) -> &dyn SysTaskAsync {
+        &self.task_async
+    }
+
+    fn task_sync(&self) -> &dyn SysTaskSync {
+        &self.task_sync
     }
 
     fn sync(&self) -> &dyn SysSync {
@@ -285,19 +293,5 @@ impl SysSync for UnsupportedSync {
             EC::NotImplemented,
             "eventfd is not supported on this target"
         ))
-    }
-}
-
-struct PortableTask;
-
-#[async_trait]
-impl SysTask for PortableTask {
-    async fn sleep(&self, dur: Duration) -> RS<()> {
-        std::thread::sleep(dur);
-        Ok(())
-    }
-
-    fn sleep_blocking(&self, dur: Duration) {
-        std::thread::sleep(dur);
     }
 }

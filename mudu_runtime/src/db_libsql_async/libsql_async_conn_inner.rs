@@ -255,6 +255,21 @@ fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
         DatTypeID::F32 => libsql::Value::Real(datum.expect_f32().clone() as _),
         DatTypeID::F64 => libsql::Value::Real(datum.expect_f64().clone() as _),
         DatTypeID::String => libsql::Value::Text(datum.expect_string().clone()),
+        DatTypeID::Numeric => libsql::Value::Text(datum.expect_numeric().to_plain_string()),
+        DatTypeID::Date => libsql::Value::Text(datum.expect_date().format()),
+        DatTypeID::Time => libsql::Value::Text(datum.expect_time().format(6)),
+        DatTypeID::Timestamp => libsql::Value::Text(
+            datum
+                .expect_timestamp()
+                .format(6)
+                .map_err(|e| m_error!(EC::TypeErr, e))?,
+        ),
+        DatTypeID::TimestampTz => libsql::Value::Text(
+            datum
+                .expect_timestamptz()
+                .format(6)
+                .map_err(|e| m_error!(EC::TypeErr, e))?,
+        ),
         DatTypeID::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
         DatTypeID::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
         DatTypeID::Binary => libsql::Value::Blob(datum.to_binary(ty)?.into()),

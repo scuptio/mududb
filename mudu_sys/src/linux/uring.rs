@@ -134,6 +134,12 @@ mod linux {
             }
         }
 
+        pub fn prep_mkdirat(&mut self, dirfd: RawFd, path: &CStr, mode: u32) {
+            unsafe {
+                rliburing::io_uring_prep_mkdirat(self.raw, dirfd, path.as_ptr(), mode);
+            }
+        }
+
         pub fn prep_close(&mut self, fd: RawFd) {
             unsafe { rliburing::io_uring_prep_close(self.raw, fd) };
         }
@@ -188,6 +194,32 @@ mod linux {
 
         pub fn prep_shutdown(&mut self, fd: RawFd, how: i32) {
             unsafe { rliburing::io_uring_prep_shutdown(self.raw, fd, how) };
+        }
+
+        pub fn prep_unlinkat(&mut self, dirfd: RawFd, path: &CStr, flags: i32) {
+            unsafe {
+                rliburing::io_uring_prep_unlinkat(self.raw, dirfd, path.as_ptr(), flags);
+            }
+        }
+
+        pub fn prep_statx(
+            &mut self,
+            dirfd: RawFd,
+            path: &CStr,
+            flags: i32,
+            mask: u32,
+            statxbuf: *mut libc::statx,
+        ) {
+            unsafe {
+                rliburing::io_uring_prep_statx(
+                    self.raw,
+                    dirfd,
+                    path.as_ptr(),
+                    flags,
+                    mask,
+                    statxbuf as *mut rliburing::statx,
+                );
+            }
         }
     }
 

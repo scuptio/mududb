@@ -1,6 +1,8 @@
+use crate::async_rt::contract::AsyncRuntime;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::mudu_conn::mudu_conn_core::MuduConnCore;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
+use crate::server::message_bus_api::ServerInstanceId;
 use crate::server::routing::{
     route_worker, RoutingContext, RoutingMode, SessionOpenConfig, SessionOpenTransferAction,
 };
@@ -14,7 +16,7 @@ use crate::server::worker_local::{
 use crate::server::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::server::worker_session_manager::{SessionContext, WorkerSessionManager};
 use crate::server::worker_snapshot::KvItem;
-use crate::server::x_contract::IoUringXContract;
+use crate::server::x_contract::WorkerXContract;
 use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBatching, WorkerLogLayout};
 use crate::wal::xl_batch::XLBatch;
 use crate::x_engine::api::XContract;
@@ -27,6 +29,7 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
+use mudu_utils::task_trace;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicUsize;
@@ -35,29 +38,34 @@ use std::sync::Arc;
 #[derive(Clone)]
 /// Per-worker execution context used by the `client` backend.
 ///
-/// The `IoUringWorker` name is also historical. The type is shared by both the
-/// Linux native `io_uring` loop and the non-Linux fallback loop so upper
-/// layers do not need target-specific worker abstractions.
+/// The type is shared by both the io_uring worker-ring loop and the Tokio
+/// worker loop so upper layers do not need transport-specific worker
+/// abstractions.
 ///
 /// Workers are sized around execution resources such as CPU cores, while
 /// partitions are derived from user-defined data partitioning. The system does
 /// not require partitions to map one-to-one to workers, although the current
 /// runtime path still operates on a single active partition per worker. A
 /// worker may own multiple partitions in the future.
-pub struct IoUringWorker {
+pub struct WorkerRuntime {
+    server_instance_id: ServerInstanceId,
     worker_index: usize,
     worker_id: OID,
     partition_ids: Vec<OID>,
     worker_count: usize,
     routing_mode: RoutingMode,
-    contract: Arc<IoUringXContract>,
+    contract: Arc<WorkerXContract>,
     log_layout: WorkerLogLayout,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     session_manager: Arc<WorkerSessionManager>,
     registry: Arc<WorkerRegistry>,
 }
 
-impl IoUringWorker {
+/// Backward-compatible name for callers that still refer to the historical
+/// io_uring-only worker runtime.
+pub type IoUringWorker = WorkerRuntime;
+
+impl WorkerRuntime {
     pub fn new(
         identity: WorkerIdentity,
         worker_count: usize,
@@ -67,6 +75,7 @@ impl IoUringWorker {
         log_chunk_size: u64,
         procedure_runtime: Option<AsyncFuncInvokerPtr>,
         registry: Arc<WorkerRegistry>,
+        server_instance_id: ServerInstanceId,
     ) -> RS<Self> {
         Self::new_with_log_batching(
             identity,
@@ -78,6 +87,7 @@ impl IoUringWorker {
             WorkerLogBatching::default(),
             procedure_runtime,
             registry,
+            server_instance_id,
         )
     }
 
@@ -91,6 +101,35 @@ impl IoUringWorker {
         log_batching: WorkerLogBatching,
         procedure_runtime: Option<AsyncFuncInvokerPtr>,
         registry: Arc<WorkerRegistry>,
+        server_instance_id: ServerInstanceId,
+    ) -> RS<Self> {
+        Self::new_with_log_batching_and_runtime(
+            identity,
+            worker_count,
+            routing_mode,
+            log_dir,
+            data_dir,
+            log_chunk_size,
+            log_batching,
+            procedure_runtime,
+            registry,
+            None,
+            server_instance_id,
+        )
+    }
+
+    pub fn new_with_log_batching_and_runtime(
+        identity: WorkerIdentity,
+        worker_count: usize,
+        routing_mode: RoutingMode,
+        log_dir: String,
+        data_dir: String,
+        log_chunk_size: u64,
+        log_batching: WorkerLogBatching,
+        procedure_runtime: Option<AsyncFuncInvokerPtr>,
+        registry: Arc<WorkerRegistry>,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        server_instance_id: ServerInstanceId,
     ) -> RS<Self> {
         let active_sessions = Arc::new(AtomicUsize::new(0));
         // The runtime currently activates only the first partition assigned to
@@ -112,18 +151,21 @@ impl IoUringWorker {
             log_layout.clone(),
             active_sessions.clone(),
         )?;
-        let contract = Arc::new(IoUringXContract::with_worker_log_and_data_dir(
+        let contract = Arc::new(WorkerXContract::with_worker_log_and_data_dir_and_runtime(
             log,
             worker_id,
             default_unpartitioned_worker_id,
             partition_id,
             data_dir,
+            async_runtime,
+            server_instance_id,
         )?);
         let session_manager = Arc::new(WorkerSessionManager::new(
             active_sessions,
             contract.meta_mgr(),
         ));
         Ok(Self {
+            server_instance_id,
             worker_index: identity.worker_index,
             worker_id,
             partition_ids: identity.partition_ids,
@@ -135,6 +177,10 @@ impl IoUringWorker {
             session_manager,
             registry,
         })
+    }
+
+    pub fn server_instance_id(&self) -> ServerInstanceId {
+        self.server_instance_id
     }
 
     pub fn route_connection(&self, conn_id: u64, remote_addr: SocketAddr) -> usize {
@@ -157,18 +203,41 @@ impl IoUringWorker {
         procedure_parameters: Vec<u8>,
         worker_local: WorkerLocalRef,
     ) -> RS<Vec<u8>> {
+        let trace = task_trace!();
+        trace.watch(
+            "procedure.kernel.worker_invoke.stage",
+            "runtime_lookup_start",
+        );
+        trace.watch(
+            "procedure.kernel.worker_invoke.session_id",
+            &session_id.to_string(),
+        );
+        trace.watch("procedure.kernel.worker_invoke.name", procedure_name);
         let procedure_runtime = self
             .procedure_runtime
             .as_ref()
             .ok_or_else(|| m_error!(EC::NotImplemented, "procedure runtime is not configured"))?;
-        procedure_runtime
+        trace.watch(
+            "procedure.kernel.worker_invoke.stage",
+            "runtime_lookup_done",
+        );
+        let result = procedure_runtime
             .invoke(
                 session_id,
                 procedure_name,
                 procedure_parameters,
                 worker_local,
             )
-            .await
+            .await;
+        trace.watch(
+            "procedure.kernel.worker_invoke.stage",
+            if result.is_ok() {
+                "invoke_done"
+            } else {
+                "invoke_error"
+            },
+        );
+        result
     }
 
     pub fn create_session(&self, conn_id: u64) -> RS<OID> {
@@ -401,12 +470,24 @@ impl IoUringWorker {
         conn_id: u64,
         request: &ProcedureInvokeRequest,
     ) -> RS<ProcedureInvokeResponse> {
+        let trace = task_trace!();
+        trace.watch("procedure.kernel.handle.stage", "enter");
+        trace.watch("procedure.kernel.handle.conn_id", &conn_id.to_string());
         let session_id = request.session_id() as OID;
+        trace.watch(
+            "procedure.kernel.handle.session_id",
+            &session_id.to_string(),
+        );
+        trace.watch("procedure.kernel.handle.name", request.procedure_name());
+        trace.watch("procedure.kernel.handle.stage", "ensure_session_owner");
         self.ensure_session_owned_by_connection(conn_id, session_id)?;
+        trace.watch("procedure.kernel.handle.stage", "worker_local_create");
         let worker_local =
             as_worker_local_ref(new_session_bound_worker_runtime(self.clone(), session_id));
         let prev_worker_local = try_current_worker_local();
+        trace.watch("procedure.kernel.handle.stage", "worker_local_set");
         set_current_worker_local(worker_local.clone());
+        trace.watch("procedure.kernel.handle.stage", "invoke_start");
         let result = self
             .invoke_procedure(
                 session_id,
@@ -415,11 +496,22 @@ impl IoUringWorker {
                 worker_local,
             )
             .await;
+        trace.watch(
+            "procedure.kernel.handle.stage",
+            if result.is_ok() {
+                "invoke_done"
+            } else {
+                "invoke_error"
+            },
+        );
         if let Some(prev_worker_local) = prev_worker_local {
+            trace.watch("procedure.kernel.handle.stage", "restore_prev_worker_local");
             set_current_worker_local(prev_worker_local);
         } else {
+            trace.watch("procedure.kernel.handle.stage", "unset_worker_local");
             unset_current_worker_local();
         }
+        trace.watch("procedure.kernel.handle.stage", "response_build");
         Ok(ProcedureInvokeResponse::new(result?))
     }
 
@@ -485,8 +577,14 @@ impl IoUringWorker {
         param: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
     ) -> RS<Arc<dyn ResultSetAsync>> {
+        let trace = task_trace!();
+        trace.watch("sql.kind", "query");
+        trace.watch("sql.stage", "parse");
         let stmt = core.parse_one(stmt.as_ref())?;
-        core.query(stmt, param, tx_mgr, self.contract.clone()).await
+        trace.watch("sql.stage", "query");
+        let result = core.query(stmt, param, tx_mgr, self.contract.clone()).await;
+        trace.watch("sql.stage", if result.is_ok() { "done" } else { "error" });
+        result
     }
 
     async fn run_sql_execute_with_tx(
@@ -496,9 +594,22 @@ impl IoUringWorker {
         param: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
     ) -> RS<u64> {
+        let trace = task_trace!();
+        trace.watch("procedure.worker_sql_execute.stage", "parse_start");
         let stmt = core.parse_one(stmt.as_ref())?;
-        core.execute(stmt, param, tx_mgr, self.contract.clone())
-            .await
+        trace.watch("procedure.worker_sql_execute.stage", "execute_start");
+        let result = core
+            .execute(stmt, param, tx_mgr, self.contract.clone())
+            .await;
+        trace.watch(
+            "procedure.worker_sql_execute.stage",
+            if result.is_ok() {
+                "execute_done"
+            } else {
+                "execute_error"
+            },
+        );
+        result
     }
 
     pub(crate) async fn query(
@@ -548,38 +659,58 @@ impl IoUringWorker {
         sql: Box<dyn SQLStmt>,
         param: Box<dyn SQLParams>,
     ) -> RS<u64> {
+        let trace = task_trace!();
+        trace.watch("procedure.worker_execute.stage", "enter");
+        trace.watch("procedure.worker_execute.oid", &oid.to_string());
         let core = self.sql_core(oid)?;
         if oid == 0 {
+            trace.watch("procedure.worker_execute.stage", "begin_tx_start");
             let tx_mgr = self.contract.begin_tx().await?;
+            trace.watch("procedure.worker_execute.stage", "begin_tx_done");
             let result = self
                 .run_sql_execute_with_tx(core, sql, param, tx_mgr.clone())
                 .await;
             if result.is_ok() {
+                trace.watch("procedure.worker_execute.stage", "commit_start");
                 self.contract.commit_tx(tx_mgr).await?;
+                trace.watch("procedure.worker_execute.stage", "commit_done");
             } else {
+                trace.watch("procedure.worker_execute.stage", "abort_start");
                 self.contract.abort_tx(tx_mgr).await?;
+                trace.watch("procedure.worker_execute.stage", "abort_done");
             }
             return result;
         }
         let started_tx = if self.session_manager.has_session_tx(oid)? {
             false
         } else {
+            trace.watch("procedure.worker_execute.stage", "session_begin_tx_start");
             self.session_manager
                 .begin_session_tx(oid, self.contract.worker_begin_tx()?)?;
+            trace.watch("procedure.worker_execute.stage", "session_begin_tx_done");
             true
         };
         let tx_mgr = self
             .sql_tx_mgr(oid)?
             .ok_or_else(|| m_error!(EC::InternalErr, "session transaction is missing"))?;
+        trace.watch("procedure.worker_execute.stage", "run_sql_execute_start");
         let result = self.run_sql_execute_with_tx(core, sql, param, tx_mgr).await;
         if started_tx {
             let tx_manager = self.session_manager.take_session_tx(oid)?;
             if result.is_ok() {
+                trace.watch("procedure.worker_execute.stage", "session_commit_start");
                 self.contract.worker_commit_tx_async(tx_manager).await?;
+                trace.watch("procedure.worker_execute.stage", "session_commit_done");
             } else {
+                trace.watch("procedure.worker_execute.stage", "session_rollback_start");
                 self.contract.worker_rollback_tx(tx_manager)?;
+                trace.watch("procedure.worker_execute.stage", "session_rollback_done");
             }
         }
+        trace.watch(
+            "procedure.worker_execute.stage",
+            if result.is_ok() { "done" } else { "error" },
+        );
         result
     }
 
@@ -721,13 +852,11 @@ fn is_key_in_range(key: &[u8], start_key: &[u8], end_key: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::meta_mgr::MetaMgr;
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::schema_table::SchemaTable;
-    use crate::contract::table_desc::TableDesc;
-    use crate::contract::table_info::TableInfo;
     use crate::server::async_func_runtime::AsyncFuncInvoker;
     use crate::server::session_bound_worker_runtime::new_session_bound_worker_runtime;
+    use crate::server::test_meta_mgr::TestMetaMgr;
     use crate::server::worker_local::{WorkerExecute, WorkerLocal};
     use crate::server::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
     use crate::storage::time_series::time_series_file::TimeSeriesFile;
@@ -737,7 +866,6 @@ mod tests {
     use mudu::common::id::gen_oid;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
-    use std::collections::HashMap;
     use std::env::temp_dir;
     use std::sync::{Arc, Mutex};
 
@@ -764,51 +892,6 @@ mod tests {
         }
     }
 
-    struct TestMetaMgr {
-        tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
-    }
-
-    impl TestMetaMgr {
-        fn new() -> Self {
-            Self {
-                tables: Mutex::new(HashMap::new()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl MetaMgr for TestMetaMgr {
-        async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
-            self.tables
-                .lock()
-                .unwrap()
-                .get(&oid)
-                .cloned()
-                .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
-        }
-
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
-            Ok(self
-                .tables
-                .lock()
-                .unwrap()
-                .values()
-                .find(|table| table.name() == name)
-                .cloned())
-        }
-
-        async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
-            let table = TableInfo::new(schema.clone())?.table_desc()?;
-            self.tables.lock().unwrap().insert(schema.id(), table);
-            Ok(())
-        }
-
-        async fn drop_table(&self, table_id: OID) -> RS<()> {
-            self.tables.lock().unwrap().remove(&table_id);
-            Ok(())
-        }
-    }
-
     fn test_registry(worker_count: usize) -> (String, Arc<WorkerRegistry>) {
         let dir = temp_dir()
             .join(format!("worker_test_{}", gen_oid()))
@@ -825,9 +908,9 @@ mod tests {
         data_dir: &str,
         registry: Arc<WorkerRegistry>,
         procedure_runtime: Option<AsyncFuncInvokerPtr>,
-    ) -> IoUringWorker {
+    ) -> WorkerRuntime {
         let identity = registry.worker(worker_index).cloned().unwrap();
-        IoUringWorker::new(
+        WorkerRuntime::new(
             identity,
             worker_count,
             RoutingMode::ConnectionId,
@@ -836,6 +919,7 @@ mod tests {
             4096,
             procedure_runtime,
             registry,
+            0,
         )
         .unwrap()
     }
@@ -1007,13 +1091,25 @@ mod tests {
         assert_eq!(worker.get(b"a").unwrap(), None);
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn worker_storage_uses_partition_zero_for_unpartitioned_relation_files() {
+    #[test]
+    fn worker_storage_uses_partition_zero_for_unpartitioned_relation_files() {
+        let runtime = mudu_sys::task_async::CurrentThreadTaskRuntime::new().unwrap();
+        let join = runtime
+            .local()
+            .spawn_detached("worker_storage", async move {
+                _worker_storage_uses_partition_zero_for_unpartitioned_relation_files().await;
+            })
+            .unwrap();
+        runtime.block_on(async move {
+            let _ = join.await;
+        });
+    }
+    async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() {
         let (log_dir, registry) = test_registry(1);
         let identity = registry.worker(0).cloned().unwrap();
         let worker_id = identity.worker_id;
         let worker_partition_id = identity.partition_ids[0];
-        let _worker = IoUringWorker::new(
+        let _worker = WorkerRuntime::new(
             identity,
             1,
             RoutingMode::ConnectionId,
@@ -1022,9 +1118,10 @@ mod tests {
             4096,
             None,
             registry,
+            0,
         )
         .unwrap();
-        let contract = IoUringXContract::with_log_and_data_dir(
+        let contract = WorkerXContract::with_log_and_data_dir(
             Arc::new(TestMetaMgr::new()),
             None,
             worker_id,

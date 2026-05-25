@@ -1,13 +1,13 @@
 use crate::lang_impl::lang::lang_handle_tuple::lang_handle_tuple;
-use crate::lang_impl::lang::non_primitive::NonPrimitiveType;
+use crate::lang_impl::lang::non_scalar::NonScalarType;
 use crate::lang_impl::lang::render::Render;
 use crate::lang_impl::rust::render_rs::create_render;
-use crate::{impl_non_primitive, impl_primitive};
-use mudu_binding::universal::uni_primitive::UniPrimitive;
+use crate::{impl_non_scalar, impl_scalar};
+use mudu_binding::universal::uni_scalar::UniScalar;
 use paste::paste;
 use std::sync::Arc;
 
-impl_primitive! {
+impl_scalar! {
     rust,
     (Bool, "bool"),
     (U8, "u8"),
@@ -25,9 +25,14 @@ impl_primitive! {
     (Char, "char"),
     (String, "String"),
     (Blob, "Vec<u8>"),
+    (Numeric, "String"),
+    (Date, "String"),
+    (Time, "String"),
+    (Timestamp, "String"),
+    (TimestampTz, "String"),
 }
 
-impl_non_primitive! {
+impl_non_scalar! {
     rust,
     (Array, fn_handle_array),
     (Option, fn_handle_option),

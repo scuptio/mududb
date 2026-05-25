@@ -1,9 +1,9 @@
 use mududb::common::result::RS;
 use mududb::common::xid::XID;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 use mududb::types::datum::{Datum, DatumDyn};
 use object::Wallets;
-use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 
 /**mudu-proc**/
 pub async fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
@@ -18,7 +18,8 @@ CREATE TABLE wallets
 );"#
         .to_string(),
         &vec![],
-    ).await?;
+    )
+    .await?;
 
     for i in 1..=2 {
         let _affected_rows = mudu_command(
@@ -36,14 +37,16 @@ INSERT INTO wallets
 )"#
             .to_string(),
             &(i, 100i32, 10000i32),
-        ).await?;
+        )
+        .await?;
     }
 
     let wallet_rs = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets;"),
         sql_params!(&()),
-    ).await?;
+    )
+    .await?;
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
@@ -330,66 +333,33 @@ pub mod object {
         }
     }
 } // end mod object
-async fn mp2_proc_sys_call_mtp(param:Vec<u8>) -> Vec<u8> {
+async fn mp2_proc_sys_call_mtp(param: Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
         mudu_inner_p2_proc_sys_call_mtp,
-    ).await
+    )
+    .await
 }
 
 pub async fn mudu_inner_p2_proc_sys_call_mtp(
     param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
     let res = proc_sys_call_mtp(
         param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                i32,
-                _,
-            >(&param.param_list()[0], "i32")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                i64,
-                _,
-            >(&param.param_list()[1], "i64")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[2], "String")?,
-            
-        
-    ).await;
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i64, _>(&param.param_list()[1], "i64")?,
+        ::mududb::types::datum::value_to_typed::<String, _>(&param.param_list()[2], "String")?,
+    )
+    .await;
     match res {
         Ok(tuple) => {
             let return_list = {
-                
-                let (
-                    
-                    mudu_ret_0,
-                    
-                    mudu_ret_1,
-                    
-                ) = tuple;
+                let (mudu_ret_0, mudu_ret_1) = tuple;
                 vec![
-                    
-                    
-                    ::mududb::types::datum::value_from_typed(&mudu_ret_0, "i32")?
-                    ,
-                    
-                    
-                    ::mududb::types::datum::value_from_typed(&mudu_ret_1, "String")?
-                    ,
-                    
+                    ::mududb::types::datum::value_from_typed(&mudu_ret_0, "i32")?,
+                    ::mududb::types::datum::value_from_typed(&mudu_ret_1, "String")?,
                 ]
-                
             };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
         }
@@ -397,79 +367,61 @@ pub async fn mudu_inner_p2_proc_sys_call_mtp(
     }
 }
 
-pub fn mudu_argv_desc_proc_sys_call_mtp()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "a".to_string(),
-                    
-                    <i32 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "b".to_string(),
-                    
-                    <i64 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "c".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_proc_sys_call_mtp() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <i32 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "1".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_proc_sys_call_mtp()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
+pub fn mudu_argv_desc_proc_sys_call_mtp()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
     > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "mod_0".to_string(),
-                "proc_sys_call_mtp".to_string(),
-                mudu_argv_desc_proc_sys_call_mtp().clone(),
-                mudu_result_desc_proc_sys_call_mtp().clone(),
-                false
-            )
-        })
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "a".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "b".to_string(),
+                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "c".to_string(),
+                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_proc_sys_call_mtp()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "1".to_string(),
+                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_proc_sys_call_mtp()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "mod_0".to_string(),
+            "proc_sys_call_mtp".to_string(),
+            mudu_argv_desc_proc_sys_call_mtp().clone(),
+            mudu_result_desc_proc_sys_call_mtp().clone(),
+            false,
+        )
+    })
 }
 
 mod mod_proc_sys_call_mtp {
@@ -488,73 +440,35 @@ mod mod_proc_sys_call_mtp {
     struct GuestProcSysCallMtp {}
 
     impl Guest for GuestProcSysCallMtp {
-        async fn mp2_proc_sys_call_mtp(param:Vec<u8>) -> Vec<u8> {
+        async fn mp2_proc_sys_call_mtp(param: Vec<u8>) -> Vec<u8> {
             super::mp2_proc_sys_call_mtp(param).await
         }
     }
 
     export!(GuestProcSysCallMtp);
 }
- fn mp2_proc2_mtp(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure(
-        param,
-        mudu_inner_p2_proc2_mtp,
-    )
+fn mp2_proc2_mtp(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure(param, mudu_inner_p2_proc2_mtp)
 }
 
-pub  fn mudu_inner_p2_proc2_mtp(
+pub fn mudu_inner_p2_proc2_mtp(
     param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
     let res = proc2_mtp(
         param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                i32,
-                _,
-            >(&param.param_list()[0], "i32")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                i64,
-                _,
-            >(&param.param_list()[1], "i64")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[2], "String")?,
-            
-        
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i64, _>(&param.param_list()[1], "i64")?,
+        ::mududb::types::datum::value_to_typed::<String, _>(&param.param_list()[2], "String")?,
     );
     match res {
         Ok(tuple) => {
             let return_list = {
-                
-                let (
-                    
-                    mudu_ret_0,
-                    
-                    mudu_ret_1,
-                    
-                ) = tuple;
+                let (mudu_ret_0, mudu_ret_1) = tuple;
                 vec![
-                    
-                    
-                    ::mududb::types::datum::value_from_typed(&mudu_ret_0, "i32")?
-                    ,
-                    
-                    
-                    ::mududb::types::datum::value_from_typed(&mudu_ret_1, "String")?
-                    ,
-                    
+                    ::mududb::types::datum::value_from_typed(&mudu_ret_0, "i32")?,
+                    ::mududb::types::datum::value_from_typed(&mudu_ret_1, "String")?,
                 ]
-                
             };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
         }
@@ -562,79 +476,60 @@ pub  fn mudu_inner_p2_proc2_mtp(
     }
 }
 
-pub fn mudu_argv_desc_proc2_mtp()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "a".to_string(),
-                    
-                    <i32 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "b".to_string(),
-                    
-                    <i64 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "c".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_proc2_mtp() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <i32 as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "1".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_proc2_mtp()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
+pub fn mudu_argv_desc_proc2_mtp()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
     > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "mod_0".to_string(),
-                "proc2_mtp".to_string(),
-                mudu_argv_desc_proc2_mtp().clone(),
-                mudu_result_desc_proc2_mtp().clone(),
-                false
-            )
-        })
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "a".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "b".to_string(),
+                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "c".to_string(),
+                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_proc2_mtp()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "1".to_string(),
+                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_proc2_mtp() -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "mod_0".to_string(),
+            "proc2_mtp".to_string(),
+            mudu_argv_desc_proc2_mtp().clone(),
+            mudu_result_desc_proc2_mtp().clone(),
+            false,
+        )
+    })
 }
 
 mod mod_proc2_mtp {
@@ -645,7 +540,7 @@ mod mod_proc2_mtp {
                 export mp2-proc2-mtp: func(param:list<u8>) -> list<u8>;
             }
         "##,
-        
+
     });
 
     #[allow(non_camel_case_types)]
@@ -653,7 +548,7 @@ mod mod_proc2_mtp {
     struct GuestProc2Mtp {}
 
     impl Guest for GuestProc2Mtp {
-         fn mp2_proc2_mtp(param:Vec<u8>) -> Vec<u8> {
+        fn mp2_proc2_mtp(param: Vec<u8>) -> Vec<u8> {
             super::mp2_proc2_mtp(param)
         }
     }

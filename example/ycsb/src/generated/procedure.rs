@@ -61,9 +61,9 @@ pub async fn ycsb_read_modify_write(xid: XID, user_key: String, append_value: St
 mod tests {
     use super::{ycsb_insert, ycsb_read, ycsb_read_modify_write, ycsb_scan, ycsb_update};
     use crate::test_lock;
+    use mududb::sys_interface::async_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use mududb::sys_interface::async_api::{mudu_close, mudu_open};
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = SystemTime::now()
@@ -218,7 +218,7 @@ mod mod_ycsb_read {
     }
 
     export!(GuestYcsbRead);
-}
+}
 async fn mp2_ycsb_update(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -338,20 +338,20 @@ mod mod_ycsb_update {
     }
 
     export!(GuestYcsbUpdate);
-}
-async fn mp2_ycsb_scan(param:Vec<u8>) -> Vec<u8> {
+}
+async fn mp2_ycsb_insert(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
-        mudu_inner_p2_ycsb_scan,
+        mudu_inner_p2_ycsb_insert,
     ).await
 }
 
-pub async fn mudu_inner_p2_ycsb_scan(
+pub async fn mudu_inner_p2_ycsb_insert(
     param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
 ) -> ::mududb::common::result::RS<
     ::mududb::contract::procedure::procedure_result::ProcedureResult,
 > {
-    let res = ycsb_scan(
+    let res = ycsb_insert(
         param.session_id(),
         
             
@@ -373,11 +373,7 @@ pub async fn mudu_inner_p2_ycsb_scan(
         Ok(tuple) => {
             let return_list = {
                 
-                vec![
-                    
-                    ::mududb::types::datum::value_from_typed(&tuple, "Vec<String, >")?
-                    
-                ]
+                vec![]
                 
             };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
@@ -386,7 +382,7 @@ pub async fn mudu_inner_p2_ycsb_scan(
     }
 }
 
-pub fn mudu_argv_desc_ycsb_scan()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_argv_desc_ycsb_insert()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     ARGV_DESC.get_or_init(||
@@ -394,14 +390,14 @@ pub fn mudu_argv_desc_ycsb_scan()  -> &'static ::mududb::contract::tuple::tuple_
             ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
                 
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "start_user_key".to_string(),
+                    "user_key".to_string(),
                     
                     <String as ::mududb::types::datum::Datum>::dat_type().clone()
                     
                 ),
                 
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "end_user_key".to_string(),
+                    "value".to_string(),
                     
                     <String as ::mududb::types::datum::Datum>::dat_type().clone()
                     
@@ -412,26 +408,19 @@ pub fn mudu_argv_desc_ycsb_scan()  -> &'static ::mududb::contract::tuple::tuple_
     )
 }
 
-pub fn mudu_result_desc_ycsb_scan() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_result_desc_ycsb_insert() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     RESULT_DESC.get_or_init(||
         {
             ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
                 
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <Vec<String, > as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
             ])
         }
     )
 }
 
-pub fn mudu_proc_desc_ycsb_scan()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+pub fn mudu_proc_desc_ycsb_insert()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
     static _PROC_DESC: std::sync::OnceLock<
         ::mududb::contract::procedure::proc_desc::ProcDesc,
     > = std::sync::OnceLock::new();
@@ -439,20 +428,20 @@ pub fn mudu_proc_desc_ycsb_scan()  -> &'static ::mududb::contract::procedure::pr
         .get_or_init(|| {
             ::mududb::contract::procedure::proc_desc::ProcDesc::new(
                 "ycsb".to_string(),
-                "ycsb_scan".to_string(),
-                mudu_argv_desc_ycsb_scan().clone(),
-                mudu_result_desc_ycsb_scan().clone(),
+                "ycsb_insert".to_string(),
+                mudu_argv_desc_ycsb_insert().clone(),
+                mudu_result_desc_ycsb_insert().clone(),
                 false
             )
         })
 }
 
-mod mod_ycsb_scan {
+mod mod_ycsb_insert {
     wit_bindgen::generate!({
         inline:
-        r##"package mudu:mp2-ycsb-scan;
-            world mudu-app-mp2-ycsb-scan {
-                export mp2-ycsb-scan: func(param:list<u8>) -> list<u8>;
+        r##"package mudu:mp2-ycsb-insert;
+            world mudu-app-mp2-ycsb-insert {
+                export mp2-ycsb-insert: func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -460,16 +449,16 @@ mod mod_ycsb_scan {
 
     #[allow(non_camel_case_types)]
     #[allow(unused)]
-    struct GuestYcsbScan {}
+    struct GuestYcsbInsert {}
 
-    impl Guest for GuestYcsbScan {
-        async fn mp2_ycsb_scan(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_ycsb_scan(param).await
+    impl Guest for GuestYcsbInsert {
+        async fn mp2_ycsb_insert(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_ycsb_insert(param).await
         }
     }
 
-    export!(GuestYcsbScan);
-}
+    export!(GuestYcsbInsert);
+}
 async fn mp2_ycsb_read_modify_write(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -600,20 +589,20 @@ mod mod_ycsb_read_modify_write {
     }
 
     export!(GuestYcsbReadModifyWrite);
-}
-async fn mp2_ycsb_insert(param:Vec<u8>) -> Vec<u8> {
+}
+async fn mp2_ycsb_scan(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
-        mudu_inner_p2_ycsb_insert,
+        mudu_inner_p2_ycsb_scan,
     ).await
 }
 
-pub async fn mudu_inner_p2_ycsb_insert(
+pub async fn mudu_inner_p2_ycsb_scan(
     param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
 ) -> ::mududb::common::result::RS<
     ::mududb::contract::procedure::procedure_result::ProcedureResult,
 > {
-    let res = ycsb_insert(
+    let res = ycsb_scan(
         param.session_id(),
         
             
@@ -635,7 +624,11 @@ pub async fn mudu_inner_p2_ycsb_insert(
         Ok(tuple) => {
             let return_list = {
                 
-                vec![]
+                vec![
+                    
+                    ::mududb::types::datum::value_from_typed(&tuple, "Vec<String, >")?
+                    
+                ]
                 
             };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
@@ -644,7 +637,7 @@ pub async fn mudu_inner_p2_ycsb_insert(
     }
 }
 
-pub fn mudu_argv_desc_ycsb_insert()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_argv_desc_ycsb_scan()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     ARGV_DESC.get_or_init(||
@@ -652,14 +645,14 @@ pub fn mudu_argv_desc_ycsb_insert()  -> &'static ::mududb::contract::tuple::tupl
             ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
                 
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "user_key".to_string(),
+                    "start_user_key".to_string(),
                     
                     <String as ::mududb::types::datum::Datum>::dat_type().clone()
                     
                 ),
                 
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "value".to_string(),
+                    "end_user_key".to_string(),
                     
                     <String as ::mududb::types::datum::Datum>::dat_type().clone()
                     
@@ -670,19 +663,26 @@ pub fn mudu_argv_desc_ycsb_insert()  -> &'static ::mududb::contract::tuple::tupl
     )
 }
 
-pub fn mudu_result_desc_ycsb_insert() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_result_desc_ycsb_scan() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     RESULT_DESC.get_or_init(||
         {
             ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
                 
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "0".to_string(),
+                    
+                    <Vec<String, > as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
             ])
         }
     )
 }
 
-pub fn mudu_proc_desc_ycsb_insert()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+pub fn mudu_proc_desc_ycsb_scan()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
     static _PROC_DESC: std::sync::OnceLock<
         ::mududb::contract::procedure::proc_desc::ProcDesc,
     > = std::sync::OnceLock::new();
@@ -690,20 +690,20 @@ pub fn mudu_proc_desc_ycsb_insert()  -> &'static ::mududb::contract::procedure::
         .get_or_init(|| {
             ::mududb::contract::procedure::proc_desc::ProcDesc::new(
                 "ycsb".to_string(),
-                "ycsb_insert".to_string(),
-                mudu_argv_desc_ycsb_insert().clone(),
-                mudu_result_desc_ycsb_insert().clone(),
+                "ycsb_scan".to_string(),
+                mudu_argv_desc_ycsb_scan().clone(),
+                mudu_result_desc_ycsb_scan().clone(),
                 false
             )
         })
 }
 
-mod mod_ycsb_insert {
+mod mod_ycsb_scan {
     wit_bindgen::generate!({
         inline:
-        r##"package mudu:mp2-ycsb-insert;
-            world mudu-app-mp2-ycsb-insert {
-                export mp2-ycsb-insert: func(param:list<u8>) -> list<u8>;
+        r##"package mudu:mp2-ycsb-scan;
+            world mudu-app-mp2-ycsb-scan {
+                export mp2-ycsb-scan: func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -711,13 +711,13 @@ mod mod_ycsb_insert {
 
     #[allow(non_camel_case_types)]
     #[allow(unused)]
-    struct GuestYcsbInsert {}
+    struct GuestYcsbScan {}
 
-    impl Guest for GuestYcsbInsert {
-        async fn mp2_ycsb_insert(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_ycsb_insert(param).await
+    impl Guest for GuestYcsbScan {
+        async fn mp2_ycsb_scan(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_ycsb_scan(param).await
         }
     }
 
-    export!(GuestYcsbInsert);
-}
+    export!(GuestYcsbScan);
+}

@@ -104,9 +104,9 @@ var argv = new UniCommandArgv
     {
         Params = new()
         {
-            new universal.UniDatValuePrimitive
+            new universal.UniDatValueScalar
             {
-                Inner = new universal.UniPrimitiveValueString
+                Inner = new universal.UniScalarValueString
                 {
                     Inner = "alice"
                 }
@@ -140,9 +140,9 @@ var argv = new UniQueryArgv
     {
         Params = new()
         {
-            new universal.UniDatValuePrimitive
+            new universal.UniDatValueScalar
             {
-                Inner = new universal.UniPrimitiveValueString
+                Inner = new universal.UniScalarValueString
                 {
                     Inner = "alice"
                 }
@@ -197,7 +197,7 @@ Use these only when you need raw transport or custom serialization handling:
 
 ## Notes
 
-- The mock backend currently supports primitive and binary parameter values.
+- The mock backend currently supports scalar and binary parameter values.
 - The mock query path currently maps SQLite result columns into `uni` result rows and tuple descriptions.
 - `fetch` in mock mode currently returns the input bytes unchanged.
 

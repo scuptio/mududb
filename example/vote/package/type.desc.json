@@ -1,48 +1,5 @@
 {
   "types": {
-    "VoteResult": [
-      2,
-      {
-        "record_name": "vote_result",
-        "record_fields": [
-          {
-            "field_name": "vote_id",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "topic",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "vote_ended",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "total_votes",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "options",
-            "field_type": [
-              0,
-              14
-            ]
-          }
-        ]
-      }
-    ],
     "Options": [
       2,
       {
@@ -64,35 +21,6 @@
           },
           {
             "field_name": "option_text",
-            "field_type": [
-              0,
-              14
-            ]
-          }
-        ]
-      }
-    ],
-    "VoteChoices": [
-      2,
-      {
-        "record_name": "vote_choices",
-        "record_fields": [
-          {
-            "field_name": "choice_id",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "action_id",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "option_id",
             "field_type": [
               0,
               14
@@ -139,6 +67,49 @@
             "field_type": [
               0,
               6
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteResult": [
+      2,
+      {
+        "record_name": "vote_result",
+        "record_fields": [
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "topic",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "vote_ended",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "total_votes",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "options",
+            "field_type": [
+              0,
+              14
             ]
           }
         ]
@@ -201,28 +172,6 @@
         ]
       }
     ],
-    "Users": [
-      2,
-      {
-        "record_name": "users",
-        "record_fields": [
-          {
-            "field_name": "user_id",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "phone",
-            "field_type": [
-              0,
-              14
-            ]
-          }
-        ]
-      }
-    ],
     "VoteHistoryItem": [
       2,
       {
@@ -261,6 +210,57 @@
             "field_type": [
               0,
               6
+            ]
+          }
+        ]
+      }
+    ],
+    "Users": [
+      2,
+      {
+        "record_name": "users",
+        "record_fields": [
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "phone",
+            "field_type": [
+              0,
+              14
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteChoices": [
+      2,
+      {
+        "record_name": "vote_choices",
+        "record_fields": [
+          {
+            "field_name": "choice_id",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "action_id",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "option_id",
+            "field_type": [
+              0,
+              14
             ]
           }
         ]

@@ -1,6 +1,6 @@
 use crate::notifier::NotifyWait;
 use crate::sync::unique_inner::UniqueInner;
-use crate::task::spawn_local_task;
+use crate::task_async::spawn_local_task;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use std::sync::Arc;

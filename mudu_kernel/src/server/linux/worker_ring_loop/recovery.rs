@@ -6,7 +6,7 @@ use crate::wal::xl_batch::XLBatch;
 use std::path::{Path, PathBuf};
 
 pub(super) struct WorkerRingLoopRecoveryHandler {
-    pub(super) worker: IoUringWorker,
+    pub(super) worker: WorkerRuntime,
 }
 
 impl WorkerLogRecoveryHandler<XLBatch> for WorkerRingLoopRecoveryHandler {
@@ -59,6 +59,10 @@ impl WorkerRingLoop {
             Some(log) => log,
             None => return Ok(()),
         };
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop recover_worker_log start"
+        );
         let backend = log.backend().clone();
         let mut source = WorkerRingLoopRecoverySource {
             loop_ref: self,
@@ -66,6 +70,11 @@ impl WorkerRingLoop {
         };
         let result = log.recover(&mut source);
         self.log = Some(log);
+        trace!(
+            worker_id = self.worker.worker_id(),
+            ok = result.is_ok(),
+            "worker_ring_loop recover_worker_log finished"
+        );
         result
     }
 

@@ -1,6 +1,6 @@
 use crate::server::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
-use crate::server::server::IoUringTcpServerConfig;
-use crate::server::worker::IoUringWorker;
+use crate::server::server::WorkerTcpServerConfig;
+use crate::server::worker::WorkerRuntime;
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
 use crate::server::worker_ring_loop::WorkerRingLoop;
@@ -9,14 +9,16 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::Frame;
-use mudu_utils::notifier::Waiter;
+use mudu_utils::notifier::{Notifier, Waiter};
+use mudu_utils::task_async::{build_current_thread_runtime, CurrentThreadTaskRuntime};
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use tracing::debug;
+use tracing::{debug, trace};
 
 pub(crate) struct RecoveryCoordinator {
     total_workers: usize,
+    ready_notifier: Option<Notifier>,
     state: Mutex<RecoveryState>,
     condvar: Condvar,
 }
@@ -27,7 +29,11 @@ struct RecoveryState {
     failed: bool,
 }
 
-pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) -> RS<()> {
+pub(crate) fn sync_serve_iouring(
+    mut cfg: WorkerTcpServerConfig,
+    stop: Waiter,
+    ready: Option<Notifier>,
+) -> RS<()> {
     if cfg.worker_count() == 0 {
         return Err(m_error!(EC::ParseErr, "invalid io_uring worker count"));
     }
@@ -43,34 +49,34 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
         .map(|_| create_mailbox_event_fd())
         .collect::<RS<Vec<_>>>()?;
     let stop_flag = Arc::new(AtomicBool::new(false));
-    let recovery_coordinator = Arc::new(RecoveryCoordinator::new(cfg.worker_count()));
+    let recovery_coordinator = Arc::new(RecoveryCoordinator::new(cfg.worker_count(), ready));
 
     let stop_for_notifier = stop.clone();
     let shutdown_mailboxes = mailboxes.clone();
     let shutdown_mailbox_fds = mailbox_fds.clone();
     let notifier_stop_flag = stop_flag.clone();
-    let notifier = mudu_sys::task::spawn_thread_named("iouring-shutdown-notifier", move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| {
+    let notifier =
+        mudu_sys::task_sync::spawn_thread_named("iouring-shutdown-notifier", move || {
+            let runtime = build_current_thread_runtime().map_err(|e| {
                 m_error!(
                     EC::TokioErr,
                     "create runtime for io_uring shutdown notifier error",
                     e
                 )
             })?;
-        runtime.block_on(stop_for_notifier.wait());
-        notifier_stop_flag.store(true, Ordering::Relaxed);
-        for (mailbox, fd) in shutdown_mailboxes
-            .into_iter()
-            .zip(shutdown_mailbox_fds.into_iter())
-        {
-            mailbox.push(WorkerMailboxMsg::Shutdown);
-            notify_mailbox_fd(fd)?;
-        }
-        Ok(())
-    })?;
+            debug!("iouring shutdown notifier waiting for stop");
+            runtime.block_on(stop_for_notifier.wait());
+            debug!("iouring shutdown notifier observed stop");
+            notifier_stop_flag.store(true, Ordering::Relaxed);
+            for (mailbox, fd) in shutdown_mailboxes
+                .into_iter()
+                .zip(shutdown_mailbox_fds.into_iter())
+            {
+                mailbox.push(WorkerMailboxMsg::Shutdown);
+                notify_mailbox_fd(fd)?;
+            }
+            Ok(())
+        })?;
 
     let mut handles = Vec::with_capacity(cfg.worker_count());
     for worker_id in 0..cfg.worker_count() {
@@ -97,6 +103,7 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
         let log_chunk_size = cfg.log_chunk_size();
         let log_batching = cfg.log_batching();
         let worker_count = cfg.worker_count();
+        let server_instance_id = cfg.server_instance_id();
         let listener = match &prebound_listener {
             Some(listener) => Some(
                 listener
@@ -108,13 +115,17 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
         let stop = stop_flag.clone();
         let recovery_coordinator = recovery_coordinator.clone();
         let mailbox_fd = mailbox_fds[worker_id];
+        let async_runtime = cfg.async_runtime();
         let handle =
-            mudu_sys::task::spawn_thread_named(format!("worker-{worker_id}"), move || {
+            mudu_sys::task_sync::spawn_thread_named(format!("worker-{worker_id}"), move || {
+                let runtime = CurrentThreadTaskRuntime::new().map_err(|e| {
+                    m_error!(EC::TokioErr, "create runtime for io_uring worker error", e)
+                })?;
                 let listener_fd = match listener {
                     Some(listener) => listener.into_raw_fd(),
                     None => create_listener_fd(listen_addr)?,
                 };
-                let worker = IoUringWorker::new_with_log_batching(
+                let worker = WorkerRuntime::new_with_log_batching_and_runtime(
                     worker_identity,
                     worker_count,
                     routing_mode,
@@ -124,6 +135,8 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
                     log_batching,
                     procedure_runtime,
                     worker_registry,
+                    async_runtime,
+                    server_instance_id,
                 )?;
                 let mut loop_state = WorkerRingLoop::new(
                     worker,
@@ -136,8 +149,7 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
                     recovery_coordinator,
                     stop,
                 )?;
-                let r = loop_state.run();
-                r
+                runtime.block_on(async move { loop_state.run() })
             })?;
         handles.push(handle);
     }
@@ -185,9 +197,10 @@ pub(crate) fn sync_serve_iouring(mut cfg: IoUringTcpServerConfig, stop: Waiter) 
 }
 
 impl RecoveryCoordinator {
-    pub(crate) fn new(total_workers: usize) -> Self {
+    pub(crate) fn new(total_workers: usize, ready_notifier: Option<Notifier>) -> Self {
         Self {
             total_workers,
+            ready_notifier,
             state: Mutex::new(RecoveryState::default()),
             condvar: Condvar::new(),
         }
@@ -205,7 +218,21 @@ impl RecoveryCoordinator {
             ));
         }
         state.recovered_workers += 1;
+        trace!(
+            recovered_workers = state.recovered_workers,
+            total_workers = self.total_workers,
+            "iouring recovery coordinator worker reached barrier"
+        );
         if state.recovered_workers == self.total_workers {
+            // In io_uring mode the listener can start accepting sockets before
+            // every worker has finished WAL recovery. Publish readiness only
+            // after the final worker reaches the common recovery barrier so
+            // callers do not race listener availability with service
+            // availability.
+            if let Some(ready_notifier) = &self.ready_notifier {
+                trace!("iouring recovery coordinator publishing ready barrier");
+                ready_notifier.notify_all();
+            }
             self.condvar.notify_all();
             return Ok(());
         }
@@ -213,6 +240,11 @@ impl RecoveryCoordinator {
         // starts. If one worker fails recovery, wake everybody and abort
         // instead of leaving the successful workers stuck forever.
         while !state.failed && state.recovered_workers < self.total_workers {
+            trace!(
+                recovered_workers = state.recovered_workers,
+                total_workers = self.total_workers,
+                "iouring recovery coordinator waiting for peers"
+            );
             state = self.condvar.wait(state).map_err(|_| {
                 m_error!(
                     EC::InternalErr,
@@ -239,10 +271,11 @@ impl RecoveryCoordinator {
 
 #[allow(dead_code)]
 pub async fn dispatch_frame_iouring(
-    worker: &IoUringWorker,
+    worker: &WorkerRuntime,
     conn_id: u64,
     frame: &Frame,
 ) -> RS<crate::server::async_func_task::HandleResult> {
+    mudu_utils::scoped_task_trace!();
     dispatch_frame_async(worker, conn_id, frame).await
 }
 
@@ -264,15 +297,16 @@ fn create_mailbox_event_fd() -> RS<RawFd> {
 }
 
 fn create_event_fd(message: &str) -> RS<RawFd> {
-    mudu_sys::sync::eventfd().map_err(|e| m_error!(EC::NetErr, message, e))
+    mudu_sys::sync_sync::eventfd().map_err(|e| m_error!(EC::NetErr, message, e))
 }
 
 pub(super) fn notify_mailbox_fd(fd: RawFd) -> RS<()> {
+    debug!(fd, "server_iouring notify mailbox fd");
     notify_event_fd(fd, "write io_uring worker mailbox eventfd error")
 }
 
 fn notify_event_fd(fd: RawFd, message: &str) -> RS<()> {
-    mudu_sys::sync::notify_eventfd(fd).map_err(|e| m_error!(EC::NetErr, message, e))
+    mudu_sys::sync_sync::notify_eventfd(fd).map_err(|e| m_error!(EC::NetErr, message, e))
 }
 
 fn log_worker_stats(stats: &[WorkerLoopStats]) {
@@ -320,10 +354,10 @@ mod tests {
         notify_mailbox_fd(fd).unwrap();
         notify_mailbox_fd(fd).unwrap();
 
-        let value = mudu_sys::sync::read_eventfd(fd).unwrap();
+        let value = mudu_sys::sync_sync::read_eventfd(fd).unwrap();
         assert_eq!(value, 2);
 
-        mudu_sys::sync::close_fd(fd).unwrap();
+        mudu_sys::sync_sync::close_fd(fd).unwrap();
     }
 
     #[test]

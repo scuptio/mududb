@@ -2,11 +2,13 @@ use std::collections::{BTreeMap, Bound};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+use crate::async_rt::contract::AsyncRuntime;
 use futures::executor::block_on;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_utils::{scoped_task_trace, task_trace};
 use scc::HashMap as SccHashMap;
 
 use crate::contract::data_row::DataRow;
@@ -25,6 +27,7 @@ use crate::wal::xl_batch::XLBatch;
 use crate::wal::xl_data_op::{XLDelete, XLInsert};
 use crate::wal::xl_entry::TxOp;
 use crate::x_engine::tx_mgr::{PhysicalRelationId, TxMgr};
+use tracing::{info, trace};
 
 type WorkerStorageRegistry = std::collections::HashMap<String, Vec<Weak<WorkerStorage>>>;
 
@@ -45,7 +48,8 @@ pub struct WorkerStorage {
     mgr: Arc<dyn MetaMgr>,
     default_partition_id: OID,
     relation_path: String,
-    relation_store: SccHashMap<PhysicalRelationId, Relation>,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    relation_store: SccHashMap<PhysicalRelationId, Arc<Relation>>,
     kv_store: SccHashMap<Vec<u8>, DataRow>,
 }
 
@@ -57,11 +61,22 @@ impl WorkerStorage {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new(mgr: Arc<dyn MetaMgr>, partition_id: OID, relation_path: String) -> Self {
+        Self::new_with_async_runtime(mgr, partition_id, relation_path, None)
+    }
+
+    pub fn new_with_async_runtime(
+        mgr: Arc<dyn MetaMgr>,
+        partition_id: OID,
+        relation_path: String,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    ) -> Self {
         Self {
             mgr,
             default_partition_id: partition_id,
             relation_path,
+            async_runtime,
             relation_store: SccHashMap::new(),
             kv_store: SccHashMap::new(),
         }
@@ -79,6 +94,10 @@ impl WorkerStorage {
             .push(Arc::downgrade(self));
     }
 
+    pub fn uses_async_runtime(&self) -> bool {
+        self.async_runtime.is_some()
+    }
+
     pub fn bootstrap_existing_tables_sync(&self) -> RS<()> {
         for schema in block_on(self.mgr.list_schemas())? {
             self.bootstrap_table_local(&schema)?;
@@ -86,14 +105,25 @@ impl WorkerStorage {
         Ok(())
     }
 
+    pub async fn bootstrap_existing_tables_async(&self) -> RS<()> {
+        for schema in self.mgr.list_schemas().await? {
+            self.bootstrap_table_local_async(&schema).await?;
+        }
+        Ok(())
+    }
+
     pub async fn create_table_async(&self, schema: &SchemaTable) -> RS<()> {
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage create_table_async start");
         self.mgr.create_table(schema).await?;
-        self.broadcast_create_table(schema)
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage metadata create finished");
+        let r = self.broadcast_create_table_async(schema).await;
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async finished");
+        r
     }
 
     pub async fn drop_table_async(&self, oid: OID) -> RS<()> {
         self.mgr.drop_table(oid).await?;
-        self.broadcast_drop_table(oid)
+        self.broadcast_drop_table_async(oid).await
     }
 
     #[allow(dead_code)]
@@ -128,11 +158,24 @@ impl WorkerStorage {
         key: &[u8],
         txm: &dyn TxMgr,
     ) -> RS<Option<Vec<u8>>> {
+        let trace = task_trace!();
         let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
+        trace.watch("storage.get.table_id", &oid.to_string());
+        trace.watch("storage.get.relation_id", &format!("{relation_id:?}"));
+        trace.watch(
+            "storage.get.partition_id",
+            &partition_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        );
+        trace.watch("storage.get.stage", "tx_lookup_call");
         if let Some(staged) = txm.get_relation(relation_id, key) {
+            trace.watch("storage.get.stage", "tx_lookup_hit");
             return Ok(staged);
         }
+        trace.watch("storage.get.stage", "tx_lookup_miss");
         let key = KeyTuple::from(key.to_vec());
+        trace.watch("storage.get.stage", "visible_read");
         self.read_visible_relation_value(oid, partition_id, &key, &txm.snapshot())
             .await
     }
@@ -469,22 +512,10 @@ impl WorkerStorage {
         relation_rows: &BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> RS<()> {
         for (relation_id, rows) in relation_rows {
-            let relation = self.relation_store.get_sync(relation_id).ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        relation_id.table_id, relation_id.partition_id
-                    )
-                )
-            })?;
+            let relation = self.get_relation_by_id_async(relation_id).await?;
             for key in rows.keys() {
                 let key_tuple = KeyTuple::from(key.clone());
-                if relation
-                    .get()
-                    .has_write_conflict(&key_tuple, snapshot)
-                    .await?
-                {
+                if relation.has_write_conflict(&key_tuple, snapshot).await? {
                     return Err(m_error!(
                         EC::TxErr,
                         format!(
@@ -547,18 +578,9 @@ impl WorkerStorage {
 
     async fn apply_relation_rows_async(&self, prepared: &PreparedWorkerCommit) -> RS<()> {
         for (relation_id, rows) in &prepared.relation_rows {
-            let relation = self.relation_store.get_sync(relation_id).ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        relation_id.table_id, relation_id.partition_id
-                    )
-                )
-            })?;
+            let relation = self.get_relation_by_id_async(relation_id).await?;
             for (key, value) in rows {
                 relation
-                    .get()
                     .write_row(key.clone(), value.clone(), prepared.xid)
                     .await?;
             }
@@ -628,11 +650,8 @@ impl WorkerStorage {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<bool> {
-        let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(oid, self.physical_partition_id(partition_id)))
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))?;
-        relation.get().has_visible_version(key, snapshot).await
+        let relation = self.get_relation_async(oid, partition_id).await?;
+        relation.has_visible_version(key, snapshot).await
     }
 
     async fn read_visible_relation_value(
@@ -643,11 +662,8 @@ impl WorkerStorage {
         snapshot: &WorkerSnapshot,
     ) -> RS<Option<Vec<u8>>> {
         self.ensure_relation_index(oid, partition_id).await?;
-        let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(oid, self.physical_partition_id(partition_id)))
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))?;
-        relation.get().visible_value(key, snapshot).await
+        let relation = self.get_relation_async(oid, partition_id).await?;
+        relation.visible_value(key, snapshot).await
     }
 
     async fn range_visible_relation(
@@ -658,11 +674,8 @@ impl WorkerStorage {
         snapshot: &WorkerSnapshot,
     ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
         self.ensure_relation_index(oid, partition_id).await?;
-        let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(oid, self.physical_partition_id(partition_id)))
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))?;
-        relation.get().visible_range(bounds, snapshot).await
+        let relation = self.get_relation_async(oid, partition_id).await?;
+        relation.visible_range(bounds, snapshot).await
     }
 
     async fn ensure_no_relation_write_conflict(
@@ -672,12 +685,10 @@ impl WorkerStorage {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<()> {
+        scoped_task_trace!();
         self.ensure_relation_index(oid, partition_id).await?;
-        let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(oid, self.physical_partition_id(partition_id)))
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))?;
-        if relation.get().has_write_conflict(key, snapshot).await? {
+        let relation = self.get_relation_async(oid, partition_id).await?;
+        if relation.has_write_conflict(key, snapshot).await? {
             return Err(m_error!(
                 EC::TxErr,
                 format!(
@@ -705,29 +716,87 @@ impl WorkerStorage {
         partition_id: OID,
         table_desc: &TableDesc,
     ) -> RS<()> {
-        let _ = self.relation_store.insert_sync(
-            self.relation_id(oid, partition_id),
-            Relation::new(oid, partition_id, self.relation_path.clone(), table_desc)?,
+        let relation_id = self.relation_id(oid, partition_id);
+        let _prev = self.relation_store.insert_sync(
+            relation_id,
+            Arc::new(Relation::new(
+                oid,
+                partition_id,
+                self.relation_path.clone(),
+                table_desc,
+            )?),
         );
         Ok(())
     }
 
-    async fn ensure_relation_index(&self, oid: OID, partition_id: Option<OID>) -> RS<()> {
-        let partition_id = self.physical_partition_id(partition_id);
-        if self
+    async fn create_relation_index_for_partition_async(
+        &self,
+        oid: OID,
+        partition_id: OID,
+        table_desc: &TableDesc,
+    ) -> RS<()> {
+        scoped_task_trace!();
+        let relation_id = self.relation_id(oid, partition_id);
+
+        let relation = match &self.async_runtime {
+            Some(async_runtime) => Arc::new(
+                Relation::new_with_fs(
+                    async_runtime.fs_arc(),
+                    oid,
+                    partition_id,
+                    self.relation_path.clone(),
+                    table_desc,
+                )
+                .await?,
+            ),
+            None => Arc::new(Relation::new(
+                oid,
+                partition_id,
+                self.relation_path.clone(),
+                table_desc,
+            )?),
+        };
+
+        let _ = self
             .relation_store
-            .contains_sync(&self.relation_id(oid, partition_id))
-        {
-            return Ok(());
-        }
-        let table_desc = self.mgr.get_table_by_id(oid).await?;
-        self.create_relation_index_for_partition(oid, partition_id, table_desc.as_ref())
+            .insert_async(relation_id, relation)
+            .await;
+        Ok(())
     }
 
+    async fn ensure_relation_index(&self, oid: OID, partition_id: Option<OID>) -> RS<()> {
+        scoped_task_trace!();
+        let partition_id = self.physical_partition_id(partition_id);
+        let relation_id = self.relation_id(oid, partition_id);
+        if self.relation_store.contains_async(&relation_id).await {
+            return Ok(());
+        }
+
+        let table_desc = self.mgr.get_table_by_id(oid).await?;
+        self.create_relation_index_for_partition_async(oid, partition_id, table_desc.as_ref())
+            .await?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     fn apply_create_table_local(&self, schema: &SchemaTable) -> RS<()> {
         let table_desc =
             crate::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
         self.create_unpartitioned_relation_index(schema.id(), table_desc.as_ref())
+    }
+
+    async fn apply_create_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async start");
+        let table_desc =
+            crate::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
+        self.create_relation_index_for_partition_async(
+            schema.id(),
+            DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+            table_desc.as_ref(),
+        )
+        .await?;
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async done");
+        Ok(())
     }
 
     fn bootstrap_table_local(&self, schema: &SchemaTable) -> RS<()> {
@@ -739,6 +808,26 @@ impl WorkerStorage {
                 self.create_partitioned_relations(schema.id(), &binding, table_desc.as_ref())
             }
             None => self.create_unpartitioned_relation_index(schema.id(), table_desc.as_ref()),
+        }
+    }
+
+    async fn bootstrap_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
+        let table_desc =
+            crate::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
+        let binding = self.mgr.get_table_partition_binding(schema.id()).await?;
+        match binding {
+            Some(binding) => {
+                self.create_partitioned_relations_async(schema.id(), &binding, table_desc.as_ref())
+                    .await
+            }
+            None => {
+                self.create_relation_index_for_partition_async(
+                    schema.id(),
+                    DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+                    table_desc.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -755,12 +844,45 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn apply_drop_table_local(&self, oid: OID) {
-        let _ = self
-            .relation_store
-            .remove_sync(&self.relation_id(oid, self.default_partition_id));
+    async fn create_partitioned_relations_async(
+        &self,
+        oid: OID,
+        binding: &TablePartitionBinding,
+        table_desc: &TableDesc,
+    ) -> RS<()> {
+        let rule = self.mgr.get_partition_rule_by_id(binding.rule_id).await?;
+        for partition in &rule.partitions {
+            self.create_relation_index_for_partition_async(oid, partition.partition_id, table_desc)
+                .await?;
+        }
+        Ok(())
     }
 
+    fn apply_drop_table_local(&self, oid: OID) {
+        scoped_task_trace!();
+        let relation_id = self.relation_id(oid, self.default_partition_id);
+        let _removed = self.relation_store.remove_sync(&relation_id);
+    }
+
+    async fn apply_drop_table_local_async(&self, oid: OID) {
+        let trace = task_trace!();
+        let task_id = mudu_sys::task_async::try_this_task_id();
+        let relation_id = self.relation_id(oid, self.default_partition_id);
+        trace.watch("relation_store.op", "remove_async");
+        trace.watch("relation_store.phase", "before_remove");
+        trace.watch("relation_store.relation_id", &format!("{relation_id:?}"));
+        trace.watch("relation_store.task_id", &format!("{task_id:?}"));
+        let removed = self.relation_store.remove_async(&relation_id).await;
+        trace.watch("relation_store.phase", "after_remove");
+        info!(
+            task_id = ?task_id,
+            relation_id = ?relation_id,
+            existed = removed.is_some(),
+            "relation_store remove_async"
+        );
+    }
+
+    #[allow(dead_code)]
     fn broadcast_create_table(&self, schema: &SchemaTable) -> RS<()> {
         let peers = self.peer_instances();
         if peers.is_empty() {
@@ -772,6 +894,20 @@ impl WorkerStorage {
         Ok(())
     }
 
+    async fn broadcast_create_table_async(&self, schema: &SchemaTable) -> RS<()> {
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async enter");
+        let peers = self.peer_instances();
+        if peers.is_empty() {
+            return self.apply_create_table_local_async(schema).await;
+        }
+        for storage in peers {
+            storage.apply_create_table_local_async(schema).await?;
+        }
+        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async done");
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     fn broadcast_drop_table(&self, oid: OID) -> RS<()> {
         let peers = self.peer_instances();
         if peers.is_empty() {
@@ -780,6 +916,42 @@ impl WorkerStorage {
         }
         for storage in peers {
             storage.apply_drop_table_local(oid);
+        }
+        Ok(())
+    }
+
+    async fn get_relation_async(&self, oid: OID, partition_id: Option<OID>) -> RS<Arc<Relation>> {
+        let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
+        self.get_relation_by_id_async(&relation_id).await
+    }
+
+    async fn get_relation_by_id_async(
+        &self,
+        relation_id: &PhysicalRelationId,
+    ) -> RS<Arc<Relation>> {
+        self.relation_store
+            .get_async(relation_id)
+            .await
+            .map(|relation| relation.get().clone())
+            .ok_or_else(|| {
+                m_error!(
+                    EC::NoSuchElement,
+                    format!(
+                        "no such table {} partition {}",
+                        relation_id.table_id, relation_id.partition_id
+                    )
+                )
+            })
+    }
+
+    async fn broadcast_drop_table_async(&self, oid: OID) -> RS<()> {
+        let peers = self.peer_instances();
+        if peers.is_empty() {
+            self.apply_drop_table_local_async(oid).await;
+            return Ok(());
+        }
+        for storage in peers {
+            storage.apply_drop_table_local_async(oid).await;
         }
         Ok(())
     }
@@ -865,74 +1037,24 @@ fn bounds_to_scan(bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> (Vec<u8>, Vec<u8>) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::ops::Bound;
-    use std::sync::Mutex;
+    use std::future::Future;
 
+    use crate::async_rt::tokio::runtime::TokioRuntime;
+    use crate::contract::schema_column::SchemaColumn;
+    use crate::server::test_meta_mgr::TestMetaMgr;
     use mudu::common::id::OID;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
 
-    use crate::contract::meta_mgr::MetaMgr;
-    use crate::contract::schema_column::SchemaColumn;
-    use crate::contract::table_info::TableInfo;
-
     use super::*;
 
-    struct TestMetaMgr {
-        schemas: Mutex<HashMap<OID, SchemaTable>>,
-        tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
-    }
-
-    impl TestMetaMgr {
-        fn new() -> Self {
-            Self {
-                schemas: Mutex::new(HashMap::new()),
-                tables: Mutex::new(HashMap::new()),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl MetaMgr for TestMetaMgr {
-        async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
-            self.tables
-                .lock()
-                .unwrap()
-                .get(&oid)
-                .cloned()
-                .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
-        }
-
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
-            Ok(self
-                .tables
-                .lock()
-                .unwrap()
-                .values()
-                .find(|table| table.name() == name)
-                .cloned())
-        }
-
-        async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
-            let table = TableInfo::new(schema.clone())?.table_desc()?;
-            self.schemas
-                .lock()
-                .unwrap()
-                .insert(schema.id(), schema.clone());
-            self.tables.lock().unwrap().insert(schema.id(), table);
-            Ok(())
-        }
-
-        async fn drop_table(&self, table_id: OID) -> RS<()> {
-            self.schemas.lock().unwrap().remove(&table_id);
-            self.tables.lock().unwrap().remove(&table_id);
-            Ok(())
-        }
-
-        async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
-            Ok(self.schemas.lock().unwrap().values().cloned().collect())
-        }
+    fn block_on<F>(fut: F) -> F::Output
+    where
+        F: Future,
+    {
+        mudu_sys::task_async::build_current_thread_runtime()
+            .unwrap()
+            .block_on(fut)
     }
 
     fn test_schema() -> SchemaTable {
@@ -955,7 +1077,7 @@ mod tests {
         )
     }
 
-    fn test_storage() -> (WorkerStorage, OID) {
+    async fn test_storage() -> RS<(WorkerStorage, OID)> {
         let mgr = Arc::new(TestMetaMgr::new());
         let storage = WorkerStorage::new(
             mgr,
@@ -970,16 +1092,16 @@ mod tests {
         );
         let schema = test_schema();
         let oid = schema.id();
-        futures::executor::block_on(storage.create_table_async(&schema)).unwrap();
-        (storage, oid)
+        storage.create_table_async(&schema).await?;
+        Ok((storage, oid))
     }
 
-    fn test_shared_storage() -> (
+    async fn test_shared_storage() -> RS<(
         Arc<TestMetaMgr>,
         Arc<WorkerStorage>,
         Arc<WorkerStorage>,
         OID,
-    ) {
+    )> {
         let mgr = Arc::new(TestMetaMgr::new());
         let root = std::env::temp_dir()
             .join(format!(
@@ -990,15 +1112,15 @@ mod tests {
             .to_string();
         let storage1 = Arc::new(WorkerStorage::new(mgr.clone(), 1, root.clone()));
         storage1.register_global();
-        storage1.bootstrap_existing_tables_sync().unwrap();
+        storage1.bootstrap_existing_tables_sync()?;
         let storage2 = Arc::new(WorkerStorage::new(mgr.clone(), 2, root));
         storage2.register_global();
-        storage2.bootstrap_existing_tables_sync().unwrap();
+        storage2.bootstrap_existing_tables_sync()?;
 
         let schema = test_schema();
         let oid = schema.id();
-        futures::executor::block_on(storage1.create_table_async(&schema)).unwrap();
-        (mgr, storage1, storage2, oid)
+        storage1.create_table_async(&schema).await?;
+        Ok((mgr, storage1, storage2, oid))
     }
 
     fn begin_tx(xid: u64, running: Vec<u64>) -> WorkerTxManager {
@@ -1011,127 +1133,222 @@ mod tests {
 
     #[test]
     fn worker_storage_broadcasts_create_and_drop_to_peer_workers() {
-        let (mgr, _storage1, storage2, oid) = test_shared_storage();
-        let mut tx = begin_tx(1, vec![]);
-        block_on(storage2.put(oid, i32_bytes(7), i32_bytes(70), &mut tx)).unwrap();
-        block_on(storage2.commit_tx(&mut tx)).unwrap();
-        assert!(futures::executor::block_on(mgr.get_table_by_id(oid)).is_ok());
+        block_on(async move {
+            let r = _worker_storage_broadcasts_create_and_drop_to_peer_workers().await;
+            assert!(r.is_ok())
+        })
+    }
 
-        futures::executor::block_on(storage2.drop_table_async(oid)).unwrap();
-        assert!(futures::executor::block_on(mgr.get_table_by_id(oid)).is_err());
+    async fn _worker_storage_broadcasts_create_and_drop_to_peer_workers() -> RS<()> {
+        let (mgr, _storage1, storage2, oid) = test_shared_storage().await?;
+        let mut tx = begin_tx(1, vec![]);
+        storage2.put(oid, i32_bytes(7), i32_bytes(70), &mut tx).await?;
+        storage2.commit_tx(&mut tx).await?;
+        assert!(mgr.get_table_by_id(oid).await.is_ok());
+
+        storage2.drop_table_async(oid).await?;
+        assert!(mgr.get_table_by_id(oid).await.is_err());
 
         let mut tx = begin_tx(2, vec![]);
-        let err = block_on(storage2.put(oid, i32_bytes(8), i32_bytes(80), &mut tx)).unwrap_err();
+        let err = storage2.put(oid, i32_bytes(8), i32_bytes(80), &mut tx).await.unwrap_err();
         assert!(format!("{err}").contains("no such table"));
+        Ok(())
+    }
+
+    #[test]
+    fn worker_storage_bootstraps_existing_tables_with_async_runtime() {
+        block_on(async move {
+            let r = _worker_storage_bootstraps_existing_tables_with_async_runtime().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_bootstraps_existing_tables_with_async_runtime() -> RS<()> {
+        let mgr = Arc::new(TestMetaMgr::new());
+        let schema = test_schema();
+        let oid = schema.id();
+        mgr.create_table(&schema).await?;
+        let storage = WorkerStorage::new_with_async_runtime(
+            mgr,
+            0,
+            std::env::temp_dir()
+                .join(format!(
+                    "worker_storage_async_bootstrap_test_{}",
+                    mudu::common::id::gen_oid()
+                ))
+                .to_string_lossy()
+                .to_string(),
+            Some(Arc::new(TokioRuntime::new())),
+        );
+        storage.bootstrap_existing_tables_async().await?;
+
+        let mut tx = begin_tx(1, vec![]);
+        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut tx).await?;
+        storage.commit_tx(&mut tx).await?;
+        let mut read_tx = begin_tx(2, vec![]);
+        assert_eq!(
+            storage.get(oid, &i32_bytes(1), &mut read_tx).await?,
+            Some(i32_bytes(10))
+        );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_reads_own_writes() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_reads_own_writes().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_reads_own_writes() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let mut tx = begin_tx(10, vec![]);
 
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx).await?;
 
         assert_eq!(
-            block_on(storage.get(oid, &i32_bytes(1), &mut tx)).unwrap(),
+            storage.get(oid, &i32_bytes(1), &mut tx).await?,
             Some(i32_bytes(11))
         );
-        assert!(
-            block_on(storage.contains_key(oid, &KeyTuple::from(i32_bytes(1)), &mut tx)).unwrap()
-        );
+
+        let contain_key = storage
+            .contains_key(oid, &KeyTuple::from(i32_bytes(1)), &mut tx)
+            .await?;
+        assert!(contain_key);
+        Ok(())
     }
 
     #[test]
     fn worker_storage_snapshot_hides_later_commit() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_snapshot_hides_later_commit().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_snapshot_hides_later_commit() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let mut tx1 = begin_tx(1, vec![]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(10), &mut tx1)).unwrap();
-        block_on(storage.commit_tx(&mut tx1)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut tx1).await?;
+        storage.commit_tx(&mut tx1).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
         let mut new_tx = begin_tx(3, vec![2]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(20), &mut new_tx)).unwrap();
-        block_on(storage.commit_tx(&mut new_tx)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(20), &mut new_tx).await?;
+        storage.commit_tx(&mut new_tx).await?;
 
         assert_eq!(
-            block_on(storage.get(oid, &i32_bytes(1), &mut old_tx)).unwrap(),
+            storage.get(oid, &i32_bytes(1), &mut old_tx).await?,
             Some(i32_bytes(10))
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_range_is_stable_with_snapshot() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_range_is_stable_with_snapshot().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_range_is_stable_with_snapshot() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed)).unwrap();
-        block_on(storage.commit_tx(&mut seed)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage.commit_tx(&mut seed).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
         let mut new_tx = begin_tx(3, vec![2]);
-        block_on(storage.put(oid, i32_bytes(2), i32_bytes(20), &mut new_tx)).unwrap();
-        block_on(storage.commit_tx(&mut new_tx)).unwrap();
+        storage.put(oid, i32_bytes(2), i32_bytes(20), &mut new_tx).await?;
+        storage.commit_tx(&mut new_tx).await?;
 
-        let rows = block_on(storage.range(
+        let rows = storage
+            .range(
             oid,
             (
-                Bound::Included(i32_bytes(1).as_slice()),
-                Bound::Included(i32_bytes(9).as_slice()),
+                Included(i32_bytes(1).as_slice()),
+                Included(i32_bytes(9).as_slice()),
             ),
             &mut old_tx,
-        ))
-        .unwrap();
+        )
+            .await?;
         assert_eq!(rows, vec![(i32_bytes(1), i32_bytes(10))]);
+        Ok(())
     }
 
     #[test]
     fn worker_storage_first_committer_wins() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_first_committer_wins().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_first_committer_wins() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed)).unwrap();
-        block_on(storage.commit_tx(&mut seed)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage.commit_tx(&mut seed).await?;
 
         let mut tx1 = begin_tx(2, vec![]);
         let mut tx2 = begin_tx(3, vec![2]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx1)).unwrap();
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(12), &mut tx2)).unwrap();
-        block_on(storage.commit_tx(&mut tx1)).unwrap();
-        let err = block_on(storage.commit_tx(&mut tx2)).unwrap_err();
+        storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx1).await?;
+        storage.put(oid, i32_bytes(1), i32_bytes(12), &mut tx2).await?;
+        storage.commit_tx(&mut tx1).await?;
+        let err = storage.commit_tx(&mut tx2).await.unwrap_err();
 
         assert!(err.to_string().contains("write-write conflict"));
+        Ok(())
     }
 
     #[test]
     fn worker_storage_delete_respects_snapshot() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_delete_respects_snapshot().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_delete_respects_snapshot() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        block_on(storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed)).unwrap();
-        block_on(storage.commit_tx(&mut seed)).unwrap();
+        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage.commit_tx(&mut seed).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
         let mut delete_tx = begin_tx(3, vec![2]);
         assert_eq!(
-            block_on(storage.remove(oid, &i32_bytes(1), &mut delete_tx)).unwrap(),
+            storage.remove(oid, &i32_bytes(1), &mut delete_tx).await?,
             Some(i32_bytes(10))
         );
-        block_on(storage.commit_tx(&mut delete_tx)).unwrap();
+        storage.commit_tx(&mut delete_tx).await?;
 
         assert_eq!(
-            block_on(storage.get(oid, &i32_bytes(1), &mut old_tx)).unwrap(),
+            storage.get(oid, &i32_bytes(1), &mut old_tx).await?,
             Some(i32_bytes(10))
         );
         let mut fresh_tx = begin_tx(4, vec![]);
         assert_eq!(
-            block_on(storage.get(oid, &i32_bytes(1), &mut fresh_tx)).unwrap(),
+            storage.get(oid, &i32_bytes(1), &mut fresh_tx).await?,
             None
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_kv_snapshot_hides_later_commit() {
-        let (storage, _oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_kv_snapshot_hides_later_commit().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_kv_snapshot_hides_later_commit() -> RS<()> {
+        let (storage, _oid) = test_storage().await?;
         storage
-            .worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)
-            .unwrap();
+            .worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)?;
 
         let snapshot = WorkerSnapshot::new(2, vec![]);
         let prepared = storage.prepare_worker_kv_autocommit(
@@ -1140,30 +1357,36 @@ mod tests {
             Some(b"1".to_vec()),
             XLBatch::new(vec![]),
         );
-        storage.apply_prepared_commit(prepared).unwrap();
+        storage.apply_prepared_commit(prepared)?;
 
         assert_eq!(
-            block_on(storage.kv_get(b"a", Some(&snapshot))).unwrap(),
+            storage.kv_get(b"a", Some(&snapshot)).await?,
             Some(b"0".to_vec())
         );
         assert_eq!(
-            block_on(storage.kv_get(b"a", None)).unwrap(),
+            storage.kv_get(b"a", None).await?,
             Some(b"1".to_vec())
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_kv_range_is_stable_with_snapshot() {
-        let (storage, _oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_kv_range_is_stable_with_snapshot().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_kv_range_is_stable_with_snapshot() -> RS<()> {
+        let (storage, _oid) = test_storage().await?;
         storage
-            .worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)
-            .unwrap();
+            .worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)?;
         let snapshot = WorkerSnapshot::new(2, vec![]);
         storage
-            .worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)
-            .unwrap();
+            .worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)?;
 
-        let rows = block_on(storage.kv_range(b"a", b"z", Some(&snapshot))).unwrap();
+        let rows = storage.kv_range(b"a", b"z", Some(&snapshot)).await?;
         assert_eq!(
             rows,
             vec![KvItem {
@@ -1171,11 +1394,19 @@ mod tests {
                 value: b"1".to_vec()
             }]
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_kv_allows_concurrent_commits_on_different_keys() {
-        let (storage, _oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_kv_allows_concurrent_commits_on_different_keys().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_kv_allows_concurrent_commits_on_different_keys() -> RS<()> {
+        let (storage, _oid) = test_storage().await?;
         let snapshot1 = WorkerSnapshot::new(1, vec![]);
         let snapshot2 = WorkerSnapshot::new(2, vec![1]);
 
@@ -1185,33 +1416,39 @@ mod tests {
                 snapshot1.xid(),
                 BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
                 XLBatch::new(vec![]),
-            )
-            .unwrap();
+            )?;
         let prepared2 = storage
             .prepare_worker_kv_commit(
                 &snapshot2,
                 snapshot2.xid(),
                 BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
                 XLBatch::new(vec![]),
-            )
-            .unwrap();
+            )?;
 
-        storage.apply_prepared_commit(prepared1).unwrap();
-        storage.apply_prepared_commit(prepared2).unwrap();
+        storage.apply_prepared_commit(prepared1)?;
+        storage.apply_prepared_commit(prepared2)?;
 
         assert_eq!(
-            block_on(storage.kv_get(b"a", None)).unwrap(),
+            storage.kv_get(b"a", None).await?,
             Some(b"1".to_vec())
         );
         assert_eq!(
-            block_on(storage.kv_get(b"b", None)).unwrap(),
+            storage.kv_get(b"b", None).await?,
             Some(b"2".to_vec())
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_replay_batch_restores_kv_and_relation_rows() {
-        let (storage, oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_replay_batch_restores_kv_and_relation_rows().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_replay_batch_restores_kv_and_relation_rows() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 9,
             ops: vec![
@@ -1234,25 +1471,32 @@ mod tests {
             ],
         }]);
 
-        storage.replay_batch(batch).unwrap();
+        storage.replay_batch(batch)?;
 
         assert_eq!(
-            block_on(storage.kv_get(b"k", None)).unwrap(),
+            storage.kv_get(b"k", None).await?,
             Some(b"v".to_vec())
         );
         let mut tx = begin_tx(10, vec![]);
         assert_eq!(
-            block_on(storage.get(oid, &i32_bytes(7), &mut tx)).unwrap(),
+            storage.get(oid, &i32_bytes(7), &mut tx).await?,
             Some(i32_bytes(70))
         );
+        Ok(())
     }
 
     #[test]
     fn worker_storage_replay_batch_applies_kv_delete() {
-        let (storage, _oid) = test_storage();
+        block_on(async move {
+            let r = _worker_storage_replay_batch_applies_kv_delete().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_replay_batch_applies_kv_delete() -> RS<()> {
+        let (storage, _oid) = test_storage().await?;
         storage
-            .worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)
-            .unwrap();
+            .worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)?;
 
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 2,
@@ -1268,17 +1512,25 @@ mod tests {
             ],
         }]);
 
-        storage.replay_batch(batch).unwrap();
+        storage.replay_batch(batch)?;
 
-        assert_eq!(block_on(storage.kv_get(b"k", None)).unwrap(), None);
+        assert_eq!(storage.kv_get(b"k", None).await?, None);
+        Ok(())
     }
 
     #[test]
     fn worker_storage_bootstrap_uses_partition_zero_for_unpartitioned_tables() {
+        block_on(async move {
+            let r = _worker_storage_bootstrap_uses_partition_zero_for_unpartitioned_tables().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_bootstrap_uses_partition_zero_for_unpartitioned_tables() -> RS<()> {
         let mgr = Arc::new(TestMetaMgr::new());
         let schema = test_schema();
         let oid = schema.id();
-        futures::executor::block_on(mgr.create_table(&schema)).unwrap();
+        mgr.create_table(&schema).await?;
 
         let storage = WorkerStorage::new(
             mgr,
@@ -1291,7 +1543,7 @@ mod tests {
                 .to_string_lossy()
                 .to_string(),
         );
-        storage.bootstrap_existing_tables_sync().unwrap();
+        storage.bootstrap_existing_tables_sync()?;
 
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 11,
@@ -1308,12 +1560,15 @@ mod tests {
             ],
         }]);
 
-        storage.replay_batch(batch).unwrap();
+        storage.replay_batch(batch)?;
 
         let mut tx = begin_tx(12, vec![]);
         assert_eq!(
-            block_on(storage.get_on_partition(oid, Some(0), &i32_bytes(5), &mut tx)).unwrap(),
+            storage
+                .get_on_partition(oid, Some(0), &i32_bytes(5), &mut tx)
+                .await?,
             Some(i32_bytes(50))
         );
+        Ok(())
     }
 }

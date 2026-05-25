@@ -21,7 +21,8 @@ use crate::server::server_iouring::RecoveryCoordinator;
 use crate::server::session_bound_worker_runtime::{
     as_worker_local_ref, new_session_bound_worker_runtime,
 };
-use crate::server::worker::IoUringWorker;
+use crate::server::task;
+use crate::server::worker::WorkerRuntime;
 use crate::server::worker_local::{set_current_worker_local, unset_current_worker_local};
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
@@ -44,6 +45,8 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::thread;
 use std::time::Duration;
+use tracing::{debug, trace};
+use mudu_utils::scoped_task_trace;
 
 #[path = "worker_ring_loop/recovery.rs"]
 mod recovery;
@@ -60,7 +63,7 @@ type XLWorkerLog =
 /// lifecycle. It also performs worker-log recovery before the steady-state loop
 /// starts so replayed state is visible to newly accepted connections.
 pub(in crate::server) struct WorkerRingLoop {
-    worker: IoUringWorker,
+    worker: WorkerRuntime,
     log: Option<XLWorkerLog>,
     ring: mudu_sys::uring::IoUring,
     listener_fd: RawFd,
@@ -91,7 +94,7 @@ impl WorkerRingLoop {
     /// Builds the runtime state for one worker loop and initializes its
     /// private io_uring instance.
     pub(in crate::server) fn new(
-        worker: IoUringWorker,
+        worker: WorkerRuntime,
         listener_fd: RawFd,
         mailbox_fd: RawFd,
         mailbox: Arc<SegQueue<WorkerMailboxMsg>>,
@@ -124,7 +127,6 @@ impl WorkerRingLoop {
             worker.registry().clone(),
             mailbox_fds.clone(),
             mailboxes.clone(),
-            worker_local_ring.clone(),
         );
         Ok(Self {
             log,
@@ -161,16 +163,32 @@ impl WorkerRingLoop {
     /// The worker-local ring pointer is installed for the duration of the run
     /// so user-level async file I/O can enqueue requests onto this loop.
     pub(in crate::server) fn run(&mut self) -> RS<WorkerLoopStats> {
+        scoped_task_trace!();
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop run start"
+        );
         set_current_worker_local(as_worker_local_ref(new_session_bound_worker_runtime(
             self.worker.clone(),
             0,
         )));
         set_current_worker_ring(self.worker_local_ring.clone());
         set_current_message_bus(self.message_bus.as_ref());
-        register_worker_message_bus(self.worker.worker_id(), &self.message_bus.as_ref())?;
+        register_worker_message_bus(
+            self.worker.server_instance_id(),
+            self.worker.worker_id(),
+            &self.message_bus.as_ref(),
+        )?;
         self.worker.ensure_partition_rpc_handler()?;
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop partition rpc ready"
+        );
         if let Err(err) = self.recover_worker_log() {
-            let _ = unregister_worker_message_bus(self.worker.worker_id());
+            let _ = unregister_worker_message_bus(
+                self.worker.server_instance_id(),
+                self.worker.worker_id(),
+            );
             unset_current_message_bus();
             unset_current_worker_ring();
             unset_current_worker_local();
@@ -178,8 +196,15 @@ impl WorkerRingLoop {
             return Err(err);
         }
         self.recovery_coordinator.worker_succeeded()?;
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop recovery barrier passed"
+        );
         let r = self.run_service_loop();
-        let _ = unregister_worker_message_bus(self.worker.worker_id());
+        let _ = unregister_worker_message_bus(
+            self.worker.server_instance_id(),
+            self.worker.worker_id(),
+        );
         unset_current_message_bus();
         unset_current_worker_ring();
         unset_current_worker_local();
@@ -240,7 +265,18 @@ impl WorkerRingLoop {
                 }
             }
             InflightOp::MailboxRead { .. } => {
-                handle_read_completion(&mut self.mailbox_read_submitted, &mut self.stats);
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    mailbox_fd = self.mailbox_fd,
+                    result,
+                    "worker_ring_loop mailbox read cqe"
+                );
+                handle_read_completion(
+                    self.worker.worker_id(),
+                    self.mailbox_fd,
+                    &mut self.mailbox_read_submitted,
+                    &mut self.stats,
+                );
                 for msg in drain_messages(self.mailbox.as_ref(), &mut self.stats) {
                     self.handle_mailbox_message(msg)?;
                 }
@@ -265,6 +301,14 @@ impl WorkerRingLoop {
     fn handle_mailbox_message(&self, msg: WorkerMailboxMsg) -> RS<()> {
         match msg {
             WorkerMailboxMsg::AdoptConnection(connection) => {
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    conn_id = connection.transfer().conn_id(),
+                    remote_addr = %connection.transfer().remote_addr(),
+                    session_ids = ?connection.session_ids(),
+                    has_session_open_action = connection.session_open_action().is_some(),
+                    "worker_ring_loop handling adopt connection mailbox message"
+                );
                 server_iouring::set_connection_options(connection.fd())?;
                 self.worker.adopt_connection_sessions(
                     connection.transfer().conn_id(),
@@ -292,11 +336,33 @@ impl WorkerRingLoop {
                     connection.transfer().remote_addr(),
                     initial_response,
                 )?;
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    conn_id = connection.transfer().conn_id(),
+                    "worker_ring_loop handled adopt connection mailbox message"
+                );
             }
             WorkerMailboxMsg::BusMessage(envelope) => {
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    src = ?envelope.src(),
+                    dst = ?envelope.dst(),
+                    kind = ?envelope.kind(),
+                    msg_id = envelope.msg_id(),
+                    correlation_id = ?envelope.correlation_id(),
+                    "worker_ring_loop received bus mailbox message"
+                );
                 self.message_bus.handle_incoming(envelope)?;
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    "worker_ring_loop handled bus mailbox message"
+                );
             }
             WorkerMailboxMsg::Shutdown => {
+                debug!(
+                    worker_id = self.worker.worker_id(),
+                    "worker_ring_loop received shutdown mailbox message"
+                );
                 self.shutdown_triggered.store(true, Ordering::Relaxed);
             }
         }
@@ -331,7 +397,15 @@ impl WorkerRingLoop {
     }
 
     pub(in crate::server) fn submit_mailbox_read_if_needed(&mut self) -> RS<()> {
+        debug!(
+            worker_id = self.worker.worker_id(),
+            mailbox_fd = self.mailbox_fd,
+            mailbox_read_submitted = self.mailbox_read_submitted,
+            shutting_down = self.shutting_down,
+            "worker_ring_loop submit_mailbox_read_if_needed"
+        );
         let mut ctx = LoopMailboxSubmitCtx {
+            worker_id: self.worker.worker_id(),
             ring: &mut self.ring,
             mailbox_fd: self.mailbox_fd,
             mailbox_read_submitted: &mut self.mailbox_read_submitted,
@@ -393,7 +467,7 @@ impl WorkerRingLoop {
     ) -> RS<()> {
         let socket = crate::io::socket::IoSocket::from_raw_fd(fd);
         let _ = self.connection_task_fds.insert_sync(conn_id, fd);
-        self.worker_local_ring.worker_task_registry().spawn(
+        task::spawn(
             Some(conn_id),
             spawn_connection_worker_task(
                 self.worker.clone(),
@@ -458,9 +532,7 @@ impl WorkerRingLoop {
     fn spawn_ready_callbacks(&mut self, callbacks: Vec<PendingCallback>) -> RS<()> {
         for pending in callbacks {
             let future = (pending.callback)();
-            self.worker_local_ring
-                .worker_task_registry()
-                .spawn_system(spawn_system_worker_task(future));
+            self.spawn(None, spawn_system_worker_task(future));
         }
         Ok(())
     }
@@ -477,10 +549,10 @@ mod tests {
     use crate::server::routing::RoutingMode;
     use crate::server::worker_registry::load_or_create_worker_registry;
     use mudu::common::id::gen_oid;
+    use mudu_sys::tokio::task::{yield_now, JoinHandle};
     use std::env::temp_dir;
     use std::io::{Read, Write};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use tokio::task::{yield_now, JoinHandle};
 
     fn test_worker_loop() -> WorkerRingLoop {
         let dir = temp_dir()
@@ -489,7 +561,7 @@ mod tests {
             .into_owned();
         let registry = load_or_create_worker_registry(&dir, 1).unwrap();
         let identity = registry.worker(0).cloned().unwrap();
-        let worker = IoUringWorker::new(
+        let worker = WorkerRuntime::new(
             identity,
             1,
             RoutingMode::ConnectionId,
@@ -498,9 +570,10 @@ mod tests {
             4096,
             None,
             registry,
+            0,
         )
         .unwrap();
-        let mailbox_fd = mudu_sys::sync::eventfd().unwrap();
+        let mailbox_fd = mudu_sys::sync_sync::eventfd().unwrap();
         WorkerRingLoop::new(
             worker,
             -1,
@@ -509,7 +582,7 @@ mod tests {
             vec![Arc::new(SegQueue::new())],
             vec![mailbox_fd],
             Arc::new(AtomicU64::new(1)),
-            Arc::new(RecoveryCoordinator::new(1)),
+            Arc::new(RecoveryCoordinator::new(1, None)),
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap()
@@ -555,7 +628,7 @@ mod tests {
         let path = temp_dir().join(format!("iouring_file_io_{}", gen_oid()));
         let path_str = path.to_string_lossy().into_owned();
 
-        let open_task = tokio::spawn({
+        let open_task = mudu_sys::tokio::spawn({
             let path_str = path_str.clone();
             async move {
                 open(
@@ -573,7 +646,7 @@ mod tests {
         let file = open_task.await.unwrap().unwrap();
 
         let fd = file.fd();
-        let write_task = tokio::spawn(async move {
+        let write_task = mudu_sys::tokio::spawn(async move {
             write(
                 &crate::io::file::IoFile::from_raw_fd(fd),
                 b"hello iouring".to_vec(),
@@ -588,8 +661,9 @@ mod tests {
         assert_eq!(write_task.await.unwrap().unwrap(), b"hello iouring".len());
 
         let fd = file.fd();
-        let flush_task =
-            tokio::spawn(async move { flush(&crate::io::file::IoFile::from_raw_fd(fd)).await });
+        let flush_task = mudu_sys::tokio::spawn(async move {
+            flush(&crate::io::file::IoFile::from_raw_fd(fd)).await
+        });
         yield_now().await;
         drive_ring_future(&mut loop_state, &flush_task)
             .await
@@ -597,10 +671,9 @@ mod tests {
         flush_task.await.unwrap().unwrap();
 
         let fd = file.fd();
-        let read_task =
-            tokio::spawn(
-                async move { read(&crate::io::file::IoFile::from_raw_fd(fd), 13, 0).await },
-            );
+        let read_task = mudu_sys::tokio::spawn(async move {
+            read(&crate::io::file::IoFile::from_raw_fd(fd), 13, 0).await
+        });
         yield_now().await;
         drive_ring_future(&mut loop_state, &read_task)
             .await
@@ -609,7 +682,7 @@ mod tests {
 
         assert_eq!(std::fs::read(&path).unwrap(), b"hello iouring".to_vec());
 
-        let close_task = tokio::spawn(async move { close(file).await });
+        let close_task = mudu_sys::tokio::spawn(async move { close(file).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &close_task)
             .await
@@ -618,7 +691,7 @@ mod tests {
 
         unset_current_worker_ring();
         loop_state.ring.exit();
-        mudu_sys::sync::close_fd(loop_state.mailbox_fd).unwrap();
+        mudu_sys::sync_sync::close_fd(loop_state.mailbox_fd).unwrap();
         let _ = std::fs::remove_file(&path);
     }
 
@@ -644,7 +717,7 @@ mod tests {
             Ok(())
         });
 
-        let socket_task = tokio::spawn(async {
+        let socket_task = mudu_sys::tokio::spawn(async {
             socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0).await
         });
         yield_now().await;
@@ -655,7 +728,7 @@ mod tests {
 
         let fd = sock.fd();
         let connect_task =
-            tokio::spawn(async move { connect(&IoSocket::from_raw_fd(fd), addr).await });
+            mudu_sys::tokio::spawn(async move { connect(&IoSocket::from_raw_fd(fd), addr).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &connect_task)
             .await
@@ -663,10 +736,9 @@ mod tests {
         connect_task.await.unwrap().unwrap();
 
         let fd = sock.fd();
-        let send_task =
-            tokio::spawn(
-                async move { send(&IoSocket::from_raw_fd(fd), b"ping".to_vec(), 0).await },
-            );
+        let send_task = mudu_sys::tokio::spawn(async move {
+            send(&IoSocket::from_raw_fd(fd), b"ping".to_vec(), 0).await
+        });
         yield_now().await;
         drive_ring_future(&mut loop_state, &send_task)
             .await
@@ -674,7 +746,8 @@ mod tests {
         assert_eq!(send_task.await.unwrap().unwrap(), 4);
 
         let fd = sock.fd();
-        let recv_task = tokio::spawn(async move { recv(&IoSocket::from_raw_fd(fd), 4, 0).await });
+        let recv_task =
+            mudu_sys::tokio::spawn(async move { recv(&IoSocket::from_raw_fd(fd), 4, 0).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &recv_task)
             .await
@@ -682,15 +755,16 @@ mod tests {
         assert_eq!(recv_task.await.unwrap().unwrap(), b"pong".to_vec());
 
         let fd = sock.fd();
-        let shutdown_task =
-            tokio::spawn(async move { shutdown(&IoSocket::from_raw_fd(fd), libc::SHUT_WR).await });
+        let shutdown_task = mudu_sys::tokio::spawn(async move {
+            shutdown(&IoSocket::from_raw_fd(fd), libc::SHUT_WR).await
+        });
         yield_now().await;
         drive_ring_future(&mut loop_state, &shutdown_task)
             .await
             .unwrap();
         shutdown_task.await.unwrap().unwrap();
 
-        let close_task = tokio::spawn(async move { close_socket(sock).await });
+        let close_task = mudu_sys::tokio::spawn(async move { close_socket(sock).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &close_task)
             .await
@@ -701,7 +775,7 @@ mod tests {
 
         unset_current_worker_ring();
         loop_state.ring.exit();
-        mudu_sys::sync::close_fd(loop_state.mailbox_fd).unwrap();
+        mudu_sys::sync_sync::close_fd(loop_state.mailbox_fd).unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -729,7 +803,7 @@ mod tests {
 
         let accept_fd = listener_sock.fd();
         let accept_task =
-            tokio::spawn(async move { accept(&IoSocket::from_raw_fd(accept_fd)).await });
+            mudu_sys::tokio::spawn(async move { accept(&IoSocket::from_raw_fd(accept_fd)).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &accept_task)
             .await
@@ -742,7 +816,9 @@ mod tests {
 
         let accepted_fd = accepted.fd();
         let recv_task =
-            tokio::spawn(async move { recv(&IoSocket::from_raw_fd(accepted_fd), 4, 0).await });
+            mudu_sys::tokio::spawn(
+                async move { recv(&IoSocket::from_raw_fd(accepted_fd), 4, 0).await },
+            );
         yield_now().await;
         drive_ring_future(&mut loop_state, &recv_task)
             .await
@@ -750,7 +826,7 @@ mod tests {
         assert_eq!(recv_task.await.unwrap().unwrap(), b"ping".to_vec());
 
         let accepted_fd = accepted.fd();
-        let send_task = tokio::spawn(async move {
+        let send_task = mudu_sys::tokio::spawn(async move {
             send(&IoSocket::from_raw_fd(accepted_fd), b"pong".to_vec(), 0).await
         });
         yield_now().await;
@@ -760,7 +836,7 @@ mod tests {
         assert_eq!(send_task.await.unwrap().unwrap(), 4);
 
         let accepted_fd = accepted.fd();
-        let shutdown_task = tokio::spawn(async move {
+        let shutdown_task = mudu_sys::tokio::spawn(async move {
             shutdown(&IoSocket::from_raw_fd(accepted_fd), libc::SHUT_WR).await
         });
         yield_now().await;
@@ -769,14 +845,16 @@ mod tests {
             .unwrap();
         shutdown_task.await.unwrap().unwrap();
 
-        let close_accepted_task = tokio::spawn(async move { close_socket(accepted).await });
+        let close_accepted_task =
+            mudu_sys::tokio::spawn(async move { close_socket(accepted).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &close_accepted_task)
             .await
             .unwrap();
         close_accepted_task.await.unwrap().unwrap();
 
-        let close_listener_task = tokio::spawn(async move { close_socket(listener_sock).await });
+        let close_listener_task =
+            mudu_sys::tokio::spawn(async move { close_socket(listener_sock).await });
         yield_now().await;
         drive_ring_future(&mut loop_state, &close_listener_task)
             .await
@@ -787,7 +865,7 @@ mod tests {
 
         unset_current_worker_ring();
         loop_state.ring.exit();
-        mudu_sys::sync::close_fd(loop_state.mailbox_fd).unwrap();
+        mudu_sys::sync_sync::close_fd(loop_state.mailbox_fd).unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -818,7 +896,7 @@ mod tests {
         assert_eq!(hit.load(AtomicOrdering::SeqCst), 1);
 
         loop_state.ring.exit();
-        mudu_sys::sync::close_fd(loop_state.mailbox_fd).unwrap();
+        mudu_sys::sync_sync::close_fd(loop_state.mailbox_fd).unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -875,6 +953,6 @@ mod tests {
         assert_eq!(hit.load(AtomicOrdering::SeqCst), 1);
 
         loop_state.ring.exit();
-        mudu_sys::sync::close_fd(loop_state.mailbox_fd).unwrap();
+        mudu_sys::sync_sync::close_fd(loop_state.mailbox_fd).unwrap();
     }
 }

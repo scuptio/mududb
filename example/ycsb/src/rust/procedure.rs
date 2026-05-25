@@ -61,9 +61,9 @@ pub fn ycsb_read_modify_write(xid: XID, user_key: String, append_value: String) 
 mod tests {
     use super::{ycsb_insert, ycsb_read, ycsb_read_modify_write, ycsb_scan, ycsb_update};
     use crate::test_lock;
+    use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = SystemTime::now()

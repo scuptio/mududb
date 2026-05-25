@@ -70,7 +70,7 @@
       },
       {
         "module_name": "ycsb",
-        "proc_name": "ycsb_scan",
+        "proc_name": "ycsb_insert",
         "param_desc": {
           "fields": [
             {
@@ -82,7 +82,7 @@
                   }
                 }
               },
-              "name": "start_user_key"
+              "name": "user_key"
             },
             {
               "dat_type": {
@@ -93,32 +93,12 @@
                   }
                 }
               },
-              "name": "end_user_key"
+              "name": "value"
             }
           ]
         },
         "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "String",
-                      "param": {
-                        "String": {
-                          "length": 65536
-                        }
-                      }
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
+          "fields": []
         }
       },
       {
@@ -168,7 +148,7 @@
       },
       {
         "module_name": "ycsb",
-        "proc_name": "ycsb_insert",
+        "proc_name": "ycsb_scan",
         "param_desc": {
           "fields": [
             {
@@ -180,7 +160,7 @@
                   }
                 }
               },
-              "name": "user_key"
+              "name": "start_user_key"
             },
             {
               "dat_type": {
@@ -191,12 +171,32 @@
                   }
                 }
               },
-              "name": "value"
+              "name": "end_user_key"
             }
           ]
         },
         "return_desc": {
-          "fields": []
+          "fields": [
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "String",
+                      "param": {
+                        "String": {
+                          "length": 65536
+                        }
+                      }
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
         }
       }
     ]

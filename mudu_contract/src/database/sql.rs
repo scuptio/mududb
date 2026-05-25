@@ -13,12 +13,12 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
 use mudu::common::xid::XID;
+use mudu::error::ec::EC;
+use mudu::m_error;
 use mudu_type::datum::DatumDyn;
 use scc::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
-use mudu::error::ec::EC;
-use mudu::m_error;
 
 pub fn function_sql_stmt(stmt: &dyn SQLStmt) -> &dyn SQLStmt {
     stmt
@@ -81,7 +81,7 @@ pub struct Context {
 
 struct ContextInner {
     session_id: OID,
-    xid:Mutex<XID>,
+    xid: Mutex<XID>,
     result_set: Mutex<Option<ContextResult>>,
     conn: DBConn,
 }
@@ -137,15 +137,15 @@ impl ContextInner {
     fn set_xid(&self, xid: XID) {
         let mut g = self.xid.lock();
         match &mut g {
-            Ok(v) => { **v = xid }
-            Err(_) => {  }
+            Ok(v) => **v = xid,
+            Err(_) => {}
         }
     }
-    fn xid(&self) -> XID  {
+    fn xid(&self) -> XID {
         let g = self.xid.lock();
         match g {
-            Ok(v) => { *v }
-            Err(_) => { 0 }
+            Ok(v) => *v,
+            Err(_) => 0,
         }
     }
     fn session_id(&self) -> OID {
@@ -255,7 +255,6 @@ impl Context {
         }
     }
 
-
     pub async fn commit_async(oid: XID) -> RS<()> {
         let ctx = Self::context_async(oid).await?;
         ctx.commit_tx_async().await?;
@@ -277,10 +276,8 @@ impl Context {
                 Some(e) => {
                     let ctx = e.get().clone();
                     ctx
-                },
-                None => {
-                    return Err(m_error!(EC::NoSuchElement, "no such context"))
-                },
+                }
+                None => return Err(m_error!(EC::NoSuchElement, "no such context")),
             }
         };
         Ok(ctx)

@@ -1,5 +1,8 @@
 pub mod file;
 #[cfg(target_os = "linux")]
+#[path = "linux/path.rs"]
+pub mod path;
+#[cfg(target_os = "linux")]
 #[path = "linux/socket.rs"]
 pub mod socket;
 pub(crate) mod user_io;

@@ -25,6 +25,12 @@ pub trait WorkerLogRecoverySource {
     fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>>;
 }
 
+#[async_trait]
+pub trait AsyncWorkerLogRecoverySource: Send {
+    async fn chunk_paths_sorted(&mut self) -> RS<Vec<PathBuf>>;
+    async fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>>;
+}
+
 pub fn decode_frames(payload: &[u8]) -> RS<Vec<Vec<u8>>> {
     let mut offset = 0usize;
     let mut frames = Vec::new();

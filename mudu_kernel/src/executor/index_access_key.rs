@@ -6,12 +6,12 @@ use crate::x_engine::x_param::PAccessKey;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_utils::sync::f_mutex::FMutex;
 use std::sync::Arc;
 
 pub struct IndexAccessKey {
     tuple_desc: TupleDesc,
-    inner: AMutex<_IndexAccessKey>,
+    inner: FMutex<_IndexAccessKey>,
 }
 
 struct _IndexAccessKey {
@@ -30,7 +30,7 @@ impl IndexAccessKey {
         let tuple_desc = project_tuple_desc(&table_desc, &param.select);
         Ok(Self {
             tuple_desc,
-            inner: AMutex::new(_IndexAccessKey::new(param, x_contract)),
+            inner: FMutex::new(_IndexAccessKey::new(param, x_contract)),
         })
     }
 }

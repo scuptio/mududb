@@ -40,6 +40,7 @@ mod tests {
             component_target: ComponentTarget::P3,
             enable_async: false,
             sever_mode: Default::default(),
+            async_runtime: None,
         })
         .unwrap();
 

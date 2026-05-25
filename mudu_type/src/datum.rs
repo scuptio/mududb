@@ -7,6 +7,11 @@ use crate::dat_value::DatValue;
 use crate::dt_of_datum::DtOfDatum;
 use lazy_static::lazy_static;
 use mudu::common::result::RS;
+use mudu::data_type::date::DateValue;
+use mudu::data_type::numeric::Numeric;
+use mudu::data_type::time::TimeValue;
+use mudu::data_type::timestamp::TimestampValue;
+use mudu::data_type::timestamptz::TimestampTzValue;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use paste::paste;
@@ -255,6 +260,11 @@ impl_datum_trait!(
     (I64, i64, i64),
     (I128, i128, i128),
     (U128, u128, u128),
+    (Numeric, numeric, Numeric),
+    (Date, date, DateValue),
+    (Time, time, TimeValue),
+    (Timestamp, timestamp, TimestampValue),
+    (TimestampTz, timestamptz, TimestampTzValue),
     (F32, f32, f32),
     (F64, f64, f64),
     (String, string, String)

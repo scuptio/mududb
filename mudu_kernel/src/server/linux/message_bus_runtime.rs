@@ -4,49 +4,29 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use std::collections::VecDeque;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::sync::oneshot;
 
-use crate::io::worker_ring::WorkerLocalRing;
 use crate::server::message_bus_api::{
     EndpointId, Envelope, MessageBus, MessageBusRef, MessageId, OnRecvCallback, OutgoingMessage,
     RecvFilter, SubscriptionId,
 };
+use crate::server::message_bus_state::WorkerMessageBusState;
 use crate::server::server_iouring;
+use crate::server::task;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
 use crate::server::worker_registry::WorkerRegistry;
 use crate::server::worker_task::spawn_system_worker_task;
-
-struct RecvWaiter {
-    filter: RecvFilter,
-    sender: oneshot::Sender<Envelope>,
-}
-
-struct RegisteredCallback {
-    id: SubscriptionId,
-    filter: RecvFilter,
-    callback: OnRecvCallback,
-}
-
-#[derive(Default)]
-struct MessageBusState {
-    inbox: VecDeque<Envelope>,
-    recv_waiters: VecDeque<RecvWaiter>,
-    callbacks: Vec<RegisteredCallback>,
-    next_subscription_id: SubscriptionId,
-}
+use tracing::debug;
 
 pub(crate) struct WorkerMessageBus {
     local_worker_id: OID,
     registry: Arc<WorkerRegistry>,
     mailbox_fds: Vec<RawFd>,
     mailboxes: Vec<Arc<SegQueue<WorkerMailboxMsg>>>,
-    worker_local_ring: Arc<WorkerLocalRing>,
     next_msg_id: AtomicU64,
-    state: Mutex<MessageBusState>,
+    state: Mutex<WorkerMessageBusState>,
 }
 
 unsafe impl Send for WorkerMessageBus {}
@@ -58,19 +38,14 @@ impl WorkerMessageBus {
         registry: Arc<WorkerRegistry>,
         mailbox_fds: Vec<RawFd>,
         mailboxes: Vec<Arc<SegQueue<WorkerMailboxMsg>>>,
-        worker_local_ring: Arc<WorkerLocalRing>,
     ) -> Arc<Self> {
         Arc::new(Self {
             local_worker_id,
             registry,
             mailbox_fds,
             mailboxes,
-            worker_local_ring,
             next_msg_id: AtomicU64::new(1),
-            state: Mutex::new(MessageBusState {
-                next_subscription_id: 1,
-                ..MessageBusState::default()
-            }),
+            state: Mutex::new(WorkerMessageBusState::new()),
         })
     }
 
@@ -79,6 +54,15 @@ impl WorkerMessageBus {
     }
 
     pub(crate) fn handle_incoming(&self, envelope: Envelope) -> RS<()> {
+        debug!(
+            local_worker_id = self.local_worker_id,
+            src = ?envelope.src(),
+            dst = ?envelope.dst(),
+            kind = ?envelope.kind(),
+            msg_id = envelope.msg_id(),
+            correlation_id = ?envelope.correlation_id(),
+            "message_bus handle incoming"
+        );
         let maybe_callback = {
             let mut state = self
                 .state
@@ -87,10 +71,16 @@ impl WorkerMessageBus {
             state.handle_incoming(envelope)
         };
         if let Some((callback, envelope)) = maybe_callback {
+            debug!(
+                local_worker_id = self.local_worker_id,
+                src = ?envelope.src(),
+                dst = ?envelope.dst(),
+                kind = ?envelope.kind(),
+                msg_id = envelope.msg_id(),
+                "message_bus dispatching callback task"
+            );
             let future = (callback)(envelope);
-            self.worker_local_ring
-                .worker_task_registry()
-                .spawn_system(spawn_system_worker_task(future));
+            task::spawn_system("iouring-message-bus-callback", spawn_system_worker_task(future));
         }
         Ok(())
     }
@@ -133,6 +123,13 @@ impl WorkerMessageBus {
                 )
             ));
         };
+        debug!(
+            local_worker_id = self.local_worker_id,
+            target_worker,
+            mailbox_fd = fd,
+            msg = ?msg,
+            "message_bus enqueue mailbox message"
+        );
         mailbox.push(msg);
         server_iouring::notify_mailbox_fd(fd)
     }
@@ -145,6 +142,7 @@ impl MessageBus for WorkerMessageBus {
     }
 
     async fn send(&self, dst: EndpointId, message: OutgoingMessage) -> RS<MessageId> {
+        mudu_utils::scoped_task_trace!();
         let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
         let envelope = Envelope::new(
             msg_id,
@@ -156,11 +154,21 @@ impl MessageBus for WorkerMessageBus {
             message.delivery(),
         );
         let target_worker = self.route_worker_index(&dst)?;
+        debug!(
+            local_worker_id = self.local_worker_id,
+            dst = ?dst,
+            target_worker,
+            kind = ?envelope.kind(),
+            msg_id,
+            correlation_id = ?envelope.correlation_id(),
+            "message_bus send"
+        );
         self.dispatch_mailbox_message(target_worker, WorkerMailboxMsg::BusMessage(envelope))?;
         Ok(msg_id)
     }
 
     async fn recv(&self, filter: RecvFilter) -> RS<Envelope> {
+        mudu_utils::scoped_task_trace!();
         let receiver = {
             let mut state = self
                 .state
@@ -172,8 +180,9 @@ impl MessageBus for WorkerMessageBus {
             state.register_waiter(filter)
         };
         receiver
-            .await
-            .map_err(|_| m_error!(EC::ThreadErr, "message bus waiter dropped before delivery"))
+            .wait()
+            .await?
+            .ok_or_else(|| m_error!(EC::ThreadErr, "message bus waiter dropped before delivery"))
     }
 
     fn on_recv_callback(&self, filter: RecvFilter, callback: OnRecvCallback) -> RS<SubscriptionId> {
@@ -186,9 +195,7 @@ impl MessageBus for WorkerMessageBus {
         };
         if let Some(envelope) = maybe_envelope {
             let future = (callback)(envelope);
-            self.worker_local_ring
-                .worker_task_registry()
-                .spawn_system(spawn_system_worker_task(future));
+            task::spawn_system("iouring-message-bus-on-recv", spawn_system_worker_task(future));
         }
         Ok(callback_id)
     }
@@ -202,75 +209,9 @@ impl MessageBus for WorkerMessageBus {
     }
 }
 
-impl MessageBusState {
-    fn try_take_message(&mut self, filter: &RecvFilter) -> Option<Envelope> {
-        let index = self
-            .inbox
-            .iter()
-            .position(|message| message.matches(filter))?;
-        self.inbox.remove(index)
-    }
-
-    fn register_waiter(&mut self, filter: RecvFilter) -> oneshot::Receiver<Envelope> {
-        let (sender, receiver) = oneshot::channel();
-        self.recv_waiters.push_back(RecvWaiter { filter, sender });
-        receiver
-    }
-
-    fn register_callback(
-        &mut self,
-        filter: RecvFilter,
-        callback: OnRecvCallback,
-    ) -> (SubscriptionId, Option<Envelope>) {
-        let id = self.next_subscription_id;
-        self.next_subscription_id += 1;
-        let maybe_envelope = self.try_take_message(&filter);
-        self.callbacks.push(RegisteredCallback {
-            id,
-            filter,
-            callback,
-        });
-        (id, maybe_envelope)
-    }
-
-    fn cancel_callback(&mut self, id: SubscriptionId) -> bool {
-        let Some(index) = self.callbacks.iter().position(|callback| callback.id == id) else {
-            return false;
-        };
-        self.callbacks.remove(index);
-        true
-    }
-
-    fn handle_incoming(&mut self, envelope: Envelope) -> Option<(OnRecvCallback, Envelope)> {
-        if let Some(index) = self
-            .recv_waiters
-            .iter()
-            .position(|waiter| envelope.matches(&waiter.filter))
-        {
-            if let Some(waiter) = self.recv_waiters.remove(index) {
-                let _ = waiter.sender.send(envelope);
-                return None;
-            }
-        }
-
-        if let Some(index) = self
-            .callbacks
-            .iter()
-            .position(|callback| envelope.matches(&callback.filter))
-        {
-            let callback = self.callbacks[index].callback.clone();
-            return Some((callback, envelope));
-        }
-
-        self.inbox.push_back(envelope);
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::worker_ring::WorkerLocalRing;
     use crate::server::message_bus_api::{DeliveryMode, MessageKind, SystemMessageKind};
     use crate::server::worker_registry::WorkerRegistry;
 
@@ -298,7 +239,6 @@ mod tests {
             test_registry(),
             vec![0, 1],
             vec![Arc::new(SegQueue::new()), Arc::new(SegQueue::new())],
-            Arc::new(WorkerLocalRing::new()),
         )
     }
 

@@ -9,6 +9,7 @@ use mudu_binding::procedure::procedure_invoke;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
+use mudu_utils::task_trace;
 use std::sync::Mutex;
 use wasmtime::Store;
 use wasmtime::component::{InstancePre, TypedFunc};
@@ -41,11 +42,15 @@ impl ProcedureInvokeComponent {
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
+        let trace = task_trace!();
+        trace.watch("procedure.component.stage", "call_async_start");
         let name = component_proc_name(component_target, procedure.proc_name())?;
         let name = to_kebab_case(&name);
+        trace.watch("procedure.component.name", &name);
         let context = build_wasi_component_context(worker_local);
         let p = procedure.instance().as_component_instance_pre();
         let this: Self = Self::new_async(context, p, name, proc_opt).await?;
+        trace.watch("procedure.component.stage", "invoke_async_start");
         this.invoke_async(param).await
     }
 
@@ -82,7 +87,7 @@ impl ProcedureInvokeComponent {
         let inner: ProcedureInvokeInner = inner
             .into_inner()
             .map_err(|e| m_error!(EC::MuduError, "mutex into inner error", e))?;
-        let thread = mudu_sys::task::spawn_thread(move || {
+        let thread = mudu_sys::task_sync::spawn_thread(move || {
             let ret = inner.invoke(param);
             ret
         })?;

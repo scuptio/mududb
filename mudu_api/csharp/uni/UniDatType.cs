@@ -10,7 +10,7 @@ using System.Collections.Generic;
 
 // Annotate inheritance types
 
-[Union(0, typeof(UniDatTypePrimitive))]
+[Union(0, typeof(UniDatTypeScalar))]
 
 [Union(1, typeof(UniDatTypeArray))]
 
@@ -33,7 +33,7 @@ public interface UniDatType
 
 public enum UniDatTypeKind {
 
-   Primitive = 0,
+   Scalar = 0,
 
    Array = 1,
 
@@ -53,32 +53,32 @@ public enum UniDatTypeKind {
 
 
 
-[MessagePackFormatter(typeof(UniDatTypePrimitiveFormatter))]
-public class UniDatTypePrimitive : UniDatType
+[MessagePackFormatter(typeof(UniDatTypeScalarFormatter))]
+public class UniDatTypeScalar : UniDatType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniDatTypePrimitive()
+    public UniDatTypeScalar()
     {
         Inner = default;
     }
     
 
-    public required UniPrimitive Inner  { get; set; }
+    public required UniScalar Inner  { get; set; }
 
     public UniDatTypeKind Kind() {
-        return UniDatTypeKind.Primitive;
+        return UniDatTypeKind.Scalar;
     }
 
     public static UniDatTypeKind KindStatic() {
-        return UniDatTypeKind.Primitive;
+        return UniDatTypeKind.Scalar;
     }
 
-    public static UniDatTypePrimitive AsPrimitive(UniDatType value)
+    public static UniDatTypeScalar AsScalar(UniDatType value)
     {
         switch (value)
         {
-            case UniDatTypePrimitive  v:
+            case UniDatTypeScalar  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -86,9 +86,9 @@ public class UniDatTypePrimitive : UniDatType
     }
 }
 
-public class UniDatTypePrimitiveFormatter : IMessagePackFormatter<UniDatTypePrimitive?>
+public class UniDatTypeScalarFormatter : IMessagePackFormatter<UniDatTypeScalar?>
 {
-    public void Serialize(ref MessagePackWriter writer, UniDatTypePrimitive? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, UniDatTypeScalar? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -99,15 +99,15 @@ public class UniDatTypePrimitiveFormatter : IMessagePackFormatter<UniDatTypePrim
         MessagePackSerializer.Serialize(ref writer, value.Inner, options);
     }
 
-    public UniDatTypePrimitive? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public UniDatTypeScalar? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
             return null;
         }
 
-        UniPrimitive inner = MessagePackSerializer.Deserialize<UniPrimitive>(ref reader, options)!;
-        return new UniDatTypePrimitive { Inner= inner};
+        UniScalar inner = MessagePackSerializer.Deserialize<UniScalar>(ref reader, options)!;
+        return new UniDatTypeScalar { Inner= inner};
     }
 }
 

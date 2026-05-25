@@ -5,7 +5,7 @@ use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
+use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
@@ -17,19 +17,29 @@ use tracing::info;
 #[test]
 fn test_mudud_restart_persistence_iouring() -> RS<()> {
     log_setup("info");
-    if !mudu_sys::io_uring_available() {
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip restart persistence iouring test: io_uring unavailable");
         return Ok(());
     }
     info!("enable restart persistence iouring test: io_uring available");
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
+    run_restart_persistence(ServerMode::IOUring)
+}
+
+#[test]
+fn test_mudud_restart_persistence_tokio() -> RS<()> {
+    log_setup("info");
+    run_restart_persistence(ServerMode::Tokio)
+}
+
+fn run_restart_persistence(server_mode: ServerMode) -> RS<()> {
+    let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
 
-    println!("Step 1: Start mudud (io_uring mode)");
+    println!("Step 1: Start mudud ({server_mode:?} mode)");
     {
-        let _server = ctx.start_server()?;
+        let server = ctx.start_server()?;
 
         println!("Step 2: mcli connect and perform CRUD");
         let script = concat!(
@@ -40,6 +50,7 @@ fn test_mudud_restart_persistence_iouring() -> RS<()> {
         let _ = run_shell_script_outputs(&ctx, "demo", script)?;
 
         println!("Step 3: Stop mudud");
+        drop(server);
     } // _server dropped here, stopping the server
 
     // Give it a small moment to ensure ports are released
@@ -47,7 +58,7 @@ fn test_mudud_restart_persistence_iouring() -> RS<()> {
 
     println!("Step 4: Restart mudud");
     {
-        let _server = ctx.start_server()?;
+        let server = ctx.start_server()?;
 
         println!("Step 5: mcli reconnect and verify data");
         let script = "SELECT name FROM t_restart WHERE id = 100;\n\\q\n";
@@ -61,9 +72,17 @@ fn test_mudud_restart_persistence_iouring() -> RS<()> {
         );
 
         println!("Step 6: Final stop");
+        drop(server);
     }
 
     Ok(())
+}
+
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
+    }
 }
 
 // Helpers adapted from test_interactive.rs
@@ -131,7 +150,14 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
                 };
 
                 println!("  [mcli] Sending request: {}", statement);
-                let output = client.command(request).await?;
+                let output = tokio::time::timeout(Duration::from_secs(20), client.command(request))
+                    .await
+                    .map_err(|_| {
+                        mudu::m_error!(
+                            mudu::error::ec::EC::TokioErr,
+                            format!("mcli command timed out: {}", statement)
+                        )
+                    })??;
                 println!("  [mcli] Received response.");
                 outputs.push(output);
             }
@@ -248,14 +274,18 @@ impl TestContext {
     fn start_server(&self) -> RS<RunningServer> {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
+        let (ready, ready_waiter) = notify_wait();
         println!("  [server] Spawning server thread...");
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
+        let handle = thread::spawn(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+        });
         println!("  [server] Waiting for HTTP port {}...", self.http_port);
         wait_until_port_ready(self.http_port, "HTTP")?;
-        if self.server_mode == ServerMode::IOUring {
+        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             println!("  [server] Waiting for TCP port {}...", self.tcp_port);
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
+        wait_until_backend_ready(ready_waiter, "backend")?;
         println!("  [server] Server ready.");
         Ok(RunningServer {
             stop,
@@ -283,7 +313,7 @@ impl TestContext {
     fn client_port(&self) -> u16 {
         match self.server_mode {
             ServerMode::Legacy => self.pg_port,
-            ServerMode::IOUring => self.tcp_port,
+            ServerMode::IOUring | ServerMode::Tokio => self.tcp_port,
         }
     }
 }
@@ -319,7 +349,7 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -328,4 +358,27 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
             service_name, port
         )
     ))
+}
+
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
+    // A listening socket only proves that bind/listen completed. In io_uring
+    // mode the workers may still be replaying WAL, so tests must also wait for
+    // the backend's logical readiness barrier before issuing requests.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
+    })
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
+        )
+    })?;
+    result.map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("{} ready barrier timed out", service_name)
+        )
+    })?;
+    Ok(())
 }

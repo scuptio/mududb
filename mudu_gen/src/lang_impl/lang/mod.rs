@@ -4,7 +4,7 @@ pub mod lang_data_type;
 pub mod lang_handle_tuple;
 pub mod lang_kind;
 pub mod lang_macro_rule;
-pub mod non_primitive;
+pub mod non_scalar;
 mod record_fields;
 pub(crate) mod record_info;
 pub(crate) mod render;

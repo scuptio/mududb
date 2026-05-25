@@ -1,9 +1,9 @@
 use mududb::common::result::RS;
 use mududb::common::xid::XID;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 use mududb::types::datum::{Datum, DatumDyn};
 use object::Wallets;
-use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
 /**mudu-proc**/
 pub fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {

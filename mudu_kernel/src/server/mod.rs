@@ -30,6 +30,7 @@ pub mod message_bus_api;
 #[cfg(target_os = "linux")]
 #[path = "linux/message_bus_runtime.rs"]
 mod message_bus_runtime;
+mod message_bus_state;
 mod message_dispatcher;
 pub mod partition_router;
 mod partition_rpc;
@@ -51,6 +52,8 @@ mod task;
 #[cfg(target_os = "linux")]
 #[path = "linux/task_registry.rs"]
 pub(crate) mod task_registry;
+#[cfg(test)]
+pub(crate) mod test_meta_mgr;
 #[cfg(target_os = "linux")]
 #[path = "linux/transferred_connection.rs"]
 mod transferred_connection;

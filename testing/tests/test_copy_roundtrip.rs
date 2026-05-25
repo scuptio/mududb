@@ -5,39 +5,49 @@ use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
+use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{debug, info};
 
 #[test]
 fn copy_from_to_roundtrip_iouring() -> RS<()> {
-    log_setup("debug");
-    if !mudu_sys::io_uring_available() {
+    log_setup("info");
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip copy roundtrip iouring test: io_uring unavailable");
         return Ok(());
     }
     info!("enable copy roundtrip iouring test: io_uring available");
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
+    run_copy_from_to_roundtrip(ServerMode::IOUring)
+}
+
+#[test]
+fn copy_from_to_roundtrip_tokio() -> RS<()> {
+    log_setup("info");
+    run_copy_from_to_roundtrip(ServerMode::Tokio)
+}
+
+fn run_copy_from_to_roundtrip(server_mode: ServerMode) -> RS<()> {
+    let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip copy roundtrip test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
-    let _server = ctx.start_server()?;
-    let _cwd_guard = CwdGuard::change_to(&ctx.base_dir)?;
+    let server = ctx.start_server()?;
 
     let suffix = mudu_sys::random::uuid_v4();
-    // Parser currently keeps quote chars in file path, so commands use paths containing `'`.
-    let copy_from_file = format!("'copy_from_{suffix}.csv'");
-    let copy_to_file = format!("'copy_to_{suffix}.csv'");
+    let copy_from_path = ctx.base_dir.join(format!("copy_from_{suffix}.csv"));
+    let copy_to_path = ctx.base_dir.join(format!("copy_to_{suffix}.csv"));
+    let copy_from_file = format!("'{}'", copy_from_path.display());
+    let copy_to_file = format!("'{}'", copy_to_path.display());
     let input_csv = "id,name\n1,Alice\n2,Bob\n";
-    fs::write(&copy_from_file, input_csv).map_err(|e| {
+    fs::write(&copy_from_path, input_csv).map_err(|e| {
         mudu::m_error!(
             mudu::error::ec::EC::IOErr,
-            format!("write input csv {} error", copy_from_file),
+            format!("write input csv {} error", copy_from_path.display()),
             e
         )
     })?;
@@ -66,10 +76,10 @@ fn copy_from_to_roundtrip_iouring() -> RS<()> {
         output_text
     );
 
-    let exported = fs::read_to_string(&copy_to_file).map_err(|e| {
+    let exported = fs::read_to_string(&copy_to_path).map_err(|e| {
         mudu::m_error!(
             mudu::error::ec::EC::IOErr,
-            format!("read exported csv {} error", copy_to_file),
+            format!("read exported csv {} error", copy_to_path.display()),
             e
         )
     })?;
@@ -84,38 +94,16 @@ fn copy_from_to_roundtrip_iouring() -> RS<()> {
         exported
     );
 
-    let _ = fs::remove_file(&copy_from_file);
-    let _ = fs::remove_file(&copy_to_file);
+    let _ = fs::remove_file(&copy_from_path);
+    let _ = fs::remove_file(&copy_to_path);
+    drop(server);
     Ok(())
 }
 
-struct CwdGuard {
-    old: PathBuf,
-}
-
-impl CwdGuard {
-    fn change_to(target: &Path) -> RS<Self> {
-        let old = std::env::current_dir().map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::IOErr,
-                "read current working directory error",
-                e
-            )
-        })?;
-        std::env::set_current_dir(target).map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::IOErr,
-                format!("change current working directory to {} error", target.display()),
-                e
-            )
-        })?;
-        Ok(Self { old })
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.old);
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
     }
 }
 
@@ -242,6 +230,7 @@ struct RunningServer {
 
 impl Drop for RunningServer {
     fn drop(&mut self) {
+        debug!("test copy_roundtrip dropping running server");
         self.stop.notify_all();
         if let Some(handle) = self.handle.take() {
             let join_result = handle.join().expect("join server thread");
@@ -249,6 +238,7 @@ impl Drop for RunningServer {
                 panic!("server stopped with error: {err}");
             }
         }
+        debug!("test copy_roundtrip dropped running server");
     }
 }
 
@@ -304,11 +294,15 @@ impl TestContext {
             "starting backend server"
         );
         let (stop, waiter) = notify_wait();
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
+        let (ready, ready_waiter) = notify_wait();
+        let handle = thread::spawn(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+        });
         wait_until_port_ready(self.http_port, "HTTP")?;
-        if self.server_mode == ServerMode::IOUring {
+        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
+        wait_until_backend_ready(ready_waiter, "backend")?;
         debug!("backend server ready");
         Ok(RunningServer {
             stop,
@@ -336,7 +330,7 @@ impl TestContext {
     fn client_port(&self) -> u16 {
         match self.server_mode {
             ServerMode::Legacy => self.pg_port,
-            ServerMode::IOUring => self.tcp_port,
+            ServerMode::IOUring | ServerMode::Tokio => self.tcp_port,
         }
     }
 }
@@ -372,7 +366,7 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -381,4 +375,27 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
             service_name, port
         )
     ))
+}
+
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
+    // The ready barrier keeps tests from racing io_uring listener startup with
+    // the later point where every worker has finished recovery and can serve
+    // requests.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
+    })
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
+        )
+    })?;
+    result.map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("{} ready barrier timed out", service_name)
+        )
+    })?;
+    Ok(())
 }

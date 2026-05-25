@@ -33,8 +33,8 @@ pub trait RequestResponseWorker: Send + Sync {
     ) -> RS<ProcedureInvokeResponse>;
 }
 
-pub trait WorkerRuntime: RequestResponseWorker + WorkerLocal {}
+pub trait WorkerRuntimeApi: RequestResponseWorker + WorkerLocal {}
 
-impl<T> WorkerRuntime for T where T: RequestResponseWorker + WorkerLocal + ?Sized {}
+impl<T> WorkerRuntimeApi for T where T: RequestResponseWorker + WorkerLocal + ?Sized {}
 
-pub type WorkerRuntimeRef = Arc<dyn WorkerRuntime + Send + Sync>;
+pub type WorkerRuntimeRef = Arc<dyn WorkerRuntimeApi + Send + Sync>;

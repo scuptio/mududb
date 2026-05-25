@@ -1,6 +1,11 @@
 use crate::universal::uni_dat_value::UniDatValue;
-use crate::universal::uni_primitive_value::UniPrimitiveValue;
+use crate::universal::uni_scalar_value::UniScalarValue;
 use mudu::common::result::RS;
+use mudu::data_type::date::DateValue;
+use mudu::data_type::numeric::Numeric;
+use mudu::data_type::time::TimeValue;
+use mudu::data_type::timestamp::TimestampValue;
+use mudu::data_type::timestamptz::TimestampTzValue;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_type::dat_type_id::DatTypeID;
@@ -10,39 +15,61 @@ use mudu_type::datum::DatumDyn;
 impl UniDatValue {
     pub fn uni_to(self) -> RS<DatValue> {
         let value = match self {
-            UniDatValue::Primitive(value) => {
+            UniDatValue::Scalar(value) => {
                 let v = match value {
-                    UniPrimitiveValue::Bool(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive bool is not supported"));
+                    UniScalarValue::Bool(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar bool is not supported"));
                     }
-                    UniPrimitiveValue::U8(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive u8 is not supported"));
+                    UniScalarValue::U8(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar u8 is not supported"));
                     }
-                    UniPrimitiveValue::I8(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive i8 is not supported"));
+                    UniScalarValue::I8(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar i8 is not supported"));
                     }
-                    UniPrimitiveValue::U16(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive u16 is not supported"));
+                    UniScalarValue::U16(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar u16 is not supported"));
                     }
-                    UniPrimitiveValue::I16(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive i16 is not supported"));
+                    UniScalarValue::I16(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar i16 is not supported"));
                     }
-                    UniPrimitiveValue::U32(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive u32 is not supported"));
+                    UniScalarValue::U32(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar u32 is not supported"));
                     }
-                    UniPrimitiveValue::I32(v) => DatValue::from_i32(v),
-                    UniPrimitiveValue::U64(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive u64 is not supported"));
+                    UniScalarValue::I32(v) => DatValue::from_i32(v),
+                    UniScalarValue::U64(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar u64 is not supported"));
                     }
-                    UniPrimitiveValue::U128(v) => DatValue::from_u128(v),
-                    UniPrimitiveValue::I64(v) => DatValue::from_i64(v),
-                    UniPrimitiveValue::I128(v) => DatValue::from_i128(v),
-                    UniPrimitiveValue::F32(v) => DatValue::from_f32(v),
-                    UniPrimitiveValue::F64(v) => DatValue::from_f64(v),
-                    UniPrimitiveValue::Char(_) => {
-                        return Err(m_error!(EC::TypeErr, "primitive char is not supported"));
+                    UniScalarValue::U128(v) => DatValue::from_u128(v),
+                    UniScalarValue::I64(v) => DatValue::from_i64(v),
+                    UniScalarValue::I128(v) => DatValue::from_i128(v),
+                    UniScalarValue::F32(v) => DatValue::from_f32(v),
+                    UniScalarValue::F64(v) => DatValue::from_f64(v),
+                    UniScalarValue::Char(_) => {
+                        return Err(m_error!(EC::TypeErr, "scalar char is not supported"));
                     }
-                    UniPrimitiveValue::String(v) => DatValue::from_string(v),
+                    UniScalarValue::String(v) => DatValue::from_string(v),
+                    UniScalarValue::Numeric(v) => DatValue::from_numeric(
+                        Numeric::parse(v.as_str())
+                            .map_err(|e| m_error!(EC::TypeErr, format!("invalid numeric {}", e)))?,
+                    ),
+                    UniScalarValue::Date(v) => DatValue::from_date(
+                        DateValue::parse(v.as_str())
+                            .map_err(|e| m_error!(EC::TypeErr, format!("invalid date {}", e)))?,
+                    ),
+                    UniScalarValue::Time(v) => DatValue::from_time(
+                        TimeValue::parse(v.as_str())
+                            .map_err(|e| m_error!(EC::TypeErr, format!("invalid time {}", e)))?,
+                    ),
+                    UniScalarValue::Timestamp(v) => {
+                        DatValue::from_timestamp(TimestampValue::parse(v.as_str()).map_err(
+                            |e| m_error!(EC::TypeErr, format!("invalid timestamp {}", e)),
+                        )?)
+                    }
+                    UniScalarValue::TimestampTz(v) => {
+                        DatValue::from_timestamptz(TimestampTzValue::parse(v.as_str()).map_err(
+                            |e| m_error!(EC::TypeErr, format!("invalid timestamptz {}", e)),
+                        )?)
+                    }
                 };
                 v
             }
@@ -71,25 +98,46 @@ impl UniDatValue {
         let id = dat_value.dat_type_id()?;
         let mu_v = match id {
             DatTypeID::I32 => {
-                UniDatValue::from_primitive(UniPrimitiveValue::I32(dat_value.expect_i32().clone()))
+                UniDatValue::from_scalar(UniScalarValue::I32(dat_value.expect_i32().clone()))
             }
             DatTypeID::I64 => {
-                UniDatValue::from_primitive(UniPrimitiveValue::I64(dat_value.expect_i64().clone()))
+                UniDatValue::from_scalar(UniScalarValue::I64(dat_value.expect_i64().clone()))
             }
-            DatTypeID::I128 => UniDatValue::from_primitive(UniPrimitiveValue::I128(
-                dat_value.expect_i128().clone(),
-            )),
-            DatTypeID::U128 => UniDatValue::from_primitive(UniPrimitiveValue::U128(
-                dat_value.expect_u128().clone(),
-            )),
+            DatTypeID::I128 => {
+                UniDatValue::from_scalar(UniScalarValue::I128(dat_value.expect_i128().clone()))
+            }
+            DatTypeID::U128 => {
+                UniDatValue::from_scalar(UniScalarValue::U128(dat_value.expect_u128().clone()))
+            }
             DatTypeID::F32 => {
-                UniDatValue::from_primitive(UniPrimitiveValue::F32(dat_value.expect_f32().clone()))
+                UniDatValue::from_scalar(UniScalarValue::F32(dat_value.expect_f32().clone()))
             }
             DatTypeID::F64 => {
-                UniDatValue::from_primitive(UniPrimitiveValue::F64(dat_value.expect_f64().clone()))
+                UniDatValue::from_scalar(UniScalarValue::F64(dat_value.expect_f64().clone()))
             }
-            DatTypeID::String => UniDatValue::from_primitive(UniPrimitiveValue::String(
-                dat_value.expect_string().clone(),
+            DatTypeID::String => {
+                UniDatValue::from_scalar(UniScalarValue::String(dat_value.expect_string().clone()))
+            }
+            DatTypeID::Numeric => UniDatValue::from_scalar(UniScalarValue::Numeric(
+                dat_value.expect_numeric().to_plain_string(),
+            )),
+            DatTypeID::Date => {
+                UniDatValue::from_scalar(UniScalarValue::Date(dat_value.expect_date().format()))
+            }
+            DatTypeID::Time => {
+                UniDatValue::from_scalar(UniScalarValue::Time(dat_value.expect_time().format(6)))
+            }
+            DatTypeID::Timestamp => UniDatValue::from_scalar(UniScalarValue::Timestamp(
+                dat_value
+                    .expect_timestamp()
+                    .format(6)
+                    .map_err(|e| m_error!(EC::TypeErr, e))?,
+            )),
+            DatTypeID::TimestampTz => UniDatValue::from_scalar(UniScalarValue::TimestampTz(
+                dat_value
+                    .expect_timestamptz()
+                    .format(6)
+                    .map_err(|e| m_error!(EC::TypeErr, e))?,
             )),
             DatTypeID::Array => {
                 let array = dat_value.into_array();

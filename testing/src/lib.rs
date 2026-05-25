@@ -28,7 +28,7 @@ pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -47,7 +47,7 @@ pub fn connect_sync_client_with_retry(port: u16) -> RS<SyncClient> {
             Ok(client) => return Ok(client),
             Err(err) => {
                 last_err = Some(err);
-                mudu_sys::task::sleep_blocking(Duration::from_millis(50));
+                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(50));
             }
         }
     }

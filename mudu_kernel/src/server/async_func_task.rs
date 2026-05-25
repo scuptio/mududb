@@ -3,6 +3,7 @@
 use crate::server::routing::SessionOpenTransferAction;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu_utils::task_id::TaskID;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 pub struct AsyncFuncTask {
     conn_id: u64,
+    trace_task_id: TaskID,
     request_id: u64,
     future: AsyncFuncFuture,
     queued: Arc<AtomicBool>,
@@ -58,12 +60,14 @@ impl SessionTransferDispatch {
 impl AsyncFuncTask {
     pub(in crate::server) fn new(
         conn_id: u64,
+        trace_task_id: TaskID,
         request_id: u64,
         future: AsyncFuncFuture,
         completed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             conn_id,
+            trace_task_id,
             request_id,
             future,
             queued: Arc::new(AtomicBool::new(false)),
@@ -74,6 +78,10 @@ impl AsyncFuncTask {
 
     pub(in crate::server) fn conn_id(&self) -> u64 {
         self.conn_id
+    }
+
+    pub(in crate::server) fn trace_task_id(&self) -> TaskID {
+        self.trace_task_id
     }
 
     pub(in crate::server) fn request_id(&self) -> u64 {

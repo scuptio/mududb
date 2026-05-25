@@ -988,7 +988,7 @@ pub(crate) fn complete_socket_io(
 mod tests {
     use super::*;
     use crate::io::worker_ring::{set_current_worker_ring, unset_current_worker_ring};
-    use tokio::task::yield_now;
+    use mudu_sys::tokio::task::yield_now;
 
     fn install_test_ring() -> Arc<WorkerLocalRing> {
         let ring = Arc::new(WorkerLocalRing::new());
@@ -999,7 +999,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn socket_and_connect_enqueue_requests() {
         let ring = install_test_ring();
-        let create_task = tokio::spawn(async { socket(libc::AF_INET, libc::SOCK_STREAM, 0).await });
+        let create_task =
+            mudu_sys::tokio::spawn(async { socket(libc::AF_INET, libc::SOCK_STREAM, 0).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Socket(request)) => {
@@ -1013,8 +1014,9 @@ mod tests {
         let sock = create_task.await.unwrap().unwrap();
         assert_eq!(sock.fd(), 41);
 
-        let connect_task =
-            tokio::spawn(async move { connect(&sock, "127.0.0.1:9527".parse().unwrap()).await });
+        let connect_task = mudu_sys::tokio::spawn(async move {
+            connect(&sock, "127.0.0.1:9527".parse().unwrap()).await
+        });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Connect(request)) => {
@@ -1032,7 +1034,7 @@ mod tests {
         let ring = install_test_ring();
         let sock = IoSocket { fd: 51 };
 
-        let accept_task = tokio::spawn(async move { accept(&sock).await });
+        let accept_task = mudu_sys::tokio::spawn(async move { accept(&sock).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Accept(request)) => {
@@ -1045,7 +1047,7 @@ mod tests {
         assert_eq!(accepted.fd(), 61);
         assert_eq!(addr, "127.0.0.1:9010".parse::<SocketAddr>().unwrap());
 
-        let recv_task = tokio::spawn(async move {
+        let recv_task = mudu_sys::tokio::spawn(async move {
             let mut buf = [0u8; 8];
             let read = recv_into(&accepted, &mut buf, libc::MSG_DONTWAIT).await?;
             Ok::<_, mudu::error::err::MError>((read, buf))
@@ -1072,8 +1074,9 @@ mod tests {
         assert_eq!(&recv_buf[..3], &[7, 8, 9]);
 
         let send_sock = IoSocket { fd: 71 };
-        let send_task =
-            tokio::spawn(async move { send(&send_sock, vec![1, 2, 3], libc::MSG_NOSIGNAL).await });
+        let send_task = mudu_sys::tokio::spawn(async move {
+            send(&send_sock, vec![1, 2, 3], libc::MSG_NOSIGNAL).await
+        });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Send(request)) => {
@@ -1088,7 +1091,7 @@ mod tests {
 
         let shutdown_sock = IoSocket { fd: 71 };
         let shutdown_task =
-            tokio::spawn(async move { shutdown(&shutdown_sock, libc::SHUT_WR).await });
+            mudu_sys::tokio::spawn(async move { shutdown(&shutdown_sock, libc::SHUT_WR).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Shutdown(request)) => {
@@ -1100,7 +1103,7 @@ mod tests {
         }
         shutdown_task.await.unwrap().unwrap();
 
-        let close_task = tokio::spawn(async move { close(IoSocket { fd: 71 }).await });
+        let close_task = mudu_sys::tokio::spawn(async move { close(IoSocket { fd: 71 }).await });
         yield_now().await;
         match ring.take_pending().unwrap().unwrap().1 {
             WorkerRingOp::Socket(SocketIoRequest::Close(request)) => {
