@@ -10,9 +10,12 @@ use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{debug, info};
+
+const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[test]
 fn copy_from_to_roundtrip_iouring() -> RS<()> {
@@ -295,14 +298,17 @@ impl TestContext {
         );
         let (stop, waiter) = notify_wait();
         let (ready, ready_waiter) = notify_wait();
+        let (exit_tx, exit_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
-            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+            let result = Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready));
+            let _ = exit_tx.send(result.clone());
+            result
         });
-        wait_until_port_ready(self.http_port, "HTTP")?;
+        wait_until_port_ready(self.http_port, "HTTP", BACKEND_STARTUP_TIMEOUT)?;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
-            wait_until_port_ready(self.tcp_port, "TCP")?;
+            wait_until_port_ready(self.tcp_port, "TCP", BACKEND_STARTUP_TIMEOUT)?;
         }
-        wait_until_backend_ready(ready_waiter, "backend")?;
+        wait_until_backend_ready(ready_waiter, &exit_rx, "backend", BACKEND_STARTUP_TIMEOUT)?;
         debug!("backend server ready");
         Ok(RunningServer {
             stop,
@@ -360,8 +366,8 @@ fn reserve_port() -> RS<Option<u16>> {
     }
 }
 
-fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
+fn wait_until_port_ready(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
     while mudu_sys::time::instant_now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
@@ -371,31 +377,68 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
         format!(
-            "{} server did not become ready on port {}",
-            service_name, port
+            "{} server did not become ready on port {} within {:?}",
+            service_name, port, timeout
         )
     ))
 }
 
-fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
-    // The ready barrier keeps tests from racing io_uring listener startup with
-    // the later point where every worker has finished recovery and can serve
-    // requests.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
-        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
-    })
-    .map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("wait for {} ready barrier runtime error", service_name),
-            e
+fn wait_until_backend_ready(
+    waiter: Waiter,
+    exit_rx: &mpsc::Receiver<RS<()>>,
+    service_name: &str,
+    timeout: Duration,
+) -> RS<()> {
+    // The ready barrier keeps tests from racing startup with the later point
+    // where the backend can actually serve requests. Poll the barrier in small
+    // slices so an early server-thread failure surfaces immediately instead of
+    // degenerating into a generic timeout.
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    while mudu_sys::time::instant_now() < deadline {
+        match exit_rx.try_recv() {
+            Ok(Ok(())) => {
+                return Err(mudu::m_error!(
+                    mudu::error::ec::EC::ThreadErr,
+                    format!("{service_name} stopped before publishing ready barrier")
+                ));
+            }
+            Ok(Err(err)) => {
+                return Err(mudu::m_error!(
+                    mudu::error::ec::EC::ThreadErr,
+                    format!("{service_name} exited before publishing ready barrier"),
+                    err
+                ));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err(mudu::m_error!(
+                    mudu::error::ec::EC::ThreadErr,
+                    format!("{service_name} startup monitor disconnected")
+                ));
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+
+        let result = mudu_sys::task_async::block_on_tokio_current_thread({
+            let waiter = waiter.clone();
+            async move { tokio::time::timeout(Duration::from_millis(100), waiter.wait()).await }
+        })
+        .map_err(|e| {
+            mudu::m_error!(
+                mudu::error::ec::EC::TokioErr,
+                format!("wait for {} ready barrier runtime error", service_name),
+                e
+            )
+        })?;
+        if result.is_ok() {
+            return Ok(());
+        }
+    }
+
+    Err(mudu::m_error!(
+        mudu::error::ec::EC::TokioErr,
+        format!(
+            "{} ready barrier timed out after {:?}",
+            service_name, timeout
         )
-    })?;
-    result.map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("{} ready barrier timed out", service_name)
-        )
-    })?;
-    Ok(())
+    ))
 }
