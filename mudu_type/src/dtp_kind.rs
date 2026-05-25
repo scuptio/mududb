@@ -1,8 +1,12 @@
 use crate::dat_type_id::DatTypeID;
 use crate::dt_param::DTPDyn;
 use crate::dtp_array::DTPArray;
+use crate::dtp_numeric::DTPNumeric;
 use crate::dtp_object::DTPRecord;
 use crate::dtp_string::DTPString;
+use crate::dtp_time::DTPTime;
+use crate::dtp_timestamp::DTPTimestamp;
+use crate::dtp_timestamptz::DTPTimestampTz;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
 use paste::paste;
@@ -12,6 +16,10 @@ use std::cmp::Ordering;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DTPKind {
     String(Box<DTPString>),
+    Numeric(Box<DTPNumeric>),
+    Time(Box<DTPTime>),
+    Timestamp(Box<DTPTimestamp>),
+    TimestampTz(Box<DTPTimestampTz>),
     Record(Box<DTPRecord>),
     Array(Box<DTPArray>),
 }
@@ -102,6 +110,10 @@ impl Order for DTPKind {
 
 impl_dtp_kind_methods! {
     (DTPString, String, string),
+    (DTPNumeric, Numeric, numeric),
+    (DTPTime, Time, time),
+    (DTPTimestamp, Timestamp, timestamp),
+    (DTPTimestampTz, TimestampTz, timestamptz),
     (DTPRecord, Record, object),
     (DTPArray, Array, array),
 }

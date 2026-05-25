@@ -1,4 +1,4 @@
-use crate::universal::uni_primitive::UniPrimitive;
+use crate::universal::uni_scalar::UniScalar;
 
 use crate::universal::uni_record_type::UniRecordType;
 
@@ -7,7 +7,7 @@ use crate::universal::uni_result_type::UniResultType;
 #[derive(Debug, Clone)]
 
 pub enum UniDatType {
-    Primitive(UniPrimitive),
+    Scalar(UniScalar),
 
     Array(Box<UniDatType>),
 
@@ -28,25 +28,25 @@ pub enum UniDatType {
 
 impl Default for UniDatType {
     fn default() -> Self {
-        Self::Primitive(Default::default())
+        Self::Scalar(Default::default())
     }
 }
 
 impl UniDatType {
-    pub fn from_primitive(inner: UniPrimitive) -> Self {
-        Self::Primitive(inner)
+    pub fn from_scalar(inner: UniScalar) -> Self {
+        Self::Scalar(inner)
     }
 
-    pub fn as_primitive(&self) -> Option<&UniPrimitive> {
+    pub fn as_scalar(&self) -> Option<&UniScalar> {
         match self {
-            Self::Primitive(inner) => Some(inner),
+            Self::Scalar(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn expect_primitive(&self) -> &UniPrimitive {
+    pub fn expect_scalar(&self) -> &UniScalar {
         match self {
-            Self::Primitive(inner) => inner,
+            Self::Scalar(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
@@ -186,7 +186,7 @@ impl serde::Serialize for UniDatType {
         use serde::ser::SerializeSeq;
         let mut serialize_seq = serializer.serialize_seq(Some(2))?;
         match self {
-            UniDatType::Primitive(inner) => {
+            UniDatType::Scalar(inner) => {
                 serialize_seq.serialize_element(&0u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
@@ -262,9 +262,9 @@ impl<'de> serde::de::Visitor<'de> for UniDatTypeVisitor {
         match id {
             0 => {
                 let value = seq
-                    .next_element::<UniPrimitive>()?
+                    .next_element::<UniScalar>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Primitive(value))
+                Ok(Self::Value::Scalar(value))
             }
 
             1 => {

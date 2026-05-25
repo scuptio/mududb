@@ -1,7 +1,11 @@
 use futures::executor::block_on;
+use mudu_utils::sync::f_mutex::FMutex;
 use std::cell::{Cell, UnsafeCell};
+use std::future::Future;
 use std::ops::Bound;
+use std::sync::Arc;
 
+use crate::async_rt::contract::AsyncFs;
 use mudu::common::id::{TupleID, OID};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -18,6 +22,8 @@ use crate::index::index_key::compare_context::CompareContext;
 use crate::index::index_key::key_tuple::KeyTuple;
 use crate::server::worker_snapshot::WorkerSnapshot;
 use crate::storage::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use mudu_utils::scoped_task_trace;
+use tracing::trace;
 
 // Relation WAL does not use string file kinds. The relation layer alone owns
 // the mapping from logical role to numeric file index.
@@ -25,6 +31,12 @@ const KEY_FILE_INDEX: u32 = 0;
 const VALUE_FILE_INDEX: u32 = 1;
 
 pub struct Relation {
+    // This lock is used on the io_uring worker path. We intentionally avoid
+    // Tokio's mutex here because we observed `tokio::sync::Mutex::lock().await`
+    // stall under the custom io_uring/task-runtime integration even when the
+    // lock was not contended. `futures::lock::Mutex` does not depend on Tokio's
+    // waiter/waker machinery and is stable in this path.
+    access_lock: FMutex<()>,
     inner: RelationInner,
 }
 
@@ -46,12 +58,30 @@ unsafe impl Sync for RelationInner {}
 impl Relation {
     pub fn new(table_id: OID, partition_id: OID, path: String, table_desc: &TableDesc) -> RS<Self> {
         Ok(Self {
+            access_lock: FMutex::new(()),
             inner: RelationInner::new(table_id, partition_id, path, table_desc)?,
         })
     }
 
+    pub async fn new_with_fs(
+        fs: Arc<dyn AsyncFs>,
+        table_id: OID,
+        partition_id: OID,
+        path: String,
+        table_desc: &TableDesc,
+    ) -> RS<Self> {
+        scoped_task_trace!();
+        Ok(Self {
+            access_lock: FMutex::new(()),
+            inner: RelationInner::new_with_fs(fs, table_id, partition_id, path, table_desc).await?,
+        })
+    }
+
     pub async fn has_visible_version(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
-        Ok(self.inner.visible_meta(key, snapshot).await?.is_some())
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.visible_meta(key, snapshot).await;
+        drop(guard);
+        Ok(result?.is_some())
     }
 
     pub fn has_visible_version_sync(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
@@ -63,7 +93,11 @@ impl Relation {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<Option<Vec<u8>>> {
-        self.inner.visible_value(key, snapshot).await
+        mudu_utils::scoped_task_trace!();
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.visible_value(key, snapshot).await;
+        drop(guard);
+        result
     }
 
     pub fn visible_value_sync(
@@ -79,7 +113,10 @@ impl Relation {
         bounds: (Bound<&[u8]>, Bound<&[u8]>),
         snapshot: &WorkerSnapshot,
     ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
-        self.inner.visible_range(bounds, snapshot).await
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.visible_range(bounds, snapshot).await;
+        drop(guard);
+        result
     }
 
     pub fn visible_range_sync(
@@ -91,7 +128,10 @@ impl Relation {
     }
 
     pub async fn has_write_conflict(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
-        self.inner.has_write_conflict(key, snapshot).await
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.has_write_conflict(key, snapshot).await;
+        drop(guard);
+        result
     }
 
     pub fn has_write_conflict_sync(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
@@ -99,7 +139,10 @@ impl Relation {
     }
 
     pub async fn write_value(&self, key: Vec<u8>, value: Vec<u8>, xid: u64) -> RS<()> {
-        self.inner.write_row(key, Some(value), xid).await
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.write_row(key, Some(value), xid).await;
+        drop(guard);
+        result
     }
 
     pub fn write_value_sync(&self, key: Vec<u8>, value: Vec<u8>, xid: u64) -> RS<()> {
@@ -107,7 +150,10 @@ impl Relation {
     }
 
     pub async fn write_delete(&self, key: Vec<u8>, xid: u64) -> RS<()> {
-        self.inner.write_row(key, None, xid).await
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.write_row(key, None, xid).await;
+        drop(guard);
+        result
     }
 
     pub fn write_delete_sync(&self, key: Vec<u8>, xid: u64) -> RS<()> {
@@ -115,7 +161,10 @@ impl Relation {
     }
 
     pub async fn write_row(&self, key: Vec<u8>, value: Option<Vec<u8>>, xid: u64) -> RS<()> {
-        self.inner.write_row(key, value, xid).await
+        let guard = self.access_lock.lock().await;
+        let result = self.inner.write_row(key, value, xid).await;
+        drop(guard);
+        result
     }
 
     pub fn write_row_sync(&self, key: Vec<u8>, value: Option<Vec<u8>>, xid: u64) -> RS<()> {
@@ -167,6 +216,85 @@ impl RelationInner {
         Ok(relation)
     }
 
+    async fn new_with_fs(
+        fs: Arc<dyn AsyncFs>,
+        table_id: OID,
+        partition_id: OID,
+        path: String,
+        table_desc: &TableDesc,
+    ) -> RS<Self> {
+        mudu_utils::scoped_task_trace!();
+        trace!(table_id, partition_id, path = %path, "relation new_with_fs start");
+        let key_identity = TimeSeriesFileIdentity {
+            partition_id,
+            table_id,
+            file_index: KEY_FILE_INDEX,
+        };
+        let value_identity = TimeSeriesFileIdentity {
+            partition_id,
+            table_id,
+            file_index: VALUE_FILE_INDEX,
+        };
+        let key_schema_hash = tuple_schema_hash(b'K', table_desc.key_desc());
+        let value_schema_hash = tuple_schema_hash(b'V', table_desc.value_desc());
+
+        let relation = Self {
+            _table_id: table_id,
+            _partition_id: partition_id,
+            index: UnsafeCell::new(BTreeIndex::new(CompareContext {
+                result: Ok(()),
+                comparator: TupleComparator::new(),
+                desc: table_desc.key_desc().clone(),
+            })),
+            key_file: UnsafeCell::new({
+                trace!(
+                    table_id,
+                    partition_id,
+                    file_index = KEY_FILE_INDEX,
+                    "relation opening key file"
+                );
+                TimeSeriesFile::open_relation_file_with_fs(
+                    fs.clone(),
+                    &path,
+                    key_identity,
+                    key_schema_hash,
+                    true,
+                )
+                .await
+                .map_err(|e| m_error!(EC::IOErr, "open relation key file failed", e))?
+            }),
+            value_file: UnsafeCell::new({
+                trace!(
+                    table_id,
+                    partition_id,
+                    file_index = VALUE_FILE_INDEX,
+                    "relation opening value file"
+                );
+                TimeSeriesFile::open_relation_file_with_fs(
+                    fs.clone(),
+                    &path,
+                    value_identity,
+                    value_schema_hash,
+                    true,
+                )
+                .await
+                .map_err(|e| m_error!(EC::IOErr, "open relation value file failed", e))?
+            }),
+            next_tuple_id: Cell::new(1),
+        };
+        trace!(
+            table_id,
+            partition_id,
+            "relation files opened, rebuilding from files"
+        );
+        relation
+            .rebuild_from_files_async()
+            .await
+            .map_err(|e| m_error!(EC::StorageErr, "rebuild relation from files failed", e))?;
+        trace!(table_id, partition_id, "relation new_with_fs done");
+        Ok(relation)
+    }
+
     fn rebuild_from_files(&self) -> RS<()> {
         let rows = self.key_file().scan_range_sync(0, u64::MAX)?;
         let mut max_tuple_id = 0;
@@ -214,11 +342,61 @@ impl RelationInner {
         Ok(())
     }
 
+    async fn rebuild_from_files_async(&self) -> RS<()> {
+        let rows = self.key_file().scan_range(0, u64::MAX).await?;
+        let mut max_tuple_id = 0;
+
+        for key_row in rows {
+            let tuple_id = key_row.tuple_id as TupleID;
+            max_tuple_id = max_tuple_id.max(tuple_id);
+
+            let key_tuple = KeyTuple::from(key_row.payload.clone());
+            let row = match self.index().get(&key_tuple)?.cloned() {
+                Some(row) => {
+                    let existing_tuple_id = row
+                        .tuple_id()
+                        .await?
+                        .ok_or_else(|| m_error!(EC::InternalErr, "missing tuple id"))?;
+                    if existing_tuple_id as u64 != key_row.tuple_id {
+                        return Err(m_error!(
+                            EC::DecodeErr,
+                            format!(
+                                "tuple id mismatch for key rebuild: key={:?} existing={} file={}",
+                                key_tuple.as_slice(),
+                                existing_tuple_id,
+                                key_row.tuple_id
+                            )
+                        ));
+                    }
+                    row
+                }
+                None => DataRow::new(tuple_id),
+            };
+
+            let timestamp = Timestamp::new(key_row.timestamp, u64::MAX);
+            let version = match self
+                .value_file()
+                .get(key_row.timestamp, key_row.tuple_id)
+                .await?
+            {
+                Some(_) => VersionTuple::new(timestamp, Vec::new()),
+                None => VersionTuple::new_delete(timestamp),
+            };
+            row.write(version, None).await?;
+            let _ = self.index_mut().insert(key_tuple, row)?;
+        }
+
+        self.next_tuple_id
+            .set(max_tuple_id.saturating_add(1).max(1));
+        Ok(())
+    }
+
     async fn visible_meta(
         &self,
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<Option<(OID, VersionTuple)>> {
+        mudu_utils::scoped_task_trace!();
         let row = match self.index().get(key)? {
             Some(row) => row,
             None => return Ok(None),
@@ -228,8 +406,8 @@ impl RelationInner {
             .await?
             .ok_or_else(|| m_error!(EC::InternalErr, "missing tuple id"))?;
         let snapshot = snapshot.to_snapshot();
-        Ok(read_visible_version_async(row, &snapshot)
-            .await
+        let visible = read_visible_version_async(row, &snapshot).await;
+        Ok(visible
             .filter(|version| !version.is_deleted())
             .map(|version| (tuple_id, version)))
     }
@@ -239,7 +417,12 @@ impl RelationInner {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<Option<(OID, VersionTuple)>> {
-        block_on(self.visible_meta(key, snapshot))
+        let relation = self as *const RelationInner;
+        let key = key.clone();
+        let snapshot = snapshot.clone();
+        block_on_relation(
+            async move { unsafe { (&*relation).visible_meta(&key, &snapshot).await } },
+        )
     }
 
     async fn visible_value(
@@ -247,6 +430,7 @@ impl RelationInner {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<Option<Vec<u8>>> {
+        mudu_utils::scoped_task_trace!();
         let Some((tuple_id, version)) = self.visible_meta(key, snapshot).await? else {
             return Ok(None);
         };
@@ -256,7 +440,12 @@ impl RelationInner {
     }
 
     fn visible_value_sync(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<Option<Vec<u8>>> {
-        block_on(self.visible_value(key, snapshot))
+        let relation = self as *const RelationInner;
+        let key = key.clone();
+        let snapshot = snapshot.clone();
+        block_on_relation(
+            async move { unsafe { (&*relation).visible_value(&key, &snapshot).await } },
+        )
     }
 
     async fn visible_range(
@@ -287,7 +476,33 @@ impl RelationInner {
         bounds: (Bound<&[u8]>, Bound<&[u8]>),
         snapshot: &WorkerSnapshot,
     ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
-        block_on(self.visible_range(bounds, snapshot))
+        let relation = self as *const RelationInner;
+        let begin_key = match bounds.0 {
+            Bound::Included(key) => Bound::Included(key.to_vec()),
+            Bound::Excluded(key) => Bound::Excluded(key.to_vec()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let end_key = match bounds.1 {
+            Bound::Included(key) => Bound::Included(key.to_vec()),
+            Bound::Excluded(key) => Bound::Excluded(key.to_vec()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let snapshot = snapshot.clone();
+        block_on_relation(async move {
+            unsafe {
+                let begin = match &begin_key {
+                    Bound::Included(key) => Bound::Included(key.as_slice()),
+                    Bound::Excluded(key) => Bound::Excluded(key.as_slice()),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+                let end = match &end_key {
+                    Bound::Included(key) => Bound::Included(key.as_slice()),
+                    Bound::Excluded(key) => Bound::Excluded(key.as_slice()),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+                (&*relation).visible_range((begin, end), &snapshot).await
+            }
+        })
     }
 
     async fn has_write_conflict(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
@@ -301,7 +516,12 @@ impl RelationInner {
     }
 
     fn has_write_conflict_sync(&self, key: &KeyTuple, snapshot: &WorkerSnapshot) -> RS<bool> {
-        block_on(self.has_write_conflict(key, snapshot))
+        let relation = self as *const RelationInner;
+        let key = key.clone();
+        let snapshot = snapshot.clone();
+        block_on_relation(async move {
+            unsafe { (&*relation).has_write_conflict(&key, &snapshot).await }
+        })
     }
 
     async fn write_row(&self, key: Vec<u8>, value: Option<Vec<u8>>, xid: u64) -> RS<()> {
@@ -338,7 +558,39 @@ impl RelationInner {
     }
 
     fn write_row_sync(&self, key: Vec<u8>, value: Option<Vec<u8>>, xid: u64) -> RS<()> {
-        block_on(self.write_row(key, value, xid))
+        let key_tuple = KeyTuple::from(key.clone());
+        let row = match self.index().get(&key_tuple)?.cloned() {
+            Some(row) => row,
+            None => {
+                let tuple_id = self.alloc_tuple_id();
+                DataRow::new(tuple_id as u64)
+            }
+        };
+
+        let tuple_id = row
+            .tuple_id_sync()?
+            .ok_or_else(|| m_error!(EC::InternalErr, "missing tuple id"))?;
+        let timestamp = Timestamp::new(xid, u64::MAX);
+
+        // Recovery replays worker logs before the io_uring service loop starts
+        // driving completions. This path must therefore stay fully synchronous
+        // instead of wrapping the async relation writer in a local block_on,
+        // which can deadlock while waiting for worker-ring I/O that is not yet
+        // being pumped.
+        self.key_file_mut()
+            .insert_sync(timestamp.c_min(), tuple_id as u64, &key)?;
+        if let Some(value) = value.as_ref() {
+            self.value_file_mut()
+                .insert_sync(timestamp.c_min(), tuple_id as u64, value)?;
+        }
+
+        let version = match value {
+            Some(_) => VersionTuple::new(timestamp, Vec::new()),
+            None => VersionTuple::new_delete(timestamp),
+        };
+        row.write_sync(version, None)?;
+        let _ = self.index_mut().insert(key_tuple, row)?;
+        Ok(())
     }
 
     fn alloc_tuple_id(&self) -> TupleID {
@@ -348,16 +600,13 @@ impl RelationInner {
     }
 
     async fn read_value_payload(&self, timestamp: u64, tuple_id: OID) -> RS<Vec<u8>> {
-        self.value_file()
-            .get(timestamp, tuple_id as u64)
-            .await?
-            .map(|record| record.payload)
-            .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!("missing value payload ts={timestamp} tuple_id={tuple_id}")
-                )
-            })
+        let record = self.value_file().get(timestamp, tuple_id as u64).await?;
+        record.map(|record| record.payload).ok_or_else(|| {
+            m_error!(
+                EC::NoSuchElement,
+                format!("missing value payload ts={timestamp} tuple_id={tuple_id}")
+            )
+        })
     }
 
     fn index(&self) -> &BTreeIndex<DataRow> {
@@ -388,6 +637,18 @@ impl RelationInner {
     fn value_file_mut(&self) -> &mut TimeSeriesFile {
         // Safety: Relation is expected to be accessed from a single worker thread.
         unsafe { &mut *self.value_file.get() }
+    }
+}
+
+fn block_on_relation<F>(fut: F) -> F::Output
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    if mudu_sys::task_async::has_tokio_runtime() {
+        block_on(fut)
+    } else {
+        mudu_sys::task_async::block_on_tokio_current_thread(fut).unwrap()
     }
 }
 

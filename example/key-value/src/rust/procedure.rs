@@ -73,10 +73,10 @@ pub fn kv_read_modify_write(xid: XID, user_key: String, append_value: String) ->
 #[cfg(test)]
 mod tests {
     use super::{kv_insert, kv_read, kv_read_modify_write, kv_scan, kv_update};
+    use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
 
     fn test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

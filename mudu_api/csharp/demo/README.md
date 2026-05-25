@@ -101,4 +101,4 @@ Rules:
 ## Notes
 
 - The demo is intended for local development and integration testing.
-- The mock backend currently supports primitive and binary SQL parameters.
+- The mock backend currently supports scalar and binary SQL parameters.

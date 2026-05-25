@@ -1,5 +1,7 @@
 use crate::universal::uni_dat_type::UniDatType;
-use crate::universal::uni_primitive::UniPrimitive;
+use crate::universal::uni_dat_value::UniDatValue;
+use crate::universal::uni_scalar::UniScalar;
+use crate::universal::uni_scalar_value::UniScalarValue;
 use mudu::common::into_result::ToResult;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -8,17 +10,26 @@ use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dtp_array::DTPArray;
 use mudu_type::dtp_kind::DTPKind;
+use mudu_type::dtp_numeric::DTPNumeric;
 use mudu_type::dtp_object::DTPRecord;
+use mudu_type::dtp_string::DTPString;
+use mudu_type::dtp_time::DTPTime;
+use mudu_type::dtp_timestamp::DTPTimestamp;
+use mudu_type::dtp_timestamptz::DTPTimestampTz;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 
 impl UniDatType {
     pub fn uni_to(self) -> RS<DatType> {
+        self.uni_to_with_params(None)
+    }
+
+    pub fn uni_to_with_params(self, params: Option<Vec<UniDatValue>>) -> RS<DatType> {
         let ty = match self {
-            UniDatType::Primitive(primitive) => primitive.to()?,
+            UniDatType::Scalar(scalar) => scalar_with_params_to(scalar, params)?,
             UniDatType::Array(inner) => {
-                let ty = Box::into_inner(inner);
+                let ty = *inner;
                 let inner_ty = ty.uni_to()?;
                 let array_kind = DTPKind::Array(Box::new(DTPArray::new(inner_ty)));
                 DatType::from_id_param(DatTypeID::Array, Some(array_kind))
@@ -41,9 +52,9 @@ impl UniDatType {
     }
 
     pub fn uni_from(ty: DatType) -> RS<UniDatType> {
-        let uni_ty = if ty.dat_type_id().is_primitive_type() {
-            let primitive = UniPrimitive::uni_from(ty)?;
-            UniDatType::Primitive(primitive)
+        let uni_ty = if ty.dat_type_id().is_scalar_type() {
+            let scalar = UniScalar::uni_from(ty)?;
+            UniDatType::Scalar(scalar)
         } else {
             match ty.dat_type_id() {
                 DatTypeID::Array => {
@@ -81,6 +92,87 @@ impl UniDatType {
     pub fn rewrite_inline(vec: Vec<Self>) -> RS<Vec<Self>> {
         _rewrite_inline(vec)
     }
+}
+
+fn scalar_with_params_to(scalar: UniScalar, params: Option<Vec<UniDatValue>>) -> RS<DatType> {
+    match (scalar, params) {
+        (UniScalar::String, Some(params)) if !params.is_empty() => {
+            let Some(UniDatValue::Scalar(UniScalarValue::I64(length))) = params.first().cloned()
+            else {
+                return Err(m_error!(EC::TypeErr, "string parameter must be i64"));
+            };
+            Ok(DatType::from_string(DTPString::new(length as u32)))
+        }
+        (UniScalar::Numeric, Some(params)) if !params.is_empty() => {
+            let precision = extract_param_i64(&params, 0, "numeric precision")?;
+            let scale = if params.len() > 1 {
+                extract_param_i64(&params, 1, "numeric scale")?
+            } else {
+                0
+            };
+            if precision < 0 || scale < 0 {
+                return Err(m_error!(
+                    EC::TypeErr,
+                    "numeric precision/scale must be non-negative"
+                ));
+            }
+            let param = DTPNumeric::new(precision as u8, scale as u8);
+            param
+                .validate()
+                .map_err(|message| m_error!(EC::TypeErr, message))?;
+            Ok(DatType::from_numeric(param))
+        }
+        (UniScalar::Time, Some(params)) if !params.is_empty() => {
+            let precision = extract_param_i64(&params, 0, "time precision")?;
+            if precision < 0 {
+                return Err(m_error!(EC::TypeErr, "time precision must be non-negative"));
+            }
+            let param = DTPTime::new(precision as u8);
+            param
+                .validate()
+                .map_err(|message| m_error!(EC::TypeErr, message))?;
+            Ok(DatType::from_time(param))
+        }
+        (UniScalar::Timestamp, Some(params)) if !params.is_empty() => {
+            let precision = extract_param_i64(&params, 0, "timestamp precision")?;
+            if precision < 0 {
+                return Err(m_error!(
+                    EC::TypeErr,
+                    "timestamp precision must be non-negative"
+                ));
+            }
+            let param = DTPTimestamp::new(precision as u8);
+            param
+                .validate()
+                .map_err(|message| m_error!(EC::TypeErr, message))?;
+            Ok(DatType::from_timestamp(param))
+        }
+        (UniScalar::TimestampTz, Some(params)) if !params.is_empty() => {
+            let precision = extract_param_i64(&params, 0, "timestamptz precision")?;
+            if precision < 0 {
+                return Err(m_error!(
+                    EC::TypeErr,
+                    "timestamptz precision must be non-negative"
+                ));
+            }
+            let param = DTPTimestampTz::new(precision as u8);
+            param
+                .validate()
+                .map_err(|message| m_error!(EC::TypeErr, message))?;
+            Ok(DatType::from_timestamptz(param))
+        }
+        (scalar, _) => scalar.to(),
+    }
+}
+
+fn extract_param_i64(params: &[UniDatValue], index: usize, name: &str) -> RS<i64> {
+    let value = params
+        .get(index)
+        .ok_or_else(|| m_error!(EC::TypeErr, format!("missing {}", name)))?;
+    let UniDatValue::Scalar(UniScalarValue::I64(value)) = value else {
+        return Err(m_error!(EC::TypeErr, format!("{} must be i64", name)));
+    };
+    Ok(*value)
 }
 
 fn _rewrite_inline(vec_ty: Vec<UniDatType>) -> RS<Vec<UniDatType>> {
@@ -216,7 +308,7 @@ fn visit_ty(
         UniDatType::Box(box_type) => {
             visit_ty(index, box_type.as_ref(), record_ty, dependency);
         }
-        UniDatType::Primitive(_) => {}
+        UniDatType::Scalar(_) => {}
         UniDatType::Binary => {}
     }
 }
@@ -583,5 +675,49 @@ mod tests {
         // Check ordering constraint
         let pos: HashMap<_, _> = result.iter().enumerate().map(|(i, &v)| (v, i)).collect();
         assert!(pos[&2] < pos[&1]);
+    }
+
+    #[test]
+    fn test_temporal_scalar_params_parse_and_validate() {
+        let cases = vec![
+            (UniScalar::Time, 3i64, DatTypeID::Time),
+            (UniScalar::Timestamp, 4i64, DatTypeID::Timestamp),
+            (UniScalar::TimestampTz, 2i64, DatTypeID::TimestampTz),
+        ];
+
+        for (scalar, precision, expected_id) in cases {
+            let ty = scalar_with_params_to(
+                scalar,
+                Some(vec![UniDatValue::Scalar(UniScalarValue::I64(precision))]),
+            )
+            .unwrap();
+            assert_eq!(ty.dat_type_id(), expected_id);
+        }
+    }
+
+    #[test]
+    fn test_temporal_scalar_params_reject_invalid_values() {
+        let err = scalar_with_params_to(
+            UniScalar::Time,
+            Some(vec![UniDatValue::Scalar(UniScalarValue::I64(-1))]),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("non-negative"));
+
+        let err = scalar_with_params_to(
+            UniScalar::Timestamp,
+            Some(vec![UniDatValue::Scalar(UniScalarValue::I64(7))]),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("less than or equal to 6"));
+
+        let err = scalar_with_params_to(
+            UniScalar::TimestampTz,
+            Some(vec![UniDatValue::Scalar(UniScalarValue::String(
+                "x".to_string(),
+            ))]),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("must be i64"));
     }
 }

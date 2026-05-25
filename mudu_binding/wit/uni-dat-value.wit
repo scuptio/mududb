@@ -1,8 +1,8 @@
-use crate:universal:uni-primitive-value/uni-primitive-value;
+use crate:universal:uni-scalar-value/uni-scalar-value;
 
 interface universal {
 variant uni-dat-value {
-    primitive(uni-primitive-value),
+    scalar(uni-scalar-value),
     array(list<uni-dat-value>),
     record(list<uni-dat-value>),
     binary(list<u8>)

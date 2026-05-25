@@ -1,14 +1,14 @@
 use mudu::common::result::RS;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::load_mududb_cfg;
-use mudu_sys::task::wait_for_shutdown_signal;
+use mudu_sys::task_async::wait_for_shutdown_signal;
 use mudu_utils::log::log_setup_ex;
 use mudu_utils::notifier::{Notifier, notify_wait};
 use std::thread;
 use tracing::{error, info};
 
 fn main() {
-    log_setup_ex("info", "mudu=info,mudu_runtime=info", false);
+    log_setup_ex("info", "", false);
     let r = serve();
     match r {
         Ok(_) => {}

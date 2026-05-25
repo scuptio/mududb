@@ -28,7 +28,7 @@ use scc::{HashIndex, HashSet};
 use crate::dump_task_trace;
 use crate::notifier::NotifyWait;
 #[cfg(feature = "debug_trace")]
-use crate::task::spawn_local_task;
+use crate::task_async::CurrentThreadTaskRuntime;
 use mudu::common::result::RS;
 #[cfg(feature = "debug_trace")]
 use mudu::error::ec::EC;
@@ -36,9 +36,9 @@ use mudu::error::err::MError;
 #[cfg(feature = "debug_trace")]
 use mudu::m_error;
 #[cfg(feature = "debug_trace")]
-use tokio::net::TcpListener;
+use mudu_sys::tokio::net::TcpListener;
 #[cfg(feature = "debug_trace")]
-use tokio::task::LocalSet;
+use mudu_sys::tokio::task::JoinSet;
 #[cfg(feature = "debug_trace")]
 use tracing::error;
 
@@ -93,7 +93,8 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
 }
 
 #[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
+pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MError> {
+    crate::scoped_task_trace!();
     let port = addr.port();
     let r = SERVER.insert_sync(port);
     if r.is_err() {
@@ -101,30 +102,35 @@ pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
     }
 
     // Bind to the port and listen for incoming TCP connections
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| m_error!(EC::IOErr, "bind to address error", e))?;
+    let listener = match TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            let _ = SERVER.remove_sync(&port);
+            return Err(m_error!(EC::IOErr, "bind to address error", e));
+        }
+    };
+    let mut tasks = JoinSet::new();
     loop {
-        // When an incoming TCP connection is received grab a TCP stream for
-        // client<->server communication.
-        //
-        // Note, this is a .await point, this loop will loop forever but is not a busy loop. The
-        // .await point allows the Tokio runtime to pull the task off of the thread until the task
-        // has work to do. In this case, a connection arrives on the port we are listening on and
-        // the task is woken up, at which point the task is then put back on a thread, and is
-        // driven forward by the runtime, eventually yielding a TCP stream.
-        let (tcp, _) = listener
-            .accept()
-            .await
-            .map_err(|e| m_error!(EC::IOErr, "accept error", e))?;
+        let accepted = mudu_sys::tokio::select! {
+            _ = stop.notified() => {
+                break;
+            }
+            accepted = listener.accept() => accepted
+        };
+        let (tcp, _) = match accepted {
+            Ok(accepted) => accepted,
+            Err(e) => {
+                tasks.abort_all();
+                while tasks.join_next().await.is_some() {}
+                let _ = SERVER.remove_sync(&port);
+                return Err(m_error!(EC::IOErr, "accept error", e));
+            }
+        };
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
         let io = TokioIo::new(tcp);
 
-        // Spin up a new task in Tokio so we can continue to listen for new TCP connection on the
-        // current task without waiting for the processing of the HTTP1 connection we just received
-        // to finish
-        tokio::task::spawn(async move {
+        tasks.spawn(async move {
             // Handle the connection from the client using HTTP1 and pass any
             // HTTP requests received on that connection to the `hello` function
             if let Err(err) = http1::Builder::new()
@@ -135,6 +141,21 @@ pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
             }
         });
     }
+
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    let _ = SERVER.remove_sync(&port);
+    Ok(())
+}
+
+#[cfg(feature = "debug_trace")]
+pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
+    async_debug_serve_until(addr, NotifyWait::new()).await
+}
+
+#[cfg(not(feature = "debug_trace"))]
+pub async fn async_debug_serve_until(_addr: SocketAddr, _stop: NotifyWait) -> Result<(), MError> {
+    Ok(())
 }
 
 #[cfg(not(feature = "debug_trace"))]
@@ -144,17 +165,14 @@ pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MError> {
 
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve(canceler: NotifyWait, port: u16) {
-    let async_debug_serve = async_debug_serve(([0, 0, 0, 0], port).into());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let async_debug_serve = async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
+    let runtime = CurrentThreadTaskRuntime::new().unwrap();
+    let join = runtime
+        .local()
+        .spawn(canceler, "debug_server", async_debug_serve)
         .unwrap();
-    let ls = LocalSet::new();
     runtime.block_on(async {
-        ls.spawn_local(async move {
-            let _ = spawn_local_task(canceler, "debug_server", async_debug_serve);
-        });
-        ls.await;
+        let _ = join.await;
     });
 }
 

@@ -7,8 +7,8 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::task_trace;
 use std::sync::Arc;
+use tracing::trace;
 
 pub struct CreateTable {
     inner: AMutex<_InnerCreateTable>,
@@ -35,19 +35,19 @@ impl CreateTable {
 #[async_trait]
 impl CmdExec for CreateTable {
     async fn prepare(&self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         let inner = self.inner.lock().await;
         inner.prepare().await
     }
 
     async fn run(&self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         let mut inner = self.inner.lock().await;
         inner.run().await
     }
 
     async fn affected_rows(&self) -> RS<u64> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         Ok(0)
     }
 }
@@ -82,13 +82,16 @@ impl _InnerCreateTable {
     }
 
     async fn run(&mut self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
+        trace!(table = %self.param.schema.table_name(), "create_table command run start");
         self.x_contract
             .create_table(self.param.tx_mgr.clone(), &self.param.schema)
             .await?;
+        trace!(table = %self.param.schema.table_name(), "create_table storage create finished");
         if let Some(binding) = &self.param.partition_binding {
             self.meta_mgr.bind_table_partition(binding).await?;
         }
+        trace!(table = %self.param.schema.table_name(), "create_table command run done");
         Ok(())
     }
 }

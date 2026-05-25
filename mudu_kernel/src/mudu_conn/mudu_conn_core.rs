@@ -7,6 +7,7 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_contract::tuple::typed_bin::TypedBin;
 use mudu_type::datum::DatumDyn;
+use mudu_utils::{scoped_task_trace, task_trace};
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
 use std::sync::Arc;
@@ -81,6 +82,7 @@ impl MuduConnCore {
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
     ) -> RS<u64> {
+        scoped_task_trace!();
         self.execute_inner(stmt, params, tx_mgr, x_contract).await
     }
 
@@ -91,6 +93,8 @@ impl MuduConnCore {
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
     ) -> RS<(Vec<TupleValue>, TupleFieldDesc)> {
+        let trace = task_trace!();
+        trace.watch("query.stage", "bind");
         let bound = Binder::new(self.meta_mgr.clone())
             .bind(stmt, params.as_ref())
             .await?;
@@ -102,7 +106,9 @@ impl MuduConnCore {
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
         });
+        trace.watch("query.stage", "plan");
         let exec = planner.plan_query(bound_query).await?;
+        trace.watch("query.stage", "exec_rows");
         query_exec_to_rows(exec).await
     }
 
@@ -113,9 +119,12 @@ impl MuduConnCore {
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
     ) -> RS<u64> {
+        let trace = task_trace!();
+        trace.watch("procedure.core_execute.stage", "bind_start");
         let bound = Binder::new(self.meta_mgr.clone())
             .bind(stmt, params.as_ref())
             .await?;
+        trace.watch("procedure.core_execute.stage", "bind_done");
         let BoundStmt::Command(bound_command) = bound else {
             return Err(m_error!(EC::TypeErr, "statement is not a command"));
         };
@@ -124,18 +133,34 @@ impl MuduConnCore {
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
         });
+        trace.watch("procedure.core_execute.stage", "plan_command_start");
         let cmd = planner.plan_command(bound_command).await?;
+        trace.watch("procedure.core_execute.stage", "plan_command_done");
+        trace.watch("procedure.core_execute.stage", "prepare_start");
         cmd.prepare().await?;
+        trace.watch("procedure.core_execute.stage", "prepare_done");
+        trace.watch("procedure.core_execute.stage", "run_start");
         cmd.run().await?;
+        trace.watch("procedure.core_execute.stage", "run_done");
+        trace.watch("procedure.core_execute.stage", "affected_rows_start");
         cmd.affected_rows().await
     }
 }
 
 pub async fn query_exec_to_rows(exec: Arc<dyn QueryExec>) -> RS<(Vec<TupleValue>, TupleFieldDesc)> {
+    let trace = task_trace!();
+    trace.watch("query.exec.stage", "open");
     exec.open().await?;
     let desc = exec.tuple_desc()?;
     let mut rows = Vec::new();
-    while let Some(row) = exec.next().await? {
+    loop {
+        trace.watch("query.exec.stage", "next");
+        trace.watch("query.exec.row_index", &rows.len().to_string());
+        let next = exec.next().await?;
+        let Some(row) = next else {
+            trace.watch("query.exec.stage", "done");
+            break;
+        };
         rows.push(tuple_field_to_value(row, &desc)?);
     }
     Ok((rows, desc))

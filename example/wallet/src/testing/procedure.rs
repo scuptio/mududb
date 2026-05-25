@@ -4,10 +4,10 @@ use crate::rust::wallets::object::Wallets;
 use mududb::common::id::OID;
 use mududb::contract::database::entity_set::RecordSet;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
-use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
 
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 

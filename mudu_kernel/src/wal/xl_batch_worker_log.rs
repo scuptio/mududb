@@ -23,7 +23,7 @@ use std::sync::atomic::AtomicU32;
 ///
 /// ```ignore
 /// struct RecoveryHandler {
-///     worker: IoUringWorker,
+///     worker: WorkerRuntime,
 /// }
 ///
 /// impl WorkerLogRecoveryHandler<XLBatch> for RecoveryHandler {

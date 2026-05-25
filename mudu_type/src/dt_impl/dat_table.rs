@@ -99,6 +99,56 @@ lazy_static! {
             opt_fn_param: None,
         },
         DatTypeDef {
+            id: DatTypeID::Numeric,
+            type_name: "numeric".to_string(),
+            fn_base: dt_impl::fn_numeric::FN_NUMERIC_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_numeric::FN_NUMERIC_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_numeric_arb::FN_NUMERIC_ARBITRARY,
+            fixed_length: None,
+            opt_fn_param: Some(dt_impl::fn_numeric_param::FN_NUMERIC_PARAM),
+        },
+        DatTypeDef {
+            id: DatTypeID::Date,
+            type_name: "date".to_string(),
+            fn_base: dt_impl::fn_date::FN_DATE_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_date::FN_DATE_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_date_arb::FN_DATE_ARBITRARY,
+            fixed_length: Some(size_of::<i32>() as u32),
+            opt_fn_param: None,
+        },
+        DatTypeDef {
+            id: DatTypeID::Time,
+            type_name: "time".to_string(),
+            fn_base: dt_impl::fn_time::FN_TIME_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_time::FN_TIME_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_time_arb::FN_TIME_ARBITRARY,
+            fixed_length: Some(size_of::<i64>() as u32),
+            opt_fn_param: Some(dt_impl::fn_time_param::FN_TIME_PARAM),
+        },
+        DatTypeDef {
+            id: DatTypeID::Timestamp,
+            type_name: "timestamp".to_string(),
+            fn_base: dt_impl::fn_timestamp::FN_TIMESTAMP_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_timestamp::FN_TIMESTAMP_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_timestamp_arb::FN_TIMESTAMP_ARBITRARY,
+            fixed_length: Some(size_of::<i64>() as u32),
+            opt_fn_param: Some(dt_impl::fn_timestamp_param::FN_TIMESTAMP_PARAM),
+        },
+        DatTypeDef {
+            id: DatTypeID::TimestampTz,
+            type_name: "timestamptz".to_string(),
+            fn_base: dt_impl::fn_timestamptz::FN_TIMESTAMPTZ_CONVERT,
+            opt_fn_compare: Some(dt_impl::fn_timestamptz::FN_TIMESTAMPTZ_COMPARE),
+            #[cfg(any(test, feature = "test"))]
+            fn_arbitrary: dt_impl::fn_timestamptz_arb::FN_TIMESTAMPTZ_ARBITRARY,
+            fixed_length: Some(size_of::<i64>() as u32),
+            opt_fn_param: Some(dt_impl::fn_timestamptz_param::FN_TIMESTAMPTZ_PARAM),
+        },
+        DatTypeDef {
             id: DatTypeID::Array,
             type_name: "array".to_string(),
             fn_base: dt_impl::fn_array::FN_ARRAY_CONVERT,

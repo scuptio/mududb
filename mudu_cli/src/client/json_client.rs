@@ -5,7 +5,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_binding::universal::uni_dat_value::UniDatValue;
 use mudu_binding::universal::uni_oid::UniOid;
-use mudu_binding::universal::uni_primitive_value::UniPrimitiveValue;
+use mudu_binding::universal::uni_scalar_value::UniScalarValue;
 use mudu_contract::protocol::{
     ClientRequest, GetRequest, KeyValue, ProcedureInvokeRequest, PutRequest, RangeScanRequest,
     ServerResponse,
@@ -183,29 +183,19 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
             serde_json::to_vec(&Value::Null)
                 .map_err(|e| m_error!(EC::EncodeErr, "encode null payload error", e))?,
         )),
-        Value::Bool(inner) => Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_bool(
-            inner,
-        ))),
+        Value::Bool(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_bool(inner))),
         Value::Number(inner) => {
             if let Some(value) = inner.as_i64() {
-                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_i64(
-                    value,
-                )))
+                Ok(UniDatValue::from_scalar(UniScalarValue::from_i64(value)))
             } else if let Some(value) = inner.as_u64() {
-                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_u64(
-                    value,
-                )))
+                Ok(UniDatValue::from_scalar(UniScalarValue::from_u64(value)))
             } else if let Some(value) = inner.as_f64() {
-                Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_f64(
-                    value,
-                )))
+                Ok(UniDatValue::from_scalar(UniScalarValue::from_f64(value)))
             } else {
                 Err(m_error!(EC::DecodeErr, "unsupported numeric json payload"))
             }
         }
-        Value::String(inner) => Ok(UniDatValue::from_primitive(UniPrimitiveValue::from_string(
-            inner,
-        ))),
+        Value::String(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_string(inner))),
         Value::Array(inner) => inner
             .into_iter()
             .map(json_value_to_uni_dat_value)
@@ -241,22 +231,27 @@ fn decode_uni_dat_value(bytes: &[u8]) -> RS<UniDatValue> {
 
 fn uni_dat_value_to_json_value(value: UniDatValue) -> RS<Value> {
     match value {
-        UniDatValue::Primitive(inner) => match inner {
-            UniPrimitiveValue::Bool(v) => Ok(Value::Bool(v)),
-            UniPrimitiveValue::U8(v) => Ok(json!(v)),
-            UniPrimitiveValue::I8(v) => Ok(json!(v)),
-            UniPrimitiveValue::U16(v) => Ok(json!(v)),
-            UniPrimitiveValue::I16(v) => Ok(json!(v)),
-            UniPrimitiveValue::U32(v) => Ok(json!(v)),
-            UniPrimitiveValue::I32(v) => Ok(json!(v)),
-            UniPrimitiveValue::U64(v) => Ok(json!(v)),
-            UniPrimitiveValue::U128(v) => Ok(Value::String(v.to_string())),
-            UniPrimitiveValue::I64(v) => Ok(json!(v)),
-            UniPrimitiveValue::I128(v) => Ok(Value::String(v.to_string())),
-            UniPrimitiveValue::F32(v) => Ok(json!(v)),
-            UniPrimitiveValue::F64(v) => Ok(json!(v)),
-            UniPrimitiveValue::Char(v) => Ok(json!(v.to_string())),
-            UniPrimitiveValue::String(v) => Ok(Value::String(v)),
+        UniDatValue::Scalar(inner) => match inner {
+            UniScalarValue::Bool(v) => Ok(Value::Bool(v)),
+            UniScalarValue::U8(v) => Ok(json!(v)),
+            UniScalarValue::I8(v) => Ok(json!(v)),
+            UniScalarValue::U16(v) => Ok(json!(v)),
+            UniScalarValue::I16(v) => Ok(json!(v)),
+            UniScalarValue::U32(v) => Ok(json!(v)),
+            UniScalarValue::I32(v) => Ok(json!(v)),
+            UniScalarValue::U64(v) => Ok(json!(v)),
+            UniScalarValue::U128(v) => Ok(Value::String(v.to_string())),
+            UniScalarValue::I64(v) => Ok(json!(v)),
+            UniScalarValue::I128(v) => Ok(Value::String(v.to_string())),
+            UniScalarValue::F32(v) => Ok(json!(v)),
+            UniScalarValue::F64(v) => Ok(json!(v)),
+            UniScalarValue::Char(v) => Ok(json!(v.to_string())),
+            UniScalarValue::String(v) => Ok(Value::String(v)),
+            UniScalarValue::Numeric(v) => Ok(Value::String(v)),
+            UniScalarValue::Date(v) => Ok(Value::String(v)),
+            UniScalarValue::Time(v) => Ok(Value::String(v)),
+            UniScalarValue::Timestamp(v) => Ok(Value::String(v)),
+            UniScalarValue::TimestampTz(v) => Ok(Value::String(v)),
         },
         UniDatValue::Array(items) | UniDatValue::Record(items) => items
             .into_iter()

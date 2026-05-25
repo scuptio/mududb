@@ -6,7 +6,7 @@ use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
 use mudu_binding::universal::uni_dat_type::UniDatType;
 use mudu_binding::universal::uni_def::UniVariantDef;
-use mudu_binding::universal::uni_primitive::UniPrimitive;
+use mudu_binding::universal::uni_scalar::UniScalar;
 
 #[derive(Debug, Clone)]
 pub struct VariantInfo {
@@ -36,12 +36,12 @@ impl VariantInfo {
             let case_ty = v
                 .vc_case_type
                 .clone()
-                .unwrap_or(UniDatType::Primitive(UniPrimitive::U8));
+                .unwrap_or(UniDatType::Scalar(UniScalar::U8));
             let (vc_has_inner_type, vc_inner_type_name) = match &v.vc_case_type {
                 Some(ty) => (true, uni_data_type_to_name(&ty, &lang)?),
                 None => (
                     false,
-                    uni_data_type_to_name(&UniDatType::Primitive(UniPrimitive::U8), &lang)?,
+                    uni_data_type_to_name(&UniDatType::Scalar(UniScalar::U8), &lang)?,
                 ),
             };
             let (vc_inner_required, vc_inner_default_value, vc_inner_deserialize_suffix) =

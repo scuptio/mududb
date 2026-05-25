@@ -1577,7 +1577,7 @@
       "type": "PATTERN",
       "value": "[tT][iI][mM][eE]"
     },
-    "keyword_timestamp": {
+    "keyword_timestamp_base": {
       "type": "PREC_RIGHT",
       "value": 0,
       "content": {
@@ -1615,7 +1615,7 @@
         ]
       }
     },
-    "keyword_timestamptz": {
+    "keyword_timestamptz_base": {
       "type": "CHOICE",
       "members": [
         {
@@ -1879,11 +1879,11 @@
         },
         {
           "type": "SYMBOL",
-          "name": "keyword_timestamp"
+          "name": "timestamp"
         },
         {
           "type": "SYMBOL",
-          "name": "keyword_timestamptz"
+          "name": "timestamptz"
         },
         {
           "type": "SYMBOL",
@@ -3648,7 +3648,113 @@
                     "members": [
                       {
                         "type": "FIELD",
-                        "name": "size",
+                        "name": "precision",
+                        "content": {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "natural_number"
+                          },
+                          "named": true,
+                          "value": "literal"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ")"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "timestamp": {
+      "type": "PREC_RIGHT",
+      "value": 1,
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "keyword_timestamp_base"
+          },
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "keyword_timestamp_base"
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "("
+                  },
+                  {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "FIELD",
+                        "name": "precision",
+                        "content": {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "natural_number"
+                          },
+                          "named": true,
+                          "value": "literal"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ")"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "timestamptz": {
+      "type": "PREC_RIGHT",
+      "value": 1,
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "keyword_timestamptz_base"
+          },
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "keyword_timestamptz_base"
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "("
+                  },
+                  {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "FIELD",
+                        "name": "precision",
                         "content": {
                           "type": "ALIAS",
                           "content": {

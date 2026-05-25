@@ -10,7 +10,6 @@ impl HttpApiCapabilities {
         enable_uninstall: false,
     };
 
-    #[cfg(target_os = "linux")]
     pub const IOURING: Self = Self {
         enable_invoke: true,
         enable_uninstall: true,

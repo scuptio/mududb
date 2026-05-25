@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! impl_primitive {
+macro_rules! impl_scalar {
     (
         $lang:ident,
         $((
@@ -9,10 +9,10 @@ macro_rules! impl_primitive {
         $(,)?
     ) => {
         paste!{
-            pub fn [<primitive_name_ $lang>](primitive_type:&UniPrimitive) -> String {
-                match primitive_type {
+            pub fn [<scalar_name_ $lang>](scalar_type:&UniScalar) -> String {
+                match scalar_type {
                     $(
-                        UniPrimitive::$wit_ty => {
+                        UniScalar::$wit_ty => {
                             $lang_ty_name.to_string()
                         }
                     )+
@@ -24,21 +24,21 @@ macro_rules! impl_primitive {
 }
 
 #[macro_export]
-macro_rules! impl_non_primitive {
+macro_rules! impl_non_scalar {
     (
         $lang:ident,
         $((
-            $non_prim_wit_ty:ident,
-            $fn_non_prim_handle:expr
+            $non_scalar_wit_ty:ident,
+            $fn_non_scalar_handle:expr
         )),+
         $(,)?
     ) => {
         paste!{
-            pub fn [<non_primitive_name_ $lang>](non_prim_type:&NonPrimitiveType) -> String {
-                match non_prim_type {
+            pub fn [<non_scalar_name_ $lang>](non_scalar_type:&NonScalarType) -> String {
+                match non_scalar_type {
                     $(
-                        NonPrimitiveType::$non_prim_wit_ty(inner) => {
-                            $fn_non_prim_handle(inner)
+                        NonScalarType::$non_scalar_wit_ty(inner) => {
+                            $fn_non_scalar_handle(inner)
                         }
                     )+
                 }
@@ -58,21 +58,21 @@ macro_rules! impl_lang {
     ) => {
         paste!{
 
-            pub fn lang_primitive_name(lang:&LangKind, primitive_type:&UniPrimitive) -> String {
+            pub fn lang_scalar_name(lang:&LangKind, scalar_type:&UniScalar) -> String {
                 match lang {
                     $(
                         LangKind::$lang_upper => {
-                            [<$lang_lower>]::lang_def::[<primitive_name_ $lang_lower>](primitive_type)
+                            [<$lang_lower>]::lang_def::[<scalar_name_ $lang_lower>](scalar_type)
                         }
                     )+
                 }
             }
 
-            pub fn lang_non_primitive_name(lang:&LangKind, non_primitive_type:&NonPrimitiveType) -> String {
+            pub fn lang_non_scalar_name(lang:&LangKind, non_scalar_type:&NonScalarType) -> String {
                 match lang {
                     $(
                         LangKind::$lang_upper => {
-                            [<$lang_lower>]::lang_def::[<non_primitive_name_ $lang_lower>](non_primitive_type)
+                            [<$lang_lower>]::lang_def::[<non_scalar_name_ $lang_lower>](non_scalar_type)
                         }
                     )+
                 }

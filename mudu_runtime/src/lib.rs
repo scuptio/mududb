@@ -8,3 +8,5 @@ mod procedure;
 pub mod resolver;
 pub mod service;
 mod sql_prepare;
+
+pub use mudu_sys::tokio;

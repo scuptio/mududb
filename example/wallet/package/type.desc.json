@@ -57,6 +57,35 @@
         ]
       }
     ],
+    "Wallets": [
+      2,
+      {
+        "record_name": "wallets",
+        "record_fields": [
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "balance",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "updated_at",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
     "Orders": [
       2,
       {
@@ -142,35 +171,6 @@
           },
           {
             "field_name": "created_at",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
-    "Wallets": [
-      2,
-      {
-        "record_name": "wallets",
-        "record_fields": [
-          {
-            "field_name": "user_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "balance",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "updated_at",
             "field_type": [
               0,
               6

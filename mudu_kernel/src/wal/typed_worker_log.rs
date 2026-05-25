@@ -1,6 +1,9 @@
 use crate::wal::log_frame::decode_entries_with_pending;
 use crate::wal::lsn::LSN;
-use crate::wal::worker_log::{decode_frames, WorkerLogBackend, WorkerLogRecoverySource};
+use crate::wal::worker_log::{
+    decode_frames, AsyncWorkerLogRecoverySource, WorkerLogBackend, WorkerLogRecoverySource,
+};
+use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -16,6 +19,18 @@ where
     fn handle_entry(&self, entry: L, start_lsn: LSN) -> RS<()>;
 
     fn finish(&self) -> RS<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+pub trait AsyncWorkerLogRecoveryHandler<L>: Send + Sync + 'static
+where
+    L: Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    async fn handle_entry(&self, entry: L, start_lsn: LSN) -> RS<()>;
+
+    async fn finish(&self) -> RS<()> {
         Ok(())
     }
 }
@@ -88,6 +103,7 @@ where
     }
 
     pub async fn flush_async(&self) -> RS<()> {
+        mudu_utils::scoped_task_trace!();
         self.backend.flush_async().await
     }
 
@@ -120,14 +136,77 @@ where
 
         self.handler.finish()
     }
+
+    pub async fn recover_async<S>(&self, source: &mut S) -> RS<()>
+    where
+        S: AsyncWorkerLogRecoverySource,
+    {
+        let chunk_paths = source.chunk_paths_sorted().await?;
+        let mut pending_frames = Vec::new();
+        let mut pending_start_lsn = None;
+        for path in chunk_paths {
+            let bytes = source.read_chunk(path.as_path()).await?;
+            if bytes.is_empty() {
+                continue;
+            }
+            let frames = decode_frames(&bytes)?;
+            let entries = decode_entries_with_pending::<L>(
+                &frames,
+                &mut pending_frames,
+                &mut pending_start_lsn,
+            )?;
+            for (start_lsn, entry) in entries {
+                self.handler.handle_entry(entry, start_lsn)?;
+            }
+        }
+
+        if !pending_frames.is_empty() {
+            return Err(m_error!(EC::DecodeErr, "trailing partial log frames"));
+        }
+
+        self.handler.finish()
+    }
+
+    pub async fn recover_async_with_handler<S, AH>(&self, source: &mut S, handler: &AH) -> RS<()>
+    where
+        S: AsyncWorkerLogRecoverySource,
+        AH: AsyncWorkerLogRecoveryHandler<L>,
+    {
+        let chunk_paths = source.chunk_paths_sorted().await?;
+        let mut pending_frames = Vec::new();
+        let mut pending_start_lsn = None;
+        for path in chunk_paths {
+            let bytes = source.read_chunk(path.as_path()).await?;
+            if bytes.is_empty() {
+                continue;
+            }
+            let frames = decode_frames(&bytes)?;
+            let entries = decode_entries_with_pending::<L>(
+                &frames,
+                &mut pending_frames,
+                &mut pending_start_lsn,
+            )?;
+            for (start_lsn, entry) in entries {
+                handler.handle_entry(entry, start_lsn).await?;
+            }
+        }
+
+        if !pending_frames.is_empty() {
+            return Err(m_error!(EC::DecodeErr, "trailing partial log frames"));
+        }
+
+        handler.finish().await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::wal::worker_log::{
-        ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout, WorkerLogRecoverySource,
+        AsyncWorkerLogRecoverySource, ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout,
+        WorkerLogRecoverySource,
     };
+    use async_trait::async_trait;
     use mudu::common::id::gen_oid;
     use serde::{Deserialize, Serialize};
     use std::env::temp_dir;
@@ -147,6 +226,14 @@ mod tests {
 
     impl WorkerLogRecoveryHandler<TestEntry> for Arc<CollectingHandler> {
         fn handle_entry(&self, entry: TestEntry, start_lsn: LSN) -> RS<()> {
+            self.entries.lock().unwrap().push((start_lsn, entry));
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl AsyncWorkerLogRecoveryHandler<TestEntry> for Arc<CollectingHandler> {
+        async fn handle_entry(&self, entry: TestEntry, start_lsn: LSN) -> RS<()> {
             self.entries.lock().unwrap().push((start_lsn, entry));
             Ok(())
         }
@@ -175,6 +262,19 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl AsyncWorkerLogRecoverySource for FileRecoverySource {
+        async fn chunk_paths_sorted(&mut self) -> RS<Vec<PathBuf>> {
+            Ok(self.paths.clone())
+        }
+
+        async fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>> {
+            mudu_sys::tokio::fs::read(path)
+                .await
+                .map_err(|e| m_error!(EC::IOErr, "read worker log chunk for recovery error", e))
+        }
+    }
+
     #[tokio::test]
     async fn typed_worker_log_appends_and_recovers_generic_entries() {
         let dir = temp_dir().join(format!("typed_worker_log_{}", gen_oid()));
@@ -199,6 +299,68 @@ mod tests {
             paths: raw.chunk_paths_sorted().unwrap(),
         };
         log.recover(&mut source).unwrap();
+
+        let recovered = handler.entries.lock().unwrap().clone();
+        assert_eq!(recovered, vec![(0, first), (1, second)]);
+    }
+
+    #[tokio::test]
+    async fn typed_worker_log_appends_and_recovers_generic_entries_async() {
+        let dir = temp_dir().join(format!("typed_worker_log_async_{}", gen_oid()));
+        let raw = ChunkedWorkerLogBackend::new(WorkerLogLayout::new(dir, gen_oid(), 256).unwrap())
+            .unwrap();
+        let handler = Arc::new(CollectingHandler::default());
+        let log = TypedWorkerLog::new(raw.clone(), handler.clone());
+
+        let first = TestEntry {
+            id: 1,
+            payload: vec![1; 32],
+        };
+        let second = TestEntry {
+            id: 2,
+            payload: vec![2; 512],
+        };
+
+        let _first_last_lsn = log.append(&first).await.unwrap();
+        let _second_last_lsn = log.append(&second).await.unwrap();
+        raw.flush_async().await.unwrap();
+        let mut source = FileRecoverySource {
+            paths: raw.chunk_paths_sorted().unwrap(),
+        };
+        log.recover_async(&mut source).await.unwrap();
+
+        let recovered = handler.entries.lock().unwrap().clone();
+        assert_eq!(recovered, vec![(0, first), (1, second)]);
+    }
+
+    #[tokio::test]
+    async fn typed_worker_log_recovers_with_async_handler() {
+        let dir = temp_dir().join(format!("typed_worker_log_async_handler_{}", gen_oid()));
+        let raw = ChunkedWorkerLogBackend::new(WorkerLogLayout::new(dir, gen_oid(), 256).unwrap())
+            .unwrap();
+        let writer = TypedWorkerLog::new(raw.clone(), NoopHandler);
+        let handler = Arc::new(CollectingHandler::default());
+
+        let first = TestEntry {
+            id: 11,
+            payload: vec![3; 64],
+        };
+        let second = TestEntry {
+            id: 12,
+            payload: vec![4; 128],
+        };
+
+        writer.append(&first).await.unwrap();
+        writer.append(&second).await.unwrap();
+        raw.flush_async().await.unwrap();
+
+        let mut source = FileRecoverySource {
+            paths: raw.chunk_paths_sorted().unwrap(),
+        };
+        writer
+            .recover_async_with_handler(&mut source, &handler)
+            .await
+            .unwrap();
 
         let recovered = handler.entries.lock().unwrap().clone();
         assert_eq!(recovered, vec![(0, first), (1, second)]);
@@ -252,7 +414,7 @@ mod tests {
             let written = written.clone();
             async move {
                 assert_eq!(written, expected);
-                let bytes = tokio::fs::read(&path).await.map_err(|e| {
+                let bytes = mudu_sys::tokio::fs::read(&path).await.map_err(|e| {
                     m_error!(EC::IOErr, "read async callback-persisted worker log", e)
                 })?;
                 assert!(!bytes.is_empty());

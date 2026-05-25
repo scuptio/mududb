@@ -1,6 +1,6 @@
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
-use crate::io::file;
+use crate::io::file as async_file;
 use crate::x_engine::api::{OptInsert, VecDatum, XContract};
 use crate::x_engine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -10,13 +10,13 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_type::dat_type_id::DatTypeID;
+use mudu_utils::sync::a_mutex::AMutex;
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::debug;
 
 pub struct LoadFromFile {
-    inner: Arc<Mutex<_LoadFromFile>>,
+    inner: Arc<AMutex<_LoadFromFile>>,
 }
 
 struct _LoadFromFile {
@@ -41,7 +41,7 @@ impl LoadFromFile {
         meta_mgr: Arc<dyn MetaMgr>,
     ) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(_LoadFromFile::new(
+            inner: Arc::new(AMutex::new(_LoadFromFile::new(
                 csv_file,
                 tx_mgr,
                 table_id,
@@ -100,34 +100,8 @@ impl _LoadFromFile {
             "copy from start loading"
         );
         let table_desc = self.meta_mgr.get_table_by_id(self.table_id).await?;
-        let file = file::open(&self.csv_file, libc::O_RDONLY | file::cloexec_flag(), 0)
-            .await
-            .map_err(|e| {
-                m_error!(
-                    ER::IOErr,
-                    format!("load failed, open csv file {} error, {}", self.csv_file, e)
-                )
-            })?;
-        let len = std::fs::metadata(&self.csv_file)
-            .map_err(|e| {
-                m_error!(
-                    ER::IOErr,
-                    format!("load failed, stat csv file {} error, {}", self.csv_file, e)
-                )
-            })?
-            .len() as usize;
-        let payload = file::read(&file, len, 0).await.map_err(|e| {
-            m_error!(
-                ER::IOErr,
-                format!("load failed, read csv file {} error, {}", self.csv_file, e)
-            )
-        })?;
-        file::close(file).await.map_err(|e| {
-            m_error!(
-                ER::IOErr,
-                format!("load failed, close csv file {} error, {}", self.csv_file, e)
-            )
-        })?;
+        let csv_path = normalized_copy_path(&self.csv_file);
+        let payload = read_csv_payload(&csv_path).await?;
 
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
@@ -257,6 +231,55 @@ impl _LoadFromFile {
         }
         Ok(VecDatum::new(datum))
     }
+}
+
+async fn read_csv_payload(path: &str) -> RS<Vec<u8>> {
+    // Even on the io_uring backend, worker threads run inside a Tokio runtime.
+    // Routing COPY FROM through `mudu_sys::tokio::fs` here would silently bypass the
+    // worker-ring/io_uring file path and reintroduce the hang we fixed.
+    // Always use the kernel async file abstraction instead.
+    let file = async_file::open(path, libc::O_RDONLY | async_file::cloexec_flag(), 0)
+        .await
+        .map_err(|e| {
+            m_error!(
+                ER::IOErr,
+                format!("load failed, open csv file {} error, {}", path, e)
+            )
+        })?;
+    // Query the length from the opened fd so COPY FROM does not depend on a
+    // second path-based metadata lookup after open succeeds.
+    let len = async_file::metadata_len_by_file(&file).map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("load failed, stat csv file {} error, {}", path, e)
+        )
+    })? as usize;
+    let result = async_file::read(&file, len, 0).await.map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("load failed, read csv file {} error, {}", path, e)
+        )
+    });
+    let close_result = async_file::close(file).await;
+    let payload = result?;
+    close_result.map_err(|e| {
+        m_error!(
+            ER::IOErr,
+            format!("load failed, close csv file {} error, {}", path, e)
+        )
+    })?;
+    Ok(payload)
+}
+
+fn normalized_copy_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'')
+            || (bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"'))
+    {
+        return path[1..path.len() - 1].to_string();
+    }
+    path.to_string()
 }
 
 #[async_trait]

@@ -75,12 +75,23 @@ fn _setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
     if !parse.is_empty() {
         let env_filter = EnvFilter::builder()
             .with_default_directive(level_filter.into())
-            .parse(parse)
-            .unwrap();
-        if enable_console_layer {
-            init_level_env_console(level_filter, env_filter);
+            .parse(parse);
+        if let Ok(env_filter) = env_filter {
+            if enable_console_layer {
+                init_level_env_console(level_filter, env_filter);
+            } else {
+                init_level_env(level_filter, env_filter);
+            }
         } else {
-            init_level_env(level_filter, env_filter);
+            eprintln!(
+                "invalid tracing filter '{}', fallback to level-only logging at {}",
+                parse, level
+            );
+            if enable_console_layer {
+                init_level_console(level_filter)
+            } else {
+                init_level(level_filter)
+            }
         }
     } else {
         if enable_console_layer {

@@ -18,6 +18,6 @@ mudu = { workspace = true }
 hex = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-console-subscriber = {workspace = true}
+console-subscriber = { workspace = true}
 arbitrary = { workspace = true }
 test_utils = { workspace = true }

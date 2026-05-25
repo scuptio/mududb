@@ -73,10 +73,10 @@ pub async fn kv_read_modify_write(xid: XID, user_key: String, append_value: Stri
 #[cfg(test)]
 mod tests {
     use super::{kv_insert, kv_read, kv_read_modify_write, kv_scan, kv_update};
+    use mududb::sys_interface::async_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use mududb::sys_interface::async_api::{mudu_close, mudu_open};
 
     fn test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -129,137 +129,6 @@ mod tests {
         assert!(err.message().contains("missing"));
         mudu_close(xid).await.unwrap();
     }
-}
-async fn mp2_kv_read_modify_write(param:Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_kv_read_modify_write,
-    ).await
-}
-
-pub async fn mudu_inner_p2_kv_read_modify_write(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<
-    ::mududb::contract::procedure::procedure_result::ProcedureResult,
-> {
-    let res = kv_read_modify_write(
-        param.session_id(),
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[0], "String")?,
-            
-        
-            
-            ::mududb::types::datum::value_to_typed::<
-                String,
-                _,
-            >(&param.param_list()[1], "String")?,
-            
-        
-    ).await;
-    match res {
-        Ok(tuple) => {
-            let return_list = {
-                
-                vec![
-                    
-                    ::mududb::types::datum::value_from_typed(&tuple, "String")?
-                    
-                ]
-                
-            };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_kv_read_modify_write()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "user_key".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "append_value".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_result_desc_kv_read_modify_write() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
-        std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(||
-        {
-            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-                
-                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "0".to_string(),
-                    
-                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
-                    
-                ),
-                
-            ])
-        }
-    )
-}
-
-pub fn mudu_proc_desc_kv_read_modify_write()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<
-        ::mududb::contract::procedure::proc_desc::ProcDesc,
-    > = std::sync::OnceLock::new();
-    _PROC_DESC
-        .get_or_init(|| {
-            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-                "key_value".to_string(),
-                "kv_read_modify_write".to_string(),
-                mudu_argv_desc_kv_read_modify_write().clone(),
-                mudu_result_desc_kv_read_modify_write().clone(),
-                false
-            )
-        })
-}
-
-mod mod_kv_read_modify_write {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-kv-read-modify-write;
-            world mudu-app-mp2-kv-read-modify-write {
-                export mp2-kv-read-modify-write: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestKvReadModifyWrite {}
-
-    impl Guest for GuestKvReadModifyWrite {
-        async fn mp2_kv_read_modify_write(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_kv_read_modify_write(param).await
-        }
-    }
-
-    export!(GuestKvReadModifyWrite);
 }
 async fn mp2_kv_insert(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
@@ -380,7 +249,127 @@ mod mod_kv_insert {
     }
 
     export!(GuestKvInsert);
+}
+async fn mp2_kv_update(param:Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_kv_update,
+    ).await
 }
+
+pub async fn mudu_inner_p2_kv_update(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<
+    ::mududb::contract::procedure::procedure_result::ProcedureResult,
+> {
+    let res = kv_update(
+        param.session_id(),
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[0], "String")?,
+            
+        
+            
+            ::mududb::types::datum::value_to_typed::<
+                String,
+                _,
+            >(&param.param_list()[1], "String")?,
+            
+        
+    ).await;
+    match res {
+        Ok(tuple) => {
+            let return_list = {
+                
+                vec![]
+                
+            };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_kv_update()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "user_key".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "value".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_result_desc_kv_update() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
+        std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(||
+        {
+            ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+                
+            ])
+        }
+    )
+}
+
+pub fn mudu_proc_desc_kv_update()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<
+        ::mududb::contract::procedure::proc_desc::ProcDesc,
+    > = std::sync::OnceLock::new();
+    _PROC_DESC
+        .get_or_init(|| {
+            ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+                "key_value".to_string(),
+                "kv_update".to_string(),
+                mudu_argv_desc_kv_update().clone(),
+                mudu_result_desc_kv_update().clone(),
+                false
+            )
+        })
+}
+
+mod mod_kv_update {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-kv-update;
+            world mudu-app-mp2-kv-update {
+                export mp2-kv-update: func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestKvUpdate {}
+
+    impl Guest for GuestKvUpdate {
+        async fn mp2_kv_update(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_kv_update(param).await
+        }
+    }
+
+    export!(GuestKvUpdate);
+}
 async fn mp2_kv_scan(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -511,7 +500,7 @@ mod mod_kv_scan {
     }
 
     export!(GuestKvScan);
-}
+}
 async fn mp2_kv_read(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -628,20 +617,20 @@ mod mod_kv_read {
     }
 
     export!(GuestKvRead);
-}
-async fn mp2_kv_update(param:Vec<u8>) -> Vec<u8> {
+}
+async fn mp2_kv_read_modify_write(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
-        mudu_inner_p2_kv_update,
+        mudu_inner_p2_kv_read_modify_write,
     ).await
 }
 
-pub async fn mudu_inner_p2_kv_update(
+pub async fn mudu_inner_p2_kv_read_modify_write(
     param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
 ) -> ::mududb::common::result::RS<
     ::mududb::contract::procedure::procedure_result::ProcedureResult,
 > {
-    let res = kv_update(
+    let res = kv_read_modify_write(
         param.session_id(),
         
             
@@ -663,7 +652,11 @@ pub async fn mudu_inner_p2_kv_update(
         Ok(tuple) => {
             let return_list = {
                 
-                vec![]
+                vec![
+                    
+                    ::mududb::types::datum::value_from_typed(&tuple, "String")?
+                    
+                ]
                 
             };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
@@ -672,7 +665,7 @@ pub async fn mudu_inner_p2_kv_update(
     }
 }
 
-pub fn mudu_argv_desc_kv_update()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_argv_desc_kv_read_modify_write()  -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static ARGV_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     ARGV_DESC.get_or_init(||
@@ -687,7 +680,7 @@ pub fn mudu_argv_desc_kv_update()  -> &'static ::mududb::contract::tuple::tuple_
                 ),
                 
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                    "value".to_string(),
+                    "append_value".to_string(),
                     
                     <String as ::mududb::types::datum::Datum>::dat_type().clone()
                     
@@ -698,19 +691,26 @@ pub fn mudu_argv_desc_kv_update()  -> &'static ::mududb::contract::tuple::tuple_
     )
 }
 
-pub fn mudu_result_desc_kv_update() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+pub fn mudu_result_desc_kv_read_modify_write() -> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
     static RESULT_DESC: std::sync::OnceLock<::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc> =
         std::sync::OnceLock::new();
     RESULT_DESC.get_or_init(||
         {
             ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
                 
+                ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                    "0".to_string(),
+                    
+                    <String as ::mududb::types::datum::Datum>::dat_type().clone()
+                    
+                ),
+                
             ])
         }
     )
 }
 
-pub fn mudu_proc_desc_kv_update()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+pub fn mudu_proc_desc_kv_read_modify_write()  -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
     static _PROC_DESC: std::sync::OnceLock<
         ::mududb::contract::procedure::proc_desc::ProcDesc,
     > = std::sync::OnceLock::new();
@@ -718,20 +718,20 @@ pub fn mudu_proc_desc_kv_update()  -> &'static ::mududb::contract::procedure::pr
         .get_or_init(|| {
             ::mududb::contract::procedure::proc_desc::ProcDesc::new(
                 "key_value".to_string(),
-                "kv_update".to_string(),
-                mudu_argv_desc_kv_update().clone(),
-                mudu_result_desc_kv_update().clone(),
+                "kv_read_modify_write".to_string(),
+                mudu_argv_desc_kv_read_modify_write().clone(),
+                mudu_result_desc_kv_read_modify_write().clone(),
                 false
             )
         })
 }
 
-mod mod_kv_update {
+mod mod_kv_read_modify_write {
     wit_bindgen::generate!({
         inline:
-        r##"package mudu:mp2-kv-update;
-            world mudu-app-mp2-kv-update {
-                export mp2-kv-update: func(param:list<u8>) -> list<u8>;
+        r##"package mudu:mp2-kv-read-modify-write;
+            world mudu-app-mp2-kv-read-modify-write {
+                export mp2-kv-read-modify-write: func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -739,13 +739,13 @@ mod mod_kv_update {
 
     #[allow(non_camel_case_types)]
     #[allow(unused)]
-    struct GuestKvUpdate {}
+    struct GuestKvReadModifyWrite {}
 
-    impl Guest for GuestKvUpdate {
-        async fn mp2_kv_update(param:Vec<u8>) -> Vec<u8> {
-            super::mp2_kv_update(param).await
+    impl Guest for GuestKvReadModifyWrite {
+        async fn mp2_kv_read_modify_write(param:Vec<u8>) -> Vec<u8> {
+            super::mp2_kv_read_modify_write(param).await
         }
     }
 
-    export!(GuestKvUpdate);
-}
+    export!(GuestKvReadModifyWrite);
+}

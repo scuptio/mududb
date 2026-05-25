@@ -1,5 +1,5 @@
 use crate::server::routing::{route_worker, RoutingContext, RoutingMode};
-use crate::server::server::{IoUringTcpBackend, IoUringTcpServerConfig};
+use crate::server::server::{WorkerTcpBackend, WorkerTcpServerConfig};
 use crate::server::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -11,9 +11,13 @@ use mudu_contract::protocol::{
     encode_session_create_request, Frame, FrameHeader, GetRequest, MessageType, PutRequest,
     SessionCreateRequest, HEADER_LEN,
 };
+use mudu_sys::tokio::io::{AsyncReadExt, AsyncWriteExt};
+use mudu_sys::tokio::net::{TcpSocket as TokioTcpSocket, TcpStream as TokioTcpStream};
+use mudu_sys::tokio::sync::Notify;
+use mudu_sys::tokio::task::JoinSet;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{notify_wait, NotifyWait};
-use mudu_utils::task::spawn_task;
+use mudu_utils::task_async::spawn_task;
 use mudu_utils::{debug, task_trace};
 use short_uuid::ShortUuid;
 use std::env::temp_dir;
@@ -24,10 +28,6 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket as TokioTcpSocket, TcpStream as TokioTcpStream};
-use tokio::sync::Notify;
-use tokio::task::JoinSet;
 use tracing::debug;
 use tracing::info;
 use uuid::Uuid;
@@ -67,7 +67,7 @@ impl AsyncPerfClient {
     }
 
     async fn put(&mut self, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
-        let _ = task_trace!();
+        mudu_utils::scoped_task_trace!();
 
         let request_id = self.take_request_id();
         let payload =
@@ -134,7 +134,7 @@ impl AsyncPerfClient {
         Ok(())
     }
     async fn _receive(&mut self) -> RS<Frame> {
-        let _ = task_trace!();
+        mudu_utils::scoped_task_trace!();
         let mut header = [0u8; HEADER_LEN];
         self.stream
             .read_exact(&mut header)
@@ -259,7 +259,7 @@ async fn wait_for_clients_ready(
         if ready == clients {
             return Ok(());
         }
-        mudu_sys::task::sleep(Duration::from_millis(25))
+        mudu_sys::task_async::sleep(Duration::from_millis(25))
             .await
             .expect("linux sleep wrapper should not fail");
     }
@@ -337,7 +337,7 @@ async fn wait_until_server_ready_or_exit_async(port: u16, server: &TestServerHan
             }
             Err(_) => {}
         }
-        mudu_sys::task::sleep(Duration::from_millis(25)).await?;
+        mudu_sys::task_async::sleep(Duration::from_millis(25)).await?;
     }
     Err(m_error!(
         EC::NetErr,
@@ -355,7 +355,7 @@ fn spawn_iouring_server(
     let (stop_notifier, server_stop) = notify_wait();
     let (exit_tx, exit_rx) = mpsc::channel();
     let port = listener.local_addr().unwrap().port();
-    let mut server_cfg = IoUringTcpServerConfig::new(
+    let mut server_cfg = WorkerTcpServerConfig::new(
         worker_count,
         "127.0.0.1".to_string(),
         port,
@@ -371,7 +371,7 @@ fn spawn_iouring_server(
         server_cfg = server_cfg.with_worker_registry(worker_registry).unwrap();
     }
     let join_handle = thread::spawn(move || {
-        let result = IoUringTcpBackend::sync_serve_with_stop(server_cfg, server_stop);
+        let result = WorkerTcpBackend::sync_serve_with_stop(server_cfg, server_stop);
         let exit_msg = match &result {
             Ok(()) => Ok(()),
             Err(err) => Err(err.to_string()),
@@ -450,7 +450,7 @@ async fn iouring_backend_perf_put_get() -> RS<()> {
     let get_ops = Arc::new(AtomicU64::new(0));
     let put_latencies_us = Arc::new(Mutex::new(Vec::<u64>::new()));
     let get_latencies_us = Arc::new(Mutex::new(Vec::<u64>::new()));
-    let mut join_set: JoinSet<RS<()>> = tokio::task::JoinSet::new();
+    let mut join_set: JoinSet<RS<()>> = mudu_sys::tokio::task::JoinSet::new();
     for client_id in 0..clients {
         let start_clients = start_clients.clone();
         let start_notify = start_notify.clone();
@@ -535,7 +535,7 @@ async fn iouring_backend_perf_put_get() -> RS<()> {
     start_notify.notify_waiters();
 
     let started_at = mudu_sys::time::instant_now();
-    mudu_sys::task::sleep(bench_duration).await?;
+    mudu_sys::task_async::sleep(bench_duration).await?;
     let elapsed = started_at.elapsed();
     stop_clients.store(true, Ordering::Relaxed);
     while let Some(result) = join_set.join_next().await {

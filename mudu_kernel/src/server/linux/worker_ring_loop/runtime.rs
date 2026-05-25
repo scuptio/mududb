@@ -1,4 +1,5 @@
 use super::*;
+use tracing::trace;
 impl WorkerRingLoop {
     /// Main poll/submit loop for the worker.
     ///
@@ -31,6 +32,7 @@ impl WorkerRingLoop {
             self.submit_user_ring_io_if_needed()?;
             self.stats.submit_calls += 1;
             let submitted = self.ring.submit();
+            trace!(submitted, "worker_ring_loop ring.submit done");
             if submitted < 0 {
                 return Err(m_error!(
                     EC::NetErr,
@@ -43,7 +45,7 @@ impl WorkerRingLoop {
             }
 
             if self.inflight.is_empty() {
-                mudu_sys::task::sleep_blocking(Duration::from_millis(1));
+                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(1));
                 continue;
             }
 
@@ -59,6 +61,11 @@ impl WorkerRingLoop {
                     ))
                 }
             };
+            trace!(
+                user_data = cqe.user_data(),
+                result = cqe.result(),
+                "worker_ring_loop got cqe"
+            );
             self.process_cqe(cqe)?;
 
             loop {
@@ -155,8 +162,13 @@ impl WorkerRingLoop {
 
     fn wait_for_cqe(&mut self) -> RS<Result<mudu_sys::uring::Cqe, i32>> {
         if let Some(timeout) = self.log_flush_wait_timeout()? {
+            trace!(
+                timeout_us = timeout.as_micros() as u64,
+                "worker_ring_loop wait_for_cqe_timeout"
+            );
             return Ok(self.ring.wait_timeout(timeout));
         }
+        trace!("worker_ring_loop wait_for_cqe_blocking");
         Ok(self.ring.wait())
     }
 
@@ -176,7 +188,8 @@ impl WorkerRingLoop {
         let Some(log) = &self.log else {
             return Ok(());
         };
-        let _ = log.backend().poll_flush_log()?;
+        let started = log.backend().poll_flush_log()?;
+        trace!(started, "worker_ring_loop poll_flush_log result");
         Ok(())
     }
 }

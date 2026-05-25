@@ -1,5 +1,5 @@
 use mudu::common::result::RS;
-use mudu_binding::universal::uni_primitive::UniPrimitive;
+use mudu_binding::universal::uni_scalar::UniScalar;
 
 use crate::lang_impl;
 use crate::lang_impl::lang::lang_data_type::uni_data_type_to_name;
@@ -27,8 +27,8 @@ impl LangKind {
         }
     }
 
-    pub fn name_of_primitive(&self, p: &UniPrimitive) -> RS<String> {
-        Ok(lang_impl::lang_primitive_name(self, p))
+    pub fn name_of_scalar(&self, p: &UniScalar) -> RS<String> {
+        Ok(lang_impl::lang_scalar_name(self, p))
     }
 
     pub fn name_of_wit_type(&self, wit_type: &UniDatType) -> RS<String> {

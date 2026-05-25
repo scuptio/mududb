@@ -4,6 +4,11 @@ use crate::dat_type_id::DatTypeID;
 use crate::datum::{Datum, DatumDyn};
 use crate::dt_fn_param::DatType;
 use mudu::common::result::RS;
+use mudu::data_type::date::DateValue;
+use mudu::data_type::numeric::Numeric;
+use mudu::data_type::time::TimeValue;
+use mudu::data_type::timestamp::TimestampValue;
+use mudu::data_type::timestamptz::TimestampTzValue;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use paste::paste;
@@ -11,14 +16,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hint;
 
-/// A memory-efficient representation of data that can hold various primitive types
+/// A memory-efficient representation of data that can hold various scalar types
 /// or complex types (arrays, records) in a unified enum container.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DatValue {
     inner: ValueKind,
 }
 
-// Mark as thread-safe since all variants are either primitive types or boxed types
+// Mark as thread-safe since all variants are either scalar types or boxed types
 unsafe impl Send for DatValue {}
 unsafe impl Sync for DatValue {}
 
@@ -38,6 +43,11 @@ enum ValueKind {
     I64(i64),
     I128(i128),
     U128(u128),
+    Numeric(Numeric),
+    Date(DateValue),
+    Time(TimeValue),
+    Timestamp(TimestampValue),
+    TimestampTz(TimestampTzValue),
     String(String),
     Record(Vec<DatValue>),
     Array(Vec<DatValue>),
@@ -199,6 +209,11 @@ impl_dat_value_methods! {
     (i64, I64, i64),
     (i128, I128, i128),
     (u128, U128, u128),
+    (Numeric, Numeric, numeric),
+    (DateValue, Date, date),
+    (TimeValue, Time, time),
+    (TimestampValue, Timestamp, timestamp),
+    (TimestampTzValue, TimestampTz, timestamptz),
     (f32, F32, f32),
     (f64, F64, f64),
     (String, String, string),

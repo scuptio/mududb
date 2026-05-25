@@ -11,7 +11,7 @@ use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvokerPtr;
 use mudu_kernel::server::routing::RoutingMode as KernelRoutingMode;
-use mudu_kernel::server::server::{IoUringTcpBackend, IoUringTcpServerConfig};
+use mudu_kernel::server::server::{TokioTcpBackend, WorkerTcpBackend, WorkerTcpServerConfig};
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::notify_wait;
 use std::env::temp_dir;
@@ -36,7 +36,7 @@ fn wait_until_server_ready(port: u16) {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return;
         }
-        mudu_sys::task::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
     }
     panic!("io_uring backend did not become ready on port {}", port);
 }
@@ -110,12 +110,12 @@ fn temp_dir_with_prefix(prefix: &str) -> PathBuf {
     temp_dir().join(format!("{}_{}", prefix, mudu_sys::random::uuid_v4()))
 }
 
-fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path) -> MuduDBCfg {
+fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path, server_mode: ServerMode) -> MuduDBCfg {
     let mut cfg = MuduDBCfg::default();
     cfg.mpk_path = mpk_path.to_string_lossy().into_owned();
     cfg.db_path = data_path.to_string_lossy().into_owned();
     cfg.listen_ip = "127.0.0.1".to_string();
-    cfg.server_mode = ServerMode::IOUring;
+    cfg.server_mode = server_mode;
     cfg.tcp_listen_port = port;
     cfg.io_uring_worker_threads = 2;
     cfg.component_target = Some(ComponentTarget::P2);
@@ -127,7 +127,7 @@ fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path) -> MuduDBCfg {
 fn install_kv_package(app_mgr: &MuduAppMgr, package_path: &Path) -> RS<()> {
     let pkg_binary = std::fs::read(package_path)
         .map_err(|e| m_error!(EC::IOErr, "read key-value mpk for test install error", e))?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = mudu_sys::tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| {
@@ -144,7 +144,7 @@ fn create_procedure_runtimes(
     app_mgr: &MuduAppMgr,
     cfg: &MuduDBCfg,
 ) -> RS<Vec<AsyncFuncInvokerPtr>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = mudu_sys::tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| {
@@ -184,12 +184,22 @@ fn invoke_and_decode<T: TupleDatum>(
 #[ignore = "requires Linux io_uring, cargo make, wasm32-wasip2 target, and example/key-value package build"]
 fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
     log_setup("info");
-    if !mudu_sys::io_uring_available() {
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip key-value io_uring test: io_uring unavailable");
         return Ok(());
     }
     info!("enable key-value io_uring test: io_uring available");
+    run_kv_mpk_can_be_used_by_kernel_backend(ServerMode::IOUring)
+}
 
+#[test]
+#[ignore = "requires Linux cargo make, wasm32-wasip2 target, and example/key-value package build"]
+fn kv_mpk_can_be_used_by_tokio_backend() -> RS<()> {
+    log_setup("info");
+    run_kv_mpk_can_be_used_by_kernel_backend(ServerMode::Tokio)
+}
+
+fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     let package_path = ensure_kv_package_built()?;
     let mpk_dir = temp_dir_with_prefix("mududb_kv_mpk");
     let data_dir = temp_dir_with_prefix("mududb_kv_data");
@@ -204,13 +214,13 @@ fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
         );
         return Ok(());
     };
-    let cfg = build_cfg(port, &mpk_dir, &data_dir);
+    let cfg = build_cfg(port, &mpk_dir, &data_dir, server_mode);
     let app_mgr = MuduAppMgr::new(cfg.clone());
     install_kv_package(&app_mgr, &package_path)?;
     let procedure_runtimes = create_procedure_runtimes(&app_mgr, &cfg)?;
 
     let (stop_notifier, server_stop) = notify_wait();
-    let server_cfg = IoUringTcpServerConfig::new(
+    let server_cfg = WorkerTcpServerConfig::new(
         cfg.effective_worker_threads(),
         cfg.listen_ip.clone(),
         cfg.tcp_listen_port,
@@ -222,8 +232,11 @@ fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
     .with_log_chunk_size(cfg.io_uring_log_chunk_size)
     .with_worker_procedure_runtimes(procedure_runtimes);
 
-    let server_thread =
-        thread::spawn(move || IoUringTcpBackend::sync_serve_with_stop(server_cfg, server_stop));
+    let server_thread = thread::spawn(move || match server_mode {
+        ServerMode::IOUring => WorkerTcpBackend::sync_serve_with_stop(server_cfg, server_stop),
+        ServerMode::Tokio => TokioTcpBackend::sync_serve_with_stop(server_cfg, server_stop),
+        ServerMode::Legacy => unreachable!("legacy mode is not a kernel backend"),
+    });
 
     wait_until_server_ready(port);
 
@@ -274,4 +287,11 @@ fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
     test_result?;
     join_result?;
     Ok(())
+}
+
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
+    }
 }

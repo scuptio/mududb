@@ -2,6 +2,7 @@ use crate::dat_type::DatType;
 use crate::dat_type_id::DatTypeID;
 use crate::dat_value::DatValue;
 use crate::dt_impl::dt_create::{create_array_type, create_object_type, create_string_type};
+use crate::dtp_numeric::DTPNumeric;
 use crate::type_error::{TyEC, TyErr};
 use mudu::utils::json::JsonValue;
 
@@ -50,6 +51,11 @@ fn invalid_textual_input_paths_return_type_convert_failed() {
             DatTypeID::Binary,
             DatType::new_no_param(DatTypeID::Binary),
             "{\"oops\":1}",
+        ),
+        (
+            DatTypeID::Numeric,
+            DatType::from_numeric(DTPNumeric::new(9, 2)),
+            "\"bad\"",
         ),
         (
             DatTypeID::Array,
@@ -112,6 +118,11 @@ fn textual_input_rejects_json_with_wrong_shape() {
             "{ [\"bad\"]",
         ),
         (
+            DatTypeID::Numeric,
+            DatType::from_numeric(DTPNumeric::new(9, 2)),
+            "{ [\"bad\"]",
+        ),
+        (
             DatTypeID::Array,
             create_array_type(DatType::new_no_param(DatTypeID::I32)),
             "{[\"bad\"]",
@@ -171,6 +182,29 @@ fn binary_error_paths_return_expected_error_codes() {
     let value = DatValue::from_binary(vec![1, 2, 3]);
     let err = DatTypeID::Binary.fn_send_to()(&value, &dt, &mut [0u8; 2]).unwrap_err();
     assert_ty_ec(err, TyEC::InsufficientSpace);
+}
+
+#[test]
+fn numeric_error_paths_return_expected_error_codes() {
+    let dt = DatType::from_numeric(DTPNumeric::new(9, 2));
+
+    let err = DatTypeID::Numeric.fn_input_json()(&JsonValue::Bool(true), &dt).unwrap_err();
+    assert_ty_ec(err, TyEC::TypeConvertFailed);
+
+    let err = DatTypeID::Numeric.fn_recv()(&[0u8; 8], &dt).unwrap_err();
+    assert_ty_ec(err, TyEC::InsufficientSpace);
+
+    let value = DatValue::from_numeric(mudu::data_type::numeric::Numeric::parse("7.50").unwrap());
+    let err = DatTypeID::Numeric.fn_send_to()(&value, &dt, &mut [0u8; 8]).unwrap_err();
+    assert_ty_ec(err, TyEC::InsufficientSpace);
+
+    let overflow =
+        DatValue::from_numeric(mudu::data_type::numeric::Numeric::parse("123456789.00").unwrap());
+    let err = match DatTypeID::Numeric.fn_send()(&overflow, &dt) {
+        Ok(_) => panic!("expected numeric send precision overflow"),
+        Err(err) => err,
+    };
+    assert_ty_ec(err, TyEC::TypeConvertFailed);
 }
 
 #[test]

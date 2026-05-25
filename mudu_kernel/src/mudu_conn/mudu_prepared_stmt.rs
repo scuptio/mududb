@@ -6,8 +6,7 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::server::worker_local::WorkerLocalRef;
 
@@ -34,8 +33,7 @@ impl MuduPreparedStmt {
     }
 
     async fn current_oid(&self) -> OID {
-        let guard = self.session_id.lock().await;
-        guard.unwrap_or(0)
+        self.session_id.lock().unwrap().unwrap_or(0)
     }
 }
 

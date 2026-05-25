@@ -15,6 +15,7 @@ pub enum ServerMode {
     #[default]
     Legacy = 0,
     IOUring = 1,
+    Tokio = 2,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Eq, PartialEq, Debug, Clone, Copy, Default)]
@@ -153,6 +154,10 @@ impl MuduDBCfg {
         self.component_target.unwrap_or(ComponentTarget::P2)
     }
 
+    pub fn uses_mududb_kernel(&self) -> bool {
+        matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio)
+    }
+
     pub fn effective_worker_threads(&self) -> usize {
         if self.io_uring_worker_threads > 0 {
             self.io_uring_worker_threads
@@ -274,6 +279,7 @@ enable_async = true
 
 # 0 = Legacy
 # 1 = IOUring
+# 2 = Tokio
 server_mode = 1
 tcp_listen_port = 9527
 io_uring_worker_threads = 0

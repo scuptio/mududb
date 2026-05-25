@@ -84,16 +84,16 @@ mod test {
     use mudu::this_file;
     use mudu_contract::database::db_conn::DBConnSync;
     use mudu_contract::database::sql::DBConn;
+    use mudu_sys::tokio::runtime::Builder;
     use mudu_utils::log::log_setup;
     use mudu_utils::notifier::NotifyWait;
-    use mudu_utils::task::spawn_task;
+    use mudu_utils::task_async::spawn_task;
     use std::env::temp_dir;
     use std::fs;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use tokio::runtime::Builder;
     use tracing::debug;
 
     fn test_db_temp_folder() -> String {

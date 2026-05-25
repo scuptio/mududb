@@ -16,6 +16,8 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
+use mudu_utils::sync::a_mutex::AMutex;
+use mudu_utils::sync::a_rwlock::ARwLock;
 use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Opts, Pool, Row, Value};
@@ -27,7 +29,6 @@ use mysql_async::{
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 type MySqlConnRef = Arc<Mutex<mysql::PooledConn>>;
 
@@ -37,8 +38,8 @@ struct MySqlAsyncSession {
 
 lazy_static! {
     static ref SESSIONS: SccHashMap<OID, MySqlConnRef> = SccHashMap::new();
-    static ref ASYNC_SESSIONS: RwLock<HashMap<OID, Arc<AsyncMutex<MySqlAsyncSession>>>> =
-        RwLock::new(HashMap::new());
+    static ref ASYNC_SESSIONS: ARwLock<HashMap<OID, Arc<AMutex<MySqlAsyncSession>>>> =
+        ARwLock::new(HashMap::new());
 }
 
 fn connect() -> RS<mysql::PooledConn> {
@@ -108,7 +109,7 @@ pub fn mudu_open() -> RS<OID> {
 pub async fn mudu_open_async() -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
     let session_id = state::next_session_id();
-    let session = Arc::new(AsyncMutex::new(connect_async().await?));
+    let session = Arc::new(AMutex::new(connect_async().await?));
     ASYNC_SESSIONS.write().await.insert(session_id, session);
     Ok(session_id)
 }
@@ -371,7 +372,7 @@ where
     f(&mut conn)
 }
 
-async fn with_async_session(session_id: OID) -> RS<Arc<AsyncMutex<MySqlAsyncSession>>> {
+async fn with_async_session(session_id: OID) -> RS<Arc<AMutex<MySqlAsyncSession>>> {
     ASYNC_SESSIONS
         .read()
         .await

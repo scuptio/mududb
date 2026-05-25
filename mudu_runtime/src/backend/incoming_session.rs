@@ -2,10 +2,10 @@ use crate::backend::session_ctx::SessionCtx;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
+use mudu_sys::tokio::net::TcpStream;
+use mudu_sys::tokio::sync::mpsc::Sender;
 use pgwire::tokio::process_socket;
 use std::net::SocketAddr;
-use tokio::net::TcpStream;
-use tokio::sync::mpsc::Sender;
 
 pub type SSPSender = Sender<IncomingSession>;
 

@@ -495,7 +495,19 @@ impl Binder {
             && matches!(start, Bound::Unbounded)
             && matches!(end, Bound::Unbounded)
         {
-            return Ok(BoundPredicate::KeyEq { key: eq_items });
+            eq_items.sort_by_key(|(attr, _)| table_desc.get_attr(*attr).primary_index().unwrap());
+            for (index, (attr, _)) in eq_items.iter().enumerate() {
+                if table_desc.get_attr(*attr).primary_index() != Some(index) {
+                    return Err(m_error!(
+                        ER::NotImplemented,
+                        "select equality predicates on primary keys must cover a left prefix of the primary key"
+                    ));
+                }
+            }
+            if eq_items.len() == table_desc.key_indices().len() {
+                return Ok(BoundPredicate::KeyEq { key: eq_items });
+            }
+            return Ok(BoundPredicate::KeyPrefixEq { prefix: eq_items });
         }
 
         if !eq_items.is_empty() {
@@ -544,6 +556,10 @@ impl Binder {
                 }
                 Ok(key)
             }
+            BoundPredicate::KeyPrefixEq { .. } => Err(m_error!(
+                ER::NotImplemented,
+                "update/delete require a complete primary key predicate"
+            )),
             BoundPredicate::True => Err(m_error!(
                 ER::NotImplemented,
                 "full-table update/delete is not implemented"
@@ -577,7 +593,10 @@ impl Binder {
     }
 
     fn schema_column_from_ast(column: &sql_parser::ast::column_def::ColumnDef) -> RS<SchemaColumn> {
-        let ty = column.data_type().clone().uni_to()?;
+        let ty = column
+            .data_type()
+            .clone()
+            .uni_to_with_params(column.data_type_param().clone())?;
         let mut schema_column = SchemaColumn::new(
             column.column_name().clone(),
             ty.dat_type_id(),

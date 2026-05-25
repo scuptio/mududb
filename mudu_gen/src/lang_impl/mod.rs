@@ -1,7 +1,7 @@
 use crate::impl_lang;
 use crate::lang_impl::lang::lang_kind::LangKind;
-use crate::lang_impl::lang::non_primitive::NonPrimitiveType;
-use mudu_binding::universal::uni_primitive::UniPrimitive;
+use crate::lang_impl::lang::non_scalar::NonScalarType;
+use mudu_binding::universal::uni_scalar::UniScalar;
 use paste::paste;
 
 pub mod csharp;

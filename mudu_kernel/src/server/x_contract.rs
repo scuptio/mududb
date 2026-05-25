@@ -9,18 +9,21 @@ use mudu_contract::tuple::build_tuple::build_tuple;
 use mudu_contract::tuple::tuple_binary::TupleBinary as TupleRaw;
 use mudu_contract::tuple::update_tuple::update_tuple;
 use mudu_type::dt_function::send_binary;
+use mudu_utils::task_trace;
 use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tracing::debug;
+use std::time::Duration;
+use tracing::{debug, trace};
 
+use crate::async_rt::contract::AsyncRuntime;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_desc::TableDesc;
 use crate::meta::meta_mgr_factory::MetaMgrFactory;
 use crate::server::message_bus_api::{
     current_message_bus, DeliveryMode, EndpointId, Envelope, MessageKind, OutgoingMessage,
-    RecvFilter,
+    RecvFilter, ServerInstanceId,
 };
 use crate::server::partition_router::{PartitionRouter, DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID};
 use crate::server::partition_rpc::{PartitionRpcRequest, PartitionRpcResponse, RpcBound};
@@ -39,7 +42,8 @@ type DatBin = Buf;
 const PARTITION_RPC_REQUEST_KIND: MessageKind = MessageKind::User(0x7101);
 const PARTITION_RPC_RESPONSE_KIND: MessageKind = MessageKind::User(0x7102);
 
-pub struct IoUringXContract {
+pub struct WorkerXContract {
+    server_instance_id: ServerInstanceId,
     worker_id: OID,
     default_unpartitioned_worker_id: OID,
     meta_mgr: Arc<dyn MetaMgr>,
@@ -52,6 +56,10 @@ pub struct IoUringXContract {
     // commit_gate: AsyncMutex<()>,
 }
 
+/// Backward-compatible name for callers that still refer to the historical
+/// io_uring-only contract.
+pub type IoUringXContract = WorkerXContract;
+
 struct VecCursor {
     inner: Mutex<VecCursorInner>,
 }
@@ -61,7 +69,7 @@ struct VecCursorInner {
     index: usize,
 }
 
-impl IoUringXContract {
+impl WorkerXContract {
     pub fn new(meta_mgr: Arc<dyn MetaMgr>) -> RS<Self> {
         Self::with_log_and_data_dir(meta_mgr, None, 0, 0, 0, default_worker_storage_data_dir())
     }
@@ -78,16 +86,38 @@ impl IoUringXContract {
         partition_id: OID,
         data_dir: String,
     ) -> RS<Self> {
-        let storage = Arc::new(WorkerStorage::new(meta_mgr.clone(), partition_id, data_dir));
+        Self::with_log_and_data_dir_and_runtime(
+            meta_mgr,
+            log,
+            worker_id,
+            default_unpartitioned_worker_id,
+            partition_id,
+            data_dir,
+            None,
+            0,
+        )
+    }
+
+    pub fn with_log_and_data_dir_and_runtime(
+        meta_mgr: Arc<dyn MetaMgr>,
+        log: Option<ChunkedWorkerLogBackend>,
+        worker_id: OID,
+        default_unpartitioned_worker_id: OID,
+        partition_id: OID,
+        data_dir: String,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        server_instance_id: ServerInstanceId,
+    ) -> RS<Self> {
+        let storage = Arc::new(WorkerStorage::new_with_async_runtime(
+            meta_mgr.clone(),
+            partition_id,
+            data_dir,
+            async_runtime,
+        ));
         storage.register_global();
-        storage.bootstrap_existing_tables_sync().map_err(|e| {
-            m_error!(
-                EC::StorageErr,
-                "bootstrap worker storage from meta failed",
-                e
-            )
-        })?;
+        bootstrap_storage(&storage)?;
         Ok(Self {
+            server_instance_id,
             worker_id,
             default_unpartitioned_worker_id,
             meta_mgr: meta_mgr.clone(),
@@ -121,6 +151,33 @@ impl IoUringXContract {
             partition_id,
             data_dir,
         )
+    }
+
+    pub fn with_worker_log_and_data_dir_and_runtime(
+        log: ChunkedWorkerLogBackend,
+        worker_id: OID,
+        default_unpartitioned_worker_id: OID,
+        partition_id: OID,
+        data_dir: String,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        server_instance_id: ServerInstanceId,
+    ) -> RS<Self> {
+        let meta_mgr = MetaMgrFactory::create(data_dir.clone())
+            .map_err(|e| m_error!(EC::DBInternalError, "create worker meta manager failed", e))?;
+        Self::with_log_and_data_dir_and_runtime(
+            meta_mgr,
+            Some(log.clone()),
+            worker_id,
+            default_unpartitioned_worker_id,
+            partition_id,
+            data_dir,
+            async_runtime,
+            server_instance_id,
+        )
+    }
+
+    pub fn server_instance_id(&self) -> ServerInstanceId {
+        self.server_instance_id
     }
 
     pub fn worker_log(&self) -> Option<ChunkedWorkerLogBackend> {
@@ -297,6 +354,7 @@ impl IoUringXContract {
         items: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         batch: XLBatch,
     ) -> RS<()> {
+        mudu_utils::scoped_task_trace!();
         if items.is_empty() {
             return self.snapshot_mgr.end_tx(xid);
         }
@@ -373,7 +431,11 @@ impl IoUringXContract {
     }
 
     pub async fn worker_commit_tx_async(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
+        mudu_utils::scoped_task_trace!();
+
         let xid = tx.xid();
+
+        trace!("worker_commit_tx_async {}", xid);
         if tx.is_empty() {
             return self.worker_rollback_tx(tx);
         }
@@ -390,20 +452,29 @@ impl IoUringXContract {
             let prepared = self.storage.prepare_commit_async(tx.as_ref()).await?;
             (self.storage.clone(), self.log.clone(), prepared)
         };
+        trace!("log flush {}", xid);
         let result = async {
             if let Some(log) = log {
+                task_trace!().watch("procedure.worker_execute.stage", "wal_append_start");
                 new_xl_batch_writer(log.clone())
                     .append(prepared.batch())
                     .await?;
+                task_trace!().watch("procedure.worker_execute.stage", "wal_append_done");
+                task_trace!().watch("procedure.worker_execute.stage", "wal_flush_start");
                 log.flush_async().await?;
+                task_trace!().watch("procedure.worker_execute.stage", "wal_flush_done");
             }
+            task_trace!().watch("procedure.worker_execute.stage", "storage_apply_start");
             storage.apply_prepared_commit_async(prepared).await?;
+            task_trace!().watch("procedure.worker_execute.stage", "storage_apply_done");
             Ok(())
         }
         .await;
+        trace!("log flush done {}", xid);
         let write_ops = tx.write_ops();
         self.tx_lock.release(xid as OID, &write_ops);
         self.worker_rollback_tx(tx)?;
+        trace!("worker_commit_tx_async finish {}", xid);
         result
     }
 
@@ -440,6 +511,37 @@ impl IoUringXContract {
     }
 }
 
+fn bootstrap_storage(storage: &Arc<WorkerStorage>) -> RS<()> {
+    if storage.uses_async_runtime() {
+        let storage = storage.clone();
+        mudu_sys::task_async::block_on_tokio_current_thread(async move {
+            storage.bootstrap_existing_tables_async().await
+        })
+        .map_err(|e| {
+            m_error!(
+                EC::TokioErr,
+                "create tokio runtime for storage bootstrap failed",
+                e
+            )
+        })?
+        .map_err(|e| {
+            m_error!(
+                EC::StorageErr,
+                "bootstrap worker storage from meta failed",
+                e
+            )
+        })
+    } else {
+        storage.bootstrap_existing_tables_sync().map_err(|e| {
+            m_error!(
+                EC::StorageErr,
+                "bootstrap worker storage from meta failed",
+                e
+            )
+        })
+    }
+}
+
 fn default_worker_storage_data_dir() -> String {
     std::env::temp_dir()
         .join(format!(
@@ -450,7 +552,7 @@ fn default_worker_storage_data_dir() -> String {
         .to_string()
 }
 
-impl IoUringXContract {
+impl WorkerXContract {
     async fn handle_partition_rpc(&self, envelope: Envelope) -> RS<()> {
         debug!(
             worker_id = self.worker_id,
@@ -663,14 +765,25 @@ impl IoUringXContract {
             worker_id = self.worker_id,
             target_worker_id, msg_id, "waiting partition rpc response"
         );
-        let envelope = bus
-            .recv(RecvFilter {
+        let envelope = mudu_sys::task_async::timeout(
+            Duration::from_secs(10),
+            bus.recv(RecvFilter {
                 src: Some(EndpointId::Worker(target_worker_id)),
                 dst: Some(EndpointId::Worker(self.worker_id)),
                 kind: Some(PARTITION_RPC_RESPONSE_KIND),
                 correlation_id: Some(msg_id),
-            })
-            .await?;
+            }),
+        )
+        .await
+        .ok_or_else(|| {
+            m_error!(
+                EC::TokioErr,
+                format!(
+                    "partition rpc response timeout: server={}, worker={}, target_worker={}, msg_id={}",
+                    self.server_instance_id, self.worker_id, target_worker_id, msg_id
+                )
+            )
+        })??;
         debug!(
             worker_id = self.worker_id,
             target_worker_id,
@@ -919,19 +1032,25 @@ impl IoUringXContract {
                     )
                     .await?
                 }
-                _ => self
-                    .storage
-                    .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-                    .await?
-                    .map(|value| project_selected_fields(&desc, &key, &value, select))
-                    .transpose()?,
+                _ => {
+                    let result = self
+                        .storage
+                        .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
+                        .await?;
+                    result
+                        .map(|value| project_selected_fields(&desc, &key, &value, select))
+                        .transpose()?
+                }
             },
-            None => self
-                .storage
-                .get_on_partition(table_id, None, &key, tx_mgr.as_ref())
-                .await?
-                .map(|value| project_selected_fields(&desc, &key, &value, select))
-                .transpose()?,
+            None => {
+                let result = self
+                    .storage
+                    .get_on_partition(table_id, None, &key, tx_mgr.as_ref())
+                    .await?;
+                result
+                    .map(|value| project_selected_fields(&desc, &key, &value, select))
+                    .transpose()?
+            }
         };
         match opt_value {
             Some(value) => Ok(Some(value)),
@@ -962,6 +1081,12 @@ impl IoUringXContract {
                 for partition_id in partitions {
                     match self.resolve_partition_worker(partition_id).await? {
                         Some(worker_id) if self.worker_id != 0 && worker_id != self.worker_id => {
+                            if matches!(pred_non_key, Predicate::KeyPrefixEq(_)) {
+                                return Err(m_error!(
+                                    EC::NotImplemented,
+                                    "key-prefix range filtering is not implemented for remote partitions"
+                                ));
+                            }
                             let rows = self
                                 .remote_read_range(
                                     worker_id,
@@ -987,6 +1112,9 @@ impl IoUringXContract {
                                 )
                                 .await?;
                             for (key, value) in rows {
+                                if !matches_predicate(&desc, &key, &value, pred_non_key)? {
+                                    continue;
+                                }
                                 projected.push(TupleRow::new(project_selected_fields(
                                     &desc, &key, &value, select,
                                 )?));
@@ -1001,6 +1129,9 @@ impl IoUringXContract {
                     .range(table_id, (start, end), tx_mgr.as_ref())
                     .await?;
                 for (key, value) in rows {
+                    if !matches_predicate(&desc, &key, &value, pred_non_key)? {
+                        continue;
+                    }
                     projected.push(TupleRow::new(project_selected_fields(
                         &desc, &key, &value, select,
                     )?));
@@ -1095,7 +1226,7 @@ impl IoUringXContract {
 }
 
 #[async_trait]
-impl XContract for IoUringXContract {
+impl XContract for WorkerXContract {
     async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, schema: &SchemaTable) -> RS<()> {
         self.storage.create_table_async(schema).await
     }
@@ -1212,7 +1343,7 @@ impl XContract for IoUringXContract {
     }
 }
 
-impl IoUringXContract {
+impl WorkerXContract {
     pub fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.meta_mgr.clone()
     }
@@ -1237,6 +1368,7 @@ impl RSCursor for VecCursor {
 fn ensure_supported_predicate(predicate: &Predicate) -> RS<()> {
     match predicate {
         Predicate::CNF(items) | Predicate::DNF(items) if items.is_empty() => Ok(()),
+        Predicate::KeyPrefixEq(_) => Ok(()),
         Predicate::CNF(items) | Predicate::DNF(items) => {
             let _ = items
                 .iter()
@@ -1248,6 +1380,35 @@ fn ensure_supported_predicate(predicate: &Predicate) -> RS<()> {
                 "non-key predicates are not implemented in io_uring xcontract"
             ))
         }
+    }
+}
+
+fn matches_predicate(
+    desc: &TableDesc,
+    key: &[u8],
+    _value: &[u8],
+    predicate: &Predicate,
+) -> RS<bool> {
+    match predicate {
+        Predicate::CNF(items) | Predicate::DNF(items) if items.is_empty() => Ok(true),
+        Predicate::KeyPrefixEq(prefix) => {
+            for (attr, expected) in prefix {
+                let field = desc.get_attr(*attr);
+                let Some(primary_index) = field.primary_index() else {
+                    return Ok(false);
+                };
+                let field_desc = desc.key_desc().get_field_desc(primary_index);
+                let actual = field_desc.get(key)?;
+                if actual != expected.as_slice() {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        Predicate::CNF(_) | Predicate::DNF(_) => Err(m_error!(
+            EC::NotImplemented,
+            "non-key predicates are not implemented in io_uring xcontract"
+        )),
     }
 }
 
@@ -1282,7 +1443,35 @@ fn build_tuple_for<const IS_KEY: bool>(
     };
     let values: Vec<_> = vec_data.into_iter().map(|(_, v)| v).collect();
     if IS_KEY && tuple_desc.field_count() != values.len() {
-        return Err(m_error!(EC::TupleErr));
+        let expected_key_fields = desc
+            .key_indices()
+            .iter()
+            .map(|index| desc.get_attr(*index).name().clone())
+            .collect::<Vec<_>>();
+        let provided_fields = data
+            .iter()
+            .map(|(attr, _)| {
+                let field = desc.get_attr(*attr);
+                format!(
+                    "{}(column_index={}, datum_index={}, primary_index={:?})",
+                    field.name(),
+                    field.column_index(),
+                    field.datum_index(),
+                    field.primary_index()
+                )
+            })
+            .collect::<Vec<_>>();
+        return Err(m_error!(
+            EC::TupleErr,
+            format!(
+                "build key tuple width mismatch for table {}: expected {} key fields {:?}, got {} provided fields {:?}",
+                desc.name(),
+                tuple_desc.field_count(),
+                expected_key_fields,
+                values.len(),
+                provided_fields,
+            )
+        ));
     }
     if IS_KEY {
         return build_tuple(&values, tuple_desc);
@@ -1315,7 +1504,9 @@ fn build_tuple_for<const IS_KEY: bool>(
     let completed = completed
         .into_iter()
         .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| m_error!(EC::TupleErr))?;
+        .ok_or_else(|| {
+            m_error!(EC::TupleErr)
+        })?;
     build_tuple(&completed, tuple_desc)
 }
 
@@ -1446,60 +1637,24 @@ mod tests {
     use super::*;
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::table_info::TableInfo;
+    use crate::server::test_meta_mgr::TestMetaMgr;
     use crate::wal::worker_log::{decode_frames, ChunkedWorkerLogBackend, WorkerLogLayout};
     use crate::wal::xl_data_op::XLInsert;
     use crate::wal::xl_entry::TxOp;
-    use futures::executor::block_on;
     use mudu::common::id::gen_oid;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_fn_param::DatType;
     use mudu_type::dt_info::DTInfo;
-    use std::collections::HashMap;
     use std::env::temp_dir;
+    use std::future::Future;
 
-    struct TestMetaMgr {
-        tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
-    }
-
-    impl TestMetaMgr {
-        fn new() -> Self {
-            Self {
-                tables: Mutex::new(HashMap::new()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl MetaMgr for TestMetaMgr {
-        async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
-            self.tables
-                .lock()
-                .unwrap()
-                .get(&oid)
-                .cloned()
-                .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
-        }
-
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
-            Ok(self
-                .tables
-                .lock()
-                .unwrap()
-                .values()
-                .find(|table| table.name() == name)
-                .cloned())
-        }
-
-        async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
-            let table = TableInfo::new(schema.clone())?.table_desc()?;
-            self.tables.lock().unwrap().insert(schema.id(), table);
-            Ok(())
-        }
-
-        async fn drop_table(&self, table_id: OID) -> RS<()> {
-            self.tables.lock().unwrap().remove(&table_id);
-            Ok(())
-        }
+    fn block_on<F>(fut: F) -> F::Output
+    where
+        F: Future,
+    {
+        mudu_sys::task_async::build_current_thread_runtime()
+            .unwrap()
+            .block_on(fut)
     }
 
     fn test_schema() -> SchemaTable {
@@ -1592,6 +1747,13 @@ mod tests {
 
     #[test]
     fn relation_commit_log_round_trips() {
+        block_on(async move {
+            let r = _relation_commit_log_round_trips().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _relation_commit_log_round_trips() -> RS<()> {
         let mgr = Arc::new(TestMetaMgr::new());
         let storage = WorkerStorage::new(
             mgr.clone(),
@@ -1606,43 +1768,57 @@ mod tests {
         );
         let schema = test_schema();
         let table_id = schema.id();
-        block_on(storage.create_table_async(&schema)).unwrap();
+        storage.create_table_async(&schema).await?;
         let mut txm = WorkerTxManager::new(crate::server::worker_snapshot::WorkerSnapshot::new(
             9,
             vec![],
         ));
-        block_on(storage.put(table_id, b"k1".to_vec(), b"v1".to_vec(), &mut txm)).unwrap();
-        block_on(storage.remove(table_id, b"k1", &mut txm)).unwrap();
+        storage
+            .put(table_id, b"k1".to_vec(), b"v1".to_vec(), &mut txm)
+            .await?;
+        storage.remove(table_id, b"k1", &mut txm).await?;
         let prepared = storage.prepare_commit(&txm).unwrap();
 
         assert_eq!(prepared.batch().entries.len(), 1);
         assert_eq!(prepared.batch().entries[0].xid, 9);
         assert!(matches!(prepared.batch().entries[0].ops[0], TxOp::Begin));
+        Ok(())
     }
 
     #[test]
     fn iouring_xcontract_commit_persists_relation_log() {
+        block_on(async move {
+            let r = _iouring_xcontract_commit_persists_relation_log().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _iouring_xcontract_commit_persists_relation_log() -> RS<()> {
         let dir = temp_dir().join(format!("iouring_xcontract_log_{}", gen_oid()));
         let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
         let log = ChunkedWorkerLogBackend::new(layout.clone()).unwrap();
         let meta_mgr = Arc::new(TestMetaMgr::new());
         let schema = test_schema();
         let table_id = schema.id();
-        let contract = IoUringXContract::with_log(meta_mgr, Some(log)).unwrap();
+        let contract = WorkerXContract::with_log(meta_mgr, Some(log)).unwrap();
 
-        let ddl_tx = block_on(contract.begin_tx()).unwrap();
-        block_on(contract.create_table(ddl_tx.clone(), &schema)).unwrap();
-        block_on(contract.commit_tx(ddl_tx)).unwrap();
-        let tx_mgr = block_on(contract.begin_tx()).unwrap();
-        block_on(contract.insert(
+        let ddl_tx = contract.begin_tx().await?;
+        contract.create_table(ddl_tx.clone(), &schema).await?;
+        contract.commit_tx(ddl_tx).await?;
+        let tx_mgr = contract.begin_tx().await?;
+        let keys = key_row(1);
+        let values = value_row(10);
+        let opt_insert = OptInsert::default();
+        contract
+            .insert(
             tx_mgr.clone(),
             table_id,
-            &key_row(1),
-            &value_row(10),
-            &OptInsert::default(),
-        ))
-        .unwrap();
-        block_on(contract.commit_tx(tx_mgr)).unwrap();
+            &keys,
+            &values,
+            &opt_insert,
+        )
+            .await?;
+        contract.commit_tx(tx_mgr).await?;
 
         let bytes = std::fs::read(layout.chunk_path(0)).unwrap();
         let frames = decode_frames(&bytes).unwrap();
@@ -1665,18 +1841,26 @@ mod tests {
             insert.value,
             build_value_tuple(&value_row(10), &meta_table(&schema).unwrap()).unwrap()
         );
+        Ok(())
     }
 
     #[test]
     fn iouring_xcontract_replay_restores_worker_kv_and_relation_rows() {
+        block_on(async move {
+            let r = _iouring_xcontract_replay_restores_worker_kv_and_relation_rows().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _iouring_xcontract_replay_restores_worker_kv_and_relation_rows() -> RS<()> {
         let meta_mgr = Arc::new(TestMetaMgr::new());
         let schema = test_schema();
         let table_id = schema.id();
-        let contract = IoUringXContract::with_log(meta_mgr, None).unwrap();
+        let contract = WorkerXContract::with_log(meta_mgr, None).unwrap();
 
-        let tx_mgr = block_on(contract.begin_tx()).unwrap();
-        block_on(contract.create_table(tx_mgr.clone(), &schema)).unwrap();
-        block_on(contract.commit_tx(tx_mgr)).unwrap();
+        let tx_mgr = contract.begin_tx().await?;
+        contract.create_table(tx_mgr.clone(), &schema).await?;
+        contract.commit_tx(tx_mgr).await?;
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 11,
             ops: vec![
@@ -1704,16 +1888,21 @@ mod tests {
 
         assert_eq!(contract.worker_get(b"wk").unwrap(), Some(b"wv".to_vec()));
 
-        let xid = block_on(contract.begin_tx()).unwrap();
-        let relation = block_on(contract.read_key(
+        let xid = contract.begin_tx().await?;
+        let pred_key = key_row(3);
+        let select = VecSelTerm::new(vec![1]);
+        let opt_read = OptRead::default();
+        let relation = contract
+            .read_key(
             xid,
             table_id,
-            &key_row(3),
-            &VecSelTerm::new(vec![1]),
-            &OptRead::default(),
-        ))
-        .unwrap();
+            &pred_key,
+            &select,
+            &opt_read,
+        )
+            .await?;
         assert_eq!(relation, Some(vec![datum(30)]));
+        Ok(())
     }
 
     #[test]
@@ -1733,7 +1922,7 @@ mod tests {
 
     #[test]
     fn iouring_xcontract_replay_applies_worker_kv_delete() {
-        let contract = IoUringXContract::with_worker_log(
+        let contract = WorkerXContract::with_worker_log(
             ChunkedWorkerLogBackend::new(
                 WorkerLogLayout::new(
                     temp_dir().join(format!("iouring_xcontract_worker_log_{}", gen_oid())),
@@ -1768,49 +1957,69 @@ mod tests {
 
     #[test]
     fn iouring_xcontract_update_maps_table_attr_to_value_tuple_index() {
+        block_on(async move {
+            let r = _iouring_xcontract_update_maps_table_attr_to_value_tuple_index().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _iouring_xcontract_update_maps_table_attr_to_value_tuple_index() -> RS<()> {
         let meta_mgr = Arc::new(TestMetaMgr::new());
         let schema = test_schema();
         let table_id = schema.id();
-        let contract = IoUringXContract::with_log(meta_mgr, None).unwrap();
+        let contract = WorkerXContract::with_log(meta_mgr, None).unwrap();
 
-        let ddl_tx = block_on(contract.begin_tx()).unwrap();
-        block_on(contract.create_table(ddl_tx.clone(), &schema)).unwrap();
-        block_on(contract.commit_tx(ddl_tx)).unwrap();
+        let ddl_tx = contract.begin_tx().await?;
+        contract.create_table(ddl_tx.clone(), &schema).await?;
+        contract.commit_tx(ddl_tx).await?;
 
-        let insert_tx = block_on(contract.begin_tx()).unwrap();
-        block_on(contract.insert(
+        let insert_tx = contract.begin_tx().await?;
+        let insert_key = key_row(1);
+        let insert_value = value_row(10);
+        let opt_insert = OptInsert::default();
+        contract
+            .insert(
             insert_tx.clone(),
             table_id,
-            &key_row(1),
-            &value_row(10),
-            &OptInsert::default(),
-        ))
-        .unwrap();
-        block_on(contract.commit_tx(insert_tx)).unwrap();
+            &insert_key,
+            &insert_value,
+            &opt_insert,
+        )
+            .await?;
+        contract.commit_tx(insert_tx).await?;
 
-        let update_tx = block_on(contract.begin_tx()).unwrap();
-        let updated = block_on(contract.update(
+        let update_tx = contract.begin_tx().await?;
+        let update_key = key_row(1);
+        let pred_non_key = Predicate::CNF(vec![]);
+        let update_value = value_row(20);
+        let updated = contract
+            .update(
             update_tx.clone(),
             table_id,
-            &key_row(1),
-            &Predicate::CNF(vec![]),
-            &value_row(20),
+            &update_key,
+            &pred_non_key,
+            &update_value,
             &OptUpdate {},
-        ))
-        .unwrap();
+        )
+            .await?;
         assert_eq!(updated, 1);
-        block_on(contract.commit_tx(update_tx)).unwrap();
+        contract.commit_tx(update_tx).await?;
 
-        let read_tx = block_on(contract.begin_tx()).unwrap();
-        let relation = block_on(contract.read_key(
+        let read_tx = contract.begin_tx().await?;
+        let read_key = key_row(1);
+        let select = VecSelTerm::new(vec![1]);
+        let opt_read = OptRead::default();
+        let relation = contract
+            .read_key(
             read_tx,
             table_id,
-            &key_row(1),
-            &VecSelTerm::new(vec![1]),
-            &OptRead::default(),
-        ))
-        .unwrap();
+            &read_key,
+            &select,
+            &opt_read,
+        )
+            .await?;
         assert_eq!(relation, Some(vec![datum(20)]));
+        Ok(())
     }
 
     fn meta_table(schema: &SchemaTable) -> RS<Arc<TableDesc>> {

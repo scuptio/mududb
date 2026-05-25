@@ -6,19 +6,16 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::task_trace;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 pub struct InsertKeyValue {
-    inner: AMutex<_InsertKeyValue>,
-}
-
-struct _InsertKeyValue {
     param: PInsertKeyValue,
     x_contract: Arc<dyn XContract>,
     meta_mgr: Arc<dyn MetaMgr>,
-    affected_rows: u64,
+    affected_rows: AtomicU64,
 }
 
 impl InsertKeyValue {
@@ -28,22 +25,10 @@ impl InsertKeyValue {
         meta_mgr: Arc<dyn MetaMgr>,
     ) -> Self {
         Self {
-            inner: AMutex::new(_InsertKeyValue::new(param, x_contract, meta_mgr)),
-        }
-    }
-}
-
-impl _InsertKeyValue {
-    fn new(
-        param: PInsertKeyValue,
-        x_contract: Arc<dyn XContract>,
-        meta_mgr: Arc<dyn MetaMgr>,
-    ) -> Self {
-        Self {
             param,
             x_contract,
             meta_mgr,
-            affected_rows: 0,
+            affected_rows: AtomicU64::new(0),
         }
     }
 }
@@ -51,23 +36,20 @@ impl _InsertKeyValue {
 #[async_trait]
 impl CmdExec for InsertKeyValue {
     async fn prepare(&self) -> RS<()> {
-        let inner = self.inner.lock().await;
-        inner.prepare().await
+        self.prepare_inner().await
     }
 
     async fn run(&self) -> RS<()> {
-        let mut inner = self.inner.lock().await;
-        inner.insert().await
+        self.insert_inner().await
     }
 
     async fn affected_rows(&self) -> RS<u64> {
-        let inner = self.inner.lock().await;
-        Ok(inner.affected_rows())
+        Ok(self.affected_rows.load(Ordering::Relaxed))
     }
 }
 
-impl _InsertKeyValue {
-    async fn prepare(&self) -> RS<()> {
+impl InsertKeyValue {
+    async fn prepare_inner(&self) -> RS<()> {
         let _ = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         for (key, _value) in &self.param.rows {
             if key.data().is_empty() {
@@ -77,8 +59,8 @@ impl _InsertKeyValue {
         Ok(())
     }
 
-    async fn insert(&mut self) -> RS<()> {
-        task_trace!();
+    async fn insert_inner(&self) -> RS<()> {
+        mudu_utils::scoped_task_trace!();
         let mut affected_rows = 0;
         for (key, value) in &self.param.rows {
             self.x_contract
@@ -92,11 +74,7 @@ impl _InsertKeyValue {
                 .await?;
             affected_rows += 1;
         }
-        self.affected_rows = affected_rows;
+        self.affected_rows.store(affected_rows, Ordering::Relaxed);
         Ok(())
-    }
-
-    fn affected_rows(&self) -> u64 {
-        self.affected_rows
     }
 }

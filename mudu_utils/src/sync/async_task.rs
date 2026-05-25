@@ -1,12 +1,12 @@
 use crate::notifier::{NotifyWait, Waiter};
 use crate::sync::unique_inner::UniqueInner;
-use crate::task::{spawn_local_task, spawn_task};
+use crate::task_async::{LocalTaskSet, spawn_task};
 use futures::future::try_join_all;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_sys::tokio::task::JoinHandle;
 use std::any::Any;
-use tokio::task::{JoinHandle, LocalSet};
 pub trait Task: Any {}
 
 pub trait AsyncTask: Task + Send + Sync {
@@ -27,7 +27,7 @@ pub trait AsyncLocalTask: Task {
 }
 
 trait AsyncWrapper {
-    fn async_run(&self) -> RS<(Option<LocalSet>, JoinHandle<Option<RS<()>>>)>;
+    fn async_run(&self) -> RS<(Option<LocalTaskSet>, JoinHandle<Option<RS<()>>>)>;
 
     fn name(&self) -> Option<String>;
 }
@@ -42,7 +42,7 @@ impl<T: AsyncTask + 'static> AsyncTaskWrapper<T> {
         }
     }
 
-    fn task_async_run(&self) -> RS<(Option<LocalSet>, JoinHandle<Option<RS<()>>>)> {
+    fn task_async_run(&self) -> RS<(Option<LocalTaskSet>, JoinHandle<Option<RS<()>>>)> {
         let t = self.inner.inner_into();
         let join = spawn_task(t.notifier(), t.name().as_str(), async move {
             t.async_run().await
@@ -56,25 +56,21 @@ impl<T: AsyncTask + 'static> AsyncTaskWrapper<T> {
 }
 
 struct AsyncLocalTaskWrapper<T: AsyncLocalTask + 'static> {
-    inner: UniqueInner<(LocalSet, T)>,
+    inner: UniqueInner<(LocalTaskSet, T)>,
 }
 
 impl<T: AsyncLocalTask + 'static> AsyncLocalTaskWrapper<T> {
-    fn new(ls: LocalSet, inner: T) -> Self {
+    fn new(ls: LocalTaskSet, inner: T) -> Self {
         Self {
             inner: UniqueInner::new((ls, inner)),
         }
     }
 
-    fn task_async_run(&self) -> RS<(Option<LocalSet>, JoinHandle<Option<RS<()>>>)> {
+    fn task_async_run(&self) -> RS<(Option<LocalTaskSet>, JoinHandle<Option<RS<()>>>)> {
         let (ls, t) = self.inner.inner_into();
-        let join = ls.spawn_local(async move {
-            let join = spawn_local_task(t.waiter().into(), t.name().as_str(), async move {
-                t.async_run_local().await
-            });
-            let opt = join.unwrap().await.unwrap();
-            opt
-        });
+        let join = ls.spawn(t.waiter().into(), t.name().as_str(), async move {
+            t.async_run_local().await
+        })?;
         Ok((Some(ls), join))
     }
 
@@ -84,7 +80,7 @@ impl<T: AsyncLocalTask + 'static> AsyncLocalTaskWrapper<T> {
 }
 
 impl<T: AsyncLocalTask + 'static> AsyncWrapper for AsyncLocalTaskWrapper<T> {
-    fn async_run(&self) -> RS<(Option<LocalSet>, JoinHandle<Option<RS<()>>>)> {
+    fn async_run(&self) -> RS<(Option<LocalTaskSet>, JoinHandle<Option<RS<()>>>)> {
         self.task_async_run()
     }
 
@@ -94,7 +90,7 @@ impl<T: AsyncLocalTask + 'static> AsyncWrapper for AsyncLocalTaskWrapper<T> {
 }
 
 impl<T: AsyncTask + 'static> AsyncWrapper for AsyncTaskWrapper<T> {
-    fn async_run(&self) -> RS<(Option<LocalSet>, JoinHandle<Option<RS<()>>>)> {
+    fn async_run(&self) -> RS<(Option<LocalTaskSet>, JoinHandle<Option<RS<()>>>)> {
         self.task_async_run()
     }
 
@@ -107,7 +103,7 @@ pub struct TaskWrapper {
 }
 
 pub struct AsyncResult {
-    opt_local: Option<LocalSet>,
+    opt_local: Option<LocalTaskSet>,
     join_handle: JoinHandle<Option<RS<()>>>,
 }
 
@@ -118,7 +114,7 @@ impl TaskWrapper {
         }
     }
 
-    pub fn new_async_local<T: AsyncLocalTask + 'static>(ls: LocalSet, t: T) -> Self {
+    pub fn new_async_local<T: AsyncLocalTask + 'static>(ls: LocalTaskSet, t: T) -> Self {
         Self {
             inner: Box::new(AsyncLocalTaskWrapper::new(ls, t)),
         }

@@ -19,18 +19,18 @@ use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
 use std::hint;
 
-/// Maximum ID for primitive data types
-const PRIMITIVE_ID_MAX: u32 = 1000;
+/// Maximum ID for scalar data types
+const SCALAR_ID_MAX: u32 = 1000;
 
 /// Data Type Identifier
 ///
 /// Types with the same ID share the same conversion functions and in-memory object representation (DatObject).
-/// Primitive types (i32, i64, f32, f64, String) can have default parameters.
+/// Scalar types (i32, i64, f32, f64, String, Numeric, temporal types) can have default parameters.
 #[repr(u32)]
 #[derive(Hash, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "test"), derive(Arbitrary))]
 pub enum DatTypeID {
-    // Primitive types
+    // Scalar types
     I32 = 0,
     I64 = 1,
     F32 = 2,
@@ -38,11 +38,16 @@ pub enum DatTypeID {
     String = 4,
     U128 = 5,
     I128 = 6,
+    Numeric = 7,
+    Date = 8,
+    Time = 9,
+    Timestamp = 10,
+    TimestampTz = 11,
 
-    // Complex types (start after primitive range)
-    Array = PRIMITIVE_ID_MAX + 1,
-    Record = PRIMITIVE_ID_MAX + 2,
-    Binary = PRIMITIVE_ID_MAX + 3,
+    // Complex types (start after scalar range)
+    Array = SCALAR_ID_MAX + 1,
+    Record = SCALAR_ID_MAX + 2,
+    Binary = SCALAR_ID_MAX + 3,
 }
 
 // Cache the maximum ID for efficient access
@@ -159,17 +164,18 @@ impl DatTypeID {
     }
 
     // Type classification
-    pub fn is_primitive_type(&self) -> bool {
-        self.to_u32() < PRIMITIVE_ID_MAX
+    pub fn is_scalar_type(&self) -> bool {
+        self.to_u32() < SCALAR_ID_MAX
     }
 
     pub fn dat_kind(&self) -> DTKind {
-        if self.is_primitive_type() {
-            DTKind::Primitive
+        if self.is_scalar_type() {
+            DTKind::Scalar
         } else {
             match self {
                 DatTypeID::Array => DTKind::Array,
-                DatTypeID::Record => DTKind::Object,
+                DatTypeID::Record => DTKind::Record,
+                DatTypeID::Binary => DTKind::Binary,
                 // Safety: All enum variants are covered above
                 _ => unsafe { hint::unreachable_unchecked() },
             }
@@ -183,7 +189,8 @@ impl DatTypeID {
             | DatTypeID::I128
             | DatTypeID::F32
             | DatTypeID::F64
-            | DatTypeID::U128 => false,
+            | DatTypeID::U128
+            | DatTypeID::Date => false,
             _ => true,
         }
     }

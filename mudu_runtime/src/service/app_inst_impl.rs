@@ -17,6 +17,7 @@ use mudu_contract::database::sql::{Context, DBConn};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
+use mudu_kernel::async_rt::contract::AsyncRuntime;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use mudu_utils::task_id::{TaskID, new_task_id};
 use mudu_utils::task_trace;
@@ -39,6 +40,7 @@ struct AppInstImplInner {
     modules: HashMap<String, PackageModule>,
     _conn: HashMap<u128, DBConn>,
     component_target: ComponentTarget,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
 }
 
 impl AppInstImpl {
@@ -49,6 +51,7 @@ impl AppInstImpl {
         component_target: ComponentTarget,
         enable_async: bool,
         server_mode: ServerMode,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
     ) -> RS<Self> {
         Ok(Self {
             inner: Arc::new(
@@ -59,6 +62,7 @@ impl AppInstImpl {
                     component_target,
                     enable_async,
                     server_mode,
+                    async_runtime,
                 )
                 .await?,
             ),
@@ -88,6 +92,10 @@ impl AppInstImpl {
     pub fn schema_mgr(&self) -> &SchemaMgr {
         &self.inner.schema_mgr()
     }
+
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+        self.inner.async_runtime()
+    }
 }
 
 impl AppInstImplInner {
@@ -98,6 +106,7 @@ impl AppInstImplInner {
         component_target: ComponentTarget,
         enable_async: bool,
         server_mode: ServerMode,
+        async_runtime: Option<Arc<dyn AsyncRuntime>>,
     ) -> RS<Self> {
         let modules = HashMap::new();
         let app_cfg = &package.package_cfg;
@@ -116,6 +125,7 @@ impl AppInstImplInner {
             &schema_mgr,
             enable_async,
             server_mode,
+            async_runtime.clone(),
         )
         .await?;
         Ok(Self {
@@ -127,6 +137,7 @@ impl AppInstImplInner {
             modules,
             _conn: Default::default(),
             component_target,
+            async_runtime,
         })
     }
 
@@ -185,16 +196,23 @@ impl AppInstImplInner {
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
-        task_trace!();
+        let trace = task_trace!();
+        trace.watch("procedure.mode", "async");
+        trace.watch("procedure.task_id", &task_id.to_string());
+        trace.watch("procedure.module", mod_name);
+        trace.watch("procedure.name", proc_name);
         if !self.enable_async {
             return Err(m_error!(
                 EC::DBInternalError,
                 "enable async mode when call async procedure"
             ));
         }
+        trace.watch("procedure.stage", "pre_invoke");
         let (procedure, param, new_tx) =
             self.pre_invoke(task_id, mod_name, proc_name, param).await?;
         let xid = param.session_id();
+        trace.watch("procedure.session_id", &xid.to_string());
+        trace.watch("procedure.stage", "call_async");
         let result = ProcedureInvokeComponent::call_async(
             &procedure,
             self.component_target,
@@ -205,11 +223,14 @@ impl AppInstImplInner {
         .await;
         if new_tx {
             if result.is_ok() {
+                trace.watch("procedure.stage", "commit_async");
                 Context::commit_async(xid).await?;
             } else {
+                trace.watch("procedure.stage", "rollback_async");
                 Context::rollback_async(xid).await?;
             }
         }
+        trace.watch("procedure.stage", "done");
         Ok(result?)
     }
 
@@ -223,6 +244,7 @@ impl AppInstImplInner {
             &self.package_cfg.name,
             self.enable_async,
             self.server_mode,
+            self.async_runtime(),
         )
         .await?;
         self._conn.insert_sync(task_id, db_conn).map_err(|_e| {
@@ -250,6 +272,10 @@ impl AppInstImplInner {
         &self.schema_mgr
     }
 
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+        self.async_runtime.clone()
+    }
+
     async fn pre_invoke(
         &self,
         task_id: TaskID,
@@ -257,7 +283,8 @@ impl AppInstImplInner {
         proc_name: &String,
         param: ProcedureParam,
     ) -> RS<(Procedure, ProcedureParam, bool)> {
-        task_trace!();
+        let trace = task_trace!();
+        trace.watch("procedure.pre_invoke.stage", "lookup");
         let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
             m_error!(
                 EC::NoneErr,
@@ -273,11 +300,14 @@ impl AppInstImplInner {
             let context = Context::create(task_id, conn)?;
             let mut param = param;
             param.set_session_id(context.session_id());
+            trace.watch("procedure.pre_invoke.stage", "begin_tx_start");
             context.begin_tx().await?;
+            trace.watch("procedure.pre_invoke.stage", "begin_tx_done");
             (param, true)
         } else {
             (param, false)
         };
+        trace.watch("procedure.pre_invoke.stage", "done");
         Ok((procedure, param, new_tx))
     }
 }
@@ -287,8 +317,9 @@ async fn new_conn(
     app_name: &String,
     enable_async: bool,
     server_mode: ServerMode,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
 ) -> RS<DBConn> {
-    let db_type = if server_mode == ServerMode::IOUring {
+    let db_type = if matches!(server_mode, ServerMode::IOUring | ServerMode::Tokio) {
         "MuduDB".to_string()
     } else if enable_async {
         "LibSQLAsync".to_string()
@@ -296,7 +327,7 @@ async fn new_conn(
         "LibSQL".to_string()
     };
     let conn_str = format!("db={} app={} db_type={}", db_path, app_name, db_type);
-    let db_conn = DBConnector::connect(&conn_str).await?;
+    let db_conn = DBConnector::connect_with_async_runtime(&conn_str, async_runtime).await?;
     Ok(db_conn)
 }
 
@@ -307,17 +338,27 @@ async fn initdb(
     schema_mgr: &SchemaMgr,
     enable_async: bool,
     server_mode: ServerMode,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
 ) -> RS<()> {
     let init_db_lock = PathBuf::from(&db_path).join(format!("{}.lock", app_name));
     if init_db_lock.exists() {
-        if server_mode == ServerMode::IOUring {
+        if matches!(server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             return Ok(());
         }
-        if is_schema_initialized(db_path, app_name, schema_mgr, enable_async, server_mode).await? {
+        if is_schema_initialized(
+            db_path,
+            app_name,
+            schema_mgr,
+            enable_async,
+            server_mode,
+            async_runtime.clone(),
+        )
+        .await?
+        {
             return Ok(());
         }
     }
-    let conn = new_conn(db_path, app_name, enable_async, server_mode).await?;
+    let conn = new_conn(db_path, app_name, enable_async, server_mode, async_runtime).await?;
     conn.execute_silent(sql.clone()).await?;
     File::create(&init_db_lock).map_err(|e| {
         m_error!(
@@ -335,8 +376,9 @@ async fn is_schema_initialized(
     schema_mgr: &SchemaMgr,
     enable_async: bool,
     server_mode: ServerMode,
+    async_runtime: Option<Arc<dyn AsyncRuntime>>,
 ) -> RS<bool> {
-    let conn = new_conn(db_path, app_name, enable_async, server_mode).await?;
+    let conn = new_conn(db_path, app_name, enable_async, server_mode, async_runtime).await?;
     for table_name in schema_mgr.table_names() {
         let verify_sql = format!("SELECT 1 FROM {} LIMIT 1;", table_name);
         if conn.execute_silent(verify_sql).await.is_err() {

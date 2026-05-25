@@ -6,10 +6,11 @@ use std::sync::{Arc, Mutex};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_utils::task::try_this_task_id;
+use mudu_utils::task_async::try_this_task_id;
 use mudu_utils::task_id::TaskID;
 
 use crate::io::file::{complete_file_io, submit_file_io, FileInflightOp, FileIoRequest};
+use crate::io::path::{complete_path_io, submit_path_io, PathInflightOp, PathIoRequest};
 use crate::io::socket::{complete_socket_io, submit_socket_io, SocketInflightOp, SocketIoRequest};
 use crate::server::task_registry::WorkerTaskRegistry;
 
@@ -20,11 +21,13 @@ thread_local! {
 
 pub(crate) enum WorkerRingOp {
     File(FileIoRequest),
+    Path(PathIoRequest),
     Socket(SocketIoRequest),
 }
 
 pub(crate) enum UserIoInflight {
     File { op_id: u64, op: FileInflightOp },
+    Path { op_id: u64, op: PathInflightOp },
     Socket { op_id: u64, op: SocketInflightOp },
 }
 
@@ -32,6 +35,7 @@ impl UserIoInflight {
     pub(crate) fn op_id(&self) -> u64 {
         match self {
             Self::File { op_id, .. } => *op_id,
+            Self::Path { op_id, .. } => *op_id,
             Self::Socket { op_id, .. } => *op_id,
         }
     }
@@ -39,6 +43,7 @@ impl UserIoInflight {
     pub(crate) fn kind(&self) -> &'static str {
         match self {
             Self::File { .. } => "file",
+            Self::Path { .. } => "path",
             Self::Socket { .. } => "socket",
         }
     }
@@ -181,6 +186,10 @@ pub(crate) fn submit_user_ring_op(
             op_id,
             op: submit_file_io(request, sqe),
         },
+        WorkerRingOp::Path(request) => UserIoInflight::Path {
+            op_id,
+            op: submit_path_io(request, sqe),
+        },
         WorkerRingOp::Socket(request) => UserIoInflight::Socket {
             op_id,
             op: submit_socket_io(request, sqe),
@@ -195,6 +204,7 @@ pub(crate) fn complete_user_ring_op(
 ) -> RS<()> {
     let (op_id, done) = match op {
         UserIoInflight::File { op_id, op } => (op_id, complete_file_io(op_id, op, result, ring)?),
+        UserIoInflight::Path { op_id, op } => (op_id, complete_path_io(op_id, op, result, ring)?),
         UserIoInflight::Socket { op_id, op } => {
             (op_id, complete_socket_io(op_id, op, result, ring)?)
         }

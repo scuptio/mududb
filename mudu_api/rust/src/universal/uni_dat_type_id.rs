@@ -45,6 +45,16 @@ pub enum UniDatTypeId {
     Record = 16,
 
     Binary = 17,
+
+    Numeric = 18,
+
+    Date = 19,
+
+    Time = 20,
+
+    Timestamp = 21,
+
+    TimestampTz = 22,
 }
 
 impl Default for UniDatTypeId {

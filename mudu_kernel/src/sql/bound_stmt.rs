@@ -105,6 +105,9 @@ pub enum BoundPredicate {
     KeyEq {
         key: Vec<(AttrIndex, Vec<u8>)>,
     },
+    KeyPrefixEq {
+        prefix: Vec<(AttrIndex, Vec<u8>)>,
+    },
     KeyRange {
         start: Bound<Vec<(AttrIndex, Vec<u8>)>>,
         end: Bound<Vec<(AttrIndex, Vec<u8>)>>,

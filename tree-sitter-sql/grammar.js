@@ -378,7 +378,7 @@ module.exports = grammar({
         keyword_smalldatetime: _ => make_keyword("smalldatetime"),
         keyword_datetimeoffset: _ => make_keyword("datetimeoffset"),
         keyword_time: _ => make_keyword("time"),
-        keyword_timestamp: _ => prec.right(
+        keyword_timestamp_base: _ => prec.right(
             seq(
                 make_keyword("timestamp"),
                 optional(
@@ -390,7 +390,7 @@ module.exports = grammar({
                 ),
             ),
         ),
-        keyword_timestamptz: _ => choice(
+        keyword_timestamptz_base: _ => choice(
             make_keyword('timestamptz'),
             seq(
                 make_keyword("timestamp"),
@@ -467,8 +467,8 @@ module.exports = grammar({
             $.datetimeoffset,
             $.keyword_smalldatetime,
             $.time,
-            $.keyword_timestamp,
-            $.keyword_timestamptz,
+            $.timestamp,
+            $.timestamptz,
             $.keyword_interval,
 
             $.keyword_geometry,
@@ -544,7 +544,9 @@ module.exports = grammar({
         nvarchar: $ => parametric_type($, $.keyword_nvarchar),
 
         datetimeoffset: $ => parametric_type($, $.keyword_datetimeoffset),
-        time: $ => parametric_type($, $.keyword_time),
+        time: $ => parametric_type($, $.keyword_time, ['precision']),
+        timestamp: $ => parametric_type($, $.keyword_timestamp_base, ['precision']),
+        timestamptz: $ => parametric_type($, $.keyword_timestamptz_base, ['precision']),
 
         enum: $ => seq(
             $.keyword_enum,

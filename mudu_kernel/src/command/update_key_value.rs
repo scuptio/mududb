@@ -6,11 +6,12 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_utils::sync::f_mutex::FMutex;
+use mudu_utils::task_trace;
 use std::sync::Arc;
 
 pub struct UpdateKeyValue {
-    inner: AMutex<_UpdateKeyValue>,
+    inner: FMutex<_UpdateKeyValue>,
 }
 
 struct _UpdateKeyValue {
@@ -27,7 +28,7 @@ impl UpdateKeyValue {
         meta_mgr: Arc<dyn MetaMgr>,
     ) -> Self {
         Self {
-            inner: AMutex::new(_UpdateKeyValue::new(param, x_contract, meta_mgr)),
+            inner: FMutex::new(_UpdateKeyValue::new(param, x_contract, meta_mgr)),
         }
     }
 }
@@ -82,17 +83,29 @@ impl _UpdateKeyValue {
 #[async_trait]
 impl CmdExec for UpdateKeyValue {
     async fn prepare(&self) -> RS<()> {
+        let trace = task_trace!();
+        trace.watch("cmd.kind", "update");
+        trace.watch("cmd.stage", "prepare_lock");
         let inner = self.inner.lock().await;
+        trace.watch("cmd.stage", "prepare_inner");
         inner.prepare().await
     }
 
     async fn run(&self) -> RS<()> {
+        let trace = task_trace!();
+        trace.watch("cmd.kind", "update");
+        trace.watch("cmd.stage", "run_lock");
         let mut inner = self.inner.lock().await;
+        trace.watch("cmd.stage", "run_inner");
         inner.run().await
     }
 
     async fn affected_rows(&self) -> RS<u64> {
+        let trace = task_trace!();
+        trace.watch("cmd.kind", "update");
+        trace.watch("cmd.stage", "affected_rows_lock");
         let inner = self.inner.lock().await;
+        trace.watch("cmd.stage", "affected_rows_done");
         Ok(inner.affected_rows())
     }
 }

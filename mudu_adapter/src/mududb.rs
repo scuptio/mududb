@@ -21,13 +21,14 @@ use mudu_contract::protocol::{
 };
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
+use mudu_utils::sync::a_mutex::AMutex;
+use mudu_utils::sync::a_rwlock::ARwLock;
+use mudu_utils::task_async::build_current_thread_runtime;
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tokio::runtime::Builder;
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 struct MududSession {
     client: SyncClient,
@@ -38,8 +39,8 @@ type SessionRef = Arc<Mutex<MududSession>>;
 
 lazy_static! {
     static ref SESSIONS: SccHashMap<OID, SessionRef> = SccHashMap::new();
-    static ref ASYNC_NATIVE_SESSIONS: RwLock<HashMap<OID, Arc<AsyncMutex<AsyncMududSession>>>> =
-        RwLock::new(HashMap::new());
+    static ref ASYNC_NATIVE_SESSIONS: ARwLock<HashMap<OID, Arc<AMutex<AsyncMududSession>>>> =
+        ARwLock::new(HashMap::new());
 }
 
 struct AsyncMududSession {
@@ -137,7 +138,7 @@ pub async fn mudu_open_async(argv: &UniSessionOpenArgv) -> RS<OID> {
         .await?
         .session_id();
     let session_id = state::next_session_id();
-    let session = Arc::new(AsyncMutex::new(AsyncMududSession {
+    let session = Arc::new(AMutex::new(AsyncMududSession {
         client,
         remote_session_id,
     }));
@@ -432,7 +433,7 @@ where
     f(&mut session)
 }
 
-async fn async_session(session_id: OID) -> RS<Arc<AsyncMutex<AsyncMududSession>>> {
+async fn async_session(session_id: OID) -> RS<Arc<AMutex<AsyncMududSession>>> {
     ASYNC_NATIVE_SESSIONS
         .read()
         .await
@@ -593,10 +594,7 @@ impl AsyncManager {
 }
 
 fn run_async_manager(receiver: Receiver<AsyncCommand>) {
-    let runtime = Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("build mudud async manager runtime");
+    let runtime = build_current_thread_runtime().expect("build mudud async manager runtime");
     runtime.block_on(async move {
         let mut sessions = HashMap::<OID, AsyncMududSession>::new();
         while let Ok(command) = receiver.recv() {

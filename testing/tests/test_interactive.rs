@@ -6,7 +6,7 @@ use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
+use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
@@ -18,38 +18,57 @@ use tracing::info;
 #[test]
 fn interactive_mcli_shell_io_uring() -> RS<()> {
     log_setup("info");
-    if !mudu_sys::io_uring_available() {
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip interactive mcli io_uring test: io_uring unavailable");
         return Ok(());
     }
     info!("enable interactive mcli io_uring test: io_uring available");
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
-        eprintln!("skip interactive mcli io_uring test: local TCP/HTTP bind is not permitted");
-        return Ok(());
-    };
-    let _server = ctx.start_server()?;
+    run_interactive_mcli_shell_test(ServerMode::IOUring)
+}
 
-    let shell_output = run_interactive_mcli_shell(&ctx, "demo", crud_script())?;
-
-    assert!(shell_output.contains("'Eve'"));
-    assert!(shell_output.contains("'Eva'"));
-
-    Ok(())
+#[test]
+fn interactive_mcli_shell_tokio() -> RS<()> {
+    log_setup("info");
+    run_interactive_mcli_shell_test(ServerMode::Tokio)
 }
 
 #[test]
 fn interactive_mcli_shell_io_uring_tui() -> RS<()> {
     log_setup("info");
-    if !mudu_sys::io_uring_available() {
+    if !supports_server_mode(ServerMode::IOUring) {
         info!("skip interactive mcli io_uring tui test: io_uring unavailable");
         return Ok(());
     }
     info!("enable interactive mcli io_uring tui test: io_uring available");
-    let Some(ctx) = TestContext::new(ServerMode::IOUring)? else {
-        eprintln!("skip interactive mcli io_uring tui test: local TCP/HTTP bind is not permitted");
+    run_interactive_mcli_tui_test(ServerMode::IOUring)
+}
+
+#[test]
+fn interactive_mcli_shell_tokio_tui() -> RS<()> {
+    log_setup("info");
+    run_interactive_mcli_tui_test(ServerMode::Tokio)
+}
+
+fn run_interactive_mcli_shell_test(server_mode: ServerMode) -> RS<()> {
+    let Some(ctx) = TestContext::new(server_mode)? else {
+        eprintln!("skip interactive mcli test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
-    let _server = ctx.start_server()?;
+    let server = ctx.start_server()?;
+
+    let shell_output = run_interactive_mcli_shell(&ctx, "demo", crud_script())?;
+    assert!(shell_output.contains("'Eve'"));
+    assert!(shell_output.contains("'Eva'"));
+    drop(server);
+    Ok(())
+}
+
+fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
+    let Some(ctx) = TestContext::new(server_mode)? else {
+        eprintln!("skip interactive mcli tui test: local TCP/HTTP bind is not permitted");
+        return Ok(());
+    };
+    let server = ctx.start_server()?;
 
     let outputs = run_shell_script_outputs(&ctx, "demo", tui_script())?;
     let table = outputs
@@ -74,7 +93,15 @@ fn interactive_mcli_shell_io_uring_tui() -> RS<()> {
     assert!(snapshot.contains("Query Result"));
     assert!(snapshot.contains("name"));
     assert!(snapshot.contains("Eva") || snapshot.contains("'Eva'"));
+    drop(server);
     Ok(())
+}
+
+fn supports_server_mode(server_mode: ServerMode) -> bool {
+    match server_mode {
+        ServerMode::IOUring => mudu_sys::io_uring_available(),
+        ServerMode::Legacy | ServerMode::Tokio => true,
+    }
 }
 
 fn crud_script() -> &'static str {
@@ -289,11 +316,15 @@ impl TestContext {
     fn start_server(&self) -> RS<RunningServer> {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
+        let (ready, ready_waiter) = notify_wait();
+        let handle = thread::spawn(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
+        });
         wait_until_port_ready(self.http_port, "HTTP")?;
-        if self.server_mode == ServerMode::IOUring {
+        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
+        wait_until_backend_ready(ready_waiter, "backend")?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),
@@ -320,7 +351,7 @@ impl TestContext {
     fn client_port(&self) -> u16 {
         match self.server_mode {
             ServerMode::Legacy => self.pg_port,
-            ServerMode::IOUring => self.tcp_port,
+            ServerMode::IOUring | ServerMode::Tokio => self.tcp_port,
         }
     }
 }
@@ -356,7 +387,7 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -365,4 +396,26 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
             service_name, port
         )
     ))
+}
+
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
+    // Listener readiness is not enough for io_uring mode because worker
+    // recovery continues after the port starts accepting connections.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
+    })
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
+        )
+    })?;
+    result.map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("{} ready barrier timed out", service_name)
+        )
+    })?;
+    Ok(())
 }

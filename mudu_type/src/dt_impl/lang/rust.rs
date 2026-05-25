@@ -13,7 +13,7 @@ lazy_static! {
         (DatTypeID::F64, "f64"),
         (DatTypeID::String, "String"),
         (DatTypeID::Array, "Vec"),
-        (DatTypeID::Record, "Object"),
+        (DatTypeID::Record, "Record"),
         (DatTypeID::Binary, "Vec<u8>")
     ];
     static ref _id2name: HashMap<DatTypeID, String> =

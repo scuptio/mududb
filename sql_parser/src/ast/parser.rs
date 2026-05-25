@@ -33,15 +33,15 @@ use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
 use crate::ts_const::{ts_field_name, ts_kind_id};
 use mudu::common::id::AttrIndex;
+use mudu::data_type::numeric::Numeric;
 use mudu::error::err::MError;
 use mudu::m_error;
 use mudu_binding::universal::uni_dat_type::UniDatType;
 use mudu_binding::universal::uni_dat_value::UniDatValue;
-use mudu_binding::universal::uni_primitive::UniPrimitive;
-use mudu_binding::universal::uni_primitive_value::UniPrimitiveValue;
+use mudu_binding::universal::uni_scalar::UniScalar;
+use mudu_binding::universal::uni_scalar_value::UniScalarValue;
 use mudu_type::dat_typed::DatTyped;
 use std::collections::HashMap;
-use std::f64;
 use std::io::Write;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -653,8 +653,9 @@ impl SQLParser {
             DatTyped::from_i64(i)
         } else if let Some(n) = node.child_by_field_name("decimal") {
             let s = self.visit_decimal(context, n)?;
-            let f = f64::from_str(s.as_str()).unwrap();
-            DatTyped::from_f64(f)
+            let numeric = Numeric::parse(s.as_str())
+                .map_err(|e| m_error!(EC::ParseErr, format!("parse numeric error {}", e)))?;
+            DatTyped::from_numeric(numeric)
         } else if let Some(n) = node.child_by_field_name("string") {
             let s = self.visit_string(context, n)?;
             DatTyped::from_string(s)
@@ -973,10 +974,10 @@ impl SQLParser {
         let child = rs_option(opt_n, "no child in data type kind")?;
         let kind = child.kind_id();
         let ret = match kind {
-            ts_kind_id::INT => (UniDatType::Primitive(UniPrimitive::I32), None),
-            ts_kind_id::BIGINT => (UniDatType::Primitive(UniPrimitive::I64), None),
-            ts_kind_id::DOUBLE => (UniDatType::Primitive(UniPrimitive::F64), None),
-            ts_kind_id::FLOAT => (UniDatType::Primitive(UniPrimitive::F32), None),
+            ts_kind_id::INT => (UniDatType::Scalar(UniScalar::I32), None),
+            ts_kind_id::BIGINT => (UniDatType::Scalar(UniScalar::I64), None),
+            ts_kind_id::DOUBLE => (UniDatType::Scalar(UniScalar::F64), None),
+            ts_kind_id::FLOAT => (UniDatType::Scalar(UniScalar::F32), None),
             ts_kind_id::CHAR | ts_kind_id::VARCHAR | ts_kind_id::KEYWORD_TEXT => {
                 let opt_params = if kind == ts_kind_id::CHAR || kind == ts_kind_id::VARCHAR {
                     let param = self.visit_char_param(context, child)?;
@@ -984,11 +985,37 @@ impl SQLParser {
                 } else {
                     None
                 };
-                (UniDatType::Primitive(UniPrimitive::String), opt_params)
+                (UniDatType::Scalar(UniScalar::String), opt_params)
             }
-            ts_kind_id::NUMERIC => (UniDatType::Primitive(UniPrimitive::F64), None),
-            ts_kind_id::DECIMAL => (UniDatType::Primitive(UniPrimitive::F64), None),
-            ts_kind_id::KEYWORD_TIMESTAMP => (UniDatType::Primitive(UniPrimitive::I64), None),
+            ts_kind_id::NUMERIC | ts_kind_id::DECIMAL => (
+                UniDatType::Scalar(UniScalar::Numeric),
+                self.visit_numeric_params(context, child)?,
+            ),
+            ts_kind_id::KEYWORD_DATE => (UniDatType::Scalar(UniScalar::Date), None),
+            ts_kind_id::TIME => (
+                UniDatType::Scalar(UniScalar::Time),
+                self.visit_optional_precision_param(context, child)?,
+            ),
+            ts_kind_id::KEYWORD_TIME => (
+                UniDatType::Scalar(UniScalar::Time),
+                self.visit_optional_precision_param(context, node)?,
+            ),
+            ts_kind_id::TIMESTAMP => (
+                UniDatType::Scalar(UniScalar::Timestamp),
+                self.visit_optional_precision_param(context, child)?,
+            ),
+            ts_kind_id::KEYWORD_TIMESTAMP_BASE => (
+                UniDatType::Scalar(UniScalar::Timestamp),
+                self.visit_optional_precision_param(context, node)?,
+            ),
+            ts_kind_id::TIMESTAMPTZ => (
+                UniDatType::Scalar(UniScalar::TimestampTz),
+                self.visit_optional_precision_param(context, child)?,
+            ),
+            ts_kind_id::KEYWORD_TIMESTAMPTZ_BASE => (
+                UniDatType::Scalar(UniScalar::TimestampTz),
+                self.visit_optional_precision_param(context, node)?,
+            ),
             _ => {
                 return Err(m_error!(
                     EC::NotImplemented,
@@ -1005,11 +1032,54 @@ impl SQLParser {
             let s = ts_node_context_string(&context.parse_str(), &n)?;
             let r = i64::from_str(s.as_str());
             match r {
-                Ok(l) => Ok(UniDatValue::Primitive(UniPrimitiveValue::I64(l))),
+                Ok(l) => Ok(UniDatValue::Scalar(UniScalarValue::I64(l))),
                 Err(e) => Err(m_error!(EC::ParseErr, "parse u32 error", e)),
             }
         } else {
             Err(m_error!(EC::NoneErr, "No child parameter found"))
+        }
+    }
+
+    fn visit_numeric_params(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<Option<Vec<UniDatValue>>> {
+        let mut params = Vec::new();
+        if let Some(n) = node.child_by_field_name(ts_field_name::PRECISION) {
+            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let value = i64::from_str(s.as_str())
+                .map_err(|e| m_error!(EC::ParseErr, "parse precision error", e))?;
+            params.push(UniDatValue::Scalar(UniScalarValue::I64(value)));
+        }
+        if let Some(n) = node.child_by_field_name(ts_field_name::SCALE) {
+            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let value = i64::from_str(s.as_str())
+                .map_err(|e| m_error!(EC::ParseErr, "parse scale error", e))?;
+            params.push(UniDatValue::Scalar(UniScalarValue::I64(value)));
+        }
+        if params.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(params))
+        }
+    }
+
+    fn visit_optional_precision_param(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<Option<Vec<UniDatValue>>> {
+        let opt = node
+            .child_by_field_name(ts_field_name::PRECISION)
+            .or_else(|| node.child_by_field_name(ts_field_name::SIZE));
+        if let Some(n) = opt {
+            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let value = i64::from_str(s.as_str())
+                .map_err(|e| m_error!(EC::ParseErr, "parse precision error", e))?;
+            Ok(Some(vec![UniDatValue::Scalar(UniScalarValue::I64(value))]))
+        } else {
+            Ok(None)
         }
     }
 

@@ -1,13 +1,19 @@
+use crate::async_rt::contract::{AsyncFs, FileOpenOptions};
+use crate::async_rt::tokio::fs::TokioFs;
 use crate::io::file;
 use crate::io::file::IoFile;
-use crate::io::worker_ring;
 use crate::storage::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::storage::page::page_block_ref_mut::PageBlockRefMut;
 use crate::storage::page::page_header::NONE_PAGE_ID;
 use crate::storage::page::PageId;
-use crate::wal::pl_batch::{new_pl_batch_writer, PLBatch};
+use crate::wal::pl_batch::{
+    new_pl_batch_worker_log, new_pl_batch_writer, NoopPLBatchRecoveryHandler, PLBatch,
+};
 use crate::wal::pl_entry::{PLEntry, PLFileId, PLOp, PageUpdate};
+use crate::wal::typed_worker_log::AsyncWorkerLogRecoveryHandler;
+use crate::wal::worker_log::AsyncWorkerLogRecoverySource;
 use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout};
+use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -15,6 +21,8 @@ use mudu::m_error;
 use scc::HashMap;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tracing::trace;
 
 const FILE_MODE_644: u32 = 0o644;
 const RELATION_WAL_CHUNK_SIZE: u64 = 256 * 1024;
@@ -50,6 +58,7 @@ enum PageInsertLocation {
 pub struct TimeSeriesFile {
     // Relation-owned files carry a stable identity and a dedicated PL backend.
     // Standalone test files leave both fields as `None`.
+    fs: Option<Arc<dyn AsyncFs>>,
     identity: Option<TimeSeriesFileIdentity>,
     path: PathBuf,
     file: IoFile,
@@ -102,6 +111,31 @@ impl TimeSeriesFile {
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
+        Self::open_relation_file_with_fs(
+            Arc::new(TokioFs::new()),
+            base_path,
+            identity,
+            tuple_schema_hash,
+            create_if_missing,
+        )
+        .await
+    }
+
+    /// Async relation-file open path with explicit file-system backend.
+    pub async fn open_relation_file_with_fs<P: AsRef<Path>>(
+        fs: Arc<dyn AsyncFs>,
+        base_path: P,
+        identity: TimeSeriesFileIdentity,
+        tuple_schema_hash: u64,
+        create_if_missing: bool,
+    ) -> RS<Self> {
+        trace!(
+            table_id = identity.table_id,
+            partition_id = identity.partition_id,
+            file_index = identity.file_index,
+            create_if_missing,
+            "time_series open_relation_file_with_fs start"
+        );
         let base_path = base_path.as_ref().to_path_buf();
         let path = Self::relation_file_path(
             &base_path,
@@ -110,11 +144,15 @@ impl TimeSeriesFile {
             identity.file_index,
         );
         let wal_backend = new_relation_wal_backend(&base_path, &identity)?;
-        recover_relation_file(&base_path, &identity, &wal_backend)?;
-        if create_if_missing && !path.exists() {
+        trace!(path = %path.display(), "time_series recovering relation file");
+        recover_relation_file_async(fs.clone(), &base_path, &identity, &wal_backend).await?;
+        if create_if_missing && !fs.path_exists(&path).await? {
+            trace!(path = %path.display(), "time_series appending create-file wal record");
             append_file_create_async(&wal_backend, &identity).await?;
         }
-        Self::open_inner(
+        trace!(path = %path.display(), "time_series opening relation file inner");
+        Self::open_inner_with_fs(
+            fs,
             path,
             Some(identity),
             Some(wal_backend),
@@ -153,7 +191,16 @@ impl TimeSeriesFile {
     }
 
     pub async fn open_ts_file<P: AsRef<Path>>(path: P, create_if_missing: bool) -> RS<Self> {
-        Self::open_inner(
+        Self::open_ts_file_with_fs(Arc::new(TokioFs::new()), path, create_if_missing).await
+    }
+
+    pub async fn open_ts_file_with_fs<P: AsRef<Path>>(
+        fs: Arc<dyn AsyncFs>,
+        path: P,
+        create_if_missing: bool,
+    ) -> RS<Self> {
+        Self::open_inner_with_fs(
+            fs,
             path.as_ref().to_path_buf(),
             None,
             None,
@@ -173,7 +220,8 @@ impl TimeSeriesFile {
         )
     }
 
-    async fn open_inner(
+    async fn open_inner_with_fs(
+        fs: Arc<dyn AsyncFs>,
         path: PathBuf,
         identity: Option<TimeSeriesFileIdentity>,
         wal_backend: Option<ChunkedWorkerLogBackend>,
@@ -182,8 +230,8 @@ impl TimeSeriesFile {
     ) -> RS<Self> {
         let path = path.to_path_buf();
         if let Some(parent) = path.parent() {
-            mudu_sys::fs::create_dir_all(parent)
-                .map_err(|e| m_error!(EC::IOErr, "create time series dir error", e))?;
+            trace!(path = %path.display(), parent = %parent.display(), "time_series ensuring parent dir");
+            fs.create_dir_all(parent).await?;
         }
 
         let flags = if create_if_missing {
@@ -191,9 +239,10 @@ impl TimeSeriesFile {
         } else {
             libc::O_RDWR | file::cloexec_flag()
         };
+        trace!(path = %path.display(), flags, "time_series opening rw file");
         let file = open_rw(&path, flags).await?;
-        let len = mudu_sys::fs::metadata_len(&path)
-            .map_err(|e| m_error!(EC::IOErr, "read time series file metadata error", e))?;
+        trace!(path = %path.display(), "time_series opened rw file, reading metadata len by fd");
+        let len = file::metadata_len_by_file(&file)?;
         if len % PAGE_SIZE as u64 != 0 {
             return Err(m_error!(
                 EC::DecodeErr,
@@ -208,6 +257,7 @@ impl TimeSeriesFile {
         let (head_page_id, tail_page_id) =
             load_chain_metadata(&file, page_count, tuple_schema_hash).await?;
         Ok(Self {
+            fs: Some(fs),
             identity,
             path,
             file,
@@ -257,6 +307,7 @@ impl TimeSeriesFile {
         let (head_page_id, tail_page_id) =
             load_chain_metadata_sync(&file, page_count, tuple_schema_hash)?;
         Ok(Self {
+            fs: None,
             identity,
             path,
             file,
@@ -322,7 +373,10 @@ impl TimeSeriesFile {
                 .await?;
         }
         close_file(std::mem::take(&mut self.file)).await?;
-        remove_file_if_exists(&self.path)
+        match self.fs.as_ref() {
+            Some(fs) => fs.remove_file_if_exists(&self.path).await,
+            None => remove_file_if_exists(&self.path),
+        }
     }
 
     pub fn delete_file_sync(mut self) -> RS<()> {
@@ -488,7 +542,173 @@ impl TimeSeriesFile {
     }
 
     pub async fn insert(&mut self, timestamp: u64, tuple_id: u64, payload: &[u8]) -> RS<()> {
-        self.insert_sync(timestamp, tuple_id, payload)
+        match self.find_insert_location(timestamp).await? {
+            PageInsertLocation::EmptyFile => {
+                let page_id = self.page_count;
+                let mut page_buf = empty_page_image(
+                    page_id,
+                    self.tuple_format_version,
+                    self.tuple_schema_hash,
+                    self.tuple_flags,
+                )?;
+                {
+                    let mut page = PageBlockRefMut::new(&mut page_buf);
+                    page.insert_record(timestamp, tuple_id, payload)?;
+                }
+                let mut plan = TimeSeriesFileMutationPlan::default();
+                plan.page_writes.push(PlannedPageWrite {
+                    page_id,
+                    image: page_buf,
+                });
+                plan.next_page_count = Some(page_id + 1);
+                plan.next_head_page_id = Some(Some(page_id));
+                plan.next_tail_page_id = Some(Some(page_id));
+                self.persist_plan(plan).await?;
+            }
+            PageInsertLocation::Existing(page_id) => {
+                let page_buf = self.read_page(page_id).await?;
+                let page = PageBlockRef::new(&page_buf);
+                if self.tuple_schema_hash != 0 {
+                    let header = page.header()?;
+                    if header.tuple_schema_hash() != self.tuple_schema_hash {
+                        return Err(m_error!(
+                            EC::DecodeErr,
+                            format!(
+                                "tuple schema hash mismatch on page {}: expected {} got {}",
+                                page_id,
+                                self.tuple_schema_hash,
+                                header.tuple_schema_hash()
+                            )
+                        ));
+                    }
+                }
+                if let Some(slot_index) = page.find_slot_index(timestamp, tuple_id)? {
+                    self.update_in_page(page_id, slot_index, timestamp, tuple_id, payload)
+                        .await?;
+                    return Ok(());
+                }
+
+                let mut page_buf = page_buf;
+                let insert_result = {
+                    let mut page_mut = PageBlockRefMut::new(&mut page_buf);
+                    page_mut.insert_record(timestamp, tuple_id, payload)
+                };
+                match insert_result {
+                    Ok(_) => self.write_page(page_id, &page_buf).await?,
+                    Err(err) if err.ec() == EC::InsufficientBufferSpace => {
+                        self.split_insert_full_page(page_id, timestamp, tuple_id, payload)
+                            .await?;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            PageInsertLocation::Before(next_page_id) => {
+                let page_id = self.page_count;
+                let next_page_buf = self.read_page(next_page_id).await?;
+                let next_page = PageBlockRef::new(&next_page_buf);
+                let prev_page_id = next_page.active_prev_page()?;
+                let mut new_page_buf = empty_page_image(
+                    page_id,
+                    self.tuple_format_version,
+                    self.tuple_schema_hash,
+                    self.tuple_flags,
+                )?;
+                {
+                    let mut page = PageBlockRefMut::new(&mut new_page_buf);
+                    page.set_page_links(prev_page_id.unwrap_or(NONE_PAGE_ID), next_page_id)?;
+                    page.insert_record(timestamp, tuple_id, payload)?;
+                }
+
+                let mut updated_next_buf = next_page_buf.clone();
+                {
+                    let header = PageBlockRef::new(&updated_next_buf).header()?;
+                    let mut page = PageBlockRefMut::new(&mut updated_next_buf);
+                    page.set_page_links(page_id, header.next_page())?;
+                }
+
+                let mut plan = TimeSeriesFileMutationPlan::default();
+                plan.page_writes.push(PlannedPageWrite {
+                    page_id,
+                    image: new_page_buf,
+                });
+                plan.page_writes.push(PlannedPageWrite {
+                    page_id: next_page_id,
+                    image: updated_next_buf,
+                });
+                if let Some(prev_page_id) = prev_page_id {
+                    let prev_page_buf = self.read_page(prev_page_id).await?;
+                    let mut updated_prev_buf = prev_page_buf.clone();
+                    let header = PageBlockRef::new(&updated_prev_buf).header()?;
+                    {
+                        let mut page = PageBlockRefMut::new(&mut updated_prev_buf);
+                        page.set_page_links(header.prev_page(), page_id)?;
+                    }
+                    plan.page_writes.push(PlannedPageWrite {
+                        page_id: prev_page_id,
+                        image: updated_prev_buf,
+                    });
+                } else {
+                    plan.next_head_page_id = Some(Some(page_id));
+                }
+                plan.next_page_count = Some(page_id + 1);
+                self.persist_plan(plan).await?;
+            }
+            PageInsertLocation::After(prev_page_id) => {
+                let page_id = self.page_count;
+                let prev_page_buf = self.read_page(prev_page_id).await?;
+                let prev_page = PageBlockRef::new(&prev_page_buf);
+                let next_page_id = prev_page.active_next_page()?;
+                let mut new_page_buf = empty_page_image(
+                    page_id,
+                    self.tuple_format_version,
+                    self.tuple_schema_hash,
+                    self.tuple_flags,
+                )?;
+                {
+                    let mut page = PageBlockRefMut::new(&mut new_page_buf);
+                    page.set_page_links(prev_page_id, next_page_id.unwrap_or(NONE_PAGE_ID))?;
+                    page.insert_record(timestamp, tuple_id, payload)?;
+                }
+
+                let mut updated_prev_buf = prev_page_buf.clone();
+                {
+                    let header = PageBlockRef::new(&updated_prev_buf).header()?;
+                    let mut page = PageBlockRefMut::new(&mut updated_prev_buf);
+                    page.set_page_links(header.prev_page(), page_id)?;
+                }
+
+                let mut plan = TimeSeriesFileMutationPlan::default();
+                plan.page_writes.push(PlannedPageWrite {
+                    page_id,
+                    image: new_page_buf,
+                });
+                plan.page_writes.push(PlannedPageWrite {
+                    page_id: prev_page_id,
+                    image: updated_prev_buf,
+                });
+                if let Some(next_page_id) = next_page_id {
+                    let next_page_buf = self.read_page(next_page_id).await?;
+                    let mut updated_next_buf = next_page_buf.clone();
+                    let header = PageBlockRef::new(&updated_next_buf).header()?;
+                    {
+                        let mut page = PageBlockRefMut::new(&mut updated_next_buf);
+                        page.set_page_links(page_id, header.next_page())?;
+                    }
+                    plan.page_writes.push(PlannedPageWrite {
+                        page_id: next_page_id,
+                        image: updated_next_buf,
+                    });
+                } else {
+                    plan.next_tail_page_id = Some(Some(page_id));
+                }
+                if self.head_page_id.is_none() {
+                    plan.next_head_page_id = Some(Some(page_id));
+                }
+                plan.next_page_count = Some(page_id + 1);
+                self.persist_plan(plan).await?;
+            }
+        }
+        Ok(())
     }
 
     pub fn insert_sync(&mut self, timestamp: u64, tuple_id: u64, payload: &[u8]) -> RS<()> {
@@ -660,7 +880,36 @@ impl TimeSeriesFile {
     }
 
     pub async fn delete(&mut self, timestamp: u64, tuple_id: u64) -> RS<bool> {
-        self.delete_sync(timestamp, tuple_id)
+        let mut current = self.head_page_id;
+        while let Some(page_id) = current {
+            let page_buf = self.read_page(page_id).await?;
+            let page = PageBlockRef::new(&page_buf);
+            if let Some((min_ts, max_ts)) = page.timestamp_bounds()? {
+                if timestamp > max_ts {
+                    return Ok(false);
+                }
+                if timestamp < min_ts {
+                    current = page.active_next_page()?;
+                    continue;
+                }
+                if let Some(slot_index) = page.find_slot_index(timestamp, tuple_id)? {
+                    let mut page_buf = page_buf;
+                    {
+                        let mut page_mut = PageBlockRefMut::new(&mut page_buf);
+                        page_mut.delete_record(slot_index)?;
+                    }
+                    let mut plan = TimeSeriesFileMutationPlan::default();
+                    plan.page_writes.push(PlannedPageWrite {
+                        page_id,
+                        image: page_buf,
+                    });
+                    self.persist_plan(plan).await?;
+                    return Ok(true);
+                }
+            }
+            current = page.active_next_page()?;
+        }
+        Ok(false)
     }
 
     pub fn delete_sync(&mut self, timestamp: u64, tuple_id: u64) -> RS<bool> {
@@ -739,6 +988,221 @@ impl TimeSeriesFile {
         let _ = self.page_cache.remove_sync(&page_id);
         let _ = self.page_cache.insert_sync(page_id, page.clone());
         Ok(page)
+    }
+
+    async fn update_in_page(
+        &mut self,
+        page_id: PageId,
+        slot_index: usize,
+        timestamp: u64,
+        tuple_id: u64,
+        payload: &[u8],
+    ) -> RS<()> {
+        let mut page_buf = self.read_page(page_id).await?;
+        {
+            let mut page_mut = PageBlockRefMut::new(&mut page_buf);
+            page_mut.update_record(slot_index, timestamp, tuple_id, payload)?;
+        }
+        let mut plan = TimeSeriesFileMutationPlan::default();
+        plan.page_writes.push(PlannedPageWrite {
+            page_id,
+            image: page_buf,
+        });
+        self.persist_plan(plan).await
+    }
+
+    async fn split_insert_full_page(
+        &mut self,
+        page_id: PageId,
+        timestamp: u64,
+        tuple_id: u64,
+        payload: &[u8],
+    ) -> RS<()> {
+        let page_buf = self.read_page(page_id).await?;
+        let page = PageBlockRef::new(&page_buf);
+        let mut entries = self.page_entries(&page, page_id)?;
+        entries.push(TimeSeriesRecord {
+            timestamp,
+            tuple_id,
+            payload: payload.to_vec(),
+            page_id,
+            slot_index: 0,
+        });
+        entries.sort_by(|left, right| {
+            left.timestamp
+                .cmp(&right.timestamp)
+                .then_with(|| left.tuple_id.cmp(&right.tuple_id))
+        });
+
+        let split_at = self.find_split_index(&entries)?;
+        let lower_entries = entries[..split_at].to_vec();
+        let upper_entries = entries[split_at..].to_vec();
+
+        let header = page.header()?;
+        let old_next_page_id = page.active_next_page()?;
+        let new_page_id = self.page_count;
+        let current_page_buf = build_entries_page_image(
+            page_id,
+            header.prev_page(),
+            new_page_id,
+            &upper_entries,
+            self.tuple_format_version,
+            self.tuple_schema_hash,
+            self.tuple_flags,
+        )?;
+        let new_page_buf = build_entries_page_image(
+            new_page_id,
+            page_id,
+            old_next_page_id.unwrap_or(NONE_PAGE_ID),
+            &lower_entries,
+            self.tuple_format_version,
+            self.tuple_schema_hash,
+            self.tuple_flags,
+        )?;
+
+        let mut plan = TimeSeriesFileMutationPlan::default();
+        plan.page_writes.push(PlannedPageWrite {
+            page_id,
+            image: current_page_buf,
+        });
+        plan.page_writes.push(PlannedPageWrite {
+            page_id: new_page_id,
+            image: new_page_buf,
+        });
+        if let Some(next_page_id) = old_next_page_id {
+            let next_page_buf = self.read_page(next_page_id).await?;
+            let mut updated_next_buf = next_page_buf.clone();
+            let next_header = PageBlockRef::new(&updated_next_buf).header()?;
+            {
+                let mut page = PageBlockRefMut::new(&mut updated_next_buf);
+                page.set_page_links(new_page_id, next_header.next_page())?;
+            }
+            plan.page_writes.push(PlannedPageWrite {
+                page_id: next_page_id,
+                image: updated_next_buf,
+            });
+        } else {
+            plan.next_tail_page_id = Some(Some(new_page_id));
+        }
+        plan.next_page_count = Some(new_page_id + 1);
+        self.persist_plan(plan).await
+    }
+
+    async fn find_insert_location(&self, timestamp: u64) -> RS<PageInsertLocation> {
+        let Some(mut current) = self.head_page_id else {
+            return Ok(PageInsertLocation::EmptyFile);
+        };
+
+        let mut last_non_empty = None;
+        loop {
+            let page_buf = self.read_page(current).await?;
+            let page = PageBlockRef::new(&page_buf);
+            match page.timestamp_bounds()? {
+                Some((min_ts, max_ts)) => {
+                    last_non_empty = Some(current);
+                    if timestamp > max_ts {
+                        return Ok(PageInsertLocation::Before(current));
+                    }
+                    if timestamp >= min_ts {
+                        return Ok(PageInsertLocation::Existing(current));
+                    }
+                }
+                None => {}
+            }
+
+            match page.active_next_page()? {
+                Some(next) => current = next,
+                None => return Ok(PageInsertLocation::After(last_non_empty.unwrap_or(current))),
+            }
+        }
+    }
+
+    async fn write_page(&mut self, page_id: PageId, page: &[u8]) -> RS<()> {
+        if page.len() != PAGE_SIZE {
+            return Err(m_error!(
+                EC::EncodeErr,
+                format!(
+                    "page write requires {} bytes, got {}",
+                    PAGE_SIZE,
+                    page.len()
+                )
+            ));
+        }
+        let mut plan = TimeSeriesFileMutationPlan::default();
+        plan.page_writes.push(PlannedPageWrite {
+            page_id,
+            image: page.to_vec(),
+        });
+        self.persist_plan(plan).await
+    }
+
+    async fn persist_plan(&mut self, plan: TimeSeriesFileMutationPlan) -> RS<()> {
+        // Physical WAL must reach durable storage before any data-page update.
+        if let Some(batch) = self.build_pl_batch(&plan)? {
+            trace!(
+                path = %self.path.display(),
+                create_file = plan.create_file,
+                delete_file = plan.delete_file,
+                page_writes = plan.page_writes.len(),
+                "time_series persist_plan append wal"
+            );
+            let backend = self
+                .wal_backend
+                .clone()
+                .ok_or_else(|| m_error!(EC::InternalErr, "missing time series wal backend"))?;
+            let writer = new_pl_batch_writer(backend);
+            writer.append(&batch).await?;
+        }
+        trace!(
+            path = %self.path.display(),
+            create_file = plan.create_file,
+            delete_file = plan.delete_file,
+            page_writes = plan.page_writes.len(),
+            "time_series persist_plan apply plan"
+        );
+        self.apply_plan(&plan).await
+    }
+
+    async fn apply_plan(&mut self, plan: &TimeSeriesFileMutationPlan) -> RS<()> {
+        if plan.create_file {
+            trace!(path = %self.path.display(), "time_series apply_plan create file start");
+            match self.fs.as_ref() {
+                Some(fs) => ensure_time_series_file_exists_async(fs.as_ref(), &self.path).await?,
+                None => ensure_time_series_file_exists_sync(&self.path)?,
+            }
+            trace!(path = %self.path.display(), "time_series apply_plan create file done");
+        }
+        for write in &plan.page_writes {
+            trace!(path = %self.path.display(), page_id = write.page_id, "time_series apply_plan write page");
+            self.apply_page_write(write.page_id, &write.image).await?;
+        }
+        if plan.delete_file {
+            close_file(std::mem::take(&mut self.file)).await?;
+            match self.fs.as_ref() {
+                Some(fs) => fs.remove_file_if_exists(&self.path).await?,
+                None => remove_file_if_exists(&self.path)?,
+            }
+            self.page_cache = HashMap::new();
+        }
+        if let Some(page_count) = plan.next_page_count {
+            self.page_count = page_count;
+        }
+        if let Some(head_page_id) = plan.next_head_page_id {
+            self.head_page_id = head_page_id;
+        }
+        if let Some(tail_page_id) = plan.next_tail_page_id {
+            self.tail_page_id = tail_page_id;
+        }
+        Ok(())
+    }
+
+    async fn apply_page_write(&self, page_id: PageId, page: &[u8]) -> RS<()> {
+        let _ = self.page_cache.remove_sync(&page_id);
+        file::write(&self.file, page.to_vec(), page_offset(page_id)?)
+            .await
+            .map(|_| ())?;
+        let _ = self.page_cache.insert_sync(page_id, page.to_vec());
+        Ok(())
     }
 
     fn update_in_page_sync(
@@ -1291,11 +1755,7 @@ fn page_offset(page_id: PageId) -> RS<u64> {
 }
 
 async fn open_rw(path: &Path, flags: i32) -> RS<IoFile> {
-    if worker_ring::has_current_worker_ring() {
-        file::open(path, flags, FILE_MODE_644).await
-    } else {
-        file::open_sync(path, flags, FILE_MODE_644)
-    }
+    file::open(path, flags, FILE_MODE_644).await
 }
 
 fn open_rw_sync(path: &Path, flags: i32) -> RS<IoFile> {
@@ -1303,11 +1763,7 @@ fn open_rw_sync(path: &Path, flags: i32) -> RS<IoFile> {
 }
 
 async fn read_file_exact(file: &IoFile, len: usize, offset: u64) -> RS<Vec<u8>> {
-    if worker_ring::has_current_worker_ring() {
-        file::read(file, len, offset).await
-    } else {
-        file::read_sync(file, len, offset)
-    }
+    file::read(file, len, offset).await
 }
 
 fn read_file_exact_sync(file: &IoFile, len: usize, offset: u64) -> RS<Vec<u8>> {
@@ -1319,19 +1775,11 @@ fn write_file_all_sync(file: &IoFile, payload: &[u8], offset: u64) -> RS<()> {
 }
 
 async fn flush_file(file: &IoFile) -> RS<()> {
-    if worker_ring::has_current_worker_ring() {
-        file::flush(file).await
-    } else {
-        file::flush_sync(file)
-    }
+    file::flush(file).await
 }
 
 async fn close_file(file: IoFile) -> RS<()> {
-    if worker_ring::has_current_worker_ring() {
-        file::close(file).await
-    } else {
-        file::close_sync(file)
-    }
+    file::close(file).await
 }
 
 fn new_relation_wal_backend(
@@ -1346,7 +1794,7 @@ fn new_relation_wal_backend(
         time_series_log_oid(identity),
         RELATION_WAL_CHUNK_SIZE,
     )?;
-    ChunkedWorkerLogBackend::new(layout)
+    ChunkedWorkerLogBackend::new_direct(layout)
 }
 
 fn time_series_log_oid(identity: &TimeSeriesFileIdentity) -> OID {
@@ -1395,6 +1843,34 @@ fn recover_relation_file(
     Ok(())
 }
 
+async fn recover_relation_file_async(
+    fs: Arc<dyn AsyncFs>,
+    base_path: &Path,
+    identity: &TimeSeriesFileIdentity,
+    backend: &ChunkedWorkerLogBackend,
+) -> RS<()> {
+    let mut source = RelationWalRecoverySource {
+        fs: fs.clone(),
+        backend: backend.clone(),
+    };
+    let handler = Arc::new(RelationWalRecoveryHandler {
+        fs,
+        path: TimeSeriesFile::relation_file_path(
+            base_path,
+            identity.partition_id,
+            identity.table_id,
+            identity.file_index,
+        ),
+        file_id: PLFileId {
+            partition_id: identity.partition_id,
+            table_id: identity.table_id,
+            file_index: identity.file_index,
+        },
+    });
+    let log = new_pl_batch_worker_log(backend.clone(), NoopPLBatchRecoveryHandler);
+    log.recover_async_with_handler(&mut source, &handler).await
+}
+
 fn apply_recovered_entry(path: &Path, entry: &PLEntry) -> RS<()> {
     for op in &entry.ops {
         match op {
@@ -1415,6 +1891,60 @@ fn apply_recovered_entry(path: &Path, entry: &PLEntry) -> RS<()> {
         }
     }
     Ok(())
+}
+
+async fn apply_recovered_entry_async(fs: &dyn AsyncFs, path: &Path, entry: &PLEntry) -> RS<()> {
+    for op in &entry.ops {
+        match op {
+            PLOp::Create => ensure_time_series_file_exists_async(fs, path).await?,
+            PLOp::Delete => fs.remove_file_if_exists(path).await?,
+            PLOp::PageUpdate(update) => {
+                ensure_time_series_file_exists_async(fs, path).await?;
+                let file = fs.open(path, FileOpenOptions::read_write_create()).await?;
+                file.write_all_at(
+                    page_offset(update.page_id)? + update.offset as u64,
+                    &update.data,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+struct RelationWalRecoverySource {
+    fs: Arc<dyn AsyncFs>,
+    backend: ChunkedWorkerLogBackend,
+}
+
+#[async_trait]
+impl AsyncWorkerLogRecoverySource for RelationWalRecoverySource {
+    async fn chunk_paths_sorted(&mut self) -> RS<Vec<PathBuf>> {
+        self.backend.chunk_paths_sorted()
+    }
+
+    async fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>> {
+        self.fs.as_ref().read_all(path).await
+    }
+}
+
+struct RelationWalRecoveryHandler {
+    fs: Arc<dyn AsyncFs>,
+    path: PathBuf,
+    file_id: PLFileId,
+}
+
+#[async_trait]
+impl AsyncWorkerLogRecoveryHandler<PLBatch> for Arc<RelationWalRecoveryHandler> {
+    async fn handle_entry(&self, entry: PLBatch, _start_lsn: crate::wal::lsn::LSN) -> RS<()> {
+        for item in &entry.entries {
+            if item.file != self.file_id {
+                continue;
+            }
+            apply_recovered_entry_async(self.fs.as_ref(), &self.path, item).await?;
+        }
+        Ok(())
+    }
 }
 
 async fn append_file_create_async(
@@ -1462,6 +1992,17 @@ fn ensure_time_series_file_exists_sync(path: &Path) -> RS<()> {
     file::close_sync(file)
 }
 
+async fn ensure_time_series_file_exists_async(fs: &dyn AsyncFs, path: &Path) -> RS<()> {
+    if let Some(parent) = path.parent() {
+        trace!(path = %path.display(), parent = %parent.display(), "time_series ensure file create_dir_all");
+        fs.create_dir_all(parent).await?;
+    }
+    trace!(path = %path.display(), "time_series ensure file open create");
+    let _ = fs.open(path, FileOpenOptions::read_write_create()).await?;
+    trace!(path = %path.display(), "time_series ensure file open create done");
+    Ok(())
+}
+
 fn remove_file_if_exists(path: &Path) -> RS<()> {
     mudu_sys::fs::remove_file_if_exists(path)
 }
@@ -1469,8 +2010,10 @@ fn remove_file_if_exists(path: &Path) -> RS<()> {
 #[cfg(test)]
 mod tests {
     use super::{TimeSeriesFile, TimeSeriesFileIdentity, PAGE_SIZE};
+    use crate::async_rt::tokio::fs::TokioFs;
     use crate::storage::page::PageId;
     use project_root::get_project_root;
+    use std::sync::Arc;
 
     fn temp_ts_path(name: &str) -> std::path::PathBuf {
         let root = get_project_root().unwrap();
@@ -1797,6 +2340,89 @@ mod tests {
         let reopened =
             TimeSeriesFile::open_relation_file_sync(&base, identity, 0x1, false).unwrap();
         assert_eq!(reopened.page_count(), 0);
+        reopened.close_sync().unwrap();
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wal_recovers_relation_file_after_data_loss_async() {
+        let base = temp_relation_base("recover-async");
+        let identity = TimeSeriesFileIdentity {
+            partition_id: 27,
+            table_id: 31,
+            file_index: 2,
+        };
+        let path = TimeSeriesFile::relation_file_path(
+            &base,
+            identity.partition_id,
+            identity.table_id,
+            identity.file_index,
+        );
+
+        let mut file =
+            TimeSeriesFile::open_relation_file(&base, identity.clone(), 0x1234_5678, true)
+                .await
+                .unwrap();
+        file.insert(100, 1, b"alpha").await.unwrap();
+        file.insert(90, 2, b"beta").await.unwrap();
+        file.delete(90, 2).await.unwrap();
+        file.close().await.unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        let reopened = TimeSeriesFile::open_relation_file(&base, identity, 0x1234_5678, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            reopened.get_sync(100, 1).unwrap().unwrap().payload,
+            b"alpha".to_vec()
+        );
+        assert_eq!(reopened.get_sync(90, 2).unwrap(), None);
+        reopened.close_sync().unwrap();
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wal_recovers_relation_file_with_injected_async_fs() {
+        let base = temp_relation_base("recover-async-fs");
+        let identity = TimeSeriesFileIdentity {
+            partition_id: 37,
+            table_id: 41,
+            file_index: 3,
+        };
+        let path = TimeSeriesFile::relation_file_path(
+            &base,
+            identity.partition_id,
+            identity.table_id,
+            identity.file_index,
+        );
+        let fs = Arc::new(TokioFs::new());
+
+        let mut file = TimeSeriesFile::open_relation_file_with_fs(
+            fs.clone(),
+            &base,
+            identity.clone(),
+            0x55aa_aa55,
+            true,
+        )
+        .await
+        .unwrap();
+        file.insert(100, 1, b"alpha").await.unwrap();
+        file.insert(90, 2, b"beta").await.unwrap();
+        file.close().await.unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        let reopened =
+            TimeSeriesFile::open_relation_file_with_fs(fs, &base, identity, 0x55aa_aa55, false)
+                .await
+                .unwrap();
+        assert_eq!(
+            reopened.get_sync(100, 1).unwrap().unwrap().payload,
+            b"alpha".to_vec()
+        );
+        assert_eq!(
+            reopened.get_sync(90, 2).unwrap().unwrap().payload,
+            b"beta".to_vec()
+        );
         reopened.close_sync().unwrap();
         std::fs::remove_dir_all(base).unwrap();
     }

@@ -3,6 +3,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_utils::sync::async_task::TaskWrapper;
+use mudu_utils::task_async::build_current_thread_runtime;
 use tracing::debug;
 
 pub struct ServiceImpl {
@@ -25,10 +26,7 @@ impl ServiceTrait for ServiceImpl {
 
     fn serve(self) -> RS<()> {
         let tasks = self.tasks;
-        let mut builder = tokio::runtime::Builder::new_current_thread();
-        let r = builder
-            .enable_all()
-            .build()
+        let r = build_current_thread_runtime()
             .map_err(|e| m_error!(EC::IOErr, "build runtime error", e))?
             .block_on(async {
                 let mut task_result = vec![];

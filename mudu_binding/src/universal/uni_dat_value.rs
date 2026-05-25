@@ -1,9 +1,9 @@
-use crate::universal::uni_primitive_value::UniPrimitiveValue;
+use crate::universal::uni_scalar_value::UniScalarValue;
 
 #[derive(Debug, Clone)]
 
 pub enum UniDatValue {
-    Primitive(UniPrimitiveValue),
+    Scalar(UniScalarValue),
 
     Array(Vec<UniDatValue>),
 
@@ -14,25 +14,25 @@ pub enum UniDatValue {
 
 impl Default for UniDatValue {
     fn default() -> Self {
-        Self::Primitive(Default::default())
+        Self::Scalar(Default::default())
     }
 }
 
 impl UniDatValue {
-    pub fn from_primitive(inner: UniPrimitiveValue) -> Self {
-        Self::Primitive(inner)
+    pub fn from_scalar(inner: UniScalarValue) -> Self {
+        Self::Scalar(inner)
     }
 
-    pub fn as_primitive(&self) -> Option<&UniPrimitiveValue> {
+    pub fn as_scalar(&self) -> Option<&UniScalarValue> {
         match self {
-            Self::Primitive(inner) => Some(inner),
+            Self::Scalar(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn expect_primitive(&self) -> &UniPrimitiveValue {
+    pub fn expect_scalar(&self) -> &UniScalarValue {
         match self {
-            Self::Primitive(inner) => inner,
+            Self::Scalar(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
@@ -100,7 +100,7 @@ impl serde::Serialize for UniDatValue {
         use serde::ser::SerializeSeq;
         let mut serialize_seq = serializer.serialize_seq(Some(2))?;
         match self {
-            UniDatValue::Primitive(inner) => {
+            UniDatValue::Scalar(inner) => {
                 serialize_seq.serialize_element(&0u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
@@ -150,9 +150,9 @@ impl<'de> serde::de::Visitor<'de> for UniDatValueVisitor {
         match id {
             0 => {
                 let value = seq
-                    .next_element::<UniPrimitiveValue>()?
+                    .next_element::<UniScalarValue>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Primitive(value))
+                Ok(Self::Value::Scalar(value))
             }
 
             1 => {

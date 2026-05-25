@@ -15,6 +15,7 @@ impl XLockMgr {
     }
 
     pub fn try_lock_some(&self, oid: OID, table_keys: &Vec<(PhysicalRelationId, Vec<u8>)>) -> bool {
+        mudu_utils::scoped_task_trace!();
         let mut lock = self.lock.lock().unwrap();
         let mut acquired: Vec<(PhysicalRelationId, Vec<u8>)> = Vec::new();
         for (relation_id, key) in table_keys.iter() {

@@ -9,9 +9,9 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
+use mudu_utils::sync::a_mutex::AMutex;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use tokio::sync::Mutex;
 use tracing::debug;
 
 pub trait ResultSetLease: Send + Sync {
@@ -23,7 +23,7 @@ pub struct LibSQLAsyncResultSet {
 }
 
 pub struct ResultSetInner {
-    row: Mutex<Rows>,
+    row: AMutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
     lease: StdMutex<Option<Box<dyn ResultSetLease>>>,
 }
@@ -59,7 +59,7 @@ impl ResultSetInner {
         lease: Option<Box<dyn ResultSetLease>>,
     ) -> ResultSetInner {
         Self {
-            row: Mutex::new(row),
+            row: AMutex::new(row),
             tuple_desc,
             lease: StdMutex::new(lease),
         }

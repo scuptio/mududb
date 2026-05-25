@@ -4,7 +4,6 @@ use crate::x_engine::api::XContract;
 use crate::x_engine::x_param::PDropTable;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu_utils::task_trace;
 use std::sync::Arc;
 
 pub struct DropTable {
@@ -37,7 +36,7 @@ impl CmdExec for DropTable {
     }
 
     async fn run(&self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         if let Some(table_id) = self.drop_param.oid {
             self.x_contract
                 .drop_table(self.drop_param.tx_mgr.clone(), table_id)

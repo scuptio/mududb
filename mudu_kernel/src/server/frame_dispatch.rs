@@ -4,7 +4,7 @@ use crate::server::async_func_task::HandleResult;
 use crate::server::message_dispatcher::MessageDispatcher;
 use crate::server::request_ctx::RequestCtx;
 use crate::server::session_bound_worker_runtime::new_session_bound_worker_runtime;
-use crate::server::worker::IoUringWorker;
+use crate::server::worker::WorkerRuntime;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
@@ -25,7 +25,7 @@ pub fn try_decode_next_frame(buf: &[u8]) -> RS<Option<(Frame, usize)>> {
 }
 
 pub async fn dispatch_frame_async(
-    worker: &IoUringWorker,
+    worker: &WorkerRuntime,
     conn_id: u64,
     frame: &Frame,
 ) -> RS<HandleResult> {

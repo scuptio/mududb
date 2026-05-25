@@ -27,9 +27,9 @@ var queryResult = global::Mudu.Api.Mudu.Query(new UniQueryArgv
     {
         Params = new()
         {
-            new Universal.UniDatValuePrimitive
+            new Universal.UniDatValueScalar
             {
-                Inner = new Universal.UniPrimitiveValueI32
+                Inner = new Universal.UniScalarValueI32
                 {
                     Inner = 10
                 }
@@ -51,9 +51,9 @@ Console.WriteLine($"rows: {ok.ResultSet.RowSet.Count}");
 
 foreach (var row in ok.ResultSet.RowSet)
 {
-    var id = ((Universal.UniPrimitiveValueI64)((Universal.UniDatValuePrimitive)row.Fields[0]).Inner).Inner;
-    var name = ((Universal.UniPrimitiveValueString)((Universal.UniDatValuePrimitive)row.Fields[1]).Inner).Inner;
-    var score = ((Universal.UniPrimitiveValueI64)((Universal.UniDatValuePrimitive)row.Fields[2]).Inner).Inner;
+    var id = ((Universal.UniScalarValueI64)((Universal.UniDatValueScalar)row.Fields[0]).Inner).Inner;
+    var name = ((Universal.UniScalarValueString)((Universal.UniDatValueScalar)row.Fields[1]).Inner).Inner;
+    var score = ((Universal.UniScalarValueI64)((Universal.UniDatValueScalar)row.Fields[2]).Inner).Inner;
     Console.WriteLine($"{id}: {name} -> {score}");
 }
 
@@ -70,16 +70,16 @@ static void InsertUser(string name, int score)
         {
             Params = new()
             {
-                new Universal.UniDatValuePrimitive
+                new Universal.UniDatValueScalar
                 {
-                    Inner = new Universal.UniPrimitiveValueString
+                    Inner = new Universal.UniScalarValueString
                     {
                         Inner = name
                     }
                 },
-                new Universal.UniDatValuePrimitive
+                new Universal.UniDatValueScalar
                 {
-                    Inner = new Universal.UniPrimitiveValueI32
+                    Inner = new Universal.UniScalarValueI32
                     {
                         Inner = score
                     }

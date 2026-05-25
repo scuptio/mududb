@@ -1,7 +1,7 @@
 use crate::error::ApiError;
 use crate::types::{UniCommandResult, UniCommandReturn, UniQueryReturn};
 use crate::{
-    UniCommandArgv, UniDatType, UniDatValue, UniError, UniPrimitive, UniPrimitiveValue,
+    UniCommandArgv, UniDatType, UniDatValue, UniError, UniScalar, UniScalarValue,
     UniQueryArgv, UniQueryResult, UniRecordField, UniRecordType, UniResult, UniResultSet,
     UniTupleRow,
 };
@@ -144,28 +144,28 @@ impl MockSqliteMuduSysCall {
         values
             .into_iter()
             .map(|value| match value {
-                UniDatValue::Primitive(primitive) => Self::to_db_primitive(primitive),
+                UniDatValue::Scalar(scalar) => Self::to_db_scalar(scalar),
                 UniDatValue::Binary(bytes) => Ok(Value::Blob(bytes)),
                 other => Err(format!("unsupported sqlite parameter type: {other:?}")),
             })
             .collect()
     }
 
-    fn to_db_primitive(value: UniPrimitiveValue) -> Result<Value, String> {
+    fn to_db_scalar(value: UniScalarValue) -> Result<Value, String> {
         match value {
-            UniPrimitiveValue::Bool(v) => Ok(Value::Integer(if v { 1 } else { 0 })),
-            UniPrimitiveValue::U8(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::I8(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::U16(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::I16(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::U32(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::I32(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::U64(v) => Ok(Value::Integer(v as i64)),
-            UniPrimitiveValue::I64(v) => Ok(Value::Integer(v)),
-            UniPrimitiveValue::F32(v) => Ok(Value::Real(v as f64)),
-            UniPrimitiveValue::F64(v) => Ok(Value::Real(v)),
-            UniPrimitiveValue::Char(v) => Ok(Value::Text(v.to_string())),
-            UniPrimitiveValue::String(v) => Ok(Value::Text(v)),
+            UniScalarValue::Bool(v) => Ok(Value::Integer(if v { 1 } else { 0 })),
+            UniScalarValue::U8(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::I8(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::U16(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::I16(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::U32(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::I32(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::U64(v) => Ok(Value::Integer(v as i64)),
+            UniScalarValue::I64(v) => Ok(Value::Integer(v)),
+            UniScalarValue::F32(v) => Ok(Value::Real(v as f64)),
+            UniScalarValue::F64(v) => Ok(Value::Real(v)),
+            UniScalarValue::Char(v) => Ok(Value::Text(v.to_string())),
+            UniScalarValue::String(v) => Ok(Value::Text(v)),
         }
     }
 
@@ -195,7 +195,7 @@ impl MockSqliteMuduSysCall {
             .zip(inferred_types)
             .map(|(field_name, field_type)| UniRecordField {
                 field_name,
-                field_type: field_type.unwrap_or(UniDatType::Primitive(UniPrimitive::String)),
+                field_type: field_type.unwrap_or(UniDatType::Scalar(UniScalar::String)),
             })
             .collect();
 
@@ -208,9 +208,9 @@ impl MockSqliteMuduSysCall {
     fn to_uni_dat_value(value: ValueRef<'_>) -> Result<UniDatValue, String> {
         match value {
             ValueRef::Null => Err("NULL value is not supported".to_string()),
-            ValueRef::Integer(v) => Ok(UniDatValue::Primitive(UniPrimitiveValue::I64(v))),
-            ValueRef::Real(v) => Ok(UniDatValue::Primitive(UniPrimitiveValue::F64(v))),
-            ValueRef::Text(v) => Ok(UniDatValue::Primitive(UniPrimitiveValue::String(
+            ValueRef::Integer(v) => Ok(UniDatValue::Scalar(UniScalarValue::I64(v))),
+            ValueRef::Real(v) => Ok(UniDatValue::Scalar(UniScalarValue::F64(v))),
+            ValueRef::Text(v) => Ok(UniDatValue::Scalar(UniScalarValue::String(
                 String::from_utf8_lossy(v).into_owned(),
             ))),
             ValueRef::Blob(v) => Ok(UniDatValue::Binary(v.to_vec())),
@@ -219,48 +219,48 @@ impl MockSqliteMuduSysCall {
 
     fn infer_uni_dat_type(value: &UniDatValue) -> UniDatType {
         match value {
-            UniDatValue::Primitive(UniPrimitiveValue::Bool(_)) => {
-                UniDatType::Primitive(UniPrimitive::Bool)
+            UniDatValue::Scalar(UniScalarValue::Bool(_)) => {
+                UniDatType::Scalar(UniScalar::Bool)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::U8(_)) => {
-                UniDatType::Primitive(UniPrimitive::U8)
+            UniDatValue::Scalar(UniScalarValue::U8(_)) => {
+                UniDatType::Scalar(UniScalar::U8)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::I8(_)) => {
-                UniDatType::Primitive(UniPrimitive::I8)
+            UniDatValue::Scalar(UniScalarValue::I8(_)) => {
+                UniDatType::Scalar(UniScalar::I8)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::U16(_)) => {
-                UniDatType::Primitive(UniPrimitive::U16)
+            UniDatValue::Scalar(UniScalarValue::U16(_)) => {
+                UniDatType::Scalar(UniScalar::U16)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::I16(_)) => {
-                UniDatType::Primitive(UniPrimitive::I16)
+            UniDatValue::Scalar(UniScalarValue::I16(_)) => {
+                UniDatType::Scalar(UniScalar::I16)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::U32(_)) => {
-                UniDatType::Primitive(UniPrimitive::U32)
+            UniDatValue::Scalar(UniScalarValue::U32(_)) => {
+                UniDatType::Scalar(UniScalar::U32)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::I32(_)) => {
-                UniDatType::Primitive(UniPrimitive::I32)
+            UniDatValue::Scalar(UniScalarValue::I32(_)) => {
+                UniDatType::Scalar(UniScalar::I32)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::U64(_)) => {
-                UniDatType::Primitive(UniPrimitive::U64)
+            UniDatValue::Scalar(UniScalarValue::U64(_)) => {
+                UniDatType::Scalar(UniScalar::U64)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::I64(_)) => {
-                UniDatType::Primitive(UniPrimitive::I64)
+            UniDatValue::Scalar(UniScalarValue::I64(_)) => {
+                UniDatType::Scalar(UniScalar::I64)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::F32(_)) => {
-                UniDatType::Primitive(UniPrimitive::F32)
+            UniDatValue::Scalar(UniScalarValue::F32(_)) => {
+                UniDatType::Scalar(UniScalar::F32)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::F64(_)) => {
-                UniDatType::Primitive(UniPrimitive::F64)
+            UniDatValue::Scalar(UniScalarValue::F64(_)) => {
+                UniDatType::Scalar(UniScalar::F64)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::Char(_)) => {
-                UniDatType::Primitive(UniPrimitive::Char)
+            UniDatValue::Scalar(UniScalarValue::Char(_)) => {
+                UniDatType::Scalar(UniScalar::Char)
             }
-            UniDatValue::Primitive(UniPrimitiveValue::String(_)) => {
-                UniDatType::Primitive(UniPrimitive::String)
+            UniDatValue::Scalar(UniScalarValue::String(_)) => {
+                UniDatType::Scalar(UniScalar::String)
             }
-            UniDatValue::Binary(_) => UniDatType::Primitive(UniPrimitive::Blob),
+            UniDatValue::Binary(_) => UniDatType::Scalar(UniScalar::Blob),
             UniDatValue::Array(_) | UniDatValue::Record(_) => {
-                UniDatType::Primitive(UniPrimitive::String)
+                UniDatType::Scalar(UniScalar::String)
             }
         }
     }

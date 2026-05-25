@@ -11,11 +11,12 @@ use crate::rust::stock::object::Stock;
 use crate::rust::warehouse::object::Warehouse;
 use mududb::common::result::RS;
 use mududb::common::xid::XID;
-use mududb::error::ec::EC::MuduError;
-use mududb::m_error;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::error::ec::EC::MuduError;
+use mududb::m_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
+
 
 fn query_one_entity<R: Entity>(
     xid: XID,
@@ -64,14 +65,14 @@ fn required_string(value: &Option<String>, field: &str) -> RS<String> {
         .ok_or_else(|| m_error!(MuduError, format!("entity field is null: {field}")))
 }
 
-/**mudu-proc**/
-pub fn tpcc_seed(
+fn tpcc_seed_inner(
     xid: XID,
     warehouse_count: i32,
     district_count: i32,
     customer_count: i32,
     item_count: i32,
     initial_stock: i32,
+    warehouse_partitioned: bool,
 ) -> RS<()> {
     require_positive("warehouse_count", warehouse_count)?;
     require_positive("district_count", district_count)?;
@@ -79,12 +80,26 @@ pub fn tpcc_seed(
     require_positive("item_count", item_count)?;
     require_positive("initial_stock", initial_stock)?;
 
-    for item_id in 1..=item_count {
-        mudu_command(
-            xid,
-            sql_stmt!(&"INSERT INTO item (i_id, i_name, i_price) VALUES (?, ?, ?)"),
-            sql_params!(&(item_id, item_name(item_id), item_id * 10)),
-        )?;
+    if warehouse_partitioned {
+        for warehouse_id in 1..=warehouse_count {
+            for item_id in 1..=item_count {
+                mudu_command(
+                    xid,
+                    sql_stmt!(
+                        &"INSERT INTO item (i_w_id, i_id, i_name, i_price) VALUES (?, ?, ?, ?)"
+                    ),
+                    sql_params!(&(warehouse_id, item_id, item_name(item_id), item_id * 10)),
+                )?;
+            }
+        }
+    } else {
+        for item_id in 1..=item_count {
+            mudu_command(
+                xid,
+                sql_stmt!(&"INSERT INTO item (i_id, i_name, i_price) VALUES (?, ?, ?)"),
+                sql_params!(&(item_id, item_name(item_id), item_id * 10)),
+            )?;
+        }
     }
     for warehouse_id in 1..=warehouse_count {
         mudu_command(
@@ -139,8 +154,7 @@ pub fn tpcc_seed(
     Ok(())
 }
 
-/**mudu-proc**/
-pub fn tpcc_new_order(
+fn tpcc_new_order_inner(
     xid: XID,
     warehouse_id: i32,
     district_id: i32,
@@ -148,11 +162,22 @@ pub fn tpcc_new_order(
     item_ids: Vec<i32>,
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
+    warehouse_partitioned: bool,
 ) -> RS<String> {
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
     validate_order_lines(&item_ids, &supplier_warehouse_ids, &quantities)?;
+    if warehouse_partitioned
+        && supplier_warehouse_ids
+            .iter()
+            .any(|&supplier_warehouse_id| supplier_warehouse_id != warehouse_id)
+    {
+        return Err(m_error!(
+            MuduError,
+            "partitioned tpcc_new_order requires local supplier warehouses"
+        ));
+    }
 
     let district = query_one_entity::<District>(
         xid,
@@ -161,11 +186,13 @@ pub fn tpcc_new_order(
     )?;
     let next_order_id = required_i32(district.get_d_next_o_id(), "district.d_next_o_id")?;
     let next_d_next_o_id = next_order_id + 1;
+
     query_one_entity::<Customer>(
         xid,
         "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
         sql_params!(&(warehouse_id, district_id, customer_id)),
     )?;
+
     mudu_command(
         xid,
         sql_stmt!(&"UPDATE district SET d_next_o_id = ? WHERE d_w_id = ? AND d_id = ?"),
@@ -206,11 +233,19 @@ pub fn tpcc_new_order(
         .zip(quantities.iter())
         .enumerate()
     {
-        let item = query_one_entity::<Item>(
-            xid,
-            "SELECT i_id, i_name, i_price FROM item WHERE i_id = ?",
-            sql_params!(&(item_id,)),
-        )?;
+        let item = if warehouse_partitioned {
+            query_one_entity::<Item>(
+                xid,
+                "SELECT i_id, i_name, i_price FROM item WHERE i_w_id = ? AND i_id = ?",
+                sql_params!(&(warehouse_id, item_id)),
+            )?
+        } else {
+            query_one_entity::<Item>(
+                xid,
+                "SELECT i_id, i_name, i_price FROM item WHERE i_id = ?",
+                sql_params!(&(item_id,)),
+            )?
+        };
         let item_price = required_i32(item.get_i_price(), "item.i_price")?;
         let stock = query_one_entity::<Stock>(
             xid,
@@ -281,14 +316,15 @@ pub fn tpcc_new_order(
     ))
 }
 
-/**mudu-proc**/
-pub fn tpcc_payment(
+fn tpcc_payment_inner(
     xid: XID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
     amount: i32,
+    warehouse_partitioned: bool,
 ) -> RS<i32> {
+
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -341,23 +377,148 @@ pub fn tpcc_payment(
             customer_id
         )),
     )?;
-    mudu_command(
-        xid,
-        sql_stmt!(
-            &"INSERT INTO history (h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        ),
-        sql_params!(&(
-            mududb::sys::random::next_uuid_v4_string(),
-            customer_id,
-            district_id,
-            warehouse_id,
-            district_id,
-            warehouse_id,
-            amount,
-            format!("payment warehouse={warehouse_id} district={district_id}")
-        )),
-    )?;
+    if warehouse_partitioned {
+        mudu_command(
+            xid,
+            sql_stmt!(
+                &"INSERT INTO history (h_w_id, h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            ),
+            sql_params!(&(
+                warehouse_id,
+                mududb::sys::random::next_uuid_v4_string(),
+                customer_id,
+                district_id,
+                warehouse_id,
+                district_id,
+                amount,
+                format!("payment warehouse={warehouse_id} district={district_id}")
+            )),
+        )?;
+    } else {
+        mudu_command(
+            xid,
+            sql_stmt!(
+                &"INSERT INTO history (h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            ),
+            sql_params!(&(
+                mududb::sys::random::next_uuid_v4_string(),
+                customer_id,
+                district_id,
+                warehouse_id,
+                district_id,
+                warehouse_id,
+                amount,
+                format!("payment warehouse={warehouse_id} district={district_id}")
+            )),
+        )?;
+    }
     Ok(next_c_balance)
+}
+
+/**mudu-proc**/
+pub fn tpcc_seed(
+    xid: XID,
+    warehouse_count: i32,
+    district_count: i32,
+    customer_count: i32,
+    item_count: i32,
+    initial_stock: i32,
+) -> RS<()> {
+    tpcc_seed_inner(
+        xid,
+        warehouse_count,
+        district_count,
+        customer_count,
+        item_count,
+        initial_stock,
+        false,
+    )
+}
+
+/**mudu-proc**/
+pub fn tpcc_seed_partitioned(
+    xid: XID,
+    warehouse_count: i32,
+    district_count: i32,
+    customer_count: i32,
+    item_count: i32,
+    initial_stock: i32,
+) -> RS<()> {
+    tpcc_seed_inner(
+        xid,
+        warehouse_count,
+        district_count,
+        customer_count,
+        item_count,
+        initial_stock,
+        true,
+    )
+}
+
+/**mudu-proc**/
+pub fn tpcc_new_order(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+    item_ids: Vec<i32>,
+    supplier_warehouse_ids: Vec<i32>,
+    quantities: Vec<i32>,
+) -> RS<String> {
+    tpcc_new_order_inner(
+        xid,
+        warehouse_id,
+        district_id,
+        customer_id,
+        item_ids,
+        supplier_warehouse_ids,
+        quantities,
+        false,
+    )
+}
+
+/**mudu-proc**/
+pub fn tpcc_new_order_partitioned(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+    item_ids: Vec<i32>,
+    supplier_warehouse_ids: Vec<i32>,
+    quantities: Vec<i32>,
+) -> RS<String> {
+    tpcc_new_order_inner(
+        xid,
+        warehouse_id,
+        district_id,
+        customer_id,
+        item_ids,
+        supplier_warehouse_ids,
+        quantities,
+        true,
+    )
+}
+
+/**mudu-proc**/
+pub fn tpcc_payment(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+    amount: i32,
+) -> RS<i32> {
+    tpcc_payment_inner(xid, warehouse_id, district_id, customer_id, amount, false)
+}
+
+/**mudu-proc**/
+pub fn tpcc_payment_partitioned(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+    amount: i32,
+) -> RS<i32> {
+    tpcc_payment_inner(xid, warehouse_id, district_id, customer_id, amount, true)
 }
 
 /**mudu-proc**/
@@ -382,6 +543,16 @@ pub fn tpcc_order_status(
         sql_params!(&(warehouse_id, district_id, order_id)),
     )?;
     required_string(order.get_o_status(), "orders.o_status")
+}
+
+/**mudu-proc**/
+pub fn tpcc_order_status_partitioned(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+) -> RS<String> {
+    tpcc_order_status(xid, warehouse_id, district_id, customer_id)
 }
 
 /**mudu-proc**/
@@ -446,6 +617,16 @@ pub fn tpcc_delivery(xid: XID, warehouse_id: i32, district_id: i32, carrier_id: 
 }
 
 /**mudu-proc**/
+pub fn tpcc_delivery_partitioned(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    carrier_id: i32,
+) -> RS<String> {
+    tpcc_delivery(xid, warehouse_id, district_id, carrier_id)
+}
+
+/**mudu-proc**/
 pub fn tpcc_stock_level(xid: XID, warehouse_id: i32, district_id: i32, threshold: i32) -> RS<i32> {
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
@@ -457,6 +638,16 @@ pub fn tpcc_stock_level(xid: XID, warehouse_id: i32, district_id: i32, threshold
     )
 }
 
+/**mudu-proc**/
+pub fn tpcc_stock_level_partitioned(
+    xid: XID,
+    warehouse_id: i32,
+    district_id: i32,
+    threshold: i32,
+) -> RS<i32> {
+    tpcc_stock_level(xid, warehouse_id, district_id, threshold)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -464,9 +655,9 @@ mod tests {
     };
     use crate::test_lock;
     use mududb::contract::{sql_params, sql_stmt};
+    use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open};
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = SystemTime::now()

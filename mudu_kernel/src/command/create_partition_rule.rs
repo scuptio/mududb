@@ -6,7 +6,6 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::task_trace;
 use std::sync::Arc;
 
 pub struct CreatePartitionRule {
@@ -34,7 +33,7 @@ impl CmdExec for CreatePartitionRule {
     }
 
     async fn run(&self) -> RS<()> {
-        task_trace!();
+        mudu_utils::scoped_task_trace!();
         let inner = self.inner.lock().await;
         inner.run().await
     }

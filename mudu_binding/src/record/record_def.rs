@@ -76,7 +76,12 @@ impl RecordDef {
     pub fn row_desc(&self) -> RS<TupleFieldDesc> {
         let mut vec = vec![];
         for c in &self.fields {
-            let dd = DatumDesc::new(c.column_name().clone(), c.dat_type().clone().uni_to()?);
+            let dd = DatumDesc::new(
+                c.column_name().clone(),
+                c.dat_type()
+                    .clone()
+                    .uni_to_with_params(c.data_type_param().clone())?,
+            );
             vec.push(dd);
         }
         Ok(TupleFieldDesc::new(vec))

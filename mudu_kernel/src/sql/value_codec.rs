@@ -1,5 +1,6 @@
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
+use mudu::data_type::numeric::Numeric;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_contract::database::sql_params::SQLParams;
@@ -65,6 +66,31 @@ impl ValueCodec {
             (DatTypeID::F64, DatTypeID::F32) => {
                 DatTyped::from_f32(literal.dat_internal().to_f64() as f32)
             }
+            (DatTypeID::I32, DatTypeID::Numeric) => {
+                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i32()))
+            }
+            (DatTypeID::I64, DatTypeID::Numeric) => {
+                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i64()))
+            }
+            (DatTypeID::I128, DatTypeID::Numeric) => {
+                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i128()))
+            }
+            (DatTypeID::Numeric, DatTypeID::F64) => DatTyped::from_f64(
+                literal
+                    .dat_internal()
+                    .expect_numeric()
+                    .to_plain_string()
+                    .parse::<f64>()
+                    .map_err(|e| m_error!(ER::TypeBaseErr, "numeric to f64 literal cast", e))?,
+            ),
+            (DatTypeID::Numeric, DatTypeID::F32) => DatTyped::from_f32(
+                literal
+                    .dat_internal()
+                    .expect_numeric()
+                    .to_plain_string()
+                    .parse::<f32>()
+                    .map_err(|e| m_error!(ER::TypeBaseErr, "numeric to f32 literal cast", e))?,
+            ),
             _ => return Ok(literal.clone()),
         };
         Ok(coerced)

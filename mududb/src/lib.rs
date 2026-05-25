@@ -35,15 +35,15 @@
 //! ## Feature `uniffi-bindings`
 //! Forwards to `sys_interface/uniffi-bindings`.
 
-pub use mudu_binding as binding;
+pub use mudu;
 pub use mudu::common;
 pub use mudu::error;
-pub use mudu;
 pub use mudu::m_error;
+pub use mudu_binding as binding;
 pub use mudu_contract as contract;
+pub use mudu_contract::{sql_params, sql_stmt};
 pub use mudu_sys as sys;
 pub use mudu_type as types;
-pub use mudu_contract::{sql_params, sql_stmt};
 
 #[cfg(feature = "interface")]
 pub use sys_interface;

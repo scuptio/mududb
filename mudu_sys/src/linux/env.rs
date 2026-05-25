@@ -3,13 +3,15 @@ use crate::api::fs::SysFs;
 use crate::api::net::SysNet;
 use crate::api::random::SysRandom;
 use crate::api::sync::SysSync;
-use crate::api::task::SysTask;
+use crate::api::task_async::SysTaskAsync;
+use crate::api::task_sync::SysTaskSync;
 use crate::api::time::SysTime;
 use crate::linux::fs::LinuxFs;
 use crate::linux::net::LinuxNet;
 use crate::linux::random::LinuxRandom;
 use crate::linux::sync::LinuxSync;
-use crate::linux::task::LinuxTask;
+use crate::linux::task_async::LinuxTaskAsync;
+use crate::linux::task_sync::LinuxTaskSync;
 use crate::linux::time::LinuxTime;
 
 pub struct LinuxSysEnv {
@@ -17,7 +19,8 @@ pub struct LinuxSysEnv {
     random: LinuxRandom,
     fs: LinuxFs,
     net: LinuxNet,
-    task: LinuxTask,
+    task_async: LinuxTaskAsync,
+    task_sync: LinuxTaskSync,
     sync: LinuxSync,
 }
 
@@ -28,7 +31,8 @@ impl LinuxSysEnv {
             random: LinuxRandom,
             fs: LinuxFs,
             net: LinuxNet,
-            task: LinuxTask,
+            task_async: LinuxTaskAsync,
+            task_sync: LinuxTaskSync,
             sync: LinuxSync,
         }
     }
@@ -51,8 +55,12 @@ impl SysEnv for LinuxSysEnv {
         &self.net
     }
 
-    fn task(&self) -> &dyn SysTask {
-        &self.task
+    fn task_async(&self) -> &dyn SysTaskAsync {
+        &self.task_async
+    }
+
+    fn task_sync(&self) -> &dyn SysTaskSync {
+        &self.task_sync
     }
 
     fn sync(&self) -> &dyn SysSync {

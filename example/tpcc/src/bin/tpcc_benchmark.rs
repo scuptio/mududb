@@ -1,19 +1,26 @@
 use clap::{Parser, ValueEnum};
-use mududb::common::result::RS;
-use mududb::error::ec::EC::NotImplemented;
-use mududb::m_error;
-use mududb::binding::procedure::procedure_invoke;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
-use mudu_cli::management::install_app_package;
+use mudu_cli::management::{
+    ServerTopology, fetch_server_topology, install_app_package, is_server_topology_unsupported,
+};
+use mududb::binding::procedure::procedure_invoke;
+use mududb::common::result::RS;
 use mududb::contract::procedure::procedure_param::ProcedureParam;
+use mududb::contract::protocol::ClientRequest;
 use mududb::contract::tuple::tuple_datum::TupleDatum;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::error::ec::EC::{NetErr, NoneErr, NotImplemented, ThreadErr, TokioErr};
+use mududb::m_error;
+use mududb::sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
 use std::fs;
 use std::path::PathBuf;
+use std::thread;
 use std::time::Instant;
-use mududb::sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
+use tokio::runtime::Builder;
 use tpcc::rust::procedure::{
-    tpcc_delivery, tpcc_new_order, tpcc_order_status, tpcc_payment, tpcc_seed, tpcc_stock_level,
+    tpcc_delivery, tpcc_delivery_partitioned, tpcc_new_order, tpcc_new_order_partitioned,
+    tpcc_order_status, tpcc_order_status_partitioned, tpcc_payment, tpcc_payment_partitioned,
+    tpcc_seed, tpcc_seed_partitioned, tpcc_stock_level, tpcc_stock_level_partitioned,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -44,6 +51,8 @@ struct Args {
     new_order_percent: usize,
     #[arg(long, default_value_t = false)]
     enable_async: bool,
+    #[arg(long, default_value_t = false)]
+    warehouse_partitioned: bool,
     #[arg(long, default_value = "tpcc")]
     app_name: String,
     #[arg(long, default_value = "127.0.0.1:9527")]
@@ -87,6 +96,7 @@ fn new_order_lines(
     warehouse_id: i32,
     warehouse_count: i32,
     item_count: i32,
+    local_only: bool,
 ) -> (Vec<i32>, Vec<i32>, Vec<i32>) {
     let line_count = (index % 5) + 3;
     let mut item_ids = Vec::with_capacity(line_count);
@@ -94,7 +104,7 @@ fn new_order_lines(
     let mut quantities = Vec::with_capacity(line_count);
     for line_idx in 0..line_count {
         item_ids.push(value_for(index * 7 + line_idx * 3 + 1, item_count));
-        let supplier_warehouse_id = if warehouse_count > 1 && line_idx % 3 == 2 {
+        let supplier_warehouse_id = if !local_only && warehouse_count > 1 && line_idx % 3 == 2 {
             value_for(index + line_idx + 1, warehouse_count)
         } else {
             warehouse_id
@@ -106,57 +116,149 @@ fn new_order_lines(
 }
 
 fn run_sync(args: Args) -> RS<()> {
-    let start = Instant::now();
-    let xid = mudu_open()?;
-    init_schema_sync(xid)?;
-    tpcc_seed(
-        xid,
-        args.warehouses,
-        args.districts_per_warehouse,
-        args.customers_per_district,
-        args.items,
-        100,
-    )?;
+    let total_start = Instant::now();
+    let init_xid = mudu_open()?;
+    init_schema_sync(init_xid, &args)?;
+    run_seed_sync(init_xid, &args)?;
+    prepare_sync_txn_context(init_xid, &args)?;
+    mudu_close(init_xid)?;
+    let load_elapsed_secs = total_start.elapsed().as_secs_f64();
+    let txn_start = Instant::now();
+    let worker_count = args.connection_count.max(1).min(args.operation_count.max(1));
+    let mut handles = Vec::with_capacity(worker_count);
+    for terminal_id in 0..worker_count {
+        let worker_args = args.clone();
+        handles.push(thread::spawn(move || run_sync_terminal(worker_args, terminal_id)));
+    }
+    for handle in handles {
+        let result = handle
+            .join()
+            .map_err(|_| m_error!(ThreadErr, "join tpcc sync benchmark worker error"))?;
+        result?;
+    }
+    print_summary(
+        "sync",
+        &args,
+        load_elapsed_secs,
+        txn_start.elapsed().as_secs_f64(),
+        total_start.elapsed().as_secs_f64(),
+    );
+    Ok(())
+}
 
+fn run_sync_terminal(args: Args, terminal_id: usize) -> RS<()> {
+    let xid = mudu_open()?;
+    for op_index in (terminal_id..args.operation_count).step_by(args.connection_count.max(1)) {
+        run_sync_op(xid, &args, op_index, terminal_id)?;
+    }
+    mudu_close(xid)?;
+    Ok(())
+}
+
+fn run_sync_op(xid: u128, args: &Args, op_index: usize, terminal_id: usize) -> RS<()> {
+    let warehouse_id = warehouse_for_op(op_index, terminal_id, args);
+    let district_id = value_for(op_index, args.districts_per_warehouse);
+    let customer_id = value_for(op_index, args.customers_per_district);
+    match op_for(op_index, args) {
+        TpccOp::NewOrder => {
+            run_sync_new_order(xid, args, op_index, warehouse_id, district_id, customer_id)?;
+        }
+        TpccOp::Payment => {
+            let _ = if args.warehouse_partitioned {
+                tpcc_payment_partitioned(xid, warehouse_id, district_id, customer_id, 3)?
+            } else {
+                tpcc_payment(xid, warehouse_id, district_id, customer_id, 3)?
+            };
+        }
+        TpccOp::OrderStatus => {
+            let _ = if args.warehouse_partitioned {
+                tpcc_order_status_partitioned(xid, warehouse_id, district_id, customer_id)?
+            } else {
+                tpcc_order_status(xid, warehouse_id, district_id, customer_id)?
+            };
+        }
+        TpccOp::Delivery => {
+            let _ = if args.warehouse_partitioned {
+                tpcc_delivery_partitioned(xid, warehouse_id, district_id, 1)?
+            } else {
+                tpcc_delivery(xid, warehouse_id, district_id, 1)?
+            };
+        }
+        TpccOp::StockLevel => {
+            let _ = if args.warehouse_partitioned {
+                tpcc_stock_level_partitioned(xid, warehouse_id, district_id, 95)?
+            } else {
+                tpcc_stock_level(xid, warehouse_id, district_id, 95)?
+            };
+        }
+    }
+    Ok(())
+}
+
+fn run_sync_new_order(
+    xid: u128,
+    args: &Args,
+    op_index: usize,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+) -> RS<()> {
+    let (item_ids, supplier_warehouse_ids, quantities) = new_order_lines(
+        op_index,
+        warehouse_id,
+        args.warehouses,
+        args.items,
+        args.warehouse_partitioned,
+    );
+    let _ = if args.warehouse_partitioned {
+        tpcc_new_order_partitioned(
+            xid,
+            warehouse_id,
+            district_id,
+            customer_id,
+            item_ids,
+            supplier_warehouse_ids,
+            quantities,
+        )?
+    } else {
+        tpcc_new_order(
+            xid,
+            warehouse_id,
+            district_id,
+            customer_id,
+            item_ids,
+            supplier_warehouse_ids,
+            quantities,
+        )?
+    };
+    Ok(())
+}
+
+fn prepare_sync_txn_context(xid: u128, args: &Args) -> RS<()> {
     for op_index in 0..args.operation_count {
-        let warehouse_id = value_for(op_index, args.warehouses);
-        let district_id = value_for(op_index, args.districts_per_warehouse);
-        let customer_id = value_for(op_index, args.customers_per_district);
-        match op_for(op_index, &args) {
-            TpccOp::NewOrder => {
-                let (item_ids, supplier_warehouse_ids, quantities) =
-                    new_order_lines(op_index, warehouse_id, args.warehouses, args.items);
-                let _ = tpcc_new_order(
+        match op_for(op_index, args) {
+            TpccOp::OrderStatus | TpccOp::Delivery => {
+                let terminal_id = op_index % args.connection_count.max(1);
+                let warehouse_id = warehouse_for_op(op_index, terminal_id, args);
+                let district_id = value_for(op_index, args.districts_per_warehouse);
+                let customer_id = value_for(op_index, args.customers_per_district);
+                run_sync_new_order(
                     xid,
+                    args,
+                    args.operation_count + op_index,
                     warehouse_id,
                     district_id,
                     customer_id,
-                    item_ids,
-                    supplier_warehouse_ids,
-                    quantities,
                 )?;
             }
-            TpccOp::Payment => {
-                let _ = tpcc_payment(xid, warehouse_id, district_id, customer_id, 3)?;
-            }
-            TpccOp::OrderStatus => {
-                let _ = tpcc_order_status(xid, warehouse_id, district_id, customer_id)?;
-            }
-            TpccOp::Delivery => {
-                let _ = tpcc_delivery(xid, warehouse_id, district_id, 1)?;
-            }
-            TpccOp::StockLevel => {
-                let _ = tpcc_stock_level(xid, warehouse_id, district_id, 95)?;
-            }
+            _ => {}
         }
     }
-    mudu_close(xid)?;
-    print_summary("sync", &args, start.elapsed().as_secs_f64());
     Ok(())
 }
 
 async fn run_tcp(args: Args) -> RS<()> {
-    let start = Instant::now();
+    let total_start = Instant::now();
     if let Some(mpk_path) = &args.mpk {
         let mpk_binary = fs::read(mpk_path)
             .map_err(|e| m_error!(mududb::error::ec::EC::IOErr, "read tpcc mpk error", e))?;
@@ -186,6 +288,8 @@ async fn run_tcp(args: Args) -> RS<()> {
         })?
         .session_id();
 
+    init_schema_tcp(&mut client, session_id, &args).await?;
+
     invoke_void(
         &mut client,
         session_id,
@@ -199,27 +303,24 @@ async fn run_tcp(args: Args) -> RS<()> {
         ),
     )
     .await?;
+    prepare_tcp_txn_context(&mut client, session_id, &args).await?;
+    let load_elapsed_secs = total_start.elapsed().as_secs_f64();
+    let txn_start = Instant::now();
 
     for op_index in 0..args.operation_count {
-        let warehouse_id = value_for(op_index, args.warehouses);
+        let warehouse_id = warehouse_for_op(op_index, op_index % args.connection_count.max(1), &args);
         let district_id = value_for(op_index, args.districts_per_warehouse);
         let customer_id = value_for(op_index, args.customers_per_district);
         match op_for(op_index, &args) {
             TpccOp::NewOrder => {
-                let (item_ids, supplier_warehouse_ids, quantities) =
-                    new_order_lines(op_index, warehouse_id, args.warehouses, args.items);
-                let _: String = invoke_typed(
+                run_tcp_new_order(
                     &mut client,
                     session_id,
-                    &args.proc_name("tpcc_new_order"),
-                    (
-                        warehouse_id,
-                        district_id,
-                        customer_id,
-                        item_ids,
-                        supplier_warehouse_ids,
-                        quantities,
-                    ),
+                    &args,
+                    op_index,
+                    warehouse_id,
+                    district_id,
+                    customer_id,
                 )
                 .await?;
             }
@@ -274,45 +375,287 @@ async fn run_tcp(args: Args) -> RS<()> {
                 e
             )
         })?;
-    print_summary("tcp", &args, start.elapsed().as_secs_f64());
+    print_summary(
+        "tcp",
+        &args,
+        load_elapsed_secs,
+        txn_start.elapsed().as_secs_f64(),
+        total_start.elapsed().as_secs_f64(),
+    );
     Ok(())
 }
 
-fn print_summary(mode: &str, args: &Args, elapsed_secs: f64) {
-    let throughput = if elapsed_secs > 0.0 {
-        args.operation_count as f64 / elapsed_secs
+async fn run_tcp_new_order(
+    client: &mut AsyncClientImpl,
+    session_id: u128,
+    args: &Args,
+    op_index: usize,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+) -> RS<()> {
+    let (item_ids, supplier_warehouse_ids, quantities) = new_order_lines(
+        op_index,
+        warehouse_id,
+        args.warehouses,
+        args.items,
+        args.warehouse_partitioned,
+    );
+    let _: String = invoke_typed(
+        client,
+        session_id,
+        &args.proc_name("tpcc_new_order"),
+        (
+            warehouse_id,
+            district_id,
+            customer_id,
+            item_ids,
+            supplier_warehouse_ids,
+            quantities,
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn prepare_tcp_txn_context(
+    client: &mut AsyncClientImpl,
+    session_id: u128,
+    args: &Args,
+) -> RS<()> {
+    for op_index in 0..args.operation_count {
+        match op_for(op_index, args) {
+            TpccOp::OrderStatus | TpccOp::Delivery => {
+                let terminal_id = op_index % args.connection_count.max(1);
+                let warehouse_id = warehouse_for_op(op_index, terminal_id, args);
+                let district_id = value_for(op_index, args.districts_per_warehouse);
+                let customer_id = value_for(op_index, args.customers_per_district);
+                run_tcp_new_order(
+                    client,
+                    session_id,
+                    args,
+                    args.operation_count + op_index,
+                    warehouse_id,
+                    district_id,
+                    customer_id,
+                )
+                .await?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn print_summary(
+    mode: &str,
+    args: &Args,
+    load_elapsed_secs: f64,
+    txn_elapsed_secs: f64,
+    total_elapsed_secs: f64,
+) {
+    let throughput = if txn_elapsed_secs > 0.0 {
+        args.operation_count as f64 / txn_elapsed_secs
+    } else {
+        0.0
+    };
+    let tps = throughput;
+    let new_order_tps = tps * (args.new_order_percent as f64 / 100.0);
+    let total_throughput = if total_elapsed_secs > 0.0 {
+        args.operation_count as f64 / total_elapsed_secs
     } else {
         0.0
     };
     println!(
-        "tpcc benchmark mode={mode} warehouses={} districts={} customers={} items={} operations={} elapsed={:.3}s throughput={:.2} ops/s",
+        "tpcc benchmark mode={mode} connections={} warehouses={} districts={} customers={} items={} operations={} load_elapsed={:.3}s txn_elapsed={:.3}s total_elapsed={:.3}s throughput={:.2} ops/s tps={:.2} new_order_tps={:.2} total_throughput={:.2} ops/s",
+        args.connection_count,
         args.warehouses,
         args.districts_per_warehouse,
         args.customers_per_district,
         args.items,
         args.operation_count,
-        elapsed_secs,
+        load_elapsed_secs,
+        txn_elapsed_secs,
+        total_elapsed_secs,
         throughput,
+        tps,
+        new_order_tps,
+        total_throughput,
     );
 }
 
 impl Args {
     fn proc_name(&self, proc_name: &str) -> String {
-        format!("{}/tpcc/{}", self.app_name, proc_name)
+        let suffix = if self.warehouse_partitioned {
+            format!("{proc_name}_partitioned")
+        } else {
+            proc_name.to_string()
+        };
+        format!("{}/tpcc/{}", self.app_name, suffix)
     }
 }
 
-fn init_schema_sync(xid: u128) -> RS<()> {
-    execute_sql_script(xid, include_str!("../../sql/ddl.sql"))?;
+fn init_schema_sync(xid: u128, args: &Args) -> RS<()> {
+    if args.warehouse_partitioned {
+        let topology = load_sync_topology()?;
+        execute_statement_sync(xid, &build_partition_rule_sql(args))?;
+        execute_statement_sync(xid, &build_partition_placement_sql(args, &topology)?)?;
+    }
+    execute_sql_script(xid, schema_sql(args))?;
     execute_sql_script(xid, include_str!("../../sql/init.sql"))?;
+    Ok(())
+}
+
+async fn init_schema_tcp(client: &mut AsyncClientImpl, session_id: u128, args: &Args) -> RS<()> {
+    if !args.warehouse_partitioned {
+        return Ok(());
+    }
+    let topology = load_async_topology(&args.http_addr).await?;
+    execute_statement_tcp(client, &args.app_name, &build_partition_rule_sql(args)).await?;
+    execute_statement_tcp(
+        client,
+        &args.app_name,
+        &build_partition_placement_sql(args, &topology)?,
+    )
+    .await?;
+    execute_sql_script_tcp(client, &args.app_name, schema_sql(args)).await?;
+    execute_sql_script_tcp(client, &args.app_name, include_str!("../../sql/init.sql")).await?;
+    let _ = session_id;
     Ok(())
 }
 
 fn execute_sql_script(xid: u128, sql_script: &str) -> RS<()> {
     for statement in split_sql_statements(sql_script) {
-        let _ = mudu_command(xid, sql_stmt!(&statement), sql_params!(&()))?;
+        execute_statement_sync(xid, &statement)?;
     }
     Ok(())
+}
+
+fn execute_statement_sync(xid: u128, statement: &str) -> RS<()> {
+    let _ = mudu_command(xid, sql_stmt!(&statement), sql_params!(&()))?;
+    Ok(())
+}
+
+async fn execute_sql_script_tcp(
+    client: &mut AsyncClientImpl,
+    app_name: &str,
+    sql_script: &str,
+) -> RS<()> {
+    for statement in split_sql_statements(sql_script) {
+        execute_statement_tcp(client, app_name, &statement).await?;
+    }
+    Ok(())
+}
+
+async fn execute_statement_tcp(
+    client: &mut AsyncClientImpl,
+    app_name: &str,
+    statement: &str,
+) -> RS<()> {
+    let _ = client
+        .execute(ClientRequest::new(app_name.to_string(), statement.to_string()))
+        .await?;
+    Ok(())
+}
+
+fn schema_sql(args: &Args) -> &'static str {
+    if args.warehouse_partitioned {
+        include_str!("../../sql/ddl_warehouse_partitioned.sql")
+    } else {
+        include_str!("../../sql/ddl.sql")
+    }
+}
+
+fn run_seed_sync(xid: u128, args: &Args) -> RS<()> {
+    if args.warehouse_partitioned {
+        tpcc_seed_partitioned(
+            xid,
+            args.warehouses,
+            args.districts_per_warehouse,
+            args.customers_per_district,
+            args.items,
+            100,
+        )
+    } else {
+        tpcc_seed(
+            xid,
+            args.warehouses,
+            args.districts_per_warehouse,
+            args.customers_per_district,
+            args.items,
+            100,
+        )
+    }
+}
+
+fn warehouse_for_op(op_index: usize, terminal_id: usize, args: &Args) -> i32 {
+    if !args.warehouse_partitioned {
+        return value_for(op_index, args.warehouses);
+    }
+    value_for(terminal_id, args.warehouses)
+}
+
+fn load_sync_topology() -> RS<ServerTopology> {
+    let Some(http_addr) = mudu_adapter::config::mudud_http_addr() else {
+        return Err(m_error!(
+            NoneErr,
+            "warehouse-partitioned benchmark requires a mudud connection with http_addr"
+        ));
+    };
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| m_error!(TokioErr, "build tpcc topology runtime error", e))?;
+    match runtime.block_on(fetch_server_topology(&http_addr)) {
+        Ok(topology) => Ok(topology),
+        Err(err) if is_server_topology_unsupported(&err) => Err(m_error!(
+            NoneErr,
+            "warehouse-partitioned benchmark requires server topology support"
+        )),
+        Err(err) => Err(m_error!(NetErr, err)),
+    }
+}
+
+async fn load_async_topology(http_addr: &str) -> RS<ServerTopology> {
+    match fetch_server_topology(http_addr).await {
+        Ok(topology) => Ok(topology),
+        Err(err) if is_server_topology_unsupported(&err) => Err(m_error!(
+            NoneErr,
+            "warehouse-partitioned benchmark requires server topology support"
+        )),
+        Err(err) => Err(m_error!(NetErr, err)),
+    }
+}
+
+fn build_partition_rule_sql(args: &Args) -> String {
+    let partitions = (1..=args.warehouses)
+        .map(|warehouse_id| {
+            format!(
+                "PARTITION p{warehouse_id} VALUES FROM ({warehouse_id}) TO ({})",
+                warehouse_id + 1
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "CREATE PARTITION RULE r_tpcc_wh RANGE (warehouse_id) ({partitions})"
+    )
+}
+
+fn build_partition_placement_sql(args: &Args, topology: &ServerTopology) -> RS<String> {
+    if topology.workers.is_empty() {
+        return Err(m_error!(NoneErr, "server topology exposes no workers"));
+    }
+    let placements = (1..=args.warehouses)
+        .map(|warehouse_id| {
+            let worker = &topology.workers[(warehouse_id as usize - 1) % topology.workers.len()];
+            format!("PARTITION p{warehouse_id} ON WORKER {}", worker.worker_id)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "CREATE PARTITION PLACEMENT FOR RULE r_tpcc_wh ({placements})"
+    ))
 }
 
 fn split_sql_statements(sql_script: &str) -> Vec<String> {
@@ -463,178 +806,5 @@ async fn main() {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-mod tests {
-    use super::{Args, BenchmarkMode, run_sync, run_tcp};
-    use mududb::common::result::RS;
-    use mudu_runtime::backend::backend::Backend;
-    use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, ServerMode};
-    use mudu_utils::notifier::{Notifier, notify_wait};
-    use std::env;
-    use std::ffi::OsStr;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
-    use std::thread::{self, JoinHandle};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use testing::{reserve_port, wait_until_port_ready};
-    use tokio::sync::Mutex;
-
-    fn test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn temp_dir(prefix: &str) -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("tpcc_benchmark_{prefix}_{suffix}"))
-    }
-
-    fn with_connection_env<T>(value: &str, f: impl FnOnce() -> T) -> T {
-        let prev = env::var("MUDU_CONNECTION").ok();
-        // SAFETY: guarded by test_lock so process env mutation is serialized in this test.
-        unsafe { env::set_var("MUDU_CONNECTION", value) };
-        let result = f();
-        match prev {
-            Some(prev) => {
-                // SAFETY: guarded by test_lock.
-                unsafe { env::set_var("MUDU_CONNECTION", prev) };
-            }
-            None => {
-                // SAFETY: guarded by test_lock.
-                unsafe { env::remove_var("MUDU_CONNECTION") };
-            }
-        }
-        result
-    }
-
-    struct RunningServer {
-        stop: Notifier,
-        handle: JoinHandle<RS<()>>,
-    }
-
-    impl RunningServer {
-        fn stop(self) -> RS<()> {
-            self.stop.notify_all();
-            self.handle.join().map_err(|_| {
-                mududb::m_error!(
-                    mududb::error::ec::EC::ThreadErr,
-                    "join tpcc benchmark mudud thread error"
-                )
-            })?
-        }
-    }
-
-    fn start_backend() -> RS<Option<(u16, u16, RunningServer)>> {
-        let Some(http_port) = reserve_port()? else {
-            return Ok(None);
-        };
-        let Some(tcp_port) = reserve_port()? else {
-            return Ok(None);
-        };
-        let db_path = temp_dir("db");
-        let mpk_path = temp_dir("mpk");
-        fs::create_dir_all(&db_path).map_err(|e| {
-            mududb::m_error!(
-                mududb::error::ec::EC::IOErr,
-                "create tpcc benchmark db dir error",
-                e
-            )
-        })?;
-        fs::create_dir_all(&mpk_path).map_err(|e| {
-            mududb::m_error!(
-                mududb::error::ec::EC::IOErr,
-                "create tpcc benchmark mpk dir error",
-                e
-            )
-        })?;
-        let cfg = MuduDBCfg {
-            mpk_path: mpk_path.to_string_lossy().into_owned(),
-            db_path: db_path.to_string_lossy().into_owned(),
-            listen_ip: "127.0.0.1".to_string(),
-            http_listen_port: http_port,
-            pg_listen_port: 0,
-            tcp_listen_port: tcp_port,
-            server_mode: ServerMode::IOUring,
-            io_uring_worker_threads: 1,
-            ..Default::default()
-        };
-        let (stop, waiter) = notify_wait();
-        let handle = thread::spawn(move || Backend::sync_serve_with_stop(cfg, waiter));
-        wait_until_port_ready(http_port, "HTTP")?;
-        wait_until_port_ready(tcp_port, "TCP")?;
-        Ok(Some((http_port, tcp_port, RunningServer { stop, handle })))
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
-        let _guard = test_lock().lock().await;
-        let Some((_http_port, tcp_port, server)) = start_backend()? else {
-            return Ok(());
-        };
-
-        let args = Args {
-            mode: BenchmarkMode::Interactive,
-            warehouses: 1,
-            districts_per_warehouse: 2,
-            customers_per_district: 8,
-            items: 16,
-            operation_count: 20,
-            connection_count: 1,
-            payment_percent: 40,
-            new_order_percent: 40,
-            enable_async: false,
-            app_name: "tpcc".to_string(),
-            tcp_addr: "127.0.0.1:9527".to_string(),
-            http_addr: "127.0.0.1:8300".to_string(),
-            mpk: None,
-        };
-
-        let connection = format!("mudud://127.0.0.1:{tcp_port}/default");
-        let result = with_connection_env(&connection, || run_sync(args));
-        let stop_result = server.stop();
-        result?;
-        stop_result?;
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn tpcc_benchmark_runs_through_tcp_mpk_mode() -> RS<()> {
-        let _guard = test_lock().lock().await;
-        let Some((http_port, tcp_port, server)) = start_backend()? else {
-            return Ok(());
-        };
-
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let mpk_path = manifest_dir.join("mpk").join("tpcc.mpk");
-        if mpk_path.extension() != Some(OsStr::new("mpk")) || !mpk_path.exists() {
-            let _ = server.stop();
-            return Ok(());
-        }
-
-        let args = Args {
-            mode: BenchmarkMode::StoredProcedure,
-            warehouses: 1,
-            districts_per_warehouse: 2,
-            customers_per_district: 8,
-            items: 16,
-            operation_count: 20,
-            connection_count: 1,
-            payment_percent: 40,
-            new_order_percent: 40,
-            enable_async: false,
-            app_name: "tpcc".to_string(),
-            tcp_addr: format!("127.0.0.1:{tcp_port}"),
-            http_addr: format!("127.0.0.1:{http_port}"),
-            mpk: Some(mpk_path),
-        };
-
-        let result = run_tcp(args).await;
-        let stop_result = server.stop();
-        result?;
-        stop_result?;
-        Ok(())
-    }
-}
+#[path = "tpcc_benchmark_tests/mod.rs"]
+mod tests;

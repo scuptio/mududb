@@ -5,9 +5,10 @@ use std::task::{Context, Poll};
 use crossbeam_queue::SegQueue;
 use futures::task::waker;
 use mudu::common::result::RS;
-use mudu_utils::task::{try_this_task_id, PollTaskIdGuard};
+use mudu_utils::task_async::{try_this_task_id, PollTaskIdGuard};
 use mudu_utils::task_context::TaskContext;
-use mudu_utils::task_id::new_task_id;
+use mudu_utils::task_id::{new_task_id, TaskID};
+use tracing::trace;
 
 use crate::server::async_func_task_waker::AsyncFuncTaskWaker;
 use crate::server::worker_task::{WorkerTask, WorkerTaskFuture};
@@ -39,18 +40,28 @@ impl WorkerTaskRegistry {
         }
     }
 
-    pub(in crate::server) fn spawn(&self, conn_id: Option<u64>, future: WorkerTaskFuture) {
+    pub(in crate::server) fn spawn_with_trace_id(
+        &self,
+        conn_id: Option<u64>,
+        trace_task_id: TaskID,
+        future: WorkerTaskFuture,
+    ) {
         let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+        let _ = self
+            .tasks
+            .insert_sync(task_id, WorkerTask::new(conn_id, trace_task_id, future));
+        self.ready_queue.push(task_id);
+    }
+
+    pub(in crate::server) fn spawn(&self, conn_id: Option<u64>, future: WorkerTaskFuture) {
+        let task_id = self.next_task_id.load(Ordering::Relaxed);
         let trace_task_id = new_task_id();
         let task_name = match conn_id {
             Some(conn_id) => format!("iouring-task-{task_id}-conn-{conn_id}"),
             None => format!("iouring-system-task-{task_id}"),
         };
         let _ = TaskContext::new_context(trace_task_id, task_name, false);
-        let _ = self
-            .tasks
-            .insert_sync(task_id, WorkerTask::new(conn_id, trace_task_id, future));
-        self.ready_queue.push(task_id);
+        self.spawn_with_trace_id(conn_id, trace_task_id, future);
     }
 
     #[allow(dead_code)]
@@ -104,12 +115,25 @@ impl WorkerTaskRegistry {
                 }
             }
             match task.future_mut().poll(&mut cx) {
-                Poll::Ready(result) => completed.push(CompletedWorkerTask {
-                    conn_id: task.conn_id(),
-                    is_system: task.conn_id().is_none(),
-                    result,
-                }),
+                Poll::Ready(result) => {
+                    trace!(
+                        task_id,
+                        conn_id = task.conn_id(),
+                        "worker_task_registry task ready"
+                    );
+                    completed.push(CompletedWorkerTask {
+                        conn_id: task.conn_id(),
+                        is_system: task.conn_id().is_none(),
+                        result,
+                    })
+                }
                 Poll::Pending => {
+                    trace!(
+                        task_id,
+                        conn_id = task.conn_id(),
+                        op_id,
+                        "worker_task_registry task pending"
+                    );
                     task.set_waiting_on(op_id);
                     if let Some(ctx) = TaskContext::get(trace_task_id) {
                         ctx.watch("state", "pending");

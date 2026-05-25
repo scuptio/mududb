@@ -3,7 +3,7 @@
     "key_value": [
       {
         "module_name": "key_value",
-        "proc_name": "kv_read_modify_write",
+        "proc_name": "kv_insert",
         "param_desc": {
           "fields": [
             {
@@ -26,29 +26,17 @@
                   }
                 }
               },
-              "name": "append_value"
+              "name": "value"
             }
           ]
         },
         "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
+          "fields": []
         }
       },
       {
         "module_name": "key_value",
-        "proc_name": "kv_insert",
+        "proc_name": "kv_update",
         "param_desc": {
           "fields": [
             {
@@ -168,7 +156,7 @@
       },
       {
         "module_name": "key_value",
-        "proc_name": "kv_update",
+        "proc_name": "kv_read_modify_write",
         "param_desc": {
           "fields": [
             {
@@ -191,12 +179,24 @@
                   }
                 }
               },
-              "name": "value"
+              "name": "append_value"
             }
           ]
         },
         "return_desc": {
-          "fields": []
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0"
+            }
+          ]
         }
       }
     ]
