@@ -116,18 +116,23 @@ python script/build/install_binaries.py --all-workspace-bins
 ```
 
 
-## 创建配置文件
+## 配置文件
 
 [mududb_cfg.toml 示例](../cfg/mududb_cfg.toml)
 
-在以下位置创建配置文件：
+`mudud` 会从以下位置读取配置：
 
 ```bash
 mkdir -p ${HOME}/.mududb
-touch ${HOME}/.mududb/mududb_cfg.toml
 ```
 
-如果该文件不存在，`mudud` 首次启动时也会按默认值自动创建 `${HOME}/.mududb/mududb_cfg.toml`。
+不要创建空的 `mududb_cfg.toml`：服务端只要发现文件存在，就会把它当作用户配置解析。如果该文件不存在，`mudud` 首次启动时会按默认值自动创建 `${HOME}/.mududb/mududb_cfg.toml`。
+
+如果要使用示例配置，可以复制：
+
+```bash
+cp doc/cfg/mududb_cfg.toml ${HOME}/.mududb/mududb_cfg.toml
+```
 
 ## 使用 MuduDB
 

@@ -28,6 +28,8 @@ use std::sync::Arc;
 pub struct KernelHttpApi {
     app_mgr: Arc<dyn AppMgr>,
     tcp_addr: String,
+    tcp_multi_port: bool,
+    tcp_base_listen_port: u16,
     worker_registry: Arc<WorkerRegistry>,
     meta_mgr: Arc<dyn MetaMgr>,
     partition_router: PartitionRouter,
@@ -45,6 +47,8 @@ impl KernelHttpApi {
         Ok(Self::with_client_factory(
             app_mgr,
             format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port),
+            cfg.tcp_multi_port,
+            cfg.tcp_listen_port,
             worker_registry,
             meta_mgr,
             Arc::new(KernelInvokeClientFactory),
@@ -54,6 +58,8 @@ impl KernelHttpApi {
     pub fn with_client_factory(
         app_mgr: Arc<dyn AppMgr>,
         tcp_addr: String,
+        tcp_multi_port: bool,
+        tcp_base_listen_port: u16,
         worker_registry: Arc<WorkerRegistry>,
         meta_mgr: Arc<dyn MetaMgr>,
         client_factory: Arc<dyn AsyncKernelInvokeClientFactory>,
@@ -63,6 +69,8 @@ impl KernelHttpApi {
         Self {
             app_mgr,
             tcp_addr,
+            tcp_multi_port,
+            tcp_base_listen_port,
             worker_registry,
             partition_router: PartitionRouter::new(meta_mgr.clone()),
             meta_mgr,
@@ -154,12 +162,20 @@ impl HttpApi for KernelHttpApi {
     async fn server_topology(&self) -> RS<ServerTopology> {
         Ok(ServerTopology {
             worker_count: self.worker_registry.workers().len(),
+            tcp_multi_port: self.tcp_multi_port,
+            tcp_base_listen_port: self.tcp_base_listen_port,
             workers: self
                 .worker_registry
                 .workers()
                 .iter()
                 .map(|worker| WorkerTopology {
                     worker_index: worker.worker_index,
+                    tcp_listen_port: if self.tcp_multi_port {
+                        self.tcp_base_listen_port
+                            .saturating_add(worker.worker_index as u16)
+                    } else {
+                        self.tcp_base_listen_port
+                    },
                     worker_id: worker.worker_id,
                     partitions: worker.partition_ids.clone(),
                 })

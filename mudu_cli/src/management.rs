@@ -50,6 +50,8 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerTopology {
     pub worker_index: usize,
+    #[serde(default)]
+    pub tcp_listen_port: u16,
     #[serde(
         serialize_with = "serialize_oid_as_unioid",
         deserialize_with = "deserialize_oid_from_unioid"
@@ -65,7 +67,37 @@ pub struct WorkerTopology {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ServerTopology {
     pub worker_count: usize,
+    #[serde(default)]
+    pub tcp_multi_port: bool,
+    #[serde(default)]
+    pub tcp_base_listen_port: u16,
     pub workers: Vec<WorkerTopology>,
+}
+
+impl ServerTopology {
+    pub fn worker_port_by_index(&self, worker_index: usize) -> Option<u16> {
+        self.workers
+            .iter()
+            .find(|w| w.worker_index == worker_index)
+            .map(|w| w.tcp_listen_port)
+    }
+
+    pub fn worker_port_by_id(&self, worker_id: OID) -> Option<u16> {
+        self.workers
+            .iter()
+            .find(|w| w.worker_id == worker_id)
+            .map(|w| w.tcp_listen_port)
+    }
+
+    pub fn worker_addr_by_index(&self, listen_ip: &str, worker_index: usize) -> Option<String> {
+        self.worker_port_by_index(worker_index)
+            .map(|port| format!("{}:{}", listen_ip, port))
+    }
+
+    pub fn worker_addr_by_id(&self, listen_ip: &str, worker_id: OID) -> Option<String> {
+        self.worker_port_by_id(worker_id)
+            .map(|port| format!("{}:{}", listen_ip, port))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -280,6 +312,7 @@ mod tests {
     fn worker_topology_round_trips_oid_as_unioid() {
         let worker = WorkerTopology {
             worker_index: 0,
+            tcp_listen_port: 9527,
             worker_id: (1u128 << 100) + 7,
             partitions: vec![(1u128 << 99) + 3],
         };
@@ -315,5 +348,36 @@ mod tests {
             "fail to get server topology: server topology is not supported"
         ));
         assert!(!is_server_topology_unsupported("connection refused"));
+    }
+
+    #[test]
+    fn topology_resolves_worker_addr() {
+        let topology = ServerTopology {
+            worker_count: 2,
+            tcp_multi_port: true,
+            tcp_base_listen_port: 9527,
+            workers: vec![
+                WorkerTopology {
+                    worker_index: 0,
+                    tcp_listen_port: 9527,
+                    worker_id: 11,
+                    partitions: vec![],
+                },
+                WorkerTopology {
+                    worker_index: 1,
+                    tcp_listen_port: 9528,
+                    worker_id: 22,
+                    partitions: vec![],
+                },
+            ],
+        };
+        assert_eq!(
+            topology.worker_addr_by_index("127.0.0.1", 1),
+            Some("127.0.0.1:9528".to_string())
+        );
+        assert_eq!(
+            topology.worker_addr_by_id("127.0.0.1", 11),
+            Some("127.0.0.1:9527".to_string())
+        );
     }
 }

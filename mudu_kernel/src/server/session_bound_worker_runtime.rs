@@ -1,7 +1,7 @@
 use crate::contract::meta_mgr::MetaMgr;
 use crate::server::message_bus_api::{message_bus_for_worker, MessageBusRef};
 use crate::server::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
-use crate::server::routing::{SessionOpenConfig, SessionOpenTransferAction};
+use crate::server::routing::SessionOpenConfig;
 use crate::server::worker::WorkerRuntime;
 use crate::server::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
 use crate::server::worker_registry::WorkerRegistry;
@@ -139,14 +139,6 @@ impl RequestResponseWorker for SessionBoundWorkerRuntime {
 
     fn open_session_with_config(&self, conn_id: u64, config: SessionOpenConfig) -> RS<OID> {
         self.worker.open_session_with_config(conn_id, config)
-    }
-
-    fn prepare_connection_transfer(
-        &self,
-        conn_id: u64,
-        action: Option<SessionOpenTransferAction>,
-    ) -> RS<Vec<OID>> {
-        self.worker.prepare_connection_transfer(conn_id, action)
     }
 
     fn close_session_for_connection(&self, conn_id: u64, session_id: OID) -> RS<bool> {

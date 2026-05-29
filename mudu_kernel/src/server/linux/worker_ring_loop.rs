@@ -33,9 +33,7 @@ use crossbeam_queue::SegQueue;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_contract::protocol::{
-    encode_merror_response, encode_session_create_response, SessionCreateResponse,
-};
+use mudu_utils::scoped_task_trace;
 use mudu_utils::task_context::TaskContext;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -46,7 +44,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, trace};
-use mudu_utils::scoped_task_trace;
 
 #[path = "worker_ring_loop/recovery.rs"]
 mod recovery;
@@ -69,8 +66,6 @@ pub(in crate::server) struct WorkerRingLoop {
     listener_fd: RawFd,
     mailbox_fd: RawFd,
     mailbox: Arc<SegQueue<WorkerMailboxMsg>>,
-    mailboxes: Vec<Arc<SegQueue<WorkerMailboxMsg>>>,
-    mailbox_fds: Vec<RawFd>,
     conn_id_alloc: Arc<AtomicU64>,
     recovery_coordinator: Arc<RecoveryCoordinator>,
     worker_local_ring: Arc<WorkerLocalRing>,
@@ -135,8 +130,6 @@ impl WorkerRingLoop {
             listener_fd,
             mailbox_fd,
             mailbox,
-            mailboxes,
-            mailbox_fds,
             conn_id_alloc,
             recovery_coordinator,
             worker_local_ring,
@@ -239,29 +232,7 @@ impl WorkerRingLoop {
                     let remote_addr = server_iouring::sockaddr_to_socket_addr(op.addr())?;
                     server_iouring::set_connection_options(conn_fd)?;
                     let conn_id = self.conn_id_alloc.fetch_add(1, Ordering::Relaxed);
-                    let target_worker = self.worker.route_connection(conn_id, remote_addr);
-                    if target_worker == self.worker.worker_index() {
-                        self.register_connection(conn_id, conn_fd, remote_addr)?;
-                    } else {
-                        Self::dispatch_mailbox_message(
-                            &self.mailbox_fds,
-                            &self.mailboxes,
-                            target_worker,
-                            WorkerMailboxMsg::AdoptConnection(
-                                crate::server::transferred_connection::TransferredConnection::new(
-                                    crate::server::routing::ConnectionTransfer::new(
-                                        conn_id,
-                                        target_worker,
-                                        crate::server::connection_state::ConnectionState::Accepted,
-                                        remote_addr,
-                                    ),
-                                    conn_fd,
-                                    Vec::new(),
-                                    None,
-                                ),
-                            ),
-                        )?;
-                    }
+                    self.register_connection(conn_id, conn_fd, remote_addr)?;
                 }
             }
             InflightOp::MailboxRead { .. } => {
@@ -300,48 +271,6 @@ impl WorkerRingLoop {
 
     fn handle_mailbox_message(&self, msg: WorkerMailboxMsg) -> RS<()> {
         match msg {
-            WorkerMailboxMsg::AdoptConnection(connection) => {
-                debug!(
-                    worker_id = self.worker.worker_id(),
-                    conn_id = connection.transfer().conn_id(),
-                    remote_addr = %connection.transfer().remote_addr(),
-                    session_ids = ?connection.session_ids(),
-                    has_session_open_action = connection.session_open_action().is_some(),
-                    "worker_ring_loop handling adopt connection mailbox message"
-                );
-                server_iouring::set_connection_options(connection.fd())?;
-                self.worker.adopt_connection_sessions(
-                    connection.transfer().conn_id(),
-                    connection.session_ids(),
-                )?;
-                let initial_response = if let Some(action) = connection.session_open_action() {
-                    Some(
-                        match self.worker.open_session_with_config(
-                            connection.transfer().conn_id(),
-                            action.config(),
-                        ) {
-                            Ok(session_id) => encode_session_create_response(
-                                action.request_id(),
-                                &SessionCreateResponse::new(session_id),
-                            )?,
-                            Err(err) => encode_merror_response(action.request_id(), &err)?,
-                        },
-                    )
-                } else {
-                    None
-                };
-                self.start_connection_task(
-                    connection.transfer().conn_id(),
-                    connection.fd(),
-                    connection.transfer().remote_addr(),
-                    initial_response,
-                )?;
-                debug!(
-                    worker_id = self.worker.worker_id(),
-                    conn_id = connection.transfer().conn_id(),
-                    "worker_ring_loop handled adopt connection mailbox message"
-                );
-            }
             WorkerMailboxMsg::BusMessage(envelope) => {
                 debug!(
                     worker_id = self.worker.worker_id(),
@@ -427,31 +356,6 @@ impl WorkerRingLoop {
         submit_user_io(&mut ctx)
     }
 
-    pub fn dispatch_mailbox_message(
-        mailbox_fds: &[RawFd],
-        mailboxes: &[Arc<SegQueue<WorkerMailboxMsg>>],
-        target_worker: usize,
-        msg: WorkerMailboxMsg,
-    ) -> RS<()> {
-        let Some(mailbox) = mailboxes.get(target_worker) else {
-            return Err(m_error!(
-                EC::InternalErr,
-                format!("mailbox target worker {} is out of range", target_worker)
-            ));
-        };
-        let Some(&fd) = mailbox_fds.get(target_worker) else {
-            return Err(m_error!(
-                EC::InternalErr,
-                format!(
-                    "mailbox eventfd target worker {} is out of range",
-                    target_worker
-                )
-            ));
-        };
-        mailbox.push(msg);
-        server_iouring::notify_mailbox_fd(fd)
-    }
-
     pub(in crate::server) fn alloc_token(&mut self) -> u64 {
         let token = self.next_token;
         self.next_token += 1;
@@ -471,8 +375,6 @@ impl WorkerRingLoop {
             Some(conn_id),
             spawn_connection_worker_task(
                 self.worker.clone(),
-                self.mailbox_fds.clone(),
-                self.mailboxes.clone(),
                 self.connection_task_fds.clone(),
                 conn_id,
                 socket,
@@ -546,7 +448,6 @@ mod tests {
         accept, close as close_socket, connect, recv, send, shutdown, socket, IoSocket,
     };
     use crate::server::callback_registry::{CallbackDomain, CallbackEventKey, CallbackTrigger};
-    use crate::server::routing::RoutingMode;
     use crate::server::worker_registry::load_or_create_worker_registry;
     use mudu::common::id::gen_oid;
     use mudu_sys::tokio::task::{yield_now, JoinHandle};
@@ -564,7 +465,6 @@ mod tests {
         let worker = WorkerRuntime::new(
             identity,
             1,
-            RoutingMode::ConnectionId,
             dir.clone(),
             dir.clone(),
             4096,

@@ -10,12 +10,19 @@ use mudu_kernel::mudu_conn::mudu_conn_async::{
 };
 use mudu_kernel::server::routing::RoutingMode;
 use mudu_kernel::server::server::WorkerTcpBackend as KernelWorkerTcpBackend;
-use mudu_kernel::server::server::WorkerTcpServerConfig;
+use mudu_kernel::server::server_cfg::ServerCfg;
+use mudu_kernel::server::server_launch::ServerLaunch;
+use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
 use mudu_sys::task_async;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct IoUringBackend;
+
+fn default_remote_scope_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 impl IoUringBackend {
     pub fn sync_serve(cfg: MuduDBCfg) -> RS<()> {
@@ -28,11 +35,20 @@ impl IoUringBackend {
     }
 
     pub fn sync_serve_with_stop_and_ready(
-        cfg: MuduDBCfg,
+        mut cfg: MuduDBCfg,
         stop: Waiter,
         ready: Option<Notifier>,
     ) -> RS<()> {
+        let _default_remote_guard = default_remote_scope_lock().lock().map_err(|_| {
+            mudu::m_error!(
+                mudu::error::ec::EC::MutexError,
+                "default remote scope lock poisoned"
+            )
+        })?;
         let worker_count = cfg.effective_worker_threads();
+        if worker_count > 1 {
+            cfg.tcp_multi_port = true;
+        }
         let async_runtime = RuntimeOpt::build_async_runtime(cfg.server_mode);
         let app_mgr = Arc::new(MuduAppMgr::new_with_async_runtime(
             cfg.clone(),
@@ -43,23 +59,22 @@ impl IoUringBackend {
             crate::backend::mududb_cfg::RoutingMode::PlayerId => RoutingMode::PlayerId,
             crate::backend::mududb_cfg::RoutingMode::RemoteHash => RoutingMode::RemoteHash,
         };
-        let base_server_cfg = WorkerTcpServerConfig::new(
+        let base_server_cfg = ServerCfg::new(
             worker_count,
             cfg.listen_ip.clone(),
             cfg.tcp_listen_port,
             cfg.db_path.clone(),
             cfg.db_path.clone(),
             routing_mode,
-            None,
         )?
-        .with_log_chunk_size(cfg.io_uring_log_chunk_size);
-        let base_server_cfg = match async_runtime {
-            Some(async_runtime) => base_server_cfg.with_async_runtime(async_runtime),
-            None => base_server_cfg,
-        };
+        .with_log_chunk_size(cfg.io_uring_log_chunk_size)
+        .with_multi_port(cfg.tcp_multi_port);
+        let mut server_deps = ServerRuntimeDeps::from_cfg(&base_server_cfg)?
+            .with_async_runtime(async_runtime.clone());
         let default_remote_addr = format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port);
-        let default_remote_worker_id = base_server_cfg.worker_registry().default_global_worker_id();
-        set_default_remote_async_runtime(base_server_cfg.async_runtime());
+        let worker_registry = server_deps.worker_registry();
+        let default_remote_worker_id = worker_registry.default_global_worker_id();
+        set_default_remote_async_runtime(server_deps.async_runtime());
         set_default_remote_addr(Some(default_remote_addr.clone()));
         set_default_remote_worker_id(default_remote_worker_id);
         let procedure_cfg = cfg.clone();
@@ -71,15 +86,11 @@ impl IoUringBackend {
             }
             Ok::<_, mudu::error::err::MError>(runtimes)
         })??;
-        let server_cfg = base_server_cfg.with_worker_procedure_runtimes(procedure_runtimes);
-        spawn_management_thread(
-            cfg.clone(),
-            app_mgr.clone(),
-            server_cfg.worker_registry(),
-            stop.clone(),
-        )?;
+        server_deps = server_deps.with_worker_procedure_runtimes(procedure_runtimes);
+        let server_launch = ServerLaunch::new(base_server_cfg, server_deps);
+        spawn_management_thread(cfg.clone(), app_mgr.clone(), worker_registry, stop.clone())?;
         let result =
-            KernelWorkerTcpBackend::sync_serve_with_stop_and_ready(server_cfg, stop, ready);
+            KernelWorkerTcpBackend::sync_serve_with_stop_and_ready(server_launch, stop, ready);
         clear_default_remote_if_current(&default_remote_addr, default_remote_worker_id);
         result
     }

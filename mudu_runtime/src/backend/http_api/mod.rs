@@ -36,13 +36,14 @@ use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_utils::notifier::Waiter;
+use mudu_utils::scoped_task_trace;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::io::{Cursor, Read};
 use std::net::TcpListener;
 use std::sync::Arc;
 use tracing::error;
-use mudu_utils::scoped_task_trace;
 
 fn serialize_oid_as_unioid<S>(oid: &OID, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -79,6 +80,7 @@ where
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkerTopology {
     pub worker_index: usize,
+    pub tcp_listen_port: u16,
     #[serde(
         serialize_with = "serialize_oid_as_unioid",
         deserialize_with = "deserialize_oid_from_unioid"
@@ -94,6 +96,8 @@ pub struct WorkerTopology {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ServerTopology {
     pub worker_count: usize,
+    pub tcp_multi_port: bool,
+    pub tcp_base_listen_port: u16,
     pub workers: Vec<WorkerTopology>,
 }
 
@@ -386,11 +390,14 @@ async fn app_proc_detail(
 async fn install(body: web::Bytes, context: web::Data<HttpApiContext>) -> impl Responder {
     let body_str = String::from_utf8_lossy(&body).to_string();
     match decode_install_request(&body_str) {
-        Ok(binary) => match context.api.install_mpk(binary).await {
-            Ok(()) => http_ok(JsonValue::Null),
-            Err(e) => http_err(format!("fail to install package {:?}", body_str), &e),
-        },
-        Err(e) => http_err(format!("fail to install package {:?}", body_str), &e),
+        Ok(binary) => {
+            let package_name = mpk_package_name(&binary).unwrap_or_else(|| "<unknown>".to_string());
+            match context.api.install_mpk(binary).await {
+                Ok(()) => http_ok(JsonValue::Null),
+                Err(e) => http_err(format!("fail to install package {}", package_name), &e),
+            }
+        }
+        Err(e) => http_err("fail to install package <invalid request>", &e),
     }
 }
 
@@ -431,6 +438,22 @@ fn decode_install_request(body_str: &str) -> RS<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(mpk_base64)
         .map_err(|e| m_error!(EC::DecodeErr, "decode error", e))
+}
+
+fn mpk_package_name(binary: &[u8]) -> Option<String> {
+    let cursor = Cursor::new(binary);
+    let mut archive = zip::ZipArchive::new(cursor).ok()?;
+    let mut package_cfg = String::new();
+    archive
+        .by_name("package.cfg.json")
+        .ok()?
+        .read_to_string(&mut package_cfg)
+        .ok()?;
+    serde_json::from_str::<Value>(&package_cfg)
+        .ok()?
+        .get("name")?
+        .as_str()
+        .map(str::to_string)
 }
 
 fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcedureParam> {
@@ -736,6 +759,8 @@ mod test {
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            false,
+            9527,
             registry,
             MetaMgrFactory::create(
                 std::env::temp_dir()
@@ -813,6 +838,8 @@ mod test {
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            false,
+            9527,
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {
@@ -869,6 +896,8 @@ mod test {
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            false,
+            9527,
             registry.clone(),
             meta_mgr,
             Arc::new(MockClientFactory {
@@ -890,6 +919,8 @@ mod test {
 
         let topology = api.server_topology().await.unwrap();
         assert_eq!(topology.worker_count, registry.workers().len());
+        assert!(!topology.tcp_multi_port);
+        assert_eq!(topology.tcp_base_listen_port, 9527);
         assert_eq!(topology.workers.len(), registry.workers().len());
     }
 
@@ -912,6 +943,8 @@ mod test {
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            false,
+            9527,
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {
@@ -957,6 +990,8 @@ mod test {
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
+            false,
+            9527,
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {

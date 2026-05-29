@@ -1142,7 +1142,9 @@ mod tests {
     async fn _worker_storage_broadcasts_create_and_drop_to_peer_workers() -> RS<()> {
         let (mgr, _storage1, storage2, oid) = test_shared_storage().await?;
         let mut tx = begin_tx(1, vec![]);
-        storage2.put(oid, i32_bytes(7), i32_bytes(70), &mut tx).await?;
+        storage2
+            .put(oid, i32_bytes(7), i32_bytes(70), &mut tx)
+            .await?;
         storage2.commit_tx(&mut tx).await?;
         assert!(mgr.get_table_by_id(oid).await.is_ok());
 
@@ -1150,7 +1152,10 @@ mod tests {
         assert!(mgr.get_table_by_id(oid).await.is_err());
 
         let mut tx = begin_tx(2, vec![]);
-        let err = storage2.put(oid, i32_bytes(8), i32_bytes(80), &mut tx).await.unwrap_err();
+        let err = storage2
+            .put(oid, i32_bytes(8), i32_bytes(80), &mut tx)
+            .await
+            .unwrap_err();
         assert!(format!("{err}").contains("no such table"));
         Ok(())
     }
@@ -1183,7 +1188,9 @@ mod tests {
         storage.bootstrap_existing_tables_async().await?;
 
         let mut tx = begin_tx(1, vec![]);
-        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut tx).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(10), &mut tx)
+            .await?;
         storage.commit_tx(&mut tx).await?;
         let mut read_tx = begin_tx(2, vec![]);
         assert_eq!(
@@ -1205,7 +1212,9 @@ mod tests {
         let (storage, oid) = test_storage().await?;
         let mut tx = begin_tx(10, vec![]);
 
-        storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(11), &mut tx)
+            .await?;
 
         assert_eq!(
             storage.get(oid, &i32_bytes(1), &mut tx).await?,
@@ -1230,12 +1239,16 @@ mod tests {
     async fn _worker_storage_snapshot_hides_later_commit() -> RS<()> {
         let (storage, oid) = test_storage().await?;
         let mut tx1 = begin_tx(1, vec![]);
-        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut tx1).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(10), &mut tx1)
+            .await?;
         storage.commit_tx(&mut tx1).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
         let mut new_tx = begin_tx(3, vec![2]);
-        storage.put(oid, i32_bytes(1), i32_bytes(20), &mut new_tx).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(20), &mut new_tx)
+            .await?;
         storage.commit_tx(&mut new_tx).await?;
 
         assert_eq!(
@@ -1256,23 +1269,27 @@ mod tests {
     async fn _worker_storage_range_is_stable_with_snapshot() -> RS<()> {
         let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(10), &mut seed)
+            .await?;
         storage.commit_tx(&mut seed).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
         let mut new_tx = begin_tx(3, vec![2]);
-        storage.put(oid, i32_bytes(2), i32_bytes(20), &mut new_tx).await?;
+        storage
+            .put(oid, i32_bytes(2), i32_bytes(20), &mut new_tx)
+            .await?;
         storage.commit_tx(&mut new_tx).await?;
 
         let rows = storage
             .range(
-            oid,
-            (
-                Included(i32_bytes(1).as_slice()),
-                Included(i32_bytes(9).as_slice()),
-            ),
-            &mut old_tx,
-        )
+                oid,
+                (
+                    Included(i32_bytes(1).as_slice()),
+                    Included(i32_bytes(9).as_slice()),
+                ),
+                &mut old_tx,
+            )
             .await?;
         assert_eq!(rows, vec![(i32_bytes(1), i32_bytes(10))]);
         Ok(())
@@ -1289,13 +1306,19 @@ mod tests {
     async fn _worker_storage_first_committer_wins() -> RS<()> {
         let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(10), &mut seed)
+            .await?;
         storage.commit_tx(&mut seed).await?;
 
         let mut tx1 = begin_tx(2, vec![]);
         let mut tx2 = begin_tx(3, vec![2]);
-        storage.put(oid, i32_bytes(1), i32_bytes(11), &mut tx1).await?;
-        storage.put(oid, i32_bytes(1), i32_bytes(12), &mut tx2).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(11), &mut tx1)
+            .await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(12), &mut tx2)
+            .await?;
         storage.commit_tx(&mut tx1).await?;
         let err = storage.commit_tx(&mut tx2).await.unwrap_err();
 
@@ -1314,7 +1337,9 @@ mod tests {
     async fn _worker_storage_delete_respects_snapshot() -> RS<()> {
         let (storage, oid) = test_storage().await?;
         let mut seed = begin_tx(1, vec![]);
-        storage.put(oid, i32_bytes(1), i32_bytes(10), &mut seed).await?;
+        storage
+            .put(oid, i32_bytes(1), i32_bytes(10), &mut seed)
+            .await?;
         storage.commit_tx(&mut seed).await?;
 
         let mut old_tx = begin_tx(2, vec![]);
@@ -1330,10 +1355,7 @@ mod tests {
             Some(i32_bytes(10))
         );
         let mut fresh_tx = begin_tx(4, vec![]);
-        assert_eq!(
-            storage.get(oid, &i32_bytes(1), &mut fresh_tx).await?,
-            None
-        );
+        assert_eq!(storage.get(oid, &i32_bytes(1), &mut fresh_tx).await?, None);
         Ok(())
     }
 
@@ -1347,8 +1369,7 @@ mod tests {
 
     async fn _worker_storage_kv_snapshot_hides_later_commit() -> RS<()> {
         let (storage, _oid) = test_storage().await?;
-        storage
-            .worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)?;
+        storage.worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)?;
 
         let snapshot = WorkerSnapshot::new(2, vec![]);
         let prepared = storage.prepare_worker_kv_autocommit(
@@ -1363,10 +1384,7 @@ mod tests {
             storage.kv_get(b"a", Some(&snapshot)).await?,
             Some(b"0".to_vec())
         );
-        assert_eq!(
-            storage.kv_get(b"a", None).await?,
-            Some(b"1".to_vec())
-        );
+        assert_eq!(storage.kv_get(b"a", None).await?, Some(b"1".to_vec()));
         Ok(())
     }
 
@@ -1380,11 +1398,9 @@ mod tests {
 
     async fn _worker_storage_kv_range_is_stable_with_snapshot() -> RS<()> {
         let (storage, _oid) = test_storage().await?;
-        storage
-            .worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)?;
+        storage.worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)?;
         let snapshot = WorkerSnapshot::new(2, vec![]);
-        storage
-            .worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)?;
+        storage.worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)?;
 
         let rows = storage.kv_range(b"a", b"z", Some(&snapshot)).await?;
         assert_eq!(
@@ -1410,32 +1426,24 @@ mod tests {
         let snapshot1 = WorkerSnapshot::new(1, vec![]);
         let snapshot2 = WorkerSnapshot::new(2, vec![1]);
 
-        let prepared1 = storage
-            .prepare_worker_kv_commit(
-                &snapshot1,
-                snapshot1.xid(),
-                BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
-                XLBatch::new(vec![]),
-            )?;
-        let prepared2 = storage
-            .prepare_worker_kv_commit(
-                &snapshot2,
-                snapshot2.xid(),
-                BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
-                XLBatch::new(vec![]),
-            )?;
+        let prepared1 = storage.prepare_worker_kv_commit(
+            &snapshot1,
+            snapshot1.xid(),
+            BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
+            XLBatch::new(vec![]),
+        )?;
+        let prepared2 = storage.prepare_worker_kv_commit(
+            &snapshot2,
+            snapshot2.xid(),
+            BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
+            XLBatch::new(vec![]),
+        )?;
 
         storage.apply_prepared_commit(prepared1)?;
         storage.apply_prepared_commit(prepared2)?;
 
-        assert_eq!(
-            storage.kv_get(b"a", None).await?,
-            Some(b"1".to_vec())
-        );
-        assert_eq!(
-            storage.kv_get(b"b", None).await?,
-            Some(b"2".to_vec())
-        );
+        assert_eq!(storage.kv_get(b"a", None).await?, Some(b"1".to_vec()));
+        assert_eq!(storage.kv_get(b"b", None).await?, Some(b"2".to_vec()));
         Ok(())
     }
 
@@ -1473,10 +1481,7 @@ mod tests {
 
         storage.replay_batch(batch)?;
 
-        assert_eq!(
-            storage.kv_get(b"k", None).await?,
-            Some(b"v".to_vec())
-        );
+        assert_eq!(storage.kv_get(b"k", None).await?, Some(b"v".to_vec()));
         let mut tx = begin_tx(10, vec![]);
         assert_eq!(
             storage.get(oid, &i32_bytes(7), &mut tx).await?,
@@ -1495,8 +1500,7 @@ mod tests {
 
     async fn _worker_storage_replay_batch_applies_kv_delete() -> RS<()> {
         let (storage, _oid) = test_storage().await?;
-        storage
-            .worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)?;
+        storage.worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)?;
 
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 2,

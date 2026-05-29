@@ -11,7 +11,10 @@ use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvokerPtr;
 use mudu_kernel::server::routing::RoutingMode as KernelRoutingMode;
-use mudu_kernel::server::server::{TokioTcpBackend, WorkerTcpBackend, WorkerTcpServerConfig};
+use mudu_kernel::server::server::{TokioTcpBackend, WorkerTcpBackend};
+use mudu_kernel::server::server_cfg::ServerCfg;
+use mudu_kernel::server::server_launch::ServerLaunch;
+use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::notify_wait;
 use std::env::temp_dir;
@@ -220,21 +223,22 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     let procedure_runtimes = create_procedure_runtimes(&app_mgr, &cfg)?;
 
     let (stop_notifier, server_stop) = notify_wait();
-    let server_cfg = WorkerTcpServerConfig::new(
+    let server_cfg = ServerCfg::new(
         cfg.effective_worker_threads(),
         cfg.listen_ip.clone(),
         cfg.tcp_listen_port,
         cfg.db_path.clone(),
         cfg.db_path.clone(),
         KernelRoutingMode::ConnectionId,
-        None,
     )?
-    .with_log_chunk_size(cfg.io_uring_log_chunk_size)
-    .with_worker_procedure_runtimes(procedure_runtimes);
+    .with_log_chunk_size(cfg.io_uring_log_chunk_size);
+    let server_deps = ServerRuntimeDeps::from_cfg(&server_cfg)?
+        .with_worker_procedure_runtimes(procedure_runtimes);
+    let server_launch = ServerLaunch::new(server_cfg, server_deps);
 
     let server_thread = thread::spawn(move || match server_mode {
-        ServerMode::IOUring => WorkerTcpBackend::sync_serve_with_stop(server_cfg, server_stop),
-        ServerMode::Tokio => TokioTcpBackend::sync_serve_with_stop(server_cfg, server_stop),
+        ServerMode::IOUring => WorkerTcpBackend::sync_serve_with_stop(server_launch, server_stop),
+        ServerMode::Tokio => TokioTcpBackend::sync_serve_with_stop(server_launch, server_stop),
         ServerMode::Legacy => unreachable!("legacy mode is not a kernel backend"),
     });
 

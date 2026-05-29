@@ -1,5 +1,4 @@
-use crate::server::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
-use crate::server::server::WorkerTcpServerConfig;
+use crate::server::server_launch::ServerLaunch;
 use crate::server::worker::WorkerRuntime;
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
@@ -8,7 +7,6 @@ use crossbeam_queue::SegQueue;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_contract::protocol::Frame;
 use mudu_utils::notifier::{Notifier, Waiter};
 use mudu_utils::task_async::{build_current_thread_runtime, CurrentThreadTaskRuntime};
 use std::os::fd::{IntoRawFd, RawFd};
@@ -30,26 +28,23 @@ struct RecoveryState {
 }
 
 pub(crate) fn sync_serve_iouring(
-    mut cfg: WorkerTcpServerConfig,
+    mut cfg: ServerLaunch,
     stop: Waiter,
     ready: Option<Notifier>,
 ) -> RS<()> {
-    if cfg.worker_count() == 0 {
+    if cfg.cfg().worker_count() == 0 {
         return Err(m_error!(EC::ParseErr, "invalid io_uring worker count"));
     }
-    let listen_addr: std::net::SocketAddr = format!("{}:{}", cfg.listen_ip(), cfg.listen_port())
-        .parse()
-        .map_err(|e| m_error!(EC::ParseErr, "parse io_uring tcp listen address error", e))?;
     let prebound_listener = cfg.take_prebound_listener();
     let conn_id_alloc = Arc::new(AtomicU64::new(1));
-    let mailboxes: Vec<_> = (0..cfg.worker_count())
+    let mailboxes: Vec<_> = (0..cfg.cfg().worker_count())
         .map(|_| Arc::new(SegQueue::<WorkerMailboxMsg>::new()))
         .collect();
-    let mailbox_fds: Vec<_> = (0..cfg.worker_count())
+    let mailbox_fds: Vec<_> = (0..cfg.cfg().worker_count())
         .map(|_| create_mailbox_event_fd())
         .collect::<RS<Vec<_>>>()?;
     let stop_flag = Arc::new(AtomicBool::new(false));
-    let recovery_coordinator = Arc::new(RecoveryCoordinator::new(cfg.worker_count(), ready));
+    let recovery_coordinator = Arc::new(RecoveryCoordinator::new(cfg.cfg().worker_count(), ready));
 
     let stop_for_notifier = stop.clone();
     let shutdown_mailboxes = mailboxes.clone();
@@ -78,15 +73,22 @@ pub(crate) fn sync_serve_iouring(
             Ok(())
         })?;
 
-    let mut handles = Vec::with_capacity(cfg.worker_count());
-    for worker_id in 0..cfg.worker_count() {
-        let listen_addr = listen_addr;
+    let mut handles = Vec::with_capacity(cfg.cfg().worker_count());
+    for worker_id in 0..cfg.cfg().worker_count() {
+        let worker_port = cfg.cfg().listen_port_for_worker(worker_id)?;
+        let listen_addr: std::net::SocketAddr =
+            format!("{}:{}", cfg.cfg().listen_ip(), worker_port)
+                .parse()
+                .map_err(|e| {
+                    m_error!(EC::ParseErr, "parse io_uring tcp listen address error", e)
+                })?;
         let conn_id_alloc = conn_id_alloc.clone();
         let mailbox = mailboxes[worker_id].clone();
         let all_mailboxes = mailboxes.clone();
         let all_mailbox_fds = mailbox_fds.clone();
-        let procedure_runtime = cfg.procedure_runtime_for_worker(worker_id);
+        let procedure_runtime = cfg.deps().procedure_runtime_for_worker(worker_id);
         let worker_identity = cfg
+            .deps()
             .worker_registry()
             .worker(worker_id)
             .cloned()
@@ -96,15 +98,15 @@ pub(crate) fn sync_serve_iouring(
                     format!("missing worker identity {}", worker_id)
                 )
             })?;
-        let worker_registry = cfg.worker_registry();
-        let routing_mode = cfg.routing_mode();
-        let data_dir = cfg.data_dir().to_string();
-        let log_dir = cfg.log_dir().to_string();
-        let log_chunk_size = cfg.log_chunk_size();
-        let log_batching = cfg.log_batching();
-        let worker_count = cfg.worker_count();
-        let server_instance_id = cfg.server_instance_id();
+        let worker_registry = cfg.deps().worker_registry();
+        let data_dir = cfg.cfg().data_dir().to_string();
+        let log_dir = cfg.cfg().log_dir().to_string();
+        let log_chunk_size = cfg.cfg().log_chunk_size();
+        let log_batching = cfg.deps().log_batching();
+        let worker_count = cfg.cfg().worker_count();
+        let server_instance_id = cfg.cfg().server_instance_id();
         let listener = match &prebound_listener {
+            Some(_) if worker_id != 0 => None,
             Some(listener) => Some(
                 listener
                     .try_clone()
@@ -115,45 +117,51 @@ pub(crate) fn sync_serve_iouring(
         let stop = stop_flag.clone();
         let recovery_coordinator = recovery_coordinator.clone();
         let mailbox_fd = mailbox_fds[worker_id];
-        let async_runtime = cfg.async_runtime();
+        let async_runtime = cfg.deps().async_runtime();
+        let recovery_coordinator_for_failure = recovery_coordinator.clone();
         let handle =
             mudu_sys::task_sync::spawn_thread_named(format!("worker-{worker_id}"), move || {
-                let runtime = CurrentThreadTaskRuntime::new().map_err(|e| {
-                    m_error!(EC::TokioErr, "create runtime for io_uring worker error", e)
-                })?;
-                let listener_fd = match listener {
-                    Some(listener) => listener.into_raw_fd(),
-                    None => create_listener_fd(listen_addr)?,
-                };
-                let worker = WorkerRuntime::new_with_log_batching_and_runtime(
-                    worker_identity,
-                    worker_count,
-                    routing_mode,
-                    log_dir.clone(),
-                    data_dir.clone(),
-                    log_chunk_size,
-                    log_batching,
-                    procedure_runtime,
-                    worker_registry,
-                    async_runtime,
-                    server_instance_id,
-                )?;
-                let mut loop_state = WorkerRingLoop::new(
-                    worker,
-                    listener_fd,
-                    mailbox_fd,
-                    mailbox,
-                    all_mailboxes,
-                    all_mailbox_fds,
-                    conn_id_alloc,
-                    recovery_coordinator,
-                    stop,
-                )?;
-                runtime.block_on(async move { loop_state.run() })
+                let result = (|| {
+                    let runtime = CurrentThreadTaskRuntime::new().map_err(|e| {
+                        m_error!(EC::TokioErr, "create runtime for io_uring worker error", e)
+                    })?;
+                    let listener_fd = match listener {
+                        Some(listener) => listener.into_raw_fd(),
+                        None => create_listener_fd(listen_addr)?,
+                    };
+                    let worker = WorkerRuntime::new_with_log_batching_and_runtime(
+                        worker_identity,
+                        worker_count,
+                        log_dir.clone(),
+                        data_dir.clone(),
+                        log_chunk_size,
+                        log_batching,
+                        procedure_runtime,
+                        worker_registry,
+                        async_runtime,
+                        server_instance_id,
+                    )?;
+                    let mut loop_state = WorkerRingLoop::new(
+                        worker,
+                        listener_fd,
+                        mailbox_fd,
+                        mailbox,
+                        all_mailboxes,
+                        all_mailbox_fds,
+                        conn_id_alloc,
+                        recovery_coordinator,
+                        stop,
+                    )?;
+                    runtime.block_on(async move { loop_state.run() })
+                })();
+                if result.is_err() {
+                    recovery_coordinator_for_failure.worker_failed();
+                }
+                result
             })?;
         handles.push(handle);
     }
-    let mut worker_stats = Vec::<WorkerLoopStats>::with_capacity(cfg.worker_count());
+    let mut worker_stats = Vec::<WorkerLoopStats>::with_capacity(cfg.cfg().worker_count());
 
     let mut first_error: Option<mudu::error::err::MError> = None;
     for handle in handles {
@@ -269,21 +277,6 @@ impl RecoveryCoordinator {
     }
 }
 
-#[allow(dead_code)]
-pub async fn dispatch_frame_iouring(
-    worker: &WorkerRuntime,
-    conn_id: u64,
-    frame: &Frame,
-) -> RS<crate::server::async_func_task::HandleResult> {
-    mudu_utils::scoped_task_trace!();
-    dispatch_frame_async(worker, conn_id, frame).await
-}
-
-#[allow(dead_code)]
-pub fn try_decode_next_frame_iouring(buf: &[u8]) -> RS<Option<(Frame, usize)>> {
-    try_decode_next_frame(buf)
-}
-
 fn create_listener_fd(listen_addr: std::net::SocketAddr) -> RS<RawFd> {
     mudu_sys::net::create_tcp_listener_fd(listen_addr, 1024)
 }
@@ -345,8 +338,6 @@ fn log_worker_stats(stats: &[WorkerLoopStats]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::routing::ConnectionTransfer;
-    use crate::server::transferred_connection::TransferredConnection;
 
     #[test]
     fn mailbox_eventfd_accumulates_wakeups() {
@@ -361,29 +352,9 @@ mod tests {
     }
 
     #[test]
-    fn mailbox_can_store_shutdown_and_transfer_messages() {
+    fn mailbox_can_store_shutdown_messages() {
         let mailbox = SegQueue::new();
-        mailbox.push(WorkerMailboxMsg::AdoptConnection(
-            TransferredConnection::new(
-                ConnectionTransfer::new(
-                    11,
-                    1,
-                    crate::server::connection_state::ConnectionState::Accepted,
-                    "127.0.0.1:9527".parse().unwrap(),
-                ),
-                -1,
-                Vec::new(),
-                None,
-            ),
-        ));
         mailbox.push(WorkerMailboxMsg::Shutdown);
-        match mailbox.pop() {
-            Some(WorkerMailboxMsg::AdoptConnection(connection)) => {
-                assert_eq!(connection.transfer().conn_id(), 11);
-                assert_eq!(connection.transfer().target_worker(), 1);
-            }
-            other => panic!("unexpected first mailbox message: {other:?}"),
-        }
         assert!(matches!(mailbox.pop(), Some(WorkerMailboxMsg::Shutdown)));
         assert!(mailbox.pop().is_none());
     }

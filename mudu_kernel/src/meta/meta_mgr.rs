@@ -490,11 +490,11 @@ unsafe impl Send for MetaMgrImpl {}
 
 #[cfg(test)]
 mod tests {
-    use std::env::temp_dir;
-    use std::future::Future;
+    use crate::contract::schema_column::SchemaColumn;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
-    use crate::contract::schema_column::SchemaColumn;
+    use std::env::temp_dir;
+    use std::future::Future;
 
     use super::*;
 
@@ -545,14 +545,12 @@ mod tests {
 
         let reopened = MetaMgrImpl::new(&dir).unwrap();
         let schema_id = schema.id();
-        let table = block_on(async move {
-            reopened.get_table_by_id(schema_id).await
-        }).unwrap();
+        let table = block_on(async move { reopened.get_table_by_id(schema_id).await }).unwrap();
         assert_eq!(table.name(), schema.table_name());
     }
 
     #[test]
-    fn meta_mgr_broadcasts_ddl_to_peer_instances()  {
+    fn meta_mgr_broadcasts_ddl_to_peer_instances() {
         block_on(async move {
             let r = _meta_mgr_broadcasts_ddl_to_peer_instances().await;
             assert!(r.is_ok());
@@ -574,7 +572,4 @@ mod tests {
         assert!(mgr1.get_table_by_id(schema.id()).await.is_err());
         Ok(())
     }
-
-
-
 }

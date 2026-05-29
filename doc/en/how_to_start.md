@@ -115,18 +115,23 @@ python script/build/install_binaries.py --all-workspace-bins
 ```
 
 
-## Create a Configuration File 
+## Configuration File 
 
 [mududb_cfg.toml example](../cfg/mududb_cfg.toml)
 
-Create the configuration file at:
+`mudud` reads its configuration from:
 
 ```bash
 mkdir -p ${HOME}/.mududb
-touch ${HOME}/.mududb/mududb_cfg.toml
 ```
 
-If the file does not exist, `mudud` also creates `${HOME}/.mududb/mududb_cfg.toml` automatically on first start with default values.
+Do not create an empty `mududb_cfg.toml`: the server treats an existing file as user configuration and parses it. If the file does not exist, `mudud` creates `${HOME}/.mududb/mududb_cfg.toml` automatically on first start with default values.
+
+To use the example configuration instead:
+
+```bash
+cp doc/cfg/mududb_cfg.toml ${HOME}/.mududb/mududb_cfg.toml
+```
 
 ## Use MuduDB
 

@@ -228,6 +228,80 @@ Supported remote actions:
 
 Remote requests are routed by partition placement and executed by the worker that owns the target partition.
 
+## Port Sharding
+
+Partition placement decides which worker owns a logical partition. Port sharding exposes those workers through stable
+TCP ports so clients and tools can connect directly to the worker that owns the data they want to use.
+
+The current IOUring and Tokio backends use this policy:
+
+- `tcp_listen_port` is the base TCP port
+- worker `0` listens on `tcp_listen_port`
+- worker `1` listens on `tcp_listen_port + 1`
+- worker `N` listens on `tcp_listen_port + N`
+
+When the backend has more than one worker, `tcp_multi_port` is enabled by the backend startup path. For example, with
+`tcp_listen_port = 9527` and four workers, the worker ports are:
+
+```text
+worker 0 -> 9527
+worker 1 -> 9528
+worker 2 -> 9529
+worker 3 -> 9530
+```
+
+This is a transport-level sharding mechanism. It does not replace partition placement. Placement still maps
+`partition_id` to `worker_id`; port sharding maps the selected worker to a reachable TCP endpoint.
+
+### Discovering Worker Ports
+
+Use the HTTP management API to read the live topology:
+
+```bash
+mcli --http-addr 127.0.0.1:8300 server-topology
+```
+
+The response includes:
+
+- `worker_count`
+- `tcp_multi_port`
+- `tcp_base_listen_port`
+- each worker's `worker_index`
+- each worker's `worker_id`
+- each worker's `tcp_listen_port`
+- the partition ids currently associated with that worker
+
+Use `partition-route` to resolve a rule key or range to partition and worker ids:
+
+```bash
+mcli --http-addr 127.0.0.1:8300 partition-route --rule-name r_orders --key 1001,50001
+```
+
+A client can combine both calls:
+
+1. `partition-route` resolves the target `partition_id` and `worker_id`.
+2. `server-topology` resolves that `worker_id` to `tcp_listen_port`.
+3. The client connects to `listen_ip:tcp_listen_port`.
+
+### Why It Exists
+
+Port sharding is useful when the caller can choose the target partition before opening or rebinding a session.
+
+It enables:
+
+- direct client affinity to the owning worker
+- fewer cross-worker forwards for partition-local traffic
+- stable per-worker endpoints for benchmark and operational tooling
+- an external way to inspect how placement maps onto network endpoints
+
+### Limits
+
+Port sharding is currently tied to the multi-worker IOUring and Tokio backend paths. The legacy backend keeps the older
+single TCP/PG serving model and should not be treated as a per-worker port-sharded deployment.
+
+Clients still need to respect partition placement. Connecting to a worker port only selects an execution worker; it
+does not move data or change which worker owns a partition.
+
 ## Current Semantics and Limits
 
 The current implementation is intentionally scoped.
@@ -237,6 +311,7 @@ The current implementation is intentionally scoped.
 - partition pruning is based on key columns, not arbitrary predicates
 - placement is explicit metadata
 - remote partition access uses worker-to-worker RPC
+- per-worker port sharding is available on the multi-worker IOUring and Tokio backend paths
 
 There is still an important transactional limit:
 
@@ -258,13 +333,17 @@ Avoid using the current implementation as if it were already a general distribut
 
 ## Summary
 
-The partition subsystem separates:
+The current partition subsystem separates:
 
 - logical partition definition
 - table binding
 - worker placement
 - physical storage
-- execution-time routing
+- runtime routing
+- optional per-worker TCP port sharding
+
+This keeps the schema model separate from deployment topology while still allowing clients and tools to discover the
+worker endpoint that owns a routed partition.
 
 This keeps the schema model clean and allows the engine to evolve toward partition rebalance, partition split or merge,
 and distributed commit in later iterations.

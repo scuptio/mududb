@@ -19,6 +19,11 @@ It exposes these operations:
 - `invoke`
 - `app-install`
 - `app-invoke`
+- `app-list`
+- `app-detail`
+- `app-uninstall`
+- `server-topology`
+- `partition-route`
 
 ## Examples
 
@@ -104,6 +109,17 @@ Invoke an installed procedure through the TCP protocol:
 mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app kv --module key_value --proc kv_read --json '{
   "user_key": "user-1"
 }'
+```
+
+Management commands:
+
+```bash
+mcli --http-addr 127.0.0.1:8300 app-list
+mcli --http-addr 127.0.0.1:8300 app-detail --app wallet
+mcli --http-addr 127.0.0.1:8300 app-detail --app wallet --module wallet --proc create_user
+mcli --http-addr 127.0.0.1:8300 app-uninstall --app wallet
+mcli --http-addr 127.0.0.1:8300 server-topology
+mcli --http-addr 127.0.0.1:8300 partition-route --rule-name user_rule --key user-100
 ```
 
 ## JSON input

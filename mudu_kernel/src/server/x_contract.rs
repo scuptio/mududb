@@ -9,7 +9,7 @@ use mudu_contract::tuple::build_tuple::build_tuple;
 use mudu_contract::tuple::tuple_binary::TupleBinary as TupleRaw;
 use mudu_contract::tuple::update_tuple::update_tuple;
 use mudu_type::dt_function::send_binary;
-use mudu_utils::task_trace;
+use mudu_utils::{scoped_task_trace, task_trace};
 use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1337,6 +1337,7 @@ impl XContract for WorkerXContract {
         values: &VecDatum,
         opt_insert: &OptInsert,
     ) -> RS<()> {
+        scoped_task_trace!();
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
         self._insert(desc, tx_mgr, table_id, keys, values, opt_insert)
             .await
@@ -1504,9 +1505,7 @@ fn build_tuple_for<const IS_KEY: bool>(
     let completed = completed
         .into_iter()
         .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| {
-            m_error!(EC::TupleErr)
-        })?;
+        .ok_or_else(|| m_error!(EC::TupleErr))?;
     build_tuple(&completed, tuple_desc)
 }
 
@@ -1810,13 +1809,7 @@ mod tests {
         let values = value_row(10);
         let opt_insert = OptInsert::default();
         contract
-            .insert(
-            tx_mgr.clone(),
-            table_id,
-            &keys,
-            &values,
-            &opt_insert,
-        )
+            .insert(tx_mgr.clone(), table_id, &keys, &values, &opt_insert)
             .await?;
         contract.commit_tx(tx_mgr).await?;
 
@@ -1893,13 +1886,7 @@ mod tests {
         let select = VecSelTerm::new(vec![1]);
         let opt_read = OptRead::default();
         let relation = contract
-            .read_key(
-            xid,
-            table_id,
-            &pred_key,
-            &select,
-            &opt_read,
-        )
+            .read_key(xid, table_id, &pred_key, &select, &opt_read)
             .await?;
         assert_eq!(relation, Some(vec![datum(30)]));
         Ok(())
@@ -1979,12 +1966,12 @@ mod tests {
         let opt_insert = OptInsert::default();
         contract
             .insert(
-            insert_tx.clone(),
-            table_id,
-            &insert_key,
-            &insert_value,
-            &opt_insert,
-        )
+                insert_tx.clone(),
+                table_id,
+                &insert_key,
+                &insert_value,
+                &opt_insert,
+            )
             .await?;
         contract.commit_tx(insert_tx).await?;
 
@@ -1994,13 +1981,13 @@ mod tests {
         let update_value = value_row(20);
         let updated = contract
             .update(
-            update_tx.clone(),
-            table_id,
-            &update_key,
-            &pred_non_key,
-            &update_value,
-            &OptUpdate {},
-        )
+                update_tx.clone(),
+                table_id,
+                &update_key,
+                &pred_non_key,
+                &update_value,
+                &OptUpdate {},
+            )
             .await?;
         assert_eq!(updated, 1);
         contract.commit_tx(update_tx).await?;
@@ -2010,13 +1997,7 @@ mod tests {
         let select = VecSelTerm::new(vec![1]);
         let opt_read = OptRead::default();
         let relation = contract
-            .read_key(
-            read_tx,
-            table_id,
-            &read_key,
-            &select,
-            &opt_read,
-        )
+            .read_key(read_tx, table_id, &read_key, &select, &opt_read)
             .await?;
         assert_eq!(relation, Some(vec![datum(20)]));
         Ok(())

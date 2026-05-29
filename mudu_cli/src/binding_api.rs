@@ -42,6 +42,7 @@ pub struct MuduKeyValueBinding {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct WorkerTopologyBinding {
     pub worker_index: u64,
+    pub tcp_listen_port: u16,
     pub worker_id: String,
     pub partitions: Vec<String>,
 }
@@ -49,6 +50,8 @@ pub struct WorkerTopologyBinding {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ServerTopologyBinding {
     pub worker_count: u64,
+    pub tcp_multi_port: bool,
+    pub tcp_base_listen_port: u16,
     pub workers: Vec<WorkerTopologyBinding>,
 }
 
@@ -278,11 +281,14 @@ fn to_server_topology_binding(
 ) -> ServerTopologyBinding {
     ServerTopologyBinding {
         worker_count: topology.worker_count as u64,
+        tcp_multi_port: topology.tcp_multi_port,
+        tcp_base_listen_port: topology.tcp_base_listen_port,
         workers: topology
             .workers
             .into_iter()
             .map(|worker| WorkerTopologyBinding {
                 worker_index: worker.worker_index as u64,
+                tcp_listen_port: worker.tcp_listen_port,
                 worker_id: worker.worker_id.to_string(),
                 partitions: worker
                     .partitions

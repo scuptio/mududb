@@ -22,6 +22,36 @@ pub fn reserve_port() -> RS<Option<u16>> {
     }
 }
 
+pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
+    if count == 0 {
+        return Ok(None);
+    }
+    for _ in 0..128 {
+        let Some(base_port) = reserve_port()? else {
+            return Ok(None);
+        };
+        let mut listeners = Vec::with_capacity(count);
+        let mut ok = true;
+        for offset in 0..count {
+            let Some(port) = base_port.checked_add(offset as u16) else {
+                ok = false;
+                break;
+            };
+            match TcpListener::bind(("127.0.0.1", port)) {
+                Ok(listener) => listeners.push(listener),
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            return Ok(Some(base_port));
+        }
+    }
+    Ok(None)
+}
+
 pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
