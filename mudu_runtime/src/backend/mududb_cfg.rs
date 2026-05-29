@@ -45,6 +45,8 @@ pub struct MuduDBCfg {
     #[serde(default = "default_tcp_listen_port")]
     pub tcp_listen_port: u16,
     #[serde(default)]
+    pub tcp_multi_port: bool,
+    #[serde(default)]
     pub io_uring_worker_threads: usize,
     #[serde(default = "default_ring_entries")]
     pub io_uring_ring_entries: u32,
@@ -81,6 +83,7 @@ impl Display for MuduDBCfg {
         write!(f, "  -> Enable Async: {}\n", self.enable_async)?;
         write!(f, "  -> Server mode: {:?}\n", self.server_mode)?;
         write!(f, "  -> TCP Listening port: {}\n", self.tcp_listen_port)?;
+        write!(f, "  -> TCP Multi-port: {}\n", self.tcp_multi_port)?;
         write!(
             f,
             "  -> io_uring workers: {}\n",
@@ -135,6 +138,7 @@ impl Default for MuduDBCfg {
             enable_async: true,
             server_mode: ServerMode::Legacy,
             tcp_listen_port: default_tcp_listen_port(),
+            tcp_multi_port: false,
             io_uring_worker_threads: 0,
             io_uring_ring_entries: default_ring_entries(),
             io_uring_accept_multishot: true,

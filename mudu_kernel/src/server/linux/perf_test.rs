@@ -1,5 +1,8 @@
-use crate::server::routing::{route_worker, RoutingContext, RoutingMode};
-use crate::server::server::{WorkerTcpBackend, WorkerTcpServerConfig};
+use crate::server::routing::RoutingMode;
+use crate::server::server::WorkerTcpBackend;
+use crate::server::server_cfg::ServerCfg;
+use crate::server::server_launch::ServerLaunch;
+use crate::server::server_runtime_deps::ServerRuntimeDeps;
 use crate::server::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -162,6 +165,27 @@ impl AsyncPerfClient {
         }
         Ok(())
     }
+}
+
+fn test_worker_port(base_port: u16, worker_index: usize) -> RS<u16> {
+    let offset = u16::try_from(worker_index).map_err(|_| {
+        m_error!(
+            EC::ParseErr,
+            format!(
+                "worker index too large for test port mapping: {}",
+                worker_index
+            )
+        )
+    })?;
+    base_port.checked_add(offset).ok_or_else(|| {
+        m_error!(
+            EC::ParseErr,
+            format!(
+                "test worker port overflow: base_port={}, worker_index={}",
+                base_port, worker_index
+            )
+        )
+    })
 }
 
 fn loopback_shard_ip(shard: usize) -> Ipv4Addr {
@@ -345,6 +369,15 @@ async fn wait_until_server_ready_or_exit_async(port: u16, server: &TestServerHan
     ))
 }
 
+async fn wait_until_worker_port_ready_or_exit_async(
+    base_port: u16,
+    worker_index: usize,
+    server: &TestServerHandle,
+) -> RS<()> {
+    let worker_port = test_worker_port(base_port, worker_index)?;
+    wait_until_server_ready_or_exit_async(worker_port, server).await
+}
+
 fn spawn_iouring_server(
     listener: TcpListener,
     worker_count: usize,
@@ -355,23 +388,26 @@ fn spawn_iouring_server(
     let (stop_notifier, server_stop) = notify_wait();
     let (exit_tx, exit_rx) = mpsc::channel();
     let port = listener.local_addr().unwrap().port();
-    let mut server_cfg = WorkerTcpServerConfig::new(
+    let server_cfg = ServerCfg::new(
         worker_count,
         "127.0.0.1".to_string(),
         port,
         data_dir.to_string_lossy().into_owned(),
         data_dir.to_string_lossy().into_owned(),
         RoutingMode::ConnectionId,
-        None,
     )
     .unwrap()
-    .with_prebound_listener(listener)
+    .with_multi_port(worker_count > 1)
     .with_log_chunk_size(log_chunk_size);
+    let mut server_deps = ServerRuntimeDeps::from_cfg(&server_cfg).unwrap();
     if let Some(worker_registry) = worker_registry {
-        server_cfg = server_cfg.with_worker_registry(worker_registry).unwrap();
+        server_deps = server_deps
+            .with_worker_registry(&server_cfg, worker_registry)
+            .unwrap();
     }
+    let server_launch = ServerLaunch::new(server_cfg, server_deps).with_prebound_listener(listener);
     let join_handle = thread::spawn(move || {
-        let result = WorkerTcpBackend::sync_serve_with_stop(server_cfg, server_stop);
+        let result = WorkerTcpBackend::sync_serve_with_stop(server_launch, server_stop);
         let exit_msg = match &result {
             Ok(()) => Ok(()),
             Err(err) => Err(err.to_string()),
@@ -635,7 +671,7 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
     }
 
     {
-        let mut client = AsyncPerfClient::connect(port).await?;
+        let mut client = AsyncPerfClient::connect(test_worker_port(port, 0)?).await?;
         client.session_id = client
             .create_session(Some(
                 serde_json::json!({
@@ -675,7 +711,7 @@ async fn iouring_backend_recovery_replays_worker_logs() -> RS<()> {
     }
 
     {
-        let mut client = AsyncPerfClient::connect(restart_port).await?;
+        let mut client = AsyncPerfClient::connect(test_worker_port(restart_port, 0)?).await?;
         client.session_id = client
             .create_session(Some(
                 serde_json::json!({
@@ -796,12 +832,7 @@ async fn iouring_backend_open_session_routes_connection_to_requested_partition()
     ));
     std::fs::create_dir_all(&data_dir).unwrap();
 
-    let initial_partition = route_worker(
-        &RoutingContext::new(1, "127.0.0.1:10000".parse().unwrap(), None),
-        RoutingMode::ConnectionId,
-        worker_count,
-    );
-    let target_partition = (initial_partition + 1) % worker_count;
+    let target_partition = 1usize;
     let registry = load_or_create_worker_registry(&data_dir, worker_count)?;
     let target_worker = registry.worker(target_partition).unwrap();
 
@@ -819,9 +850,19 @@ async fn iouring_backend_open_session_routes_connection_to_requested_partition()
         }
         return Err(err);
     }
+    if let Err(err) =
+        wait_until_worker_port_ready_or_exit_async(port, target_partition, &server_thread).await
+    {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring route test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
-        let mut client = AsyncPerfClient::connect(port).await?;
+        let mut client =
+            AsyncPerfClient::connect(test_worker_port(port, target_partition)?).await?;
         let session_id = client
             .create_session(Some(
                 serde_json::json!({
@@ -882,12 +923,7 @@ async fn iouring_backend_open_session_rebind_keeps_same_session_id() -> RS<()> {
     ));
     std::fs::create_dir_all(&data_dir).unwrap();
 
-    let initial_partition = route_worker(
-        &RoutingContext::new(1, "127.0.0.1:10001".parse().unwrap(), None),
-        RoutingMode::ConnectionId,
-        worker_count,
-    );
-    let target_partition = (initial_partition + 1) % worker_count;
+    let target_partition = 1usize;
     let registry = load_or_create_worker_registry(&data_dir, worker_count)?;
     let target_worker = registry.worker(target_partition).unwrap();
 
@@ -905,9 +941,19 @@ async fn iouring_backend_open_session_rebind_keeps_same_session_id() -> RS<()> {
         }
         return Err(err);
     }
+    if let Err(err) =
+        wait_until_worker_port_ready_or_exit_async(port, target_partition, &server_thread).await
+    {
+        if should_skip_iouring_perf(&err) {
+            eprintln!("skip io_uring rebind test: {}", err);
+            return Ok(());
+        }
+        return Err(err);
+    }
 
     {
-        let mut client = AsyncPerfClient::connect(port).await?;
+        let mut client =
+            AsyncPerfClient::connect(test_worker_port(port, target_partition)?).await?;
         let original_session_id = client.session_id;
         let rebound_session_id = client
             .create_session(Some(

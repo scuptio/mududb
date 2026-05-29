@@ -6,7 +6,7 @@ use mudu::common::result::RS;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
 use std::sync::Arc;
 
-use crate::server::routing::{SessionOpenConfig, SessionOpenTransferAction};
+use crate::server::routing::SessionOpenConfig;
 
 #[async_trait]
 pub trait RequestResponseWorker: Send + Sync {
@@ -17,12 +17,6 @@ pub trait RequestResponseWorker: Send + Sync {
     fn registry(&self) -> Arc<WorkerRegistry>;
 
     fn open_session_with_config(&self, conn_id: u64, config: SessionOpenConfig) -> RS<OID>;
-
-    fn prepare_connection_transfer(
-        &self,
-        conn_id: u64,
-        action: Option<SessionOpenTransferAction>,
-    ) -> RS<Vec<OID>>;
 
     fn close_session_for_connection(&self, conn_id: u64, session_id: OID) -> RS<bool>;
 

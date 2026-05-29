@@ -166,53 +166,6 @@ impl WorkerSessionManager {
         }
     }
 
-    pub(crate) fn adopt_connection_sessions(&self, conn_id: u64, session_ids: &[OID]) -> RS<()> {
-        if session_ids.is_empty() {
-            return Ok(());
-        }
-        let conn_sessions = self.connection_sessions(conn_id);
-        for &session_id in session_ids {
-            self.session_owner
-                .insert_sync(session_id, conn_id)
-                .map_err(|_| {
-                    m_error!(
-                        EC::ExistingSuchElement,
-                        format!("session {} already exists on target worker", session_id)
-                    )
-                })?;
-            if self
-                .session_contexts
-                .insert_sync(
-                    session_id,
-                    Arc::new(SessionContext::new(self.meta_mgr.clone())),
-                )
-                .is_err()
-            {
-                let _ = self.session_owner.remove_sync(&session_id);
-                return Err(m_error!(
-                    EC::ExistingSuchElement,
-                    format!(
-                        "session {} context already exists on target worker",
-                        session_id
-                    )
-                ));
-            }
-            let _ = conn_sessions.insert_sync(session_id, ());
-            self.active_sessions.fetch_add(1, Ordering::Relaxed);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn connection_has_active_tx(&self, conn_id: u64) -> RS<bool> {
-        let session_ids = self.connection_session_ids(conn_id);
-        for session_id in session_ids {
-            if self.has_session_tx(session_id)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     pub(crate) fn has_session_tx(&self, session_id: OID) -> RS<bool> {
         Ok(self
             .session_context(session_id)?
@@ -250,24 +203,6 @@ impl WorkerSessionManager {
         f(session.tx_manager_cloned())
     }
 
-    pub(crate) fn detach_connection_sessions(&self, conn_id: u64) -> RS<Vec<OID>> {
-        let Some((_conn_id, conn_sessions)) = self.connection_sessions.remove_sync(&conn_id) else {
-            return Ok(Vec::new());
-        };
-        let mut session_ids = Vec::new();
-        conn_sessions.iter_sync(|session_id, _| {
-            session_ids.push(*session_id);
-            true
-        });
-        for &session_id in &session_ids {
-            if self.session_owner.remove_sync(&session_id).is_some() {
-                self.active_sessions.fetch_sub(1, Ordering::Relaxed);
-            }
-            let _ = self.session_contexts.remove_sync(&session_id);
-        }
-        Ok(session_ids)
-    }
-
     fn connection_sessions(&self, conn_id: u64) -> Arc<SccHashMap<OID, ()>> {
         if let Some(existing) = self.connection_sessions.get_sync(&conn_id) {
             return existing.get().clone();
@@ -286,18 +221,6 @@ impl WorkerSessionManager {
                 }
             }
         }
-    }
-
-    fn connection_session_ids(&self, conn_id: u64) -> Vec<OID> {
-        let Some(conn_sessions) = self.connection_sessions.get_sync(&conn_id) else {
-            return Vec::new();
-        };
-        let mut session_ids = Vec::new();
-        conn_sessions.get().iter_sync(|session_id, _| {
-            session_ids.push(*session_id);
-            true
-        });
-        session_ids
     }
 }
 

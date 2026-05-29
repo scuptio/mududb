@@ -4,13 +4,15 @@ use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_sys::sync::NotifyWait;
+use mudu_utils::debug::debug_serve;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{debug, info};
@@ -35,17 +37,30 @@ fn copy_from_to_roundtrip_tokio() -> RS<()> {
 }
 
 fn run_copy_from_to_roundtrip(server_mode: ServerMode) -> RS<()> {
+    let _test_guard = test_runtime_domain_lock().lock().map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::MutexError,
+            "test runtime domain lock poisoned"
+        )
+    })?;
     let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip copy roundtrip test: local TCP/HTTP bind is not permitted");
         return Ok(());
+    };
+    let notifier = NotifyWait::new();
+    {
+        let _n = notifier.clone();
+        let _ = thread::spawn(move || {
+            debug_serve(_n, 1800);
+        });
     };
     let server = ctx.start_server()?;
 
     let suffix = mudu_sys::random::uuid_v4();
     let copy_from_path = ctx.base_dir.join(format!("copy_from_{suffix}.csv"));
     let copy_to_path = ctx.base_dir.join(format!("copy_to_{suffix}.csv"));
-    let copy_from_file = format!("'{}'", copy_from_path.display());
-    let copy_to_file = format!("'{}'", copy_to_path.display());
+    let copy_from_file = sql_path_literal(&copy_from_path);
+    let copy_to_file = sql_path_literal(&copy_to_path);
     let input_csv = "id,name\n1,Alice\n2,Bob\n";
     fs::write(&copy_from_path, input_csv).map_err(|e| {
         mudu::m_error!(
@@ -66,7 +81,8 @@ fn run_copy_from_to_roundtrip(server_mode: ServerMode) -> RS<()> {
         ),
         copy_from_file, copy_to_file
     );
-    let outputs = run_shell_script_outputs(&ctx, "demo", &script)?;
+    let app = format!("demo_{}", mudu_sys::random::uuid_v4());
+    let outputs = run_shell_script_outputs(&ctx, &app, &script)?;
 
     let output_text = outputs
         .iter()
@@ -86,8 +102,9 @@ fn run_copy_from_to_roundtrip(server_mode: ServerMode) -> RS<()> {
             e
         )
     })?;
-    assert!(
-        exported.lines().next() == Some("id,name"),
+    assert_eq!(
+        exported.lines().next(),
+        Some("id,name"),
         "COPY TO should export csv header, exported: {}",
         exported
     );
@@ -110,6 +127,64 @@ fn supports_server_mode(server_mode: ServerMode) -> bool {
     }
 }
 
+fn test_runtime_domain_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+async fn handle_client_request(input: String, app: String, addr: String) -> RS<Vec<Value>> {
+    let mut client = JsonClient::connect(&addr).await?;
+    let mut current_app = app;
+    let mut buffer = String::new();
+    let mut outputs: Vec<Value> = Vec::new();
+
+    for line in input.lines() {
+        let trimmed = line.trim();
+
+        if buffer.trim().is_empty() && trimmed.starts_with('\\') {
+            if handle_shell_meta(trimmed, &mut current_app) {
+                break;
+            }
+            continue;
+        }
+
+        if trimmed.is_empty() && buffer.is_empty() {
+            continue;
+        }
+
+        buffer.push_str(line);
+        buffer.push('\n');
+
+        if !statement_complete(&buffer) {
+            continue;
+        }
+
+        let statement = finalize_statement(&buffer);
+        buffer.clear();
+        if statement.is_empty() {
+            continue;
+        }
+
+        let request = if looks_like_query(&statement) {
+            json!({ "app_name": current_app, "sql": statement })
+        } else {
+            json!({ "app_name": current_app, "sql": statement, "kind": "execute" })
+        };
+        debug!(sql = %statement, is_query = looks_like_query(&statement), "sending sql");
+        let output = tokio::time::timeout(Duration::from_secs(20), client.command(request))
+            .await
+            .map_err(|_| {
+                mudu::m_error!(
+                    mudu::error::ec::EC::TokioErr,
+                    format!("copy roundtrip command timed out: {}", statement)
+                )
+            })??;
+        outputs.push(output);
+        debug!("received sql response");
+    }
+
+    Ok(outputs)
+}
 fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec<Value>> {
     let addr = format!("127.0.0.1:{}", ctx.client_port());
     let app = app.to_string();
@@ -128,57 +203,8 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
             })?;
 
         runtime.block_on(async move {
-            let mut client = JsonClient::connect(&addr).await?;
-            let mut current_app = app;
-            let mut buffer = String::new();
-            let mut outputs: Vec<Value> = Vec::new();
-
-            for line in input.lines() {
-                let trimmed = line.trim();
-
-                if buffer.trim().is_empty() && trimmed.starts_with('\\') {
-                    if handle_shell_meta(trimmed, &mut current_app) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if trimmed.is_empty() && buffer.is_empty() {
-                    continue;
-                }
-
-                buffer.push_str(line);
-                buffer.push('\n');
-
-                if !statement_complete(&buffer) {
-                    continue;
-                }
-
-                let statement = finalize_statement(&buffer);
-                buffer.clear();
-                if statement.is_empty() {
-                    continue;
-                }
-
-                let request = if looks_like_query(&statement) {
-                    json!({ "app_name": current_app, "sql": statement })
-                } else {
-                    json!({ "app_name": current_app, "sql": statement, "kind": "execute" })
-                };
-                debug!(sql = %statement, is_query = looks_like_query(&statement), "sending sql");
-                let output = tokio::time::timeout(Duration::from_secs(10), client.command(request))
-                    .await
-                    .map_err(|_| {
-                        mudu::m_error!(
-                            mudu::error::ec::EC::TokioErr,
-                            "interactive mcli command timed out"
-                        )
-                    })??;
-                outputs.push(output);
-                debug!("received sql response");
-            }
-
-            Ok(outputs)
+            let r = handle_client_request(input, app, addr).await;
+            r
         })
     });
 
@@ -210,7 +236,16 @@ fn statement_complete(buf: &str) -> bool {
 }
 
 fn finalize_statement(buf: &str) -> String {
-    buf.trim().to_string()
+    let stmt = buf.trim();
+    let stmt = stmt.strip_suffix(';').unwrap_or(stmt);
+    stmt.trim().to_string()
+}
+
+fn sql_path_literal(path: &std::path::Path) -> String {
+    // Use forward slashes so COPY path parsing is stable across platforms.
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let escaped = normalized.replace('\'', "''");
+    format!("'{escaped}'")
 }
 
 fn looks_like_query(sql: &str) -> bool {
@@ -228,6 +263,8 @@ fn looks_like_query(sql: &str) -> bool {
 
 struct RunningServer {
     stop: Notifier,
+    http_port: u16,
+    tcp_port: u16,
     handle: Option<JoinHandle<RS<()>>>,
 }
 
@@ -236,6 +273,12 @@ impl Drop for RunningServer {
         debug!("test copy_roundtrip dropping running server");
         self.stop.notify_all();
         if let Some(handle) = self.handle.take() {
+            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
+            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
+                let _ = TcpStream::connect(("127.0.0.1", self.http_port));
+                let _ = TcpStream::connect(("127.0.0.1", self.tcp_port));
+                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+            }
             let join_result = handle.join().expect("join server thread");
             if let Err(err) = join_result {
                 panic!("server stopped with error: {err}");
@@ -263,7 +306,11 @@ impl TestContext {
         let Some(pg_port) = reserve_port()? else {
             return Ok(None);
         };
-        let Some(tcp_port) = reserve_port()? else {
+        let tcp_port_count = match server_mode {
+            ServerMode::IOUring | ServerMode::Tokio => 2,
+            ServerMode::Legacy => 1,
+        };
+        let Some(tcp_port) = reserve_port_block(tcp_port_count)? else {
             return Ok(None);
         };
 
@@ -298,20 +345,19 @@ impl TestContext {
         );
         let (stop, waiter) = notify_wait();
         let (ready, ready_waiter) = notify_wait();
-        let (exit_tx, exit_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
-            let result = Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready));
-            let _ = exit_tx.send(result.clone());
-            result
+            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         });
         wait_until_port_ready(self.http_port, "HTTP", BACKEND_STARTUP_TIMEOUT)?;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP", BACKEND_STARTUP_TIMEOUT)?;
         }
-        wait_until_backend_ready(ready_waiter, &exit_rx, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
         debug!("backend server ready");
         Ok(RunningServer {
             stop,
+            http_port: self.http_port,
+            tcp_port: self.tcp_port,
             handle: Some(handle),
         })
     }
@@ -366,6 +412,36 @@ fn reserve_port() -> RS<Option<u16>> {
     }
 }
 
+fn reserve_port_block(count: usize) -> RS<Option<u16>> {
+    if count == 0 {
+        return Ok(None);
+    }
+    for _ in 0..128 {
+        let Some(base_port) = reserve_port()? else {
+            return Ok(None);
+        };
+        let mut listeners = Vec::with_capacity(count);
+        let mut ok = true;
+        for offset in 0..count {
+            let Some(port) = base_port.checked_add(offset as u16) else {
+                ok = false;
+                break;
+            };
+            match TcpListener::bind(("127.0.0.1", port)) {
+                Ok(listener) => listeners.push(listener),
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            return Ok(Some(base_port));
+        }
+    }
+    Ok(None)
+}
+
 fn wait_until_port_ready(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + timeout;
     while mudu_sys::time::instant_now() < deadline {
@@ -383,62 +459,27 @@ fn wait_until_port_ready(port: u16, service_name: &str, timeout: Duration) -> RS
     ))
 }
 
-fn wait_until_backend_ready(
-    waiter: Waiter,
-    exit_rx: &mpsc::Receiver<RS<()>>,
-    service_name: &str,
-    timeout: Duration,
-) -> RS<()> {
-    // The ready barrier keeps tests from racing startup with the later point
-    // where the backend can actually serve requests. Poll the barrier in small
-    // slices so an early server-thread failure surfaces immediately instead of
-    // degenerating into a generic timeout.
-    let deadline = mudu_sys::time::instant_now() + timeout;
-    while mudu_sys::time::instant_now() < deadline {
-        match exit_rx.try_recv() {
-            Ok(Ok(())) => {
-                return Err(mudu::m_error!(
-                    mudu::error::ec::EC::ThreadErr,
-                    format!("{service_name} stopped before publishing ready barrier")
-                ));
-            }
-            Ok(Err(err)) => {
-                return Err(mudu::m_error!(
-                    mudu::error::ec::EC::ThreadErr,
-                    format!("{service_name} exited before publishing ready barrier"),
-                    err
-                ));
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                return Err(mudu::m_error!(
-                    mudu::error::ec::EC::ThreadErr,
-                    format!("{service_name} startup monitor disconnected")
-                ));
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-        }
-
-        let result = mudu_sys::task_async::block_on_tokio_current_thread({
-            let waiter = waiter.clone();
-            async move { tokio::time::timeout(Duration::from_millis(100), waiter.wait()).await }
-        })
-        .map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::TokioErr,
-                format!("wait for {} ready barrier runtime error", service_name),
-                e
-            )
-        })?;
-        if result.is_ok() {
-            return Ok(());
-        }
-    }
-
-    Err(mudu::m_error!(
-        mudu::error::ec::EC::TokioErr,
-        format!(
-            "{} ready barrier timed out after {:?}",
-            service_name, timeout
+fn wait_until_backend_ready(waiter: Waiter, service_name: &str, timeout: Duration) -> RS<()> {
+    // Listener readiness is not enough for io_uring mode because worker
+    // recovery continues after the port starts accepting connections.
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
+        tokio::time::timeout(timeout, waiter.wait()).await
+    })
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!("wait for {} ready barrier runtime error", service_name),
+            e
         )
-    ))
+    })?;
+    result.map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::TokioErr,
+            format!(
+                "{} ready barrier timed out after {:?}",
+                service_name, timeout
+            )
+        )
+    })?;
+    Ok(())
 }

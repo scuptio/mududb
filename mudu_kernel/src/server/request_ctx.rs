@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::server::async_func_task::HandleResult;
 use crate::server::request_response_worker::WorkerRuntimeRef;
 use crate::server::routing::parse_session_open_config;
-use crate::server::routing::{SessionOpenConfig, SessionOpenTransferAction};
+use crate::server::routing::SessionOpenConfig;
 use crate::server::worker_registry::WorkerRegistry;
 
 #[derive(Clone)]
@@ -204,16 +204,15 @@ impl RequestCtx {
                 ),
             )?))
         } else {
-            let action = SessionOpenTransferAction::new(self.request_id, config);
-            let session_ids = self
-                .worker
-                .prepare_connection_transfer(self.conn_id, Some(action))?;
-            Ok(HandleResult::Transfer(
-                crate::server::async_func_task::SessionTransferDispatch::new(
+            Err(mudu::m_error!(
+                mudu::error::ec::EC::NetErr,
+                format!(
+                    "session create landed on worker index {} worker id {}, expected worker index {} worker id {}; reconnect to the target worker port",
+                    self.worker.worker_index(),
+                    self.worker.worker_id(),
                     config.target_worker_index(),
-                    session_ids,
-                    action,
-                ),
+                    config.worker_id()
+                )
             ))
         }
     }

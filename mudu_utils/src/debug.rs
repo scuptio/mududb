@@ -2,6 +2,8 @@
 // https://github.com/hyperium/hyper/blob/master/examples/echo.rs
 
 use std::net::SocketAddr;
+#[cfg(feature = "debug_trace")]
+use std::net::TcpListener as StdTcpListener;
 
 #[cfg(feature = "debug_trace")]
 use bytes::Bytes;
@@ -29,6 +31,8 @@ use crate::dump_task_trace;
 use crate::notifier::NotifyWait;
 #[cfg(feature = "debug_trace")]
 use crate::task_async::CurrentThreadTaskRuntime;
+#[cfg(feature = "debug_trace")]
+use crate::notifier::Notifier;
 use mudu::common::result::RS;
 #[cfg(feature = "debug_trace")]
 use mudu::error::ec::EC;
@@ -94,6 +98,15 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
 
 #[cfg(feature = "debug_trace")]
 pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MError> {
+    async_debug_serve_until_with_ready(addr, stop, None).await
+}
+
+#[cfg(feature = "debug_trace")]
+pub async fn async_debug_serve_until_with_ready(
+    addr: SocketAddr,
+    stop: NotifyWait,
+    ready: Option<Notifier>,
+) -> Result<(), MError> {
     crate::scoped_task_trace!();
     let port = addr.port();
     let r = SERVER.insert_sync(port);
@@ -109,6 +122,18 @@ pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Resu
             return Err(m_error!(EC::IOErr, "bind to address error", e));
         }
     };
+    if let Some(ready) = ready {
+        ready.notify_all();
+    }
+    async_debug_serve_with_tokio_listener(listener, port, stop).await
+}
+
+#[cfg(feature = "debug_trace")]
+async fn async_debug_serve_with_tokio_listener(
+    listener: TcpListener,
+    port: u16,
+    stop: NotifyWait,
+) -> Result<(), MError> {
     let mut tasks = JoinSet::new();
     loop {
         let accepted = mudu_sys::tokio::select! {
@@ -165,7 +190,66 @@ pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MError> {
 
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve(canceler: NotifyWait, port: u16) {
-    let async_debug_serve = async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
+    let async_debug_serve =
+        async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
+    let runtime = CurrentThreadTaskRuntime::new().unwrap();
+    let join = runtime
+        .local()
+        .spawn(canceler, "debug_server", async_debug_serve)
+        .unwrap();
+    runtime.block_on(async {
+        let _ = join.await;
+    });
+}
+
+#[cfg(feature = "debug_trace")]
+pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Notifier) {
+    let async_debug_serve = async_debug_serve_until_with_ready(
+        ([0, 0, 0, 0], port).into(),
+        canceler.clone(),
+        Some(ready),
+    );
+    let runtime = CurrentThreadTaskRuntime::new().unwrap();
+    let join = runtime
+        .local()
+        .spawn(canceler, "debug_server", async_debug_serve)
+        .unwrap();
+    runtime.block_on(async {
+        let _ = join.await;
+    });
+}
+
+#[cfg(feature = "debug_trace")]
+pub fn debug_serve_with_listener(
+    canceler: NotifyWait,
+    listener: StdTcpListener,
+    ready: Notifier,
+) {
+    let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
+    let canceler_for_future = canceler.clone();
+    let async_debug_serve = async move {
+        if let Err(e) = listener.set_nonblocking(true) {
+            let _ = SERVER.remove_sync(&port);
+            return Err(m_error!(
+                EC::IOErr,
+                "set debug server listener nonblocking error",
+                e
+            ));
+        }
+        let listener = match TcpListener::from_std(listener) {
+            Ok(listener) => listener,
+            Err(e) => {
+                let _ = SERVER.remove_sync(&port);
+                return Err(m_error!(
+                    EC::IOErr,
+                    "create tokio listener from std listener error",
+                    e
+                ));
+            }
+        };
+        ready.notify_all();
+        async_debug_serve_with_tokio_listener(listener, port, canceler_for_future).await
+    };
     let runtime = CurrentThreadTaskRuntime::new().unwrap();
     let join = runtime
         .local()

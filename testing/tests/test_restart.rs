@@ -4,12 +4,15 @@ use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_sys::sync::NotifyWait;
+use mudu_utils::debug::debug_serve;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::info;
@@ -32,12 +35,26 @@ fn test_mudud_restart_persistence_tokio() -> RS<()> {
 }
 
 fn run_restart_persistence(server_mode: ServerMode) -> RS<()> {
+    let _test_guard = test_runtime_domain_lock().lock().map_err(|_| {
+        mudu::m_error!(
+            mudu::error::ec::EC::MutexError,
+            "test runtime domain lock poisoned"
+        )
+    })?;
+    let notifier = NotifyWait::new();
+    {
+        let _n = notifier.clone();
+        let _ = thread::spawn(move || {
+            debug_serve(_n, 1800);
+        });
+    };
     let Some(ctx) = TestContext::new(server_mode)? else {
         eprintln!("skip test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
 
     println!("Step 1: Start mudud ({server_mode:?} mode)");
+    let app = format!("demo_{}", mudu_sys::random::uuid_v4());
     {
         let server = ctx.start_server()?;
 
@@ -45,9 +62,16 @@ fn run_restart_persistence(server_mode: ServerMode) -> RS<()> {
         let script = concat!(
             "CREATE TABLE t_restart(id INT PRIMARY KEY, name TEXT);\n",
             "INSERT INTO t_restart(id, name) VALUES (100, 'Mudu');\n",
+            "SELECT name FROM t_restart WHERE id = 100;\n",
             "\\q\n"
         );
-        let _ = run_shell_script_outputs(&ctx, "demo", script)?;
+        let outputs = run_shell_script_outputs(&ctx, &app, script)?;
+        let inserted_visible = outputs.iter().any(|val| val.to_string().contains("Mudu"));
+        assert!(
+            inserted_visible,
+            "Inserted row should be visible before stop. Outputs: {:?}",
+            outputs
+        );
 
         println!("Step 3: Stop mudud");
         drop(server);
@@ -62,7 +86,7 @@ fn run_restart_persistence(server_mode: ServerMode) -> RS<()> {
 
         println!("Step 5: mcli reconnect and verify data");
         let script = "SELECT name FROM t_restart WHERE id = 100;\n\\q\n";
-        let outputs = run_shell_script_outputs(&ctx, "demo", script)?;
+        let outputs = run_shell_script_outputs(&ctx, &app, script)?;
 
         let found_mudu = outputs.iter().any(|val| val.to_string().contains("Mudu"));
         assert!(
@@ -83,6 +107,11 @@ fn supports_server_mode(server_mode: ServerMode) -> bool {
         ServerMode::IOUring => mudu_sys::io_uring_available(),
         ServerMode::Legacy | ServerMode::Tokio => true,
     }
+}
+
+fn test_runtime_domain_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 // Helpers adapted from test_interactive.rs
@@ -212,6 +241,8 @@ fn looks_like_query(sql: &str) -> bool {
 
 struct RunningServer {
     stop: Notifier,
+    http_port: u16,
+    tcp_port: u16,
     handle: Option<JoinHandle<RS<()>>>,
 }
 
@@ -219,6 +250,12 @@ impl Drop for RunningServer {
     fn drop(&mut self) {
         self.stop.notify_all();
         if let Some(handle) = self.handle.take() {
+            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
+            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
+                let _ = TcpStream::connect(("127.0.0.1", self.http_port));
+                let _ = TcpStream::connect(("127.0.0.1", self.tcp_port));
+                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+            }
             let join_result = handle.join().expect("join server thread");
             if let Err(err) = join_result {
                 panic!("server stopped with error: {err}");
@@ -245,7 +282,11 @@ impl TestContext {
         let Some(pg_port) = reserve_port()? else {
             return Ok(None);
         };
-        let Some(tcp_port) = reserve_port()? else {
+        let tcp_port_count = match server_mode {
+            ServerMode::IOUring | ServerMode::Tokio => 2,
+            ServerMode::Legacy => 1,
+        };
+        let Some(tcp_port) = reserve_port_block(tcp_port_count)? else {
             return Ok(None);
         };
 
@@ -289,6 +330,8 @@ impl TestContext {
         println!("  [server] Server ready.");
         Ok(RunningServer {
             stop,
+            http_port: self.http_port,
+            tcp_port: self.tcp_port,
             handle: Some(handle),
         })
     }
@@ -343,6 +386,36 @@ fn reserve_port() -> RS<Option<u16>> {
     }
 }
 
+fn reserve_port_block(count: usize) -> RS<Option<u16>> {
+    if count == 0 {
+        return Ok(None);
+    }
+    for _ in 0..128 {
+        let Some(base_port) = reserve_port()? else {
+            return Ok(None);
+        };
+        let mut listeners = Vec::with_capacity(count);
+        let mut ok = true;
+        for offset in 0..count {
+            let Some(port) = base_port.checked_add(offset as u16) else {
+                ok = false;
+                break;
+            };
+            match TcpListener::bind(("127.0.0.1", port)) {
+                Ok(listener) => listeners.push(listener),
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            return Ok(Some(base_port));
+        }
+    }
+    Ok(None)
+}
+
 fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
@@ -364,7 +437,7 @@ fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
     // A listening socket only proves that bind/listen completed. In io_uring
     // mode the workers may still be replaying WAL, so tests must also wait for
     // the backend's logical readiness barrier before issuing requests.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
         tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
     })
     .map_err(|e| {

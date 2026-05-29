@@ -226,6 +226,80 @@ worker 会按需懒创建自己需要访问的 partition relation。
 
 当路由命中远端 worker 时，请求会按 partition placement 转发到该 worker 处理。
 
+## Port Sharding 策略
+
+partition placement 负责决定一个逻辑 partition 归属哪个 worker。Port sharding 则把这些 worker 暴露为稳定的
+TCP 端口，让客户端和工具可以直接连接到目标数据所在的 worker。
+
+当前 IOUring 和 Tokio 后端使用以下端口策略：
+
+- `tcp_listen_port` 是基础 TCP 端口
+- worker `0` 监听 `tcp_listen_port`
+- worker `1` 监听 `tcp_listen_port + 1`
+- worker `N` 监听 `tcp_listen_port + N`
+
+当后端 worker 数量大于 1 时，启动路径会自动开启 `tcp_multi_port`。例如 `tcp_listen_port = 9527` 且有 4 个
+worker 时，端口分布如下：
+
+```text
+worker 0 -> 9527
+worker 1 -> 9528
+worker 2 -> 9529
+worker 3 -> 9530
+```
+
+这是传输层的分片机制，不替代 partition placement。placement 仍然负责把 `partition_id` 映射到 `worker_id`；
+port sharding 负责把目标 worker 映射到可连接的 TCP endpoint。
+
+### 发现 Worker 端口
+
+可以通过 HTTP 管理接口查看当前 topology：
+
+```bash
+mcli --http-addr 127.0.0.1:8300 server-topology
+```
+
+返回结果包含：
+
+- `worker_count`
+- `tcp_multi_port`
+- `tcp_base_listen_port`
+- 每个 worker 的 `worker_index`
+- 每个 worker 的 `worker_id`
+- 每个 worker 的 `tcp_listen_port`
+- 当前与该 worker 关联的 partition id 列表
+
+可以用 `partition-route` 查询某个 rule key 或 range 会路由到哪些 partition 和 worker：
+
+```bash
+mcli --http-addr 127.0.0.1:8300 partition-route --rule-name r_orders --key 1001,50001
+```
+
+客户端可以组合使用这两个接口：
+
+1. `partition-route` 解析目标 `partition_id` 和 `worker_id`。
+2. `server-topology` 把该 `worker_id` 解析为 `tcp_listen_port`。
+3. 客户端连接 `listen_ip:tcp_listen_port`。
+
+### 作用
+
+当调用方能在打开或重新绑定 session 前确定目标 partition 时，port sharding 可以减少不必要的 worker 间转发。
+
+它提供的能力包括：
+
+- 让客户端直接亲和到 partition 所在 worker
+- 减少 partition-local 流量的跨 worker 转发
+- 为 benchmark 和运维工具提供稳定的 per-worker endpoint
+- 从外部观察 placement 如何映射到网络端口
+
+### 限制
+
+port sharding 目前绑定在多 worker 的 IOUring 和 Tokio 后端路径上。legacy 后端仍保持较早的单 TCP/PG serving
+模型，不应当把它当作 per-worker 端口分片部署来使用。
+
+客户端仍然必须尊重 partition placement。连接某个 worker 端口只是在选择执行 worker；它不会移动数据，也不会改变某个
+partition 的归属关系。
+
 ## 当前语义与限制
 
 当前实现有明确边界。
@@ -235,6 +309,7 @@ worker 会按需懒创建自己需要访问的 partition relation。
 - partition pruning 目前只围绕 key 列进行
 - placement 是显式元数据，不是自动调度
 - 远端 partition 访问通过 worker-to-worker RPC 完成
+- per-worker port sharding 可用于多 worker 的 IOUring 和 Tokio 后端路径
 
 目前还存在一个重要限制：
 
@@ -267,6 +342,7 @@ worker 会按需懒创建自己需要访问的 partition relation。
 - worker 放置
 - 物理存储
 - 执行期路由
+- 可选的 per-worker TCP port sharding
 
 这样的拆分可以保持 schema 模型干净，也为后续扩展打基础，例如：
 

@@ -338,13 +338,7 @@ mod tests {
         fn get(&self, _key: &[u8]) -> Option<Option<Vec<u8>>> {
             None
         }
-        fn put_relation(
-            &self,
-            _relation_id: PhysicalRelationId,
-            _key: Vec<u8>,
-            _value: Vec<u8>,
-        ) {
-        }
+        fn put_relation(&self, _relation_id: PhysicalRelationId, _key: Vec<u8>, _value: Vec<u8>) {}
         fn delete_relation(&self, _relation_id: PhysicalRelationId, _key: Vec<u8>) {}
         fn get_relation(
             &self,

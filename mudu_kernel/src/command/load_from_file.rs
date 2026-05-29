@@ -10,6 +10,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_type::dat_type_id::DatTypeID;
+use mudu_utils::scoped_task_trace;
 use mudu_utils::sync::a_mutex::AMutex;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -94,6 +95,7 @@ impl _LoadFromFile {
     }
 
     async fn load_table(&self) -> RS<u64> {
+        scoped_task_trace!();
         debug!(
             table_id = self.table_id,
             csv_file = %self.csv_file,
@@ -290,6 +292,7 @@ impl CmdExec for LoadFromFile {
     }
 
     async fn run(&self) -> RS<()> {
+        scoped_task_trace!();
         let mut inner = self.inner.lock().await;
         let rows = inner.load_table().await?;
         inner.set_affected_rows(rows);

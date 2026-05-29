@@ -80,7 +80,10 @@ impl WorkerMessageBus {
                 "message_bus dispatching callback task"
             );
             let future = (callback)(envelope);
-            task::spawn_system("iouring-message-bus-callback", spawn_system_worker_task(future));
+            task::spawn_system(
+                "iouring-message-bus-callback",
+                spawn_system_worker_task(future),
+            );
         }
         Ok(())
     }
@@ -195,7 +198,10 @@ impl MessageBus for WorkerMessageBus {
         };
         if let Some(envelope) = maybe_envelope {
             let future = (callback)(envelope);
-            task::spawn_system("iouring-message-bus-on-recv", spawn_system_worker_task(future));
+            task::spawn_system(
+                "iouring-message-bus-on-recv",
+                spawn_system_worker_task(future),
+            );
         }
         Ok(callback_id)
     }

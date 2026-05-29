@@ -12,5 +12,7 @@ pub mod f_mutex;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod notify_wait;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod stop_flag;
+#[cfg(not(target_arch = "wasm32"))]
 pub use crate::sync_async::*;
 pub use crate::sync_sync::*;

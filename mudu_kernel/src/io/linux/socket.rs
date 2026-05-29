@@ -159,10 +159,6 @@ impl IoSocket {
     pub(crate) fn from_raw_fd(fd: RawFd) -> Self {
         Self { fd }
     }
-
-    pub(crate) fn into_raw_fd(self) -> RawFd {
-        self.fd
-    }
 }
 
 impl SocketOpenRequest {

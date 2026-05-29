@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::thread::{self, JoinHandle};
-use testing::{reserve_port, wait_until_port_ready};
+use testing::{reserve_port, reserve_port_block, wait_until_port_ready};
 use tracing::info;
 
 static WALLET_MPK_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -154,12 +154,6 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         .block_on(install_app_package(&ctx.http_addr(), mpk_binary))
         .map_err(to_mudu_error)?;
 
-    let mut client = runtime
-        .block_on(AsyncClientImpl::connect(&format!(
-            "127.0.0.1:{}",
-            ctx.client_port()
-        )))
-        .map_err(|e| to_mudu_error(e.to_string()))?;
     let topology = runtime
         .block_on(fetch_server_topology(&ctx.http_addr()))
         .map_err(to_mudu_error)?;
@@ -169,6 +163,16 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         .find(|worker| worker.worker_index == 0)
         .map(|worker| worker.worker_id)
         .ok_or_else(|| to_mudu_error("server topology does not contain worker 0".to_string()))?;
+    let default_worker_addr = topology
+        .worker_addr_by_id("127.0.0.1", default_worker_id)
+        .ok_or_else(|| {
+            to_mudu_error(format!(
+                "server topology does not contain worker id {default_worker_id} address"
+            ))
+        })?;
+    let mut client = runtime
+        .block_on(AsyncClientImpl::connect(&default_worker_addr))
+        .map_err(|e| to_mudu_error(e.to_string()))?;
     let session_id = runtime
         .block_on(
             client.create_session(mudu_contract::protocol::SessionCreateRequest::new(Some(
@@ -401,7 +405,11 @@ impl TestContext {
         let Some(pg_port) = reserve_port()? else {
             return Ok(None);
         };
-        let Some(tcp_port) = reserve_port()? else {
+        let tcp_port_count = match server_mode {
+            ServerMode::IOUring | ServerMode::Tokio => 2,
+            ServerMode::Legacy => 1,
+        };
+        let Some(tcp_port) = reserve_port_block(tcp_port_count)? else {
             return Ok(None);
         };
         let base_dir =
@@ -659,7 +667,7 @@ fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
     // Wallet end-to-end tests exercise the service immediately after startup,
     // so they must wait for logical readiness instead of only for a bound
     // socket.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move{
+    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
         tokio::time::timeout(std::time::Duration::from_secs(10), waiter.wait()).await
     })
     .map_err(|e| {

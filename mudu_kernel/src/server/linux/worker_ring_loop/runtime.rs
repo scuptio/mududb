@@ -91,7 +91,6 @@ impl WorkerRingLoop {
             return Ok(());
         }
         self.shutting_down = true;
-        self.close_pending_mailbox_connections()?;
         self.shutdown_connection_tasks();
         if self.listener_fd >= 0 {
             let rc = unsafe { libc::close(self.listener_fd) };
@@ -103,22 +102,6 @@ impl WorkerRingLoop {
                 ));
             }
             self.listener_fd = -1;
-        }
-        Ok(())
-    }
-
-    fn close_pending_mailbox_connections(&mut self) -> RS<()> {
-        while let Some(msg) = self.mailbox.pop() {
-            if let WorkerMailboxMsg::AdoptConnection(connection) = msg {
-                let rc = unsafe { libc::close(connection.fd()) };
-                if rc != 0 {
-                    return Err(m_error!(
-                        EC::NetErr,
-                        "close transferred io_uring connection during shutdown error",
-                        std::io::Error::last_os_error()
-                    ));
-                }
-            }
         }
         Ok(())
     }

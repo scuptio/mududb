@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use crate::server::routing::SessionOpenTransferAction;
-use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_utils::task_id::TaskID;
 use std::future::Future;
@@ -21,40 +19,6 @@ pub struct AsyncFuncTask {
 
 pub(in crate::server) enum HandleResult {
     Response(Vec<u8>),
-    Transfer(SessionTransferDispatch),
-}
-
-#[derive(Clone)]
-pub(in crate::server) struct SessionTransferDispatch {
-    target_worker: usize,
-    session_ids: Vec<OID>,
-    action: SessionOpenTransferAction,
-}
-
-impl SessionTransferDispatch {
-    pub(in crate::server) fn new(
-        target_worker: usize,
-        session_ids: Vec<OID>,
-        action: SessionOpenTransferAction,
-    ) -> Self {
-        Self {
-            target_worker,
-            session_ids,
-            action,
-        }
-    }
-
-    pub(in crate::server) fn target_worker(&self) -> usize {
-        self.target_worker
-    }
-
-    pub(in crate::server) fn session_ids(&self) -> &[OID] {
-        &self.session_ids
-    }
-
-    pub(in crate::server) fn action(&self) -> SessionOpenTransferAction {
-        self.action
-    }
 }
 
 impl AsyncFuncTask {

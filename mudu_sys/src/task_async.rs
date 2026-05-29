@@ -78,7 +78,6 @@ where
     F: Future + 'static,
     F::Output: 'static,
 {
-
     let id = {
         let id = task_id::new_task_id();
         let _ = TaskContext::new_context(id, name.to_string(), false);
@@ -261,12 +260,12 @@ where
     F: Future + 'static,
     F::Output: 'static,
 {
-
     let runtime = build_current_thread_runtime()?;
     let ls = LocalSet::new();
     let task = ls.run_until(async move {
         let join = spawn_local_detached("block-on", fut)?;
-        join.await.map_err(|e| m_error!(EC::TokioErr, "task runtime error", e))
+        join.await
+            .map_err(|e| m_error!(EC::TokioErr, "task runtime error", e))
     });
     let r = runtime.block_on(async move {
         let r = task.await;
@@ -274,8 +273,8 @@ where
     });
     let opt = r.map_err(|e| m_error!(EC::TokioErr, "tokio tokio error", e))?;
     match opt {
-        None => { Err(m_error!(EC::TokioErr, "return none")) },
-        Some(output) => { Ok(output) }
+        None => Err(m_error!(EC::TokioErr, "return none")),
+        Some(output) => Ok(output),
     }
 }
 

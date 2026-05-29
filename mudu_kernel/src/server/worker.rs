@@ -3,9 +3,7 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::mudu_conn::mudu_conn_core::MuduConnCore;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::message_bus_api::ServerInstanceId;
-use crate::server::routing::{
-    route_worker, RoutingContext, RoutingMode, SessionOpenConfig, SessionOpenTransferAction,
-};
+use crate::server::routing::SessionOpenConfig;
 use crate::server::session_bound_worker_runtime::{
     as_worker_local_ref, new_session_bound_worker_runtime,
 };
@@ -31,7 +29,6 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
 use mudu_utils::task_trace;
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -53,7 +50,6 @@ pub struct WorkerRuntime {
     worker_id: OID,
     partition_ids: Vec<OID>,
     worker_count: usize,
-    routing_mode: RoutingMode,
     contract: Arc<WorkerXContract>,
     log_layout: WorkerLogLayout,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
@@ -69,7 +65,6 @@ impl WorkerRuntime {
     pub fn new(
         identity: WorkerIdentity,
         worker_count: usize,
-        routing_mode: RoutingMode,
         log_dir: String,
         data_dir: String,
         log_chunk_size: u64,
@@ -80,7 +75,6 @@ impl WorkerRuntime {
         Self::new_with_log_batching(
             identity,
             worker_count,
-            routing_mode,
             log_dir,
             data_dir,
             log_chunk_size,
@@ -94,7 +88,6 @@ impl WorkerRuntime {
     pub fn new_with_log_batching(
         identity: WorkerIdentity,
         worker_count: usize,
-        routing_mode: RoutingMode,
         log_dir: String,
         data_dir: String,
         log_chunk_size: u64,
@@ -106,7 +99,6 @@ impl WorkerRuntime {
         Self::new_with_log_batching_and_runtime(
             identity,
             worker_count,
-            routing_mode,
             log_dir,
             data_dir,
             log_chunk_size,
@@ -121,7 +113,6 @@ impl WorkerRuntime {
     pub fn new_with_log_batching_and_runtime(
         identity: WorkerIdentity,
         worker_count: usize,
-        routing_mode: RoutingMode,
         log_dir: String,
         data_dir: String,
         log_chunk_size: u64,
@@ -170,7 +161,6 @@ impl WorkerRuntime {
             worker_id,
             partition_ids: identity.partition_ids,
             worker_count,
-            routing_mode,
             contract: contract.clone(),
             log_layout,
             procedure_runtime,
@@ -181,11 +171,6 @@ impl WorkerRuntime {
 
     pub fn server_instance_id(&self) -> ServerInstanceId {
         self.server_instance_id
-    }
-
-    pub fn route_connection(&self, conn_id: u64, remote_addr: SocketAddr) -> usize {
-        let ctx = RoutingContext::new(conn_id, remote_addr, None);
-        route_worker(&ctx, self.routing_mode, self.worker_count)
     }
 
     pub async fn delete_async(&self, key: &[u8]) -> RS<()> {
@@ -307,7 +292,7 @@ impl WorkerRuntime {
         self.range_in_session(session_id, start_key, end_key).await
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn execute_tx(&self, session_id: OID, instruction: WorkerExecute) -> RS<()> {
         match instruction {
             WorkerExecute::BeginTx => self
@@ -805,48 +790,6 @@ impl WorkerRuntime {
             Ok(config.session_id())
         }
     }
-
-    pub fn prepare_connection_transfer(
-        &self,
-        conn_id: u64,
-        action: Option<SessionOpenTransferAction>,
-    ) -> RS<Vec<OID>> {
-        if self.connection_has_active_tx(conn_id)? {
-            return Err(m_error!(
-                EC::TxErr,
-                format!(
-                    "connection {} cannot be transferred while a session transaction is active",
-                    conn_id
-                )
-            ));
-        }
-        if let Some(action) = action {
-            let config = action.config();
-            if config.session_id() != 0 {
-                self.ensure_session_owned_by_connection(conn_id, config.session_id())?;
-            }
-        }
-        self.session_manager.detach_connection_sessions(conn_id)
-    }
-
-    pub fn adopt_connection_sessions(&self, conn_id: u64, session_ids: &[OID]) -> RS<()> {
-        self.session_manager
-            .adopt_connection_sessions(conn_id, session_ids)
-    }
-
-    fn connection_has_active_tx(&self, conn_id: u64) -> RS<bool> {
-        self.session_manager.connection_has_active_tx(conn_id)
-    }
-}
-
-#[allow(dead_code)]
-fn worker_log_oid(worker_id: usize) -> OID {
-    worker_id as u128 + 1
-}
-
-#[allow(dead_code)]
-fn is_key_in_range(key: &[u8], start_key: &[u8], end_key: &[u8]) -> bool {
-    key >= start_key && (end_key.is_empty() || key < end_key)
 }
 
 #[cfg(test)]
@@ -913,7 +856,6 @@ mod tests {
         WorkerRuntime::new(
             identity,
             worker_count,
-            RoutingMode::ConnectionId,
             log_dir.to_string(),
             data_dir.to_string(),
             4096,
@@ -1112,7 +1054,6 @@ mod tests {
         let _worker = WorkerRuntime::new(
             identity,
             1,
-            RoutingMode::ConnectionId,
             log_dir.clone(),
             log_dir.clone(),
             4096,
@@ -1229,71 +1170,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(worker.get(b"a").unwrap(), Some(b"1".to_vec()));
-    }
-
-    #[test]
-    fn worker_can_transfer_connection_sessions_between_partitions() {
-        let (log_dir, registry) = test_registry(2);
-        let source = test_worker(0, 2, &log_dir, &log_dir, registry.clone(), None);
-        let target = test_worker(1, 2, &log_dir, &log_dir, registry.clone(), None);
-
-        let conn_id = 41;
-        let session_a = source.create_session(conn_id).unwrap();
-        let session_b = source.create_session(conn_id).unwrap();
-        let target_identity = registry.worker(1).unwrap();
-        let action = SessionOpenTransferAction::new(
-            7,
-            SessionOpenConfig::new(session_a, target_identity.worker_id, 1),
-        );
-
-        let transferred = source
-            .prepare_connection_transfer(conn_id, Some(action))
-            .unwrap();
-        assert_eq!(transferred.len(), 2);
-        assert!(
-            futures::executor::block_on(source.get_for_connection(conn_id, session_a, b"k"))
-                .is_err()
-        );
-
-        target
-            .adopt_connection_sessions(conn_id, &transferred)
-            .unwrap();
-        assert_eq!(
-            target
-                .open_session_with_config(conn_id, action.config())
-                .unwrap(),
-            session_a
-        );
-        target
-            .put_for_connection(conn_id, session_b, b"k".to_vec(), b"v".to_vec())
-            .unwrap();
-        assert_eq!(
-            futures::executor::block_on(target.get_for_connection(conn_id, session_b, b"k"))
-                .unwrap(),
-            Some(b"v".to_vec())
-        );
-    }
-
-    #[test]
-    fn worker_rejects_transfer_with_active_transaction() {
-        let (log_dir, registry) = test_registry(2);
-        let worker = test_worker(0, 2, &log_dir, &log_dir, registry.clone(), None);
-        let conn_id = 51;
-        let session_id = worker.create_session(conn_id).unwrap();
-        worker
-            .execute_tx(session_id, WorkerExecute::BeginTx)
-            .unwrap();
-
-        let err = worker
-            .prepare_connection_transfer(
-                conn_id,
-                Some(SessionOpenTransferAction::new(
-                    1,
-                    SessionOpenConfig::new(session_id, registry.worker(1).unwrap().worker_id, 1),
-                )),
-            )
-            .unwrap_err();
-        assert!(err.to_string().contains("cannot be transferred"));
     }
 
     #[tokio::test(flavor = "current_thread")]

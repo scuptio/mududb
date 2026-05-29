@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, Once};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
-use testing::{reserve_port, wait_until_port_ready};
+use testing::{reserve_port, reserve_port_block, wait_until_port_ready};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
 use tracing::{debug, info};
@@ -860,7 +860,11 @@ impl TestContext {
         let Some(pg_port) = reserve_port()? else {
             return Ok(None);
         };
-        let Some(tcp_port) = reserve_port()? else {
+        let tcp_port_count = match server_mode {
+            ServerMode::IOUring | ServerMode::Tokio => 2,
+            ServerMode::Legacy => 1,
+        };
+        let Some(tcp_port) = reserve_port_block(tcp_port_count)? else {
             return Ok(None);
         };
 
