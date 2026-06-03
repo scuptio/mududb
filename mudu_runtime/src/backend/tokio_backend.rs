@@ -15,13 +15,14 @@ use mudu_kernel::server::server_launch::ServerLaunch;
 use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
 use mudu_sys::task_async;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+use mudu_sys::sync::SMutex;
 
 pub struct TokioBackend;
 
-fn default_remote_scope_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn default_remote_scope_lock() -> &'static SMutex<()> {
+    static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| SMutex::new(()))
 }
 
 impl TokioBackend {

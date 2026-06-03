@@ -1,4 +1,4 @@
-use crate::io::socket::{recv_into, send_all, IoSocket};
+use mudu_sys::io::socket::{recv_into, send_all, IoSocket};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;

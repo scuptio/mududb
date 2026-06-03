@@ -1,12 +1,12 @@
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 use mududb::types::datum::{Datum, DatumDyn};
 use object::Wallets;
 
 /**mudu-proc**/
-pub async fn proc_sys_call_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
+pub async fn proc_sys_call_mtp(xid: OID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
     let _affected_rows = mudu_command(
         xid,
         &r#"
@@ -62,7 +62,7 @@ INSERT INTO wallets
 }
 
 /**mudu-proc**/
-pub fn proc2_mtp(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
+pub fn proc2_mtp(xid: OID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
     Ok((
         (a + b as i32),
         format!("xid:{}, a={}, b={}, c={}", xid, a, b, c),

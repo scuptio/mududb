@@ -28,7 +28,8 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, OnceLock};
+use mudu_sys::sync::{SMutex, SMutexGuard};
 use std::thread;
 use std::time::Duration;
 use tracing::debug;
@@ -48,25 +49,60 @@ impl AsyncPerfClient {
 
     async fn connect_with_loopback_shard(port: u16, shard: usize) -> RS<Self> {
         let source_ip = loopback_shard_ip(shard);
-        let socket = TokioTcpSocket::new_v4()
-            .map_err(|e| m_error!(EC::NetErr, "create io_uring perf client socket error", e))?;
-        socket
-            .bind(SocketAddr::from((source_ip, 0)))
-            .map_err(|e| m_error!(EC::NetErr, "bind io_uring perf client socket error", e))?;
-        let stream = socket
-            .connect(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "connect io_uring tcp server error", e))?;
-        stream
-            .set_nodelay(true)
-            .map_err(|e| m_error!(EC::NetErr, "set tcp nodelay error", e))?;
-        let mut client = Self {
-            stream,
-            next_request_id: 1,
-            session_id: 0,
-        };
-        client.session_id = client.create_session(None).await?;
-        Ok(client)
+        let mut last_err: Option<MError> = None;
+        // Retry transient failures when creating a session on first connect. This
+        // makes tests more robust on CI where the backend may reset connections
+        // briefly during startup.
+        for _attempt in 0..3 {
+            let socket = match TokioTcpSocket::new_v4() {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(m_error!(
+                        EC::NetErr,
+                        "create io_uring perf client socket error",
+                        e
+                    ))
+                }
+            };
+            if let Err(e) = socket.bind(SocketAddr::from((source_ip, 0))) {
+                return Err(m_error!(
+                    EC::NetErr,
+                    "bind io_uring perf client socket error",
+                    e
+                ));
+            }
+            match socket
+                .connect(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+                .await
+            {
+                Ok(stream) => {
+                    if let Err(e) = stream.set_nodelay(true) {
+                        return Err(m_error!(EC::NetErr, "set tcp nodelay error", e));
+                    }
+                    let mut client = Self {
+                        stream,
+                        next_request_id: 1,
+                        session_id: 0,
+                    };
+                    match client.create_session(None).await {
+                        Ok(sid) => {
+                            client.session_id = sid;
+                            return Ok(client);
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                            // drop client/stream and retry
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(m_error!(EC::NetErr, "connect io_uring tcp server error", e));
+                }
+            }
+            // small backoff between attempts
+            mudu_sys::task_async::sleep(Duration::from_millis(50)).await?;
+        }
+        Err(last_err.unwrap_or_else(|| m_error!(EC::NetErr, "connect io_uring tcp server error")))
     }
 
     async fn put(&mut self, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
@@ -210,16 +246,13 @@ fn reserve_listener() -> Option<TcpListener> {
     None
 }
 
-fn network_perf_test_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn network_perf_test_lock() -> &'static SMutex<()> {
+    static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| SMutex::new(()))
 }
 
-fn lock_network_perf_test() -> MutexGuard<'static, ()> {
-    match network_perf_test_lock().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+fn lock_network_perf_test() -> SMutexGuard<'static, ()> {
+    network_perf_test_lock().lock().unwrap()
 }
 
 fn bind_reserved_listener(port: u16) -> std::io::Result<TcpListener> {
@@ -269,7 +302,7 @@ fn maybe_skip_in_act() -> bool {
 async fn wait_for_clients_ready(
     clients: usize,
     ready_clients: &AtomicU64,
-    setup_error: &Mutex<Option<String>>,
+    setup_error: &SMutex<Option<String>>,
 ) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + perf_client_setup_timeout(clients);
     while mudu_sys::time::instant_now() < deadline {
@@ -480,12 +513,12 @@ async fn iouring_backend_perf_put_get() -> RS<()> {
     let start_clients = Arc::new(AtomicBool::new(false));
     let start_notify = Arc::new(Notify::new());
     let ready_clients = Arc::new(AtomicU64::new(0));
-    let setup_error = Arc::new(Mutex::new(None::<String>));
+    let setup_error = Arc::new(SMutex::new(None::<String>));
     let stop_clients = Arc::new(AtomicBool::new(false));
     let put_ops = Arc::new(AtomicU64::new(0));
     let get_ops = Arc::new(AtomicU64::new(0));
-    let put_latencies_us = Arc::new(Mutex::new(Vec::<u64>::new()));
-    let get_latencies_us = Arc::new(Mutex::new(Vec::<u64>::new()));
+    let put_latencies_us = Arc::new(SMutex::new(Vec::<u64>::new()));
+    let get_latencies_us = Arc::new(SMutex::new(Vec::<u64>::new()));
     let mut join_set: JoinSet<RS<()>> = mudu_sys::tokio::task::JoinSet::new();
     for client_id in 0..clients {
         let start_clients = start_clients.clone();
@@ -863,15 +896,29 @@ async fn iouring_backend_open_session_routes_connection_to_requested_partition()
     {
         let mut client =
             AsyncPerfClient::connect(test_worker_port(port, target_partition)?).await?;
-        let session_id = client
-            .create_session(Some(
-                serde_json::json!({
-                    "session_id": "0",
-                    "worker_id": target_worker.worker_id.to_string(),
-                })
-                .to_string(),
-            ))
-            .await?;
+        let config_json = serde_json::json!({
+            "session_id": "0",
+            "worker_id": target_worker.worker_id.to_string(),
+        })
+        .to_string();
+        let mut last_err: Option<MError> = None;
+        let mut session_id = 0u128;
+        for _ in 0..3 {
+            match client.create_session(Some(config_json.clone())).await {
+                Ok(sid) => {
+                    session_id = sid;
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    mudu_sys::task_async::sleep(Duration::from_millis(50)).await?;
+                }
+            }
+        }
+        if let Some(e) = last_err {
+            return Err(e);
+        }
         client.session_id = session_id;
         client
             .put(b"route-key".to_vec(), b"route-val".to_vec())

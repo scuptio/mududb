@@ -10,7 +10,7 @@ mod tests {
     use futures::StreamExt;
     use mudu::common::id::gen_oid;
     use mudu::common::result::RS;
-    use mudu::common::xid::XID;
+    use mudu::common::id::OID;
     use mudu::error::ec::EC;
     use mudu::m_error;
     use mudu_contract::tuple::datum_desc::DatumDesc;
@@ -20,11 +20,12 @@ mod tests {
     use mudu_type::dat_type_id::DatTypeID;
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     #[derive(Default)]
     struct TestSsnCtx {
-        current_tx: Mutex<Option<XID>>,
+        current_tx: SMutex<Option<OID>>,
         ended: AtomicBool,
     }
 
@@ -35,11 +36,11 @@ mod tests {
     }
 
     impl SsnCtx for TestSsnCtx {
-        fn current_tx(&self) -> Option<XID> {
+        fn current_tx(&self) -> Option<OID> {
             *self.current_tx.lock().unwrap()
         }
 
-        fn begin_tx(&self, xid: XID) -> RS<()> {
+        fn begin_tx(&self, xid: OID) -> RS<()> {
             *self.current_tx.lock().unwrap() = Some(xid);
             Ok(())
         }
@@ -51,7 +52,7 @@ mod tests {
     }
 
     struct TestQueryExec {
-        rows: Mutex<VecDeque<TupleField>>,
+        rows: SMutex<VecDeque<TupleField>>,
         tuple_desc: TupleFieldDesc,
     }
 
@@ -117,7 +118,7 @@ mod tests {
         let stmt = TestStmtQuery {
             fail_realize: false,
             exec: Arc::new(TestQueryExec {
-                rows: Mutex::new(VecDeque::new()),
+                rows: SMutex::new(VecDeque::new()),
                 tuple_desc: int_tuple_desc(),
             }),
             proj_list: int_proj_list(),
@@ -136,7 +137,7 @@ mod tests {
         let stmt = TestStmtQuery {
             fail_realize: false,
             exec: Arc::new(TestQueryExec {
-                rows: Mutex::new(VecDeque::from(vec![TupleField::new(vec![])])),
+                rows: SMutex::new(VecDeque::from(vec![TupleField::new(vec![])])),
                 tuple_desc: int_tuple_desc(),
             }),
             proj_list: int_proj_list(),

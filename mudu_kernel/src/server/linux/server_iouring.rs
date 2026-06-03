@@ -12,6 +12,7 @@ use mudu_utils::task_async::{build_current_thread_runtime, CurrentThreadTaskRunt
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
 use tracing::{debug, trace};
 
 pub(crate) struct RecoveryCoordinator {
@@ -129,30 +130,32 @@ pub(crate) fn sync_serve_iouring(
                         Some(listener) => listener.into_raw_fd(),
                         None => create_listener_fd(listen_addr)?,
                     };
-                    let worker = WorkerRuntime::new_with_log_batching_and_runtime(
-                        worker_identity,
-                        worker_count,
-                        log_dir.clone(),
-                        data_dir.clone(),
-                        log_chunk_size,
-                        log_batching,
-                        procedure_runtime,
-                        worker_registry,
-                        async_runtime,
-                        server_instance_id,
-                    )?;
-                    let mut loop_state = WorkerRingLoop::new(
-                        worker,
-                        listener_fd,
-                        mailbox_fd,
-                        mailbox,
-                        all_mailboxes,
-                        all_mailbox_fds,
-                        conn_id_alloc,
-                        recovery_coordinator,
-                        stop,
-                    )?;
-                    runtime.block_on(async move { loop_state.run() })
+                    runtime.block_on(async move {
+                        let worker = WorkerRuntime::new_with_log_batching_and_runtime(
+                            worker_identity,
+                            worker_count,
+                            log_dir.clone(),
+                            data_dir.clone(),
+                            log_chunk_size,
+                            log_batching,
+                            procedure_runtime,
+                            worker_registry,
+                            async_runtime,
+                            server_instance_id,
+                        ).await?;
+                        let mut loop_state = WorkerRingLoop::new(
+                            worker,
+                            listener_fd,
+                            mailbox_fd,
+                            mailbox,
+                            all_mailboxes,
+                            all_mailbox_fds,
+                            conn_id_alloc,
+                            recovery_coordinator,
+                            stop,
+                        )?;
+                        loop_state.run()
+                    })
                 })();
                 if result.is_err() {
                     recovery_coordinator_for_failure.worker_failed();
@@ -278,11 +281,11 @@ impl RecoveryCoordinator {
 }
 
 fn create_listener_fd(listen_addr: std::net::SocketAddr) -> RS<RawFd> {
-    mudu_sys::net::create_tcp_listener_fd(listen_addr, 1024)
+    mudu_sys::io::net::create_tcp_listener_fd(listen_addr, 1024)
 }
 
 pub fn set_connection_options(fd: RawFd) -> RS<()> {
-    mudu_sys::net::set_tcp_nodelay(fd)
+    mudu_sys::io::net::set_tcp_nodelay(fd)
 }
 
 fn create_mailbox_event_fd() -> RS<RawFd> {
@@ -361,5 +364,5 @@ mod tests {
 }
 
 pub fn sockaddr_to_socket_addr(storage: &mudu_sys::uring::SockAddrBuf) -> RS<std::net::SocketAddr> {
-    mudu_sys::net::sockaddr_to_socket_addr(storage)
+    mudu_sys::io::net::sockaddr_to_socket_addr(storage)
 }

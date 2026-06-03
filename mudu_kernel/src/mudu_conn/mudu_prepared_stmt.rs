@@ -6,13 +6,14 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
 use crate::server::worker_local::WorkerLocalRef;
 
 pub struct MuduPreparedStmt {
     worker_local: WorkerLocalRef,
-    session_id: Arc<Mutex<Option<OID>>>,
+    session_id: Arc<SMutex<Option<OID>>>,
     sql: Box<dyn SQLStmt>,
     desc: Arc<TupleFieldDesc>,
 }
@@ -20,7 +21,7 @@ pub struct MuduPreparedStmt {
 impl MuduPreparedStmt {
     pub fn new(
         worker_local: WorkerLocalRef,
-        session_id: Arc<Mutex<Option<OID>>>,
+        session_id: Arc<SMutex<Option<OID>>>,
         sql: Box<dyn SQLStmt>,
         desc: Arc<TupleFieldDesc>,
     ) -> Self {

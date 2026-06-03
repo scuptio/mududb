@@ -14,7 +14,7 @@ use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::PortalStore;
 use pgwire::api::{ClientInfo, ClientPortalStore, METADATA_DATABASE, Type};
 
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 /// session would be accessed in local thread
 pub struct Session {
-    _xid: RefCell<Option<XID>>,
+    _xid: RefCell<Option<OID>>,
     ctx: SessionCtx,
     parser: Arc<NoopQueryParser>,
 }

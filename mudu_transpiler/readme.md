@@ -8,11 +8,28 @@ procedures compile to WebAssembly (WASM) and execute natively within MuduDB.
 
 ## Supported Languages
 
-- AssemblyScript (in progress)
+- AssemblyScript
 - C# (in progress)
 - Golang (in progress)
 - Python (in progress)
 - Rust (currently)
+
+## AssemblyScript procedures
+
+AssemblyScript procedures are discovered with a `/**mudu-proc*/` marker and must use the common shim signature:
+
+```ts
+/**mudu-proc*/
+export function transfer(id: Oid, values: ValueList): ValueList {
+  return values;
+}
+```
+
+`mtp --input procedure.ts --output procedure.gen.ts assembly-script` writes:
+
+- `procedure.gen.ts`: original AssemblyScript source with generated `adapter_P` exports appended
+- `procedure.gen.rs`: generic language procedure shim Rust P2 wrappers such as `mp2_P` and `mudu_inner_p2_P`
+- `procedure.gen.wit`: procedure-specific WIT interfaces such as `procedure-p`
 
 ## Key Features
 

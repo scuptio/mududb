@@ -1,3 +1,4 @@
+use crate::wal::xl_data_op::XLWrite;
 use mudu::common::id::{AttrIndex, OID};
 use serde::{Deserialize, Serialize};
 
@@ -40,14 +41,22 @@ pub enum PartitionRpcRequest {
         key: Vec<u8>,
         values: Vec<(AttrIndex, Vec<u8>)>,
     },
+    ApplyCrossPartitionTx {
+        tx_id: OID,
+        coordinator_worker_id: OID,
+        partition_id: OID,
+        visibility_epoch: u64,
+        partition_write_set: Vec<XLWrite>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PartitionRpcResponse {
-    ReadKey(Option<Vec<Vec<u8>>>),
-    ReadRange(Vec<Vec<Vec<u8>>>),
+    ReadKey(Option<Vec<Option<Vec<u8>>>>),
+    ReadRange(Vec<Vec<Option<Vec<u8>>>>),
     Insert,
     Delete(usize),
     Update(usize),
+    ApplyCrossPartitionTx,
     Err(String),
 }

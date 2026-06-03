@@ -14,7 +14,11 @@ pub(crate) fn project_tuple_desc(table_desc: &TableDesc, select: &VecSelTerm) ->
         .iter()
         .map(|attr| {
             let field = table_desc.get_attr(*attr);
-            DatumDesc::new(field.name().clone(), field.type_desc().clone())
+            DatumDesc::new_nullable(
+                field.name().clone(),
+                field.type_desc().clone(),
+                field.nullable(),
+            )
         })
         .collect();
     TupleFieldDesc::new(fields)

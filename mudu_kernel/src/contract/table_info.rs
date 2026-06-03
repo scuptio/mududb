@@ -8,11 +8,11 @@ use mudu::m_error;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 
 #[derive(Clone)]
 pub struct TableInfo {
-    inner: Arc<Mutex<TableInner>>,
+    inner: Arc<SMutex<TableInner>>,
 }
 
 struct TableInner {
@@ -31,7 +31,7 @@ struct TableInner {
 impl TableInfo {
     pub fn new(table_schema: SchemaTable) -> RS<Self> {
         Ok(Self {
-            inner: Arc::new(Mutex::new(TableInner::new(table_schema)?)),
+            inner: Arc::new(SMutex::new(TableInner::new(table_schema)?)),
         })
     }
 

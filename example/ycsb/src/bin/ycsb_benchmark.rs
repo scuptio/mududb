@@ -6,7 +6,7 @@ use mudu_utils::task_async::spawn_task;
 use mudu_utils::task_trace;
 use mududb::binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::database::sql_stmt_text::SQLStmtText;
 use mududb::sys_interface::async_api::{
     mudu_close as mudu_close_async, mudu_command as mudu_command_async,
@@ -578,7 +578,7 @@ fn run_worker_sync(
     let partition_index = worker_partition(worker_idx, args.partition_count);
     let slot = routing.slot(partition_index)?;
     let worker_id = slot.worker_id;
-    let xid = mudu_open_argv(&UniSessionOpenArgv::new(worker_id))? as XID;
+    let xid = mudu_open_argv(&UniSessionOpenArgv::new(worker_id))? as OID;
     let mut rng = Lcg::new(args.seed.wrapping_add(worker_idx as u64 + 1));
     let mut counters = Counters::default();
 
@@ -640,7 +640,7 @@ async fn run_worker_async(
                 e
             )
         })?;
-        mudu_open_argv_async(&UniSessionOpenArgv::new(worker_id)).await? as XID
+        mudu_open_argv_async(&UniSessionOpenArgv::new(worker_id)).await? as OID
     };
     let mut rng = Lcg::new(args.seed.wrapping_add(worker_idx as u64 + 1));
     let mut counters = Counters::default();
@@ -768,7 +768,7 @@ fn build_partition_routing(
 }
 
 fn run_load_phase_sync(
-    xid: XID,
+    xid: OID,
     worker_idx: usize,
     connection_count: usize,
     partition_id: u128,
@@ -801,7 +801,7 @@ fn run_load_phase_sync(
 }
 
 async fn run_load_phase_async(
-    xid: XID,
+    xid: OID,
     worker_idx: usize,
     connection_count: usize,
     partition_id: u128,
@@ -837,7 +837,7 @@ async fn run_load_phase_async(
 }
 
 fn run_run_phase_sync(
-    xid: XID,
+    xid: OID,
     counters: &mut Counters,
     rng: &mut Lcg,
     worker_idx: usize,
@@ -893,7 +893,7 @@ fn run_run_phase_sync(
 }
 
 async fn run_run_phase_async(
-    xid: XID,
+    xid: OID,
     counters: &mut Counters,
     rng: &mut Lcg,
     worker_idx: usize,
@@ -968,43 +968,43 @@ fn transaction_enabled(args: &Args, phase: WorkerPhase) -> bool {
     args.enable_transaction && (matches!(phase, WorkerPhase::Run) || args.transaction_load)
 }
 
-fn begin_transaction_sync(xid: XID) -> RS<()> {
+fn begin_transaction_sync(xid: OID) -> RS<()> {
     exec_transaction_sql_sync(xid, "begin transaction")
 }
 
-fn commit_transaction_sync(xid: XID) -> RS<()> {
+fn commit_transaction_sync(xid: OID) -> RS<()> {
     exec_transaction_sql_sync(xid, "commit transaction")
 }
 
-fn rollback_transaction_sync(xid: XID) -> RS<()> {
+fn rollback_transaction_sync(xid: OID) -> RS<()> {
     exec_transaction_sql_sync(xid, "rollback transaction")
 }
 
-fn exec_transaction_sql_sync(xid: XID, sql: &str) -> RS<()> {
+fn exec_transaction_sql_sync(xid: OID, sql: &str) -> RS<()> {
     let stmt = SQLStmtText::new(sql.to_string());
     let _ = mudu_command_sync(xid as _, &stmt, &())?;
     Ok(())
 }
 
-async fn begin_transaction_async(xid: XID) -> RS<()> {
+async fn begin_transaction_async(xid: OID) -> RS<()> {
     exec_transaction_sql_async(xid, "begin transaction").await
 }
 
-async fn commit_transaction_async(xid: XID) -> RS<()> {
+async fn commit_transaction_async(xid: OID) -> RS<()> {
     exec_transaction_sql_async(xid, "commit transaction").await
 }
 
-async fn rollback_transaction_async(xid: XID) -> RS<()> {
+async fn rollback_transaction_async(xid: OID) -> RS<()> {
     exec_transaction_sql_async(xid, "rollback transaction").await
 }
 
-async fn exec_transaction_sql_async(xid: XID, sql: &str) -> RS<()> {
+async fn exec_transaction_sql_async(xid: OID, sql: &str) -> RS<()> {
     let stmt = SQLStmtText::new(sql.to_string());
     let _ = mudu_command_async(xid as _, &stmt, &()).await?;
     Ok(())
 }
 
-fn run_in_transaction_sync<F>(xid: XID, f: F) -> RS<()>
+fn run_in_transaction_sync<F>(xid: OID, f: F) -> RS<()>
 where
     F: FnOnce() -> RS<()>,
 {
@@ -1018,7 +1018,7 @@ where
     }
 }
 
-async fn run_in_transaction_async<F>(xid: XID, future: F) -> RS<()>
+async fn run_in_transaction_async<F>(xid: OID, future: F) -> RS<()>
 where
     F: std::future::Future<Output = RS<()>>,
 {
@@ -1033,7 +1033,7 @@ where
 }
 
 fn execute_run_op_sync(
-    xid: XID,
+    xid: OID,
     counters: &mut Counters,
     rng: &mut Lcg,
     connection_count: usize,
@@ -1088,7 +1088,7 @@ fn execute_run_op_sync(
 }
 
 async fn execute_run_op_async(
-    xid: XID,
+    xid: OID,
     counters: &mut Counters,
     rng: &mut Lcg,
     connection_count: usize,

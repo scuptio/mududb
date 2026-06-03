@@ -2,7 +2,7 @@ use crate::service::service_trait::ServiceTrait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_utils::sync::async_task::TaskWrapper;
+use mudu_sys::sync::async_task::TaskWrapper;
 use mudu_utils::task_async::build_current_thread_runtime;
 use tracing::debug;
 

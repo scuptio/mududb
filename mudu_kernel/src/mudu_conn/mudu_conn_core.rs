@@ -173,8 +173,13 @@ fn tuple_field_to_value(
     let mut values = Vec::with_capacity(row.fields().len());
     for (index, field) in row.fields().iter().enumerate() {
         let datum_desc = &desc.fields()[index];
-        let typed = TypedBin::new(datum_desc.dat_type_id(), field.clone());
-        values.push(typed.to_value(datum_desc.dat_type())?);
+        match field {
+            Some(field) => {
+                let typed = TypedBin::new(datum_desc.dat_type_id(), field.clone());
+                values.push(typed.to_value(datum_desc.dat_type())?);
+            }
+            None => values.push(mudu_type::dat_value::DatValue::null()),
+        }
     }
     Ok(TupleValue::from(values))
 }

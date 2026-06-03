@@ -4,7 +4,7 @@ use mudu::common::result::RS;
 use mudu_utils::notifier::Waiter;
 
 use mudu_sys::tokio::sync::mpsc::Receiver;
-use mudu_utils::sync::async_task::{AsyncLocalTask, Task};
+use mudu_sys::sync::async_task::{AsyncLocalTask, Task};
 use mudu_utils::task_async::spawn_local_task;
 use tracing::error;
 

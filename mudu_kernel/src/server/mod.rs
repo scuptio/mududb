@@ -7,7 +7,6 @@
 
 pub mod async_func_runtime;
 mod async_func_task;
-mod async_func_task_waker;
 #[cfg(target_os = "linux")]
 #[path = "linux/callback_registry.rs"]
 mod callback_registry;
@@ -37,6 +36,7 @@ mod partition_rpc;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "linux/perf_test.rs"]
 mod perf_test;
+mod procedure_runtimes;
 #[cfg(target_os = "linux")]
 #[path = "linux/protocol_codec.rs"]
 mod protocol_codec;
@@ -52,9 +52,6 @@ pub mod server_launch;
 pub mod server_runtime_deps;
 mod session_bound_worker_runtime;
 mod task;
-#[cfg(target_os = "linux")]
-#[path = "linux/task_registry.rs"]
-pub(crate) mod task_registry;
 #[cfg(test)]
 pub(crate) mod test_meta_mgr;
 pub mod worker;
@@ -70,10 +67,6 @@ mod worker_ring_loop;
 mod worker_session_manager;
 pub mod worker_snapshot;
 mod worker_storage;
-#[cfg(target_os = "linux")]
-#[path = "linux/worker_task.rs"]
-mod worker_task;
 mod worker_tx_manager;
 pub mod x_contract;
 mod x_lock_mgr;
-mod procedure_runtimes;

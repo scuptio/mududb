@@ -19,7 +19,7 @@ impl ValueCodec {
         dat_type: &DatType,
         params: &dyn SQLParams,
         param_index: &mut usize,
-    ) -> RS<Buf> {
+    ) -> RS<Option<Buf>> {
         match expr {
             ExprValue::ValueLiteral(literal) => Self::binary_from_literal(literal, dat_type),
             ExprValue::ValuePlaceholder => {
@@ -28,17 +28,21 @@ impl ValueCodec {
                     m_error!(ER::IndexOutOfRange, format!("missing parameter {}", index))
                 })?;
                 *param_index += 1;
-                datum.to_binary(dat_type).map(|binary| binary.into())
+                datum.to_binary(dat_type).map(|binary| Some(binary.into()))
             }
         }
     }
 
-    pub(crate) fn binary_from_literal(literal: &ExprLiteral, dat_type: &DatType) -> RS<Buf> {
+    pub(crate) fn binary_from_literal(
+        literal: &ExprLiteral,
+        dat_type: &DatType,
+    ) -> RS<Option<Buf>> {
         match literal {
+            ExprLiteral::Null => Ok(None),
             ExprLiteral::DatumLiteral(typed) => Self::coerce_literal(typed, dat_type)?
                 .dat_internal()
                 .to_binary(dat_type)
-                .map(|binary| binary.into())
+                .map(|binary| Some(binary.into()))
                 .map_err(|e| m_error!(ER::TypeBaseErr, "literal type mismatch", e)),
         }
     }

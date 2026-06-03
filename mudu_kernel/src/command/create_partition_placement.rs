@@ -3,7 +3,7 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::x_engine::x_param::PCreatePartitionPlacement;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_mutex::AMutex;
 use std::sync::Arc;
 
 pub struct CreatePartitionPlacement {

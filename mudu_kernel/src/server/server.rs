@@ -1,4 +1,4 @@
-use crate::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::async_func_task::HandleResult;
 
@@ -42,7 +42,8 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc};
+use mudu_sys::sync::SMutex;
 
 use crate::server::server_launch::{ServerLaunch, WorkerTcpBackendConfig};
 use std::thread;
@@ -67,7 +68,7 @@ struct TokioWorkerMessageBus {
     mailboxes: Vec<Arc<SegQueue<Envelope>>>,
     mailbox_wakes: Vec<Arc<Notify>>,
     next_msg_id: AtomicU64,
-    state: Mutex<WorkerMessageBusState>,
+    state: SMutex<WorkerMessageBusState>,
 }
 
 impl TokioWorkerMessageBus {
@@ -83,7 +84,7 @@ impl TokioWorkerMessageBus {
             mailboxes,
             mailbox_wakes,
             next_msg_id: AtomicU64::new(1),
-            state: Mutex::new(WorkerMessageBusState::new()),
+            state: SMutex::new(WorkerMessageBusState::new()),
         })
     }
 
@@ -107,33 +108,17 @@ impl TokioWorkerMessageBus {
         Ok(())
     }
 
-    fn route_worker_index(&self, endpoint: &EndpointId) -> RS<usize> {
-        match endpoint {
-            EndpointId::Worker(worker_id) => self
-                .registry
-                .worker_index_by_worker_id(*worker_id)
-                .ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
-                        format!("no such worker id {}", worker_id)
-                    )
-                }),
-            EndpointId::External(external_id) => Err(m_error!(
-                EC::NotImplemented,
-                format!("external endpoint {} is not implemented yet", external_id)
-            )),
-            EndpointId::Session(session_id) => Err(m_error!(
-                EC::NotImplemented,
-                format!("session endpoint {} is not implemented yet", session_id)
-            )),
-        }
+    fn route_worker_index(&self, endpoint: EndpointId) -> RS<usize> {
+        self.registry
+            .worker_index_by_worker_id(endpoint)
+            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such worker id {}", endpoint)))
     }
 }
 
 #[async_trait]
 impl MessageBus for TokioWorkerMessageBus {
     fn local_endpoint(&self) -> EndpointId {
-        EndpointId::Worker(self.local_worker_id)
+        self.local_worker_id
     }
 
     async fn send(&self, dst: EndpointId, message: OutgoingMessage) -> RS<MessageId> {
@@ -148,7 +133,7 @@ impl MessageBus for TokioWorkerMessageBus {
             message.payload_owned(),
             message.delivery(),
         );
-        let target_worker = self.route_worker_index(&dst)?;
+        let target_worker = self.route_worker_index(dst)?;
         let Some(mailbox) = self.mailboxes.get(target_worker) else {
             return Err(m_error!(
                 EC::InternalErr,
@@ -248,7 +233,7 @@ impl WorkerBuildConfig {
         })
     }
 
-    fn build_worker(self) -> RS<WorkerRuntime> {
+    async fn build_worker(self) -> RS<WorkerRuntime> {
         WorkerRuntime::new_with_log_batching_and_runtime(
             self.worker_identity,
             self.worker_count,
@@ -260,7 +245,7 @@ impl WorkerBuildConfig {
             self.worker_registry,
             self.async_runtime,
             self.server_instance_id,
-        )
+        ).await
     }
 }
 
@@ -442,39 +427,42 @@ fn sync_serve_tokio(
         let handle = thread::Builder::new()
             .name(format!("tokio-tcp-worker-{worker_id}"))
             .spawn(move || {
-                trace!(worker_id, "tokio worker thread starting");
-                listener
-                    .set_nonblocking(true)
-                    .map_err(|e| m_error!(EC::NetErr, "set tokio listener nonblocking error", e))?;
-                let worker = worker_cfg.build_worker()?;
-                let message_bus = TokioWorkerMessageBus::new(
-                    worker.worker_id(),
-                    worker.registry().clone(),
-                    all_bus_mailboxes,
-                    all_bus_wakes,
-                );
-                let worker_id = worker.worker_id();
-                let server_instance_id = worker.server_instance_id();
-                let conn_tasks = TokioConnTaskState::new();
                 let runtime = CurrentThreadTaskRuntime::new()
                     .map_err(|e| m_error!(EC::TokioErr, "build tokio worker runtime error", e))?;
-                set_current_worker_local(as_worker_local_ref(new_session_bound_worker_runtime(
-                    worker.clone(),
-                    0,
-                )));
-                let message_bus_ref = message_bus.bus_ref();
-                set_current_message_bus(message_bus_ref.clone());
-                register_worker_message_bus(
-                    server_instance_id,
-                    worker.worker_id(),
-                    &message_bus_ref,
-                )?;
                 let result = runtime.block_on(async move {
+                    trace!(worker_id, "tokio worker thread starting");
+                    listener
+                        .set_nonblocking(true)
+                        .map_err(|e| m_error!(EC::NetErr, "set tokio listener nonblocking error", e))?;
+                    let worker = worker_cfg.build_worker().await?;
+                    worker.bootstrap_storage_async().await.map_err(|e| {
+                        m_error!(EC::StorageErr, "bootstrap worker storage failed", e)
+                    })?;
+                    let message_bus = TokioWorkerMessageBus::new(
+                        worker.worker_id(),
+                        worker.registry().clone(),
+                        all_bus_mailboxes,
+                        all_bus_wakes,
+                    );
+                    let worker_id = worker.worker_id();
+                    let server_instance_id = worker.server_instance_id();
+                    let conn_tasks = TokioConnTaskState::new();
+                    set_current_worker_local(as_worker_local_ref(new_session_bound_worker_runtime(
+                        worker.clone(),
+                        0,
+                    )));
+                    let message_bus_ref = message_bus.bus_ref();
+                    set_current_message_bus(message_bus_ref.clone());
+                    register_worker_message_bus(
+                        server_instance_id,
+                        worker.worker_id(),
+                        &message_bus_ref,
+                    )?;
                     trace!(worker_id, "tokio worker loop entering");
                     let listener = TokioTcpListener::from_std(listener)
                         .map_err(|e| m_error!(EC::NetErr, "convert tokio tcp listener error", e))?;
                     worker.ensure_partition_rpc_handler()?;
-                    recover_worker_log_tokio(&worker)?;
+                    recover_worker_log_tokio(&worker).await?;
                     let (_task_notifier, task_waiter) = notify_wait();
                     let join = spawn_local_task(
                         task_waiter.into(),
@@ -494,6 +482,9 @@ fn sync_serve_tokio(
                         ),
                     )?;
                     let _ = started_tx.send(Ok(()));
+                    let _ = unregister_worker_message_bus(server_instance_id, worker_id);
+                    unset_current_message_bus();
+                    unset_current_worker_local();
                     match join.await.map_err(|e| {
                         m_error!(EC::TokioErr, "join tokio worker loop task error", e)
                     })? {
@@ -502,9 +493,7 @@ fn sync_serve_tokio(
                     }
                 });
                 trace!(worker_id, ok = result.is_ok(), "tokio worker loop returned");
-                let _ = unregister_worker_message_bus(server_instance_id, worker_id);
-                unset_current_message_bus();
-                unset_current_worker_local();
+
                 trace!(worker_id, "tokio worker thread exiting");
                 result
             })
@@ -634,11 +623,11 @@ async fn run_worker_loop_tokio(
     Ok(())
 }
 
-fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
+async fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
     let Some(log) = worker.worker_log() else {
         return Ok(());
     };
-    let chunk_paths = log.chunk_paths_sorted()?;
+    let chunk_paths = log.chunk_paths_sorted().await?;
     for path in chunk_paths {
         let bytes = std::fs::read(&path).map_err(|e| {
             m_error!(
@@ -653,7 +642,7 @@ fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
         let frames = decode_frames(&bytes)?;
         let batches = decode_xl_batches(&frames)?;
         for batch in batches {
-            worker.replay_log_batch(batch)?;
+            worker.replay_log_batch(batch).await?;
         }
     }
     Ok(())

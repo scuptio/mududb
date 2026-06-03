@@ -169,6 +169,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_insert_null_literal() {
+        let stmts = parse_sql("insert into users (id, name) values (1, null);").unwrap();
+
+        let StmtType::Command(StmtCommand::Insert(stmt)) = &stmts[0] else {
+            panic!("expected insert");
+        };
+        assert!(matches!(
+            stmt.values_list()[0][1],
+            ExprValue::ValueLiteral(crate::ast::expr_literal::ExprLiteral::Null)
+        ));
+    }
+
+    #[test]
     fn parse_multiple_statements_with_trailing_semicolons() {
         let stmts =
             parse_sql("insert into users values (1); delete from users where id = 1;").unwrap();
@@ -272,9 +285,10 @@ mod tests {
     #[test]
     fn parse_update_without_where_returns_error() {
         let err = parse_sql("update users set id = 1;").unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("no where clause in update statement"));
+        assert!(
+            err.to_string()
+                .contains("no where clause in update statement")
+        );
     }
 
     #[test]
@@ -335,6 +349,25 @@ mod tests {
     );";
         let r = parse_sql(sql);
         assert!(r.is_ok());
+    }
+
+    #[test]
+    fn parse_create_table_tracks_nullable_constraints() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE users (
+                id INT PRIMARY KEY,
+                name CHAR(32) NOT NULL,
+                nickname CHAR(32)
+            );
+            ",
+        )
+        .unwrap();
+
+        let columns = stmt.column_def();
+        assert!(!columns[0].nullable());
+        assert!(!columns[1].nullable());
+        assert!(columns[2].nullable());
     }
 
     #[test]
@@ -512,6 +545,30 @@ mod tests {
         assert!(columns[0].data_type_param().is_none());
         assert!(columns[1].data_type_param().is_none());
         assert!(columns[2].data_type_param().is_none());
+    }
+
+    #[test]
+    fn parse_create_table_hugeint_maps_to_i128() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE ledger (
+                id BIGINT PRIMARY KEY,
+                amount HUGEINT
+            );
+            ",
+        )
+        .unwrap();
+
+        let amount = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "amount")
+            .expect("amount column");
+        assert!(matches!(
+            amount.data_type(),
+            UniDatType::Scalar(UniScalar::I128)
+        ));
+        assert!(amount.data_type_param().is_none());
     }
 
     #[test]

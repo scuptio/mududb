@@ -1965,6 +1965,10 @@
           "named": true
         },
         {
+          "type": "hugeint",
+          "named": true
+        },
+        {
           "type": "int",
           "named": true
         },
@@ -3290,6 +3294,21 @@
         },
         {
           "type": "keyword_only",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "hugeint",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "keyword_hugeint",
           "named": true
         }
       ]
@@ -5410,6 +5429,10 @@
   },
   {
     "type": "keyword_group",
+    "named": true
+  },
+  {
+    "type": "keyword_hugeint",
     "named": true
   },
   {

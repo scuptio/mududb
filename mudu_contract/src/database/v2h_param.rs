@@ -1,12 +1,12 @@
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu_type::dat_value::DatValue;
 use serde::{Deserialize, Serialize};
 
 pub struct QueryIn {
-    xid: XID,
+    xid: OID,
     sql: String,
     param_list: Vec<DatValue>,
     param_desc: TupleFieldDesc,
@@ -14,13 +14,13 @@ pub struct QueryIn {
 
 #[derive(Serialize, Deserialize)]
 pub struct QueryResult {
-    xid: XID,
+    xid: OID,
     tuple_desc: TupleFieldDesc,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ResultCursor {
-    xid: XID,
+    xid: OID,
 }
 #[derive(Serialize, Deserialize)]
 pub struct ResultRow {
@@ -29,7 +29,7 @@ pub struct ResultRow {
 
 #[derive(Serialize, Deserialize)]
 pub struct CommandIn {
-    xid: XID,
+    xid: OID,
     sql: String,
     param_list: Vec<Vec<u8>>,
     param_desc: TupleFieldDesc,
@@ -37,12 +37,12 @@ pub struct CommandIn {
 
 #[derive(Serialize, Deserialize)]
 pub struct CommandResult {
-    xid: XID,
+    xid: OID,
     affected_rows: u64,
 }
 
 impl QueryIn {
-    pub fn new(xid: XID, sql: String, param: Vec<DatValue>, desc: TupleFieldDesc) -> Self {
+    pub fn new(xid: OID, sql: String, param: Vec<DatValue>, desc: TupleFieldDesc) -> Self {
         Self {
             xid,
             sql,
@@ -51,7 +51,7 @@ impl QueryIn {
         }
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 
@@ -69,22 +69,22 @@ impl QueryIn {
 }
 
 impl ResultCursor {
-    pub fn new(xid: XID) -> ResultCursor {
+    pub fn new(xid: OID) -> ResultCursor {
         Self { xid }
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 }
 impl QueryResult {
-    pub fn new(xid: XID, row_desc: TupleFieldDesc) -> QueryResult {
+    pub fn new(xid: OID, row_desc: TupleFieldDesc) -> QueryResult {
         Self {
             xid,
             tuple_desc: row_desc,
         }
     }
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 
@@ -116,7 +116,7 @@ impl ResultRow {
 }
 
 impl CommandIn {
-    pub fn new(xid: XID, sql: String, param: Vec<Vec<u8>>, desc: TupleFieldDesc) -> CommandIn {
+    pub fn new(xid: OID, sql: String, param: Vec<Vec<u8>>, desc: TupleFieldDesc) -> CommandIn {
         Self {
             xid,
             sql,
@@ -125,7 +125,7 @@ impl CommandIn {
         }
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 
@@ -143,7 +143,7 @@ impl CommandIn {
 }
 
 impl CommandResult {
-    pub fn new(xid: XID, affected_rows: u64) -> Self {
+    pub fn new(xid: OID, affected_rows: u64) -> Self {
         Self { xid, affected_rows }
     }
 
@@ -151,7 +151,7 @@ impl CommandResult {
         self.affected_rows
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 }

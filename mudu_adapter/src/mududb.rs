@@ -21,13 +21,14 @@ use mudu_contract::protocol::{
 };
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_rwlock::ARwLock;
 use mudu_utils::task_async::build_current_thread_runtime;
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 use std::thread;
 
 struct MududSession {
@@ -35,7 +36,7 @@ struct MududSession {
     remote_session_id: u128,
 }
 
-type SessionRef = Arc<Mutex<MududSession>>;
+type SessionRef = Arc<SMutex<MududSession>>;
 
 lazy_static! {
     static ref SESSIONS: SccHashMap<OID, SessionRef> = SccHashMap::new();
@@ -118,7 +119,7 @@ pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
     let mut client = SyncClient::connect(addr.as_str())?;
     let remote_session_id = client.create_session(session_open_config_json(argv.worker_oid()))?;
     let session_id = state::next_session_id();
-    let session = Arc::new(Mutex::new(MududSession {
+    let session = Arc::new(SMutex::new(MududSession {
         client,
         remote_session_id,
     }));

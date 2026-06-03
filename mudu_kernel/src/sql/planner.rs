@@ -268,10 +268,11 @@ mod tests {
     use mudu_type::dt_info::DTInfo;
     use std::collections::{BTreeMap, HashMap};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     struct TestMetaMgr {
-        tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
+        tables: SMutex<HashMap<OID, Arc<TableDesc>>>,
     }
 
     impl TestMetaMgr {
@@ -280,7 +281,7 @@ mod tests {
             let mut tables = HashMap::new();
             tables.insert(table.id(), table);
             Self {
-                tables: Mutex::new(tables),
+                tables: SMutex::new(tables),
             }
         }
 
@@ -448,7 +449,7 @@ mod tests {
             _pred_key: &VecDatum,
             _select: &VecSelTerm,
             _opt_read: &OptRead,
-        ) -> RS<Option<Vec<Vec<u8>>>> {
+        ) -> RS<Option<Vec<Option<Vec<u8>>>>> {
             self.read_key_calls.fetch_add(1, Ordering::Relaxed);
             Ok(None)
         }

@@ -1,4 +1,5 @@
-use crate::wal::xl_data_op::{XLDelete, XLInsert, XLUpdate};
+use crate::wal::xl_data_op::XLWrite;
+use mudu::common::id::OID;
 use serde::{Deserialize, Serialize};
 
 /// A transaction-log entry for a single transaction.
@@ -36,10 +37,22 @@ pub enum TxOp {
     /// Recovery can use this to ignore or roll back the transaction's pending
     /// logical effects.
     Abort,
-    /// Insert one tuple into a table.
-    Insert(XLInsert),
-    /// Update one existing tuple in a table.
-    Update(XLUpdate),
-    /// Delete one tuple from a table.
-    Delete(XLDelete),
+    /// Apply one tuple write to a table.
+    Write(XLWrite),
+}
+
+impl TxOp {
+    pub fn table_id(&self) -> Option<OID> {
+        match self {
+            Self::Write(write) => Some(write.table_id()),
+            _ => None,
+        }
+    }
+
+    pub fn partition_id(&self) -> Option<OID> {
+        match self {
+            Self::Write(write) => Some(write.partition_id()),
+            _ => None,
+        }
+    }
 }

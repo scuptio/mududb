@@ -1,16 +1,16 @@
 use crate::x_engine::tx_mgr::PhysicalRelationId;
 use mudu::common::id::OID;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 
 pub struct XLockMgr {
-    lock: Mutex<HashMap<PhysicalRelationId, HashMap<Vec<u8>, OID>>>,
+    lock: SMutex<HashMap<PhysicalRelationId, HashMap<Vec<u8>, OID>>>,
 }
 
 impl XLockMgr {
     pub fn new() -> Self {
         Self {
-            lock: Mutex::new(HashMap::new()),
+            lock: SMutex::new(HashMap::new()),
         }
     }
 

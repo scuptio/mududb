@@ -46,8 +46,8 @@ pub struct MuduDBCfg {
     pub tcp_listen_port: u16,
     #[serde(default)]
     pub tcp_multi_port: bool,
-    #[serde(default)]
-    pub io_uring_worker_threads: usize,
+    #[serde(default, alias = "io_uring_worker_threads")]
+    pub worker_threads: usize,
     #[serde(default = "default_ring_entries")]
     pub io_uring_ring_entries: u32,
     #[serde(default = "default_true")]
@@ -86,8 +86,8 @@ impl Display for MuduDBCfg {
         write!(f, "  -> TCP Multi-port: {}\n", self.tcp_multi_port)?;
         write!(
             f,
-            "  -> io_uring workers: {}\n",
-            self.io_uring_worker_threads
+            "  -> workers: {}\n",
+            self.worker_threads
         )?;
         write!(
             f,
@@ -139,7 +139,7 @@ impl Default for MuduDBCfg {
             server_mode: ServerMode::Legacy,
             tcp_listen_port: default_tcp_listen_port(),
             tcp_multi_port: false,
-            io_uring_worker_threads: 0,
+            worker_threads: 0,
             io_uring_ring_entries: default_ring_entries(),
             io_uring_accept_multishot: true,
             io_uring_recv_multishot: true,
@@ -163,8 +163,8 @@ impl MuduDBCfg {
     }
 
     pub fn effective_worker_threads(&self) -> usize {
-        if self.io_uring_worker_threads > 0 {
-            self.io_uring_worker_threads
+        if self.worker_threads > 0 {
+            self.worker_threads
         } else {
             std::thread::available_parallelism()
                 .map(|v| v.get())
@@ -286,7 +286,7 @@ enable_async = true
 # 2 = Tokio
 server_mode = 1
 tcp_listen_port = 9527
-io_uring_worker_threads = 0
+worker_threads = 0
 io_uring_ring_entries = 1024
 io_uring_accept_multishot = true
 io_uring_recv_multishot = true

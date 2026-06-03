@@ -1,0 +1,22 @@
+{
+  "targets": {
+    "debug": {
+      "outFile": "build/debug/mududb-as.wasm",
+      "textFile": "build/debug/mududb-as.wat",
+      "sourceMap": true,
+      "debug": true
+    },
+    "release": {
+      "outFile": "build/release/mududb-as.wasm",
+      "textFile": "build/release/mududb-as.wat",
+      "sourceMap": false,
+      "optimizeLevel": 3,
+      "shrinkLevel": 0,
+      "converge": false,
+      "noAssert": false
+    }
+  },
+  "options": {
+    "bindings": "esm"
+  }
+}

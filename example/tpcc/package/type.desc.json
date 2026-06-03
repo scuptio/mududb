@@ -1,64 +1,257 @@
 {
   "types": {
-    "History": [
+    "Warehouse": [
       2,
       {
-        "record_name": "history",
+        "record_name": "warehouse",
         "record_fields": [
           {
-            "field_name": "h_id",
+            "field_name": "w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "w_name",
             "field_type": [
               0,
               14
             ]
           },
           {
-            "field_name": "h_c_id",
+            "field_name": "w_tax",
             "field_type": [
               0,
               6
             ]
           },
           {
-            "field_name": "h_c_d_id",
+            "field_name": "w_ytd",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "Item": [
+      2,
+      {
+        "record_name": "item",
+        "record_fields": [
+          {
+            "field_name": "i_id",
             "field_type": [
               0,
               6
             ]
           },
           {
-            "field_name": "h_c_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "h_d_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "h_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "h_amount",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "h_data",
+            "field_name": "i_name",
             "field_type": [
               0,
               14
+            ]
+          },
+          {
+            "field_name": "i_price",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "Orders": [
+      2,
+      {
+        "record_name": "orders",
+        "record_fields": [
+          {
+            "field_name": "o_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_d_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_c_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_entry_d",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "o_carrier_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_ol_cnt",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_all_local",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "o_status",
+            "field_type": [
+              0,
+              14
+            ]
+          }
+        ]
+      }
+    ],
+    "Stock": [
+      2,
+      {
+        "record_name": "stock",
+        "record_fields": [
+          {
+            "field_name": "s_i_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "s_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "s_quantity",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "s_ytd",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "s_order_cnt",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "s_remote_cnt",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "OrderLine": [
+      2,
+      {
+        "record_name": "order_line",
+        "record_fields": [
+          {
+            "field_name": "ol_o_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_d_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_number",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_i_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_supply_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_delivery_d",
+            "field_type": [
+              0,
+              14
+            ]
+          },
+          {
+            "field_name": "ol_quantity",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "ol_amount",
+            "field_type": [
+              0,
+              6
             ]
           }
         ]
@@ -150,137 +343,65 @@
         ]
       }
     ],
-    "OrderLine": [
+    "History": [
       2,
       {
-        "record_name": "order_line",
+        "record_name": "history",
         "record_fields": [
           {
-            "field_name": "ol_o_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_d_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_number",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_i_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_supply_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "ol_delivery_d",
+            "field_name": "h_id",
             "field_type": [
               0,
               14
             ]
           },
           {
-            "field_name": "ol_quantity",
+            "field_name": "h_c_id",
             "field_type": [
               0,
               6
             ]
           },
           {
-            "field_name": "ol_amount",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
-    "Warehouse": [
-      2,
-      {
-        "record_name": "warehouse",
-        "record_fields": [
-          {
-            "field_name": "w_id",
+            "field_name": "h_c_d_id",
             "field_type": [
               0,
               6
             ]
           },
           {
-            "field_name": "w_name",
+            "field_name": "h_c_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "h_d_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "h_w_id",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "h_amount",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "h_data",
             "field_type": [
               0,
               14
-            ]
-          },
-          {
-            "field_name": "w_tax",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "w_ytd",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
-    "Item": [
-      2,
-      {
-        "record_name": "item",
-        "record_fields": [
-          {
-            "field_name": "i_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "i_name",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "i_price",
-            "field_type": [
-              0,
-              6
             ]
           }
         ]
@@ -373,127 +494,6 @@
             "field_type": [
               0,
               6
-            ]
-          }
-        ]
-      }
-    ],
-    "Stock": [
-      2,
-      {
-        "record_name": "stock",
-        "record_fields": [
-          {
-            "field_name": "s_i_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "s_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "s_quantity",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "s_ytd",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "s_order_cnt",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "s_remote_cnt",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
-    "Orders": [
-      2,
-      {
-        "record_name": "orders",
-        "record_fields": [
-          {
-            "field_name": "o_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_d_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_w_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_c_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_entry_d",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "o_carrier_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_ol_cnt",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_all_local",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "o_status",
-            "field_type": [
-              0,
-              14
             ]
           }
         ]

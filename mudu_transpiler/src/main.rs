@@ -1,4 +1,6 @@
+mod assemblyscript;
 mod mtp;
+mod procedure_shim;
 mod rust;
 mod test_mtp;
 

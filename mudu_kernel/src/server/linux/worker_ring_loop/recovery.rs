@@ -4,32 +4,38 @@ use crate::wal::typed_worker_log::WorkerLogRecoveryHandler;
 use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogRecoverySource};
 use crate::wal::xl_batch::XLBatch;
 use std::path::{Path, PathBuf};
+use async_trait::async_trait;
 
 pub(super) struct WorkerRingLoopRecoveryHandler {
     pub(super) worker: WorkerRuntime,
 }
 
+#[async_trait]
 impl WorkerLogRecoveryHandler<XLBatch> for WorkerRingLoopRecoveryHandler {
-    fn handle_entry(&self, entry: XLBatch, _start_lsn: LSN) -> RS<()> {
-        self.worker.replay_log_batch(entry)
+    async fn handle_entry(&self, entry: XLBatch, _start_lsn: LSN) -> RS<()> {
+        self.worker.replay_log_batch(entry).await
     }
 
     fn finish(&self) -> RS<()> {
-        Ok(())
+        self.worker.finish_log_recovery()
     }
 }
 
-struct WorkerRingLoopRecoverySource<'a> {
-    loop_ref: &'a mut WorkerRingLoop,
+struct WorkerRingLoopRecoverySource {
+    loop_ref: *mut WorkerRingLoop,
     backend: ChunkedWorkerLogBackend,
 }
 
-impl WorkerLogRecoverySource for WorkerRingLoopRecoverySource<'_> {
-    fn chunk_paths_sorted(&mut self) -> RS<Vec<PathBuf>> {
-        self.backend.chunk_paths_sorted()
+unsafe impl Send for WorkerRingLoopRecoverySource {}
+unsafe impl Sync for WorkerRingLoopRecoverySource {}
+
+#[async_trait]
+impl WorkerLogRecoverySource for WorkerRingLoopRecoverySource {
+    async fn chunk_paths_sorted(& self) -> RS<Vec<PathBuf>> {
+        self.backend.chunk_paths_sorted().await
     }
 
-    fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>> {
+    async fn read_chunk(&self, path: &Path) -> RS<Vec<u8>> {
         let file = OpenOptions::new()
             .read(true)
             .open(path)
@@ -47,31 +53,34 @@ impl WorkerLogRecoverySource for WorkerRingLoopRecoverySource<'_> {
         if size == 0 {
             return Ok(Vec::new());
         }
-        self.loop_ref.read_file_all_iouring(&file, size)
+        unsafe { (&mut *self.loop_ref).read_file_all_iouring(&file, size) }
     }
 }
 
 impl WorkerRingLoop {
     /// Replays persisted worker-log chunks before the worker starts serving
     /// live traffic.
-    pub(super) fn recover_worker_log(&mut self) -> RS<()> {
+    pub(super) fn recover_worker_log_on_loop(&mut self) -> RS<()> {
         let log = match self.log.take() {
             Some(log) => log,
             None => return Ok(()),
         };
+        let worker_id = self.worker.worker_id();
         trace!(
-            worker_id = self.worker.worker_id(),
+            worker_id,
             "worker_ring_loop recover_worker_log start"
         );
         let backend = log.backend().clone();
-        let mut source = WorkerRingLoopRecoverySource {
-            loop_ref: self,
-            backend,
+        let loop_ref = self as *mut WorkerRingLoop;
+        let recovery = async move {
+            let mut source = WorkerRingLoopRecoverySource { loop_ref, backend };
+            let result = log.recover(&mut source).await;
+            Ok((log, result))
         };
-        let result = log.recover(&mut source);
+        let (log, result) = self.drive_local_future(recovery, "worker log recovery")?;
         self.log = Some(log);
         trace!(
-            worker_id = self.worker.worker_id(),
+            worker_id,
             ok = result.is_ok(),
             "worker_ring_loop recover_worker_log finished"
         );

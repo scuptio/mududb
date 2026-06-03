@@ -8,7 +8,8 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use scc::HashMap as SccHashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
 pub(crate) struct WorkerSessionManager {
     session_owner: SccHashMap<OID, u64>,
@@ -19,7 +20,7 @@ pub(crate) struct WorkerSessionManager {
 }
 
 pub(crate) struct SessionContext {
-    tx_manager: Mutex<Option<Arc<dyn TxMgr>>>,
+    tx_manager: SMutex<Option<Arc<dyn TxMgr>>>,
     mudu_conn_core: Arc<MuduConnCore>,
 }
 
@@ -227,7 +228,7 @@ impl WorkerSessionManager {
 impl SessionContext {
     fn new(meta_mgr: Arc<dyn MetaMgr>) -> Self {
         Self {
-            tx_manager: Mutex::new(None),
+            tx_manager: SMutex::new(None),
             mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr)),
         }
     }

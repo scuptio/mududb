@@ -1,5 +1,5 @@
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::error::ec::EC;
 use mududb::m_error;
 use mududb::sys_interface::async_api::{mudu_get, mudu_put, mudu_range};
@@ -18,7 +18,7 @@ fn decode_utf8(label: &str, bytes: Vec<u8>) -> RS<String> {
     })
 }
 
-async fn read_value(session_id: XID, user_key: &str) -> RS<String> {
+async fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
     let value = mudu_get(session_id, key.as_bytes()).await?
         .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
@@ -26,18 +26,18 @@ async fn read_value(session_id: XID, user_key: &str) -> RS<String> {
 }
 
 /**mudu-proc**/
-pub async fn kv_insert(xid: XID, user_key: String, value: String) -> RS<()> {
+pub async fn kv_insert(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     mudu_put(xid, key.as_bytes(), value.as_bytes()).await
 }
 
 /**mudu-proc**/
-pub async fn kv_read(xid: XID, user_key: String) -> RS<String> {
+pub async fn kv_read(xid: OID, user_key: String) -> RS<String> {
     read_value(xid, &user_key).await
 }
 
 /**mudu-proc**/
-pub async fn kv_update(xid: XID, user_key: String, value: String) -> RS<()> {
+pub async fn kv_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     let _ = mudu_get(xid, key.as_bytes()).await?
         .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
@@ -45,7 +45,7 @@ pub async fn kv_update(xid: XID, user_key: String, value: String) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub async fn kv_scan(xid: XID, start_user_key: String, end_user_key: String) -> RS<Vec<String>> {
+pub async fn kv_scan(xid: OID, start_user_key: String, end_user_key: String) -> RS<Vec<String>> {
     let start_key = kv_data_key(&start_user_key);
     let end_key = kv_data_key(&end_user_key);
     let pairs = mudu_range(xid, start_key.as_bytes(), end_key.as_bytes()).await?;
@@ -59,7 +59,7 @@ pub async fn kv_scan(xid: XID, start_user_key: String, end_user_key: String) -> 
 }
 
 /**mudu-proc**/
-pub async fn kv_read_modify_write(xid: XID, user_key: String, append_value: String) -> RS<String> {
+pub async fn kv_read_modify_write(xid: OID, user_key: String, append_value: String) -> RS<String> {
     let key = kv_data_key(&user_key);
     let mut current = match mudu_get(xid, key.as_bytes()).await? {
         Some(value) => decode_utf8("value", value)?,
@@ -249,7 +249,8 @@ mod mod_kv_insert {
     }
 
     export!(GuestKvInsert);
-}
+}
+
 async fn mp2_kv_update(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -369,7 +370,8 @@ mod mod_kv_update {
     }
 
     export!(GuestKvUpdate);
-}
+}
+
 async fn mp2_kv_scan(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -500,7 +502,8 @@ mod mod_kv_scan {
     }
 
     export!(GuestKvScan);
-}
+}
+
 async fn mp2_kv_read(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -617,7 +620,8 @@ mod mod_kv_read {
     }
 
     export!(GuestKvRead);
-}
+}
+
 async fn mp2_kv_read_modify_write(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -748,4 +752,4 @@ mod mod_kv_read_modify_write {
     }
 
     export!(GuestKvReadModifyWrite);
-}
+}

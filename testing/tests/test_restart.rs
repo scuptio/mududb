@@ -343,7 +343,7 @@ impl TestContext {
         cfg.pg_listen_port = self.pg_port;
         cfg.tcp_listen_port = self.tcp_port;
         cfg.http_worker_threads = 1;
-        cfg.io_uring_worker_threads = 2;
+        cfg.worker_threads = 2;
         cfg.server_mode = self.server_mode;
         cfg.routing_mode = RoutingMode::ConnectionId;
         cfg.enable_async = true;

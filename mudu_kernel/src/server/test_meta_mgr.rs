@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
 use async_trait::async_trait;
 use mudu::common::id::OID;
@@ -13,15 +14,15 @@ use crate::contract::table_desc::TableDesc;
 use crate::contract::table_info::TableInfo;
 
 pub(crate) struct TestMetaMgr {
-    schemas: Mutex<HashMap<OID, SchemaTable>>,
-    tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
+    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    tables: SMutex<HashMap<OID, Arc<TableDesc>>>,
 }
 
 impl TestMetaMgr {
     pub(crate) fn new() -> Self {
         Self {
-            schemas: Mutex::new(HashMap::new()),
-            tables: Mutex::new(HashMap::new()),
+            schemas: SMutex::new(HashMap::new()),
+            tables: SMutex::new(HashMap::new()),
         }
     }
 }

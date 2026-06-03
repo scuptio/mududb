@@ -413,3 +413,12 @@ where
     }
     .await
 }
+
+
+pub fn block_on_async_current<F>(fut: F) -> F::Output
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    block_on_tokio_current_thread(fut).unwrap()
+}

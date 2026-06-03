@@ -1,7 +1,7 @@
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::table_desc::TableDesc;
-use crate::io::file as async_file;
+use mudu_sys::io::file as async_file;
 use crate::x_engine::api::{OptRead, Predicate, RangeData, VecSelTerm, XContract};
 use crate::x_engine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -10,7 +10,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_mutex::AMutex;
 use std::ops::Bound;
 use std::sync::Arc;
 

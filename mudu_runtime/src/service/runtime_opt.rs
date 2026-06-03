@@ -1,8 +1,8 @@
 use crate::backend::mududb_cfg::ServerMode;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 #[cfg(target_os = "linux")]
-use mudu_kernel::async_rt::linux::runtime::IoUringRuntime;
-use mudu_kernel::async_rt::tokio::runtime::TokioRuntime;
+use mudu_sys::async_rt::linux::runtime::IoUringRuntime;
+use mudu_sys::async_rt::tokio::runtime::TokioRuntime;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

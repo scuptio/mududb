@@ -1,5 +1,5 @@
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 
 pub trait Tx {
-    fn xid(&self) -> XID;
+    fn xid(&self) -> OID;
 }

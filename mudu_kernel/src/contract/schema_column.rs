@@ -13,6 +13,8 @@ pub struct SchemaColumn {
     type_param: DTInfo,
     index: AttrIndex,
     is_primary: Option<AttrIndex>,
+    #[serde(default = "default_nullable")]
+    nullable: bool,
 }
 
 impl SchemaColumn {
@@ -25,6 +27,7 @@ impl SchemaColumn {
 
             index: 0,
             is_primary: None,
+            nullable: true,
         }
     }
 
@@ -37,6 +40,7 @@ impl SchemaColumn {
 
             index: 0,
             is_primary: None,
+            nullable: true,
         }
     }
 
@@ -58,6 +62,17 @@ impl SchemaColumn {
 
     pub fn set_primary_index(&mut self, index: Option<AttrIndex>) {
         self.is_primary = index;
+        if index.is_some() {
+            self.nullable = false;
+        }
+    }
+
+    pub fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    pub fn set_nullable(&mut self, nullable: bool) {
+        self.nullable = nullable;
     }
 
     pub fn get_index(&self) -> AttrIndex {
@@ -79,6 +94,10 @@ impl SchemaColumn {
     pub fn type_param(&self) -> &DTInfo {
         &self.type_param
     }
+}
+
+fn default_nullable() -> bool {
+    true
 }
 
 #[cfg(any(test, feature = "test"))]

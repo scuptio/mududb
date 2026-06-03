@@ -64,3 +64,28 @@ pub struct XLUpdate {
     /// needed to transform the previous value into the new value.
     pub delta: Vec<u8>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+pub enum XLWrite {
+    Insert(XLInsert),
+    Update(XLUpdate),
+    Delete(XLDelete),
+}
+
+impl XLWrite {
+    pub fn table_id(&self) -> OID {
+        match self {
+            Self::Insert(write) => write.table_id,
+            Self::Update(write) => write.table_id,
+            Self::Delete(write) => write.table_id,
+        }
+    }
+
+    pub fn partition_id(&self) -> OID {
+        match self {
+            Self::Insert(write) => write.partition_id,
+            Self::Update(write) => write.partition_id,
+            Self::Delete(write) => write.partition_id,
+        }
+    }
+}

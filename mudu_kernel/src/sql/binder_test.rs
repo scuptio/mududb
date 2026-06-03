@@ -21,10 +21,11 @@ mod tests {
     use sql_parser::ast::parser::SQLParser;
     use sql_parser::ast::stmt_type::StmtType;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     struct TestMetaMgr {
-        tables: Mutex<HashMap<OID, Arc<TableDesc>>>,
+        tables: SMutex<HashMap<OID, Arc<TableDesc>>>,
     }
 
     impl TestMetaMgr {
@@ -33,7 +34,7 @@ mod tests {
             let mut tables = HashMap::new();
             tables.insert(table.id(), table);
             Self {
-                tables: Mutex::new(tables),
+                tables: SMutex::new(tables),
             }
         }
     }
@@ -154,6 +155,26 @@ mod tests {
         Binder::new(Arc::new(TestMetaMgr::new(numeric_schema())))
     }
 
+    fn not_null_value_binder() -> Binder {
+        let id = SchemaColumn::new(
+            "id".to_string(),
+            DatTypeID::I32,
+            DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+        );
+        let mut name = SchemaColumn::new(
+            "name".to_string(),
+            DatTypeID::String,
+            DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+        );
+        name.set_nullable(false);
+        Binder::new(Arc::new(TestMetaMgr::new(SchemaTable::new(
+            "users".to_string(),
+            vec![id, name],
+            vec![0],
+            vec![1],
+        ))))
+    }
+
     #[tokio::test]
     async fn bind_select_builds_key_eq_predicate() {
         let bound = binder()
@@ -169,6 +190,33 @@ mod tests {
             BoundPredicate::KeyEq { key } => assert_eq!(key.len(), 1),
             other => panic!("expected key equality predicate, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn bind_create_table_preserves_nullable_constraints() {
+        let bound = binder()
+            .bind(
+                parse_stmt(
+                    "
+                    create table accounts (
+                        id int primary key,
+                        name char(32) not null,
+                        nickname char(32)
+                    );
+                    ",
+                ),
+                &(),
+            )
+            .await
+            .unwrap();
+
+        let BoundStmt::Command(BoundCommand::CreateTable(create)) = bound else {
+            panic!("expected create table");
+        };
+        let columns = create.schema.columns();
+        assert!(!columns[0].nullable());
+        assert!(!columns[1].nullable());
+        assert!(columns[2].nullable());
     }
 
     #[tokio::test]
@@ -280,6 +328,50 @@ mod tests {
         assert_eq!(insert.rows.len(), 1);
         assert_eq!(insert.rows[0].key.len(), 1);
         assert_eq!(insert.rows[0].value.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bind_insert_allows_null_for_nullable_value_column() {
+        let bound = binder()
+            .bind(
+                parse_stmt("insert into users (id, name) values (1, null);"),
+                &(),
+            )
+            .await
+            .unwrap();
+
+        let BoundStmt::Command(BoundCommand::Insert(insert)) = bound else {
+            panic!("expected bound insert");
+        };
+        assert_eq!(insert.rows.len(), 1);
+        assert_eq!(insert.rows[0].key.len(), 1);
+        assert_eq!(insert.rows[0].value.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn bind_insert_rejects_null_for_primary_key() {
+        let err = binder()
+            .bind(
+                parse_stmt("insert into users (id, name) values (null, 'alice');"),
+                &(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("NOT NULL"));
+    }
+
+    #[tokio::test]
+    async fn bind_insert_rejects_null_for_not_null_value_column() {
+        let err = not_null_value_binder()
+            .bind(
+                parse_stmt("insert into users (id, name) values (1, null);"),
+                &(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("NOT NULL"));
     }
 
     #[tokio::test]

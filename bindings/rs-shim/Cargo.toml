@@ -1,0 +1,15 @@
+[package]
+name = "mududb-rs-shim"
+version = "0.1.0"
+edition = "2024"
+description = "Rust WebAssembly Component Model shim for MuduDB language bindings"
+license = "MIT"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mududb = { path = "../../mududb", default-features = false, features = ["app"] }
+wit-bindgen = "0.54.0"

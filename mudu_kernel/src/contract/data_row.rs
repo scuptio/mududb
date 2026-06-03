@@ -4,13 +4,15 @@ use crate::contract::version_tuple::VersionTuple;
 use mudu::common::id::{TupleID, OID};
 use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
+use mudu_utils::scoped_task_trace;
 
 const UNCOMPRESSED_VERSION_COUNT: usize = 4;
 
 #[derive(Clone)]
 pub struct DataRow {
-    inner: Arc<Mutex<DataRowInner>>,
+    inner: Arc<SMutex<DataRowInner>>,
 }
 
 struct DataRowInner {
@@ -107,7 +109,7 @@ impl DataRowInner {
 impl DataRow {
     pub fn new(tid: TupleID) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(DataRowInner::new(tid))),
+            inner: Arc::new(SMutex::new(DataRowInner::new(tid))),
         }
     }
 
@@ -140,10 +142,12 @@ impl DataRow {
     }
 
     pub async fn write(&self, version: VersionTuple, prev_version: Option<VersionDelta>) -> RS<()> {
+        scoped_task_trace!();
         self.write_sync(version, prev_version)
     }
 
     pub fn write_sync(&self, version: VersionTuple, prev_version: Option<VersionDelta>) -> RS<()> {
+        scoped_task_trace!();
         let mut guard = self.inner.lock().unwrap();
         guard.write_version(version, prev_version)
     }

@@ -7,7 +7,7 @@ use crate::service::wt_runtime::WTRuntime;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use scc::HashMap as SCCHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

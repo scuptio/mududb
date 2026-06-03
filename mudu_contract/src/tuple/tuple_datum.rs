@@ -347,24 +347,12 @@ impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U
-);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V
-);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W
-);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X
-);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
-);
-impl_rs_tuple_datum!(
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
-);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
+impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
 impl_rs_tuple_datum!(
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1
 );

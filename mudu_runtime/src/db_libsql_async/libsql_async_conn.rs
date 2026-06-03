@@ -2,14 +2,14 @@ use crate::db_libsql_async::libsql_async_conn_inner::LibSQLAsyncConnInner;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu_contract::database::db_conn::DBConnAsync;
 use mudu_contract::database::prepared_stmt::PreparedStmt;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql::DBConn;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
-use mudu_utils::sync::a_mutex::{AMutex, AMutexGuard};
+use mudu_sys::sync::a_mutex::{AMutex, AMutexGuard};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ impl DBConnAsync for LibSQLAsyncConn {
         .await
     }
 
-    async fn begin_tx(&self) -> RS<XID> {
+    async fn begin_tx(&self) -> RS<OID> {
         self.handle_inner(async |mut inner: AMutexGuard<LibSQLAsyncConnInner>| {
             inner.begin_tx().await
         })

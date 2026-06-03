@@ -31,7 +31,7 @@ use crate::ast::stmt_select::StmtSelect;
 use crate::ast::stmt_table_partition::StmtTablePartition;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
-use crate::ts_const::{ts_field_name, ts_kind_id};
+use crate::ts_const::{ts_field_name, ts_kind_id, ts_kind_name};
 use mudu::common::id::AttrIndex;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::err::MError;
@@ -84,6 +84,17 @@ fn traverse_tree_for_error_nodes<'t>(node: &Node<'t>, error_nodes: &mut Vec<Node
     for child in node.children(&mut cursor) {
         traverse_tree_for_error_nodes(&child, error_nodes);
     }
+}
+
+fn node_or_descendant_has_kind(node: Node, kind: &str) -> bool {
+    if node.kind() == kind {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .any(|child| node_or_descendant_has_kind(child, kind));
+    found
 }
 
 fn error_text(
@@ -647,6 +658,14 @@ impl SQLParser {
     }
 
     fn visit_literal(&self, context: &ParseContext, node: Node) -> RS<ExprLiteral> {
+        if node
+            .child_by_field_name(ts_field_name::KEYWORD_NULL)
+            .is_some()
+            || node.kind() == ts_kind_name::S_KEYWORD_NULL
+            || ts_node_context_string(&context.parse_str(), &node)?.eq_ignore_ascii_case("null")
+        {
+            return Ok(ExprLiteral::Null);
+        }
         let typed = if let Some(n) = node.child_by_field_name("integer") {
             let s = self.visit_integer(context, n)?;
             let i = i64::from_str(s.as_str()).unwrap();
@@ -952,6 +971,12 @@ impl SQLParser {
             column_def.set_primary_key_index(Some(*next_index));
             *next_index += 1;
         }
+        if node_or_descendant_has_kind(node, ts_kind_name::S__NOT_NULL)
+            || (node_or_descendant_has_kind(node, ts_kind_name::S_KEYWORD_NOT)
+                && node_or_descendant_has_kind(node, ts_kind_name::S_KEYWORD_NULL))
+        {
+            column_def.set_nullable(false);
+        }
         Ok(())
     }
 
@@ -976,6 +1001,7 @@ impl SQLParser {
         let ret = match kind {
             ts_kind_id::INT => (UniDatType::Scalar(UniScalar::I32), None),
             ts_kind_id::BIGINT => (UniDatType::Scalar(UniScalar::I64), None),
+            ts_kind_id::HUGEINT => (UniDatType::Scalar(UniScalar::I128), None),
             ts_kind_id::DOUBLE => (UniDatType::Scalar(UniScalar::F64), None),
             ts_kind_id::FLOAT => (UniDatType::Scalar(UniScalar::F32), None),
             ts_kind_id::CHAR | ts_kind_id::VARCHAR | ts_kind_id::KEYWORD_TEXT => {
@@ -1020,7 +1046,7 @@ impl SQLParser {
                 return Err(m_error!(
                     EC::NotImplemented,
                     format!("Data type {} not yet implemented", child.kind())
-                ))
+                ));
             }
         };
 

@@ -4,7 +4,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 
-use crate::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::procedure_runtimes::ProcedureRuntimes;
 use crate::server::server_cfg::ServerCfg;

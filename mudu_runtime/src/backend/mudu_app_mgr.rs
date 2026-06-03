@@ -8,18 +8,19 @@ use crate::service::runtime_opt::RuntimeOpt;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::common::xid::INVALID_XID;
+use mudu::common::xid::INVALID_OID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_binding::procedure::procedure_invoke;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use std::collections::HashSet;
 use std::env::temp_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
+use mudu_sys::sync::SMutex;
 
 const MPK_EXTENSION: &str = "mpk";
 
@@ -82,7 +83,7 @@ impl AsyncFuncInvoker for MuduProcInvoker {
             // TCP session ids belong to the transport/session manager. Procedure
             // host syscalls require a database Context xid, so let the app
             // runtime create one per invocation.
-            param.set_session_id(INVALID_XID);
+            param.set_session_id(INVALID_OID);
             let result = if self.enable_async {
                 app.invoke_async(task_id, &mod_name, &proc_name, param, Some(worker_local))
                     .await?
@@ -122,7 +123,7 @@ impl Default for ListOption {
 pub struct MuduAppMgr {
     cfg: MuduDBCfg,
     async_runtime: Option<Arc<dyn AsyncRuntime>>,
-    created_invokers: Mutex<Vec<Weak<MuduProcInvoker>>>,
+    created_invokers: SMutex<Vec<Weak<MuduProcInvoker>>>,
 }
 
 impl MuduAppMgr {
@@ -137,7 +138,7 @@ impl MuduAppMgr {
         Self {
             cfg,
             async_runtime,
-            created_invokers: Mutex::new(Vec::new()),
+            created_invokers: SMutex::new(Vec::new()),
         }
     }
 

@@ -109,7 +109,13 @@ async fn encode_pg_wire_row_data(
         }
         let mut encoder = DataRowEncoder::new(fields.clone());
         for idx in 0..cols {
-            if let Some(datum) = row.get(idx) {
+            if row.is_null(idx) {
+                if let Err(e) = encoder.encode_field(&None::<i8>) {
+                    has_err = true;
+                    results.push(Err(e));
+                    break;
+                }
+            } else if let Some(datum) = row.get(idx) {
                 let field_desc = &tuple_desc.fields()[idx];
                 let dat_type_id = field_desc.dat_type_id();
                 let (internal, _) = dat_type_id.fn_recv()(&datum, field_desc.dat_type())

@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
-use crate::io::worker_ring::with_current_ring;
+use mudu_sys::io::worker_ring::with_current_ring;
 #[cfg(target_os = "linux")]
-use crate::server::worker_task::WorkerTaskFuture;
+use mudu_sys::server::worker_task::WorkerTaskFuture;
 #[cfg(target_os = "linux")]
 use mudu_utils::task_context::TaskContext;
 #[cfg(target_os = "linux")]
@@ -10,7 +10,7 @@ use mudu_utils::task_id::new_task_id;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub fn spawn(conn_id: Option<u64>, future: WorkerTaskFuture) {
-    if !crate::io::worker_ring::has_current_worker_ring() {
+    if !mudu_sys::io::worker_ring::has_current_worker_ring() {
         return;
     }
     let _ = with_current_ring(|ring| {
@@ -29,7 +29,7 @@ pub fn spawn(conn_id: Option<u64>, future: WorkerTaskFuture) {
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub fn spawn_system(name: &str, future: WorkerTaskFuture) {
-    if !crate::io::worker_ring::has_current_worker_ring() {
+    if !mudu_sys::io::worker_ring::has_current_worker_ring() {
         return;
     }
     let _ = with_current_ring(|ring| {

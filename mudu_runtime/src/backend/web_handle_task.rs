@@ -1,6 +1,6 @@
 use mudu::common::result::RS;
 use mudu_utils::notifier::{Notifier, Waiter};
-use mudu_utils::sync::async_task::{AsyncLocalTask, Task};
+use mudu_sys::sync::async_task::{AsyncLocalTask, Task};
 
 use crate::backend::mududb_cfg::MuduDBCfg;
 use crate::backend::web_serve;

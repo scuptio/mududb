@@ -15,7 +15,7 @@ use mudu_utils::log::log_setup_ex;
 use mudu_utils::notifier::{Notifier, NotifyWait, Waiter, notify_wait};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once, mpsc as std_mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 use testing::{reserve_port, reserve_port_block, wait_until_port_ready};
@@ -25,6 +25,9 @@ use tracing::{debug, info};
 
 static TPCC_BENCH_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static TPCC_DEBUG_SERVER_ONCE: Once = Once::new();
+
+#[path = "test_tpcc_concurrent_procedure_100_connection.rs"]
+mod test_tpcc_concurrent_procedure_100_connection;
 
 fn setup_tpcc_test_log(level: &str) {
     let parse = std::env::var("TPCC_TEST_LOG_FILTER").unwrap_or_else(|_| {
@@ -66,6 +69,13 @@ fn tpcc_procedure_concurrent_terminals_metrics_tokio() -> RS<()> {
 }
 
 fn run_tpcc_procedure_concurrent_terminals_metrics(server_mode: ServerMode) -> RS<()> {
+    run_tpcc_procedure_concurrent_terminals_metrics_with_cfg(server_mode, TpccBenchCfg::from_env())
+}
+
+fn run_tpcc_procedure_concurrent_terminals_metrics_with_cfg(
+    server_mode: ServerMode,
+    cfg: TpccBenchCfg,
+) -> RS<()> {
     let _guard = TPCC_BENCH_TEST_LOCK
         .lock()
         .expect("tpcc benchmark test lock poisoned");
@@ -74,7 +84,6 @@ fn run_tpcc_procedure_concurrent_terminals_metrics(server_mode: ServerMode) -> R
 
     info!(log_level = %log_level, "starting tpcc concurrent procedure test");
 
-    let cfg = TpccBenchCfg::from_env();
     info!(
         terminals = cfg.terminals,
         operations_per_terminal = cfg.operations_per_terminal,
@@ -108,7 +117,22 @@ fn run_tpcc_procedure_concurrent_terminals_metrics(server_mode: ServerMode) -> R
         .build()
         .map_err(|e| m_error!(mudu::error::ec::EC::IOErr, "build tokio runtime error", e))?;
 
-    let result = runtime.block_on(run_benchmark(&ctx, &cfg, &mpk_path));
+    let result = runtime.block_on(async {
+        timeout(
+            Duration::from_millis(cfg.bench_timeout_ms),
+            run_benchmark(&ctx, &cfg, &mpk_path),
+        )
+        .await
+        .map_err(|_| {
+            m_error!(
+                mudu::error::ec::EC::TokioErr,
+                format!(
+                    "tpcc benchmark total timeout server_mode={:?} terminals={} ops_per_terminal={} timeout_ms={}",
+                    server_mode, cfg.terminals, cfg.operations_per_terminal, cfg.bench_timeout_ms
+                )
+            )
+        })?
+    });
     drop(server);
     result
 }
@@ -520,7 +544,7 @@ async fn run_terminal(
         };
 
         if let Err(err) = op_result {
-            if is_retryable_abort(&err) {
+            if is_retryable_abort(&err, cfg.treat_tx_errors_as_aborts) {
                 report.aborted += 1;
                 if cfg.trace_ops {
                     debug!(
@@ -637,6 +661,7 @@ struct TpccBenchCfg {
     payment_percent: usize,
     new_order_percent: usize,
     trace_ops: bool,
+    treat_tx_errors_as_aborts: bool,
     invoke_timeout_ms: u64,
     bench_timeout_ms: u64,
     app_name: String,
@@ -656,8 +681,29 @@ impl TpccBenchCfg {
             payment_percent: read_env_usize("TPCC_PAYMENT_PERCENT", 43),
             new_order_percent: read_env_usize("TPCC_NEW_ORDER_PERCENT", 45),
             trace_ops: read_env_bool("TPCC_TRACE_OPS", false),
+            treat_tx_errors_as_aborts: false,
             invoke_timeout_ms: read_env_u64("TPCC_INVOKE_TIMEOUT_MS", 30_000),
             bench_timeout_ms: read_env_u64("TPCC_BENCH_TIMEOUT_MS", 300_000),
+            app_name: std::env::var("TPCC_APP_NAME").unwrap_or_else(|_| "tpcc".to_string()),
+            mpk_path_env: std::env::var("TPCC_MPK_PATH").ok().map(PathBuf::from),
+        }
+    }
+
+    fn benchmark_100_connection_repro() -> Self {
+        Self {
+            terminals: 100,
+            operations_per_terminal: 1,
+            warehouses: 10,
+            districts_per_warehouse: 10,
+            customers_per_district: 100,
+            items: 100,
+            stock_quantity: 100,
+            payment_percent: 50,
+            new_order_percent: 35,
+            trace_ops: read_env_bool("TPCC_TRACE_OPS", false),
+            treat_tx_errors_as_aborts: true,
+            invoke_timeout_ms: read_env_u64("TPCC_INVOKE_TIMEOUT_MS", 3000_000),
+            bench_timeout_ms: read_env_u64("TPCC_BENCH_TIMEOUT_MS", 6000_000),
             app_name: std::env::var("TPCC_APP_NAME").unwrap_or_else(|_| "tpcc".to_string()),
             mpk_path_env: std::env::var("TPCC_MPK_PATH").ok().map(PathBuf::from),
         }
@@ -805,12 +851,16 @@ fn read_env_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn is_retryable_abort(err: &mudu::error::err::MError) -> bool {
-    if err.ec() == mudu::error::ec::EC::TxErr && err.message().contains("write-write conflict") {
+fn is_retryable_abort(err: &mudu::error::err::MError, treat_tx_errors_as_aborts: bool) -> bool {
+    if err.ec() == mudu::error::ec::EC::TxErr
+        && (treat_tx_errors_as_aborts || err.message().contains("write-write conflict"))
+    {
         return true;
     }
     match err.err_src() {
-        mudu::error::err::ErrorSource::MError(src) => is_retryable_abort(&src),
+        mudu::error::err::ErrorSource::MError(src) => {
+            is_retryable_abort(&src, treat_tx_errors_as_aborts)
+        }
         mudu::error::err::ErrorSource::Other(msg) => msg.contains("write-write conflict"),
         mudu::error::err::ErrorSource::None => false,
     }
@@ -833,9 +883,17 @@ impl Drop for RunningServer {
         info!("tpcc test dropping running server");
         self.stop.notify_all();
         if let Some(handle) = self.handle.take() {
-            let join_result = handle.join().expect("join io_uring server thread");
-            if let Err(err) = join_result {
-                panic!("io_uring server stopped with error: {err}");
+            let (tx, rx) = std_mpsc::channel();
+            thread::spawn(move || {
+                let _ = tx.send(handle.join());
+            });
+            let join_result = rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("io_uring server thread did not stop within 10s");
+            match join_result {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => panic!("io_uring server stopped with error: {err}"),
+                Err(_) => panic!("join io_uring server thread"),
             }
         }
         info!("tpcc test dropped running server");
@@ -915,7 +973,7 @@ impl TestContext {
         cfg.pg_listen_port = self.pg_port;
         cfg.tcp_listen_port = self.tcp_port;
         cfg.http_worker_threads = read_env_usize("TPCC_HTTP_WORKERS", 1);
-        cfg.io_uring_worker_threads = read_env_usize("TPCC_IOURING_WORKERS", 1);
+        cfg.worker_threads = read_env_usize("TPCC_IOURING_WORKERS", 1);
         cfg.server_mode = self.server_mode;
         cfg.routing_mode = RoutingMode::ConnectionId;
         cfg.enable_async = true;

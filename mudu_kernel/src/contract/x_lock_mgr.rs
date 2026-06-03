@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
-use mudu_utils::sync::notify_wait::Notify;
+use mudu_sys::sync::notify_wait::Notify;
 
 #[derive(Debug, Clone)]
 pub enum LockResult {
@@ -18,7 +17,7 @@ pub trait XLockMgr: Send + Sync {
 
     async fn drop_table(&self, table: OID) -> RS<()>;
 
-    async fn lock(&self, notify: Notify<LockResult>, xid: XID, table_id: OID, key: Buf) -> RS<()>;
+    async fn lock(&self, notify: Notify<LockResult>, xid: OID, table_id: OID, key: Buf) -> RS<()>;
 
-    async fn release(&self, xid: XID, table_id: OID, key: &Buf) -> RS<()>;
+    async fn release(&self, xid: OID, table_id: OID, key: &Buf) -> RS<()>;
 }

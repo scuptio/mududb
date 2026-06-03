@@ -14,6 +14,7 @@ use mududb::m_error;
 use mududb::sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 use tokio::runtime::Builder;
@@ -72,6 +73,69 @@ enum TpccOp {
     StockLevel,
 }
 
+#[derive(Debug, Clone)]
+struct OpResult {
+    latency_ms: f64,
+    aborted: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+struct BenchmarkStats {
+    results: Vec<OpResult>,
+}
+
+impl BenchmarkStats {
+    fn push(&mut self, result: OpResult) {
+        self.results.push(result);
+    }
+
+    fn merge(&mut self, other: BenchmarkStats) {
+        self.results.extend(other.results);
+    }
+
+    fn op_count(&self) -> usize {
+        self.results.len()
+    }
+
+    fn abort_count(&self) -> usize {
+        self.results.iter().filter(|r| r.aborted).count()
+    }
+
+    fn abort_rate(&self) -> f64 {
+        if self.results.is_empty() {
+            0.0
+        } else {
+            self.abort_count() as f64 / self.results.len() as f64 * 100.0
+        }
+    }
+
+    fn latency_percentile(&self, p: f64) -> f64 {
+        if self.results.is_empty() {
+            return 0.0;
+        }
+        let mut latencies: Vec<f64> = self.results.iter().map(|r| r.latency_ms).collect();
+        latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let idx = ((latencies.len() as f64 - 1.0) * p / 100.0) as usize;
+        latencies[idx.min(latencies.len() - 1)]
+    }
+
+    fn avg_latency_ms(&self) -> f64 {
+        if self.results.is_empty() {
+            0.0
+        } else {
+            self.results.iter().map(|r| r.latency_ms).sum::<f64>() / self.results.len() as f64
+        }
+    }
+
+    fn min_latency_ms(&self) -> f64 {
+        self.results.iter().map(|r| r.latency_ms).fold(f64::MAX, |a, b| a.min(b))
+    }
+
+    fn max_latency_ms(&self) -> f64 {
+        self.results.iter().map(|r| r.latency_ms).fold(0.0, |a, b| a.max(b))
+    }
+}
+
 fn op_for(index: usize, args: &Args) -> TpccOp {
     let bucket = index % 100;
     if bucket < args.new_order_percent {
@@ -124,11 +188,15 @@ fn run_sync(args: Args) -> RS<()> {
     mudu_close(init_xid)?;
     let load_elapsed_secs = total_start.elapsed().as_secs_f64();
     let txn_start = Instant::now();
+    let stats = Arc::new(Mutex::new(BenchmarkStats::default()));
     let worker_count = args.connection_count.max(1).min(args.operation_count.max(1));
     let mut handles = Vec::with_capacity(worker_count);
     for terminal_id in 0..worker_count {
         let worker_args = args.clone();
-        handles.push(thread::spawn(move || run_sync_terminal(worker_args, terminal_id)));
+        let worker_stats = stats.clone();
+        handles.push(thread::spawn(move || {
+            run_sync_terminal(worker_args, terminal_id, worker_stats)
+        }));
     }
     for handle in handles {
         let result = handle
@@ -136,22 +204,34 @@ fn run_sync(args: Args) -> RS<()> {
             .map_err(|_| m_error!(ThreadErr, "join tpcc sync benchmark worker error"))?;
         result?;
     }
+    let stats = Arc::try_unwrap(stats).unwrap().into_inner().unwrap();
     print_summary(
         "sync",
         &args,
         load_elapsed_secs,
         txn_start.elapsed().as_secs_f64(),
         total_start.elapsed().as_secs_f64(),
+        &stats,
     );
     Ok(())
 }
 
-fn run_sync_terminal(args: Args, terminal_id: usize) -> RS<()> {
+fn run_sync_terminal(
+    args: Args,
+    terminal_id: usize,
+    stats: Arc<Mutex<BenchmarkStats>>,
+) -> RS<()> {
     let xid = mudu_open()?;
+    let mut local_stats = BenchmarkStats::default();
     for op_index in (terminal_id..args.operation_count).step_by(args.connection_count.max(1)) {
-        run_sync_op(xid, &args, op_index, terminal_id)?;
+        let start = Instant::now();
+        let result = run_sync_op(xid, &args, op_index, terminal_id);
+        let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let aborted = result.is_err();
+        local_stats.push(OpResult { latency_ms, aborted });
     }
     mudu_close(xid)?;
+    stats.lock().unwrap().merge(local_stats);
     Ok(())
 }
 
@@ -306,61 +386,26 @@ async fn run_tcp(args: Args) -> RS<()> {
     prepare_tcp_txn_context(&mut client, session_id, &args).await?;
     let load_elapsed_secs = total_start.elapsed().as_secs_f64();
     let txn_start = Instant::now();
+    let mut stats = BenchmarkStats::default();
 
     for op_index in 0..args.operation_count {
         let warehouse_id = warehouse_for_op(op_index, op_index % args.connection_count.max(1), &args);
         let district_id = value_for(op_index, args.districts_per_warehouse);
         let customer_id = value_for(op_index, args.customers_per_district);
-        match op_for(op_index, &args) {
-            TpccOp::NewOrder => {
-                run_tcp_new_order(
-                    &mut client,
-                    session_id,
-                    &args,
-                    op_index,
-                    warehouse_id,
-                    district_id,
-                    customer_id,
-                )
-                .await?;
-            }
-            TpccOp::Payment => {
-                let _: i32 = invoke_typed(
-                    &mut client,
-                    session_id,
-                    &args.proc_name("tpcc_payment"),
-                    (warehouse_id, district_id, customer_id, 3_i32),
-                )
-                .await?;
-            }
-            TpccOp::OrderStatus => {
-                let _: String = invoke_typed(
-                    &mut client,
-                    session_id,
-                    &args.proc_name("tpcc_order_status"),
-                    (warehouse_id, district_id, customer_id),
-                )
-                .await?;
-            }
-            TpccOp::Delivery => {
-                let _: String = invoke_typed(
-                    &mut client,
-                    session_id,
-                    &args.proc_name("tpcc_delivery"),
-                    (warehouse_id, district_id, 1_i32),
-                )
-                .await?;
-            }
-            TpccOp::StockLevel => {
-                let _: i32 = invoke_typed(
-                    &mut client,
-                    session_id,
-                    &args.proc_name("tpcc_stock_level"),
-                    (warehouse_id, district_id, 95_i32),
-                )
-                .await?;
-            }
-        }
+        let start = Instant::now();
+        let result = run_tcp_single_op(
+            &mut client,
+            session_id,
+            &args,
+            op_index,
+            warehouse_id,
+            district_id,
+            customer_id,
+        )
+        .await;
+        let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let aborted = result.is_err();
+        stats.push(OpResult { latency_ms, aborted });
     }
 
     let _ = client
@@ -381,7 +426,70 @@ async fn run_tcp(args: Args) -> RS<()> {
         load_elapsed_secs,
         txn_start.elapsed().as_secs_f64(),
         total_start.elapsed().as_secs_f64(),
+        &stats,
     );
+    Ok(())
+}
+
+async fn run_tcp_single_op(
+    client: &mut AsyncClientImpl,
+    session_id: u128,
+    args: &Args,
+    op_index: usize,
+    warehouse_id: i32,
+    district_id: i32,
+    customer_id: i32,
+) -> RS<()> {
+    match op_for(op_index, args) {
+        TpccOp::NewOrder => {
+            run_tcp_new_order(
+                client,
+                session_id,
+                args,
+                op_index,
+                warehouse_id,
+                district_id,
+                customer_id,
+            )
+            .await?;
+        }
+        TpccOp::Payment => {
+            let _: i32 = invoke_typed(
+                client,
+                session_id,
+                &args.proc_name("tpcc_payment"),
+                (warehouse_id, district_id, customer_id, 3_i32),
+            )
+            .await?;
+        }
+        TpccOp::OrderStatus => {
+            let _: String = invoke_typed(
+                client,
+                session_id,
+                &args.proc_name("tpcc_order_status"),
+                (warehouse_id, district_id, customer_id),
+            )
+            .await?;
+        }
+        TpccOp::Delivery => {
+            let _: String = invoke_typed(
+                client,
+                session_id,
+                &args.proc_name("tpcc_delivery"),
+                (warehouse_id, district_id, 1_i32),
+            )
+            .await?;
+        }
+        TpccOp::StockLevel => {
+            let _: i32 = invoke_typed(
+                client,
+                session_id,
+                &args.proc_name("tpcc_stock_level"),
+                (warehouse_id, district_id, 95_i32),
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 
@@ -453,21 +561,32 @@ fn print_summary(
     load_elapsed_secs: f64,
     txn_elapsed_secs: f64,
     total_elapsed_secs: f64,
+    stats: &BenchmarkStats,
 ) {
     let throughput = if txn_elapsed_secs > 0.0 {
-        args.operation_count as f64 / txn_elapsed_secs
+        stats.op_count() as f64 / txn_elapsed_secs
     } else {
         0.0
     };
     let tps = throughput;
     let new_order_tps = tps * (args.new_order_percent as f64 / 100.0);
     let total_throughput = if total_elapsed_secs > 0.0 {
-        args.operation_count as f64 / total_elapsed_secs
+        stats.op_count() as f64 / total_elapsed_secs
     } else {
         0.0
     };
+    let op_count = stats.op_count();
+    let abort_count = stats.abort_count();
+    let abort_rate = stats.abort_rate();
+    let avg_latency = stats.avg_latency_ms();
+    let min_latency = if op_count > 0 { stats.min_latency_ms() } else { 0.0 };
+    let max_latency = if op_count > 0 { stats.max_latency_ms() } else { 0.0 };
+    let p50 = stats.latency_percentile(50.0);
+    let p90 = stats.latency_percentile(90.0);
+    let p99 = stats.latency_percentile(99.0);
+    let p999 = stats.latency_percentile(99.9);
     println!(
-        "tpcc benchmark mode={mode} connections={} warehouses={} districts={} customers={} items={} operations={} load_elapsed={:.3}s txn_elapsed={:.3}s total_elapsed={:.3}s throughput={:.2} ops/s tps={:.2} new_order_tps={:.2} total_throughput={:.2} ops/s",
+        "tpcc benchmark mode={mode} connections={} warehouses={} districts={} customers={} items={} operations={} load_elapsed={:.3}s txn_elapsed={:.3}s total_elapsed={:.3}s throughput={:.2} ops/s tps={:.2} new_order_tps={:.2} total_throughput={:.2} ops/s op_count={} abort_count={} abort_rate={:.2}% avg_latency={:.3}ms min_latency={:.3}ms max_latency={:.3}ms p50={:.3}ms p90={:.3}ms p99={:.3}ms p999={:.3}ms",
         args.connection_count,
         args.warehouses,
         args.districts_per_warehouse,
@@ -481,6 +600,16 @@ fn print_summary(
         tps,
         new_order_tps,
         total_throughput,
+        op_count,
+        abort_count,
+        abort_rate,
+        avg_latency,
+        min_latency,
+        max_latency,
+        p50,
+        p90,
+        p99,
+        p999,
     );
 }
 

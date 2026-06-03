@@ -8,6 +8,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use std::sync::atomic::AtomicU32;
+use async_trait::async_trait;
 
 /// Typed worker-log wrapper specialized for [`XLBatch`].
 ///
@@ -15,8 +16,8 @@ use std::sync::atomic::AtomicU32;
 ///
 /// ```ignore
 /// let writer = new_xl_batch_writer(log_backend.clone());
-/// writer.append_sync(&batch)?;
-/// writer.flush()?;
+/// writer.append(&batch).await?;
+/// writer.flush().await?;
 /// ```
 ///
 /// Typical recovery path:
@@ -43,8 +44,9 @@ pub type XLBatchWorkerLog<B, H> = TypedWorkerLog<XLBatch, B, H>;
 /// plan to invoke `recover(...)` on the wrapper instance.
 pub struct NoopXLBatchRecoveryHandler;
 
+#[async_trait]
 impl WorkerLogRecoveryHandler<XLBatch> for NoopXLBatchRecoveryHandler {
-    fn handle_entry(&self, _entry: XLBatch, _start_lsn: LSN) -> RS<()> {
+    async fn handle_entry(&self, _entry: XLBatch, _start_lsn: LSN) -> RS<()> {
         Ok(())
     }
 }
@@ -102,11 +104,6 @@ pub fn decode_xl_batches_with_pending(
     Ok(out)
 }
 
-pub fn append_xl_batch<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<()> {
-    let frames = backend.serialize_entry(batch)?;
-    backend.append_frames_sync(frames)
-}
-
 pub async fn append_xl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<LSN> {
     let frames = backend.serialize_entry(batch)?;
     backend.append_frames_async(frames).await
@@ -118,7 +115,7 @@ mod tests {
     use crate::wal::log_frame::{
         frame_lsns, split_frame, LOG_FRAME_HEADER_SIZE, LOG_FRAME_TAILER_SIZE,
     };
-    use crate::wal::xl_data_op::XLInsert;
+    use crate::wal::xl_data_op::{XLInsert, XLWrite};
     use crate::wal::xl_entry::{TxOp, XLEntry};
 
     fn sample_batch(entry_count: usize, payload_size: usize) -> XLBatch {
@@ -128,13 +125,13 @@ mod tests {
                 xid: xid as u64 + 1,
                 ops: vec![
                     TxOp::Begin,
-                    TxOp::Insert(XLInsert {
+                    TxOp::Write(XLWrite::Insert(XLInsert {
                         table_id: 7,
                         partition_id: 0,
                         tuple_id: xid as u64 + 10,
                         key: format!("key-{xid}").into_bytes(),
                         value: vec![xid as u8; payload_size],
-                    }),
+                    })),
                     TxOp::Commit,
                 ],
             });
@@ -215,5 +212,34 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("max_part_size"));
+    }
+
+    #[test]
+    fn xl_batch_round_trips_cross_partition_tx_ops() {
+        let batch = XLBatch::new(vec![XLEntry {
+            xid: 42,
+            ops: vec![
+                TxOp::Begin,
+                TxOp::Write(XLWrite::Insert(XLInsert {
+                    table_id: 9,
+                    partition_id: 11,
+                    tuple_id: 0,
+                    key: b"k1".to_vec(),
+                    value: b"v1".to_vec(),
+                })),
+                TxOp::Write(XLWrite::Insert(XLInsert {
+                    table_id: 9,
+                    partition_id: 12,
+                    tuple_id: 0,
+                    key: b"k2".to_vec(),
+                    value: b"v2".to_vec(),
+                })),
+                TxOp::Commit,
+            ],
+        }]);
+
+        let next_lsn = AtomicU32::new(0);
+        let parts = serialize_batch(&batch, 4096, &next_lsn).unwrap();
+        assert_eq!(deserialize_batch(&parts).unwrap(), batch);
     }
 }

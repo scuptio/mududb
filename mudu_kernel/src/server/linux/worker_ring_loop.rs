@@ -1,4 +1,4 @@
-use crate::io::worker_ring::{set_current_worker_ring, unset_current_worker_ring, WorkerLocalRing};
+use mudu_sys::io::worker_ring::{WorkerLocalRing, set_current_worker_ring, unset_current_worker_ring};
 use crate::server::callback_registry::{
     AsyncCallback, CallbackDomain, CallbackEventKey, CallbackId, CallbackRegistry, CallbackTrigger,
     PendingCallback,
@@ -6,10 +6,10 @@ use crate::server::callback_registry::{
 use crate::server::connection_worker_task::spawn_connection_worker_task;
 use crate::server::inflight_op::{AcceptOp, InflightOp};
 use crate::server::loop_mailbox::{
-    drain_messages, handle_read_completion, submit_read_if_needed, LoopMailboxSubmitCtx,
+    LoopMailboxSubmitCtx, drain_messages, handle_read_completion, submit_read_if_needed,
 };
 use crate::server::loop_user_io::{
-    handle_completion as handle_user_io_completion, submit as submit_user_io, LoopUserIoCtx,
+    LoopUserIoCtx, handle_completion as handle_user_io_completion, submit as submit_user_io,
 };
 use crate::server::message_bus_api::{
     register_worker_message_bus, set_current_message_bus, unregister_worker_message_bus,
@@ -26,9 +26,9 @@ use crate::server::worker::WorkerRuntime;
 use crate::server::worker_local::{set_current_worker_local, unset_current_worker_local};
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
-use crate::server::worker_task::{spawn_system_worker_task, WorkerTaskFuture};
+use mudu_sys::server::worker_task::{WorkerTaskFuture, spawn_system_worker_task};
 use crate::wal::worker_log::ChunkedWorkerLogBackend;
-use crate::wal::xl_batch_worker_log::{new_xl_batch_worker_log, XLBatchWorkerLog};
+use crate::wal::xl_batch_worker_log::{XLBatchWorkerLog, new_xl_batch_worker_log};
 use crossbeam_queue::SegQueue;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -37,9 +37,10 @@ use mudu_utils::scoped_task_trace;
 use mudu_utils::task_context::TaskContext;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::future::Future;
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(test)]
 use std::thread;
 use std::time::Duration;
@@ -116,7 +117,7 @@ impl WorkerRingLoop {
                 },
             )
         });
-        let worker_local_ring = Arc::new(WorkerLocalRing::new());
+        let worker_local_ring = Arc::new(WorkerLocalRing::new_with_task_wake_fd(Some(mailbox_fd)));
         let message_bus = WorkerMessageBus::new(
             worker.worker_id(),
             worker.registry().clone(),
@@ -177,7 +178,100 @@ impl WorkerRingLoop {
             worker_id = self.worker.worker_id(),
             "worker_ring_loop partition rpc ready"
         );
-        if let Err(err) = self.recover_worker_log() {
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop bootstrap storage start"
+        );
+        {
+            let worker = self.worker.clone();
+            let bootstrap_fut = worker.bootstrap_storage_async();
+            let mut bootstrap_fut = std::pin::pin!(bootstrap_fut);
+            let waker = noop_waker();
+            let mut cx = std::task::Context::from_waker(&waker);
+            loop {
+                match bootstrap_fut.as_mut().poll(&mut cx) {
+                    std::task::Poll::Ready(Ok(())) => break,
+                    std::task::Poll::Ready(Err(e)) => {
+                        let _ = unregister_worker_message_bus(
+                            self.worker.server_instance_id(),
+                            self.worker.worker_id(),
+                        );
+                        unset_current_message_bus();
+                        unset_current_worker_ring();
+                        unset_current_worker_local();
+                        self.recovery_coordinator.worker_failed();
+                        return Err(e);
+                    }
+                    std::task::Poll::Pending => {
+                        if let Err(e) = self.submit_user_ring_io_if_needed() {
+                            let _ = unregister_worker_message_bus(
+                                self.worker.server_instance_id(),
+                                self.worker.worker_id(),
+                            );
+                            unset_current_message_bus();
+                            unset_current_worker_ring();
+                            unset_current_worker_local();
+                            self.recovery_coordinator.worker_failed();
+                            return Err(e);
+                        }
+                        let submitted = self.ring.submit();
+                        if submitted < 0 {
+                            let _ = unregister_worker_message_bus(
+                                self.worker.server_instance_id(),
+                                self.worker.worker_id(),
+                            );
+                            unset_current_message_bus();
+                            unset_current_worker_ring();
+                            unset_current_worker_local();
+                            self.recovery_coordinator.worker_failed();
+                            return Err(m_error!(
+                                EC::NetErr,
+                                format!(
+                                    "io_uring submit error during bootstrap {}",
+                                    submitted
+                                )
+                            ));
+                        }
+                        let cqe = match self.ring.wait() {
+                            Ok(cqe) => cqe,
+                            Err(wait_rc) => {
+                                let _ = unregister_worker_message_bus(
+                                    self.worker.server_instance_id(),
+                                    self.worker.worker_id(),
+                                );
+                                unset_current_message_bus();
+                                unset_current_worker_ring();
+                                unset_current_worker_local();
+                                self.recovery_coordinator.worker_failed();
+                                return Err(m_error!(
+                                    EC::NetErr,
+                                    format!(
+                                        "io_uring wait cqe error during bootstrap {}",
+                                        wait_rc
+                                    )
+                                ));
+                            }
+                        };
+                        if let Err(e) = self.process_cqe(cqe) {
+                            let _ = unregister_worker_message_bus(
+                                self.worker.server_instance_id(),
+                                self.worker.worker_id(),
+                            );
+                            unset_current_message_bus();
+                            unset_current_worker_ring();
+                            unset_current_worker_local();
+                            self.recovery_coordinator.worker_failed();
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+        trace!(
+            worker_id = self.worker.worker_id(),
+            "worker_ring_loop bootstrap storage done"
+        );
+        if let Err(err) = self.recover_worker_log_on_loop() {
             let _ = unregister_worker_message_bus(
                 self.worker.server_instance_id(),
                 self.worker.worker_id(),
@@ -192,6 +286,13 @@ impl WorkerRingLoop {
         trace!(
             worker_id = self.worker.worker_id(),
             "worker_ring_loop recovery barrier passed"
+        );
+        let worker = self.worker.clone();
+        self.spawn(
+            None,
+            spawn_system_worker_task(
+                async move { worker.recover_cross_partition_transactions().await },
+            ),
         );
         let r = self.run_service_loop();
         let _ = unregister_worker_message_bus(
@@ -209,6 +310,37 @@ impl WorkerRingLoop {
         self.worker_local_ring
             .worker_task_registry()
             .spawn(conn_id, future);
+    }
+
+    fn drive_local_future<F, T>(&mut self, future: F, phase: &str) -> RS<T>
+    where
+        F: Future<Output = RS<T>>,
+    {
+        let mut future = std::pin::pin!(future);
+        let waker = noop_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        loop {
+            match future.as_mut().poll(&mut cx) {
+                std::task::Poll::Ready(result) => return result,
+                std::task::Poll::Pending => {
+                    self.submit_user_ring_io_if_needed()?;
+                    let submitted = self.ring.submit();
+                    if submitted < 0 {
+                        return Err(m_error!(
+                            EC::NetErr,
+                            format!("io_uring submit error during {} {}", phase, submitted)
+                        ));
+                    }
+                    let cqe = self.ring.wait().map_err(|wait_rc| {
+                        m_error!(
+                            EC::NetErr,
+                            format!("io_uring wait cqe error during {} {}", phase, wait_rc)
+                        )
+                    })?;
+                    self.process_cqe(cqe)?;
+                }
+            }
+        }
     }
 
     pub(in crate::server) fn process_cqe(&mut self, cqe: mudu_sys::uring::Cqe) -> RS<()> {
@@ -369,7 +501,7 @@ impl WorkerRingLoop {
         remote_addr: std::net::SocketAddr,
         initial_response: Option<Vec<u8>>,
     ) -> RS<()> {
-        let socket = crate::io::socket::IoSocket::from_raw_fd(fd);
+        let socket = mudu_sys::io::socket::IoSocket::from_raw_fd(fd);
         let _ = self.connection_task_fds.insert_sync(conn_id, fd);
         task::spawn(
             Some(conn_id),
@@ -440,22 +572,35 @@ impl WorkerRingLoop {
     }
 }
 
+fn noop_waker() -> std::task::Waker {
+    use std::task::{RawWaker, RawWakerVTable, Waker};
+    unsafe fn noop_clone(_: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+    unsafe fn noop(_: *const ()) {}
+    const VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop, noop, noop);
+    fn noop_raw_waker() -> RawWaker {
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+    unsafe { Waker::from_raw(noop_raw_waker()) }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
-    use crate::io::file::{close, flush, open, read, write};
-    use crate::io::socket::{
-        accept, close as close_socket, connect, recv, send, shutdown, socket, IoSocket,
+    use mudu_sys::io::file::{close, flush, open, read, write};
+    use mudu_sys::io::socket::{
+        IoSocket, accept, close as close_socket, connect, recv, send, shutdown, socket,
     };
     use crate::server::callback_registry::{CallbackDomain, CallbackEventKey, CallbackTrigger};
     use crate::server::worker_registry::load_or_create_worker_registry;
     use mudu::common::id::gen_oid;
-    use mudu_sys::tokio::task::{yield_now, JoinHandle};
+    use mudu_sys::tokio::task::{JoinHandle, yield_now};
     use std::env::temp_dir;
     use std::io::{Read, Write};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-    fn test_worker_loop() -> WorkerRingLoop {
+    async fn test_worker_loop() -> Option<WorkerRingLoop> {
         let dir = temp_dir()
             .join(format!("worker_ring_loop_test_{}", gen_oid()))
             .to_string_lossy()
@@ -471,10 +616,10 @@ mod tests {
             None,
             registry,
             0,
-        )
+        ).await
         .unwrap();
         let mailbox_fd = mudu_sys::sync_sync::eventfd().unwrap();
-        WorkerRingLoop::new(
+        match WorkerRingLoop::new(
             worker,
             -1,
             mailbox_fd,
@@ -484,8 +629,13 @@ mod tests {
             Arc::new(AtomicU64::new(1)),
             Arc::new(RecoveryCoordinator::new(1, None)),
             Arc::new(AtomicBool::new(false)),
-        )
-        .unwrap()
+        ) {
+            Ok(loop_state) => Some(loop_state),
+            Err(_) => {
+                let _ = mudu_sys::sync_sync::close_fd(mailbox_fd);
+                None
+            }
+        }
     }
 
     async fn drive_ring_future<T>(
@@ -519,9 +669,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_ring_loop_executes_user_file_io_via_cqe() {
-        let mut loop_state = match std::panic::catch_unwind(test_worker_loop) {
-            Ok(loop_state) => loop_state,
-            Err(_) => return,
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
         };
         set_current_worker_ring(loop_state.worker_local_ring.clone());
 
@@ -548,7 +697,7 @@ mod tests {
         let fd = file.fd();
         let write_task = mudu_sys::tokio::spawn(async move {
             write(
-                &crate::io::file::IoFile::from_raw_fd(fd),
+                &mudu_sys::io::file::IoFile::from_raw_fd(fd),
                 b"hello iouring".to_vec(),
                 0,
             )
@@ -562,7 +711,7 @@ mod tests {
 
         let fd = file.fd();
         let flush_task = mudu_sys::tokio::spawn(async move {
-            flush(&crate::io::file::IoFile::from_raw_fd(fd)).await
+            flush(&mudu_sys::io::file::IoFile::from_raw_fd(fd)).await
         });
         yield_now().await;
         drive_ring_future(&mut loop_state, &flush_task)
@@ -572,7 +721,7 @@ mod tests {
 
         let fd = file.fd();
         let read_task = mudu_sys::tokio::spawn(async move {
-            read(&crate::io::file::IoFile::from_raw_fd(fd), 13, 0).await
+            read(&mudu_sys::io::file::IoFile::from_raw_fd(fd), 13, 0).await
         });
         yield_now().await;
         drive_ring_future(&mut loop_state, &read_task)
@@ -597,9 +746,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_ring_loop_executes_user_socket_connect_io_via_cqe() {
-        let mut loop_state = match std::panic::catch_unwind(test_worker_loop) {
-            Ok(loop_state) => loop_state,
-            Err(_) => return,
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
         };
         set_current_worker_ring(loop_state.worker_local_ring.clone());
 
@@ -680,9 +828,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_ring_loop_executes_user_socket_accept_io_via_cqe() {
-        let mut loop_state = match std::panic::catch_unwind(test_worker_loop) {
-            Ok(loop_state) => loop_state,
-            Err(_) => return,
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
         };
         set_current_worker_ring(loop_state.worker_local_ring.clone());
 
@@ -770,9 +917,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_ring_loop_runs_event_callback_as_system_task() {
-        let mut loop_state = match std::panic::catch_unwind(test_worker_loop) {
-            Ok(loop_state) => loop_state,
-            Err(_) => return,
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
         };
         let hit = Arc::new(AtomicUsize::new(0));
         let hit_clone = hit.clone();
@@ -801,9 +947,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_ring_loop_runs_sequence_callback_when_frontier_advances_and_skips_cancelled() {
-        let mut loop_state = match std::panic::catch_unwind(test_worker_loop) {
-            Ok(loop_state) => loop_state,
-            Err(_) => return,
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
         };
         let hit = Arc::new(AtomicUsize::new(0));
 

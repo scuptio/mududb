@@ -1,4 +1,4 @@
-use crate::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::mudu_conn::mudu_conn_core::MuduConnCore;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
@@ -62,7 +62,7 @@ pub struct WorkerRuntime {
 pub type IoUringWorker = WorkerRuntime;
 
 impl WorkerRuntime {
-    pub fn new(
+    pub async fn new(
         identity: WorkerIdentity,
         worker_count: usize,
         log_dir: String,
@@ -82,10 +82,10 @@ impl WorkerRuntime {
             procedure_runtime,
             registry,
             server_instance_id,
-        )
+        ).await
     }
 
-    pub fn new_with_log_batching(
+    pub async fn new_with_log_batching(
         identity: WorkerIdentity,
         worker_count: usize,
         log_dir: String,
@@ -107,10 +107,10 @@ impl WorkerRuntime {
             registry,
             None,
             server_instance_id,
-        )
+        ).await
     }
 
-    pub fn new_with_log_batching_and_runtime(
+    pub async fn new_with_log_batching_and_runtime(
         identity: WorkerIdentity,
         worker_count: usize,
         log_dir: String,
@@ -141,7 +141,7 @@ impl WorkerRuntime {
         let log = ChunkedWorkerLogBackend::new_with_active_sessions(
             log_layout.clone(),
             active_sessions.clone(),
-        )?;
+        ).await?;
         let contract = Arc::new(WorkerXContract::with_worker_log_and_data_dir_and_runtime(
             log,
             worker_id,
@@ -150,7 +150,8 @@ impl WorkerRuntime {
             data_dir,
             async_runtime,
             server_instance_id,
-        )?);
+        )
+        .await?);
         let session_manager = Arc::new(WorkerSessionManager::new(
             active_sessions,
             contract.meta_mgr(),
@@ -177,9 +178,10 @@ impl WorkerRuntime {
         self.contract.worker_delete_async(key).await
     }
 
-    pub fn get(&self, key: &[u8]) -> RS<Option<Vec<u8>>> {
-        self.contract.worker_get(key)
+    pub async fn get_async(&self, key: &[u8]) -> RS<Option<Vec<u8>>> {
+        self.contract.worker_get_async(key).await
     }
+
 
     pub async fn invoke_procedure(
         &self,
@@ -259,17 +261,6 @@ impl WorkerRuntime {
         self.get_in_session(session_id, key).await
     }
 
-    pub fn put_for_connection(
-        &self,
-        conn_id: u64,
-        session_id: OID,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> RS<()> {
-        self.ensure_session_owned_by_connection(conn_id, session_id)?;
-        self.put_in_session(session_id, key, value)
-    }
-
     pub async fn put_for_connection_async(
         &self,
         conn_id: u64,
@@ -292,23 +283,6 @@ impl WorkerRuntime {
         self.range_in_session(session_id, start_key, end_key).await
     }
 
-    #[cfg(test)]
-    fn execute_tx(&self, session_id: OID, instruction: WorkerExecute) -> RS<()> {
-        match instruction {
-            WorkerExecute::BeginTx => self
-                .session_manager
-                .begin_session_tx(session_id, self.contract.worker_begin_tx()?),
-            WorkerExecute::CommitTx => {
-                let tx_manager = self.session_manager.take_session_tx(session_id)?;
-                self.contract.worker_commit_tx(tx_manager)
-            }
-            WorkerExecute::RollbackTx => {
-                let tx_manager = self.session_manager.take_session_tx(session_id)?;
-                self.contract.worker_rollback_tx(tx_manager)?;
-                Ok(())
-            }
-        }
-    }
 
     pub(crate) async fn execute_tx_async(
         &self,
@@ -329,17 +303,6 @@ impl WorkerRuntime {
                 Ok(())
             }
         }
-    }
-
-    fn put_in_session(&self, session_id: OID, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
-        self.session_manager
-            .with_session_tx(session_id, |tx_manager| match tx_manager {
-                Some(tx_manager) => {
-                    tx_manager.put(key, value);
-                    Ok(())
-                }
-                None => self.contract.worker_put(key, value),
-            })
     }
 
     pub(crate) async fn put_in_session_async(
@@ -530,6 +493,11 @@ impl WorkerRuntime {
 
     pub(crate) fn ensure_partition_rpc_handler(&self) -> RS<()> {
         self.contract.ensure_partition_rpc_handler()
+    }
+
+
+    pub async fn bootstrap_storage_async(&self) -> RS<()> {
+        self.contract.bootstrap_storage_async().await
     }
 
     pub fn x_contract(&self) -> Arc<dyn XContract> {
@@ -764,8 +732,18 @@ impl WorkerRuntime {
         Ok(total)
     }
 
-    pub fn replay_log_batch(&self, batch: XLBatch) -> RS<()> {
-        self.contract.replay_worker_log_batch(batch)
+    pub async fn replay_log_batch(&self, batch: XLBatch) -> RS<()> {
+        self.contract.replay_worker_log_batch(batch).await
+    }
+
+    pub fn finish_log_recovery(&self) -> RS<()> {
+        self.contract.finish_worker_log_recovery()
+    }
+
+    pub async fn recover_cross_partition_transactions(&self) -> RS<()> {
+        self.contract
+            .recover_pending_cross_partition_records_async()
+            .await
     }
 
     pub fn open_session_with_config(&self, conn_id: u64, config: SessionOpenConfig) -> RS<OID> {
@@ -805,16 +783,16 @@ mod tests {
     use crate::storage::time_series::time_series_file::TimeSeriesFile;
     use crate::x_engine::api::XContract;
     use async_trait::async_trait;
-    use futures::FutureExt;
     use mudu::common::id::gen_oid;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
     use std::env::temp_dir;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     #[derive(Default)]
     struct RecordingProcedureRuntime {
-        calls: Mutex<Vec<(OID, String, Vec<u8>)>>,
+        calls: SMutex<Vec<(OID, String, Vec<u8>)>>,
     }
 
     #[async_trait]
@@ -826,7 +804,7 @@ mod tests {
             procedure_parameters: Vec<u8>,
             _worker_local: WorkerLocalRef,
         ) -> RS<Vec<u8>> {
-            self.calls.lock().unwrap().push((
+            self.calls.lock()?.push((
                 session_id,
                 procedure_name.to_string(),
                 procedure_parameters.clone(),
@@ -844,7 +822,7 @@ mod tests {
         (dir, registry)
     }
 
-    fn test_worker(
+    async fn test_worker(
         worker_index: usize,
         worker_count: usize,
         log_dir: &str,
@@ -862,7 +840,7 @@ mod tests {
             procedure_runtime,
             registry,
             0,
-        )
+        ).await
         .unwrap()
     }
 
@@ -890,7 +868,7 @@ mod tests {
     async fn worker_invokes_configured_procedure_runtime() {
         let runtime = Arc::new(RecordingProcedureRuntime::default());
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, Some(runtime.clone()));
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, Some(runtime.clone())).await;
 
         let response = worker
             .handle_procedure_request(
@@ -920,32 +898,33 @@ mod tests {
 
     #[test]
     fn worker_session_lifecycle_is_connection_scoped() {
-        let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        mudu_sys::task_async::block_on_async_current(async move {
+            let (log_dir, registry) = test_registry(1);
+            let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
-        let session_id = worker.create_session(7).unwrap();
-        assert!(worker.close_session(7, session_id).unwrap());
+            let session_id = worker.create_session(7).unwrap();
+            assert!(worker.close_session(7, session_id).unwrap());
 
-        let session_id = worker.create_session(7).unwrap();
-        let err = worker.close_session(8, session_id).unwrap_err();
-        assert!(err.to_string().contains("does not belong to connection 8"));
+            let session_id = worker.create_session(7).unwrap();
+            let err = worker.close_session(8, session_id).unwrap_err();
+            assert!(err.to_string().contains("does not belong to connection 8"));
 
-        worker.close_connection_sessions(7).unwrap();
-        let err = worker
-            .handle_procedure_request(
-                7,
-                &ProcedureInvokeRequest::new(session_id, "app/mod/proc", b"payload".to_vec()),
-            )
-            .now_or_never()
-            .unwrap()
-            .unwrap_err();
-        assert!(err.to_string().contains("does not exist"));
+            worker.close_connection_sessions(7).unwrap();
+            let err = worker
+                .handle_procedure_request(
+                    7,
+                    &ProcedureInvokeRequest::new(session_id, "app/mod/proc", b"payload".to_vec()),
+                )
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("does not exist"));
+        });
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_implements_worker_local_interface() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_id = worker.create_session(1).unwrap();
         let local = new_session_bound_worker_runtime(worker.clone(), session_id);
@@ -976,14 +955,14 @@ mod tests {
             .execute_async(opened, WorkerExecute::CommitTx)
             .await
             .unwrap();
-        assert_eq!(worker.get(b"a").unwrap(), Some(b"1".to_vec()));
+        assert_eq!(worker.get_async(b"a").await.unwrap(), Some(b"1".to_vec()));
         local.close_async(opened).await.unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_rollback_discards_staged_writes() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_id = worker.create_session(1).unwrap();
         let local = new_session_bound_worker_runtime(worker.clone(), session_id);
@@ -1007,13 +986,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(local.get_async(session_id, b"a").await.unwrap(), None);
-        assert_eq!(worker.get(b"a").unwrap(), None);
+        assert_eq!(worker.get_async(b"a").await.unwrap(), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_delete_removes_visible_value() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_id = worker.create_session(1).unwrap();
         let local = new_session_bound_worker_runtime(worker.clone(), session_id);
@@ -1030,7 +1009,7 @@ mod tests {
         local.delete_async(session_id, b"a").await.unwrap();
 
         assert_eq!(local.get_async(session_id, b"a").await.unwrap(), None);
-        assert_eq!(worker.get(b"a").unwrap(), None);
+        assert_eq!(worker.get_async(b"a").await.unwrap(), None);
     }
 
     #[test]
@@ -1060,7 +1039,7 @@ mod tests {
             None,
             registry,
             0,
-        )
+        ).await
         .unwrap();
         let contract = WorkerXContract::with_log_and_data_dir(
             Arc::new(TestMetaMgr::new()),
@@ -1097,7 +1076,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn worker_delete_inside_tx_is_visible_to_same_session_only_after_commit() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
@@ -1109,7 +1088,8 @@ mod tests {
             .unwrap();
 
         worker
-            .execute_tx(session_a, WorkerExecute::BeginTx)
+            .execute_tx_async(session_a, WorkerExecute::BeginTx)
+            .await
             .unwrap();
         local_a.delete_async(session_a, b"k").await.unwrap();
 
@@ -1120,17 +1100,18 @@ mod tests {
         );
 
         worker
-            .execute_tx(session_a, WorkerExecute::CommitTx)
+            .execute_tx_async(session_a, WorkerExecute::CommitTx)
+            .await
             .unwrap();
 
-        assert_eq!(worker.get(b"k").unwrap(), None);
+        assert_eq!(worker.get_async(b"k").await.unwrap(), None);
         assert_eq!(local_b.get_async(session_b, b"k").await.unwrap(), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_async_put_persists_value() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_id = worker.create_session(1).unwrap();
         let local = new_session_bound_worker_runtime(worker.clone(), session_id);
@@ -1144,13 +1125,13 @@ mod tests {
             local.get_async(session_id, b"a").await.unwrap(),
             Some(b"1".to_vec())
         );
-        assert_eq!(worker.get(b"a").unwrap(), Some(b"1".to_vec()));
+        assert_eq!(worker.get_async(b"a").await.unwrap(), Some(b"1".to_vec()));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_async_execute_commits_transaction() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_id = worker.create_session(1).unwrap();
         let local = new_session_bound_worker_runtime(worker.clone(), session_id);
@@ -1169,18 +1150,19 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(worker.get(b"a").unwrap(), Some(b"1".to_vec()));
+        assert_eq!(worker.get_async(b"a").await.unwrap(), Some(b"1".to_vec()));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn worker_snapshot_isolation_hides_later_commits_from_existing_tx() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
         worker
-            .execute_tx(session_a, WorkerExecute::BeginTx)
+            .execute_tx_async(session_a, WorkerExecute::BeginTx)
+            .await
             .unwrap();
         let local_a = new_session_bound_worker_runtime(worker.clone(), session_a);
         let local_b = new_session_bound_worker_runtime(worker.clone(), session_b);
@@ -1199,7 +1181,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn worker_snapshot_isolation_range_stays_stable_for_existing_tx() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
@@ -1210,8 +1192,8 @@ mod tests {
             .await
             .unwrap();
         worker
-            .execute_tx(session_a, WorkerExecute::BeginTx)
-            .unwrap();
+            .execute_tx_async(session_a, WorkerExecute::BeginTx)
+            .await.unwrap();
         local_b
             .put_async(session_b, b"b".to_vec(), b"2".to_vec())
             .await
@@ -1230,15 +1212,17 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn worker_first_committer_wins_without_locks() {
         let (log_dir, registry) = test_registry(1);
-        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
 
         let session_a = worker.create_session(1).unwrap();
         let session_b = worker.create_session(2).unwrap();
         worker
-            .execute_tx(session_a, WorkerExecute::BeginTx)
+            .execute_tx_async(session_a, WorkerExecute::BeginTx)
+            .await
             .unwrap();
         worker
-            .execute_tx(session_b, WorkerExecute::BeginTx)
+            .execute_tx_async(session_b, WorkerExecute::BeginTx)
+            .await
             .unwrap();
         let local_a = new_session_bound_worker_runtime(worker.clone(), session_a);
         let local_b = new_session_bound_worker_runtime(worker.clone(), session_b);
@@ -1252,13 +1236,15 @@ mod tests {
             .unwrap();
 
         worker
-            .execute_tx(session_a, WorkerExecute::CommitTx)
+            .execute_tx_async(session_a, WorkerExecute::CommitTx)
+            .await
             .unwrap();
         let err = worker
-            .execute_tx(session_b, WorkerExecute::CommitTx)
+            .execute_tx_async(session_b, WorkerExecute::CommitTx)
+            .await
             .unwrap_err();
 
         assert!(err.to_string().contains("write-write conflict"));
-        assert_eq!(worker.get(b"k").unwrap(), Some(b"v1".to_vec()));
+        assert_eq!(worker.get_async(b"k").await.unwrap(), Some(b"v1".to_vec()));
     }
 }

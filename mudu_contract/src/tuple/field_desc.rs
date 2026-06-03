@@ -14,6 +14,10 @@ pub struct FieldDesc {
     is_fixed_len: bool,
     slot: Slot,
     type_obj: DatType,
+    #[serde(default)]
+    nullable: bool,
+    #[serde(default)]
+    null_bit_idx: Option<u16>,
 }
 
 impl FieldDesc {
@@ -26,11 +30,23 @@ impl FieldDesc {
     /// # Panics
     /// If the data_type's inherent fixed-length property doesn't match is_fixed_len parameter
     pub fn new(slot: Slot, data_type: DatType, is_fixed_len: bool) -> Self {
+        Self::new_with_nullability(slot, data_type, is_fixed_len, false, None)
+    }
+
+    pub fn new_with_nullability(
+        slot: Slot,
+        data_type: DatType,
+        is_fixed_len: bool,
+        nullable: bool,
+        null_bit_idx: Option<u16>,
+    ) -> Self {
         Self {
             oid: 0,
             is_fixed_len,
             slot,
             type_obj: data_type,
+            nullable,
+            null_bit_idx,
         }
     }
 
@@ -73,5 +89,13 @@ impl FieldDesc {
     /// Indicates if the field is a fixed-length type
     pub fn is_fixed_len(&self) -> bool {
         self.is_fixed_len
+    }
+
+    pub fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    pub fn null_bit_idx(&self) -> Option<u16> {
+        self.null_bit_idx
     }
 }

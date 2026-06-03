@@ -8,6 +8,7 @@ pub struct ColumnDef {
     data_type_def: UniDatType,
     data_type_param: Option<Vec<UniDatValue>>,
     opt_primary_key_index: Option<AttrIndex>,
+    nullable: bool,
     index: AttrIndex,
 }
 
@@ -22,6 +23,7 @@ impl ColumnDef {
             data_type_def,
             data_type_param,
             opt_primary_key_index: None,
+            nullable: true,
             index: AttrIndex::MAX,
         }
     }
@@ -52,6 +54,17 @@ impl ColumnDef {
 
     pub fn set_primary_key_index(&mut self, index: Option<AttrIndex>) {
         self.opt_primary_key_index = index;
+        if index.is_some() {
+            self.nullable = false;
+        }
+    }
+
+    pub fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    pub fn set_nullable(&mut self, nullable: bool) {
+        self.nullable = nullable;
     }
 
     pub fn set_index(&mut self, index: AttrIndex) {

@@ -12,7 +12,6 @@ use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
-use mudu::common::xid::XID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_type::datum::DatumDyn;
@@ -39,7 +38,7 @@ pub enum DBConn {
 }
 
 impl DBConn {
-    pub async fn begin_tx(&self) -> RS<XID> {
+    pub async fn begin_tx(&self) -> RS<OID> {
         let xid = match self {
             DBConn::Sync(conn) => {
                 let xid = conn.begin_tx()?;
@@ -81,7 +80,7 @@ pub struct Context {
 
 struct ContextInner {
     session_id: OID,
-    xid: Mutex<XID>,
+    xid: Mutex<OID>,
     result_set: Mutex<Option<ContextResult>>,
     conn: DBConn,
 }
@@ -134,14 +133,14 @@ impl ContextInner {
         Ok(s)
     }
 
-    fn set_xid(&self, xid: XID) {
+    fn set_xid(&self, xid: OID) {
         let mut g = self.xid.lock();
         match &mut g {
             Ok(v) => **v = xid,
             Err(_) => {}
         }
     }
-    fn xid(&self) -> XID {
+    fn xid(&self) -> OID {
         let g = self.xid.lock();
         match g {
             Ok(v) => *v,
@@ -229,17 +228,17 @@ impl Context {
         opt.map(|e| e.get().clone())
     }
 
-    pub fn remove(xid: XID) -> Option<Context> {
+    pub fn remove(xid: OID) -> Option<Context> {
         let opt = SessionContext.remove_sync(&xid);
         opt.map(|e| e.1)
     }
 
-    pub async fn remove_async(xid: XID) -> Option<Context> {
+    pub async fn remove_async(xid: OID) -> Option<Context> {
         let opt = SessionContext.remove_async(&xid).await;
         opt.map(|e| e.1)
     }
 
-    pub fn commit(xid: XID) -> RS<()> {
+    pub fn commit(xid: OID) -> RS<()> {
         let opt = SessionContext.get_sync(&xid);
         match opt {
             Some(e) => e.get().commit_tx(),
@@ -247,7 +246,7 @@ impl Context {
         }
     }
 
-    pub fn rollback(xid: XID) -> RS<()> {
+    pub fn rollback(xid: OID) -> RS<()> {
         let opt = SessionContext.get_sync(&xid);
         match opt {
             Some(e) => e.get().rollback_tx(),
@@ -255,21 +254,21 @@ impl Context {
         }
     }
 
-    pub async fn commit_async(oid: XID) -> RS<()> {
+    pub async fn commit_async(oid: OID) -> RS<()> {
         let ctx = Self::context_async(oid).await?;
         ctx.commit_tx_async().await?;
         debug!("transaction committed {}", ctx.inner.xid());
         Ok(())
     }
 
-    pub async fn rollback_async(oid: XID) -> RS<()> {
+    pub async fn rollback_async(oid: OID) -> RS<()> {
         let ctx = Self::context_async(oid).await?;
         ctx.rollback_tx_async().await?;
         debug!("transaction rollback {}", ctx.inner.xid());
         Ok(())
     }
 
-    pub async fn context_async(xid: XID) -> RS<Context> {
+    pub async fn context_async(xid: OID) -> RS<Context> {
         let ctx = {
             let opt = SessionContext.get_async(&xid).await;
             match opt {
@@ -282,7 +281,7 @@ impl Context {
         };
         Ok(ctx)
     }
-    pub fn session_id(&self) -> XID {
+    pub fn session_id(&self) -> OID {
         self.inner.session_id()
     }
     fn rollback_tx(&self) -> RS<()> {
@@ -359,7 +358,7 @@ impl Context {
 }
 
 pub fn mudu_query<R: Entity>(
-    xid: XID,
+    xid: OID,
     sql: &dyn SQLStmt,
     param: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
@@ -368,13 +367,13 @@ pub fn mudu_query<R: Entity>(
     context.query(sql, param)
 }
 
-pub fn mudu_command(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+pub fn mudu_command(xid: OID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("mudu_command, no such transaction {}", xid))?;
     context.command(sql, param)
 }
 
-pub fn mudu_batch(xid: XID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+pub fn mudu_batch(xid: OID, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("mudu_batch, no such transaction {}", xid))?;
     context.batch(sql, param)

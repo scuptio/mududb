@@ -175,9 +175,26 @@ fn handle_assemblyscript(args: Args) -> Result<(), String> {
         println!("Input file: {}", args.input);
         println!("Output file: {}", args.output);
     }
-    // TODO: Implement AssemblyScript transpilation
-    println!("AssemblyScript transpilation not yet implemented");
-    Ok(())
+    let input_file = PathBuf::from(&args.input);
+    let output_file = PathBuf::from(&args.output);
+    let module = args.module.unwrap_or_else(|| "module".to_string());
+
+    let ret = crate::assemblyscript::transpile_assemblyscript(
+        &input_file,
+        &output_file,
+        module,
+        args.verbose,
+        args.package_desc,
+    );
+
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "AssemblyScript transpilation failed with exit code: {}",
+            ret
+        ))
+    }
 }
 
 pub fn main_inner<I, T>(args: I) -> RS<()>
