@@ -10,7 +10,7 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_mutex::AMutex;
 use tracing::trace;
 
 use crate::contract::meta_mgr::MetaMgr;
@@ -77,7 +77,7 @@ pub struct MetaMgrImpl {
 }
 
 impl MetaMgrImpl {
-    pub fn new<P: AsRef<Path>>(path: P) -> RS<Self> {
+    pub async fn new<P: AsRef<Path>>(path: P) -> RS<Self> {
         let path = PathBuf::from(path.as_ref());
         if fs::metadata(&path).is_err() {
             fs::create_dir_all(&path).map_err(|e| m_error!(ER::IOErr, "", e))?;
@@ -85,10 +85,10 @@ impl MetaMgrImpl {
 
         let path_string = path.to_string_lossy().to_string();
         let ddl_lock = ddl_lock_for(&path_string);
-        let schema_catalog = open_schema_catalog(&path_string)?;
-        let partition_rule_catalog = open_partition_rule_catalog(&path_string)?;
-        let partition_binding_catalog = open_partition_binding_catalog(&path_string)?;
-        let partition_placement_catalog = open_partition_placement_catalog(&path_string)?;
+        let schema_catalog = open_schema_catalog(&path_string).await?;
+        let partition_rule_catalog = open_partition_rule_catalog(&path_string).await?;
+        let partition_binding_catalog = open_partition_binding_catalog(&path_string).await?;
+        let partition_placement_catalog = open_partition_placement_catalog(&path_string).await?;
         let this = Self {
             path: path_string,
             ddl_lock,
@@ -105,16 +105,16 @@ impl MetaMgrImpl {
             binding_by_table_id: Default::default(),
             placement_by_partition_id: Default::default(),
         };
-        for schema in load_schemas_from_catalog(&this.schema_catalog)? {
+        for schema in load_schemas_from_catalog(&this.schema_catalog).await? {
             this.apply_create_table_local(&schema)?;
         }
-        for rule in load_partition_rules_from_catalog(&this.partition_rule_catalog)? {
+        for rule in load_partition_rules_from_catalog(&this.partition_rule_catalog).await? {
             this.apply_create_partition_rule_local(&rule);
         }
-        for binding in load_partition_bindings_from_catalog(&this.partition_binding_catalog)? {
+        for binding in load_partition_bindings_from_catalog(&this.partition_binding_catalog).await? {
             this.apply_bind_table_partition_local(&binding);
         }
-        for placement in load_partition_placements_from_catalog(&this.partition_placement_catalog)?
+        for placement in load_partition_placements_from_catalog(&this.partition_placement_catalog).await?
         {
             this.apply_partition_placement_local(&placement);
         }
@@ -527,26 +527,35 @@ mod tests {
     }
 
     #[test]
-    fn meta_mgr_recovers_schema_catalog_after_reopen() {
+    fn meta_mgr_recovers_schema_catalog_after_reopen()  {
+        block_on(async move {
+            let r = _meta_mgr_recovers_schema_catalog_after_reopen().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_recovers_schema_catalog_after_reopen() -> RS<()> {
         let dir = temp_dir().join(format!("meta_mgr_catalog_{}", mudu::common::id::gen_oid()));
-        let mgr = Arc::new(MetaMgrImpl::new(&dir).unwrap());
+        let initial_dir = dir.clone();
+        let mgr =
+            Arc::new(MetaMgrImpl::new(initial_dir).await?);
         mgr.register_global();
         let _mgr = mgr.clone();
         let schema = test_schema();
         let _schema = schema.clone();
-        let _ = block_on(async move { _mgr.create_table(&_schema).await });
+        _mgr.create_table(&_schema).await?;
         assert_eq!(
-            crate::meta::schema_catalog::load_schemas_from_catalog(&mgr.schema_catalog)
-                .unwrap()
+            load_schemas_from_catalog(&mgr.schema_catalog).await
+                ?
                 .len(),
             1
         );
         drop(mgr);
 
-        let reopened = MetaMgrImpl::new(&dir).unwrap();
+        let reopened = MetaMgrImpl::new(dir).await?;
         let schema_id = schema.id();
-        let table = block_on(async move { reopened.get_table_by_id(schema_id).await }).unwrap();
+        let table = reopened.get_table_by_id(schema_id).await?;
         assert_eq!(table.name(), schema.table_name());
+        Ok(())
     }
 
     #[test]
@@ -558,9 +567,9 @@ mod tests {
     }
     async fn _meta_mgr_broadcasts_ddl_to_peer_instances() -> RS<()> {
         let dir = temp_dir().join(format!("meta_mgr_peer_{}", mudu::common::id::gen_oid()));
-        let mgr1 = Arc::new(MetaMgrImpl::new(&dir)?);
+        let mgr1 = Arc::new(MetaMgrImpl::new(&dir).await?);
         mgr1.register_global();
-        let mgr2 = Arc::new(MetaMgrImpl::new(&dir)?);
+        let mgr2 = Arc::new(MetaMgrImpl::new(&dir).await?);
         mgr2.register_global();
 
         let schema = test_schema();

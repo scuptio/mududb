@@ -96,7 +96,7 @@ pub(super) fn start_backend() -> RS<Option<(u16, u16, RunningServer)>> {
         pg_listen_port: 0,
         tcp_listen_port: tcp_port,
         server_mode: ServerMode::IOUring,
-        io_uring_worker_threads: 1,
+        worker_threads: 1,
         ..Default::default()
     };
     let (stop, waiter) = notify_wait();

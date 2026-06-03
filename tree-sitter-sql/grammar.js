@@ -338,6 +338,7 @@ module.exports = grammar({
         keyword_mediumint: _ => choice(make_keyword("mediumint"), make_keyword("int3")),
         keyword_int: _ => choice(make_keyword("int"), make_keyword("integer"), make_keyword("int4")),
         keyword_bigint: _ => choice(make_keyword("bigint"), make_keyword("int8")),
+        keyword_hugeint: _ => make_keyword("hugeint"),
         keyword_decimal: _ => make_keyword("decimal"),
         keyword_numeric: _ => make_keyword("numeric"),
         keyword_real: _ => choice(make_keyword("real"), make_keyword("float4")),
@@ -436,6 +437,7 @@ module.exports = grammar({
             $.mediumint,
             $.int,
             $.bigint,
+            $.hugeint,
             $.decimal,
             $.numeric,
             $.double,
@@ -504,6 +506,7 @@ module.exports = grammar({
         mediumint: $ => $.keyword_mediumint,
         int: $ => $.keyword_int,
         bigint: $ => $.keyword_bigint,
+        hugeint: $ => $.keyword_hugeint,
 
         bit: $ => choice(
             $.keyword_bit,

@@ -19,6 +19,7 @@ mod tests {
             &(7i32, 9i32),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
         let second = ValueCodec::binary_from_expr(
             &ExprValue::ValuePlaceholder,
@@ -26,6 +27,7 @@ mod tests {
             &(7i32, 9i32),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(param_index, 2);
@@ -66,6 +68,7 @@ mod tests {
             &(),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(param_index, 0);
@@ -79,6 +82,21 @@ mod tests {
     }
 
     #[test]
+    fn null_literal_has_no_binary_payload() {
+        let mut param_index = 0;
+        let binary = ValueCodec::binary_from_expr(
+            &ExprValue::ValueLiteral(ExprLiteral::Null),
+            &DatType::default_for(DatTypeID::String),
+            &(),
+            &mut param_index,
+        )
+        .unwrap();
+
+        assert!(binary.is_none());
+        assert_eq!(param_index, 0);
+    }
+
+    #[test]
     fn i64_literal_is_narrowed_for_i32_columns() {
         let mut param_index = 0;
         let binary = ValueCodec::binary_from_expr(
@@ -87,6 +105,7 @@ mod tests {
             &(),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(param_index, 0);
@@ -109,6 +128,7 @@ mod tests {
             &(),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(param_index, 0);
@@ -133,6 +153,7 @@ mod tests {
             &(),
             &mut param_index,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(param_index, 0);

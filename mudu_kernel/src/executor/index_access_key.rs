@@ -6,7 +6,7 @@ use crate::x_engine::x_param::PAccessKey;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
-use mudu_utils::sync::f_mutex::FMutex;
+use mudu_sys::sync::f_mutex::FMutex;
 use std::sync::Arc;
 
 pub struct IndexAccessKey {
@@ -83,7 +83,7 @@ impl _IndexAccessKey {
                 &p.opt_read,
             )
             .await?;
-        Ok(row.map(TupleRow::new))
+        Ok(row.map(TupleRow::new_nullable))
     }
 }
 

@@ -1,3 +1,4 @@
+use clap::Parser;
 use mudu::common::result::RS;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::load_mududb_cfg;
@@ -7,9 +8,18 @@ use mudu_utils::notifier::{Notifier, notify_wait};
 use std::thread;
 use tracing::{error, info};
 
+#[derive(Debug, Parser)]
+#[command(name = "mudud", version, about = "MuduDB server")]
+struct Args {
+    /// Path to mududb configuration TOML file.
+    #[arg(long = "cfg", value_name = "FILE")]
+    cfg_path: Option<String>,
+}
+
 fn main() {
     log_setup_ex("info", "", false);
-    let r = serve();
+    let args = Args::parse();
+    let r = serve(args);
     match r {
         Ok(_) => {}
         Err(e) => {
@@ -18,8 +28,8 @@ fn main() {
     }
 }
 
-fn serve() -> RS<()> {
-    let cfg = load_mududb_cfg(None)?;
+fn serve(args: Args) -> RS<()> {
+    let cfg = load_mududb_cfg(args.cfg_path)?;
     info!(
         server_mode = ?cfg.server_mode,
         component_target = ?cfg.component_target(),

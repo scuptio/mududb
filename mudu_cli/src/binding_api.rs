@@ -10,7 +10,7 @@ use mudu_contract::protocol::{
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 use thiserror::Error;
 use tokio::runtime::{Builder, Runtime};
 
@@ -68,8 +68,8 @@ pub struct PartitionRouteResponseBinding {
 
 #[derive(uniffi::Object)]
 pub struct MuduTcpClient {
-    runtime: Mutex<Runtime>,
-    inner: Mutex<AsyncClientImpl>,
+    runtime: SMutex<Runtime>,
+    inner: SMutex<AsyncClientImpl>,
 }
 
 #[uniffi::export]
@@ -81,8 +81,8 @@ impl MuduTcpClient {
             .block_on(AsyncClientImpl::connect(&addr))
             .map_err(binding_error)?;
         Ok(Arc::new(Self {
-            runtime: Mutex::new(runtime),
-            inner: Mutex::new(inner),
+            runtime: SMutex::new(runtime),
+            inner: SMutex::new(inner),
         }))
     }
 

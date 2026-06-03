@@ -35,18 +35,43 @@ pub fn schema_columns_to_tuple_desc(
             DatumIndex::MAX, // set an invalid index
             column_index,
             sc.primary_index(),
+            sc.nullable(),
         );
-        desc.push((ty, field_info))
+        desc.push((ty, field_info, sc.nullable()))
     }
 
     assert_eq!(desc.len(), field_count);
-    let (vec_tuple_desc, mut vec_payload) = TupleDesc::normalized_type_desc_vec(desc)?;
+    let (vec_tuple_desc, mut vec_payload) = TupleDesc::normalized_type_desc_vec(
+        desc.into_iter()
+            .scan(0usize, |nullable_count, (ty, field_info, nullable)| {
+                let null_bit_idx = if nullable {
+                    let idx = *nullable_count as u16;
+                    *nullable_count += 1;
+                    Some(idx)
+                } else {
+                    None
+                };
+                Some((ty, (field_info, nullable, null_bit_idx)))
+            })
+            .collect(),
+    )?;
     for (i, f) in vec_payload.iter_mut().enumerate() {
         // set its real index
-        f.set_datum_index(i);
+        f.0.set_datum_index(i);
     }
-    let tuple_desc = TupleDesc::from(vec_tuple_desc)?;
-    Ok((tuple_desc, vec_payload))
+    let typed_fields = vec_tuple_desc
+        .into_iter()
+        .zip(vec_payload.iter())
+        .map(|(ty, (_, nullable, null_bit_idx))| (ty, *nullable, *null_bit_idx))
+        .collect();
+    let tuple_desc = TupleDesc::from_typed_fields(typed_fields, 1)?;
+    Ok((
+        tuple_desc,
+        vec_payload
+            .into_iter()
+            .map(|(field_info, _, _)| field_info)
+            .collect(),
+    ))
 }
 
 #[cfg(any(test, feature = "test"))]

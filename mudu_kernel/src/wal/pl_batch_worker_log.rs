@@ -8,6 +8,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use std::sync::atomic::AtomicU32;
+use async_trait::async_trait;
 
 /// Typed worker-log wrapper specialized for [`PLBatch`].
 ///
@@ -18,8 +19,9 @@ pub type PLBatchWorkerLog<B, H> = TypedWorkerLog<PLBatch, B, H>;
 /// No-op recovery handler for write-only physical-log paths.
 pub struct NoopPLBatchRecoveryHandler;
 
+#[async_trait]
 impl WorkerLogRecoveryHandler<PLBatch> for NoopPLBatchRecoveryHandler {
-    fn handle_entry(&self, _entry: PLBatch, _start_lsn: LSN) -> RS<()> {
+    async fn handle_entry(&self, _entry: PLBatch, _start_lsn: LSN) -> RS<()> {
         Ok(())
     }
 }
@@ -72,11 +74,6 @@ pub fn decode_pl_batches_with_pending(
         out.push(batch);
     }
     Ok(out)
-}
-
-pub fn append_pl_batch<B: WorkerLogBackend>(backend: &B, batch: &PLBatch) -> RS<()> {
-    let frames = backend.serialize_entry(batch)?;
-    backend.append_frames_sync(frames)
 }
 
 pub async fn append_pl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &PLBatch) -> RS<LSN> {

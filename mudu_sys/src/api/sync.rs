@@ -1,6 +1,6 @@
 use mudu::common::result::RS;
 
-use crate::fd::RawFd;
+use crate::io::fd::RawFd;
 
 pub trait SysSync: Send + Sync {
     fn eventfd(&self) -> RS<RawFd>;

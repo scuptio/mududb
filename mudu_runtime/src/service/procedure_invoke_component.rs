@@ -10,12 +10,12 @@ use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use mudu_utils::task_trace;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 use wasmtime::Store;
 use wasmtime::component::{InstancePre, TypedFunc};
 
 pub struct ProcedureInvokeComponent {
-    inner: Mutex<ProcedureInvokeInner>,
+    inner: SMutex<ProcedureInvokeInner>,
 }
 
 impl ProcedureInvokeComponent {
@@ -61,7 +61,7 @@ impl ProcedureInvokeComponent {
         proc_opt: ProcOpt,
     ) -> RS<Self> {
         Ok(Self {
-            inner: Mutex::new(ProcedureInvokeInner::new(
+            inner: SMutex::new(ProcedureInvokeInner::new(
                 context,
                 instance_pre,
                 name,
@@ -77,7 +77,7 @@ impl ProcedureInvokeComponent {
         proc_opt: ProcOpt,
     ) -> RS<Self> {
         Ok(Self {
-            inner: Mutex::new(
+            inner: SMutex::new(
                 ProcedureInvokeInner::new_async(context, instance_pre, name, proc_opt).await?,
             ),
         })

@@ -10,7 +10,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_sys::tokio::sync::mpsc;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
-use mudu_utils::sync::async_task::TaskWrapper;
+use mudu_sys::sync::async_task::TaskWrapper;
 use mudu_utils::task_async::LocalTaskSet;
 use std::net::SocketAddr;
 use std::str::FromStr;

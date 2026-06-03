@@ -1,18 +1,18 @@
 use mudu::common::result::RS;
 use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 
 pub struct LocalResultSet {
     rows: Vec<TupleValue>,
-    cursor: Mutex<usize>,
+    cursor: SMutex<usize>,
 }
 
 impl LocalResultSet {
     pub fn new(rows: Vec<TupleValue>) -> Self {
         Self {
             rows,
-            cursor: Mutex::new(0),
+            cursor: SMutex::new(0),
         }
     }
 }

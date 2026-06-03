@@ -1429,6 +1429,10 @@
         }
       ]
     },
+    "keyword_hugeint": {
+      "type": "PATTERN",
+      "value": "[hH][uU][gG][eE][iI][nN][tT]"
+    },
     "keyword_decimal": {
       "type": "PATTERN",
       "value": "[dD][eE][cC][iI][mM][aA][lL]"
@@ -1775,6 +1779,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "hugeint"
+        },
+        {
+          "type": "SYMBOL",
           "name": "decimal"
         },
         {
@@ -2030,6 +2038,10 @@
     "bigint": {
       "type": "SYMBOL",
       "name": "keyword_bigint"
+    },
+    "hugeint": {
+      "type": "SYMBOL",
+      "name": "keyword_hugeint"
     },
     "bit": {
       "type": "CHOICE",

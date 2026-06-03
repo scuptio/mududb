@@ -10,7 +10,7 @@ use crate::rust::procedure_common::{
 use crate::rust::stock::object::Stock;
 use crate::rust::warehouse::object::Warehouse;
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ec::EC::MuduError;
@@ -19,7 +19,7 @@ use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
 
 fn query_one_entity<R: Entity>(
-    xid: XID,
+    xid: OID,
     sql: &str,
     params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<R> {
@@ -29,7 +29,7 @@ fn query_one_entity<R: Entity>(
 }
 
 fn query_entities<R: Entity>(
-    xid: XID,
+    xid: OID,
     sql: &str,
     params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<Vec<R>> {
@@ -42,7 +42,7 @@ fn query_entities<R: Entity>(
 }
 
 fn query_count_i32(
-    xid: XID,
+    xid: OID,
     sql: &str,
     params: &dyn mududb::contract::database::sql_params::SQLParams,
 ) -> RS<i32> {
@@ -66,7 +66,7 @@ fn required_string(value: &Option<String>, field: &str) -> RS<String> {
 }
 
 fn tpcc_seed_inner(
-    xid: XID,
+    xid: OID,
     warehouse_count: i32,
     district_count: i32,
     customer_count: i32,
@@ -155,7 +155,7 @@ fn tpcc_seed_inner(
 }
 
 fn tpcc_new_order_inner(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -317,7 +317,7 @@ fn tpcc_new_order_inner(
 }
 
 fn tpcc_payment_inner(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -417,7 +417,7 @@ fn tpcc_payment_inner(
 
 /**mudu-proc**/
 pub fn tpcc_seed(
-    xid: XID,
+    xid: OID,
     warehouse_count: i32,
     district_count: i32,
     customer_count: i32,
@@ -437,7 +437,7 @@ pub fn tpcc_seed(
 
 /**mudu-proc**/
 pub fn tpcc_seed_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_count: i32,
     district_count: i32,
     customer_count: i32,
@@ -457,7 +457,7 @@ pub fn tpcc_seed_partitioned(
 
 /**mudu-proc**/
 pub fn tpcc_new_order(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -479,7 +479,7 @@ pub fn tpcc_new_order(
 
 /**mudu-proc**/
 pub fn tpcc_new_order_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -501,7 +501,7 @@ pub fn tpcc_new_order_partitioned(
 
 /**mudu-proc**/
 pub fn tpcc_payment(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -512,7 +512,7 @@ pub fn tpcc_payment(
 
 /**mudu-proc**/
 pub fn tpcc_payment_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -523,7 +523,7 @@ pub fn tpcc_payment_partitioned(
 
 /**mudu-proc**/
 pub fn tpcc_order_status(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -547,7 +547,7 @@ pub fn tpcc_order_status(
 
 /**mudu-proc**/
 pub fn tpcc_order_status_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     customer_id: i32,
@@ -556,7 +556,7 @@ pub fn tpcc_order_status_partitioned(
 }
 
 /**mudu-proc**/
-pub fn tpcc_delivery(xid: XID, warehouse_id: i32, district_id: i32, carrier_id: i32) -> RS<String> {
+pub fn tpcc_delivery(xid: OID, warehouse_id: i32, district_id: i32, carrier_id: i32) -> RS<String> {
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("carrier_id", carrier_id)?;
@@ -618,7 +618,7 @@ pub fn tpcc_delivery(xid: XID, warehouse_id: i32, district_id: i32, carrier_id: 
 
 /**mudu-proc**/
 pub fn tpcc_delivery_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     carrier_id: i32,
@@ -627,7 +627,7 @@ pub fn tpcc_delivery_partitioned(
 }
 
 /**mudu-proc**/
-pub fn tpcc_stock_level(xid: XID, warehouse_id: i32, district_id: i32, threshold: i32) -> RS<i32> {
+pub fn tpcc_stock_level(xid: OID, warehouse_id: i32, district_id: i32, threshold: i32) -> RS<i32> {
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("threshold", threshold)?;
@@ -640,7 +640,7 @@ pub fn tpcc_stock_level(xid: XID, warehouse_id: i32, district_id: i32, threshold
 
 /**mudu-proc**/
 pub fn tpcc_stock_level_partitioned(
-    xid: XID,
+    xid: OID,
     warehouse_id: i32,
     district_id: i32,
     threshold: i32,

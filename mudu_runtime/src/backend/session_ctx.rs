@@ -5,7 +5,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_mutex::AMutex;
 use pgwire::api::auth::md5pass::Md5PasswordAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::copy::CopyHandler;

@@ -28,3 +28,7 @@ target*
 .venv
 **/__pycache__/
 *.py[cod]
+
+# AssemblyScript binding local artifacts
+bindings/assemblyscript/node_modules/
+bindings/assemblyscript/build/

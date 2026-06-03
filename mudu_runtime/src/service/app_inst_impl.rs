@@ -17,7 +17,7 @@ use mudu_contract::database::sql::{Context, DBConn};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use mudu_utils::task_id::{TaskID, new_task_id};
 use mudu_utils::task_trace;

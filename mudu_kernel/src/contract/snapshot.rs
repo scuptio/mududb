@@ -1,5 +1,5 @@
 use crate::contract::timestamp::Timestamp;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use std::sync::Arc;
 
 pub type TimeSeq = u64;
@@ -30,7 +30,7 @@ impl Snapshot {
         }
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.inner.xid() as _
     }
 

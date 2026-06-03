@@ -6,7 +6,7 @@ use crate::rust::votes::object::Votes;
 use chrono::Utc;
 use fallible_iterator::FallibleIterator;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu::error::ec::EC::MuduError;
 use mudu::m_error;
 use mudu_contract::database::entity_set::RecordSet;
@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 // User management
 /**mudu-proc**/
-pub fn create_user(xid: XID, phone: String) -> RS<String> {
+pub fn create_user(xid: OID, phone: String) -> RS<String> {
     let user_id = Uuid::new_v4().to_string();
     mudu_command(
         xid,
@@ -29,7 +29,7 @@ pub fn create_user(xid: XID, phone: String) -> RS<String> {
 // Vote creation
 /**mudu-proc**/
 pub fn create_vote(
-    xid: XID,
+    xid: OID,
     creator_id: String,
     topic: String,
     vote_type: String,
@@ -65,7 +65,7 @@ pub fn create_vote(
 
 // Add option to vote
 /**mudu-proc**/
-pub fn add_option(xid: XID, vote_id: String, option_text: String) -> RS<String> {
+pub fn add_option(xid: OID, vote_id: String, option_text: String) -> RS<String> {
     let option_id = Uuid::new_v4().to_string();
     mudu_command(
         xid,
@@ -77,7 +77,7 @@ pub fn add_option(xid: XID, vote_id: String, option_text: String) -> RS<String> 
 
 // Submit vote
 /**mudu-proc**/
-pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<String>) -> RS<()> {
+pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<String>) -> RS<()> {
     // Check if vote is active
     let vote = mudu_query::<Votes>(
         xid,
@@ -139,7 +139,7 @@ pub fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<Str
 
 // Withdraw vote
 /**mudu-proc**/
-pub fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
+pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
@@ -171,7 +171,7 @@ pub fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
 
 // Get vote results
 /**mudu-proc**/
-pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
+pub fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
@@ -227,7 +227,7 @@ pub fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
 
 // View voting history
 /**mudu-proc**/
-pub fn get_voting_history(xid: XID, user_id: String) -> RS<Vec<VoteHistoryItem>> {
+pub fn get_voting_history(xid: OID, user_id: String) -> RS<Vec<VoteHistoryItem>> {
     let actions = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(

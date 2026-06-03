@@ -6,7 +6,8 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
 use crate::server::message_bus_api::{
     EndpointId, Envelope, MessageBus, MessageBusRef, MessageId, OnRecvCallback, OutgoingMessage,
@@ -17,7 +18,7 @@ use crate::server::server_iouring;
 use crate::server::task;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
 use crate::server::worker_registry::WorkerRegistry;
-use crate::server::worker_task::spawn_system_worker_task;
+use mudu_sys::server::worker_task::spawn_system_worker_task;
 use tracing::debug;
 
 pub(crate) struct WorkerMessageBus {
@@ -26,7 +27,7 @@ pub(crate) struct WorkerMessageBus {
     mailbox_fds: Vec<RawFd>,
     mailboxes: Vec<Arc<SegQueue<WorkerMailboxMsg>>>,
     next_msg_id: AtomicU64,
-    state: Mutex<WorkerMessageBusState>,
+    state: SMutex<WorkerMessageBusState>,
 }
 
 unsafe impl Send for WorkerMessageBus {}
@@ -45,7 +46,7 @@ impl WorkerMessageBus {
             mailbox_fds,
             mailboxes,
             next_msg_id: AtomicU64::new(1),
-            state: Mutex::new(WorkerMessageBusState::new()),
+            state: SMutex::new(WorkerMessageBusState::new()),
         })
     }
 
@@ -88,26 +89,10 @@ impl WorkerMessageBus {
         Ok(())
     }
 
-    fn route_worker_index(&self, endpoint: &EndpointId) -> RS<usize> {
-        match endpoint {
-            EndpointId::Worker(worker_id) => self
-                .registry
-                .worker_index_by_worker_id(*worker_id)
-                .ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
-                        format!("no such worker id {}", worker_id)
-                    )
-                }),
-            EndpointId::External(external_id) => Err(m_error!(
-                EC::NotImplemented,
-                format!("external endpoint {} is not implemented yet", external_id)
-            )),
-            EndpointId::Session(session_id) => Err(m_error!(
-                EC::NotImplemented,
-                format!("session endpoint {} is not implemented yet", session_id)
-            )),
-        }
+    fn route_worker_index(&self, endpoint: EndpointId) -> RS<usize> {
+        self.registry
+            .worker_index_by_worker_id(endpoint)
+            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such worker id {}", endpoint)))
     }
 
     fn dispatch_mailbox_message(&self, target_worker: usize, msg: WorkerMailboxMsg) -> RS<()> {
@@ -141,7 +126,7 @@ impl WorkerMessageBus {
 #[async_trait]
 impl MessageBus for WorkerMessageBus {
     fn local_endpoint(&self) -> EndpointId {
-        EndpointId::Worker(self.local_worker_id)
+        self.local_worker_id
     }
 
     async fn send(&self, dst: EndpointId, message: OutgoingMessage) -> RS<MessageId> {
@@ -156,7 +141,7 @@ impl MessageBus for WorkerMessageBus {
             message.payload_owned(),
             message.delivery(),
         );
-        let target_worker = self.route_worker_index(&dst)?;
+        let target_worker = self.route_worker_index(dst)?;
         debug!(
             local_worker_id = self.local_worker_id,
             dst = ?dst,
@@ -254,8 +239,8 @@ mod tests {
         bus.handle_incoming(Envelope::new(
             1,
             None,
-            EndpointId::Worker(12),
-            EndpointId::Worker(11),
+            12,
+            11,
             MessageKind::User(7),
             b"ping".to_vec(),
             DeliveryMode::FireAndForget,
@@ -264,7 +249,7 @@ mod tests {
 
         let message = bus
             .recv(RecvFilter {
-                src: Some(EndpointId::Worker(12)),
+                src: Some(12),
                 kind: Some(MessageKind::User(7)),
                 ..RecvFilter::default()
             })
@@ -277,7 +262,7 @@ mod tests {
     async fn recv_waiter_is_fulfilled_by_incoming_message() {
         let bus = test_bus(11);
         let mut recv = Box::pin(bus.recv(RecvFilter {
-            src: Some(EndpointId::Worker(12)),
+            src: Some(12),
             correlation_id: Some(9),
             ..RecvFilter::default()
         }));
@@ -290,8 +275,8 @@ mod tests {
         bus.handle_incoming(Envelope::new(
             2,
             Some(9),
-            EndpointId::Worker(12),
-            EndpointId::Worker(11),
+            12,
+            11,
             MessageKind::System(SystemMessageKind::Ack),
             Vec::new(),
             DeliveryMode::Response,

@@ -1,0 +1,46 @@
+package mududb:component-shim;
+
+interface procedure-create-user {
+    use types.{error, oid};
+    use system.{value-list};
+
+    adapter-create-user: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+interface procedure-deposit {
+    use types.{error, oid};
+    use system.{value-list};
+
+    adapter-deposit: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+interface procedure-withdraw {
+    use types.{error, oid};
+    use system.{value-list};
+
+    adapter-withdraw: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+interface procedure-transfer-funds {
+    use types.{error, oid};
+    use system.{value-list};
+
+    adapter-transfer-funds: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+interface procedure-balance {
+    use types.{error, oid};
+    use system.{value-list};
+
+    adapter-balance: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+world procedure-api {
+    import types;
+    import system;
+    export procedure-create-user;
+    export procedure-deposit;
+    export procedure-withdraw;
+    export procedure-transfer-funds;
+    export procedure-balance;
+}

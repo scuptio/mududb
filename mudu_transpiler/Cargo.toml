@@ -13,9 +13,14 @@ mudu_contract = { workspace = true }
 mudu_utils = { workspace = true }
 askama = {workspace = true}
 tree-sitter-rust = { version = "0.24.0" }
+tree-sitter-typescript = { version = "0.23.2" }
 tree-sitter = {workspace = true}
 mudu_type = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+syn = { version = "2.0.111", features = ["full"] }
+wit-parser = "0.245.1"
 
 [build-dependencies]
 askama = { workspace = true }

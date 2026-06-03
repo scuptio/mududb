@@ -37,12 +37,13 @@ pub struct KernelHttpApi {
 }
 
 impl KernelHttpApi {
-    pub fn new(
+    pub async fn new(
         app_mgr: Arc<dyn AppMgr>,
         cfg: &MuduDBCfg,
         worker_registry: Arc<WorkerRegistry>,
     ) -> RS<Self> {
         let meta_mgr = MetaMgrFactory::create(cfg.db_path.clone())
+            .await
             .map_err(|e| m_error!(EC::DBInternalError, "create http meta manager failed", e))?;
         Ok(Self::with_client_factory(
             app_mgr,

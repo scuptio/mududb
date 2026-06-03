@@ -1,0 +1,163 @@
+[env]
+PACKAGE_NAME = "wallet-as"
+MODULE_NAME = "wallet_as"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/wasm/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${PACKAGE_NAME}.mpk"
+AS_CORE_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wasm"
+AS_EMBEDDED_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.embedded.wasm"
+AS_COMPONENT_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures-component.wasm"
+WRAPPER_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/rust-wrapper/target/wasm32-wasip2/release/wallet_as_wrapper.wasm"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wasm"
+]
+
+[tasks.transpile]
+dependencies = ["prepare"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mudu_transpiler/Cargo.toml",
+    "--bin", "mtp",
+    "--",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly/procedures.ts",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "assembly-script"
+]
+
+[tasks.patch-generated-imports]
+dependencies = ["transpile"]
+command = "python3"
+args = ["${CARGO_MAKE_WORKING_DIRECTORY}/scripts/patch-generated-imports.py"]
+
+[tasks.link-binding-scope]
+dependencies = ["prepare"]
+command = "mkdir"
+args = ["-p", "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb"]
+
+[tasks.link-binding]
+dependencies = ["link-binding-scope"]
+command = "ln"
+args = [
+    "-sfn",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb/assemblyscript-binding"
+]
+
+[tasks.link-binding-entry]
+dependencies = ["link-binding"]
+command = "ln"
+args = [
+    "-sfn",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript/assembly/index.ts",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb/assemblyscript-binding.ts"
+]
+
+[tasks.asc-build]
+dependencies = ["patch-generated-imports", "link-binding-entry"]
+command = "../../bindings/assemblyscript/node_modules/.bin/asc"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--outFile", "${AS_CORE_WASM}",
+    "--textFile", "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wat",
+    "--path", "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules",
+    "--optimizeLevel", "3",
+    "--shrinkLevel", "0",
+    "--exportRuntime",
+    "--exportStart", "_initialize"
+]
+
+[tasks.patch-component-exports]
+dependencies = ["asc-build"]
+command = "python3"
+args = ["${CARGO_MAKE_WORKING_DIRECTORY}/scripts/patch-component-exports.py"]
+
+[tasks.as-componentize]
+dependencies = ["patch-component-exports"]
+command = "wasm-tools"
+args = [
+    "component", "embed",
+    "--world", "procedure-api",
+    "--dummy-names", "legacy",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "${AS_CORE_WASM}",
+    "--output", "${AS_EMBEDDED_WASM}"
+]
+
+[tasks.as-component]
+dependencies = ["as-componentize"]
+command = "wasm-tools"
+args = [
+    "component", "new",
+    "${AS_EMBEDDED_WASM}",
+    "--output", "${AS_COMPONENT_WASM}"
+]
+
+[tasks.rust-wrapper-build]
+dependencies = ["patch-generated-imports"]
+command = "cargo"
+args = [
+    "build",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/rust-wrapper/Cargo.toml",
+    "--target", "wasm32-wasip2",
+    "--release"
+]
+
+[tasks.compose]
+dependencies = ["as-component", "rust-wrapper-build"]
+command = "wasm-tools"
+args = [
+    "compose",
+    "${WRAPPER_WASM}",
+    "-d", "${AS_COMPONENT_WASM}",
+    "--output", "${WASM_FILE}"
+]
+
+[tasks.validate-component]
+dependencies = ["compose"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mudu_package/Cargo.toml",
+    "--bin", "mpk",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.package-placeholder]
+dependencies = ["transpile"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mudu_package/Cargo.toml",
+    "--bin", "mpk",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.default]
+alias = "package"

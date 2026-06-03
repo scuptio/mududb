@@ -12,11 +12,12 @@ use serde::Serialize;
 use std::future::Future;
 use std::marker::PhantomData;
 
+#[async_trait]
 pub trait WorkerLogRecoveryHandler<L>: Send + Sync + 'static
 where
     L: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    fn handle_entry(&self, entry: L, start_lsn: LSN) -> RS<()>;
+    async fn handle_entry(&self, entry: L, start_lsn: LSN) -> RS<()>;
 
     fn finish(&self) -> RS<()> {
         Ok(())
@@ -93,11 +94,6 @@ where
         Ok(())
     }
 
-    pub fn append_sync(&self, entry: &L) -> RS<()> {
-        let frames = self.backend.serialize_entry(entry)?;
-        self.backend.append_frames_sync(frames)
-    }
-
     pub fn flush(&self) -> RS<()> {
         self.backend.flush()
     }
@@ -107,15 +103,15 @@ where
         self.backend.flush_async().await
     }
 
-    pub fn recover<S>(&self, source: &mut S) -> RS<()>
+    pub async fn recover<S>(&self, source: &mut S) -> RS<()>
     where
         S: WorkerLogRecoverySource,
     {
-        let chunk_paths = source.chunk_paths_sorted()?;
+        let chunk_paths = source.chunk_paths_sorted().await?;
         let mut pending_frames = Vec::new();
         let mut pending_start_lsn = None;
         for path in chunk_paths {
-            let bytes = source.read_chunk(path.as_path())?;
+            let bytes = source.read_chunk(path.as_path()).await?;
             if bytes.is_empty() {
                 continue;
             }
@@ -126,7 +122,7 @@ where
                 &mut pending_start_lsn,
             )?;
             for (start_lsn, entry) in entries {
-                self.handler.handle_entry(entry, start_lsn)?;
+                self.handler.handle_entry(entry, start_lsn).await?;
             }
         }
 
@@ -156,7 +152,7 @@ where
                 &mut pending_start_lsn,
             )?;
             for (start_lsn, entry) in entries {
-                self.handler.handle_entry(entry, start_lsn)?;
+                self.handler.handle_entry(entry, start_lsn).await?;
             }
         }
 
@@ -211,7 +207,8 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::env::temp_dir;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     struct TestEntry {
@@ -221,11 +218,12 @@ mod tests {
 
     #[derive(Default)]
     struct CollectingHandler {
-        entries: Mutex<Vec<(LSN, TestEntry)>>,
+        entries: SMutex<Vec<(LSN, TestEntry)>>,
     }
 
+    #[async_trait]
     impl WorkerLogRecoveryHandler<TestEntry> for Arc<CollectingHandler> {
-        fn handle_entry(&self, entry: TestEntry, start_lsn: LSN) -> RS<()> {
+        async fn handle_entry(&self, entry: TestEntry, start_lsn: LSN) -> RS<()> {
             self.entries.lock().unwrap().push((start_lsn, entry));
             Ok(())
         }
@@ -245,18 +243,19 @@ mod tests {
 
     struct NoopHandler;
 
+    #[async_trait]
     impl WorkerLogRecoveryHandler<TestEntry> for NoopHandler {
-        fn handle_entry(&self, _entry: TestEntry, _start_lsn: LSN) -> RS<()> {
+        async fn handle_entry(&self, _entry: TestEntry, _start_lsn: LSN) -> RS<()> {
             Ok(())
         }
     }
-
+    #[async_trait]
     impl WorkerLogRecoverySource for FileRecoverySource {
-        fn chunk_paths_sorted(&mut self) -> RS<Vec<PathBuf>> {
+        async fn chunk_paths_sorted(& self) -> RS<Vec<PathBuf>> {
             Ok(self.paths.clone())
         }
 
-        fn read_chunk(&mut self, path: &Path) -> RS<Vec<u8>> {
+        async fn read_chunk(& self, path: &Path) -> RS<Vec<u8>> {
             std::fs::read(path)
                 .map_err(|e| m_error!(EC::IOErr, "read worker log chunk for recovery error", e))
         }
@@ -279,7 +278,7 @@ mod tests {
     async fn typed_worker_log_appends_and_recovers_generic_entries() {
         let dir = temp_dir().join(format!("typed_worker_log_{}", gen_oid()));
         let raw = ChunkedWorkerLogBackend::new(WorkerLogLayout::new(dir, gen_oid(), 256).unwrap())
-            .unwrap();
+            .await.unwrap();
         let handler = Arc::new(CollectingHandler::default());
         let log = TypedWorkerLog::new(raw.clone(), handler.clone());
 
@@ -296,9 +295,9 @@ mod tests {
         let _second_last_lsn = log.append(&second).await.unwrap();
         raw.flush_async().await.unwrap();
         let mut source = FileRecoverySource {
-            paths: raw.chunk_paths_sorted().unwrap(),
+            paths: raw.chunk_paths_sorted().await.unwrap(),
         };
-        log.recover(&mut source).unwrap();
+        log.recover(&mut source).await.unwrap();
 
         let recovered = handler.entries.lock().unwrap().clone();
         assert_eq!(recovered, vec![(0, first), (1, second)]);
@@ -308,7 +307,7 @@ mod tests {
     async fn typed_worker_log_appends_and_recovers_generic_entries_async() {
         let dir = temp_dir().join(format!("typed_worker_log_async_{}", gen_oid()));
         let raw = ChunkedWorkerLogBackend::new(WorkerLogLayout::new(dir, gen_oid(), 256).unwrap())
-            .unwrap();
+            .await.unwrap();
         let handler = Arc::new(CollectingHandler::default());
         let log = TypedWorkerLog::new(raw.clone(), handler.clone());
 
@@ -325,7 +324,7 @@ mod tests {
         let _second_last_lsn = log.append(&second).await.unwrap();
         raw.flush_async().await.unwrap();
         let mut source = FileRecoverySource {
-            paths: raw.chunk_paths_sorted().unwrap(),
+            paths: raw.chunk_paths_sorted().await.unwrap(),
         };
         log.recover_async(&mut source).await.unwrap();
 
@@ -337,7 +336,7 @@ mod tests {
     async fn typed_worker_log_recovers_with_async_handler() {
         let dir = temp_dir().join(format!("typed_worker_log_async_handler_{}", gen_oid()));
         let raw = ChunkedWorkerLogBackend::new(WorkerLogLayout::new(dir, gen_oid(), 256).unwrap())
-            .unwrap();
+            .await.unwrap();
         let writer = TypedWorkerLog::new(raw.clone(), NoopHandler);
         let handler = Arc::new(CollectingHandler::default());
 
@@ -355,7 +354,7 @@ mod tests {
         raw.flush_async().await.unwrap();
 
         let mut source = FileRecoverySource {
-            paths: raw.chunk_paths_sorted().unwrap(),
+            paths: raw.chunk_paths_sorted().await.unwrap(),
         };
         writer
             .recover_async_with_handler(&mut source, &handler)
@@ -371,7 +370,7 @@ mod tests {
         let dir = temp_dir().join(format!("typed_worker_log_append_callback_{}", gen_oid()));
         let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
         let path = layout.chunk_path(0);
-        let backend = ChunkedWorkerLogBackend::new(layout).unwrap();
+        let backend = ChunkedWorkerLogBackend::new(layout).await.unwrap();
         let log = TypedWorkerLog::new(backend, NoopHandler);
         let entry = TestEntry {
             id: 7,
@@ -399,7 +398,7 @@ mod tests {
         ));
         let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
         let path = layout.chunk_path(0);
-        let backend = ChunkedWorkerLogBackend::new(layout).unwrap();
+        let backend = ChunkedWorkerLogBackend::new(layout).await.unwrap();
         let log = TypedWorkerLog::new(backend, NoopHandler);
         let entry = TestEntry {
             id: 8,

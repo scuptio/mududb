@@ -581,7 +581,7 @@ mod test {
     use mudu_kernel::meta::meta_mgr_factory::MetaMgrFactory;
     use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
     use mudu_type::dat_type_id::DatTypeID;
-    use std::sync::Mutex;
+    use mudu_sys::sync::SMutex;
 
     struct MockHttpApi;
 
@@ -658,7 +658,7 @@ mod test {
     struct MockClient {
         session_id: u128,
         closed: bool,
-        requests: Arc<Mutex<Vec<String>>>,
+        requests: Arc<SMutex<Vec<String>>>,
     }
 
     #[async_trait(?Send)]
@@ -692,7 +692,7 @@ mod test {
     }
 
     struct MockClientFactory {
-        requests: Arc<Mutex<Vec<String>>>,
+        requests: Arc<SMutex<Vec<String>>>,
         fail_close: bool,
     }
 
@@ -755,7 +755,7 @@ mod test {
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
-        let requests = Arc::new(Mutex::new(Vec::new()));
+        let requests = Arc::new(SMutex::new(Vec::new()));
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
             "127.0.0.1:9527".to_string(),
@@ -768,6 +768,7 @@ mod test {
                     .to_string_lossy()
                     .to_string(),
             )
+            .await
             .unwrap(),
             Arc::new(MockClientFactory {
                 requests: requests.clone(),
@@ -798,7 +799,9 @@ mod test {
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
         let meta_dir = std::env::temp_dir().join(format!("http_api_route_meta_{}", gen_oid()));
-        let meta_mgr = MetaMgrFactory::create(meta_dir.to_string_lossy().to_string()).unwrap();
+        let meta_mgr = MetaMgrFactory::create(meta_dir.to_string_lossy().to_string())
+            .await
+            .unwrap();
 
         let rule = PartitionRuleDesc::new_range(
             "global_rule".to_string(),
@@ -843,7 +846,7 @@ mod test {
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {
-                requests: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(SMutex::new(Vec::new())),
                 fail_close: false,
             }),
         );
@@ -892,6 +895,7 @@ mod test {
                 .to_string_lossy()
                 .to_string(),
         )
+        .await
         .unwrap();
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
@@ -901,7 +905,7 @@ mod test {
             registry.clone(),
             meta_mgr,
             Arc::new(MockClientFactory {
-                requests: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(SMutex::new(Vec::new())),
                 fail_close: false,
             }),
         );
@@ -939,6 +943,7 @@ mod test {
                 .to_string_lossy()
                 .to_string(),
         )
+        .await
         .unwrap();
         let api = KernelHttpApi::with_client_factory(
             Arc::new(MockAppMgr),
@@ -948,7 +953,7 @@ mod test {
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {
-                requests: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(SMutex::new(Vec::new())),
                 fail_close: true,
             }),
         );
@@ -975,6 +980,7 @@ mod test {
                 .to_string_lossy()
                 .to_string(),
         )
+        .await
         .unwrap();
         let rule = PartitionRuleDesc::new_range(
             "shape_rule".to_string(),
@@ -995,7 +1001,7 @@ mod test {
             registry,
             meta_mgr,
             Arc::new(MockClientFactory {
-                requests: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(SMutex::new(Vec::new())),
                 fail_close: false,
             }),
         );

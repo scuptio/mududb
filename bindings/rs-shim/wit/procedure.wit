@@ -1,0 +1,14 @@
+package mududb:component-shim;
+
+interface procedure {
+    use types.{error, oid};
+    use system.{value-list};
+
+    procedure: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+}
+
+world procedure-api {
+    import types;
+    import system;
+    export procedure;
+}

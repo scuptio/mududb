@@ -63,7 +63,7 @@ mod tests {
             pg_listen_port: 0,
             tcp_listen_port: tcp_port,
             server_mode,
-            io_uring_worker_threads: 1,
+            worker_threads: 1,
             ..Default::default()
         })
     }

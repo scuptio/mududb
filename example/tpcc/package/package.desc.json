@@ -3,143 +3,6 @@
     "tpcc": [
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_seed_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_count"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_count"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_count"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "item_count"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "initial_stock"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_payment_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_delivery_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "carrier_id"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
         "proc_name": "tpcc_stock_level_partitioned",
         "param_desc": {
           "fields": [
@@ -148,21 +11,24 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "warehouse_id"
+              "name": "warehouse_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "district_id"
+              "name": "district_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "threshold"
+              "name": "threshold",
+              "nullable": false
             }
           ]
         },
@@ -173,320 +39,8 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_delivery",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "carrier_id"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_new_order",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "item_ids"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "supplier_warehouse_ids"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "quantities"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_new_order_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "item_ids"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "supplier_warehouse_ids"
-            },
-            {
-              "dat_type": {
-                "id": "Array",
-                "param": {
-                  "Array": {
-                    "dat_type": {
-                      "id": "I32",
-                      "param": null
-                    },
-                    "max_size": null
-                  }
-                }
-              },
-              "name": "quantities"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_payment",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "0"
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_order_status",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id"
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id"
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0"
+              "name": "0",
+              "nullable": false
             }
           ]
         }
@@ -501,35 +55,40 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "warehouse_count"
+              "name": "warehouse_count",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "district_count"
+              "name": "district_count",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "customer_count"
+              "name": "customer_count",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "item_count"
+              "name": "item_count",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "initial_stock"
+              "name": "initial_stock",
+              "nullable": false
             }
           ]
         },
@@ -539,7 +98,7 @@
       },
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_order_status_partitioned",
+        "proc_name": "tpcc_payment",
         "param_desc": {
           "fields": [
             {
@@ -547,21 +106,128 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "warehouse_id"
+              "name": "warehouse_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "district_id"
+              "name": "district_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "customer_id"
+              "name": "customer_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_payment_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_delivery",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "carrier_id",
+              "nullable": false
             }
           ]
         },
@@ -576,9 +242,109 @@
                   }
                 }
               },
-              "name": "0"
+              "name": "0",
+              "nullable": false
             }
           ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_delivery_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "carrier_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_seed_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_count",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_count",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_count",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_count",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "initial_stock",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
         }
       },
       {
@@ -591,21 +357,24 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "warehouse_id"
+              "name": "warehouse_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "district_id"
+              "name": "district_id",
+              "nullable": false
             },
             {
               "dat_type": {
                 "id": "I32",
                 "param": null
               },
-              "name": "threshold"
+              "name": "threshold",
+              "nullable": false
             }
           ]
         },
@@ -616,7 +385,296 @@
                 "id": "I32",
                 "param": null
               },
-              "name": "0"
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_order_status",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_new_order",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "item_ids",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "supplier_warehouse_ids",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "quantities",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_new_order_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "item_ids",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "supplier_warehouse_ids",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "Array",
+                "param": {
+                  "Array": {
+                    "dat_type": {
+                      "id": "I32",
+                      "param": null
+                    },
+                    "max_size": null
+                  }
+                }
+              },
+              "name": "quantities",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_order_status_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "dat_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "dat_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
             }
           ]
         }

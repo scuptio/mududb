@@ -50,7 +50,7 @@ pub fn spawn_management_thread(
                 }
             };
             runtime.block_on(async move {
-                let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry) {
+                let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry).await {
                     Ok(api) => Arc::new(api),
                     Err(e) => {
                         let _ = startup_tx.send(Err(e));
@@ -64,7 +64,7 @@ pub fn spawn_management_thread(
                     tcp_listen_port = cfg.tcp_listen_port,
                     http_worker_threads = cfg.http_worker_threads,
                     routing_mode = ?cfg.routing_mode,
-                    io_uring_worker_threads = cfg.effective_worker_threads(),
+                    worker_threads = cfg.effective_worker_threads(),
                     io_uring_ring_entries = cfg.io_uring_ring_entries,
                     io_uring_accept_multishot = cfg.io_uring_accept_multishot,
                     io_uring_recv_multishot = cfg.io_uring_recv_multishot,

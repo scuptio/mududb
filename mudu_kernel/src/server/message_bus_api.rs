@@ -7,7 +7,8 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+use mudu_sys::sync::SMutex;
 
 pub type MessageId = u64;
 pub type SubscriptionId = u64;
@@ -19,12 +20,13 @@ thread_local! {
         const { UnsafeCell::new(None) };
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum EndpointId {
-    Worker(OID),
-    External(u128),
-    Session(OID),
-}
+/// Runtime message-bus endpoint id.
+///
+/// Today all message-bus endpoints are worker-local endpoints, so this id is
+/// the worker id allocated and maintained by `WorkerRegistry`. `send` uses it
+/// to route to the target worker's mailbox, and `recv` uses it to match message
+/// source/destination filters.
+pub type EndpointId = OID;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DeliveryMode {
@@ -88,10 +90,10 @@ pub trait MessageBus: Send + Sync {
 pub type MessageBusRef = Arc<dyn MessageBus>;
 pub type ServerInstanceId = OID;
 
-fn message_bus_registry() -> &'static Mutex<HashMap<(ServerInstanceId, OID), MessageBusRef>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<(ServerInstanceId, OID), MessageBusRef>>> =
+fn message_bus_registry() -> &'static SMutex<HashMap<(ServerInstanceId, OID), MessageBusRef>> {
+    static REGISTRY: OnceLock<SMutex<HashMap<(ServerInstanceId, OID), MessageBusRef>>> =
         OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+    REGISTRY.get_or_init(|| SMutex::new(HashMap::new()))
 }
 
 impl Envelope {

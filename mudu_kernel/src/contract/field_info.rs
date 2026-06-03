@@ -11,6 +11,7 @@ pub struct FieldInfo {
     // index in original create table column definition list
     column_index: AttrIndex,
     primary_index: Option<AttrIndex>,
+    nullable: bool,
 }
 
 impl FieldInfo {
@@ -21,6 +22,7 @@ impl FieldInfo {
         datum_index: DatumIndex,
         column_index: AttrIndex,
         primary_index: Option<AttrIndex>,
+        nullable: bool,
     ) -> Self {
         Self {
             name,
@@ -29,6 +31,7 @@ impl FieldInfo {
             datum_index,
             column_index,
             primary_index,
+            nullable,
         }
     }
 
@@ -62,5 +65,9 @@ impl FieldInfo {
 
     pub fn type_desc(&self) -> &DatType {
         &self.type_desc
+    }
+
+    pub fn nullable(&self) -> bool {
+        self.nullable
     }
 }

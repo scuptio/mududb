@@ -3,7 +3,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KvItem {
@@ -19,7 +19,7 @@ pub struct WorkerSnapshot {
 
 pub struct WorkerSnapshotMgr {
     next_ts: AtomicU64,
-    running: Mutex<Vec<u64>>,
+    running: SMutex<Vec<u64>>,
 }
 
 impl WorkerSnapshot {
@@ -85,7 +85,7 @@ impl Default for WorkerSnapshotMgr {
     fn default() -> Self {
         Self {
             next_ts: AtomicU64::new(0),
-            running: Mutex::new(Vec::new()),
+            running: SMutex::new(Vec::new()),
         }
     }
 }

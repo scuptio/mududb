@@ -1,7 +1,7 @@
 use crate::service::service_impl::ServiceImpl;
 use crate::service::service_trait::ServiceTrait;
 use mudu::common::result::RS;
-use mudu_utils::sync::async_task::TaskWrapper;
+use mudu_sys::sync::async_task::TaskWrapper;
 
 pub struct Service {
     service: ServiceImpl,

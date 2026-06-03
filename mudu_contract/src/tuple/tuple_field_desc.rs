@@ -32,20 +32,53 @@ impl TupleFieldDesc {
     /// Converts to a binary tuple description with index mapping
     /// Returns a tuple of (binary_descriptor, original_to_normalized_index_mapping)
     pub fn to_tuple_binary_desc(&self) -> RS<(TupleBinaryDesc, Vec<usize>)> {
-        let type_descs_with_indices: Vec<(DatType, usize)> = self
+        let mut nullable_count = 0usize;
+        let mut null_bit_indices = Vec::with_capacity(self.fields.len());
+        for field in &self.fields {
+            if field.nullable() {
+                let bit_idx = u16::try_from(nullable_count).map_err(|_| {
+                    mudu::m_error!(
+                        mudu::error::ec::EC::ParseErr,
+                        "nullable column count exceeds u16::MAX"
+                    )
+                })?;
+                null_bit_indices.push(Some(bit_idx));
+                nullable_count += 1;
+            } else {
+                null_bit_indices.push(None);
+            }
+        }
+
+        let type_descs_with_indices: Vec<(DatType, (usize, bool, Option<u16>))> = self
             .fields
             .iter()
             .enumerate()
             .map(|(original_index, field_desc)| {
                 let type_desc = field_desc.dat_type();
-                (type_desc.clone(), original_index)
+                (
+                    type_desc.clone(),
+                    (
+                        original_index,
+                        field_desc.nullable(),
+                        null_bit_indices[original_index],
+                    ),
+                )
             })
             .collect();
 
-        let (normalized_type_descs, index_mapping) =
+        let (normalized_type_descs, normalized_payload) =
             TupleBinaryDesc::normalized_type_desc_vec(type_descs_with_indices)?;
 
-        let binary_desc = TupleBinaryDesc::from(normalized_type_descs)?;
+        let index_mapping = normalized_payload
+            .iter()
+            .map(|(original_index, _, _)| *original_index)
+            .collect::<Vec<_>>();
+        let typed_fields = normalized_type_descs
+            .into_iter()
+            .zip(normalized_payload)
+            .map(|(ty, (_, nullable, null_bit_idx))| (ty, nullable, null_bit_idx))
+            .collect::<Vec<_>>();
+        let binary_desc = TupleBinaryDesc::from_typed_fields(typed_fields, 1)?;
         Ok((binary_desc, index_mapping))
     }
 

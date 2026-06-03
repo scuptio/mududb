@@ -316,7 +316,9 @@ fn server_response_to_json(response: &ServerResponse) -> RS<Value> {
                 .iter()
                 .zip(response.row_desc().fields().iter())
                 .map(|(value, field_desc)| {
-                    if field_desc.dat_type().dat_type_id() == DatTypeID::String {
+                    if value.is_null() {
+                        Ok(Value::Null)
+                    } else if field_desc.dat_type().dat_type_id() == DatTypeID::String {
                         Ok(Value::String(value.expect_string().clone()))
                     } else {
                         value
@@ -489,6 +491,23 @@ mod tests {
         let inner = client.into_inner();
         assert_eq!(inner.last_query.unwrap().sql(), "select 1");
         assert_eq!(inner.last_execute.unwrap().sql(), "delete from t");
+    }
+
+    #[test]
+    fn server_response_to_json_renders_null_value() {
+        let response = ServerResponse::new(
+            TupleFieldDesc::new(vec![DatumDesc::new_nullable(
+                "name".to_string(),
+                DatType::default_for(DatTypeID::String),
+                true,
+            )]),
+            vec![TupleValue::from(vec![DatValue::null()])],
+            0,
+            None,
+        );
+
+        let value = server_response_to_json(&response).unwrap();
+        assert_eq!(value["rows"], json!([[null]]));
     }
 
     #[tokio::test]

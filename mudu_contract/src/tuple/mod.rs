@@ -1,4 +1,5 @@
 mod binary_to_json;
+pub mod bitmap;
 pub mod build_tuple;
 pub mod comparator;
 pub mod datum_convert;
@@ -6,6 +7,7 @@ pub mod datum_desc;
 pub mod datum_vec;
 pub mod enumerable_datum;
 mod field_desc;
+pub mod nullable_tuple;
 mod read_datum;
 mod slot;
 pub mod tuple_binary;

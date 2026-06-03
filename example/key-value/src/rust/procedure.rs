@@ -1,5 +1,5 @@
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::error::ec::EC;
 use mududb::m_error;
 use mududb::sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
@@ -18,7 +18,7 @@ fn decode_utf8(label: &str, bytes: Vec<u8>) -> RS<String> {
     })
 }
 
-fn read_value(session_id: XID, user_key: &str) -> RS<String> {
+fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
     let value = mudu_get(session_id, key.as_bytes())?
         .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
@@ -26,18 +26,18 @@ fn read_value(session_id: XID, user_key: &str) -> RS<String> {
 }
 
 /**mudu-proc**/
-pub fn kv_insert(xid: XID, user_key: String, value: String) -> RS<()> {
+pub fn kv_insert(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     mudu_put(xid, key.as_bytes(), value.as_bytes())
 }
 
 /**mudu-proc**/
-pub fn kv_read(xid: XID, user_key: String) -> RS<String> {
+pub fn kv_read(xid: OID, user_key: String) -> RS<String> {
     read_value(xid, &user_key)
 }
 
 /**mudu-proc**/
-pub fn kv_update(xid: XID, user_key: String, value: String) -> RS<()> {
+pub fn kv_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     let _ = mudu_get(xid, key.as_bytes())?
         .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
@@ -45,7 +45,7 @@ pub fn kv_update(xid: XID, user_key: String, value: String) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub fn kv_scan(xid: XID, start_user_key: String, end_user_key: String) -> RS<Vec<String>> {
+pub fn kv_scan(xid: OID, start_user_key: String, end_user_key: String) -> RS<Vec<String>> {
     let start_key = kv_data_key(&start_user_key);
     let end_key = kv_data_key(&end_user_key);
     let pairs = mudu_range(xid, start_key.as_bytes(), end_key.as_bytes())?;
@@ -59,7 +59,7 @@ pub fn kv_scan(xid: XID, start_user_key: String, end_user_key: String) -> RS<Vec
 }
 
 /**mudu-proc**/
-pub fn kv_read_modify_write(xid: XID, user_key: String, append_value: String) -> RS<String> {
+pub fn kv_read_modify_write(xid: OID, user_key: String, append_value: String) -> RS<String> {
     let key = kv_data_key(&user_key);
     let mut current = match mudu_get(xid, key.as_bytes())? {
         Some(value) => decode_utf8("value", value)?,

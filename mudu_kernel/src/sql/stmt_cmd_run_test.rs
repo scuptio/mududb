@@ -6,15 +6,16 @@ mod tests {
     use crate::sql::stmt_cmd_run::run_cmd_stmt;
     use async_trait::async_trait;
     use mudu::common::result::RS;
-    use mudu::common::xid::XID;
+    use mudu::common::id::OID;
     use mudu::error::ec::EC;
     use mudu::m_error;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
     #[derive(Default)]
     struct TestSsnCtx {
-        current_tx: Mutex<Option<XID>>,
+        current_tx: SMutex<Option<OID>>,
         ended: AtomicBool,
     }
 
@@ -25,11 +26,11 @@ mod tests {
     }
 
     impl SsnCtx for TestSsnCtx {
-        fn current_tx(&self) -> Option<XID> {
+        fn current_tx(&self) -> Option<OID> {
             *self.current_tx.lock().unwrap()
         }
 
-        fn begin_tx(&self, xid: XID) -> RS<()> {
+        fn begin_tx(&self, xid: OID) -> RS<()> {
             *self.current_tx.lock().unwrap() = Some(xid);
             Ok(())
         }

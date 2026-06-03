@@ -148,7 +148,7 @@ pub trait XContract: Send + Sync {
         pred_key: &VecDatum,
         select: &VecSelTerm,
         opt_read: &OptRead,
-    ) -> RS<Option<Vec<DatBin>>>;
+    ) -> RS<Option<Vec<Option<DatBin>>>>;
 
     /// Reads rows from a key range plus optional non-key predicates.
     ///

@@ -16,17 +16,17 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_utils::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::a_rwlock::ARwLock;
 use postgres::types::Type;
 use postgres::{Client, NoTls, Row};
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
+use mudu_sys::sync::SMutex;
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client as AsyncClient, NoTls as AsyncNoTls};
 
-type PgClientRef = Arc<Mutex<Client>>;
+type PgClientRef = Arc<SMutex<Client>>;
 const SCHEMA_INIT_LOCK_ID: i64 = 0x4d55_4455_4b56;
 
 struct PgAsyncSession {
@@ -130,7 +130,7 @@ async fn initialize_schema_async(client: &AsyncClient) -> RS<()> {
 
 pub fn mudu_open() -> RS<OID> {
     let session_id = state::next_session_id();
-    let client = Arc::new(Mutex::new(connect()?));
+    let client = Arc::new(SMutex::new(connect()?));
     let _ = SESSIONS.insert_sync(session_id, client);
     Ok(session_id)
 }

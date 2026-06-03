@@ -6,7 +6,7 @@ use futures::TryFutureExt;
 use lazy_static::lazy_static;
 use libsql::{Builder, Connection, Database, Statement, Transaction, params_from_iter};
 use mudu::common::result::RS;
-use mudu::common::xid::{XID, new_xid};
+use mudu::common::xid::{OID, new_xid};
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 pub struct LibSQLAsyncConnInner {
     conn: Connection,
     trans: Option<Transaction>,
-    xid: XID,
+    xid: OID,
     cached_prepared: Arc<StdMutex<HashMap<String, Prepared>>>,
 }
 
@@ -283,7 +283,7 @@ impl LibSQLAsyncConnInner {
         Ok(())
     }
 
-    pub async fn begin_tx(&mut self) -> RS<XID> {
+    pub async fn begin_tx(&mut self) -> RS<OID> {
         let trans = self.conn.transaction().await.map_err(db_error)?;
         self.trans = Some(trans);
         self.xid = new_xid();

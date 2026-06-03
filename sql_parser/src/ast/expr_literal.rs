@@ -3,12 +3,14 @@ use mudu_type::dat_typed::DatTyped;
 
 #[derive(Clone, Debug)]
 pub enum ExprLiteral {
+    Null,
     DatumLiteral(DatTyped),
 }
 
 impl ExprLiteral {
     pub fn dat_type(&self) -> &DatTyped {
         match self {
+            ExprLiteral::Null => panic!("NULL literal has no concrete data type"),
             ExprLiteral::DatumLiteral(typed) => typed,
         }
     }

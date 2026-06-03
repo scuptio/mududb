@@ -34,7 +34,7 @@ tcp_listen_port = 9527
 tcp_multi_port = false
 
 # 0 means: detect the worker count from available CPU cores.
-io_uring_worker_threads = 0
+worker_threads = 0
 
 # Ring depth used by the worker-local io_uring instance.
 io_uring_ring_entries = 1024

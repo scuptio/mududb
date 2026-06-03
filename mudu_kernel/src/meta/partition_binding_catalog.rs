@@ -49,7 +49,7 @@ pub fn partition_binding_catalog_desc() -> RS<Arc<TableDesc>> {
     TableInfo::new(partition_binding_catalog_schema())?.table_desc()
 }
 
-pub fn open_partition_binding_catalog(path: &str) -> RS<Relation> {
+pub async fn open_partition_binding_catalog(path: &str) -> RS<Relation> {
     let desc = partition_binding_catalog_desc()?;
     Relation::new(
         PARTITION_BINDING_CATALOG_TABLE_ID,
@@ -57,6 +57,7 @@ pub fn open_partition_binding_catalog(path: &str) -> RS<Relation> {
         path.to_string(),
         desc.as_ref(),
     )
+    .await
 }
 
 pub fn encode_partition_binding_catalog_key(oid: OID) -> RS<Vec<u8>> {
@@ -89,11 +90,11 @@ pub fn decode_partition_binding_catalog_value(tuple: &[u8]) -> RS<TablePartition
     })
 }
 
-pub fn load_partition_bindings_from_catalog(relation: &Relation) -> RS<Vec<TablePartitionBinding>> {
-    let rows = relation.visible_range_sync(
+pub async fn load_partition_bindings_from_catalog(relation: &Relation) -> RS<Vec<TablePartitionBinding>> {
+    let rows = relation.visible_range(
         (Bound::Unbounded, Bound::Unbounded),
         &WorkerSnapshot::new(visible_snapshot_xid(), vec![]),
-    )?;
+    ).await?;
     let mut bindings = Vec::with_capacity(rows.len());
     for (key, value) in rows {
         let key_oid = decode_partition_binding_catalog_key(&key)?;

@@ -1,6 +1,8 @@
-use crate::async_rt::contract::AsyncFs;
-use crate::io::file::{self, IoFile};
-use crate::io::worker_ring;
+use mudu_sys::async_rt::contract::AsyncFs;
+use mudu_sys::io::file;
+use mudu_sys::io::fs;
+use mudu_sys::io::sys_file::SysFile;
+use mudu_sys::io::worker_ring;
 use crate::wal::log_frame::{frame_len, frame_lsns, last_frame_lsn, serialize_entry};
 use crate::wal::lsn::LSN;
 use crate::wal::worker_log::WorkerLogBackend;
@@ -10,13 +12,14 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_utils::sync::a_notify::ANotify;
+use mudu_sys::sync::a_notify::ANotify;
 use serde::Serialize;
 use short_uuid::ShortUuid;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tracing::trace;
@@ -29,9 +32,9 @@ pub struct WorkerWALBackend {
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct WorkerLogInner {
-    log_queue: Mutex<Vec<QueuedLogBatch>>,
+    log_queue: SMutex<Vec<QueuedLogBatch>>,
     notify: ANotify,
-    flush_task: Mutex<Option<std::pin::Pin<Box<dyn std::future::Future<Output = RS<()>> + Send>>>>,
+    flush_task: SMutex<Option<std::pin::Pin<Box<dyn std::future::Future<Output = RS<()>> + Send>>>>,
     batching: WorkerLogBatching,
     dispatch_mode: WorkerLogDispatchMode,
     active_sessions: Arc<AtomicUsize>,
@@ -40,7 +43,7 @@ struct WorkerLogInner {
 
     flush_waiter: WaitLsn,
 
-    state: Mutex<ChunkedWorkerLog>,
+    state: SMutex<ChunkedWorkerLog>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,7 +82,7 @@ pub struct WorkerLogTail {
 
 struct WaitLsn {
     next_wait_lsn: AtomicU32,
-    ready_lsns: Mutex<Vec<LSN>>,
+    ready_lsns: SMutex<Vec<LSN>>,
     notify: ANotify,
 }
 
@@ -87,7 +90,7 @@ struct ChunkedWorkerLog {
     layout: WorkerLogLayout,
     current_sequence: Option<u64>,
     current_size: u64,
-    current_file: Option<(PathBuf, IoFile)>,
+    current_file: Option<(PathBuf, SysFile)>,
     // next chunk sequence
     next_sequence: u64,
 }
@@ -95,6 +98,7 @@ struct ChunkedWorkerLog {
 struct AppendReservation {
     path: PathBuf,
     offset: u64,
+    #[allow(dead_code)]
     flush_after_write: bool,
 }
 
@@ -138,7 +142,7 @@ impl WaitLsn {
     pub fn new(next_wait_lsn: LSN, ready_lsns: Vec<LSN>) -> Self {
         Self {
             next_wait_lsn: AtomicU32::new(next_wait_lsn),
-            ready_lsns: Mutex::new(ready_lsns),
+            ready_lsns: SMutex::new(ready_lsns),
             notify: ANotify::new(),
         }
     }
@@ -384,15 +388,15 @@ impl WorkerWALBackend {
         self.inner.notify.notify_waiters();
     }
 
-    pub fn new(layout: WorkerLogLayout) -> RS<Self> {
+    pub async fn new(layout: WorkerLogLayout) -> RS<Self> {
         Self::new_with_dispatch_mode_and_active_sessions(
             layout,
             WorkerLogDispatchMode::QueuedOnWorkerRing,
             Arc::new(AtomicUsize::new(0)),
-        )
+        ).await
     }
 
-    pub fn new_with_active_sessions(
+    pub async fn new_with_active_sessions(
         layout: WorkerLogLayout,
         active_sessions: Arc<AtomicUsize>,
     ) -> RS<Self> {
@@ -400,34 +404,34 @@ impl WorkerWALBackend {
             layout,
             WorkerLogDispatchMode::QueuedOnWorkerRing,
             active_sessions,
-        )
+        ).await
     }
 
-    pub fn new_direct(layout: WorkerLogLayout) -> RS<Self> {
+    pub async fn new_direct(layout: WorkerLogLayout) -> RS<Self> {
         Self::new_with_dispatch_mode_and_active_sessions(
             layout,
             WorkerLogDispatchMode::Direct,
             Arc::new(AtomicUsize::new(0)),
-        )
+        ).await
     }
 
-    fn new_with_dispatch_mode_and_active_sessions(
+    async fn new_with_dispatch_mode_and_active_sessions(
         layout: WorkerLogLayout,
         dispatch_mode: WorkerLogDispatchMode,
         active_sessions: Arc<AtomicUsize>,
     ) -> RS<Self> {
-        let tail = layout.scan_tail()?;
+        let tail = layout.scan_tail().await?;
         Ok(Self {
             inner: Arc::new(WorkerLogInner {
-                log_queue: Mutex::new(Default::default()),
+                log_queue: SMutex::new(Default::default()),
                 notify: ANotify::new(),
-                flush_task: Mutex::new(None),
+                flush_task: SMutex::new(None),
                 batching: layout.batching(),
                 dispatch_mode,
                 active_sessions,
                 next_lsn: AtomicU32::new(tail.next_lsn),
                 flush_waiter: WaitLsn::new(tail.next_lsn, vec![]),
-                state: Mutex::new(ChunkedWorkerLog::new(layout, tail)?),
+                state: SMutex::new(ChunkedWorkerLog::new(layout, tail)?),
             }),
         })
     }
@@ -447,7 +451,7 @@ impl WorkerWALBackend {
             let mut write_handles = Vec::with_capacity(merged_writes.len());
             for write in merged_writes {
                 let file = self.take_or_open_async_file(&write.path).await?;
-                let write_handle = file::write_submit(&file, write.payload, write.offset)?;
+                let write_handle = file::write_submit_fd(file.as_raw_fd().unwrap(), write.payload, write.offset)?;
                 write_handles.push((write.path, file, write_handle));
             }
             for (path, file, write_handle) in write_handles {
@@ -458,9 +462,8 @@ impl WorkerWALBackend {
         } else {
             for write in merged_writes {
                 let file = self.take_or_open_async_file(&write.path).await?;
-                let write_result = file::write(&file, write.payload, write.offset)
-                    .await
-                    .map(|_| ());
+                let write_result = fs::write_all_at(&file, &write.payload, write.offset)
+                    .await;
                 self.finish_async_file_use(write.path.as_path(), file, write_result)
                     .await?;
             }
@@ -474,9 +477,9 @@ impl WorkerWALBackend {
             for (index, path) in flush_paths.into_iter().enumerate() {
                 let file = self.take_or_open_async_file(&path).await?;
                 let flush_handle = if index == last_index {
-                    file::flush_submit_lsn(&file, lsns.clone())?
+                    file::flush_submit_lsn_fd(file.as_raw_fd().unwrap(), lsns.clone())?
                 } else {
-                    file::flush_submit_lsn(&file, Vec::<u32>::new())?
+                    file::flush_submit_lsn_fd(file.as_raw_fd().unwrap(), Vec::<u32>::new())?
                 };
                 flush_handles.push((path, file, flush_handle));
             }
@@ -496,7 +499,7 @@ impl WorkerWALBackend {
                 } else {
                     Vec::<u32>::new()
                 };
-                let flush_result = file::flush_lsn(&file, ready_lsns).await;
+                let flush_result = { file.fsync().await?; Ok(ready_lsns) };
                 let flushed_lsns = self
                     .finish_async_file_use_with_value(&path, file, flush_result)
                     .await?;
@@ -508,7 +511,8 @@ impl WorkerWALBackend {
         Ok(())
     }
 
-    pub(crate) fn append_raw(&self, payload: &[u8]) -> RS<()> {
+    #[allow(dead_code)]
+    pub(crate) async fn append_raw(&self, payload: &[u8]) -> RS<()> {
         if payload.is_empty() {
             return Ok(());
         }
@@ -519,7 +523,7 @@ impl WorkerWALBackend {
             .map_err(|_| m_error!(EC::InternalErr, "worker kv log lock poisoned"))?;
         let reservation = guard.reserve_append(payload.len() as u64)?;
         drop(guard);
-        self.append_reserved_sync(reservation, payload)
+        self.append_reserved_sync(reservation, payload).await
     }
 
     pub fn flush(&self) -> RS<()> {
@@ -539,15 +543,15 @@ impl WorkerWALBackend {
         self.flush_path_async(&path).await
     }
 
-    fn append_reserved_sync(&self, reservation: AppendReservation, payload: &[u8]) -> RS<()> {
-        let file = self.take_or_open_sync_file(&reservation.path)?;
-        let write_result = file::write_sync(&file, payload, reservation.offset);
+    async fn append_reserved_sync(&self, reservation: AppendReservation, payload: &[u8]) -> RS<()> {
+        let file = self.take_or_open_async_file(&reservation.path).await?;
+        let write_result = futures::executor::block_on(file.write_all_at(reservation.offset, payload));
         let flush_result = if reservation.flush_after_write {
             Self::flush_sync(&file)
         } else {
             Ok(())
         };
-        let close_result = self.release_sync_file(reservation.path.as_path(), file);
+        let close_result = self.release_async_file(reservation.path.as_path(), file).await;
         write_result?;
         flush_result?;
         close_result?;
@@ -557,7 +561,7 @@ impl WorkerWALBackend {
     async fn flush_path_async(&self, path: &Path) -> RS<()> {
         mudu_utils::scoped_task_trace!();
         let file = self.take_or_open_async_file(path).await?;
-        let flush_result = file::flush(&file).await;
+        let flush_result = file.fsync().await;
         self.finish_async_file_use(path, file, flush_result).await?;
         Ok(())
     }
@@ -571,21 +575,21 @@ impl WorkerWALBackend {
         Ok(())
     }
 
-    async fn take_or_open_async_file(&self, path: &Path) -> RS<IoFile> {
+    async fn take_or_open_async_file(&self, path: &Path) -> RS<SysFile> {
         if let Some(file) = self.take_cached_file(path)? {
             return Ok(file);
         }
         Self::open_async(path).await
     }
 
-    fn take_or_open_sync_file(&self, path: &Path) -> RS<IoFile> {
+    fn take_or_open_sync_file(&self, path: &Path) -> RS<SysFile> {
         if let Some(file) = self.take_cached_file(path)? {
             return Ok(file);
         }
         Self::open_sync(path)
     }
 
-    fn take_cached_file(&self, path: &Path) -> RS<Option<IoFile>> {
+    fn take_cached_file(&self, path: &Path) -> RS<Option<SysFile>> {
         let mut guard = self
             .inner
             .state
@@ -594,14 +598,14 @@ impl WorkerWALBackend {
         Ok(guard.take_current_file(path))
     }
 
-    async fn release_async_file(&self, path: &Path, file: IoFile) -> RS<()> {
+    async fn release_async_file(&self, path: &Path, file: SysFile) -> RS<()> {
         if let Some(file) = self.put_cached_file(path, file)? {
-            file::close(file).await?;
+            fs::close(file).await?;
         }
         Ok(())
     }
 
-    async fn finish_async_file_use(&self, path: &Path, file: IoFile, result: RS<()>) -> RS<()> {
+    async fn finish_async_file_use(&self, path: &Path, file: SysFile, result: RS<()>) -> RS<()> {
         self.finish_async_file_use_with_value(path, file, result)
             .await?;
         Ok(())
@@ -610,7 +614,7 @@ impl WorkerWALBackend {
     async fn finish_async_file_use_with_value<T>(
         &self,
         path: &Path,
-        file: IoFile,
+        file: SysFile,
         result: RS<T>,
     ) -> RS<T> {
         let close_result = self.release_async_file(path, file).await;
@@ -619,14 +623,14 @@ impl WorkerWALBackend {
         Ok(value)
     }
 
-    fn release_sync_file(&self, path: &Path, file: IoFile) -> RS<()> {
+    fn release_sync_file(&self, path: &Path, file: SysFile) -> RS<()> {
         if let Some(file) = self.put_cached_file(path, file)? {
             Self::close_sync(file)?;
         }
         Ok(())
     }
 
-    fn put_cached_file(&self, path: &Path, file: IoFile) -> RS<Option<IoFile>> {
+    fn put_cached_file(&self, path: &Path, file: SysFile) -> RS<Option<SysFile>> {
         let mut guard = self
             .inner
             .state
@@ -635,8 +639,8 @@ impl WorkerWALBackend {
         Ok(guard.store_current_file(path, file))
     }
 
-    async fn open_async(path: &Path) -> RS<IoFile> {
-        file::open(
+    async fn open_async(path: &Path) -> RS<SysFile> {
+        fs::open(
             path,
             libc::O_CREAT | libc::O_RDWR | file::cloexec_flag(),
             0o644,
@@ -644,20 +648,20 @@ impl WorkerWALBackend {
         .await
     }
 
-    fn open_sync(path: &Path) -> RS<IoFile> {
-        file::open_sync(
+    fn open_sync(path: &Path) -> RS<SysFile> {
+        futures::executor::block_on(fs::open(
             path,
             libc::O_CREAT | libc::O_RDWR | file::cloexec_flag(),
             0o644,
-        )
+        ))
     }
 
-    fn flush_sync(file: &IoFile) -> RS<()> {
-        file::flush_sync(file)
+    fn flush_sync(file: &SysFile) -> RS<()> {
+        futures::executor::block_on(file.fsync())
     }
 
-    fn close_sync(file: IoFile) -> RS<()> {
-        file::close_sync(file)
+    fn close_sync(file: SysFile) -> RS<()> {
+        { drop(file); Ok(()) }
     }
 
     fn reserve_appends(&self, payload: &[Vec<u8>]) -> RS<Vec<AppendReservation>> {
@@ -795,7 +799,7 @@ impl WorkerWALBackend {
     async fn execute_flush_batch(
         &self,
         prepared: PreparedFlushBatch,
-        open_files: &mut HashMap<PathBuf, IoFile>,
+        open_files: &mut HashMap<PathBuf, SysFile>,
     ) -> RS<()> {
         if prepared.writes.is_empty() {
             return Ok(());
@@ -811,7 +815,7 @@ impl WorkerWALBackend {
             for write in prepared.writes {
                 trace!(path = %write.path.display(), offset = write.offset, bytes = write.payload.len(), "worker_wal queue write_submit");
                 let file = self.checkout_flush_file(&write.path, open_files).await?;
-                let write_handle = file::write_submit(&file, write.payload, write.offset)?;
+                let write_handle = file::write_submit_fd(file.as_raw_fd().unwrap(), write.payload, write.offset)?;
                 write_handles.push((write.path, file, write_handle));
             }
             for (path, file, write_handle) in write_handles {
@@ -823,7 +827,7 @@ impl WorkerWALBackend {
         } else {
             for write in prepared.writes {
                 let file = self.checkout_flush_file(&write.path, open_files).await?;
-                file::write(&file, write.payload, write.offset).await?;
+                fs::write_all_at(&file, &write.payload, write.offset).await?;
                 open_files.insert(write.path, file);
             }
         }
@@ -835,9 +839,9 @@ impl WorkerWALBackend {
                 trace!(path = %path.display(), last = index == last_index, "worker_wal queue flush_submit_lsn");
                 let file = self.checkout_flush_file(&path, open_files).await?;
                 let flush_handle = if index == last_index {
-                    file::flush_submit_lsn(&file, prepared.ready_lsns.clone())?
+                    file::flush_submit_lsn_fd(file.as_raw_fd().unwrap(), prepared.ready_lsns.clone())?
                 } else {
-                    file::flush_submit_lsn(&file, Vec::<u32>::new())?
+                    file::flush_submit_lsn_fd(file.as_raw_fd().unwrap(), Vec::<u32>::new())?
                 };
                 flush_handles.push((path, file, flush_handle));
             }
@@ -858,7 +862,7 @@ impl WorkerWALBackend {
                 } else {
                     Vec::<u32>::new()
                 };
-                let flushed_lsns = file::flush_lsn(&file, ready_lsns).await?;
+                let flushed_lsns = { file.fsync().await?; Ok(ready_lsns) }?;
                 if !flushed_lsns.is_empty() {
                     self.complete_persisted_lsns(flushed_lsns)?;
                 }
@@ -885,15 +889,15 @@ impl WorkerWALBackend {
     async fn checkout_flush_file(
         &self,
         path: &Path,
-        open_files: &mut HashMap<PathBuf, IoFile>,
-    ) -> RS<IoFile> {
+        open_files: &mut HashMap<PathBuf, SysFile>,
+    ) -> RS<SysFile> {
         if let Some(file) = open_files.remove(path) {
             return Ok(file);
         }
         self.take_or_open_async_file(path).await
     }
 
-    async fn release_flush_open_files(&self, open_files: HashMap<PathBuf, IoFile>) -> RS<()> {
+    async fn release_flush_open_files(&self, open_files: HashMap<PathBuf, SysFile>) -> RS<()> {
         for (path, file) in open_files {
             self.release_async_file(&path, file).await?;
         }
@@ -944,11 +948,11 @@ impl WorkerLogLayout {
         self.batching
     }
 
-    pub fn scan_tail(&self) -> RS<WorkerLogTail> {
-        mudu_sys::fs::create_dir_all(&self.log_dir)
+    pub async fn scan_tail(&self) -> RS<WorkerLogTail> {
+        fs::create_dir_all(&self.log_dir).await
             .map_err(|e| m_error!(EC::IOErr, "create worker kv log directory error", e))?;
         let mut max_sequence: Option<u64> = None;
-        for path in mudu_sys::fs::read_dir(&self.log_dir)
+        for path in fs::read_dir(&self.log_dir).await
             .map_err(|e| m_error!(EC::IOErr, "scan worker kv log directory error", e))?
         {
             if let Some(sequence) = self.parse_chunk_sequence(path.as_path()) {
@@ -964,9 +968,9 @@ impl WorkerLogLayout {
             });
         };
         let path = self.chunk_path(sequence);
-        let size = mudu_sys::fs::metadata_len(&path)
+        let size = fs::metadata_len(&path).await
             .map_err(|e| m_error!(EC::IOErr, "read worker kv chunk metadata error", e))?;
-        let next_lsn = self.scan_next_lsn()?;
+        let next_lsn = self.scan_next_lsn().await?;
         if size < self.chunk_size {
             Ok(WorkerLogTail {
                 current_sequence: Some(sequence),
@@ -984,11 +988,11 @@ impl WorkerLogLayout {
         }
     }
 
-    pub fn chunk_paths_sorted(&self) -> RS<Vec<PathBuf>> {
-        mudu_sys::fs::create_dir_all(&self.log_dir)
+    pub async fn chunk_paths_sorted(&self) -> RS<Vec<PathBuf>> {
+        fs::create_dir_all(&self.log_dir).await
             .map_err(|e| m_error!(EC::IOErr, "create worker kv log directory error", e))?;
         let mut entries = Vec::<(u64, PathBuf)>::new();
-        for path in mudu_sys::fs::read_dir(&self.log_dir)
+        for path in fs::read_dir(&self.log_dir).await
             .map_err(|e| m_error!(EC::IOErr, "scan worker kv log directory error", e))?
         {
             if let Some(sequence) = self.parse_chunk_sequence(path.as_path()) {
@@ -1010,10 +1014,10 @@ impl WorkerLogLayout {
         sequence.parse::<u64>().ok()
     }
 
-    fn scan_next_lsn(&self) -> RS<u32> {
+    async fn scan_next_lsn(&self) -> RS<u32> {
         let mut max_lsn: Option<u32> = None;
-        for path in self.chunk_paths_sorted()? {
-            let bytes = mudu_sys::fs::read_all(&path)
+        for path in self.chunk_paths_sorted().await? {
+            let bytes = fs::read_all(&path).await
                 .map_err(|e| m_error!(EC::IOErr, "read worker kv chunk for lsn scan error", e))?;
             let mut offset = 0usize;
             while offset < bytes.len() {
@@ -1183,15 +1187,8 @@ impl WorkerLogBackend for WorkerWALBackend {
         serialize_entry(entry, guard.layout.frame_size_limit(), &self.inner.next_lsn)
     }
 
-    fn chunk_paths_sorted(&self) -> RS<Vec<PathBuf>> {
-        self.layout()?.chunk_paths_sorted()
-    }
-
-    fn append_frames_sync(&self, frames: Vec<Vec<u8>>) -> RS<()> {
-        for frame in frames {
-            self.append_raw(&frame)?;
-        }
-        Ok(())
+    async fn chunk_paths_sorted(&self) -> RS<Vec<PathBuf>> {
+        self.layout()?.chunk_paths_sorted().await
     }
 
     async fn append_frames_async(&self, frames: Vec<Vec<u8>>) -> RS<LSN> {
@@ -1292,7 +1289,7 @@ impl ChunkedWorkerLog {
             .map(|sequence| self.layout.chunk_path(sequence))
     }
 
-    fn take_current_file(&mut self, path: &Path) -> Option<IoFile> {
+    fn take_current_file(&mut self, path: &Path) -> Option<SysFile> {
         let (cached_path, file) = self.current_file.take()?;
         if cached_path == path {
             Some(file)
@@ -1302,7 +1299,7 @@ impl ChunkedWorkerLog {
         }
     }
 
-    fn store_current_file(&mut self, path: &Path, file: IoFile) -> Option<IoFile> {
+    fn store_current_file(&mut self, path: &Path, file: SysFile) -> Option<SysFile> {
         let Some(current_path) = self.current_path() else {
             return Some(file);
         };
@@ -1318,14 +1315,14 @@ impl ChunkedWorkerLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_rt::tokio::fs::TokioFs;
+    use mudu_sys::async_rt::tokio::fs::TokioFs;
     use crate::wal::log_frame::split_frame;
     use crate::wal::worker_log::decode_frames;
     use crate::wal::xl_batch::{
-        append_xl_batch, decode_xl_batches, decode_xl_batches_with_pending, serialize_batch,
+        append_xl_batch_async, decode_xl_batches, decode_xl_batches_with_pending, serialize_batch,
         XLBatch,
     };
-    use crate::wal::xl_data_op::XLInsert;
+    use crate::wal::xl_data_op::{XLInsert, XLWrite};
     use crate::wal::xl_entry::{TxOp, XLEntry};
     use mudu::common::id::gen_oid;
     use std::env::temp_dir;
@@ -1336,13 +1333,13 @@ mod tests {
             xid: 1,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"k1".to_vec(),
                     value: b"v1".to_vec(),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }])
@@ -1350,31 +1347,36 @@ mod tests {
 
     #[test]
     fn worker_log_appends_batch_frames() {
-        let dir = temp_dir().join(format!("worker_kv_log_test_{}", gen_oid()));
-        let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
-        let path = layout.chunk_path(0);
-        let log = WorkerWALBackend::new(layout).unwrap();
-        append_xl_batch(&log, &sample_batch()).unwrap();
-        let bytes = std::fs::read(path).unwrap();
-        assert!(!bytes.is_empty());
+        mudu_sys::task_async::block_on_async_current(async move {
+            let dir = temp_dir().join(format!("worker_kv_log_test_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
+            let path = layout.chunk_path(0);
+            let log = WorkerWALBackend::new(layout).await.unwrap();
+            futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+            let bytes = std::fs::read(path).unwrap();
+            assert!(!bytes.is_empty());
+        });
     }
 
     #[test]
     fn worker_log_round_trips_batch_frames() {
-        let batch = sample_batch();
-        let log = WorkerWALBackend::new(
-            WorkerLogLayout::new(
-                temp_dir().join(format!("worker_log_round_{}", gen_oid())),
-                gen_oid(),
-                4096,
+        mudu_sys::task_async::block_on_async_current(async move {
+            let batch = sample_batch();
+            let log = WorkerWALBackend::new(
+                WorkerLogLayout::new(
+                    temp_dir().join(format!("worker_log_round_{}", gen_oid())),
+                    gen_oid(),
+                    4096,
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        )
-        .unwrap();
-        let next_lsn = AtomicU32::new(0);
-        let frames = serialize_batch(&batch, log.frame_size_limit().unwrap(), &next_lsn).unwrap();
-        let decoded = decode_xl_batches(&frames).unwrap();
-        assert_eq!(decoded, vec![batch]);
+            .await
+            .unwrap();
+            let next_lsn = AtomicU32::new(0);
+            let frames = serialize_batch(&batch, log.frame_size_limit().unwrap(), &next_lsn).unwrap();
+            let decoded = decode_xl_batches(&frames).unwrap();
+            assert_eq!(decoded, vec![batch]);
+        });
     }
 
     #[test]
@@ -1384,13 +1386,13 @@ mod tests {
             xid: 2,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"k2".to_vec(),
                     value: b"v2".to_vec(),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }]);
@@ -1448,15 +1450,17 @@ mod tests {
 
     #[test]
     fn worker_log_rotates_chunks_by_size() {
-        let dir = temp_dir().join(format!("worker_kv_log_chunk_{}", gen_oid()));
-        let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 40).unwrap();
-        let prefix = layout.short_oid.clone();
-        let log = WorkerWALBackend::new(layout).unwrap();
-        log.append_raw(&vec![1u8; 20]).unwrap();
-        log.append_raw(&vec![2u8; 20]).unwrap();
-        log.append_raw(&vec![3u8; 20]).unwrap();
-        assert!(dir.join(format!("{}.0.xl", prefix)).exists());
-        assert!(dir.join(format!("{}.1.xl", prefix)).exists());
+        mudu_sys::task_async::block_on_async_current(async move {
+            let dir = temp_dir().join(format!("worker_kv_log_chunk_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 40).unwrap();
+            let prefix = layout.short_oid.clone();
+            let log = WorkerWALBackend::new(layout).await.unwrap();
+            log.append_raw(&vec![1u8; 20]).await.unwrap();
+            log.append_raw(&vec![2u8; 20]).await.unwrap();
+            log.append_raw(&vec![3u8; 20]).await.unwrap();
+            assert!(dir.join(format!("{}.0.xl", prefix)).exists());
+            assert!(dir.join(format!("{}.1.xl", prefix)).exists());
+        });
     }
 
     fn sample_xl_batch_1() -> XLBatch {
@@ -1464,65 +1468,70 @@ mod tests {
             xid: 1,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"k".to_vec(),
                     value: vec![9u8; 512],
-                }),
+                })),
                 TxOp::Commit,
             ],
         }])
     }
     #[test]
     fn worker_log_serializes_frame_headers_with_monotonic_lsn() {
-        let batch = sample_xl_batch_1();
-        let log = WorkerWALBackend::new(
-            WorkerLogLayout::new(
-                temp_dir().join(format!("worker_log_lsn_{}", gen_oid())),
-                gen_oid(),
-                128,
+        mudu_sys::task_async::block_on_async_current(async move {
+            let batch = sample_xl_batch_1();
+            let log = WorkerWALBackend::new(
+                WorkerLogLayout::new(
+                    temp_dir().join(format!("worker_log_lsn_{}", gen_oid())),
+                    gen_oid(),
+                    128,
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        )
-        .unwrap();
-        let next_lsn = AtomicU32::new(0);
-        let frames = serialize_batch(&batch, log.frame_size_limit().unwrap(), &next_lsn).unwrap();
-        assert!(frames.len() > 1);
-        for (index, frame) in frames.iter().enumerate() {
-            let (header, _, _) = split_frame(frame).unwrap();
-            assert_eq!(header.lsn(), index as u32);
-        }
+            .await
+            .unwrap();
+            let next_lsn = AtomicU32::new(0);
+            let frames = serialize_batch(&batch, log.frame_size_limit().unwrap(), &next_lsn).unwrap();
+            assert!(frames.len() > 1);
+            for (index, frame) in frames.iter().enumerate() {
+                let (header, _, _) = split_frame(frame).unwrap();
+                assert_eq!(header.lsn(), index as u32);
+            }
+        });
     }
 
     #[test]
     fn worker_log_places_oversized_entry_in_dedicated_chunk() {
-        let dir = temp_dir().join(format!("worker_kv_log_oversized_{}", gen_oid()));
-        let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 32).unwrap();
-        let prefix = layout.short_oid.clone();
-        let log = WorkerWALBackend::new(layout).unwrap();
-        log.append_raw(&vec![1u8; 8]).unwrap();
-        log.append_raw(&vec![2u8; 64]).unwrap();
-        log.append_raw(&vec![3u8; 8]).unwrap();
-        assert_eq!(
-            std::fs::metadata(dir.join(format!("{}.0.xl", prefix)))
-                .unwrap()
-                .len(),
-            8
-        );
-        assert_eq!(
-            std::fs::metadata(dir.join(format!("{}.1.xl", prefix)))
-                .unwrap()
-                .len(),
-            64
-        );
-        assert_eq!(
-            std::fs::metadata(dir.join(format!("{}.2.xl", prefix)))
-                .unwrap()
-                .len(),
-            8
-        );
+        mudu_sys::task_async::block_on_async_current(async move {
+            let dir = temp_dir().join(format!("worker_kv_log_oversized_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 32).unwrap();
+            let prefix = layout.short_oid.clone();
+            let log = WorkerWALBackend::new(layout).await.unwrap();
+            log.append_raw(&vec![1u8; 8]).await.unwrap();
+            log.append_raw(&vec![2u8; 64]).await.unwrap();
+            log.append_raw(&vec![3u8; 8]).await.unwrap();
+            assert_eq!(
+                std::fs::metadata(dir.join(format!("{}.0.xl", prefix)))
+                    .unwrap()
+                    .len(),
+                8
+            );
+            assert_eq!(
+                std::fs::metadata(dir.join(format!("{}.1.xl", prefix)))
+                    .unwrap()
+                    .len(),
+                64
+            );
+            assert_eq!(
+                std::fs::metadata(dir.join(format!("{}.2.xl", prefix)))
+                    .unwrap()
+                    .len(),
+                8
+            );
+        });
     }
 
     #[tokio::test]
@@ -1531,9 +1540,9 @@ mod tests {
         let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 64).unwrap();
         let prefix = layout.short_oid.clone();
         let fs = TokioFs::new();
-        let log = WorkerWALBackend::new(layout.clone()).unwrap();
-        append_xl_batch(&log, &sample_batch()).unwrap();
-        append_xl_batch(&log, &sample_batch()).unwrap();
+        let log = WorkerWALBackend::new(layout.clone()).await.unwrap();
+        futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+        futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
 
         let paths = layout.chunk_paths_sorted_async(&fs).await.unwrap();
         assert!(!paths.is_empty());

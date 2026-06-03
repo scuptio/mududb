@@ -5,7 +5,7 @@ use crate::generated::vote_result::object::VoteResult;
 use crate::generated::votes::object::Votes;
 use fallible_iterator::FallibleIterator;
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::database::entity_set::RecordSet;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ec::EC::MuduError;
@@ -14,7 +14,7 @@ use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 
 // User management
 /**mudu-proc**/
-pub async fn create_user(xid: XID, phone: String) -> RS<String> {
+pub async fn create_user(xid: OID, phone: String) -> RS<String> {
     let user_id = mududb::sys::random::next_uuid_v4_string();
     mudu_command(
         xid,
@@ -27,7 +27,7 @@ pub async fn create_user(xid: XID, phone: String) -> RS<String> {
 // Vote creation
 /**mudu-proc**/
 pub async fn create_vote(
-    xid: XID,
+    xid: OID,
     creator_id: String,
     topic: String,
     vote_type: String,
@@ -75,7 +75,7 @@ pub async fn create_vote(
 
 // Add option to vote
 /**mudu-proc**/
-pub async fn add_option(xid: XID, vote_id: String, option_text: String) -> RS<String> {
+pub async fn add_option(xid: OID, vote_id: String, option_text: String) -> RS<String> {
     let option_id = mududb::sys::random::next_uuid_v4_string();
     mudu_command(
         xid,
@@ -87,7 +87,7 @@ pub async fn add_option(xid: XID, vote_id: String, option_text: String) -> RS<St
 
 // Submit vote
 /**mudu-proc**/
-pub async fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: Vec<String>) -> RS<()> {
+pub async fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<String>) -> RS<()> {
     // Check if vote is active
     let vote = mudu_query::<Votes>(
         xid,
@@ -159,7 +159,7 @@ pub async fn cast_vote(xid: XID, user_id: String, vote_id: String, option_ids: V
 
 // Withdraw vote
 /**mudu-proc**/
-pub async fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()> {
+pub async fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
@@ -200,7 +200,7 @@ pub async fn withdraw_vote(xid: XID, user_id: String, vote_id: String) -> RS<()>
 
 // Get vote results
 /**mudu-proc**/
-pub async fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
+pub async fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
     let vote = mudu_query::<Votes>(
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
@@ -269,7 +269,7 @@ pub async fn get_vote_result(xid: XID, vote_id: String) -> RS<VoteResult> {
 
 // View voting history
 /**mudu-proc**/
-pub async fn get_voting_history(xid: XID, user_id: String) -> RS<Vec<VoteHistoryItem>> {
+pub async fn get_voting_history(xid: OID, user_id: String) -> RS<Vec<VoteHistoryItem>> {
     let actions = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(
@@ -489,7 +489,8 @@ mod mod_get_voting_history {
     }
 
     export!(GuestGetVotingHistory);
-}
+}
+
 async fn mp2_create_vote(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -676,7 +677,8 @@ mod mod_create_vote {
     }
 
     export!(GuestCreateVote);
-}
+}
+
 async fn mp2_create_user(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -793,7 +795,8 @@ mod mod_create_user {
     }
 
     export!(GuestCreateUser);
-}
+}
+
 async fn mp2_cast_vote(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -927,7 +930,8 @@ mod mod_cast_vote {
     }
 
     export!(GuestCastVote);
-}
+}
+
 async fn mp2_add_option(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1058,7 +1062,8 @@ mod mod_add_option {
     }
 
     export!(GuestAddOption);
-}
+}
+
 async fn mp2_withdraw_vote(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1178,7 +1183,8 @@ mod mod_withdraw_vote {
     }
 
     export!(GuestWithdrawVote);
-}
+}
+
 async fn mp2_get_vote_result(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1295,4 +1301,4 @@ mod mod_get_vote_result {
     }
 
     export!(GuestGetVoteResult);
-}
+}

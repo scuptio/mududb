@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use mudu::common::result::RS;
 
-use crate::io::worker_ring::{complete_user_ring_op, submit_user_ring_op, WorkerLocalRing};
+use mudu_sys::io::worker_ring::{complete_user_ring_op, submit_user_ring_op, WorkerLocalRing};
 use crate::server::inflight_op::InflightOp;
 
 pub(in crate::server) struct LoopUserIoCtx<'a> {
@@ -30,7 +30,7 @@ pub(in crate::server) fn submit(ctx: &mut LoopUserIoCtx<'_>) -> RS<()> {
 
 pub(in crate::server) fn handle_completion(
     user_ring: &WorkerLocalRing,
-    op: crate::io::worker_ring::UserIoInflight,
+    op: mudu_sys::io::worker_ring::UserIoInflight,
     result: i32,
 ) -> RS<()> {
     complete_user_ring_op(op, result, user_ring)

@@ -5,7 +5,7 @@ use as_slice::AsSlice;
 use lazy_static::lazy_static;
 use libsql::{Builder, Connection, Database, Error, params};
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::result_set::ResultSet;
@@ -18,7 +18,8 @@ use scc::HashMap;
 use std::io::{BufRead, BufReader, Cursor};
 use std::mem;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 use tracing::debug;
 
 #[derive(Clone)]
@@ -33,7 +34,7 @@ struct LSAsyncConnInner {
 
 #[derive(Clone)]
 struct LockedTrans {
-    trans: Arc<Mutex<Option<LSTrans>>>,
+    trans: Arc<SMutex<Option<LSTrans>>>,
 }
 
 unsafe impl Send for LockedTrans {}
@@ -112,7 +113,7 @@ impl LSSyncConn {
         self.inner.async_run_sql(text)
     }
 
-    pub fn sync_begin_tx(&self) -> RS<XID> {
+    pub fn sync_begin_tx(&self) -> RS<OID> {
         let inner = self.inner.clone();
         blocking::run_async(async move { inner.async_begin_tx().await })?
     }
@@ -207,7 +208,7 @@ impl LSAsyncConnInner {
         })
     }
 
-    pub async fn async_begin_tx(&self) -> RS<XID> {
+    pub async fn async_begin_tx(&self) -> RS<OID> {
         let opt_trans = self.trans.tx_move()?;
         if opt_trans.is_none() {
             let trans = self.conn.transaction().await.map_err(|e| {

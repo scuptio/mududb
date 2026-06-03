@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu_utils::notifier::Notifier;
 use std::path::PathBuf;
 use std::sync::Arc;

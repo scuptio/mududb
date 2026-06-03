@@ -1,38 +1,41 @@
 use async_trait::async_trait;
-use futures::executor::block_on;
 use mudu::common::buf::Buf;
 use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::tuple::build_tuple::build_tuple;
+use mudu_contract::tuple::nullable_tuple::{NullableValue, TupleBuilder};
 use mudu_contract::tuple::tuple_binary::TupleBinary as TupleRaw;
 use mudu_contract::tuple::update_tuple::update_tuple;
-use mudu_type::dt_function::send_binary;
 use mudu_utils::{scoped_task_trace, task_trace};
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 use std::time::Duration;
 use tracing::{debug, trace};
 
-use crate::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_desc::TableDesc;
 use crate::meta::meta_mgr_factory::MetaMgrFactory;
 use crate::server::message_bus_api::{
-    current_message_bus, DeliveryMode, EndpointId, Envelope, MessageKind, OutgoingMessage,
-    RecvFilter, ServerInstanceId,
+    DeliveryMode, Envelope, MessageKind, OutgoingMessage, RecvFilter, ServerInstanceId,
+    current_message_bus,
 };
-use crate::server::partition_router::{PartitionRouter, DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID};
+use crate::server::partition_router::{DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID, PartitionRouter};
 use crate::server::partition_rpc::{PartitionRpcRequest, PartitionRpcResponse, RpcBound};
 use crate::server::worker_snapshot::{KvItem, WorkerSnapshot, WorkerSnapshotMgr};
 use crate::server::worker_storage::WorkerStorage;
 use crate::server::worker_tx_manager::WorkerTxManager;
 use crate::server::x_lock_mgr::XLockMgr;
 use crate::wal::worker_log::ChunkedWorkerLogBackend;
-use crate::wal::xl_batch::{new_xl_batch_writer, XLBatch};
+use crate::wal::xl_batch::{XLBatch, new_xl_batch_writer};
+use crate::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
+use crate::wal::xl_entry::{TxOp, XLEntry};
 use crate::x_engine::api::{
     AlterTable, Filter, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData,
     TupleRow, VecDatum, VecSelTerm, XContract,
@@ -56,12 +59,34 @@ pub struct WorkerXContract {
     // commit_gate: AsyncMutex<()>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct CrossPartitionParticipant {
+    partition_id: OID,
+    worker_id: OID,
+}
+
+fn cross_partition_wal_ops(write_set: &[XLWrite]) -> Vec<TxOp> {
+    let mut ops = Vec::with_capacity(write_set.len() + 2);
+    ops.push(TxOp::Begin);
+    ops.extend(write_set.iter().cloned().map(TxOp::Write));
+    ops.push(TxOp::Commit);
+    ops
+}
+
+fn partition_write_set(write_set: &[XLWrite], partition_id: OID) -> Vec<XLWrite> {
+    write_set
+        .iter()
+        .filter(|write| write.partition_id() == partition_id)
+        .cloned()
+        .collect()
+}
+
 /// Backward-compatible name for callers that still refer to the historical
 /// io_uring-only contract.
 pub type IoUringXContract = WorkerXContract;
 
 struct VecCursor {
-    inner: Mutex<VecCursorInner>,
+    inner: SMutex<VecCursorInner>,
 }
 
 struct VecCursorInner {
@@ -115,7 +140,6 @@ impl WorkerXContract {
             async_runtime,
         ));
         storage.register_global();
-        bootstrap_storage(&storage)?;
         Ok(Self {
             server_instance_id,
             worker_id,
@@ -130,11 +154,11 @@ impl WorkerXContract {
         })
     }
 
-    pub fn with_worker_log(log: ChunkedWorkerLogBackend) -> RS<Self> {
-        Self::with_worker_log_and_data_dir(log, 0, 0, 0, default_worker_storage_data_dir())
+    pub async fn with_worker_log(log: ChunkedWorkerLogBackend) -> RS<Self> {
+        Self::with_worker_log_and_data_dir(log, 0, 0, 0, default_worker_storage_data_dir()).await
     }
 
-    pub fn with_worker_log_and_data_dir(
+    pub async fn with_worker_log_and_data_dir(
         log: ChunkedWorkerLogBackend,
         worker_id: OID,
         default_unpartitioned_worker_id: OID,
@@ -142,6 +166,7 @@ impl WorkerXContract {
         data_dir: String,
     ) -> RS<Self> {
         let meta_mgr = MetaMgrFactory::create(data_dir.clone())
+            .await
             .map_err(|e| m_error!(EC::DBInternalError, "create worker meta manager failed", e))?;
         Self::with_log_and_data_dir(
             meta_mgr,
@@ -153,7 +178,7 @@ impl WorkerXContract {
         )
     }
 
-    pub fn with_worker_log_and_data_dir_and_runtime(
+    pub async fn with_worker_log_and_data_dir_and_runtime(
         log: ChunkedWorkerLogBackend,
         worker_id: OID,
         default_unpartitioned_worker_id: OID,
@@ -163,6 +188,7 @@ impl WorkerXContract {
         server_instance_id: ServerInstanceId,
     ) -> RS<Self> {
         let meta_mgr = MetaMgrFactory::create(data_dir.clone())
+            .await
             .map_err(|e| m_error!(EC::DBInternalError, "create worker meta manager failed", e))?;
         Self::with_log_and_data_dir_and_runtime(
             meta_mgr,
@@ -178,6 +204,19 @@ impl WorkerXContract {
 
     pub fn server_instance_id(&self) -> ServerInstanceId {
         self.server_instance_id
+    }
+
+    pub async fn bootstrap_storage_async(&self) -> RS<()> {
+        self.storage
+            .bootstrap_existing_tables_async()
+            .await
+            .map_err(|e| {
+                m_error!(
+                    EC::StorageErr,
+                    "bootstrap worker storage from meta failed",
+                    e
+                )
+            })
     }
 
     pub fn worker_log(&self) -> Option<ChunkedWorkerLogBackend> {
@@ -207,27 +246,6 @@ impl WorkerXContract {
         self.snapshot_mgr.end_tx(tx_mgr.xid())
     }
 
-    pub fn worker_put(&self, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
-        let prepared = {
-            let xid = self.snapshot_mgr.alloc_committed_ts();
-            (
-                self.storage.clone(),
-                self.log.clone(),
-                self.storage.prepare_worker_kv_autocommit(
-                    xid,
-                    key.clone(),
-                    Some(value.clone()),
-                    single_put_batch(xid, key, value),
-                ),
-            )
-        };
-        let (storage, log, prepared) = prepared;
-        if let Some(log) = log {
-            new_xl_batch_writer(log).append_sync(prepared.batch())?;
-        }
-        storage.apply_prepared_commit(prepared)
-    }
-
     pub async fn worker_put_async(&self, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
         let (storage, log, prepared) = {
             let xid = self.snapshot_mgr.alloc_committed_ts();
@@ -246,28 +264,6 @@ impl WorkerXContract {
             new_xl_batch_writer(log).append(prepared.batch()).await?;
         }
         storage.apply_prepared_commit_async(prepared).await
-    }
-
-    pub fn worker_delete(&self, key: &[u8]) -> RS<()> {
-        let key = key.to_vec();
-        let prepared = {
-            let xid = self.snapshot_mgr.alloc_committed_ts();
-            (
-                self.storage.clone(),
-                self.log.clone(),
-                self.storage.prepare_worker_kv_autocommit(
-                    xid,
-                    key.clone(),
-                    None,
-                    single_delete_batch(xid, key),
-                ),
-            )
-        };
-        let (storage, log, prepared) = prepared;
-        if let Some(log) = log {
-            new_xl_batch_writer(log).append_sync(prepared.batch())?;
-        }
-        storage.apply_prepared_commit(prepared)
     }
 
     pub async fn worker_delete_async(&self, key: &[u8]) -> RS<()> {
@@ -303,37 +299,12 @@ impl WorkerXContract {
         self.storage.kv_get(key, Some(snapshot)).await
     }
 
-    pub fn worker_get(&self, key: &[u8]) -> RS<Option<Vec<u8>>> {
-        block_on(self.storage.kv_get(key, None))
-    }
-
-    pub fn worker_get_with_snapshot(
-        &self,
-        snapshot: &WorkerSnapshot,
-        key: &[u8],
-    ) -> RS<Option<Vec<u8>>> {
-        block_on(self.storage.kv_get(key, Some(snapshot)))
-    }
-
-    pub fn worker_range_scan(&self, start_key: &[u8], end_key: &[u8]) -> RS<Vec<KvItem>> {
-        block_on(self.storage.kv_range(start_key, end_key, None))
-    }
-
     pub async fn worker_range_scan_async(
         &self,
         start_key: &[u8],
         end_key: &[u8],
     ) -> RS<Vec<KvItem>> {
         self.storage.kv_range(start_key, end_key, None).await
-    }
-
-    pub fn worker_range_scan_with_snapshot(
-        &self,
-        snapshot: &WorkerSnapshot,
-        start_key: &[u8],
-        end_key: &[u8],
-    ) -> RS<Vec<KvItem>> {
-        block_on(self.storage.kv_range(start_key, end_key, Some(snapshot)))
     }
 
     pub async fn worker_range_scan_with_snapshot_async(
@@ -347,36 +318,11 @@ impl WorkerXContract {
             .await
     }
 
-    pub fn worker_commit_put_batch(
-        &self,
-        snapshot: &WorkerSnapshot,
-        xid: u64,
-        items: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-        batch: XLBatch,
-    ) -> RS<()> {
-        mudu_utils::scoped_task_trace!();
-        if items.is_empty() {
-            return self.snapshot_mgr.end_tx(xid);
-        }
-        let (storage, log, prepared) = {
-            let prepared = self
-                .storage
-                .prepare_worker_kv_commit(snapshot, xid, items, batch)?;
-            (self.storage.clone(), self.log.clone(), prepared)
-        };
-        if let Some(log) = log {
-            new_xl_batch_writer(log.clone()).append_sync(prepared.batch())?;
-            log.flush()?;
-        }
-        storage.apply_prepared_commit(prepared)?;
-        self.snapshot_mgr.end_tx(xid)
-    }
-
     pub async fn worker_commit_put_batch_async(
         &self,
         snapshot: &WorkerSnapshot,
         xid: u64,
-        items: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+        items: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         batch: XLBatch,
     ) -> RS<()> {
         if items.is_empty() {
@@ -385,7 +331,7 @@ impl WorkerXContract {
         let (storage, log, prepared) = {
             let prepared = self
                 .storage
-                .prepare_worker_kv_commit(snapshot, xid, items, batch)?;
+                .prepare_worker_kv_commit(snapshot, xid, items, batch).await?;
             (self.storage.clone(), self.log.clone(), prepared)
         };
         if let Some(log) = log {
@@ -398,92 +344,81 @@ impl WorkerXContract {
         self.snapshot_mgr.end_tx(xid)
     }
 
-    pub fn worker_commit_tx(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
-        let xid = tx.xid();
-        if tx.is_empty() {
-            return self.worker_rollback_tx(tx);
-        }
-        tx.build_write_ops();
-        let (storage, log, prepared) = {
-            let write_ops = tx.write_ops();
-            let can_commit = self.tx_lock.try_lock_some(xid as OID, &write_ops);
-            if !can_commit {
-                return Err(m_error!(
-                    EC::TxErr,
-                    format!("transaction {} failed to acquire commit locks", xid)
-                ));
-            }
-            let prepared = self.storage.prepare_commit(tx.as_ref())?;
-            (self.storage.clone(), self.log.clone(), prepared)
-        };
-        let result = (|| -> RS<()> {
-            if let Some(log) = log {
-                new_xl_batch_writer(log.clone()).append_sync(prepared.batch())?;
-                log.flush()?;
-            }
-            storage.apply_prepared_commit(prepared)?;
-            Ok(())
-        })();
-        let write_ops = tx.write_ops();
-        self.tx_lock.release(xid as OID, &write_ops);
-        self.worker_rollback_tx(tx)?;
-        result
-    }
 
     pub async fn worker_commit_tx_async(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
-        mudu_utils::scoped_task_trace!();
+        let _t = task_trace!();
 
         let xid = tx.xid();
 
         trace!("worker_commit_tx_async {}", xid);
+        _t.watch("procedure.worker_commit.stage", "entry");
+        _t.watch("procedure.worker_commit.xid", &xid.to_string());
+        _t.watch("procedure.worker_commit.stage", "is_empty_check");
         if tx.is_empty() {
+            _t.watch("procedure.worker_commit.stage", "rollback_empty_tx");
             return self.worker_rollback_tx(tx);
         }
+        _t.watch("procedure.worker_commit.stage", "build_write_ops");
         tx.build_write_ops();
         let (storage, log, prepared) = {
             let write_ops = tx.write_ops();
+            _t.watch("procedure.worker_commit.stage", "tx_lock_try_lock");
             let can_commit = self.tx_lock.try_lock_some(xid as OID, &write_ops);
             if !can_commit {
+                _t.watch("procedure.worker_commit.stage", "tx_lock_failed");
                 return Err(m_error!(
                     EC::TxErr,
                     format!("transaction {} failed to acquire commit locks", xid)
                 ));
             }
+            _t.watch("procedure.worker_commit.stage", "prepare_commit_start");
             let prepared = self.storage.prepare_commit_async(tx.as_ref()).await?;
+            _t.watch("procedure.worker_commit.stage", "prepare_commit_done");
             (self.storage.clone(), self.log.clone(), prepared)
         };
         trace!("log flush {}", xid);
         let result = async {
             if let Some(log) = log {
-                task_trace!().watch("procedure.worker_execute.stage", "wal_append_start");
+                _t.watch("procedure.worker_execute.stage", "wal_append_start");
                 new_xl_batch_writer(log.clone())
                     .append(prepared.batch())
                     .await?;
-                task_trace!().watch("procedure.worker_execute.stage", "wal_append_done");
-                task_trace!().watch("procedure.worker_execute.stage", "wal_flush_start");
+                _t.watch("procedure.worker_execute.stage", "wal_append_done");
+                _t.watch("procedure.worker_execute.stage", "wal_flush_start");
                 log.flush_async().await?;
-                task_trace!().watch("procedure.worker_execute.stage", "wal_flush_done");
+                _t.watch("procedure.worker_execute.stage", "wal_flush_done");
             }
-            task_trace!().watch("procedure.worker_execute.stage", "storage_apply_start");
+            _t.watch("procedure.worker_execute.stage", "storage_apply_start");
             storage.apply_prepared_commit_async(prepared).await?;
-            task_trace!().watch("procedure.worker_execute.stage", "storage_apply_done");
+            _t.watch("procedure.worker_execute.stage", "storage_apply_done");
             Ok(())
         }
         .await;
         trace!("log flush done {}", xid);
         let write_ops = tx.write_ops();
+        _t.watch("procedure.worker_commit.stage", "tx_lock_release");
         self.tx_lock.release(xid as OID, &write_ops);
+        _t.watch("procedure.worker_commit.stage", "rollback_tx_cleanup");
         self.worker_rollback_tx(tx)?;
+        _t.watch("procedure.worker_commit.stage", "done");
         trace!("worker_commit_tx_async finish {}", xid);
         result
     }
 
-    pub fn replay_worker_log_batch(&self, batch: XLBatch) -> RS<()> {
+    pub async fn replay_worker_log_batch(&self, batch: XLBatch) -> RS<()> {
         let max_xid = batch.entries.iter().map(|entry| entry.xid).max();
         if let Some(max_xid) = max_xid {
             self.snapshot_mgr.observe_committed_ts(max_xid);
         }
-        self.storage.replay_batch(batch)
+        self.storage.replay_batch(batch).await
+    }
+
+    pub fn finish_worker_log_recovery(&self) -> RS<()> {
+        Ok(())
+    }
+
+    pub async fn recover_pending_cross_partition_records_async(&self) -> RS<()> {
+        Ok(())
     }
 
     pub fn ensure_partition_rpc_handler(self: &Arc<Self>) -> RS<()> {
@@ -498,7 +433,7 @@ impl WorkerXContract {
         let contract = self.clone();
         bus.on_recv_callback(
             RecvFilter {
-                dst: Some(EndpointId::Worker(self.worker_id)),
+                dst: Some(self.worker_id),
                 kind: Some(PARTITION_RPC_REQUEST_KIND),
                 ..RecvFilter::default()
             },
@@ -511,36 +446,6 @@ impl WorkerXContract {
     }
 }
 
-fn bootstrap_storage(storage: &Arc<WorkerStorage>) -> RS<()> {
-    if storage.uses_async_runtime() {
-        let storage = storage.clone();
-        mudu_sys::task_async::block_on_tokio_current_thread(async move {
-            storage.bootstrap_existing_tables_async().await
-        })
-        .map_err(|e| {
-            m_error!(
-                EC::TokioErr,
-                "create tokio runtime for storage bootstrap failed",
-                e
-            )
-        })?
-        .map_err(|e| {
-            m_error!(
-                EC::StorageErr,
-                "bootstrap worker storage from meta failed",
-                e
-            )
-        })
-    } else {
-        storage.bootstrap_existing_tables_sync().map_err(|e| {
-            m_error!(
-                EC::StorageErr,
-                "bootstrap worker storage from meta failed",
-                e
-            )
-        })
-    }
-}
 
 fn default_worker_storage_data_dir() -> String {
     std::env::temp_dir()
@@ -570,7 +475,7 @@ impl WorkerXContract {
             .map_err(|e| m_error!(EC::EncodeErr, "encode partition rpc response error", e))?;
         let bus = current_message_bus()?;
         bus.send(
-            envelope.src().clone(),
+            *envelope.src(),
             OutgoingMessage::new(PARTITION_RPC_RESPONSE_KIND, payload)
                 .with_correlation_id(envelope.msg_id())
                 .with_delivery(DeliveryMode::Response),
@@ -737,6 +642,25 @@ impl WorkerXContract {
                 self.worker_commit_tx_async(tx_mgr).await?;
                 Ok(PartitionRpcResponse::Update(1))
             }
+            PartitionRpcRequest::ApplyCrossPartitionTx {
+                tx_id,
+                coordinator_worker_id: _,
+                partition_id,
+                visibility_epoch: _,
+                partition_write_set,
+            } => {
+                debug!(
+                    worker_id = self.worker_id,
+                    tx_id,
+                    partition_id,
+                    writes = partition_write_set.len(),
+                    "execute partition rpc apply_cross_partition_tx"
+                );
+                self.storage
+                    .apply_cross_partition_tx_async(tx_id, &partition_write_set)
+                    .await?;
+                Ok(PartitionRpcResponse::ApplyCrossPartitionTx)
+            }
         }
     }
 
@@ -756,7 +680,7 @@ impl WorkerXContract {
             .map_err(|e| m_error!(EC::EncodeErr, "encode partition rpc request error", e))?;
         let msg_id = bus
             .send(
-                EndpointId::Worker(target_worker_id),
+                target_worker_id,
                 OutgoingMessage::new(PARTITION_RPC_REQUEST_KIND, payload)
                     .with_delivery(DeliveryMode::Request),
             )
@@ -768,8 +692,8 @@ impl WorkerXContract {
         let envelope = mudu_sys::task_async::timeout(
             Duration::from_secs(10),
             bus.recv(RecvFilter {
-                src: Some(EndpointId::Worker(target_worker_id)),
-                dst: Some(EndpointId::Worker(self.worker_id)),
+                src: Some(target_worker_id),
+                dst: Some(self.worker_id),
                 kind: Some(PARTITION_RPC_RESPONSE_KIND),
                 correlation_id: Some(msg_id),
             }),
@@ -803,7 +727,7 @@ impl WorkerXContract {
         partition_id: OID,
         key: Vec<u8>,
         select: Vec<AttrIndex>,
-    ) -> RS<Option<Vec<DatBin>>> {
+    ) -> RS<Option<Vec<Option<DatBin>>>> {
         match self
             .send_partition_rpc(
                 target_worker_id,
@@ -833,7 +757,7 @@ impl WorkerXContract {
         start: RpcBound,
         end: RpcBound,
         select: Vec<AttrIndex>,
-    ) -> RS<Vec<Vec<DatBin>>> {
+    ) -> RS<Vec<Vec<Option<DatBin>>>> {
         match self
             .send_partition_rpc(
                 target_worker_id,
@@ -932,6 +856,140 @@ impl WorkerXContract {
         }
     }
 
+    async fn remote_apply_cross_partition_tx(
+        &self,
+        target_worker_id: OID,
+        tx_id: OID,
+        partition_id: OID,
+        visibility_epoch: u64,
+        partition_write_set: Vec<XLWrite>,
+    ) -> RS<()> {
+        match self
+            .send_partition_rpc(
+                target_worker_id,
+                PartitionRpcRequest::ApplyCrossPartitionTx {
+                    tx_id,
+                    coordinator_worker_id: self.worker_id,
+                    partition_id,
+                    visibility_epoch,
+                    partition_write_set,
+                },
+            )
+            .await?
+        {
+            PartitionRpcResponse::ApplyCrossPartitionTx => Ok(()),
+            PartitionRpcResponse::Err(err) => Err(m_error!(EC::InternalErr, err)),
+            _ => Err(m_error!(
+                EC::InternalErr,
+                "unexpected apply_cross_partition_tx rpc response"
+            )),
+        }
+    }
+
+    async fn worker_commit_cross_partition_tx_async(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
+        let xid = tx.xid();
+        tx.build_write_ops();
+        let write_ops = tx.write_ops();
+        let can_commit = self.tx_lock.try_lock_some(xid as OID, &write_ops);
+        if !can_commit {
+            return Err(m_error!(
+                EC::TxErr,
+                format!("transaction {} failed to acquire commit locks", xid)
+            ));
+        }
+
+        let result = async {
+            let _prepared = self.storage.prepare_commit_async(tx.as_ref()).await?;
+            let (participants, write_set) = self.build_cross_partition_tx_ops(tx.as_ref()).await?;
+            if let Some(log) = self.log.clone() {
+                let batch = XLBatch::new(vec![XLEntry {
+                    xid,
+                    ops: cross_partition_wal_ops(&write_set),
+                }]);
+                new_xl_batch_writer(log.clone()).append(&batch).await?;
+                log.flush_async().await?;
+            }
+            self.apply_cross_partition_ops(xid as OID, participants, write_set)
+                .await
+        }
+        .await;
+
+        self.tx_lock.release(xid as OID, &write_ops);
+        self.worker_rollback_tx(tx)?;
+        result
+    }
+
+    async fn build_cross_partition_tx_ops(
+        &self,
+        tx: &dyn TxMgr,
+    ) -> RS<(Vec<CrossPartitionParticipant>, Vec<XLWrite>)> {
+        let mut participants = BTreeMap::new();
+        let mut write_set = Vec::new();
+        for (relation_id, rows) in tx.staged_relation_ops() {
+            let worker_id = self
+                .resolve_partition_worker(relation_id.partition_id)
+                .await?
+                .unwrap_or(self.worker_id);
+            participants.insert(relation_id.partition_id, worker_id);
+            for (key, value) in rows {
+                match value {
+                    Some(value) => write_set.push(XLWrite::Insert(XLInsert {
+                        table_id: relation_id.table_id,
+                        partition_id: relation_id.partition_id,
+                        tuple_id: 0,
+                        key,
+                        value,
+                    })),
+                    None => write_set.push(XLWrite::Delete(XLDelete {
+                        table_id: relation_id.table_id,
+                        partition_id: relation_id.partition_id,
+                        tuple_id: 0,
+                        key,
+                    })),
+                }
+            }
+        }
+        Ok((
+            participants
+                .into_iter()
+                .map(|(partition_id, worker_id)| CrossPartitionParticipant {
+                    partition_id,
+                    worker_id,
+                })
+                .collect(),
+            write_set,
+        ))
+    }
+
+    async fn apply_cross_partition_ops(
+        &self,
+        tx_id: OID,
+        participants: Vec<CrossPartitionParticipant>,
+        write_set: Vec<XLWrite>,
+    ) -> RS<()> {
+        for participant in &participants {
+            let writes = partition_write_set(&write_set, participant.partition_id);
+            if participant.worker_id != 0
+                && self.worker_id != 0
+                && participant.worker_id != self.worker_id
+            {
+                self.remote_apply_cross_partition_tx(
+                    participant.worker_id,
+                    tx_id,
+                    participant.partition_id,
+                    tx_id as u64,
+                    writes,
+                )
+                .await?;
+            } else {
+                self.storage
+                    .apply_cross_partition_tx_async(tx_id, &writes)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     fn _begin_tx(&self) -> Arc<dyn TxMgr> {
         Arc::new(WorkerTxManager::new(self.snapshot_mgr.begin_tx()))
     }
@@ -1014,7 +1072,7 @@ impl WorkerXContract {
         pred_key: &VecDatum,
         select: &VecSelTerm,
         _opt_read: &OptRead,
-    ) -> RS<Option<Vec<DatBin>>> {
+    ) -> RS<Option<Vec<Option<DatBin>>>> {
         let key = build_key_tuple(pred_key, &desc)?;
         let target_partition = self
             .partition_router
@@ -1098,7 +1156,7 @@ impl WorkerXContract {
                                 )
                                 .await?;
                             for row in rows {
-                                projected.push(TupleRow::new(row));
+                                projected.push(TupleRow::new_nullable(row));
                             }
                         }
                         _ => {
@@ -1115,7 +1173,7 @@ impl WorkerXContract {
                                 if !matches_predicate(&desc, &key, &value, pred_non_key)? {
                                     continue;
                                 }
-                                projected.push(TupleRow::new(project_selected_fields(
+                                projected.push(TupleRow::new_nullable(project_selected_fields(
                                     &desc, &key, &value, select,
                                 )?));
                             }
@@ -1132,14 +1190,14 @@ impl WorkerXContract {
                     if !matches_predicate(&desc, &key, &value, pred_non_key)? {
                         continue;
                     }
-                    projected.push(TupleRow::new(project_selected_fields(
+                    projected.push(TupleRow::new_nullable(project_selected_fields(
                         &desc, &key, &value, select,
                     )?));
                 }
             }
         }
         Ok(Arc::new(VecCursor {
-            inner: Mutex::new(VecCursorInner {
+            inner: SMutex::new(VecCursorInner {
                 rows: projected,
                 index: 0,
             }),
@@ -1252,6 +1310,9 @@ impl XContract for WorkerXContract {
     }
 
     async fn commit_tx(&self, tx_mgr: Arc<dyn TxMgr>) -> RS<()> {
+        if is_cross_partition_tx(tx_mgr.as_ref()) {
+            return self.worker_commit_cross_partition_tx_async(tx_mgr).await;
+        }
         self.worker_commit_tx_async(tx_mgr).await
     }
 
@@ -1288,7 +1349,7 @@ impl XContract for WorkerXContract {
         pred_key: &VecDatum,
         select: &VecSelTerm,
         opt_read: &OptRead,
-    ) -> RS<Option<Vec<DatBin>>> {
+    ) -> RS<Option<Vec<Option<DatBin>>>> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
         self._read_key(desc, tx_mgr, table_id, pred_key, select, opt_read)
             .await
@@ -1479,7 +1540,7 @@ fn build_tuple_for<const IS_KEY: bool>(
     }
 
     let value_len = tuple_desc.field_count();
-    let mut completed = vec![None; value_len];
+    let mut completed: Vec<Option<NullableValue>> = vec![None; value_len];
     for (attr, value) in data {
         let field = desc.get_attr(*attr);
         if field.primary_index().is_some() {
@@ -1489,7 +1550,11 @@ fn build_tuple_for<const IS_KEY: bool>(
         if datum_index >= value_len || completed[datum_index].is_some() {
             return Err(m_error!(EC::TupleErr));
         }
-        completed[datum_index] = Some(value.clone());
+        completed[datum_index] = Some(NullableValue::Value(
+            field.type_desc().dat_type_id().fn_recv()(value, field.type_desc())
+                .map_err(|e| e.to_m_err())?
+                .0,
+        ));
     }
     for attr in desc.value_indices() {
         let field = desc.get_attr(*attr);
@@ -1497,16 +1562,19 @@ fn build_tuple_for<const IS_KEY: bool>(
         if completed[datum_index].is_some() {
             continue;
         }
+        if field.nullable() {
+            completed[datum_index] = Some(NullableValue::Null);
+            continue;
+        }
         let default = field.type_desc().dat_type_id().fn_default()(field.type_desc())
             .map_err(|e| e.to_m_err())?;
-        completed[datum_index] =
-            Some(send_binary(&default, field.type_desc()).map_err(|e| e.to_m_err())?);
+        completed[datum_index] = Some(NullableValue::Value(default));
     }
     let completed = completed
         .into_iter()
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| m_error!(EC::TupleErr))?;
-    build_tuple(&completed, tuple_desc)
+    TupleBuilder::new(tuple_desc).build(&completed)
 }
 
 fn build_bound_key(
@@ -1556,23 +1624,28 @@ fn project_selected_fields(
     key: &[u8],
     value: &[u8],
     select: &VecSelTerm,
-) -> RS<Vec<DatBin>> {
+) -> RS<Vec<Option<DatBin>>> {
     let mut tuple_ret = vec![];
     for i in select.vec() {
         let f = desc.get_attr(*i);
         let index = f.datum_index();
-        let field_desc = if f.primary_index().is_some() {
-            desc.key_desc().get_field_desc(index)
+        let item = if f.primary_index().is_some() {
+            let field_desc = desc.key_desc().get_field_desc(index);
+            Some(field_desc.get(key)?.to_vec())
         } else {
-            desc.value_desc().get_field_desc(index)
+            match mudu_contract::tuple::nullable_tuple::read_value(
+                &value.to_vec(),
+                desc.value_desc(),
+                index,
+            )? {
+                NullableValue::Null => None,
+                NullableValue::Value(_) => {
+                    let field_desc = desc.value_desc().get_field_desc(index);
+                    Some(field_desc.get(value)?.to_vec())
+                }
+            }
         };
-        let src = if f.primary_index().is_some() {
-            key
-        } else {
-            value
-        };
-        let slice = field_desc.get(src)?;
-        tuple_ret.push(slice.to_vec());
+        tuple_ret.push(item);
     }
     Ok(tuple_ret)
 }
@@ -1599,17 +1672,19 @@ fn apply_value_update(current: &TupleRaw, values: &VecDatum, desc: &TableDesc) -
 }
 
 fn single_put_batch(xid: u64, key: Vec<u8>, value: Vec<u8>) -> XLBatch {
-    XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
+    XLBatch::new(vec![XLEntry {
         xid,
         ops: vec![
-            crate::wal::xl_entry::TxOp::Begin,
-            crate::wal::xl_entry::TxOp::Insert(crate::wal::xl_data_op::XLInsert {
-                table_id: 0,
-                partition_id: 0,
-                tuple_id: 0,
-                key,
-                value,
-            }),
+            TxOp::Begin,
+            TxOp::Write(XLWrite::Insert(
+                XLInsert {
+                    table_id: 0,
+                    partition_id: 0,
+                    tuple_id: 0,
+                    key,
+                    value,
+                },
+            )),
             crate::wal::xl_entry::TxOp::Commit,
         ],
     }])
@@ -1620,15 +1695,29 @@ fn single_delete_batch(xid: u64, key: Vec<u8>) -> XLBatch {
         xid,
         ops: vec![
             crate::wal::xl_entry::TxOp::Begin,
-            crate::wal::xl_entry::TxOp::Delete(crate::wal::xl_data_op::XLDelete {
-                table_id: 0,
-                partition_id: 0,
-                tuple_id: 0,
-                key,
-            }),
+            crate::wal::xl_entry::TxOp::Write(crate::wal::xl_data_op::XLWrite::Delete(
+                crate::wal::xl_data_op::XLDelete {
+                    table_id: 0,
+                    partition_id: 0,
+                    tuple_id: 0,
+                    key,
+                },
+            )),
             crate::wal::xl_entry::TxOp::Commit,
         ],
     }])
+}
+
+fn is_cross_partition_tx(tx: &dyn TxMgr) -> bool {
+    if !tx.staged_put_items().is_empty() {
+        return false;
+    }
+    let partitions = tx
+        .staged_relation_ops()
+        .keys()
+        .map(|relation_id| relation_id.partition_id)
+        .collect::<BTreeSet<_>>();
+    partitions.len() > 1
 }
 
 #[cfg(test)]
@@ -1637,7 +1726,7 @@ mod tests {
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::table_info::TableInfo;
     use crate::server::test_meta_mgr::TestMetaMgr;
-    use crate::wal::worker_log::{decode_frames, ChunkedWorkerLogBackend, WorkerLogLayout};
+    use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogLayout, decode_frames};
     use crate::wal::xl_data_op::XLInsert;
     use crate::wal::xl_entry::TxOp;
     use mudu::common::id::gen_oid;
@@ -1776,7 +1865,7 @@ mod tests {
             .put(table_id, b"k1".to_vec(), b"v1".to_vec(), &mut txm)
             .await?;
         storage.remove(table_id, b"k1", &mut txm).await?;
-        let prepared = storage.prepare_commit(&txm).unwrap();
+        let prepared = storage.prepare_commit_async(&txm).await?;
 
         assert_eq!(prepared.batch().entries.len(), 1);
         assert_eq!(prepared.batch().entries[0].xid, 9);
@@ -1794,12 +1883,12 @@ mod tests {
 
     async fn _iouring_xcontract_commit_persists_relation_log() -> RS<()> {
         let dir = temp_dir().join(format!("iouring_xcontract_log_{}", gen_oid()));
-        let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
-        let log = ChunkedWorkerLogBackend::new(layout.clone()).unwrap();
+        let layout = WorkerLogLayout::new(dir, gen_oid(), 4096)?;
+        let log = ChunkedWorkerLogBackend::new(layout.clone()).await?;
         let meta_mgr = Arc::new(TestMetaMgr::new());
         let schema = test_schema();
         let table_id = schema.id();
-        let contract = WorkerXContract::with_log(meta_mgr, Some(log)).unwrap();
+        let contract = WorkerXContract::with_log(meta_mgr, Some(log))?;
 
         let ddl_tx = contract.begin_tx().await?;
         contract.create_table(ddl_tx.clone(), &schema).await?;
@@ -1821,18 +1910,20 @@ mod tests {
             .ops
             .iter()
             .find_map(|op| match op {
-                TxOp::Insert(insert) => Some(insert),
+                TxOp::Write(XLWrite::Insert(insert)) => Some(insert),
                 _ => None,
             })
             .unwrap();
         assert_eq!(insert.table_id, table_id);
         assert_eq!(
             insert.key,
-            build_key_tuple(&key_row(1), &meta_table(&schema).unwrap()).unwrap()
+            build_key_tuple(&key_row(1), &meta_table(&schema).unwrap())?
         );
+        let desc = meta_table(&schema)?;
+        let tuple = build_value_tuple(&value_row(10), desc.as_ref())?;
         assert_eq!(
             insert.value,
-            build_value_tuple(&value_row(10), &meta_table(&schema).unwrap()).unwrap()
+            tuple
         );
         Ok(())
     }
@@ -1858,28 +1949,28 @@ mod tests {
             xid: 11,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"wk".to_vec(),
                     value: b"wv".to_vec(),
-                }),
-                TxOp::Insert(XLInsert {
+                })),
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id,
                     partition_id: 0,
                     tuple_id: 0,
                     key: build_key_tuple(&key_row(3), &meta_table(&schema).unwrap()).unwrap(),
                     value: build_value_tuple(&value_row(30), &meta_table(&schema).unwrap())
                         .unwrap(),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }]);
 
-        contract.replay_worker_log_batch(batch).unwrap();
+        contract.replay_worker_log_batch(batch).await.unwrap();
 
-        assert_eq!(contract.worker_get(b"wk").unwrap(), Some(b"wv".to_vec()));
+        assert_eq!(contract.worker_get_async(b"wk").await.unwrap(), Some(b"wv".to_vec()));
 
         let xid = contract.begin_tx().await?;
         let pred_key = key_row(3);
@@ -1888,8 +1979,125 @@ mod tests {
         let relation = contract
             .read_key(xid, table_id, &pred_key, &select, &opt_read)
             .await?;
-        assert_eq!(relation, Some(vec![datum(30)]));
+        assert_eq!(relation, Some(vec![Some(datum(30))]));
         Ok(())
+    }
+
+    #[test]
+    fn cross_partition_recovery_is_coordinator_driven() {
+        block_on(async move {
+            let r = _cross_partition_recovery_is_coordinator_driven().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _cross_partition_recovery_is_coordinator_driven() -> RS<()> {
+        let worker_id = gen_oid();
+        let (contract, table_id) = {
+            let meta_mgr = Arc::new(TestMetaMgr::new());
+            let schema = test_schema();
+            let table_id = schema.id();
+            let contract = WorkerXContract::with_log_and_data_dir(
+                meta_mgr,
+                None,
+                worker_id,
+                worker_id,
+                0,
+                temp_dir()
+                    .join(format!("cross_partition_recovery_{}", gen_oid()))
+                    .to_string_lossy()
+                    .to_string(),
+            )?;
+            let ddl_tx = contract.begin_tx().await?;
+            contract.create_table(ddl_tx.clone(), &schema).await?;
+            contract.commit_tx(ddl_tx).await?;
+            (contract, table_id)
+        };
+
+        let batch = XLBatch::new(vec![XLEntry {
+            xid: 88,
+            ops: vec![
+                TxOp::Begin,
+                TxOp::Write(XLWrite::Insert(XLInsert {
+                    table_id,
+                    partition_id: 0,
+                    tuple_id: 0,
+                    key: build_key_tuple(&key_row(8), &meta_table(&test_schema()).unwrap())
+                        .unwrap(),
+                    value: build_value_tuple(&value_row(80), &meta_table(&test_schema()).unwrap())
+                        .unwrap(),
+                })),
+                TxOp::Commit,
+            ],
+        }]);
+
+        contract.replay_worker_log_batch(batch).await?;
+        let before_finish = read_i32_value(&contract, table_id, 8).await?;
+        assert_eq!(before_finish, Some(datum(80)));
+
+        contract.finish_worker_log_recovery()?;
+        let after_finish = read_i32_value(&contract, table_id, 8).await?;
+        assert_eq!(after_finish, Some(datum(80)));
+        Ok(())
+    }
+
+    async fn read_i32_value(
+        contract: &WorkerXContract,
+        table_id: OID,
+        key: i32,
+    ) -> RS<Option<Vec<u8>>> {
+        let tx = contract.begin_tx().await?;
+        let row = contract
+            .read_key(
+                tx.clone(),
+                table_id,
+                &key_row(key),
+                &VecSelTerm::new(vec![1]),
+                &OptRead::default(),
+            )
+            .await?;
+        contract.abort_tx(tx).await?;
+        Ok(row.and_then(|mut row| row.pop().flatten()))
+    }
+
+    #[test]
+    fn xcontract_insert_and_read_nullable_value_column() {
+        block_on(async move {
+            let meta_mgr = Arc::new(TestMetaMgr::new());
+            let schema = test_schema();
+            let table_id = schema.id();
+            let contract = WorkerXContract::with_log(meta_mgr, None).unwrap();
+
+            let ddl = contract.begin_tx().await?;
+            contract.create_table(ddl.clone(), &schema).await?;
+            contract.commit_tx(ddl).await?;
+
+            let tx = contract.begin_tx().await?;
+            contract
+                .insert(
+                    tx.clone(),
+                    table_id,
+                    &key_row(7),
+                    &VecDatum::new(Vec::new()),
+                    &OptInsert::default(),
+                )
+                .await?;
+            contract.commit_tx(tx).await?;
+
+            let read_tx = contract.begin_tx().await?;
+            let row = contract
+                .read_key(
+                    read_tx,
+                    table_id,
+                    &key_row(7),
+                    &VecSelTerm::new(vec![1]),
+                    &OptRead::default(),
+                )
+                .await?;
+            assert_eq!(row, Some(vec![None]));
+            Ok::<(), mudu::error::err::MError>(())
+        })
+        .unwrap();
     }
 
     #[test]
@@ -1908,7 +2116,13 @@ mod tests {
     }
 
     #[test]
-    fn iouring_xcontract_replay_applies_worker_kv_delete() {
+    fn iouring_xcontract_replay_applies_worker_kv_delete () {
+        block_on(async move {
+            _iouring_xcontract_replay_applies_worker_kv_delete().await
+        })
+    }
+
+    async fn _iouring_xcontract_replay_applies_worker_kv_delete() {
         let contract = WorkerXContract::with_worker_log(
             ChunkedWorkerLogBackend::new(
                 WorkerLogLayout::new(
@@ -1917,29 +2131,32 @@ mod tests {
                     4096,
                 )
                 .unwrap(),
-            )
+            ).await
             .unwrap(),
         )
+        .await
         .unwrap();
 
-        contract.worker_put(b"wk".to_vec(), b"wv".to_vec()).unwrap();
+        contract.worker_put_async(b"wk".to_vec(), b"wv".to_vec()).await.unwrap();
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 7,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Delete(crate::wal::xl_data_op::XLDelete {
-                    table_id: 0,
-                    partition_id: 0,
-                    tuple_id: 0,
-                    key: b"wk".to_vec(),
-                }),
+                TxOp::Write(crate::wal::xl_data_op::XLWrite::Delete(
+                    crate::wal::xl_data_op::XLDelete {
+                        table_id: 0,
+                        partition_id: 0,
+                        tuple_id: 0,
+                        key: b"wk".to_vec(),
+                    },
+                )),
                 TxOp::Commit,
             ],
         }]);
 
-        contract.replay_worker_log_batch(batch).unwrap();
+        contract.replay_worker_log_batch(batch).await.unwrap();
 
-        assert_eq!(contract.worker_get(b"wk").unwrap(), None);
+        assert_eq!(contract.worker_get_async(b"wk").await.unwrap(), None);
     }
 
     #[test]
@@ -1999,7 +2216,7 @@ mod tests {
         let relation = contract
             .read_key(read_tx, table_id, &read_key, &select, &opt_read)
             .await?;
-        assert_eq!(relation, Some(vec![datum(20)]));
+        assert_eq!(relation, Some(vec![Some(datum(20))]));
         Ok(())
     }
 

@@ -5,14 +5,14 @@ use crate::database::sql_stmt::SQLStmt;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use std::any::Any;
 use std::sync::Arc;
 
 pub trait DBConnSync: Sync + Send + Any {
     fn exec_silent(&self, sql_text: &String) -> RS<()>;
 
-    fn begin_tx(&self) -> RS<XID>;
+    fn begin_tx(&self) -> RS<OID>;
 
     fn rollback_tx(&self) -> RS<()>;
 
@@ -35,7 +35,7 @@ pub trait DBConnAsync: Sync + Send + Any {
 
     async fn exec_silent(&self, sql_text: String) -> RS<()>;
 
-    async fn begin_tx(&self) -> RS<XID>;
+    async fn begin_tx(&self) -> RS<OID>;
 
     async fn rollback_tx(&self) -> RS<()>;
 

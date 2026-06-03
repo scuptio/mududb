@@ -16,8 +16,8 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_utils::sync::a_mutex::AMutex;
-use mudu_utils::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_rwlock::ARwLock;
 use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Opts, Pool, Row, Value};
@@ -28,9 +28,10 @@ use mysql_async::{
 };
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
-type MySqlConnRef = Arc<Mutex<mysql::PooledConn>>;
+type MySqlConnRef = Arc<SMutex<mysql::PooledConn>>;
 
 struct MySqlAsyncSession {
     conn: AsyncConn,
@@ -101,7 +102,7 @@ async fn initialize_schema_async(conn: &mut AsyncConn) -> RS<()> {
 
 pub fn mudu_open() -> RS<OID> {
     let session_id = state::next_session_id();
-    let conn = Arc::new(Mutex::new(connect()?));
+    let conn = Arc::new(SMutex::new(connect()?));
     let _ = SESSIONS.insert_sync(session_id, conn);
     Ok(session_id)
 }

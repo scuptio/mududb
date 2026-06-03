@@ -37,6 +37,7 @@ impl AsRef<DatValue> for DatValue {
 /// Uses Box for time_series allocation of complex types to avoid large enum variants
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum ValueKind {
+    Null,
     F32(f32),
     F64(f64),
     I32(i32),
@@ -73,6 +74,7 @@ macro_rules! impl_dat_value_methods {
 
             fn get_dat_type_id(&self) -> DatTypeID {
                 match self {
+                    ValueKind::Null => DatTypeID::Binary,
                     $(
                         ValueKind::$variant_upper(_) => {
                             DatTypeID::$variant_upper
@@ -152,6 +154,16 @@ macro_rules! impl_dat_value_methods {
 }
 
 impl DatValue {
+    pub fn null() -> Self {
+        Self {
+            inner: ValueKind::Null,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self.inner, ValueKind::Null)
+    }
+
     /// Creates a MemDatum from any type implementing Datum trait with type information
     pub fn from_datum<T: Datum>(datum: T, type_obj: &DatType) -> RS<Self> {
         Ok(Self {
@@ -228,11 +240,17 @@ impl DatumDyn for DatValue {
     }
 
     fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
+        if self.is_null() {
+            return Err(m_error!(EC::TypeErr, "NULL has no binary payload"));
+        }
         let id = self.inner.get_dat_type_id();
         id.fn_send()(self, dat_type).map_err(|e| m_error!(EC::TypeErr, "", e))
     }
 
     fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
+        if self.is_null() {
+            return Ok(DatTextual::from("NULL".to_string()));
+        }
         let id = self.inner.get_dat_type_id();
         id.fn_output()(self, dat_type).map_err(|e| m_error!(EC::TypeErr, "", e))
     }

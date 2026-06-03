@@ -1,0 +1,13 @@
+[package]
+name = "wallet-as-wrapper"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mududb = { path = "../../../mududb", default-features = false, features = ["app"] }
+wit-bindgen = "0.54.0"

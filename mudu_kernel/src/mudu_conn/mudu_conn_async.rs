@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::db_conn::DBConnAsync;
@@ -14,20 +13,21 @@ use mudu_contract::protocol::{
     encode_batch_request, encode_client_request_with_message_type, encode_session_create_request,
     ClientRequest, Frame, FrameHeader, MessageType, SessionCreateRequest, HEADER_LEN,
 };
-use mudu_utils::sync::a_mutex::{AMutex, AMutexGuard};
+use mudu_sys::sync::a_mutex::{AMutex, AMutexGuard};
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+use mudu_sys::sync::SMutex;
 
-use crate::async_rt::contract::{AsyncRuntime, AsyncStream};
+use mudu_sys::async_rt::contract::{AsyncRuntime, AsyncStream};
 use crate::mudu_conn::mudu_prepared_stmt::MuduPreparedStmt;
 use crate::server::worker_local::{try_current_worker_local, WorkerExecute, WorkerLocalRef};
 use crate::sql::describer::Describer;
 
-static DEFAULT_REMOTE_ADDR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-static DEFAULT_REMOTE_WORKER_ID: OnceLock<Mutex<Option<OID>>> = OnceLock::new();
-static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<Mutex<Option<Arc<dyn AsyncRuntime>>>> =
+static DEFAULT_REMOTE_ADDR: OnceLock<SMutex<Option<String>>> = OnceLock::new();
+static DEFAULT_REMOTE_WORKER_ID: OnceLock<SMutex<Option<OID>>> = OnceLock::new();
+static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<SMutex<Option<Arc<dyn AsyncRuntime>>>> =
     OnceLock::new();
 
 enum ConnBackend {
@@ -39,7 +39,7 @@ struct RemoteWorkerConn {
     addr: String,
     worker_id: Option<OID>,
     async_runtime: Option<Arc<dyn AsyncRuntime>>,
-    session_id: Mutex<Option<OID>>,
+    session_id: SMutex<Option<OID>>,
     stream: AMutex<Option<RemoteProtocolClient>>,
 }
 
@@ -51,25 +51,25 @@ struct RemoteProtocolClient {
 pub struct MuduConnAsync {
     backend: ConnBackend,
     parser: Arc<SQLParser>,
-    session_id: Arc<Mutex<Option<OID>>>,
+    session_id: Arc<SMutex<Option<OID>>>,
 }
 
 pub fn set_default_remote_addr(addr: Option<String>) {
-    let slot = DEFAULT_REMOTE_ADDR.get_or_init(|| Mutex::new(None));
+    let slot = DEFAULT_REMOTE_ADDR.get_or_init(|| SMutex::new(None));
     if let Ok(mut guard) = slot.lock() {
         *guard = addr;
     }
 }
 
 pub fn set_default_remote_worker_id(worker_id: Option<OID>) {
-    let slot = DEFAULT_REMOTE_WORKER_ID.get_or_init(|| Mutex::new(None));
+    let slot = DEFAULT_REMOTE_WORKER_ID.get_or_init(|| SMutex::new(None));
     if let Ok(mut guard) = slot.lock() {
         *guard = worker_id;
     }
 }
 
 pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) {
-    let slot = DEFAULT_REMOTE_ASYNC_RUNTIME.get_or_init(|| Mutex::new(None));
+    let slot = DEFAULT_REMOTE_ASYNC_RUNTIME.get_or_init(|| SMutex::new(None));
     if let Ok(mut guard) = slot.lock() {
         *guard = async_runtime;
     }
@@ -114,7 +114,7 @@ impl MuduConnAsync {
             return Ok(Self {
                 backend: ConnBackend::WorkerLocal(worker_local),
                 parser: Arc::new(SQLParser::new()),
-                session_id: Arc::new(Mutex::new(None)),
+                session_id: Arc::new(SMutex::new(None)),
             });
         }
         let addr = default_remote_addr().ok_or_else(|| {
@@ -128,13 +128,13 @@ impl MuduConnAsync {
             addr,
             worker_id: default_remote_worker_id(),
             async_runtime,
-            session_id: Mutex::new(None),
+            session_id: SMutex::new(None),
             stream: AMutex::new(None),
         });
         Ok(Self {
             backend: ConnBackend::Remote(remote),
             parser,
-            session_id: Arc::new(Mutex::new(None)),
+            session_id: Arc::new(SMutex::new(None)),
         })
     }
 
@@ -267,7 +267,7 @@ impl RemoteProtocolClient {
         let stream = match async_runtime.or_else(default_remote_async_runtime) {
             Some(async_runtime) => async_runtime.net().connect_tcp(addr).await?,
             None => {
-                let runtime = crate::async_rt::tokio::runtime::TokioRuntime::new();
+                let runtime = mudu_sys::async_rt::tokio::runtime::TokioRuntime::new();
                 runtime.net().connect_tcp(addr).await?
             }
         };
@@ -360,7 +360,7 @@ impl DBConnAsync for MuduConnAsync {
         }
     }
 
-    async fn begin_tx(&self) -> RS<XID> {
+    async fn begin_tx(&self) -> RS<OID> {
         let trace = mudu_utils::task_trace!();
         let session_id = self.ensure_session_id().await?;
         trace.watch("mudu_conn.begin_tx.stage", "ensure_session_id_done");

@@ -1,3 +1,4 @@
+use crate::tuple::bitmap::aligned_byte_len;
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
 use mudu::common::cmp_order::Order;
@@ -19,20 +20,53 @@ pub struct TupleBinaryDesc {
     var_count: usize,
     total_fixed_size: usize,
     type_desc: Vec<DatType>,
+    #[serde(default)]
+    nullable_count: usize,
+    #[serde(default)]
+    row_format_version: u32,
 }
 
 impl TupleBinaryDesc {
     pub fn from(type_desc: Vec<DatType>) -> RS<Self> {
+        let fields = type_desc
+            .into_iter()
+            .map(|ty| (ty, false, None))
+            .collect::<Vec<_>>();
+        Self::from_typed_fields(fields, 0)
+    }
+
+    pub fn from_typed_fields(
+        typed_fields: Vec<(DatType, bool, Option<u16>)>,
+        row_format_version: u32,
+    ) -> RS<Self> {
+        let type_desc = typed_fields
+            .iter()
+            .map(|(ty, _, _)| ty.clone())
+            .collect::<Vec<_>>();
         if !is_normalized(&type_desc)? {
             return Err(m_error!(
                 EC::ParseErr,
                 "tuple type descriptor must be normalized"
             ));
         }
+        let nullable_count = typed_fields
+            .iter()
+            .filter_map(|(_, _, null_bit_idx)| *null_bit_idx)
+            .max()
+            .map(|idx| idx as usize + 1)
+            .unwrap_or(0);
+        for (_, nullable, null_bit_idx) in &typed_fields {
+            if *nullable != null_bit_idx.is_some() {
+                return Err(m_error!(
+                    EC::ParseErr,
+                    "nullable field must have a null bit index and NOT NULL field must not"
+                ));
+            }
+        }
         let mut total_fixed_size: usize = 0;
         let mut fixed_count: usize = 0;
         let mut var_count: usize = 0;
-        for td in type_desc.iter() {
+        for (td, _, _) in typed_fields.iter() {
             let id = td.dat_type_id();
             match id.fn_send_type_len()(td) {
                 Ok(opt_len) => match opt_len {
@@ -49,27 +83,51 @@ impl TupleBinaryDesc {
                 }
             }
         }
-        let offset_hdr = 0;
+        let offset_hdr = aligned_byte_len(nullable_count);
         let offset_slot_begin = offset_hdr;
         let mut offset_slot_var = offset_slot_begin as u32;
         let mut offset_data_fixed = (offset_slot_begin + var_count * Slot::size_of()) as u32;
         let mut offset_len_data_fixed: Vec<FieldDesc> = vec![];
         let mut offset_len_slot_var: Vec<FieldDesc> = vec![];
         let mut slot_all: Vec<FieldDesc> = vec![];
-        for ty in type_desc.iter() {
+        for (ty, nullable, null_bit_idx) in typed_fields.iter() {
             let id = ty.dat_type_id();
             match id.fn_send_type_len()(ty) {
                 Ok(opt_len) => match opt_len {
                     Some(data_len) => {
                         let slot = Slot::new(offset_data_fixed, data_len as _);
-                        slot_all.push(FieldDesc::new(slot.clone(), ty.clone(), true));
-                        offset_len_data_fixed.push(FieldDesc::new(slot, ty.clone(), true));
+                        slot_all.push(FieldDesc::new_with_nullability(
+                            slot.clone(),
+                            ty.clone(),
+                            true,
+                            *nullable,
+                            *null_bit_idx,
+                        ));
+                        offset_len_data_fixed.push(FieldDesc::new_with_nullability(
+                            slot,
+                            ty.clone(),
+                            true,
+                            *nullable,
+                            *null_bit_idx,
+                        ));
                         offset_data_fixed += data_len;
                     }
                     None => {
                         let slot = Slot::new(offset_slot_var, Slot::size_of() as u32);
-                        slot_all.push(FieldDesc::new(slot.clone(), ty.clone(), false));
-                        offset_len_slot_var.push(FieldDesc::new(slot, ty.clone(), false));
+                        slot_all.push(FieldDesc::new_with_nullability(
+                            slot.clone(),
+                            ty.clone(),
+                            false,
+                            *nullable,
+                            *null_bit_idx,
+                        ));
+                        offset_len_slot_var.push(FieldDesc::new_with_nullability(
+                            slot,
+                            ty.clone(),
+                            false,
+                            *nullable,
+                            *null_bit_idx,
+                        ));
                         offset_slot_var += Slot::size_of() as u32;
                     }
                 },
@@ -86,6 +144,8 @@ impl TupleBinaryDesc {
             var_count,
             total_fixed_size,
             type_desc,
+            nullable_count,
+            row_format_version,
         })
     }
 
@@ -123,7 +183,19 @@ impl TupleBinaryDesc {
     }
 
     pub fn meta_size(&self) -> usize {
-        self.total_slot_size()
+        self.null_bitmap_size() + self.total_slot_size()
+    }
+
+    pub fn null_bitmap_size(&self) -> usize {
+        aligned_byte_len(self.nullable_count)
+    }
+
+    pub fn nullable_count(&self) -> usize {
+        self.nullable_count
+    }
+
+    pub fn row_format_version(&self) -> u32 {
+        self.row_format_version
     }
     pub fn total_fixed_data_size(&self) -> usize {
         self.total_fixed_size

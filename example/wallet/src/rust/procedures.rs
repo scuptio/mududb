@@ -1,6 +1,6 @@
 use crate::rust::wallets::object::Wallets;
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::database::attr_value::AttrValue;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ec::EC::MuduError;
@@ -28,7 +28,7 @@ fn required_balance(wallet: &Wallets) -> RS<i32> {
 }
 
 /**mudu-proc**/
-pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
         return Err(m_error!(
@@ -113,7 +113,7 @@ pub fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 }
 
 /**mudu-proc**/
-pub fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
+pub fn create_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
 
     // Insert user
@@ -144,7 +144,7 @@ pub fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()
 }
 
 /**mudu-proc**/
-pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
+pub fn delete_user(xid: OID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
@@ -181,7 +181,7 @@ pub fn delete_user(xid: XID, user_id: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub fn update_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
+pub fn update_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
     let mut params: Vec<Box<dyn DatumDyn>> = vec![];
 
@@ -211,7 +211,7 @@ pub fn update_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()
 }
 
 /**mudu-proc**/
-pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
+pub fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
     }
@@ -251,7 +251,7 @@ pub fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
+pub fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
     }
@@ -295,7 +295,7 @@ pub fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     if from_user_id == to_user_id {
         return Err(m_error!(MuduError, "Cannot transfer to self"));
     }
@@ -366,7 +366,7 @@ pub fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
 }
 
 /**mudu-proc**/
-pub fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<()> {
+pub fn purchase(xid: OID, user_id: i32, amount: i32, description: String) -> RS<()> {
     let _ = description;
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));

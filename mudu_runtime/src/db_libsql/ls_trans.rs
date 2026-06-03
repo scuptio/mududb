@@ -1,7 +1,7 @@
 use libsql::Transaction;
 use libsql::{Row, Rows};
 use mudu::common::result::RS;
-use mudu::common::xid::{XID, new_xid};
+use mudu::common::xid::{OID, new_xid};
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::result_set::ResultSet;
@@ -13,11 +13,11 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_utils::sync::a_mutex::AMutex;
+use mudu_sys::sync::a_mutex::AMutex;
 use std::sync::Arc;
 
 pub struct LSTrans {
-    xid: XID,
+    xid: OID,
     trans: Transaction,
 }
 
@@ -39,7 +39,7 @@ impl LSTrans {
         Self { xid, trans }
     }
 
-    pub fn xid(&self) -> XID {
+    pub fn xid(&self) -> OID {
         self.xid
     }
 

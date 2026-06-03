@@ -1,6 +1,6 @@
 use crate::wasm::proc2::object::Wallets;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_type::datum::{Datum, DatumDyn};
 use sys_interface::sync_api::{
@@ -8,7 +8,7 @@ use sys_interface::sync_api::{
 };
 
 /**mudu-proc**/
-pub fn proc_sys_call(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
+pub fn proc_sys_call(xid: OID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
     let _affected_rows = mudu_command(xid,
                                       &r#"
 CREATE TABLE wallets
@@ -51,7 +51,7 @@ INSERT INTO wallets
 
 
 /**mudu-proc**/
-pub fn proc2(xid: XID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
+pub fn proc2(xid: OID, a: i32, b: i64, c: String) -> RS<(i32, String)> {
     Ok(((a + b as i32), format!("xid:{}, a={}, b={}, c={}", xid, a, b, c)))
 }
 

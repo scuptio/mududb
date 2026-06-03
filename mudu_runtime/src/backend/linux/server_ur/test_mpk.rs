@@ -120,7 +120,7 @@ fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path, server_mode: ServerMo
     cfg.listen_ip = "127.0.0.1".to_string();
     cfg.server_mode = server_mode;
     cfg.tcp_listen_port = port;
-    cfg.io_uring_worker_threads = 2;
+    cfg.worker_threads = 2;
     cfg.component_target = Some(ComponentTarget::P2);
     cfg.enable_async = true;
     cfg.routing_mode = RoutingMode::ConnectionId;

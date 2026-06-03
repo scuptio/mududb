@@ -63,7 +63,7 @@ impl Binder {
                 self.bind_create_partition_rule(stmt)?,
             )),
             StmtCommand::CreateTable(stmt) => {
-                Ok(BoundCommand::CreateTable(self.bind_create_table(stmt)?))
+                Ok(BoundCommand::CreateTable(self.bind_create_table(stmt).await?))
             }
             StmtCommand::DropTable(stmt) => {
                 Ok(BoundCommand::DropTable(self.bind_drop_table(stmt).await?))
@@ -104,7 +104,7 @@ impl Binder {
         })
     }
 
-    fn bind_create_table(&self, mut stmt: StmtCreateTable) -> RS<BoundCreateTable> {
+    async fn bind_create_table(&self, mut stmt: StmtCreateTable) -> RS<BoundCreateTable> {
         stmt.assign_index_for_columns();
         let key_columns = stmt
             .primary_columns()
@@ -131,10 +131,9 @@ impl Binder {
             value_indices,
         );
         let partition_binding = if let Some(partition) = stmt.partition() {
-            let rule = futures::executor::block_on(
+            let rule =
                 self.meta_mgr
-                    .get_partition_rule_by_name(partition.rule_name()),
-            )?
+                    .get_partition_rule_by_name(partition.rule_name()).await?
             .ok_or_else(|| {
                 m_error!(
                     ER::NoSuchElement,
@@ -343,9 +342,21 @@ impl Binder {
                     params,
                     &mut param_index,
                 )?;
+                if binary.is_none() && !field.nullable() {
+                    return Err(m_error!(
+                        ER::TupleErr,
+                        format!("cannot insert NULL into NOT NULL column {}", field.name())
+                    ));
+                }
                 if field.primary_index().is_some() {
+                    let binary = binary.ok_or_else(|| {
+                        m_error!(
+                            ER::TupleErr,
+                            format!("cannot insert NULL into key column {}", field.name())
+                        )
+                    })?;
                     key.push((attr, binary));
-                } else {
+                } else if let Some(binary) = binary {
                     value.push((attr, binary));
                 }
             }
@@ -408,7 +419,15 @@ impl Binder {
             };
             let binary =
                 ValueCodec::binary_from_expr(expr, field.type_desc(), params, &mut param_index)?;
-            value.push((attr, binary));
+            if binary.is_none() && !field.nullable() {
+                return Err(m_error!(
+                    ER::TupleErr,
+                    format!("cannot update NOT NULL column {} to NULL", field.name())
+                ));
+            }
+            if let Some(binary) = binary {
+                value.push((attr, binary));
+            }
         }
         let key = self.bind_exact_key_from(
             &table_desc,
@@ -476,6 +495,12 @@ impl Binder {
             }
             let binary =
                 ValueCodec::binary_from_expr(&expr_value, field.type_desc(), params, param_index)?;
+            let binary = binary.ok_or_else(|| {
+                m_error!(
+                    ER::NotImplemented,
+                    "NULL key predicates are not implemented; use IS NULL"
+                )
+            })?;
             match op {
                 ValueCompare::EQ => eq_items.push((attr, binary)),
                 ValueCompare::GE => start = Bound::Included(vec![(attr, binary)]),
@@ -603,6 +628,7 @@ impl Binder {
             DTInfo::from_opt_object(&ty),
         );
         schema_column.set_primary_index(column.primary_key_index());
+        schema_column.set_nullable(column.nullable());
         schema_column.set_index(column.column_index());
         Ok(schema_column)
     }

@@ -1,0 +1,15 @@
+{
+  "name": "wallet-as",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:as": "asc generated/procedures.gen.ts --outFile build/as/procedures.core.wasm --textFile build/as/procedures.core.wat --optimizeLevel 3 --shrinkLevel 0"
+  },
+  "dependencies": {
+    "@mududb/assemblyscript-binding": "file:../../bindings/assemblyscript"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.37"
+  }
+}

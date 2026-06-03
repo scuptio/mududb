@@ -27,6 +27,12 @@ fn _entity_from_tuple<R: Entity, T: AsRef<TupleField>, D: AsRef<TupleFieldDesc>>
     }
     for (i, dat) in row.as_ref().fields().iter().enumerate() {
         let dd = &desc.as_ref().fields()[i];
+        let Some(dat) = dat else {
+            return Err(m_error!(
+                EC::NotImplemented,
+                "NULL entity field conversion is not implemented"
+            ));
+        };
         s.set_field_binary(dd.name(), dat)?;
     }
     Ok(s)

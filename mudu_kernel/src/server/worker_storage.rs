@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, Bound};
 use std::ops::Bound::{Excluded, Included, Unbounded};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
+use mudu_sys::sync::SMutex;
 
-use crate::async_rt::contract::AsyncRuntime;
-use futures::executor::block_on;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -24,16 +24,16 @@ use crate::server::worker_snapshot::{KvItem, WorkerSnapshot};
 use crate::server::worker_tx_manager::WorkerTxManager;
 use crate::storage::relation::relation::Relation;
 use crate::wal::xl_batch::XLBatch;
-use crate::wal::xl_data_op::{XLDelete, XLInsert};
+use crate::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
 use crate::wal::xl_entry::TxOp;
 use crate::x_engine::tx_mgr::{PhysicalRelationId, TxMgr};
 use tracing::{info, trace};
 
 type WorkerStorageRegistry = std::collections::HashMap<String, Vec<Weak<WorkerStorage>>>;
 
-fn storage_registry() -> &'static Mutex<WorkerStorageRegistry> {
-    static REGISTRY: OnceLock<Mutex<WorkerStorageRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+fn storage_registry() -> &'static SMutex<WorkerStorageRegistry> {
+    static REGISTRY: OnceLock<SMutex<WorkerStorageRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| SMutex::new(std::collections::HashMap::new()))
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +51,7 @@ pub struct WorkerStorage {
     async_runtime: Option<Arc<dyn AsyncRuntime>>,
     relation_store: SccHashMap<PhysicalRelationId, Arc<Relation>>,
     kv_store: SccHashMap<Vec<u8>, DataRow>,
+    applied_cross_tx: SccHashMap<OID, ()>,
 }
 
 impl WorkerStorage {
@@ -79,6 +80,7 @@ impl WorkerStorage {
             async_runtime,
             relation_store: SccHashMap::new(),
             kv_store: SccHashMap::new(),
+            applied_cross_tx: SccHashMap::new(),
         }
     }
 
@@ -92,17 +94,6 @@ impl WorkerStorage {
             .entry(self.relation_path.clone())
             .or_default()
             .push(Arc::downgrade(self));
-    }
-
-    pub fn uses_async_runtime(&self) -> bool {
-        self.async_runtime.is_some()
-    }
-
-    pub fn bootstrap_existing_tables_sync(&self) -> RS<()> {
-        for schema in block_on(self.mgr.list_schemas())? {
-            self.bootstrap_table_local(&schema)?;
-        }
-        Ok(())
     }
 
     pub async fn bootstrap_existing_tables_async(&self) -> RS<()> {
@@ -196,8 +187,8 @@ impl WorkerStorage {
         let key_tuple = KeyTuple::from(key.clone());
         let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
 
-        self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
-            .await?;
+            self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
+                .await?;
         txm.put_relation(relation_id, key, value);
         Ok(())
     }
@@ -216,8 +207,8 @@ impl WorkerStorage {
     ) -> RS<Option<Vec<u8>>> {
         let key_tuple = KeyTuple::from(key.to_vec());
         let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
-        self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
-            .await?;
+            self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
+                .await?;
         let current = match txm.get_relation(relation_id, key) {
             Some(staged) => staged,
             None => {
@@ -350,24 +341,15 @@ impl WorkerStorage {
         .await
     }
 
-    pub(crate) fn prepare_commit(&self, txm: &dyn TxMgr) -> RS<PreparedWorkerCommit> {
-        self.prepare_commit_parts(
-            &txm.snapshot(),
-            txm.xid(),
-            txm.staged_relation_ops(),
-            txm.staged_put_items().into_iter().collect(),
-            txm.xl_batch(),
-        )
-    }
 
-    pub(crate) fn prepare_worker_kv_commit(
+    pub(crate) async fn prepare_worker_kv_commit(
         &self,
         snapshot: &WorkerSnapshot,
         xid: u64,
         items: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         batch: XLBatch,
     ) -> RS<PreparedWorkerCommit> {
-        self.prepare_commit_parts(snapshot, xid, BTreeMap::new(), items, batch)
+        self.prepare_commit_parts_async(snapshot, xid, BTreeMap::new(), items, batch).await
     }
 
     pub(crate) fn prepare_worker_kv_autocommit(
@@ -385,36 +367,66 @@ impl WorkerStorage {
         }
     }
 
-    pub(crate) fn apply_prepared_commit(&self, prepared: PreparedWorkerCommit) -> RS<()> {
-        self.apply_relation_rows(&prepared)?;
-        self.apply_kv_rows(&prepared)?;
-        Ok(())
-    }
 
     pub(crate) async fn apply_prepared_commit_async(
         &self,
         prepared: PreparedWorkerCommit,
     ) -> RS<()> {
+        scoped_task_trace!();
         self.apply_relation_rows_async(&prepared).await?;
         self.apply_kv_rows_async(&prepared).await?;
         Ok(())
     }
 
-    pub(crate) fn replay_batch(&self, batch: XLBatch) -> RS<()> {
+    pub(crate) async fn apply_cross_partition_tx_async(
+        &self,
+        tx_id: OID,
+        partition_write_set: &[XLWrite],
+    ) -> RS<()> {
+        if self.applied_cross_tx.contains_async(&tx_id).await {
+            return Ok(());
+        }
+        for write in partition_write_set {
+            match write {
+                XLWrite::Insert(insert) => {
+                    self.apply_relation_replay_insert_async(insert.clone(), tx_id as u64)
+                        .await?;
+                }
+                XLWrite::Delete(delete) => {
+                    self.apply_relation_replay_delete_async(delete.clone(), tx_id as u64)
+                        .await?;
+                }
+                XLWrite::Update(_) => {
+                    return Err(m_error!(
+                        EC::NotImplemented,
+                        "cross-partition update replay is not implemented"
+                    ));
+                }
+            }
+        }
+        let _ = self.applied_cross_tx.insert_async(tx_id, ()).await;
+        Ok(())
+    }
+
+    pub(crate) async fn replay_batch(&self, batch: XLBatch) -> RS<()> {
         for entry in batch.entries {
             for op in entry.ops {
                 match op {
-                    TxOp::Insert(insert) if insert.table_id == 0 && insert.partition_id == 0 => {
+                    TxOp::Write(XLWrite::Insert(insert))
+                        if insert.table_id == 0 && insert.partition_id == 0 =>
+                    {
                         self.worker_put_local(insert.key, insert.value, entry.xid)?;
                     }
-                    TxOp::Delete(delete) if delete.table_id == 0 && delete.partition_id == 0 => {
+                    TxOp::Write(XLWrite::Delete(delete))
+                        if delete.table_id == 0 && delete.partition_id == 0 =>
+                    {
                         self.worker_delete_local(delete.key, entry.xid)?;
                     }
-                    TxOp::Insert(insert) => {
-                        self.apply_relation_replay_insert(insert, entry.xid)?;
+                    TxOp::Write(XLWrite::Insert(insert)) => {
+                        self.apply_relation_replay_insert_async(insert, entry.xid).await?;
                     }
-                    TxOp::Delete(delete) => {
-                        self.apply_relation_replay_delete(delete, entry.xid)?;
+                    TxOp::Write(XLWrite::Delete(delete)) => {
+                        self.apply_relation_replay_delete_async(delete, entry.xid).await?;
                     }
                     _ => {}
                 }
@@ -429,25 +441,6 @@ impl WorkerStorage {
 
     pub(crate) fn worker_delete_local(&self, key: Vec<u8>, xid: u64) -> RS<()> {
         write_version_to_kv_store(&self.kv_store, key, None, xid)
-    }
-
-    fn prepare_commit_parts(
-        &self,
-        snapshot: &WorkerSnapshot,
-        xid: u64,
-        relation_rows: BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
-        kv_rows: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-        batch: XLBatch,
-    ) -> RS<PreparedWorkerCommit> {
-        self.ensure_no_relation_conflicts(snapshot, xid, &relation_rows)?;
-        self.ensure_no_kv_conflicts(snapshot, xid, &kv_rows)?;
-
-        Ok(PreparedWorkerCommit {
-            xid,
-            relation_rows,
-            kv_rows,
-            batch,
-        })
     }
 
     async fn prepare_commit_parts_async(
@@ -468,41 +461,6 @@ impl WorkerStorage {
             kv_rows,
             batch,
         })
-    }
-
-    fn ensure_no_relation_conflicts(
-        &self,
-        snapshot: &WorkerSnapshot,
-        xid: u64,
-        relation_rows: &BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
-    ) -> RS<()> {
-        for (relation_id, rows) in relation_rows {
-            let relation = self.relation_store.get_sync(relation_id).ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        relation_id.table_id, relation_id.partition_id
-                    )
-                )
-            })?;
-            for key in rows.keys() {
-                let key_tuple = KeyTuple::from(key.clone());
-                if relation
-                    .get()
-                    .has_write_conflict_sync(&key_tuple, snapshot)?
-                {
-                    return Err(m_error!(
-                        EC::TxErr,
-                        format!(
-                            "write-write conflict on table {} partition {} key {:?} for transaction {}",
-                            relation_id.table_id, relation_id.partition_id, key, xid
-                        )
-                    ));
-                }
-            }
-        }
-        Ok(())
     }
 
     async fn ensure_no_relation_conflicts_async(
@@ -556,27 +514,8 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn apply_relation_rows(&self, prepared: &PreparedWorkerCommit) -> RS<()> {
-        for (relation_id, rows) in &prepared.relation_rows {
-            let relation = self.relation_store.get_sync(relation_id).ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        relation_id.table_id, relation_id.partition_id
-                    )
-                )
-            })?;
-            for (key, value) in rows {
-                relation
-                    .get()
-                    .write_row_sync(key.clone(), value.clone(), prepared.xid)?;
-            }
-        }
-        Ok(())
-    }
-
     async fn apply_relation_rows_async(&self, prepared: &PreparedWorkerCommit) -> RS<()> {
+        scoped_task_trace!();
         for (relation_id, rows) in &prepared.relation_rows {
             let relation = self.get_relation_by_id_async(relation_id).await?;
             for (key, value) in rows {
@@ -588,14 +527,8 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn apply_kv_rows(&self, prepared: &PreparedWorkerCommit) -> RS<()> {
-        for (key, value) in &prepared.kv_rows {
-            write_version_to_kv_store(&self.kv_store, key.clone(), value.clone(), prepared.xid)?;
-        }
-        Ok(())
-    }
-
     async fn apply_kv_rows_async(&self, prepared: &PreparedWorkerCommit) -> RS<()> {
+        scoped_task_trace!();
         for (key, value) in &prepared.kv_rows {
             write_version_to_kv_store_async(
                 &self.kv_store,
@@ -608,38 +541,18 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn apply_relation_replay_insert(&self, insert: XLInsert, xid: u64) -> RS<()> {
+    async fn apply_relation_replay_insert_async(&self, insert: XLInsert, xid: u64) -> RS<()> {
         let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(insert.table_id, insert.partition_id))
-            .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        insert.table_id, insert.partition_id
-                    )
-                )
-            })?;
-        relation
-            .get()
-            .write_value_sync(insert.key, insert.value, xid)
+            .get_relation_by_id_async(&self.relation_id(insert.table_id, insert.partition_id))
+            .await?;
+        relation.write_value(insert.key, insert.value, xid).await
     }
 
-    fn apply_relation_replay_delete(&self, delete: XLDelete, xid: u64) -> RS<()> {
+    async fn apply_relation_replay_delete_async(&self, delete: XLDelete, xid: u64) -> RS<()> {
         let relation = self
-            .relation_store
-            .get_sync(&self.relation_id(delete.table_id, delete.partition_id))
-            .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
-                    format!(
-                        "no such table {} partition {}",
-                        delete.table_id, delete.partition_id
-                    )
-                )
-            })?;
-        relation.get().write_delete_sync(delete.key, xid)
+            .get_relation_by_id_async(&self.relation_id(delete.table_id, delete.partition_id))
+            .await?;
+        relation.write_delete(delete.key, xid).await
     }
 
     #[allow(dead_code)]
@@ -702,33 +615,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn create_unpartitioned_relation_index(&self, oid: OID, table_desc: &TableDesc) -> RS<()> {
-        self.create_relation_index_for_partition(
-            oid,
-            DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
-            table_desc,
-        )
-    }
-
-    fn create_relation_index_for_partition(
-        &self,
-        oid: OID,
-        partition_id: OID,
-        table_desc: &TableDesc,
-    ) -> RS<()> {
-        let relation_id = self.relation_id(oid, partition_id);
-        let _prev = self.relation_store.insert_sync(
-            relation_id,
-            Arc::new(Relation::new(
-                oid,
-                partition_id,
-                self.relation_path.clone(),
-                table_desc,
-            )?),
-        );
-        Ok(())
-    }
-
     async fn create_relation_index_for_partition_async(
         &self,
         oid: OID,
@@ -749,12 +635,9 @@ impl WorkerStorage {
                 )
                 .await?,
             ),
-            None => Arc::new(Relation::new(
-                oid,
-                partition_id,
-                self.relation_path.clone(),
-                table_desc,
-            )?),
+            None => Arc::new(
+                Relation::new(oid, partition_id, self.relation_path.clone(), table_desc).await?,
+            ),
         };
 
         let _ = self
@@ -778,13 +661,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn apply_create_table_local(&self, schema: &SchemaTable) -> RS<()> {
-        let table_desc =
-            crate::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
-        self.create_unpartitioned_relation_index(schema.id(), table_desc.as_ref())
-    }
-
     async fn apply_create_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
         trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async start");
         let table_desc =
@@ -797,18 +673,6 @@ impl WorkerStorage {
         .await?;
         trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async done");
         Ok(())
-    }
-
-    fn bootstrap_table_local(&self, schema: &SchemaTable) -> RS<()> {
-        let table_desc =
-            crate::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
-        let binding = block_on(self.mgr.get_table_partition_binding(schema.id()))?;
-        match binding {
-            Some(binding) => {
-                self.create_partitioned_relations(schema.id(), &binding, table_desc.as_ref())
-            }
-            None => self.create_unpartitioned_relation_index(schema.id(), table_desc.as_ref()),
-        }
     }
 
     async fn bootstrap_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
@@ -829,19 +693,6 @@ impl WorkerStorage {
                 .await
             }
         }
-    }
-
-    fn create_partitioned_relations(
-        &self,
-        oid: OID,
-        binding: &TablePartitionBinding,
-        table_desc: &TableDesc,
-    ) -> RS<()> {
-        let rule = block_on(self.mgr.get_partition_rule_by_id(binding.rule_id))?;
-        for partition in &rule.partitions {
-            self.create_relation_index_for_partition(oid, partition.partition_id, table_desc)?;
-        }
-        Ok(())
     }
 
     async fn create_partitioned_relations_async(
@@ -882,17 +733,6 @@ impl WorkerStorage {
         );
     }
 
-    #[allow(dead_code)]
-    fn broadcast_create_table(&self, schema: &SchemaTable) -> RS<()> {
-        let peers = self.peer_instances();
-        if peers.is_empty() {
-            return self.apply_create_table_local(schema);
-        }
-        for storage in peers {
-            storage.apply_create_table_local(schema)?;
-        }
-        Ok(())
-    }
 
     async fn broadcast_create_table_async(&self, schema: &SchemaTable) -> RS<()> {
         trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async enter");
@@ -1006,6 +846,7 @@ async fn write_version_to_kv_store_async(
     value: Option<Vec<u8>>,
     xid: u64,
 ) -> RS<()> {
+    scoped_task_trace!();
     let row = kv_store
         .get_sync(&key)
         .map(|entry| entry.get().clone())
@@ -1039,7 +880,7 @@ fn bounds_to_scan(bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> (Vec<u8>, Vec<u8>) {
 mod tests {
     use std::future::Future;
 
-    use crate::async_rt::tokio::runtime::TokioRuntime;
+    use mudu_sys::async_rt::tokio::runtime::TokioRuntime;
     use crate::contract::schema_column::SchemaColumn;
     use crate::server::test_meta_mgr::TestMetaMgr;
     use mudu::common::id::OID;
@@ -1112,10 +953,10 @@ mod tests {
             .to_string();
         let storage1 = Arc::new(WorkerStorage::new(mgr.clone(), 1, root.clone()));
         storage1.register_global();
-        storage1.bootstrap_existing_tables_sync()?;
+        storage1.bootstrap_existing_tables_async().await?;
         let storage2 = Arc::new(WorkerStorage::new(mgr.clone(), 2, root));
         storage2.register_global();
-        storage2.bootstrap_existing_tables_sync()?;
+        storage2.bootstrap_existing_tables_async().await?;
 
         let schema = test_schema();
         let oid = schema.id();
@@ -1378,7 +1219,7 @@ mod tests {
             Some(b"1".to_vec()),
             XLBatch::new(vec![]),
         );
-        storage.apply_prepared_commit(prepared)?;
+        storage.apply_prepared_commit_async(prepared).await?;
 
         assert_eq!(
             storage.kv_get(b"a", Some(&snapshot)).await?,
@@ -1431,16 +1272,16 @@ mod tests {
             snapshot1.xid(),
             BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
             XLBatch::new(vec![]),
-        )?;
+        ).await?;
         let prepared2 = storage.prepare_worker_kv_commit(
             &snapshot2,
             snapshot2.xid(),
             BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
             XLBatch::new(vec![]),
-        )?;
+        ).await?;
 
-        storage.apply_prepared_commit(prepared1)?;
-        storage.apply_prepared_commit(prepared2)?;
+        storage.apply_prepared_commit_async(prepared1).await?;
+        storage.apply_prepared_commit_async(prepared2).await?;
 
         assert_eq!(storage.kv_get(b"a", None).await?, Some(b"1".to_vec()));
         assert_eq!(storage.kv_get(b"b", None).await?, Some(b"2".to_vec()));
@@ -1461,25 +1302,25 @@ mod tests {
             xid: 9,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"k".to_vec(),
                     value: b"v".to_vec(),
-                }),
-                TxOp::Insert(XLInsert {
+                })),
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: oid,
                     partition_id: 0,
                     tuple_id: 0,
                     key: i32_bytes(7),
                     value: i32_bytes(70),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }]);
 
-        storage.replay_batch(batch)?;
+        storage.replay_batch(batch).await?;
 
         assert_eq!(storage.kv_get(b"k", None).await?, Some(b"v".to_vec()));
         let mut tx = begin_tx(10, vec![]);
@@ -1506,19 +1347,50 @@ mod tests {
             xid: 2,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Delete(XLDelete {
+                TxOp::Write(XLWrite::Delete(XLDelete {
                     table_id: 0,
                     partition_id: 0,
                     tuple_id: 0,
                     key: b"k".to_vec(),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }]);
 
-        storage.replay_batch(batch)?;
+        storage.replay_batch(batch).await?;
 
         assert_eq!(storage.kv_get(b"k", None).await?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn worker_storage_cross_partition_apply_is_idempotent() {
+        block_on(async move {
+            let r = _worker_storage_cross_partition_apply_is_idempotent().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _worker_storage_cross_partition_apply_is_idempotent() -> RS<()> {
+        let (storage, oid) = test_storage().await?;
+        let write = XLWrite::Insert(XLInsert {
+            table_id: oid,
+            partition_id: 0,
+            tuple_id: 0,
+            key: i32_bytes(9),
+            value: i32_bytes(90),
+        });
+
+        storage
+            .apply_cross_partition_tx_async(77, &[write.clone()])
+            .await?;
+        storage.apply_cross_partition_tx_async(77, &[write]).await?;
+
+        let mut tx = begin_tx(78, vec![]);
+        assert_eq!(
+            storage.get(oid, &i32_bytes(9), &mut tx).await?,
+            Some(i32_bytes(90))
+        );
         Ok(())
     }
 
@@ -1547,24 +1419,24 @@ mod tests {
                 .to_string_lossy()
                 .to_string(),
         );
-        storage.bootstrap_existing_tables_sync()?;
+        storage.bootstrap_existing_tables_async().await?;
 
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 11,
             ops: vec![
                 TxOp::Begin,
-                TxOp::Insert(XLInsert {
+                TxOp::Write(XLWrite::Insert(XLInsert {
                     table_id: oid,
                     partition_id: 0,
                     tuple_id: 0,
                     key: i32_bytes(5),
                     value: i32_bytes(50),
-                }),
+                })),
                 TxOp::Commit,
             ],
         }]);
 
-        storage.replay_batch(batch)?;
+        storage.replay_batch(batch).await?;
 
         let mut tx = begin_tx(12, vec![]);
         assert_eq!(

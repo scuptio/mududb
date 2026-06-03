@@ -1,0 +1,95 @@
+package mududb:component-shim;
+
+interface types {
+    record oid {
+        hi: u64,
+        lo: u64,
+    }
+
+    record error {
+        code: u32,
+        message: string,
+        source: string,
+        location: string,
+    }
+
+    variant value {
+        null,
+        boolean(bool),
+        int64(s64),
+        float64(f64),
+        text(string),
+        binary(list<u8>),
+        object-id(oid),
+    }
+
+    record key-value {
+        key: list<value>,
+        value: list<value>,
+    }
+
+    value-null: func() -> value;
+    value-from-boolean: func(input: bool) -> value;
+    value-from-int64: func(input: s64) -> value;
+    value-from-float64: func(input: f64) -> value;
+    value-from-text: func(input: string) -> value;
+    value-from-binary: func(input: list<u8>) -> value;
+    value-from-oid: func(input: oid) -> value;
+
+    value-is-null: func(input: value) -> bool;
+    value-as-boolean: func(input: value) -> result<bool, error>;
+    value-as-int64: func(input: value) -> result<s64, error>;
+    value-as-float64: func(input: value) -> result<f64, error>;
+    value-as-text: func(input: value) -> result<string, error>;
+    value-as-binary: func(input: value) -> result<list<u8>, error>;
+    value-as-oid: func(input: value) -> result<oid, error>;
+}
+
+interface system {
+    use types.{
+        error,
+        key-value,
+        oid,
+        value,
+    };
+
+    resource value-list {
+        constructor();
+        bind-named-value: func(name: string, value: value);
+        bind-value: func(index: s32, value: value);
+        len: func() -> u32;
+        value: func(index: u32) -> result<value, error>;
+    }
+
+    resource sql-stmt {
+        constructor(sql: string);
+    }
+
+    resource result-set {
+        next: func() -> result<bool, error>;
+        current-row: func() -> result<option<row>, error>;
+        column-count: func() -> result<u32, error>;
+        column-name: func(column: u32) -> result<string, error>;
+        find-column: func(name: string) -> result<option<u32>, error>;
+        eof: func() -> result<bool, error>;
+    }
+
+    resource row {
+        is-null: func(column: u32) -> result<bool, error>;
+        is-null-by-name: func(name: string) -> result<bool, error>;
+        value: func(column: u32) -> result<value, error>;
+        value-by-name: func(name: string) -> result<value, error>;
+    }
+
+    open: func(uri: string) -> result<oid, error>;
+    close: func(id: oid) -> result<_, error>;
+    query: func(id: oid, stmt:sql-stmt, values:value-list) -> result<result-set, error>;
+    command: func(id: oid, stmt:sql-stmt, values:value-list) -> result<u64, error>;
+    batch: func(id: oid, stmt:sql-stmt, values:value-list) -> result<u64, error>;
+}
+
+
+world guest-api {
+    import types;
+    import system;
+}

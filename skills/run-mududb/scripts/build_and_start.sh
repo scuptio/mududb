@@ -38,7 +38,7 @@ pg_listen_port = 5432
 enable_async = true
 server_mode = 1
 tcp_listen_port = 9527
-io_uring_worker_threads = 2
+worker_threads = 2
 routing_mode = 2
 EOF
 

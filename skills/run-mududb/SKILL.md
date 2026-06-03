@@ -57,7 +57,7 @@ http_listen_port = 8300                # management API (REST)
 tcp_listen_port = 9527                 # internal protocol (io_uring workers)
 pg_listen_port = 5432                  # PostgreSQL wire protocol
 server_mode = 1                        # 0=Legacy, 1=IOUring
-io_uring_worker_threads = 2            # 0=auto-detect CPU cores
+worker_threads = 2                     # 0=auto-detect CPU cores
 routing_mode = 2                       # 0=ConnectionId, 1=PlayerId, 2=RemoteHash
 enable_async = true
 http_worker_threads = 1

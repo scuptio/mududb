@@ -1,9 +1,9 @@
-use crate::io::socket::{close, IoSocket};
+use mudu_sys::io::socket::{close, IoSocket};
 use crate::server::async_func_task::HandleResult;
 use crate::server::frame_dispatch::dispatch_frame_async;
 use crate::server::protocol_codec::{read_next_frame, write_response};
 use crate::server::worker::WorkerRuntime;
-use crate::server::worker_task::WorkerTaskFuture;
+use mudu_sys::server::worker_task::WorkerTaskFuture;
 use mudu::common::result::RS;
 use mudu_contract::protocol::encode_merror_response;
 use std::net::SocketAddr;

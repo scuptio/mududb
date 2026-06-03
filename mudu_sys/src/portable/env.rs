@@ -149,59 +149,31 @@ fn flag_append(flags: i32) -> i32 {
     flags & 0x0400
 }
 
+#[async_trait::async_trait]
 impl SysFs for PortableFs {
-    fn open(&self, path: &Path, flags: i32, _mode: u32) -> RS<File> {
-        let mut options = std::fs::OpenOptions::new();
-        let read = flag_rdwr(flags) != 0 || flag_wronly(flags) == 0;
-        let write = flag_rdwr(flags) != 0 || flag_wronly(flags) != 0;
-        options.read(read);
-        options.write(write);
-        options.create(flag_creat(flags) != 0);
-        options.truncate(flag_trunc(flags) != 0);
-        options.append(flag_append(flags) != 0);
-        options
-            .open(path)
-            .map_err(|e| m_error!(EC::IOErr, "open file error", e))
+    async fn open(&self, path: &Path, flags: i32, mode: u32) -> RS<SysFile> {
+        let std_file = crate::async_rt::std_file::StdAsyncFile::open(path, flags, mode)
+            .map_err(|e| m_error!(EC::IOErr, "open file error", e))?;
+        Ok(SysFile::new(std::sync::Arc::new(std_file)))
     }
 
-    fn read_exact_at(&self, file: &File, len: usize, offset: u64) -> RS<Vec<u8>> {
-        let mut cloned = file
-            .try_clone()
-            .map_err(|e| m_error!(EC::IOErr, "clone file for read_exact_at error", e))?;
-        cloned
-            .seek(SeekFrom::Start(offset))
-            .map_err(|e| m_error!(EC::IOErr, "seek for read_exact_at error", e))?;
-        let mut buf = vec![0u8; len];
-        cloned
-            .read_exact(&mut buf)
-            .map_err(|e| m_error!(EC::IOErr, "read_exact_at error", e))?;
-        Ok(buf)
+    async fn read_exact_at(&self, file: &SysFile, len: usize, offset: u64) -> RS<Vec<u8>> {
+        file.read_exact_at(offset, len).await
     }
 
-    fn write_all_at(&self, file: &File, payload: &[u8], offset: u64) -> RS<()> {
-        let mut cloned = file
-            .try_clone()
-            .map_err(|e| m_error!(EC::IOErr, "clone file for write_all_at error", e))?;
-        cloned
-            .seek(SeekFrom::Start(offset))
-            .map_err(|e| m_error!(EC::IOErr, "seek for write_all_at error", e))?;
-        cloned
-            .write_all(payload)
-            .map_err(|e| m_error!(EC::IOErr, "write_all_at error", e))?;
+    async fn write_all_at(&self, file: &SysFile, payload: &[u8], offset: u64) -> RS<()> {
+        file.write_all_at(offset, payload).await
+    }
+
+    async fn fsync(&self, file: &SysFile) -> RS<()> {
+        file.fsync().await
+    }
+
+    async fn close(&self, _file: SysFile) -> RS<()> {
         Ok(())
     }
 
-    fn fsync(&self, file: &File) -> RS<()> {
-        file.sync_all()
-            .map_err(|e| m_error!(EC::IOErr, "fsync error", e))
-    }
-
-    fn close(&self, file: File) -> RS<()> {
-        drop(file);
-        Ok(())
-    }
-
-    fn create_dir_all(&self, path: &Path) -> RS<()> {
+    async fn create_dir_all(&self, path: &Path) -> RS<()> {
         std::fs::create_dir_all(path).map_err(|e| {
             m_error!(
                 EC::IOErr,
@@ -211,7 +183,7 @@ impl SysFs for PortableFs {
         })
     }
 
-    fn read_dir(&self, path: &Path) -> RS<Vec<PathBuf>> {
+    async fn read_dir(&self, path: &Path) -> RS<Vec<PathBuf>> {
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(path)
             .map_err(|e| m_error!(EC::IOErr, format!("read_dir {} error", path.display()), e))?
@@ -222,18 +194,18 @@ impl SysFs for PortableFs {
         Ok(entries)
     }
 
-    fn metadata_len(&self, path: &Path) -> RS<u64> {
+    async fn metadata_len(&self, path: &Path) -> RS<u64> {
         Ok(std::fs::metadata(path)
             .map_err(|e| m_error!(EC::IOErr, format!("metadata {} error", path.display()), e))?
             .len())
     }
 
-    fn read_all(&self, path: &Path) -> RS<Vec<u8>> {
+    async fn read_all(&self, path: &Path) -> RS<Vec<u8>> {
         std::fs::read(path)
             .map_err(|e| m_error!(EC::IOErr, format!("read_all {} error", path.display()), e))
     }
 
-    fn remove_file_if_exists(&self, path: &Path) -> RS<()> {
+    async fn remove_file_if_exists(&self, path: &Path) -> RS<()> {
         match std::fs::remove_file(path) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),

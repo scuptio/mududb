@@ -80,7 +80,7 @@ mod tests {
         let async_runtime = runtime.async_runtime().expect("tokio async runtime");
         assert!(matches!(
             async_runtime.mode(),
-            mudu_kernel::async_rt::mode::AsyncMode::Tokio
+            mudu_sys::async_rt::mode::AsyncMode::Tokio
         ));
 
         let _ = fs::remove_dir_all(package_dir);

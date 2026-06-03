@@ -1,6 +1,6 @@
 use crate::generated::wallets::object::Wallets;
 use mududb::common::result::RS;
-use mududb::common::xid::XID;
+use mududb::common::id::OID;
 use mududb::contract::database::attr_value::AttrValue;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ec::EC::MuduError;
@@ -28,7 +28,7 @@ fn required_balance(wallet: &Wallets) -> RS<i32> {
 }
 
 /**mudu-proc**/
-pub async fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub async fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
         return Err(m_error!(
@@ -113,7 +113,7 @@ pub async fn transfer_funds(xid: XID, from_user_id: i32, to_user_id: i32, amount
 }
 
 /**mudu-proc**/
-pub async fn create_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
+pub async fn create_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
 
     // Insert user
@@ -144,7 +144,7 @@ pub async fn create_user(xid: XID, user_id: i32, name: String, email: String) ->
 }
 
 /**mudu-proc**/
-pub async fn delete_user(xid: XID, user_id: i32) -> RS<()> {
+pub async fn delete_user(xid: OID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = mudu_query::<Wallets>(
         xid,
@@ -181,7 +181,7 @@ pub async fn delete_user(xid: XID, user_id: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub async fn update_user(xid: XID, user_id: i32, name: String, email: String) -> RS<()> {
+pub async fn update_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
     let now = current_timestamp();
     let mut params: Vec<Box<dyn DatumDyn>> = vec![];
 
@@ -211,7 +211,7 @@ pub async fn update_user(xid: XID, user_id: i32, name: String, email: String) ->
 }
 
 /**mudu-proc**/
-pub async fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
+pub async fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
     }
@@ -251,7 +251,7 @@ pub async fn deposit(xid: XID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub async fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
+pub async fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
     }
@@ -295,7 +295,7 @@ pub async fn withdraw(xid: XID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
-pub async fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
+pub async fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     if from_user_id == to_user_id {
         return Err(m_error!(MuduError, "Cannot transfer to self"));
     }
@@ -366,7 +366,7 @@ pub async fn transfer(xid: XID, from_user_id: i32, to_user_id: i32, amount: i32)
 }
 
 /**mudu-proc**/
-pub async fn purchase(xid: XID, user_id: i32, amount: i32, description: String) -> RS<()> {
+pub async fn purchase(xid: OID, user_id: i32, amount: i32, description: String) -> RS<()> {
     let _ = description;
     if amount <= 0 {
         return Err(m_error!(MuduError, "Amount must be positive"));
@@ -526,7 +526,8 @@ mod mod_withdraw {
     }
 
     export!(GuestWithdraw);
-}
+}
+
 async fn mp2_transfer_funds(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -660,7 +661,8 @@ mod mod_transfer_funds {
     }
 
     export!(GuestTransferFunds);
-}
+}
+
 async fn mp2_purchase(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -794,7 +796,8 @@ mod mod_purchase {
     }
 
     export!(GuestPurchase);
-}
+}
+
 async fn mp2_delete_user(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -900,7 +903,8 @@ mod mod_delete_user {
     }
 
     export!(GuestDeleteUser);
-}
+}
+
 async fn mp2_deposit(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1020,7 +1024,8 @@ mod mod_deposit {
     }
 
     export!(GuestDeposit);
-}
+}
+
 async fn mp2_create_user(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1154,7 +1159,8 @@ mod mod_create_user {
     }
 
     export!(GuestCreateUser);
-}
+}
+
 async fn mp2_transfer(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1288,7 +1294,8 @@ mod mod_transfer {
     }
 
     export!(GuestTransfer);
-}
+}
+
 async fn mp2_update_user(param:Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
         param,
@@ -1422,4 +1429,4 @@ mod mod_update_user {
     }
 
     export!(GuestUpdateUser);
-}
+}

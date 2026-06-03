@@ -1,7 +1,7 @@
 use crate::db_libsql::ls_async_conn::LSSyncConn;
 use libsql::Connection;
 use mudu::common::result::RS;
-use mudu::common::xid::XID;
+use mudu::common::id::OID;
 use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::database::sql::DBConn;
@@ -41,7 +41,7 @@ impl DBConnSync for LSConn {
         self.inner.exe_sql(sql_text.clone())
     }
 
-    fn begin_tx(&self) -> RS<XID> {
+    fn begin_tx(&self) -> RS<OID> {
         self.inner.sync_begin_tx()
     }
 
@@ -80,7 +80,7 @@ mod test {
     use crate::db_libsql::ls_conn::create_ls_conn;
     use libsql::{Connection, params};
     use mudu::common::result::RS;
-    use mudu::common::xid::XID;
+    use mudu::common::id::OID;
     use mudu::this_file;
     use mudu_contract::database::db_conn::DBConnSync;
     use mudu_contract::database::sql::DBConn;
@@ -227,7 +227,7 @@ mod test {
         _conn_max: u32,
         n: u32,
         tx_max: u32,
-        _xid: XID,
+        _xid: OID,
         conn: DBConn,
     ) -> RS<()> {
         let id = conn_id * tx_max + n;

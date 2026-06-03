@@ -1,4 +1,4 @@
-use crate::io::worker_ring::UserIoInflight;
+use mudu_sys::io::worker_ring::UserIoInflight;
 
 pub(in crate::server) struct AcceptOp {
     addr: mudu_sys::uring::SockAddrBuf,

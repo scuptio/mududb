@@ -1,7 +1,7 @@
 use crate::service::app_inst::AppInst;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu_kernel::async_rt::contract::AsyncRuntime;
+use mudu_sys::async_rt::contract::AsyncRuntime;
 use std::sync::Arc;
 
 #[async_trait]
