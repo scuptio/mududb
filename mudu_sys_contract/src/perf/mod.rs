@@ -22,17 +22,18 @@ pub enum TxnStage {
     Parse = 8,
     Plan = 9,
     QueryExec = 10,
-    ProcedureExec = 11,
-    TxnLock = 12,
-    Commit = 13,
-    WriteLog = 14,
-    NetworkSend = 15,
+    CommandExec = 11,
+    ProcedureExec = 12,
+    TxnLock = 13,
+    Commit = 14,
+    WriteLog = 15,
+    NetworkSend = 16,
 
     // Whole transaction wall-clock
-    Total = 16,
+    Total = 17,
 
     // Must be last; used to size fixed arrays.
-    Count = 17,
+    Count = 18,
 }
 
 impl TxnStage {
@@ -54,6 +55,7 @@ impl TxnStage {
             TxnStage::Parse,
             TxnStage::Plan,
             TxnStage::QueryExec,
+            TxnStage::CommandExec,
             TxnStage::ProcedureExec,
             TxnStage::TxnLock,
             TxnStage::Commit,

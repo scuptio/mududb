@@ -42,6 +42,7 @@ mudu_adapter = { workspace = true }
 mudu_runtime = { workspace = true }
 mududb = { workspace = true, features = ["async", "standalone-adapter"] }
 testing = { path = "../../testing" }
+tracing-subscriber = { workspace = true }
 
 [[bin]]
 name = "tpcc-benchmark"

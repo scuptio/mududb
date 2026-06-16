@@ -3,17 +3,20 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::{
     ClientRequest, Frame, FrameHeader, GetRequest, HEADER_LEN, KeyValue, MessageType,
-    ProcedureInvokeRequest, PutRequest, RangeScanRequest, ServerResponse, SessionCloseRequest,
-    SessionCreateRequest, decode_error_response, decode_get_response,
-    decode_procedure_invoke_response, decode_put_response, decode_range_scan_response,
-    decode_server_response, decode_session_close_response, decode_session_create_response,
-    encode_batch_request, encode_client_request, encode_client_request_with_message_type,
-    encode_get_request, encode_procedure_invoke_request, encode_put_request,
-    encode_range_scan_request, encode_session_close_request, encode_session_create_request,
+    ProcedureInvokeRequest, PutRequest, RangeScanRequest, ServerPerfDigest, ServerResponse,
+    SessionCloseRequest, SessionCreateRequest, decode_error_response,
+    decode_get_response, decode_procedure_invoke_response, decode_put_response,
+    decode_range_scan_response, decode_server_response, decode_session_close_response,
+    decode_session_create_response, encode_batch_request,
+    encode_client_request_with_message_type_and_trace, encode_get_request,
+    encode_procedure_invoke_request, encode_put_request, encode_range_scan_request,
+    encode_session_close_request, encode_session_create_request,
 };
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use mudu_sys::net::sync::{SStdTcpStream, connect_tcp};
+use mudu_sys::perf::{PerfSpan, TraceContext, TxnStage, next_trace_id, should_sample};
+use mudu_sys::time::instant_now;
 
 pub struct SyncClient {
     stream: SStdTcpStream,
@@ -38,12 +41,11 @@ impl SyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        let request_id = self.take_request_id();
-        let request = ClientRequest::new(app_name, sql);
-        let payload = encode_client_request(request_id, &request)?;
-        let frame = self.send_and_receive(&payload)?;
-        self.ensure_success_frame(&frame)?;
-        decode_server_response(&frame)
+        self.send_request_with_perf(
+            MessageType::Query,
+            ClientRequest::new(app_name, sql),
+            TxnStage::QueryExec,
+        )
     }
 
     pub fn execute(
@@ -51,13 +53,11 @@ impl SyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        let request_id = self.take_request_id();
-        let request = ClientRequest::new(app_name, sql);
-        let payload =
-            encode_client_request_with_message_type(MessageType::Execute, request_id, &request)?;
-        let frame = self.send_and_receive(&payload)?;
-        self.ensure_success_frame(&frame)?;
-        decode_server_response(&frame)
+        self.send_request_with_perf(
+            MessageType::Execute,
+            ClientRequest::new(app_name, sql),
+            TxnStage::CommandExec,
+        )
     }
 
     pub fn batch(
@@ -158,6 +158,90 @@ impl SyncClient {
         let request_id = self.next_request_id;
         self.next_request_id += 1;
         request_id
+    }
+
+    fn send_request_with_perf(
+        &mut self,
+        message_type: MessageType,
+        request: ClientRequest,
+        server_exec_stage: TxnStage,
+    ) -> RS<ServerResponse> {
+        let trace_id = if should_sample() { next_trace_id() } else { 0 };
+        let _total = PerfSpan::new(TxnStage::Total, trace_id);
+        let request_id = self.take_request_id();
+        let trace_context = if trace_id != 0 {
+            TraceContext::new(trace_id)
+        } else {
+            TraceContext::empty()
+        };
+
+        let total_start = instant_now();
+
+        let payload = {
+            let _s = PerfSpan::new(TxnStage::ClientSerialize, trace_id);
+            let start = instant_now();
+            let payload = encode_client_request_with_message_type_and_trace(
+                message_type,
+                request_id,
+                trace_context,
+                &request,
+            )?;
+            (payload, start.elapsed().as_nanos() as u64)
+        };
+        let (payload, serialize_ns) = payload;
+
+        let frame = {
+            let _s = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
+            let _s = PerfSpan::new(TxnStage::ClientNetworkRecv, trace_id);
+            self.send_and_receive(&payload)?
+        };
+        self.ensure_success_frame(&frame)?;
+
+        let response = {
+            let _s = PerfSpan::new(TxnStage::ClientDeserialize, trace_id);
+            let start = instant_now();
+            let response = decode_server_response(&frame)?;
+            (response, start.elapsed().as_nanos() as u64)
+        };
+        let (response, deserialize_ns) = response;
+        let total_ns = total_start.elapsed().as_nanos() as u64;
+
+        if let Some(server_digest) = response.server_perf_digest() {
+            Self::log_end_to_end_perf(
+                trace_id,
+                total_ns,
+                serialize_ns,
+                deserialize_ns,
+                server_exec_stage,
+                server_digest,
+            );
+        }
+
+        Ok(response)
+    }
+
+    fn log_end_to_end_perf(
+        trace_id: u64,
+        total_ns: u64,
+        serialize_ns: u64,
+        deserialize_ns: u64,
+        server_exec_stage: TxnStage,
+        server_digest: &ServerPerfDigest,
+    ) {
+        let net_recv = server_digest.get(TxnStage::NetworkRecv).unwrap_or(0);
+        let server_exec = server_digest.get(server_exec_stage).unwrap_or(0);
+        let network_rtt = total_ns.saturating_sub(serialize_ns + server_exec + deserialize_ns);
+        tracing::info!(
+            trace_id,
+            total_us = total_ns / 1000,
+            serialize_us = serialize_ns / 1000,
+            network_rtt_us = network_rtt / 1000,
+            server_network_recv_us = net_recv / 1000,
+            server_exec_us = server_exec / 1000,
+            server_exec_stage = ?server_exec_stage,
+            deserialize_us = deserialize_ns / 1000,
+            "end-to-end perf",
+        );
     }
 
     fn send_and_receive(&mut self, payload: &[u8]) -> RS<Frame> {

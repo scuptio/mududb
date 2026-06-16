@@ -6,6 +6,12 @@ use mududb::error::err::MError;
 
 #[test]
 fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::INFO)
+        .try_init();
+    mudu_sys::perf::set_enabled(true);
+    mudu_sys::perf::set_sample_rate(1);
+
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
     let _guard = test_lock().lock().await;
     let Some((_http_port, tcp_port, server)) = start_backend()? else {

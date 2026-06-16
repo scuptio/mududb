@@ -6890,6 +6890,7 @@ dependencies = [
  "mududb",
  "testing",
  "tokio",
+ "tracing-subscriber",
  "wit-bindgen 0.54.0",
 ]
 

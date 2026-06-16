@@ -181,17 +181,24 @@ impl RequestCtx {
         oid: OID,
         _app_name: &str,
         sql: &str,
+        perf_digest: Option<ServerPerfDigest>,
     ) -> RS<HandleResult> {
+        let exec_start = instant_now();
         let affected_rows = self
             .worker
             .execute(oid, Box::new(sql.to_string()), Box::new(()))
             .await?;
-        let response = ServerResponse::new(
+        let exec_ns = exec_start.elapsed().as_nanos() as u64;
+        let mut response = ServerResponse::new(
             TupleFieldDesc::new(Vec::new()),
             Vec::new(),
             affected_rows,
             None,
         );
+        if let Some(mut digest) = perf_digest {
+            digest.set(TxnStage::CommandExec, exec_ns);
+            response = response.with_server_perf_digest(digest);
+        }
         self.encode_server_response(response)
     }
 
