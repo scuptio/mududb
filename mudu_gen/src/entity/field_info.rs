@@ -16,7 +16,7 @@ pub struct FieldInfo {
 
 impl FieldInfo {
     pub fn from_column_schema(
-        table_name: &String,
+        table_name: &str,
         column_schema: &FieldDef,
         lang: &LangKind,
     ) -> RS<Self> {

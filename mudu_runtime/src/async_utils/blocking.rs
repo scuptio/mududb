@@ -8,9 +8,9 @@ where
     F: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
-    let thread = mudu_sys::task_sync::spawn_thread(move || {
+    let thread = mudu_sys::task::sync::spawn_thread(move || {
         let runtime = build_multi_thread_runtime().unwrap();
-        runtime.block_on(async move { future.await })
+        runtime.block_on(future)
     })?;
     let r = thread
         .join()

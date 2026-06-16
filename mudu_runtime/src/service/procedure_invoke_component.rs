@@ -87,14 +87,14 @@ impl ProcedureInvokeComponent {
         let inner: ProcedureInvokeInner = inner
             .into_inner()
             .map_err(|e| m_error!(EC::MuduError, "mutex into inner error", e))?;
-        let thread = mudu_sys::task_sync::spawn_thread(move || {
-            let ret = inner.invoke(param);
-            ret
+        let thread = mudu_sys::task::sync::spawn_thread(move || {
+            
+            inner.invoke(param)
         })?;
-        let result = thread
+        
+        thread
             .join()
-            .map_err(|_e| m_error!(EC::MuduError, "invoke thread join error"))?;
-        result
+            .map_err(|_e| m_error!(EC::MuduError, "invoke thread join error"))?
     }
 
     async fn invoke_async(self, param: ProcedureParam) -> RS<ProcedureResult> {
@@ -155,7 +155,7 @@ impl ProcedureInvokeInner {
                     format!("cannot get function named {}", name)
                 ))
             },
-            |f| Ok(f),
+            Ok,
         )?;
         let typed_function = function
             .typed::<(Vec<u8>,), (Vec<u8>,)>(&mut store)
@@ -180,7 +180,7 @@ impl ProcedureInvokeInner {
             .map_err(|e| m_error!(EC::InternalErr, "component instantiate error", e))?;
         let function = instance.get_func(&mut store, &name).map_or_else(
             || Err(m_error!(EC::InternalErr, "no function named {}", name)),
-            |f| Ok(f),
+            Ok,
         )?;
         let typed_function = function
             .typed::<(Vec<u8>,), (Vec<u8>,)>(&mut store)

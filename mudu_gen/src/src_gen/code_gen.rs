@@ -48,25 +48,31 @@ impl Default for GenResult {
         Self::new()
     }
 }
+impl Default for CodeGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodeGen {
     pub fn new() -> Self {
         Self {}
     }
 
     pub fn extension_of_lang(lang: &str) -> RS<String> {
-        let lang = LangKind::from_str(lang).unwrap();
+        let lang = LangKind::from_name(lang).unwrap();
         Ok(lang.extension().to_string())
     }
 
     fn from_lang(lang: &str) -> RS<LangKind> {
-        let lang_kind = LangKind::from_str(lang).map_or_else(
+        let lang_kind = LangKind::from_name(lang).map_or_else(
             || {
-                return Err(m_error!(
+                Err(m_error!(
                     EC::DecodeErr,
                     format!("unknown language {}", lang)
-                ));
+                ))
             },
-            |lang| return Ok(lang),
+            Ok,
         )?;
         Ok(lang_kind)
     }
@@ -91,8 +97,8 @@ impl CodeGen {
 
     #[allow(unused)]
     fn inline_schema_field_type(
-        schema: &mut Vec<RecordDef>,
-        uni_type: &mut Vec<UniDatType>,
+        schema: &mut [RecordDef],
+        uni_type: &mut [UniDatType],
     ) -> RS<()> {
         if schema.len() != uni_type.len() {
             return Err(m_error!(
@@ -113,7 +119,7 @@ impl CodeGen {
         Ok(())
     }
 
-    fn _generate_record_type(record_list: &Vec<RecordDef>, ty_def: &mut UniTypeDesc) -> RS<()> {
+    fn _generate_record_type(record_list: &[RecordDef], ty_def: &mut UniTypeDesc) -> RS<()> {
         let mut vec = Vec::with_capacity(record_list.len());
         for table in record_list.iter() {
             let ty = table.to_record_type()?;
@@ -216,17 +222,17 @@ mod test {
     use mudu::this_file;
     use rust_format::{Formatter, RustFmt};
     use std::env::temp_dir;
-    use std::fs;
+
     use std::path::PathBuf;
 
     #[test]
     fn test() {
         let path = PathBuf::from(this_file!());
         let path = path.parent().unwrap().to_path_buf().join("contract.wit");
-        let str = fs::read_to_string(path).unwrap();
+        let str = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         let src_code = CodeGen::generate_message_code_from_wit(&str, "rust", None).unwrap();
         let src_code = RustFmt::default().format_str(src_code).unwrap();
         let tmp_path = temp_dir().join("interface.rs");
-        fs::write(tmp_path, src_code).unwrap();
+        mudu_sys::fs::sync::sync_write(tmp_path, src_code).unwrap();
     }
 }

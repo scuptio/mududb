@@ -21,6 +21,9 @@ benchmark-runner = [
     "mududb/standalone-adapter",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
 mudu_adapter = { workspace = true, optional = true }

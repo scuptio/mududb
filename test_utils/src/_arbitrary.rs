@@ -14,7 +14,7 @@ pub fn _arbitrary_data<'a, T: Arbitrary<'a> + 'static>(data: &'a [u8]) -> Vec<T>
             }
         };
 
-        if u.len() == 0 {
+        if u.is_empty() {
             break;
         }
     }

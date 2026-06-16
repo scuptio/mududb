@@ -5,6 +5,8 @@ use mudu_type::dat_type::DatType;
 use mudu_type::dtp_object::DTPRecord;
 use serde::{Deserialize, Serialize};
 
+type FieldMappingInfo = (usize, bool, Option<u16>);
+
 /// Describes the structure and types of a tuple's elements
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TupleFieldDesc {
@@ -49,7 +51,7 @@ impl TupleFieldDesc {
             }
         }
 
-        let type_descs_with_indices: Vec<(DatType, (usize, bool, Option<u16>))> = self
+        let type_descs_with_indices: Vec<(DatType, FieldMappingInfo)> = self
             .fields
             .iter()
             .enumerate()

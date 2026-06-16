@@ -8,16 +8,15 @@ use mudu_contract::tuple::build_tuple::build_tuple;
 use mudu_contract::tuple::nullable_tuple::{NullableValue, TupleBuilder};
 use mudu_contract::tuple::tuple_binary::TupleBinary as TupleRaw;
 use mudu_contract::tuple::update_tuple::update_tuple;
-use mudu_utils::{scoped_task_trace, task_trace};
+use mudu_sys::sync::SMutex;
+use mudu_utils::{gen_oid, scoped_task_trace, task_trace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use tracing::{debug, trace};
 
-use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_desc::TableDesc;
@@ -32,7 +31,7 @@ use crate::server::worker_snapshot::{KvItem, WorkerSnapshot, WorkerSnapshotMgr};
 use crate::server::worker_storage::WorkerStorage;
 use crate::server::worker_tx_manager::WorkerTxManager;
 use crate::server::x_lock_mgr::XLockMgr;
-use crate::wal::worker_log::ChunkedWorkerLogBackend;
+use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogLayout};
 use crate::wal::xl_batch::{XLBatch, new_xl_batch_writer};
 use crate::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
 use crate::wal::xl_entry::{TxOp, XLEntry};
@@ -41,6 +40,7 @@ use crate::x_engine::api::{
     TupleRow, VecDatum, VecSelTerm, XContract,
 };
 use crate::x_engine::tx_mgr::TxMgr;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 type DatBin = Buf;
 const PARTITION_RPC_REQUEST_KIND: MessageKind = MessageKind::User(0x7101);
 const PARTITION_RPC_RESPONSE_KIND: MessageKind = MessageKind::User(0x7102);
@@ -53,7 +53,13 @@ pub struct WorkerXContract {
     storage: Arc<WorkerStorage>,
     partition_router: PartitionRouter,
     partition_rpc_registered: AtomicBool,
-    log: Option<ChunkedWorkerLogBackend>,
+    log: SMutex<Option<ChunkedWorkerLogBackend>>,
+    log_layout: WorkerLogLayout,
+    active_sessions: Arc<AtomicUsize>,
+    /// Optional runtime I/O provider used by the io_uring worker loop. When
+    /// present, WAL initialization scans the tail with the default (tokio)
+    /// provider but the backend performs steady-state I/O via this provider.
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     snapshot_mgr: WorkerSnapshotMgr,
     tx_lock: XLockMgr,
     // commit_gate: AsyncMutex<()>,
@@ -85,6 +91,31 @@ fn partition_write_set(write_set: &[XLWrite], partition_id: OID) -> Vec<XLWrite>
 /// io_uring-only contract.
 pub type IoUringXContract = WorkerXContract;
 
+pub struct WorkerXContractParams {
+    pub meta_mgr: Arc<dyn MetaMgr>,
+    pub log: Option<ChunkedWorkerLogBackend>,
+    pub log_layout: WorkerLogLayout,
+    pub active_sessions: Arc<AtomicUsize>,
+    pub worker_id: OID,
+    pub default_unpartitioned_worker_id: OID,
+    pub partition_id: OID,
+    pub data_dir: String,
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    pub server_instance_id: ServerInstanceId,
+}
+
+pub struct WorkerXContractWorkerLogParams {
+    pub log: Option<ChunkedWorkerLogBackend>,
+    pub log_layout: WorkerLogLayout,
+    pub active_sessions: Arc<AtomicUsize>,
+    pub worker_id: OID,
+    pub default_unpartitioned_worker_id: OID,
+    pub partition_id: OID,
+    pub data_dir: String,
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    pub server_instance_id: ServerInstanceId,
+}
+
 struct VecCursor {
     inner: SMutex<VecCursorInner>,
 }
@@ -96,48 +127,105 @@ struct VecCursorInner {
 
 impl WorkerXContract {
     pub fn new(meta_mgr: Arc<dyn MetaMgr>) -> RS<Self> {
-        Self::with_log_and_data_dir(meta_mgr, None, 0, 0, 0, default_worker_storage_data_dir())
+        Self::with_log_and_data_dir(WorkerXContractParams {
+            meta_mgr,
+            log: None,
+            log_layout: Default::default(),
+            active_sessions: Default::default(),
+            worker_id: 0,
+            default_unpartitioned_worker_id: 0,
+            partition_id: 0,
+            data_dir: default_worker_storage_data_dir(),
+            async_runtime: None,
+            server_instance_id: 0,
+        })
     }
 
+    pub async fn initialize(&self) -> RS<()> {
+        if self.log_layout.is_invalid() {
+            return Ok(());
+        }
+        self.init_worker_log().await?;
+        self.init_meta_mgr().await?;
+        Ok(())
+    }
+    async fn init_meta_mgr(&self) -> RS<()> {
+        self.meta_mgr().initialize().await
+    }
+
+    async fn init_worker_log(&self) -> RS<()> {
+        {
+            let guard = self.log.lock()?;
+            if guard.is_some() {
+                return Ok(());
+            }
+        }
+        let log = match self.async_runtime.as_ref() {
+            Some(runtime_io) => {
+                // When an io_uring runtime is configured the caller must have
+                // installed and is driving a worker ring before initialization,
+                // so both log tail scanning and steady-state I/O use it.
+                ChunkedWorkerLogBackend::new_with_provider_and_active_sessions(
+                    self.log_layout.clone(),
+                    runtime_io.clone(),
+                    self.active_sessions.clone(),
+                )
+                .await?
+            }
+            None => {
+                ChunkedWorkerLogBackend::new_with_active_sessions(
+                    self.log_layout.clone(),
+                    self.active_sessions.clone(),
+                )
+                .await?
+            }
+        };
+        mudu_sys::scoped_task_trace!();
+        let mut guard = self.log.lock()?;
+        *guard = Some(log);
+        Ok(())
+    }
     pub fn with_log(meta_mgr: Arc<dyn MetaMgr>, log: Option<ChunkedWorkerLogBackend>) -> RS<Self> {
-        Self::with_log_and_data_dir(meta_mgr, log, 0, 0, 0, default_worker_storage_data_dir())
+        Self::with_log_inner(meta_mgr, log, Default::default(), Default::default())
     }
-
-    pub fn with_log_and_data_dir(
+    pub fn with_log_inner(
         meta_mgr: Arc<dyn MetaMgr>,
         log: Option<ChunkedWorkerLogBackend>,
-        worker_id: OID,
-        default_unpartitioned_worker_id: OID,
-        partition_id: OID,
-        data_dir: String,
+        log_layout: WorkerLogLayout,
+        atomic_inc_sessions: Arc<AtomicUsize>,
     ) -> RS<Self> {
-        Self::with_log_and_data_dir_and_runtime(
+        Self::with_log_and_data_dir(WorkerXContractParams {
             meta_mgr,
             log,
+            log_layout,
+            active_sessions: atomic_inc_sessions,
+            worker_id: 0,
+            default_unpartitioned_worker_id: 0,
+            partition_id: 0,
+            data_dir: default_worker_storage_data_dir(),
+            async_runtime: None,
+            server_instance_id: 0,
+        })
+    }
+
+    pub fn with_log_and_data_dir(config: WorkerXContractParams) -> RS<Self> {
+        let WorkerXContractParams {
+            meta_mgr,
+            log,
+            log_layout,
+            active_sessions,
             worker_id,
             default_unpartitioned_worker_id,
             partition_id,
             data_dir,
-            None,
-            0,
-        )
-    }
-
-    pub fn with_log_and_data_dir_and_runtime(
-        meta_mgr: Arc<dyn MetaMgr>,
-        log: Option<ChunkedWorkerLogBackend>,
-        worker_id: OID,
-        default_unpartitioned_worker_id: OID,
-        partition_id: OID,
-        data_dir: String,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
-        server_instance_id: ServerInstanceId,
-    ) -> RS<Self> {
+            async_runtime,
+            server_instance_id,
+        } = config;
         let storage = Arc::new(WorkerStorage::new_with_async_runtime(
             meta_mgr.clone(),
             partition_id,
             data_dir,
-            async_runtime,
+            async_runtime.clone(),
         ));
         storage.register_global();
         Ok(Self {
@@ -148,7 +236,10 @@ impl WorkerXContract {
             storage,
             partition_router: PartitionRouter::new(meta_mgr.clone()),
             partition_rpc_registered: AtomicBool::new(false),
-            log,
+            log: SMutex::new(log),
+            log_layout,
+            active_sessions,
+            async_runtime,
             snapshot_mgr: WorkerSnapshotMgr::default(),
             tx_lock: XLockMgr::new(),
         })
@@ -168,38 +259,53 @@ impl WorkerXContract {
         let meta_mgr = MetaMgrFactory::create(data_dir.clone())
             .await
             .map_err(|e| m_error!(EC::DBInternalError, "create worker meta manager failed", e))?;
-        Self::with_log_and_data_dir(
+        Self::with_log_and_data_dir(WorkerXContractParams {
             meta_mgr,
-            Some(log.clone()),
+            log: Some(log.clone()),
+            log_layout: Default::default(),
+            active_sessions: Default::default(),
             worker_id,
             default_unpartitioned_worker_id,
             partition_id,
             data_dir,
-        )
+            async_runtime: None,
+            server_instance_id: 0,
+        })
     }
 
     pub async fn with_worker_log_and_data_dir_and_runtime(
-        log: ChunkedWorkerLogBackend,
-        worker_id: OID,
-        default_unpartitioned_worker_id: OID,
-        partition_id: OID,
-        data_dir: String,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
-        server_instance_id: ServerInstanceId,
+        config: WorkerXContractWorkerLogParams,
     ) -> RS<Self> {
-        let meta_mgr = MetaMgrFactory::create(data_dir.clone())
-            .await
-            .map_err(|e| m_error!(EC::DBInternalError, "create worker meta manager failed", e))?;
-        Self::with_log_and_data_dir_and_runtime(
-            meta_mgr,
-            Some(log.clone()),
+        let WorkerXContractWorkerLogParams {
+            log,
+            log_layout,
+            active_sessions,
             worker_id,
             default_unpartitioned_worker_id,
             partition_id,
             data_dir,
             async_runtime,
             server_instance_id,
-        )
+        } = config;
+        let meta_mgr =
+            MetaMgrFactory::create_with_async_runtime(data_dir.clone(), async_runtime.clone())
+                .await
+                .map_err(|e| {
+                    m_error!(EC::DBInternalError, "create worker meta manager failed", e)
+                })?;
+        let worker = Self::with_log_and_data_dir(WorkerXContractParams {
+            meta_mgr,
+            log,
+            log_layout,
+            active_sessions,
+            worker_id,
+            default_unpartitioned_worker_id,
+            partition_id,
+            data_dir,
+            async_runtime,
+            server_instance_id,
+        })?;
+        Ok(worker)
     }
 
     pub fn server_instance_id(&self) -> ServerInstanceId {
@@ -220,11 +326,15 @@ impl WorkerXContract {
     }
 
     pub fn worker_log(&self) -> Option<ChunkedWorkerLogBackend> {
-        self.log.clone()
+        self.log_cloned().unwrap()
     }
 
     pub fn worker_id(&self) -> OID {
         self.worker_id
+    }
+
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
+        self.async_runtime.clone()
     }
 
     async fn resolve_partition_worker(&self, partition_id: OID) -> RS<Option<OID>> {
@@ -247,11 +357,14 @@ impl WorkerXContract {
     }
 
     pub async fn worker_put_async(&self, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
+        let trace = task_trace!();
+        trace.watch("put.stage", "contract_worker_put_start");
         let (storage, log, prepared) = {
             let xid = self.snapshot_mgr.alloc_committed_ts();
+            trace.watch("put.xid", &xid.to_string());
             (
                 self.storage.clone(),
-                self.log.clone(),
+                self.log_cloned()?,
                 self.storage.prepare_worker_kv_autocommit(
                     xid,
                     key.clone(),
@@ -261,8 +374,11 @@ impl WorkerXContract {
             )
         };
         if let Some(log) = log {
+            trace.watch("put.stage", "contract_worker_put_wal_append_start");
             new_xl_batch_writer(log).append(prepared.batch()).await?;
+            trace.watch("put.stage", "contract_worker_put_wal_append_done");
         }
+        trace.watch("put.stage", "contract_worker_put_storage_apply_start");
         storage.apply_prepared_commit_async(prepared).await
     }
 
@@ -272,7 +388,7 @@ impl WorkerXContract {
             let xid = self.snapshot_mgr.alloc_committed_ts();
             (
                 self.storage.clone(),
-                self.log.clone(),
+                self.log_cloned()?,
                 self.storage.prepare_worker_kv_autocommit(
                     xid,
                     key.clone(),
@@ -318,6 +434,10 @@ impl WorkerXContract {
             .await
     }
 
+    pub fn log_cloned(&self) -> RS<Option<ChunkedWorkerLogBackend>> {
+        let guard = self.log.lock()?;
+        Ok(guard.clone())
+    }
     pub async fn worker_commit_put_batch_async(
         &self,
         snapshot: &WorkerSnapshot,
@@ -331,8 +451,9 @@ impl WorkerXContract {
         let (storage, log, prepared) = {
             let prepared = self
                 .storage
-                .prepare_worker_kv_commit(snapshot, xid, items, batch).await?;
-            (self.storage.clone(), self.log.clone(), prepared)
+                .prepare_worker_kv_commit(snapshot, xid, items, batch)
+                .await?;
+            (self.storage.clone(), self.log_cloned()?, prepared)
         };
         if let Some(log) = log {
             new_xl_batch_writer(log.clone())
@@ -343,7 +464,6 @@ impl WorkerXContract {
         storage.apply_prepared_commit_async(prepared).await?;
         self.snapshot_mgr.end_tx(xid)
     }
-
 
     pub async fn worker_commit_tx_async(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
         let _t = task_trace!();
@@ -374,7 +494,7 @@ impl WorkerXContract {
             _t.watch("procedure.worker_commit.stage", "prepare_commit_start");
             let prepared = self.storage.prepare_commit_async(tx.as_ref()).await?;
             _t.watch("procedure.worker_commit.stage", "prepare_commit_done");
-            (self.storage.clone(), self.log.clone(), prepared)
+            (self.storage.clone(), self.log_cloned()?, prepared)
         };
         trace!("log flush {}", xid);
         let result = async {
@@ -446,13 +566,9 @@ impl WorkerXContract {
     }
 }
 
-
 fn default_worker_storage_data_dir() -> String {
-    std::env::temp_dir()
-        .join(format!(
-            "mududb-worker-storage-{}",
-            mudu::common::id::gen_oid()
-        ))
+    mudu_sys::env_var::temp_dir()
+        .join(format!("mududb-worker-storage-{}", gen_oid()))
         .to_string_lossy()
         .to_string()
 }
@@ -689,7 +805,7 @@ impl WorkerXContract {
             worker_id = self.worker_id,
             target_worker_id, msg_id, "waiting partition rpc response"
         );
-        let envelope = mudu_sys::task_async::timeout(
+        let envelope = mudu_sys::task::async_::timeout(
             Duration::from_secs(10),
             bus.recv(RecvFilter {
                 src: Some(target_worker_id),
@@ -901,7 +1017,7 @@ impl WorkerXContract {
         let result = async {
             let _prepared = self.storage.prepare_commit_async(tx.as_ref()).await?;
             let (participants, write_set) = self.build_cross_partition_tx_ops(tx.as_ref()).await?;
-            if let Some(log) = self.log.clone() {
+            if let Some(log) = self.log_cloned()? {
                 let batch = XLBatch::new(vec![XLEntry {
                     xid,
                     ops: cross_partition_wal_ops(&write_set),
@@ -1071,7 +1187,6 @@ impl WorkerXContract {
         table_id: OID,
         pred_key: &VecDatum,
         select: &VecSelTerm,
-        _opt_read: &OptRead,
     ) -> RS<Option<Vec<Option<DatBin>>>> {
         let key = build_key_tuple(pred_key, &desc)?;
         let target_partition = self
@@ -1124,7 +1239,6 @@ impl WorkerXContract {
         pred_key: &RangeData,
         pred_non_key: &Predicate,
         select: &VecSelTerm,
-        _opt_read: &OptRead,
     ) -> RS<Arc<dyn RSCursor>> {
         ensure_supported_predicate(pred_non_key)?;
         let start = build_bound_key(pred_key.start(), &desc)?;
@@ -1165,7 +1279,7 @@ impl WorkerXContract {
                                 .range_on_partition(
                                     table_id,
                                     Some(partition_id),
-                                    (start.clone(), end.clone()),
+                                    (start, end),
                                     tx_mgr.as_ref(),
                                 )
                                 .await?;
@@ -1244,7 +1358,6 @@ impl WorkerXContract {
         pred_key: &VecDatum,
         pred_non_key: &Predicate,
         values: &VecDatum,
-        _opt_update: &OptUpdate,
     ) -> RS<usize> {
         ensure_supported_predicate(pred_non_key)?;
         let key = build_key_tuple(pred_key, &desc)?;
@@ -1327,19 +1440,11 @@ impl XContract for WorkerXContract {
         pred_key: &VecDatum,
         pred_non_key: &Predicate,
         values: &VecDatum,
-        opt_update: &OptUpdate,
+        _opt_update: &OptUpdate,
     ) -> RS<usize> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        self._update(
-            desc,
-            tx_mgr,
-            table_id,
-            pred_key,
-            pred_non_key,
-            values,
-            opt_update,
-        )
-        .await
+        self._update(desc, tx_mgr, table_id, pred_key, pred_non_key, values)
+            .await
     }
 
     async fn read_key(
@@ -1348,10 +1453,10 @@ impl XContract for WorkerXContract {
         table_id: OID,
         pred_key: &VecDatum,
         select: &VecSelTerm,
-        opt_read: &OptRead,
+        _opt_read: &OptRead,
     ) -> RS<Option<Vec<Option<DatBin>>>> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        self._read_key(desc, tx_mgr, table_id, pred_key, select, opt_read)
+        self._read_key(desc, tx_mgr, table_id, pred_key, select)
             .await
     }
 
@@ -1362,19 +1467,11 @@ impl XContract for WorkerXContract {
         pred_key: &RangeData,
         pred_non_key: &Predicate,
         select: &VecSelTerm,
-        opt_read: &OptRead,
+        _opt_read: &OptRead,
     ) -> RS<Arc<dyn RSCursor>> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        self._read_range(
-            desc,
-            tx_mgr,
-            table_id,
-            pred_key,
-            pred_non_key,
-            select,
-            opt_read,
-        )
-        .await
+        self._read_range(desc, tx_mgr, table_id, pred_key, pred_non_key, select)
+            .await
     }
 
     async fn delete(
@@ -1546,7 +1643,7 @@ fn build_tuple_for<const IS_KEY: bool>(
         if field.primary_index().is_some() {
             return Err(m_error!(EC::TupleErr));
         }
-        let datum_index = field.datum_index() as usize;
+        let datum_index = field.datum_index();
         if datum_index >= value_len || completed[datum_index].is_some() {
             return Err(m_error!(EC::TupleErr));
         }
@@ -1558,7 +1655,7 @@ fn build_tuple_for<const IS_KEY: bool>(
     }
     for attr in desc.value_indices() {
         let field = desc.get_attr(*attr);
-        let datum_index = field.datum_index() as usize;
+        let datum_index = field.datum_index();
         if completed[datum_index].is_some() {
             continue;
         }
@@ -1658,7 +1755,7 @@ fn apply_value_update(current: &TupleRaw, values: &VecDatum, desc: &TableDesc) -
         let field = desc.get_attr(*id);
         let mut delta = vec![];
         update_tuple(
-            field.datum_index() as usize,
+            field.datum_index(),
             dat,
             desc.value_desc(),
             current,
@@ -1676,15 +1773,13 @@ fn single_put_batch(xid: u64, key: Vec<u8>, value: Vec<u8>) -> XLBatch {
         xid,
         ops: vec![
             TxOp::Begin,
-            TxOp::Write(XLWrite::Insert(
-                XLInsert {
-                    table_id: 0,
-                    partition_id: 0,
-                    tuple_id: 0,
-                    key,
-                    value,
-                },
-            )),
+            TxOp::Write(XLWrite::Insert(XLInsert {
+                table_id: 0,
+                partition_id: 0,
+                tuple_id: 0,
+                key,
+                value,
+            })),
             crate::wal::xl_entry::TxOp::Commit,
         ],
     }])
@@ -1729,10 +1824,10 @@ mod tests {
     use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogLayout, decode_frames};
     use crate::wal::xl_data_op::XLInsert;
     use crate::wal::xl_entry::TxOp;
-    use mudu::common::id::gen_oid;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_fn_param::DatType;
     use mudu_type::dt_info::DTInfo;
+    use mudu_utils::oid::gen_oid;
     use std::env::temp_dir;
     use std::future::Future;
 
@@ -1740,7 +1835,7 @@ mod tests {
     where
         F: Future,
     {
-        mudu_sys::task_async::build_current_thread_runtime()
+        mudu_sys::task::async_::build_current_thread_runtime()
             .unwrap()
             .block_on(fut)
     }
@@ -1846,11 +1941,8 @@ mod tests {
         let storage = WorkerStorage::new(
             mgr.clone(),
             0,
-            std::env::temp_dir()
-                .join(format!(
-                    "xcontract_relation_log_{}",
-                    mudu::common::id::gen_oid()
-                ))
+            mudu_sys::env_var::temp_dir()
+                .join(format!("xcontract_relation_log_{}", gen_oid()))
                 .to_string_lossy()
                 .to_string(),
         );
@@ -1889,7 +1981,7 @@ mod tests {
         let schema = test_schema();
         let table_id = schema.id();
         let contract = WorkerXContract::with_log(meta_mgr, Some(log))?;
-
+        contract.initialize().await?;
         let ddl_tx = contract.begin_tx().await?;
         contract.create_table(ddl_tx.clone(), &schema).await?;
         contract.commit_tx(ddl_tx).await?;
@@ -1902,7 +1994,7 @@ mod tests {
             .await?;
         contract.commit_tx(tx_mgr).await?;
 
-        let bytes = std::fs::read(layout.chunk_path(0)).unwrap();
+        let bytes = mudu_sys::fs::sync::read(layout.chunk_path(0)).unwrap();
         let frames = decode_frames(&bytes).unwrap();
         let decoded = crate::wal::xl_batch::decode_xl_batches(&frames).unwrap();
         assert_eq!(decoded.len(), 1);
@@ -1921,10 +2013,7 @@ mod tests {
         );
         let desc = meta_table(&schema)?;
         let tuple = build_value_tuple(&value_row(10), desc.as_ref())?;
-        assert_eq!(
-            insert.value,
-            tuple
-        );
+        assert_eq!(insert.value, tuple);
         Ok(())
     }
 
@@ -1970,7 +2059,10 @@ mod tests {
 
         contract.replay_worker_log_batch(batch).await.unwrap();
 
-        assert_eq!(contract.worker_get_async(b"wk").await.unwrap(), Some(b"wv".to_vec()));
+        assert_eq!(
+            contract.worker_get_async(b"wk").await.unwrap(),
+            Some(b"wv".to_vec())
+        );
 
         let xid = contract.begin_tx().await?;
         let pred_key = key_row(3);
@@ -1997,17 +2089,21 @@ mod tests {
             let meta_mgr = Arc::new(TestMetaMgr::new());
             let schema = test_schema();
             let table_id = schema.id();
-            let contract = WorkerXContract::with_log_and_data_dir(
+            let contract = WorkerXContract::with_log_and_data_dir(WorkerXContractParams {
                 meta_mgr,
-                None,
+                log: None,
+                log_layout: Default::default(),
+                active_sessions: Default::default(),
                 worker_id,
-                worker_id,
-                0,
-                temp_dir()
+                default_unpartitioned_worker_id: worker_id,
+                partition_id: 0,
+                data_dir: temp_dir()
                     .join(format!("cross_partition_recovery_{}", gen_oid()))
                     .to_string_lossy()
                     .to_string(),
-            )?;
+                async_runtime: None,
+                server_instance_id: 0,
+            })?;
             let ddl_tx = contract.begin_tx().await?;
             contract.create_table(ddl_tx.clone(), &schema).await?;
             contract.commit_tx(ddl_tx).await?;
@@ -2116,10 +2212,8 @@ mod tests {
     }
 
     #[test]
-    fn iouring_xcontract_replay_applies_worker_kv_delete () {
-        block_on(async move {
-            _iouring_xcontract_replay_applies_worker_kv_delete().await
-        })
+    fn iouring_xcontract_replay_applies_worker_kv_delete() {
+        block_on(async move { _iouring_xcontract_replay_applies_worker_kv_delete().await })
     }
 
     async fn _iouring_xcontract_replay_applies_worker_kv_delete() {
@@ -2131,13 +2225,17 @@ mod tests {
                     4096,
                 )
                 .unwrap(),
-            ).await
+            )
+            .await
             .unwrap(),
         )
         .await
         .unwrap();
 
-        contract.worker_put_async(b"wk".to_vec(), b"wv".to_vec()).await.unwrap();
+        contract
+            .worker_put_async(b"wk".to_vec(), b"wv".to_vec())
+            .await
+            .unwrap();
         let batch = XLBatch::new(vec![crate::wal::xl_entry::XLEntry {
             xid: 7,
             ops: vec![

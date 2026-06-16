@@ -331,12 +331,14 @@ mod tests {
         assert_eq!(decoded, worker);
     }
 
-    #[tokio::test]
-    async fn install_app_package_rejects_http_failure() {
-        let err = install_app_package("127.0.0.1:1", vec![1, 2, 3])
-            .await
-            .unwrap_err();
-        assert!(err.contains("failed") || err.contains("error"));
+    #[test]
+    fn install_app_package_rejects_http_failure() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let err = install_app_package("127.0.0.1:1", vec![1, 2, 3])
+                .await
+                .unwrap_err();
+            assert!(err.contains("failed") || err.contains("error"));
+        }).unwrap();
     }
 
     #[test]

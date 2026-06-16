@@ -228,10 +228,7 @@ fn _normalized<T: Default + Clone + 'static>(
             }
         }
     });
-    match err {
-        Some(e) => return Err(e),
-        None => {}
-    }
+    if let Some(e) = err { return Err(e) }
     let mut sorted_vec = vec![];
     let mut payload_vec = vec![];
     for index in indices {

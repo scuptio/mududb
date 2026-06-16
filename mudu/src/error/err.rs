@@ -95,14 +95,14 @@ impl MError {
     }
 
     pub fn err_src(&self) -> ErrorSource {
-        let src = match &self.src {
+        
+        match &self.src {
             Some(src) => match src.downcast_ref::<MError>() {
                 Some(merr) => ErrorSource::MError(merr.clone()),
                 None => ErrorSource::Other(src.to_string()),
             },
             None => ErrorSource::None,
-        };
-        src
+        }
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;

@@ -1,0 +1,8 @@
+# Dependency graph enforcement:
+# mudu_sys_impl is the only crate allowed to use non-deterministic sources
+# (tokio, std::thread, std::sync, io_uring, etc.).
+# It must only be depended upon by mudu_sys.
+[bans]
+deny = [
+    { name = "mudu_sys_impl", wrappers = ["mudu_sys"] },
+]

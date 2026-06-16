@@ -1,14 +1,18 @@
-use super::{Args, BenchmarkMode, run_sync, start_backend, test_lock, with_connection_env};
+use super::{
+    Args, BenchmarkMode, run_sync_async, start_backend, test_lock, with_connection_env_async,
+};
 use mududb::common::result::RS;
+use mududb::error::err::MError;
 
-#[tokio::test(flavor = "current_thread")]
-async fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
+#[test]
+fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
     let _guard = test_lock().lock().await;
     let Some((_http_port, tcp_port, server)) = start_backend()? else {
         eprintln!(
             "tpcc benchmark test final stats: skipped because local test ports could not be reserved"
         );
-        return Ok(());
+        return Ok::<(), MError>(());
     };
 
     let args = Args {
@@ -30,7 +34,7 @@ async fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
     };
 
     let connection = format!("mudud://127.0.0.1:{tcp_port}/default");
-    let result = with_connection_env(&connection, || run_sync(args.clone()));
+    let result = with_connection_env_async(&connection, || run_sync_async(args.clone())).await;
     let stop_result = server.stop();
     result?;
     eprintln!(
@@ -38,5 +42,7 @@ async fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
         args.operation_count,
     );
     stop_result?;
+    Ok(())
+    })??;
     Ok(())
 }

@@ -64,7 +64,8 @@ impl Transactions {
         created_at: Option<i32>,
         
     ) -> Self {
-        let s = Self {
+        
+        Self {
             
             trans_id : AttrTransId::from(trans_id),
             
@@ -78,8 +79,7 @@ impl Transactions {
             
             created_at : AttrCreatedAt::from(created_at),
             
-        };
-        s
+        }
     }
 
     pub fn new_empty() -> Self {
@@ -404,12 +404,12 @@ impl AttrTransId {
 impl AttrValue<String> for AttrTransId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -457,12 +457,12 @@ impl AttrTransType {
 impl AttrValue<String> for AttrTransType {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -510,12 +510,12 @@ impl AttrFromUser {
 impl AttrValue<i32> for AttrFromUser {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -563,12 +563,12 @@ impl AttrToUser {
 impl AttrValue<i32> for AttrToUser {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -616,12 +616,12 @@ impl AttrAmount {
 impl AttrValue<i32> for AttrAmount {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -669,12 +669,12 @@ impl AttrCreatedAt {
 impl AttrValue<i32> for AttrCreatedAt {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {

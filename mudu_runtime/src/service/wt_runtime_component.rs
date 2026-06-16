@@ -28,7 +28,7 @@ impl WTRuntimeComponent {
             cfg.wasm_component_model_async(true)
                 .wasm_component_model_async_builtins(true);
         }
-        let engine = Engine::new(&mut cfg)
+        let engine = Engine::new(&cfg)
             .map_err(|e| m_error!(EC::InternalErr, "failed create new wasm runtime engine", e))?;
         // Configure linker with host functions
         let linker = Linker::new(&engine);
@@ -75,10 +75,10 @@ fn instantiate_component(
     engine: &Engine,
     linker: &Linker<WasiContextComponent>,
     name: String,
-    byte_code: &Vec<u8>,
-    desc_vec: &Vec<ProcDesc>,
+    byte_code: &[u8],
+    desc_vec: &[ProcDesc],
 ) -> RS<PackageModule> {
-    let component = match Component::from_binary(&engine, &byte_code) {
+    let component = match Component::from_binary(engine, byte_code) {
         Ok(component) => component,
         Err(component_err) => {
             if Module::from_binary(engine, byte_code).is_ok() {
@@ -109,7 +109,7 @@ fn instantiate_component(
 
     PackageModule::new(
         WTInstancePre::from_component(instance_pre),
-        desc_vec.clone(),
+        desc_vec.to_owned(),
     )
 }
 

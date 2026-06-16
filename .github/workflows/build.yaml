@@ -101,8 +101,8 @@ jobs:
 
       - name: Test (debug)
         if: env.ENABLE_RELEASE_TEST != 'true'
-        run: cargo test
+        run: cargo test -- --test-threads=1
 
       - name: Test (release)
         if: env.ENABLE_RELEASE_TEST == 'true'
-        run: cargo test --release
+        run: cargo test --release -- --test-threads=1

@@ -41,6 +41,10 @@ use mudu_sys::sync::SMutex;
 
     #[async_trait]
     impl MetaMgr for TestMetaMgr {
+        async fn initialize(&self) -> RS<()> {
+            Ok(())
+        }
+
         async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
             self.tables
                 .lock()
@@ -50,7 +54,7 @@ use mudu_sys::sync::SMutex;
                 .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
         }
 
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+        async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
             Ok(self
                 .tables
                 .lock()
@@ -175,8 +179,9 @@ use mudu_sys::sync::SMutex;
         ))))
     }
 
-    #[tokio::test]
-    async fn bind_select_builds_key_eq_predicate() {
+    #[test]
+    fn bind_select_builds_key_eq_predicate() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(parse_stmt("select id from users where id = 1;"), &())
             .await
@@ -190,10 +195,12 @@ use mudu_sys::sync::SMutex;
             BoundPredicate::KeyEq { key } => assert_eq!(key.len(), 1),
             other => panic!("expected key equality predicate, got {other:?}"),
         }
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_create_table_preserves_nullable_constraints() {
+    #[test]
+    fn bind_create_table_preserves_nullable_constraints() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(
                 parse_stmt(
@@ -217,10 +224,12 @@ use mudu_sys::sync::SMutex;
         assert!(!columns[0].nullable());
         assert!(!columns[1].nullable());
         assert!(columns[2].nullable());
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_uses_key_prefix_eq_for_left_prefix_of_composite_primary_key() {
+    #[test]
+    fn bind_select_uses_key_prefix_eq_for_left_prefix_of_composite_primary_key() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = composite_binder()
             .bind(
                 parse_stmt("select tenant_id from accounts where tenant_id = 1;"),
@@ -236,10 +245,12 @@ use mudu_sys::sync::SMutex;
             BoundPredicate::KeyPrefixEq { prefix } => assert_eq!(prefix.len(), 1),
             other => panic!("expected key prefix equality predicate, got {other:?}"),
         }
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_rejects_non_leftmost_composite_primary_key_equality() {
+    #[test]
+    fn bind_select_rejects_non_leftmost_composite_primary_key_equality() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = composite_binder()
             .bind(
                 parse_stmt("select tenant_id from accounts where user_id = 2;"),
@@ -251,10 +262,12 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("must cover a left prefix of the primary key"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_reverses_value_column_comparison() {
+    #[test]
+    fn bind_select_reverses_value_column_comparison() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(parse_stmt("select id from users where ? = id;"), &(7i32,))
             .await
@@ -267,10 +280,12 @@ use mudu_sys::sync::SMutex;
             BoundPredicate::KeyEq { key } => assert_eq!(key.len(), 1),
             other => panic!("expected key equality predicate, got {other:?}"),
         }
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_builds_range_predicate_from_placeholder() {
+    #[test]
+    fn bind_select_builds_range_predicate_from_placeholder() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(parse_stmt("select id from users where id > ?;"), &(7i32,))
             .await
@@ -286,10 +301,12 @@ use mudu_sys::sync::SMutex;
             }
             other => panic!("expected key range predicate, got {other:?}"),
         }
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_rejects_not_equal_predicate() {
+    #[test]
+    fn bind_select_rejects_not_equal_predicate() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(parse_stmt("select id from users where id != 1;"), &())
             .await
@@ -298,10 +315,12 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("not-equal predicates are not implemented"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_rejects_mixed_equality_and_range_predicates() {
+    #[test]
+    fn bind_select_rejects_mixed_equality_and_range_predicates() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(
                 parse_stmt("select id from users where id = 1 AND id > 0;"),
@@ -313,10 +332,12 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("mixed equality and range predicates are not implemented"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_without_column_list_uses_schema_order() {
+    #[test]
+    fn bind_insert_without_column_list_uses_schema_order() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(parse_stmt("insert into users values (1, 'alice');"), &())
             .await
@@ -328,10 +349,12 @@ use mudu_sys::sync::SMutex;
         assert_eq!(insert.rows.len(), 1);
         assert_eq!(insert.rows[0].key.len(), 1);
         assert_eq!(insert.rows[0].value.len(), 1);
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_allows_null_for_nullable_value_column() {
+    #[test]
+    fn bind_insert_allows_null_for_nullable_value_column() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(
                 parse_stmt("insert into users (id, name) values (1, null);"),
@@ -346,10 +369,12 @@ use mudu_sys::sync::SMutex;
         assert_eq!(insert.rows.len(), 1);
         assert_eq!(insert.rows[0].key.len(), 1);
         assert_eq!(insert.rows[0].value.len(), 0);
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_rejects_null_for_primary_key() {
+    #[test]
+    fn bind_insert_rejects_null_for_primary_key() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(
                 parse_stmt("insert into users (id, name) values (null, 'alice');"),
@@ -359,10 +384,12 @@ use mudu_sys::sync::SMutex;
             .unwrap_err();
 
         assert!(err.to_string().contains("NOT NULL"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_rejects_null_for_not_null_value_column() {
+    #[test]
+    fn bind_insert_rejects_null_for_not_null_value_column() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = not_null_value_binder()
             .bind(
                 parse_stmt("insert into users (id, name) values (1, null);"),
@@ -372,10 +399,12 @@ use mudu_sys::sync::SMutex;
             .unwrap_err();
 
         assert!(err.to_string().contains("NOT NULL"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_accepts_multi_row_insert() {
+    #[test]
+    fn bind_insert_accepts_multi_row_insert() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(
                 parse_stmt("insert into users (id, name) values (1, 'alice'), (2, 'bob');"),
@@ -392,10 +421,12 @@ use mudu_sys::sync::SMutex;
         assert_eq!(insert.rows[0].value.len(), 1);
         assert_eq!(insert.rows[1].key.len(), 1);
         assert_eq!(insert.rows[1].value.len(), 1);
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_accepts_multi_row_insert_with_placeholders() {
+    #[test]
+    fn bind_insert_accepts_multi_row_insert_with_placeholders() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
             .bind(
                 parse_stmt("insert into users (id, name) values (?, 'alice'), (?, 'bob');"),
@@ -410,10 +441,12 @@ use mudu_sys::sync::SMutex;
         assert_eq!(insert.rows.len(), 2);
         assert_eq!(insert.rows[0].key.len(), 1);
         assert_eq!(insert.rows[1].key.len(), 1);
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_encodes_numeric_literal_into_declared_column_type() {
+    #[test]
+    fn bind_insert_encodes_numeric_literal_into_declared_column_type() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = numeric_binder()
             .bind(
                 parse_stmt("insert into ledger (amount, note) values (12.3400, 'coffee');"),
@@ -447,10 +480,12 @@ use mudu_sys::sync::SMutex;
                 .unwrap()
                 .as_ref()
         );
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_select_numeric_placeholder_uses_numeric_key_encoding() {
+    #[test]
+    fn bind_select_numeric_placeholder_uses_numeric_key_encoding() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = numeric_binder()
             .bind(
                 parse_stmt("select amount from ledger where amount = ?;"),
@@ -474,10 +509,12 @@ use mudu_sys::sync::SMutex;
             }
             other => panic!("expected key equality predicate, got {other:?}"),
         }
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_insert_rejects_column_size_mismatch() {
+    #[test]
+    fn bind_insert_rejects_column_size_mismatch() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(
                 parse_stmt("insert into users (id) values (1, 'alice');"),
@@ -487,10 +524,12 @@ use mudu_sys::sync::SMutex;
             .unwrap_err();
 
         assert!(err.to_string().contains("insert column size mismatch"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_update_rejects_primary_key_updates() {
+    #[test]
+    fn bind_update_rejects_primary_key_updates() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(parse_stmt("update users set id = 2 where id = 1;"), &())
             .await
@@ -499,10 +538,12 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("updating primary key columns is not implemented"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_update_rejects_expression_updates() {
+    #[test]
+    fn bind_update_rejects_expression_updates() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(
                 parse_stmt("update users set name = id + 1 where id = 1;"),
@@ -514,10 +555,12 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("expression updates are not implemented"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_delete_rejects_non_key_predicates() {
+    #[test]
+    fn bind_delete_rejects_non_key_predicates() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = binder()
             .bind(parse_stmt("delete from users where name = 'alice';"), &())
             .await
@@ -526,20 +569,24 @@ use mudu_sys::sync::SMutex;
         assert!(err
             .to_string()
             .contains("non-key predicates are not implemented"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_delete_requires_complete_composite_primary_key() {
+    #[test]
+    fn bind_delete_requires_complete_composite_primary_key() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let err = composite_binder()
             .bind(parse_stmt("delete from accounts where tenant_id = 1;"), &())
             .await
             .unwrap_err();
 
         assert!(err.to_string().contains("complete primary key predicate"));
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn bind_delete_accepts_complete_composite_primary_key() {
+    #[test]
+    fn bind_delete_accepts_complete_composite_primary_key() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = composite_binder()
             .bind(
                 parse_stmt("delete from accounts where tenant_id = 1 AND user_id = 2;"),
@@ -552,5 +599,6 @@ use mudu_sys::sync::SMutex;
             panic!("expected bound delete");
         };
         assert_eq!(delete.key.len(), 2);
+        }).unwrap()
     }
 }

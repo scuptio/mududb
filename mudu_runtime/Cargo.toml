@@ -10,6 +10,9 @@ out-dir = "src/bindings"
 [features]
 debug_trace = ["mudu_kernel/debug_trace", "mudu_utils/debug_trace"]
 
+[lints]
+workspace = true
+
 [dependencies]
 async-backtrace = {workspace = true}
 mudu_type = { workspace = true }
@@ -51,5 +54,3 @@ futures = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 scc = { workspace = true }
 
-[dev-dependencies]
-tokio = { workspace = true }

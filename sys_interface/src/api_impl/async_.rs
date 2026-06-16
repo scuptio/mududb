@@ -137,9 +137,9 @@ pub async fn mudu_query_bytes(query_in: &[u8]) -> RS<Vec<u8>> {
     let response = context
         .query_raw_async(stmt, params)
         .await
-        .and_then(|result_set| {
+        .map(|result_set| {
             let desc = result_set.desc().clone();
-            Ok((result_set, desc))
+            (result_set, desc)
         });
     let response = match response {
         Ok((result_set, desc)) => {

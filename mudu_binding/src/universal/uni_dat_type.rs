@@ -55,14 +55,14 @@ impl UniDatType {
         Self::Array(inner)
     }
 
-    pub fn as_array(&self) -> Option<&Box<UniDatType>> {
+    pub fn as_array(&self) -> Option<&UniDatType> {
         match self {
             Self::Array(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn expect_array(&self) -> &Box<UniDatType> {
+    pub fn expect_array(&self) -> &UniDatType {
         match self {
             Self::Array(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },
@@ -91,14 +91,14 @@ impl UniDatType {
         Self::Option(inner)
     }
 
-    pub fn as_option(&self) -> Option<&Box<UniDatType>> {
+    pub fn as_option(&self) -> Option<&UniDatType> {
         match self {
             Self::Option(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn expect_option(&self) -> &Box<UniDatType> {
+    pub fn expect_option(&self) -> &UniDatType {
         match self {
             Self::Option(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },
@@ -145,14 +145,14 @@ impl UniDatType {
         Self::Box(inner)
     }
 
-    pub fn as_box(&self) -> Option<&Box<UniDatType>> {
+    pub fn as_box(&self) -> Option<&UniDatType> {
         match self {
             Self::Box(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn expect_box(&self) -> &Box<UniDatType> {
+    pub fn expect_box(&self) -> &UniDatType {
         match self {
             Self::Box(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },

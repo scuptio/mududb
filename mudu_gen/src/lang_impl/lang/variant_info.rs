@@ -38,7 +38,7 @@ impl VariantInfo {
                 .clone()
                 .unwrap_or(UniDatType::Scalar(UniScalar::U8));
             let (vc_has_inner_type, vc_inner_type_name) = match &v.vc_case_type {
-                Some(ty) => (true, uni_data_type_to_name(&ty, &lang)?),
+                Some(ty) => (true, uni_data_type_to_name(ty, &lang)?),
                 None => (
                     false,
                     uni_data_type_to_name(&UniDatType::Scalar(UniScalar::U8), &lang)?,

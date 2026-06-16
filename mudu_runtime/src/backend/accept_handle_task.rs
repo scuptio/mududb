@@ -1,9 +1,10 @@
+
 use crate::backend::incoming_session::{IncomingSession, SSPSender};
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_sys::tokio::net::TcpListener;
+use mudu_sys::net::AsyncTcpListener;
 use mudu_utils::notifier::Waiter;
 use mudu_sys::sync::async_task::{AsyncLocalTask, Task};
 use std::net::SocketAddr;
@@ -27,7 +28,7 @@ impl AcceptHandleTask {
 
     async fn server_accept(self) -> RS<()> {
         self.wait_recovery.wait().await;
-        let listener = TcpListener::bind(self.bind_addr)
+        let listener = AsyncTcpListener::bind(self.bind_addr)
             .await
             .map_err(|_e| m_error!(ER::NetErr, "bind address error"))?;
         info!("server listen on address {}", self.bind_addr);

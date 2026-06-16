@@ -12,23 +12,22 @@ use mudu::common::xid::INVALID_OID;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_binding::procedure::procedure_invoke;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use std::collections::HashSet;
-use std::env::temp_dir;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
+use mudu_sys::sync::SRwLock;
 use mudu_sys::sync::SMutex;
 
 const MPK_EXTENSION: &str = "mpk";
 
 struct MuduProcInvoker {
     cfg: MuduDBCfg,
-    runtime: RwLock<Arc<dyn Runtime>>,
+    runtime: SRwLock<Arc<dyn Runtime>>,
     enable_async: bool,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl MuduProcInvoker {
@@ -36,11 +35,11 @@ impl MuduProcInvoker {
         cfg: MuduDBCfg,
         runtime: Arc<dyn Runtime>,
         enable_async: bool,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> Self {
         Self {
             cfg,
-            runtime: RwLock::new(runtime),
+            runtime: SRwLock::new(runtime),
             enable_async,
             async_runtime,
         }
@@ -104,6 +103,7 @@ impl AsyncFuncInvoker for MuduProcInvoker {
     }
 }
 
+#[derive(Default)]
 pub struct ListOption {
     /// Optional application-name filter.
     ///
@@ -114,15 +114,10 @@ pub struct ListOption {
     pub names: Vec<String>,
 }
 
-impl Default for ListOption {
-    fn default() -> Self {
-        Self { names: Vec::new() }
-    }
-}
 
 pub struct MuduAppMgr {
     cfg: MuduDBCfg,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     created_invokers: SMutex<Vec<Weak<MuduProcInvoker>>>,
 }
 
@@ -133,7 +128,7 @@ impl MuduAppMgr {
 
     pub fn new_with_async_runtime(
         cfg: MuduDBCfg,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> Self {
         Self {
             cfg,
@@ -166,14 +161,14 @@ impl AppMgr for MuduAppMgr {
     async fn install(&self, mpk_binary: Vec<u8>) -> RS<()> {
         let mpk_path = self.cfg.mpk_path.clone();
 
-        fs::create_dir_all(&mpk_path)
+        mudu_sys::fs::sync::create_dir_all(&mpk_path)
             .map_err(|e| m_error!(EC::IOErr, "create mpk directory error", e))?;
-        let temp_path = temp_package_path(&temp_dir().to_string_lossy());
-        fs::write(&temp_path, &mpk_binary)
+        let temp_path = temp_package_path(&mudu_sys::env_var::temp_dir().to_string_lossy());
+        mudu_sys::fs::sync::write(&temp_path, &mpk_binary)
             .map_err(|e| m_error!(EC::IOErr, "write temp mpk file error", e))?;
         let package = MuduPackage::load(&temp_path)?;
         let final_path = PathBuf::from(&mpk_path).join(format!("{}.mpk", package.package_cfg.name));
-        fs::write(&final_path, &mpk_binary)
+        mudu_sys::fs::sync::write(&final_path, &mpk_binary)
             .map_err(|e| m_error!(EC::IOErr, "write final mpk file error", e))?;
 
         let install_path = final_path
@@ -191,7 +186,7 @@ impl AppMgr for MuduAppMgr {
             .map_err(|e| m_error!(EC::DecodeErr, "decode app name error", e))?;
         let package_path = find_package_path_by_app_name(&self.cfg.mpk_path, &app_name)?
             .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such app {}", app_name)))?;
-        fs::remove_file(&package_path)
+        mudu_sys::fs::sync::remove_file(&package_path)
             .map_err(|e| m_error!(EC::IOErr, "remove app package error", e))?;
         for invoker in self.live_invokers() {
             invoker.reload().await?;
@@ -224,7 +219,7 @@ impl AppMgr for MuduAppMgr {
 
 async fn create_runtime_from_cfg(
     cfg: &MuduDBCfg,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<Arc<dyn Runtime>> {
     let component_target = cfg.component_target();
     let enable_async = cfg.enable_async;
@@ -245,7 +240,7 @@ async fn create_runtime_from_cfg(
 
 async fn build_owned_proc_invoker(
     cfg: &MuduDBCfg,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<Arc<MuduProcInvoker>> {
     let runtime = create_runtime_from_cfg(cfg, async_runtime.clone()).await?;
     let enable_async = cfg.enable_async;
@@ -260,13 +255,12 @@ async fn build_owned_proc_invoker(
 fn load_packages<P: AsRef<Path>>(mpk_path: P) -> RS<Vec<MuduPackage>> {
     let mut packages = Vec::new();
     let path = mpk_path.as_ref();
-    if !path.exists() {
+    if !mudu_sys::fs::sync::path_exists(path) {
         return Ok(packages);
     }
     for entry in
-        fs::read_dir(path).map_err(|e| m_error!(EC::IOErr, "read mpk directory error", e))?
+        mudu_sys::fs::sync::read_dir_entries(path).map_err(|e| m_error!(EC::IOErr, "read mpk directory error", e))?
     {
-        let entry = entry.map_err(|e| m_error!(EC::IOErr, "read mpk directory entry error", e))?;
         let path = entry.path();
         if is_mpk_file(&path) {
             packages.push(MuduPackage::load(&path)?);
@@ -280,13 +274,12 @@ fn find_package_path_by_app_name<P: AsRef<Path>>(
     app_name: &str,
 ) -> RS<Option<PathBuf>> {
     let path = mpk_path.as_ref();
-    if !path.exists() {
+    if !mudu_sys::fs::sync::path_exists(path) {
         return Ok(None);
     }
     for entry in
-        fs::read_dir(path).map_err(|e| m_error!(EC::IOErr, "read mpk directory error", e))?
+        mudu_sys::fs::sync::read_dir_entries(path).map_err(|e| m_error!(EC::IOErr, "read mpk directory error", e))?
     {
-        let entry = entry.map_err(|e| m_error!(EC::IOErr, "read mpk directory entry error", e))?;
         let path = entry.path();
         if !is_mpk_file(&path) {
             continue;
@@ -308,7 +301,7 @@ fn is_mpk_file(path: &Path) -> bool {
 }
 
 fn temp_package_path(base_dir: &str) -> PathBuf {
-    PathBuf::from(base_dir).join(format!("tmp_install_{:x}.mpk", mudu::common::id::gen_oid()))
+    PathBuf::from(base_dir).join(format!("tmp_install_{:x}.mpk", mudu_utils::oid::gen_oid()))
 }
 
 fn parse_procedure_name(procedure_name: &str) -> RS<(String, String, String)> {

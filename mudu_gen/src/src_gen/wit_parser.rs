@@ -41,6 +41,12 @@ pub struct AdvancedErrorAnalyzer {
     common_errors: HashSet<String>,
 }
 
+impl Default for AdvancedErrorAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdvancedErrorAnalyzer {
     pub fn new() -> Self {
         let mut common_errors = HashSet::new();
@@ -124,9 +130,8 @@ impl AdvancedErrorAnalyzer {
     fn suggest_fix(&self, node: &Node, _source: &str) -> Option<String> {
         if node.is_missing() {
             if let Some(parent) = node.parent() {
-                match parent.kind() {
-                    _ => None,
-                }
+                let _ = parent.kind();
+                None
             } else {
                 None
             }
@@ -156,6 +161,12 @@ pub struct ErrorInfo {
 pub struct AnalysisReport {
     pub errors: Vec<ErrorInfo>,
     pub suggestions: Vec<String>,
+}
+
+impl Default for AnalysisReport {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AnalysisReport {
@@ -213,6 +224,12 @@ impl AnalysisReport {
         }
     }
 }
+impl Default for WitParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WitParser {
     pub fn new() -> WitParser {
         Self {}
@@ -226,7 +243,7 @@ impl WitParser {
         if node.has_error() {
             let analyzer = AdvancedErrorAnalyzer::new();
             let report = analyzer.analyze(&tree, text);
-            report.print(&text);
+            report.print(text);
         }
         let context = ParseContext {
             text: text.to_string(),
@@ -251,15 +268,15 @@ impl WitParser {
                 wit_dat.tables.push(table_def);
             }
             ts_const::ts_kind_name::S_RECORD_ITEM => {
-                let record_def = self.visit_record_item(context, &node)?;
+                let record_def = self.visit_record_item(context, node)?;
                 wit_dat.records.push(record_def);
             }
             ts_const::ts_kind_name::S_ENUM_ITEMS => {
-                let enum_def = self.visit_enum_item(context, &node)?;
+                let enum_def = self.visit_enum_item(context, node)?;
                 wit_dat.enums.push(enum_def);
             }
             ts_const::ts_kind_name::S_VARIANT_ITEMS => {
-                let variant_def = self.visit_variant_item(context, &node)?;
+                let variant_def = self.visit_variant_item(context, node)?;
                 wit_dat.variants.push(variant_def);
             }
             _ => {}
@@ -326,7 +343,7 @@ impl WitParser {
         context: &ParseContext,
         node: &Node,
     ) -> RS<Vec<RecordField>> {
-        let _name_ts = context.text_of_node(&node)?;
+        let _name_ts = context.text_of_node(node)?;
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let kind = child.kind();
@@ -404,7 +421,7 @@ impl WitParser {
                         "parse error, expected record field name"
                     ))
                 },
-                |child| Ok(child),
+                Ok,
             )?;
         let field_name = context.text_of_node(&n_name)?;
         let n_type = node
@@ -416,7 +433,7 @@ impl WitParser {
                         "parse error, expected record field type"
                     ))
                 },
-                |child| Ok(child),
+                Ok,
             )?;
         let field_type = self.visit_type(context, &n_type)?;
         Ok(RecordField {
@@ -522,7 +539,7 @@ impl WitParser {
         if let Some(case_type) =
             node.child_by_field_name(ts_const::ts_field_name::VARIANT_CASE_TYPE)
         {
-            let inner_type = self.visit_type(&context, &case_type)?;
+            let inner_type = self.visit_type(context, &case_type)?;
             variant_case_def.vc_case_type = Some(inner_type);
         }
         Ok(variant_case_def)
@@ -536,7 +553,7 @@ impl WitParser {
                     "parse error, expected has a child of type node"
                 ))
             },
-            |n| Ok(n),
+            Ok,
         )?;
         let ty = self.parse_type_node(context, &child)?;
         Ok(ty)
@@ -548,7 +565,7 @@ impl WitParser {
         let mut vec = Vec::new();
         for n in child.children(&mut cursor) {
             if n.kind() == ts_const::ts_kind_name::S_TY {
-                let wit_ty = self.visit_type(&context, &n)?;
+                let wit_ty = self.visit_type(context, &n)?;
                 vec.push(wit_ty);
             }
         }
@@ -557,20 +574,20 @@ impl WitParser {
 
     fn parse_list_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::LIST_INNER_TYPE)?;
-        let ty_inner = self.visit_type(&context, &ty_node)?;
+        let ty_inner = self.visit_type(context, &ty_node)?;
         Ok(UniDatType::Array(Box::new(ty_inner)))
     }
 
     fn parse_option_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::OPTION_INNER_TYPE)?;
-        let ty_inner = self.visit_type(&context, &ty_node)?;
+        let ty_inner = self.visit_type(context, &ty_node)?;
         Ok(UniDatType::Option(Box::new(ty_inner)))
     }
 
     fn parse_result_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let ty_err = node.child_by_field_name(ts_const::ts_field_name::RESULT_ERR_TYPE);
         let opt_err = if let Some(n) = ty_err {
-            let ty_err_inner = self.visit_type(&context, &n)?;
+            let ty_err_inner = self.visit_type(context, &n)?;
             Some(Box::new(ty_err_inner))
         } else {
             None
@@ -578,7 +595,7 @@ impl WitParser {
 
         let ty_ok = node.child_by_field_name(ts_const::ts_field_name::RESULT_OK_TYPE);
         let opt_ok = if let Some(n) = ty_ok {
-            let ty_ok_inner = self.visit_type(&context, &n)?;
+            let ty_ok_inner = self.visit_type(context, &n)?;
             Some(Box::new(ty_ok_inner))
         } else {
             None
@@ -591,7 +608,7 @@ impl WitParser {
     }
 
     fn parse_custom_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
-        let type_name = context.text_of_node(&node)?;
+        let type_name = context.text_of_node(node)?;
         if type_name == "blob" {
             return Ok(UniDatType::Scalar(UniScalar::Blob));
         }
@@ -599,7 +616,7 @@ impl WitParser {
     }
     fn parse_box_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::BOX_INNER)?;
-        let ty_inner = self.visit_type(&context, &ty_node)?;
+        let ty_inner = self.visit_type(context, &ty_node)?;
         Ok(UniDatType::Box(Box::new(ty_inner)))
     }
 
@@ -628,7 +645,7 @@ impl WitParser {
                 println!(
                     "kind {}, text {}",
                     node.kind(),
-                    context.text_of_node(&node)?
+                    context.text_of_node(node)?
                 );
                 return Err(m_error!(EC::NotImplemented, "do not support type"));
             }
@@ -646,7 +663,7 @@ fn expected_get_filed<'t>(node: &Node<'t>, name: &str) -> RS<Node<'t>> {
                 format!("parse error, expected get field {}", name)
             ))
         },
-        |t| Ok(t),
+        Ok,
     )
 }
 
@@ -654,14 +671,14 @@ fn expected_get_filed<'t>(node: &Node<'t>, name: &str) -> RS<Node<'t>> {
 mod test {
     use crate::src_gen::wit_parser::WitParser;
     use mudu::this_file;
-    use std::fs;
+
     use std::path::PathBuf;
 
     #[test]
     fn test() {
         let path = PathBuf::from(this_file!());
         let path = path.parent().unwrap().to_path_buf().join("contract.wit");
-        let str = fs::read_to_string(path).unwrap();
+        let str = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         let parser = WitParser {};
         let wit_dat = parser.parse_text(&str).unwrap();
         println!("{:#?}", wit_dat);

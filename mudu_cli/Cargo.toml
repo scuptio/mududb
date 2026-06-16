@@ -7,14 +7,18 @@ edition = "2024"
 name = "mcli"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
 mudu_binding = { workspace = true }
 mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tracing = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }

@@ -1,3 +1,5 @@
+#![allow(unstable_name_collisions)]
+
 use crate::async_utils::blocking;
 use crate::db_libsql::ls_desc;
 use crate::db_libsql::ls_trans::LSTrans;
@@ -95,12 +97,12 @@ async fn get_db(path: String, app_name: String) -> RS<Arc<Database>> {
 }
 
 impl LSSyncConn {
-    pub fn new(db_path: &String, app_name: &String, _ddl_path: &String) -> RS<Self> {
-        let _db_path = db_path.clone();
-        let _app_name = app_name.clone();
+    pub fn new(db_path: &str, app_name: &str, _ddl_path: &str) -> RS<Self> {
+        let _db_path = db_path.to_string();
+        let _app_name = app_name.to_string();
         let result = blocking::run_async(async move {
-            let r = LSAsyncConnInner::new(_db_path, _app_name).await;
-            r
+            
+            LSAsyncConnInner::new(_db_path, _app_name).await
         })?;
 
         let inner = result?;
@@ -290,7 +292,7 @@ impl LSAsyncConnInner {
         let _desc = result_desc.clone();
         let rs = Self::transaction(
             trans,
-            async move |tx, s| tx.query(&s, params!([]), _desc.clone()).await,
+            async move |tx, s| tx.query(s, params!([]), _desc.clone()).await,
             &sql,
         )
         .await?;
@@ -298,15 +300,14 @@ impl LSAsyncConnInner {
     }
 
     pub fn replace_placeholder(
-        sql_string: &String,
-        desc: &Vec<DatumDesc>,
-        param: &Vec<Box<dyn DatumDyn>>,
+        sql_string: &str,
+        desc: &[DatumDesc],
+        param: &[Box<dyn DatumDyn>],
     ) -> RS<String> {
         let placeholder_str = "?";
         let placeholder_str_len = placeholder_str.len();
         let vec_indices: Vec<_> = sql_string
             .match_indices(placeholder_str)
-            .into_iter()
             .collect();
         if desc.len() != param.as_slice().len() || desc.len() != vec_indices.len() {
             return Err(m_error!(
@@ -320,16 +321,16 @@ impl LSAsyncConnInner {
         for i in 0..desc.len() {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
-            sql_after_replaced.push_str(" ");
+            sql_after_replaced.push(' ');
             let s = param[i].to_textual(desc[i].dat_type())?;
             sql_after_replaced.push_str(s.as_str());
-            sql_after_replaced.push_str(" ");
+            sql_after_replaced.push(' ');
             start_pos += _s.len() + placeholder_str_len;
         }
         if start_pos != sql_string.len() {
             sql_after_replaced.push_str(&sql_string[start_pos..]);
         }
-        sql_after_replaced.push_str(" ");
+        sql_after_replaced.push(' ');
         Ok(sql_after_replaced)
     }
 
@@ -341,8 +342,8 @@ impl LSAsyncConnInner {
     ) -> RS<u64> {
         let sql = Self::replace_placeholder(&sql, &desc, &param)?;
         let trans = self.trans.clone();
-        let result = blocking::run_async(async move { Self::async_command_gut(trans, sql).await })?;
-        result
+        
+        blocking::run_async(async move { Self::async_command_gut(trans, sql).await })?
     }
 
     fn async_batch(&self, sql: String) -> RS<u64> {
@@ -354,7 +355,7 @@ impl LSAsyncConnInner {
     async fn async_command_gut(trans: LockedTrans, sql: String) -> RS<u64> {
         let affected_rows = Self::transaction(
             trans,
-            async move |tx, s| tx.command(&s, params!([])).await,
+            async move |tx, s| tx.command(s, params!([])).await,
             &sql,
         )
         .await?;

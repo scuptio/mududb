@@ -1,3 +1,4 @@
+#![allow(clippy::module_inception)]
 pub mod app_cfg;
 pub mod app_inst;
 pub mod app_inst_impl;

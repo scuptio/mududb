@@ -6,6 +6,8 @@ members = [
     "testing",
     "mudu",
     "mudu_sys",
+    "mudu_sys_contract",
+    "mudu_sys_impl",
     "mudu_adapter",
     "mudu_type",
     "mudu_contract",
@@ -32,6 +34,9 @@ members = [
     "mudu_transpiler",
     "mudu_cli"]
 
+[workspace.lints.clippy]
+disallowed-types = "deny"
+
 [profile.release]
 panic = "abort"
 
@@ -43,6 +48,8 @@ mudu_adapter = { path = "mudu_adapter" }
 mudu = { path = "mudu" }
 mududb = { path = "mududb" }
 mudu_sys = { path = "mudu_sys" }
+mudu_sys_contract = { path = "mudu_sys_contract" }
+mudu_sys_impl = { path = "mudu_sys_impl" }
 mudu_binding = { path = "mudu_binding" }
 md-5 = { version = "0.11.0-rc.0" }
 sql_parser = { path = "sql_parser" }

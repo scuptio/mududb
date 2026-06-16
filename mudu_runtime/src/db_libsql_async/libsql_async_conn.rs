@@ -9,7 +9,7 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql::DBConn;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
-use mudu_sys::sync::a_mutex::{AMutex, AMutexGuard};
+use mudu_sys::sync::async_::{AMutex, AMutexGuard};
 use std::path::PathBuf;
 use std::sync::Arc;
 

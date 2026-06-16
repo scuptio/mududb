@@ -201,6 +201,12 @@ impl<'a> Writer<'a> {
     }
 }
 
+impl Default for Sizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Sizer {
     pub fn new() -> Self {
         Self { size: 0 }
@@ -256,8 +262,7 @@ fn _deserialize_from_json<S: DeserializeOwned>(json: &str) -> RS<S> {
 fn _serialize_sized_to_vec<S: Serialize + DeserializeOwned + 'static>(
     serialize: &S,
 ) -> RS<Vec<u8>> {
-    let mut vec = Vec::<u8>::new();
-    vec.resize(INIT_LENGTH, 0);
+    let mut vec = vec![0; INIT_LENGTH];
     let (ok, n) = _serialize_sized_to(serialize, &mut vec)?;
     if ok {
         vec.resize(n as usize + SIZE_LEN, 0);
@@ -323,7 +328,7 @@ fn _serialize_to<S: Serialize + DeserializeOwned + 'static>(
 }
 
 fn _serialize_to_vec<S: Serialize + DeserializeOwned + 'static>(result: &S) -> RS<Vec<u8>> {
-    let vec = rmp_serde::encode::to_vec::<S>(&result)
+    let vec = rmp_serde::encode::to_vec::<S>(result)
         .map_err(|_e| m_error!(EC::EncodeErr, "encode error bytes"))?;
     Ok(vec)
 }

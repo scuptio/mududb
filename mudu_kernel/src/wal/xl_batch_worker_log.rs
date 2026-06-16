@@ -104,7 +104,7 @@ pub fn decode_xl_batches_with_pending(
     Ok(out)
 }
 
-pub async fn append_xl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<LSN> {
+pub async fn append_xl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<()> {
     let frames = backend.serialize_entry(batch)?;
     backend.append_frames_async(frames).await
 }

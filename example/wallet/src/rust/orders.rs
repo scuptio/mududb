@@ -59,7 +59,8 @@ impl Orders {
         created_at: Option<i32>,
         
     ) -> Self {
-        let s = Self {
+        
+        Self {
             
             order_id : AttrOrderId::from(order_id),
             
@@ -71,8 +72,7 @@ impl Orders {
             
             created_at : AttrCreatedAt::from(created_at),
             
-        };
-        s
+        }
     }
 
     pub fn new_empty() -> Self {
@@ -366,12 +366,12 @@ impl AttrOrderId {
 impl AttrValue<i32> for AttrOrderId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -419,12 +419,12 @@ impl AttrUserId {
 impl AttrValue<i32> for AttrUserId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -472,12 +472,12 @@ impl AttrMerchId {
 impl AttrValue<i32> for AttrMerchId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -525,12 +525,12 @@ impl AttrAmount {
 impl AttrValue<i32> for AttrAmount {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -578,12 +578,12 @@ impl AttrCreatedAt {
 impl AttrValue<i32> for AttrCreatedAt {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {

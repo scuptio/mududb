@@ -4,6 +4,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
+use mudu_sys_contract::perf::TraceContext;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -77,13 +78,14 @@ impl TryFrom<u16> for MessageType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FrameHeader {
     magic: u32,
     version: u32,
     message_type: MessageType,
     flags: u16,
     request_id: u64,
+    trace_context: TraceContext,
     payload_len: u32,
 }
 
@@ -100,6 +102,32 @@ pub struct ServerResponse {
     rows: Vec<TupleValue>,
     affected_rows: u64,
     error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server_perf_digest: Option<ServerPerfDigest>,
+}
+
+/// Server-side per-transaction performance digest returned to the client.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ServerPerfDigest {
+    pub trace_id: u64,
+    pub durations_ns: [Option<u64>; mudu_sys_contract::perf::TxnStage::Count as usize],
+}
+
+impl ServerPerfDigest {
+    pub fn new(trace_id: u64) -> Self {
+        Self {
+            trace_id,
+            ..Default::default()
+        }
+    }
+
+    pub fn set(&mut self, stage: mudu_sys_contract::perf::TxnStage, ns: u64) {
+        self.durations_ns[stage.as_index()] = Some(ns);
+    }
+
+    pub fn get(&self, stage: mudu_sys_contract::perf::TxnStage) -> Option<u64> {
+        self.durations_ns[stage.as_index()]
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +201,8 @@ pub struct RangeScanResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProcedureInvokeResponse {
     result: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server_perf_digest: Option<ServerPerfDigest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -188,7 +218,7 @@ pub struct ErrorResponse {
     location: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Frame {
     header: FrameHeader,
     payload: Vec<u8>,
@@ -196,8 +226,22 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(message_type: MessageType, request_id: u64, payload: Vec<u8>) -> Self {
+        Self::new_with_trace(message_type, request_id, TraceContext::empty(), payload)
+    }
+
+    pub fn new_with_trace(
+        message_type: MessageType,
+        request_id: u64,
+        trace_context: TraceContext,
+        payload: Vec<u8>,
+    ) -> Self {
         Self {
-            header: FrameHeader::new(message_type, request_id, payload.len() as u32),
+            header: FrameHeader::new_with_trace(
+                message_type,
+                request_id,
+                trace_context,
+                payload.len() as u32,
+            ),
             payload,
         }
     }
@@ -239,12 +283,22 @@ impl Frame {
 
 impl FrameHeader {
     pub fn new(message_type: MessageType, request_id: u64, payload_len: u32) -> Self {
+        Self::new_with_trace(message_type, request_id, TraceContext::empty(), payload_len)
+    }
+
+    pub fn new_with_trace(
+        message_type: MessageType,
+        request_id: u64,
+        trace_context: TraceContext,
+        payload_len: u32,
+    ) -> Self {
         Self {
             magic: format::latest::MAGIC,
             version: format::latest::FRAME_VERSION,
             message_type,
             flags: 0,
             request_id,
+            trace_context,
             payload_len,
         }
     }
@@ -271,6 +325,10 @@ impl FrameHeader {
 
     pub fn request_id(&self) -> u64 {
         self.request_id
+    }
+
+    pub fn trace_context(&self) -> TraceContext {
+        self.trace_context
     }
 
     pub fn payload_len(&self) -> u32 {
@@ -320,7 +378,17 @@ impl ServerResponse {
             rows,
             affected_rows,
             error,
+            server_perf_digest: None,
         }
+    }
+
+    pub fn with_server_perf_digest(mut self, digest: ServerPerfDigest) -> Self {
+        self.server_perf_digest = Some(digest);
+        self
+    }
+
+    pub fn server_perf_digest(&self) -> Option<&ServerPerfDigest> {
+        self.server_perf_digest.as_ref()
     }
 
     pub fn row_desc(&self) -> &TupleFieldDesc {
@@ -496,7 +564,10 @@ impl RangeScanResponse {
 
 impl ProcedureInvokeResponse {
     pub fn new(result: Vec<u8>) -> Self {
-        Self { result }
+        Self {
+            result,
+            server_perf_digest: None,
+        }
     }
 
     pub fn result(&self) -> &[u8] {
@@ -505,6 +576,15 @@ impl ProcedureInvokeResponse {
 
     pub fn into_result(self) -> Vec<u8> {
         self.result
+    }
+
+    pub fn with_server_perf_digest(mut self, digest: ServerPerfDigest) -> Self {
+        self.server_perf_digest = Some(digest);
+        self
+    }
+
+    pub fn server_perf_digest(&self) -> Option<&ServerPerfDigest> {
+        self.server_perf_digest.as_ref()
     }
 }
 
@@ -603,8 +683,22 @@ pub fn encode_client_request_with_message_type(
     request_id: u64,
     request: &ClientRequest,
 ) -> RS<Vec<u8>> {
+    encode_client_request_with_message_type_and_trace(
+        message_type,
+        request_id,
+        TraceContext::empty(),
+        request,
+    )
+}
+
+pub fn encode_client_request_with_message_type_and_trace(
+    message_type: MessageType,
+    request_id: u64,
+    trace_context: TraceContext,
+    request: &ClientRequest,
+) -> RS<Vec<u8>> {
     let payload = encode_payload(request, "encode client request error")?;
-    Ok(Frame::new(message_type, request_id, payload).encode())
+    Ok(Frame::new_with_trace(message_type, request_id, trace_context, payload).encode())
 }
 
 pub fn encode_client_request(request_id: u64, request: &ClientRequest) -> RS<Vec<u8>> {
@@ -667,8 +761,16 @@ pub fn encode_procedure_invoke_request(
     request_id: u64,
     request: &ProcedureInvokeRequest,
 ) -> RS<Vec<u8>> {
+    encode_procedure_invoke_request_with_trace(request_id, TraceContext::empty(), request)
+}
+
+pub fn encode_procedure_invoke_request_with_trace(
+    request_id: u64,
+    trace_context: TraceContext,
+    request: &ProcedureInvokeRequest,
+) -> RS<Vec<u8>> {
     let payload = encode_payload(request, "encode procedure invoke request error")?;
-    Ok(Frame::new(MessageType::ProcedureInvoke, request_id, payload).encode())
+    Ok(Frame::new_with_trace(MessageType::ProcedureInvoke, request_id, trace_context, payload).encode())
 }
 
 pub fn encode_session_create_request(

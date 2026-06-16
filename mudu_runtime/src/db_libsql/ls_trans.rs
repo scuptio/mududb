@@ -1,7 +1,8 @@
 use libsql::Transaction;
 use libsql::{Row, Rows};
 use mudu::common::result::RS;
-use mudu::common::xid::{OID, new_xid};
+use mudu::common::xid::OID;
+use mudu_utils::oid::new_xid;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::result_set::ResultSet;
@@ -13,7 +14,7 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::async_::AMutex;
 use std::sync::Arc;
 
 pub struct LSTrans {
@@ -138,8 +139,7 @@ fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleValue>
     if row.column_count() != (item_desc.len() as i32) {
         return Err(m_error!(EC::FatalError, "column count mismatch"));
     }
-    for i in 0..item_desc.len() {
-        let desc = &item_desc[i];
+    for (i, desc) in item_desc.iter().enumerate() {
         let n = i as i32;
         let internal = match desc.dat_type_id() {
             DatTypeID::I32 => {

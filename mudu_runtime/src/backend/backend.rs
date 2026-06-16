@@ -95,7 +95,7 @@ impl Backend {
             canceller,
             Some(wait_init_db),
         );
-        service.register(TaskWrapper::new_async_local(ls, task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, task))?;
         Ok(())
     }
 
@@ -118,12 +118,12 @@ impl Backend {
             .map_err(|e| m_error!(EC::ParseErr, "parse socket address error", e))?;
         let accept_task =
             AcceptHandleTask::new(canceller.clone(), socket_addr, senders, wait_notify);
-        service.register(TaskWrapper::new_async_local(ls, accept_task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, accept_task))?;
 
         let session_task =
             SessionHandleTask::new(cfg.db_path.clone(), receivers, canceller.clone());
         let ls = LocalTaskSet::new();
-        service.register(TaskWrapper::new_async_local(ls, session_task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, session_task))?;
         Ok(())
     }
 }

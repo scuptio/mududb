@@ -2,7 +2,8 @@ use crate::contract::field_info::FieldInfo;
 use crate::contract::schema_column::SchemaColumn;
 #[cfg(any(test, feature = "test"))]
 use arbitrary::{Arbitrary, Unstructured};
-use mudu::common::id::{gen_oid, AttrIndex, DatumIndex, OID};
+use mudu::common::id::{AttrIndex, DatumIndex, OID};
+use mudu_utils::oid::gen_oid;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ pub fn schema_columns_to_tuple_desc(
 ) -> RS<(TupleDesc, Vec<FieldInfo>)> {
     let field_count = fields.len();
     let mut desc = Vec::with_capacity(field_count);
-    for (_, (column_index, sc)) in fields.into_iter().enumerate() {
+    for (column_index, sc) in fields.into_iter() {
         let ty = sc.type_param().to_dat_type()?;
         let field_info = FieldInfo::new(
             sc.get_name().clone(),

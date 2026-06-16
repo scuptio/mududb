@@ -15,7 +15,7 @@ pub fn wasm_mod_path() -> String {
         .parent()
         .unwrap()
         .to_path_buf()
-        .join("mudu_wasm".to_string())
-        .join("wasm_module".to_string());
+        .join("mudu_wasm")
+        .join("wasm_module");
     wasm_path.to_str().unwrap().to_string()
 }

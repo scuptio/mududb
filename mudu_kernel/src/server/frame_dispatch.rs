@@ -9,6 +9,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::{Frame, FrameHeader, MessageType, HEADER_LEN};
+use mudu_sys::scoped_task_trace;
 
 pub fn try_decode_next_frame(buf: &[u8]) -> RS<Option<(Frame, usize)>> {
     if buf.len() < HEADER_LEN {
@@ -29,6 +30,7 @@ pub async fn dispatch_frame_async(
     conn_id: u64,
     frame: &Frame,
 ) -> RS<HandleResult> {
+    scoped_task_trace!();
     let ctx = RequestCtx::new(
         new_session_bound_worker_runtime(worker.clone(), 0),
         conn_id,

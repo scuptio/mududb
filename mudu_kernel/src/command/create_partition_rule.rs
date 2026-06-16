@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::async_::AMutex;
 use std::sync::Arc;
 
 pub struct CreatePartitionRule {

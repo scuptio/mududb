@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+echo "Running cargo clippy --workspace..."
+
+if ! cargo clippy --workspace -- -D warnings 2>&1; then
+    echo ""
+    echo "Clippy check failed. Commit aborted."
+    exit 1
+fi
+
+echo "Clippy check passed."

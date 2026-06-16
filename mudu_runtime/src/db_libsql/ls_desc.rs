@@ -28,8 +28,7 @@ pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<Datum
 
     let mut schema = Vec::with_capacity(column_count);
     let columns = stmt.columns();
-    for i in 0..column_count {
-        let column = &columns[i];
+    for column in columns {
         let id = sqlite_decl_type_to_id(column.decl_type().unwrap())?;
         let desc = DatumDesc::new(column.name().to_string(), DatType::default_for(id));
 
@@ -56,10 +55,11 @@ fn sqlite_decl_type_to_id(name: &str) -> RS<DatTypeID> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_basic() -> Result<(), Box<dyn std::error::Error>> {
-        test_sql().await?;
-        Ok(())
+    #[test]
+    fn test_basic() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        test_sql().await.unwrap();
+        }).unwrap();
     }
     async fn test_sql() -> RS<()> {
         let ddl_sql = [

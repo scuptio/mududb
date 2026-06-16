@@ -46,6 +46,12 @@ impl Assignment {
     }
 }
 
+impl Default for StmtUpdate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StmtUpdate {
     pub fn new() -> Self {
         Self {

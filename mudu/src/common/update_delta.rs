@@ -7,7 +7,7 @@ use std::cell::RefCell;
 const TUPLE_MAX_LEN_DEFAULT: usize = 100;
 
 thread_local! {
-    static  TUPLE_MAX_LEN:RefCell<usize> = RefCell::new(TUPLE_MAX_LEN_DEFAULT);
+    static  TUPLE_MAX_LEN:RefCell<usize> = const { RefCell::new(TUPLE_MAX_LEN_DEFAULT) };
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Default)]
@@ -104,8 +104,7 @@ impl Decode for UpdateDelta {
         let offset = decoder.read_u32()?;
         let size = decoder.read_u32()?;
         let len = decoder.read_u32()? as usize;
-        let mut data = Buf::new();
-        data.resize(len, 0);
+        let mut data = vec![0; len];
         decoder.read_bytes(data.as_mut_slice())?;
         Ok(Self { offset, size, data })
     }
@@ -125,7 +124,7 @@ impl Arbitrary<'_> for UpdateDelta {
         };
         let data_len = u32::arbitrary(u)? % len;
         let b = u.bytes(data_len as usize)?;
-        let uu = Unstructured::new(&b);
+        let uu = Unstructured::new(b);
         let data = Buf::arbitrary_take_rest(uu)?;
         Ok(Self { offset, size, data })
     }

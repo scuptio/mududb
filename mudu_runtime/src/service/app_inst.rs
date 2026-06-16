@@ -24,8 +24,8 @@ pub trait AppInst: Send + Sync {
     async fn invoke(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult>;
@@ -33,11 +33,11 @@ pub trait AppInst: Send + Sync {
     async fn invoke_async(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult>;
 
-    fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>>;
+    fn describe(&self, mod_name: &str, proc_name: &str) -> RS<Arc<ProcDesc>>;
 }

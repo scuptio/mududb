@@ -146,8 +146,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    #[tokio::test]
-    async fn fires_event_callbacks_once() {
+    #[test]
+    fn fires_event_callbacks_once() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let mut registry = CallbackRegistry::new();
         let hit = Arc::new(AtomicUsize::new(0));
         let hit_clone = hit.clone();
@@ -175,10 +176,12 @@ mod tests {
             .fire_event(CallbackEventKey { kind: 1, id: 7 })
             .is_empty());
         assert!(registry.is_empty());
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn advances_sequence_callbacks_up_to_frontier() {
+    #[test]
+    fn advances_sequence_callbacks_up_to_frontier() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let mut registry = CallbackRegistry::new();
         let hit = Arc::new(AtomicUsize::new(0));
         for target in [3u64, 5u64] {
@@ -215,6 +218,7 @@ mod tests {
             (callback.callback)().await.unwrap();
         }
         assert_eq!(hit.load(Ordering::SeqCst), 2);
+        }).unwrap()
     }
 
     #[test]

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_sys::sync::f_mutex::FMutex;
+use mudu_sys::sync::futures_mutex::FMutex;
 use mudu_utils::task_trace;
 use std::sync::Arc;
 

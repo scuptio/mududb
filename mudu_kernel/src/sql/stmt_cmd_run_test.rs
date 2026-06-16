@@ -95,8 +95,9 @@ use mudu_sys::sync::SMutex;
         }
     }
 
-    #[tokio::test]
-    async fn run_cmd_stmt_returns_affected_rows_on_success() {
+    #[test]
+    fn run_cmd_stmt_returns_affected_rows_on_success() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let ctx = TestSsnCtx::default();
         let stmt = TestStmtCmd {
             fail_realize: false,
@@ -112,10 +113,12 @@ use mudu_sys::sync::SMutex;
         assert_eq!(rows, 3);
         assert!(ctx.current_tx().is_some());
         assert!(!ctx.ended());
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn run_cmd_stmt_ends_tx_on_build_error() {
+    #[test]
+    fn run_cmd_stmt_ends_tx_on_build_error() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let ctx = TestSsnCtx::default();
         let stmt = TestStmtCmd {
             fail_realize: false,
@@ -130,5 +133,6 @@ use mudu_sys::sync::SMutex;
         let err = run_cmd_stmt(&stmt, &ctx).await.unwrap_err();
         assert!(err.to_string().contains("build failed"));
         assert!(ctx.ended());
+        }).unwrap()
     }
 }

@@ -21,7 +21,7 @@ impl EnumInfo {
     pub fn from(enum_def: UniEnumDef, _lang: LangKind) -> RS<Self> {
         let name = to_pascal_case(&enum_def.enum_name);
         let mut cases = Vec::new();
-        for (_i, v) in enum_def.enum_cases.into_iter().enumerate() {
+        for v in enum_def.enum_cases.into_iter() {
             let ec_info = EnumCaseInfo {
                 ec_name: to_pascal_case(&v.ec_name),
                 ec_comments: v.ec_comments,

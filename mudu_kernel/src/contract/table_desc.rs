@@ -21,33 +21,35 @@ pub struct TableDesc {
     column_oid: Vec<OID>,
 }
 
+pub struct TableDescParams {
+    pub name: String,
+    pub oid: OID,
+    pub key_oid: Vec<OID>,
+    pub value_oid: Vec<OID>,
+    pub key_indices: Vec<AttrIndex>,
+    pub value_indices: Vec<AttrIndex>,
+    pub fields: Vec<FieldInfo>,
+    pub key_desc: TupleDesc,
+    pub value_desc: TupleDesc,
+    pub name2oid: HashMap<String, OID>,
+    pub oid2col: HashMap<OID, FieldInfo>,
+}
+
 impl TableDesc {
-    pub fn new(
-        name: String,
-        oid: OID,
-        key_oid: Vec<OID>,
-        value_oid: Vec<OID>,
-        key_indices: Vec<AttrIndex>,
-        value_indices: Vec<AttrIndex>,
-        fields: Vec<FieldInfo>,
-        key_desc: TupleDesc,
-        value_desc: TupleDesc,
-        name2oid: HashMap<String, OID>,
-        oid2col: HashMap<OID, FieldInfo>,
-    ) -> Self {
-        let column_oid = fields.iter().map(|field| field.id()).collect();
+    pub fn new(params: TableDescParams) -> Self {
+        let column_oid = params.fields.iter().map(|field| field.id()).collect();
         Self {
-            name,
-            oid,
-            key_oid,
-            value_oid,
-            key_desc,
-            value_desc,
-            fields,
-            key_indices,
-            value_indices,
-            oid2col,
-            name2oid,
+            name: params.name,
+            oid: params.oid,
+            key_oid: params.key_oid,
+            value_oid: params.value_oid,
+            key_desc: params.key_desc,
+            value_desc: params.value_desc,
+            fields: params.fields,
+            key_indices: params.key_indices,
+            value_indices: params.value_indices,
+            oid2col: params.oid2col,
+            name2oid: params.name2oid,
             column_oid,
         }
     }

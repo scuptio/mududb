@@ -1,14 +1,14 @@
 use crate::contract::field_info::FieldInfo;
 use crate::contract::schema_table::SchemaTable;
-use crate::contract::table_desc::TableDesc;
+use crate::contract::table_desc::{TableDesc, TableDescParams};
 use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
+use mudu_sys::sync::SMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
 #[derive(Clone)]
 pub struct TableInfo {
@@ -37,19 +37,19 @@ impl TableInfo {
 
     pub fn table_desc(&self) -> RS<Arc<TableDesc>> {
         let inner = self.inner.lock().unwrap();
-        let ret = Arc::new(TableDesc::new(
-            inner.name().clone(),
-            inner.id(),
-            inner.key_oid.clone(),
-            inner.value_oid.clone(),
-            inner.key_indices.clone(),
-            inner.value_indices.clone(),
-            inner.fields.clone(),
-            inner.key_tuple_desc.clone(),
-            inner.value_tuple_desc.clone(),
-            inner.name2oid.clone(),
-            inner.oid2column.clone(),
-        ));
+        let ret = Arc::new(TableDesc::new(TableDescParams {
+            name: inner.name().clone(),
+            oid: inner.id(),
+            key_oid: inner.key_oid.clone(),
+            value_oid: inner.value_oid.clone(),
+            key_indices: inner.key_indices.clone(),
+            value_indices: inner.value_indices.clone(),
+            fields: inner.fields.clone(),
+            key_desc: inner.key_tuple_desc.clone(),
+            value_desc: inner.value_tuple_desc.clone(),
+            name2oid: inner.name2oid.clone(),
+            oid2col: inner.oid2column.clone(),
+        }));
         Ok(ret)
     }
 

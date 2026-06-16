@@ -298,7 +298,7 @@ impl Binder {
     async fn bind_drop_table(&self, stmt: StmtDropTable) -> RS<BoundDropTable> {
         match self
             .meta_mgr
-            .get_table_by_name(&stmt.table_name().to_string())
+            .get_table_by_name(stmt.table_name())
             .await?
         {
             Some(table_desc) => Ok(BoundDropTable {
@@ -651,7 +651,7 @@ impl Binder {
             .ok_or_else(|| m_error!(ER::NoSuchElement, format!("cannot find column {}", name)))
     }
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Arc<TableDesc>> {
+    async fn get_table_by_name(&self, name: &str) -> RS<Arc<TableDesc>> {
         self.meta_mgr
             .get_table_by_name(name)
             .await?

@@ -38,30 +38,31 @@ pub mod object {
         w_zip: Option<String>,
     }
 
+    pub struct WarehouseParams {
+        pub w_id: Option<i32>,
+        pub w_ytd: Option<f64>,
+        pub w_tax: Option<f64>,
+        pub w_name: Option<String>,
+        pub w_street_1: Option<String>,
+        pub w_street_2: Option<String>,
+        pub w_city: Option<String>,
+        pub w_state: Option<String>,
+        pub w_zip: Option<String>,
+    }
+
     impl Warehouse {
-        pub fn new(
-            w_id: Option<i32>,
-            w_ytd: Option<f64>,
-            w_tax: Option<f64>,
-            w_name: Option<String>,
-            w_street_1: Option<String>,
-            w_street_2: Option<String>,
-            w_city: Option<String>,
-            w_state: Option<String>,
-            w_zip: Option<String>,
-        ) -> Self {
-            let s = Self {
-                w_id,
-                w_ytd,
-                w_tax,
-                w_name,
-                w_street_1,
-                w_street_2,
-                w_city,
-                w_state,
-                w_zip,
-            };
-            s
+        pub fn new(params: WarehouseParams) -> Self {
+            Self {
+                w_id: params.w_id,
+                w_ytd: params.w_ytd,
+                w_tax: params.w_tax,
+                w_name: params.w_name,
+                w_street_1: params.w_street_1,
+                w_street_2: params.w_street_2,
+                w_city: params.w_city,
+                w_state: params.w_state,
+                w_zip: params.w_zip,
+            }
         }
 
         pub fn set_w_id(&mut self, w_id: i32) {
@@ -182,22 +183,22 @@ pub mod object {
 
     #[cfg(test)]
     mod tests {
-        use super::Warehouse;
+        use super::{Warehouse, WarehouseParams};
         use mududb::types::datum::{Datum, DatumDyn};
 
         #[test]
         fn warehouse_roundtrip_and_setters_work() {
-            let mut warehouse = Warehouse::new(
-                Some(1),
-                Some(10.5),
-                Some(0.1),
-                Some("Main".to_string()),
-                Some("Street1".to_string()),
-                Some("Street2".to_string()),
-                Some("City".to_string()),
-                Some("ST".to_string()),
-                Some("10000".to_string()),
-            );
+            let mut warehouse = Warehouse::new(WarehouseParams {
+                w_id: Some(1),
+                w_ytd: Some(10.5),
+                w_tax: Some(0.1),
+                w_name: Some("Main".to_string()),
+                w_street_1: Some("Street1".to_string()),
+                w_street_2: Some("Street2".to_string()),
+                w_city: Some("City".to_string()),
+                w_state: Some("ST".to_string()),
+                w_zip: Some("10000".to_string()),
+            });
 
             warehouse.set_w_name("Central".to_string());
             warehouse.set_w_tax(0.2);
@@ -218,7 +219,7 @@ pub mod object {
 
     impl Entity for Warehouse {
         fn new_empty() -> Self {
-            let s = Self {
+            Self {
                 w_id: None,
                 w_ytd: None,
                 w_tax: None,
@@ -228,8 +229,7 @@ pub mod object {
                 w_city: None,
                 w_state: None,
                 w_zip: None,
-            };
-            s
+            }
         }
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
@@ -369,12 +369,12 @@ pub mod object {
     impl AttrValue<i32> for AttrWId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -391,12 +391,12 @@ pub mod object {
     impl AttrValue<f64> for AttrWYtd {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -413,12 +413,12 @@ pub mod object {
     impl AttrValue<f64> for AttrWTax {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -435,12 +435,12 @@ pub mod object {
     impl AttrValue<String> for AttrWName {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -457,12 +457,12 @@ pub mod object {
     impl AttrValue<String> for AttrWStreet1 {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -479,12 +479,12 @@ pub mod object {
     impl AttrValue<String> for AttrWStreet2 {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -501,12 +501,12 @@ pub mod object {
     impl AttrValue<String> for AttrWCity {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -523,12 +523,12 @@ pub mod object {
     impl AttrValue<String> for AttrWState {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -545,12 +545,12 @@ pub mod object {
     impl AttrValue<String> for AttrWZip {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {

@@ -466,8 +466,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn json_client_maps_command_requests() {
+    #[test]
+    fn json_client_maps_command_requests() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
         let response = client
             .command(json!({
@@ -491,6 +492,7 @@ mod tests {
         let inner = client.into_inner();
         assert_eq!(inner.last_query.unwrap().sql(), "select 1");
         assert_eq!(inner.last_execute.unwrap().sql(), "delete from t");
+        }).unwrap();
     }
 
     #[test]
@@ -510,8 +512,9 @@ mod tests {
         assert_eq!(value["rows"], json!([[null]]));
     }
 
-    #[tokio::test]
-    async fn json_client_maps_kv_and_invoke_payloads() {
+    #[test]
+    fn json_client_maps_kv_and_invoke_payloads() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
 
         let put = client
@@ -576,10 +579,12 @@ mod tests {
             inner.last_invoke.unwrap().procedure_parameters(),
             b"payload"
         );
+        }).unwrap();
     }
 
-    #[tokio::test]
-    async fn json_client_accepts_large_universal_oid() {
+    #[test]
+    fn json_client_accepts_large_universal_oid() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
         let session_id = 312629621299694386177868034580325764009u128;
         client
@@ -592,5 +597,6 @@ mod tests {
             .unwrap();
         let inner = client.into_inner();
         assert_eq!(inner.last_put.unwrap().session_id(), session_id);
+        }).unwrap();
     }
 }

@@ -11,8 +11,8 @@ mod tests {
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::datum::DatumDyn;
     use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
-    use std::fs;
-    use std::net::TcpListener;
+
+    use mudu_sys::net::sync::StdTcpListener;
     use std::path::PathBuf;
     use std::sync::Once;
     use std::thread;
@@ -40,7 +40,7 @@ mod tests {
     }
 
     fn reserve_port() -> Option<u16> {
-        TcpListener::bind("127.0.0.1:0")
+        StdTcpListener::bind("127.0.0.1:0".parse().unwrap())
             .ok()
             .and_then(|listener| listener.local_addr().ok().map(|addr| addr.port()))
     }
@@ -53,8 +53,8 @@ mod tests {
         }
         let db_path = temp_dir("mudu_sql_async_db");
         let mpk_path = temp_dir("mudu_sql_async_mpk");
-        fs::create_dir_all(&db_path).ok()?;
-        fs::create_dir_all(&mpk_path).ok()?;
+        mudu_sys::fs::sync::create_dir_all(&db_path).ok()?;
+        mudu_sys::fs::sync::create_dir_all(&mpk_path).ok()?;
         Some(MuduDBCfg {
             mpk_path: mpk_path.to_string_lossy().into_owned(),
             db_path: db_path.to_string_lossy().into_owned(),
@@ -285,8 +285,9 @@ mod tests {
         .await
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_roundtrip_sql_crud_over_iouring_backend() -> RS<()> {
+    #[test]
+    fn async_client_roundtrip_sql_crud_over_iouring_backend() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         if should_skip_iouring_env() {
             return Ok(());
@@ -374,24 +375,31 @@ mod tests {
 
         stop_server(client, stop_notifier, server)?;
         Ok(())
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_roundtrip_sql_crud_over_tokio_backend() -> RS<()> {
+    #[test]
+    fn async_client_roundtrip_sql_crud_over_tokio_backend() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_roundtrip_sql_crud(ServerMode::Tokio).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_batch_executes_multiple_sql_commands() -> RS<()> {
+    #[test]
+    fn async_client_batch_executes_multiple_sql_commands() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_batch_executes_multiple_sql_commands(ServerMode::IOUring).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_batch_executes_multiple_sql_commands_tokio() -> RS<()> {
+    #[test]
+    fn async_client_batch_executes_multiple_sql_commands_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_batch_executes_multiple_sql_commands(ServerMode::Tokio).await
+        })
     }
 
     async fn run_async_client_batch_executes_multiple_sql_commands(
@@ -443,16 +451,20 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_drop_table_removes_table_from_catalog() -> RS<()> {
+    #[test]
+    fn async_client_drop_table_removes_table_from_catalog() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_drop_table_removes_table_from_catalog(ServerMode::IOUring).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_drop_table_removes_table_from_catalog_tokio() -> RS<()> {
+    #[test]
+    fn async_client_drop_table_removes_table_from_catalog_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_drop_table_removes_table_from_catalog(ServerMode::Tokio).await
+        })
     }
 
     async fn run_async_client_drop_table_removes_table_from_catalog(
@@ -481,16 +493,20 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_range_scan_over_primary_key() -> RS<()> {
+    #[test]
+    fn async_client_range_scan_over_primary_key() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_range_scan_over_primary_key(ServerMode::IOUring).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_range_scan_over_primary_key_tokio() -> RS<()> {
+    #[test]
+    fn async_client_range_scan_over_primary_key_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_range_scan_over_primary_key(ServerMode::Tokio).await
+        })
     }
 
     async fn run_async_client_range_scan_over_primary_key(server_mode: ServerMode) -> RS<()> {
@@ -594,16 +610,20 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_rejects_mixed_equality_and_range_key_predicates() -> RS<()> {
+    #[test]
+    fn async_client_rejects_mixed_equality_and_range_key_predicates() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_rejects_mixed_equality_and_range_key_predicates(ServerMode::IOUring).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_rejects_mixed_equality_and_range_key_predicates_tokio() -> RS<()> {
+    #[test]
+    fn async_client_rejects_mixed_equality_and_range_key_predicates_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_rejects_mixed_equality_and_range_key_predicates(ServerMode::Tokio).await
+        })
     }
 
     async fn run_async_client_rejects_mixed_equality_and_range_key_predicates(
@@ -635,16 +655,20 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_roundtrip_numeric_primary_key_and_values() -> RS<()> {
+    #[test]
+    fn async_client_roundtrip_numeric_primary_key_and_values() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_roundtrip_numeric_primary_key_and_values(ServerMode::IOUring).await
+        })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn async_client_roundtrip_numeric_primary_key_and_values_tokio() -> RS<()> {
+    #[test]
+    fn async_client_roundtrip_numeric_primary_key_and_values_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime().unwrap().block_on(async move {
         init_test_logging();
         run_async_client_roundtrip_numeric_primary_key_and_values(ServerMode::Tokio).await
+        })
     }
 
     async fn run_async_client_roundtrip_numeric_primary_key_and_values(

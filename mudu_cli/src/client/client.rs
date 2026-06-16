@@ -12,16 +12,17 @@ use mudu_contract::protocol::{
     encode_range_scan_request, encode_session_close_request, encode_session_create_request,
 };
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::SocketAddr;
+use mudu_sys::net::sync::{SStdTcpStream, connect_tcp};
 
 pub struct SyncClient {
-    stream: TcpStream,
+    stream: SStdTcpStream,
     next_request_id: u64,
 }
 
 impl SyncClient {
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> RS<Self> {
-        let stream = TcpStream::connect(addr)
+    pub fn connect(addr: SocketAddr) -> RS<Self> {
+        let stream = connect_tcp(addr)
             .map_err(|e| m_error!(EC::NetErr, "connect io_uring tcp server error", e))?;
         stream
             .set_nodelay(true)

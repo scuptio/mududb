@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
-use tokio::runtime::Builder;
+use mudu_sys::tokio::runtime::Builder;
 use tpcc::rust::procedure::{
     tpcc_delivery, tpcc_delivery_partitioned, tpcc_new_order, tpcc_new_order_partitioned,
     tpcc_order_status, tpcc_order_status_partitioned, tpcc_payment, tpcc_payment_partitioned,
@@ -186,6 +186,21 @@ fn run_sync(args: Args) -> RS<()> {
     run_seed_sync(init_xid, &args)?;
     prepare_sync_txn_context(init_xid, &args)?;
     mudu_close(init_xid)?;
+    run_sync_workload(args, total_start)
+}
+
+#[cfg(test)]
+async fn run_sync_async(args: Args) -> RS<()> {
+    let total_start = Instant::now();
+    let init_xid = mudu_open()?;
+    init_schema_sync_async(init_xid, &args).await?;
+    run_seed_sync(init_xid, &args)?;
+    prepare_sync_txn_context(init_xid, &args)?;
+    mudu_close(init_xid)?;
+    run_sync_workload(args, total_start)
+}
+
+fn run_sync_workload(args: Args, total_start: Instant) -> RS<()> {
     let load_elapsed_secs = total_start.elapsed().as_secs_f64();
     let txn_start = Instant::now();
     let stats = Arc::new(Mutex::new(BenchmarkStats::default()));
@@ -351,7 +366,7 @@ async fn run_tcp(args: Args) -> RS<()> {
         .await
         .map_err(|e| {
             m_error!(
-                mududb::error::ec::EC::NetErr,
+                NetErr,
                 "connect tpcc tcp client error",
                 e
             )
@@ -635,6 +650,18 @@ fn init_schema_sync(xid: u128, args: &Args) -> RS<()> {
     Ok(())
 }
 
+#[cfg(test)]
+async fn init_schema_sync_async(xid: u128, args: &Args) -> RS<()> {
+    if args.warehouse_partitioned {
+        let topology = load_async_topology(&args.http_addr).await?;
+        execute_statement_sync(xid, &build_partition_rule_sql(args))?;
+        execute_statement_sync(xid, &build_partition_placement_sql(args, &topology)?)?;
+    }
+    execute_sql_script(xid, schema_sql(args))?;
+    execute_sql_script(xid, include_str!("../../sql/init.sql"))?;
+    Ok(())
+}
+
 async fn init_schema_tcp(client: &mut AsyncClientImpl, session_id: u128, args: &Args) -> RS<()> {
     if !args.warehouse_partitioned {
         return Ok(());
@@ -766,9 +793,7 @@ fn build_partition_rule_sql(args: &Args) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "CREATE PARTITION RULE r_tpcc_wh RANGE (warehouse_id) ({partitions})"
-    )
+    format!("CREATE PARTITION RULE r_tpcc_wh RANGE ({partitions})")
 }
 
 fn build_partition_placement_sql(args: &Args, topology: &ServerTopology) -> RS<String> {
@@ -915,8 +940,8 @@ fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
     procedure_invoke::serialize_param(param)
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
+    mudu_sys::task::async_::block_on_async_current(async {
     let args = Args::parse();
     let result = if args.enable_async {
         Err(m_error!(
@@ -930,8 +955,9 @@ async fn main() {
     };
     if let Err(err) = result {
         eprintln!("tpcc benchmark failed: {err}");
-        std::process::exit(1);
+        mudu_sys::process::exit(1);
     }
+    });
 }
 
 #[cfg(all(test, target_os = "linux"))]

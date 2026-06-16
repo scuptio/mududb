@@ -6,7 +6,7 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::sql::DBConn;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_kernel::mudu_conn::mudu_conn_async::MuduConnAsync;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ impl DBConnector {
 
     pub async fn connect_with_async_runtime(
         connect_string: &str,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> RS<DBConn> {
         let db_str_param = parse_db_connect_string(connect_string);
         let mut passing_param = Vec::new();
@@ -58,7 +58,7 @@ impl DBConnector {
             }
         }
 
-        let ddl_path = opt_ddl_path.unwrap_or_else(|| String::default());
+        let ddl_path = opt_ddl_path.unwrap_or_else(String::default);
         let app_name = opt_app.unwrap_or(String::default());
         let db_path = match opt_db_path {
             Some(db_path) => db_path,
@@ -79,7 +79,7 @@ impl DBConnector {
     }
 }
 
-async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<DBConn> {
+async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<DBConn> {
     Ok(DBConn::Async(Arc::new(MuduConnAsync::new_with_runtime(
         async_runtime,
     )?)))

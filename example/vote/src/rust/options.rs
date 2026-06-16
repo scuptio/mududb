@@ -49,7 +49,8 @@ impl Options {
         option_text: Option<String>,
         
     ) -> Self {
-        let s = Self {
+        
+        Self {
             
             option_id : AttrOptionId::from(option_id),
             
@@ -57,8 +58,7 @@ impl Options {
             
             option_text : AttrOptionText::from(option_text),
             
-        };
-        s
+        }
     }
 
     pub fn new_empty() -> Self {
@@ -290,12 +290,12 @@ impl AttrOptionId {
 impl AttrValue<String> for AttrOptionId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -343,12 +343,12 @@ impl AttrVoteId {
 impl AttrValue<String> for AttrVoteId {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {
@@ -396,12 +396,12 @@ impl AttrOptionText {
 impl AttrValue<String> for AttrOptionText {
     fn dat_type() -> &'static DatType {
         static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        ONCE_LOCK.get_or_init(Self::attr_dat_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {
         static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+        ONCE_LOCK.get_or_init(Self::attr_datum_desc)
     }
 
     fn object_name() -> &'static str {

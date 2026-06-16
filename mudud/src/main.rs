@@ -1,11 +1,12 @@
+
 use clap::Parser;
 use mudu::common::result::RS;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::load_mududb_cfg;
-use mudu_sys::task_async::wait_for_shutdown_signal;
+use mudu_sys::task::async_::wait_for_shutdown_signal;
 use mudu_utils::log::log_setup_ex;
 use mudu_utils::notifier::{Notifier, notify_wait};
-use std::thread;
+use mudu_sys::task::sync::{SJoinHandle, spawn_thread_named};
 use tracing::{error, info};
 
 #[derive(Debug, Parser)]
@@ -52,15 +53,16 @@ fn serve(args: Args) -> RS<()> {
     serve_result
 }
 
-fn spawn_signal_listener(stop: Notifier) -> RS<thread::JoinHandle<()>> {
-    thread::Builder::new()
-        .name("mudud-signal-listener".to_string())
-        .spawn(move || wait_for_shutdown_signal(stop))
-        .map_err(|e| {
-            mudu::m_error!(
-                mudu::error::ec::EC::ThreadErr,
-                "spawn signal listener error",
-                e
-            )
-        })
+fn spawn_signal_listener(stop: Notifier) -> RS<SJoinHandle<()>> {
+    spawn_thread_named(
+        "mudud-signal-listener",
+        move || wait_for_shutdown_signal(stop),
+    )
+    .map_err(|e| {
+        mudu::m_error!(
+            mudu::error::ec::EC::ThreadErr,
+            "spawn signal listener error",
+            e
+        )
+    })
 }

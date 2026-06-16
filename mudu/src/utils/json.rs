@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use crate::common::result::RS;
 use crate::error::ec::EC;
 use crate::m_error;

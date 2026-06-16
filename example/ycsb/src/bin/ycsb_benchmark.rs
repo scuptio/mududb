@@ -262,7 +262,7 @@ fn main() {
     })();
     if let Err(err) = result {
         eprintln!("ycsb benchmark failed: {err}");
-        std::process::exit(1);
+        mudu_sys::process::exit(1);
     }
 }
 
@@ -296,7 +296,7 @@ fn run_async_mode(args: Args) -> RS<()> {
         })?;
     runtime.block_on(async move {
         let canceler = NotifyWait::new_with_name("ycsb-benchmark-root".to_string());
-        let join = spawn_task(canceler, "ycsb-benchmark-root", async move {
+        let join = spawn_task(canceler.as_waiter(), "ycsb-benchmark-root", async move {
             run_async(args).await
         })?;
         let output = join.await.map_err(|e| {
@@ -521,7 +521,7 @@ async fn run_workers_async(
         let start_barrier = start_barrier.clone();
         let task_name = format!("ycsb-worker-{}-{}", phase.as_str(), worker_idx);
         handles.push(spawn_task(
-            NotifyWait::new_with_name(task_name.clone()),
+            NotifyWait::new_with_name(task_name.clone()).as_waiter(),
             &task_name,
             async move {
                 run_worker_async(

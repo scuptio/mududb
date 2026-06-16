@@ -10,7 +10,7 @@ mod tests {
     use mudu_contract::procedure::procedure_param::ProcedureParam;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use mudu_utils::log::log_setup_ex;
-    use mudu_utils::notifier::NotifyWait;
+    use mudu_utils::notifier::notify_wait;
     use mudu_utils::task_async::spawn_task;
     use mudu_utils::task_trace::this_task_id;
     use std::env::temp_dir;
@@ -75,8 +75,8 @@ mod tests {
         )
         .await?;
 
-        let stopper = NotifyWait::new();
-        let task = spawn_task(stopper.clone(), "test session task", async move {
+        let (_stop_notifier, stop_waiter) = notify_wait();
+        let task = spawn_task(stop_waiter, "test session task", async move {
             match test_kind {
                 TestProc::Proc => {
                     async_session(service).await?;

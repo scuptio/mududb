@@ -14,7 +14,7 @@ impl XLockMgr {
         }
     }
 
-    pub fn try_lock_some(&self, oid: OID, table_keys: &Vec<(PhysicalRelationId, Vec<u8>)>) -> bool {
+    pub fn try_lock_some(&self, oid: OID, table_keys: &[(PhysicalRelationId, Vec<u8>)]) -> bool {
         mudu_utils::scoped_task_trace!();
         let mut lock = self.lock.lock().unwrap();
         let mut acquired: Vec<(PhysicalRelationId, Vec<u8>)> = Vec::new();
@@ -41,7 +41,7 @@ impl XLockMgr {
         true
     }
 
-    pub fn release(&self, oid: OID, table_keys: &Vec<(PhysicalRelationId, Vec<u8>)>) {
+    pub fn release(&self, oid: OID, table_keys: &[(PhysicalRelationId, Vec<u8>)]) {
         let mut lock = self.lock.lock().unwrap();
         for (relation_id, key) in table_keys.iter() {
             let map = lock.entry(*relation_id).or_default();

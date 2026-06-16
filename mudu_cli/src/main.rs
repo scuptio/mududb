@@ -10,7 +10,6 @@ use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::protocol::{ProcedureInvokeRequest, SessionCloseRequest, SessionCreateRequest};
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use serde_json::{Value, json};
-use std::fs;
 use std::io::IsTerminal;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -163,13 +162,14 @@ struct PartitionRouteArgs {
     end: Option<Vec<String>>,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
-    if let Err(err) = run(cli).await {
-        eprintln!("{err}");
-        std::process::exit(1);
-    }
+    mudu_sys::task::async_::block_on_async_current(async {
+        if let Err(err) = run(cli).await {
+            eprintln!("{err}");
+            mudu_sys::process::exit(1);
+        }
+    });
 }
 
 async fn run(cli: Cli) -> AppResult<()> {
@@ -286,7 +286,7 @@ async fn run(cli: Cli) -> AppResult<()> {
             response
         }
         Commands::AppInstall(args) => {
-            let mpk_binary = fs::read(&args.mpk)
+            let mpk_binary = mudu_sys::fs::sync::sync_read_all(&args.mpk)
                 .map_err(|e| format!("read {} failed: {}", args.mpk.display(), e))?;
             install_app_package(&http_addr, mpk_binary).await?;
             let mut response = json!({
@@ -430,7 +430,8 @@ fn read_text_path(path: &PathBuf) -> AppResult<String> {
     if path.as_os_str() == "-" {
         read_stdin_to_string()
     } else {
-        fs::read_to_string(path).map_err(|e| format!("read {} failed: {}", path.display(), e))
+        mudu_sys::fs::sync::sync_read_to_string(path)
+            .map_err(|e| format!("read {} failed: {}", path.display(), e))
     }
 }
 
@@ -458,12 +459,11 @@ fn print_json(value: &Value, compact: bool) -> AppResult<()> {
 
 fn print_output(value: &Value, compact: bool, table: bool, no_table: bool) -> AppResult<()> {
     let interactive_tty = io::stdout().is_terminal() && io::stdin().is_terminal();
-    if !compact && !no_table && (table || interactive_tty) {
-        if let Some(table) = mudu_cli::tui::extract_query_table(value) {
+    if !compact && !no_table && (table || interactive_tty)
+        && let Some(table) = mudu_cli::tui::extract_query_table(value) {
             mudu_cli::tui::run_query_table(table)?;
             return Ok(());
         }
-    }
     print_json(value, compact)
 }
 
@@ -592,9 +592,8 @@ async fn run_shell(
 }
 
 fn get_history_path(app: &str) -> Option<PathBuf> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
+    mudu_sys::env_var::var("HOME")
+        .or(mudu_sys::env_var::var("USERPROFILE"))
         .map(|h| {
             let mut path = std::path::PathBuf::from(h);
             path.push(format!(".mcli_history_{}", app));
@@ -642,7 +641,6 @@ fn finalize_statement(buf: &str) -> String {
 
 fn looks_like_query(sql: &str) -> bool {
     let first = sql
-        .trim_start()
         .split_whitespace()
         .next()
         .unwrap_or("")
@@ -685,10 +683,10 @@ mod tests {
     #[test]
     fn load_required_text_reads_file() {
         let path = unique_temp_path("mudu_cli_json");
-        fs::write(&path, "{\"v\":1}").unwrap();
+        mudu_sys::fs::sync::sync_write(&path, "{\"v\":1}").unwrap();
         let text = load_required_text(None, Some(path.clone())).unwrap();
         assert_eq!(text, "{\"v\":1}");
-        fs::remove_file(path).unwrap();
+        mudu_sys::fs::sync::sync_remove_file(path).unwrap();
     }
 
     #[test]
@@ -784,6 +782,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("{prefix}_{nanos}.json"))
+        mudu_sys::env_var::temp_dir().join(format!("{prefix}_{nanos}.json"))
     }
 }

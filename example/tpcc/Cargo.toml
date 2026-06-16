@@ -15,16 +15,21 @@ benchmark-runner = [
     "dep:clap",
     "dep:mudu_adapter",
     "dep:mudu_cli",
+    "dep:mudu_sys",
     "dep:mudu_utils",
     "dep:tokio",
     "debug_trace",
     "mududb/standalone-adapter",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
 mudu_adapter = { workspace = true, optional = true }
 mudu_cli = { workspace = true, optional = true }
+mudu_sys = { workspace = true, optional = true }
 mudu_utils = { workspace = true, optional = true, features = ["debug_trace"] }
 wit-bindgen = { workspace = true }
 lazy_static = { workspace = true }

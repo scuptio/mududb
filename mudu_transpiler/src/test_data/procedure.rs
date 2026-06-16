@@ -11,13 +11,13 @@ use mudu::error::ec::EC::MuduError;
 use mudu::m_error;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::{sql_params, sql_stmt};
+use mudu_sys::random::next_uuid_v4_string;
 use sys_interface::sync_api::{mudu_command, mudu_query};
-use uuid::Uuid;
 
 // User management
 /**mudu-proc**/
 pub fn create_user(xid: OID, phone: String) -> RS<String> {
-    let user_id = Uuid::new_v4().to_string();
+    let user_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO users (user_id, phone) VALUES (?, ?)"),
@@ -51,7 +51,7 @@ pub fn create_vote(
         return Err(m_error!(MuduError, "Visibility rule must be 'always' or 'after_end'".to_string()));
     }
 
-    let vote_id = Uuid::new_v4().to_string();
+    let vote_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(
@@ -66,7 +66,7 @@ pub fn create_vote(
 // Add option to vote
 /**mudu-proc**/
 pub fn add_option(xid: OID, vote_id: String, option_text: String) -> RS<String> {
-    let option_id = Uuid::new_v4().to_string();
+    let option_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO options (option_id, vote_id, option_text) VALUES (?, ?, ?)"),
@@ -110,7 +110,7 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
     }
 
     // Create vote action
-    let action_id = Uuid::new_v4().to_string();
+    let action_id = next_uuid_v4_string();
     let action_time = Utc::now().timestamp();
     mudu_command(
         xid,
@@ -123,7 +123,7 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
 
     // Create vote choices
     for option_id in option_ids {
-        let choice_id = Uuid::new_v4().to_string();
+        let choice_id = next_uuid_v4_string();
         mudu_command(
             xid,
             sql_stmt!(

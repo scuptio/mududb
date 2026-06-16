@@ -103,12 +103,12 @@ pub mod object {
     #[allow(unused)]
     impl Wallets {
         pub fn new(user_id: Option<i32>, balance: Option<i32>, updated_at: Option<i32>) -> Self {
-            let s = Self {
+            
+            Self {
                 user_id,
                 balance,
                 updated_at,
-            };
-            s
+            }
         }
 
         pub fn set_user_id(&mut self, user_id: i32) {
@@ -181,12 +181,12 @@ pub mod object {
 
     impl Entity for Wallets {
         fn new_empty() -> Self {
-            let s = Self {
+            
+            Self {
                 user_id: None,
                 balance: None,
                 updated_at: None,
-            };
-            s
+            }
         }
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
@@ -269,12 +269,12 @@ pub mod object {
     impl AttrValue<i32> for AttrUserId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -291,12 +291,12 @@ pub mod object {
     impl AttrValue<i32> for AttrBalance {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -313,12 +313,12 @@ pub mod object {
     impl AttrValue<i32> for AttrUpdatedAt {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {

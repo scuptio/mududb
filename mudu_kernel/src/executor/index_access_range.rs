@@ -6,7 +6,7 @@ use crate::x_engine::x_param::PAccessRange;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc as TupleDesc;
-use mudu_sys::sync::f_mutex::FMutex;
+use mudu_sys::sync::futures_mutex::FMutex;
 use std::sync::Arc;
 
 pub struct IndexAccessRange {

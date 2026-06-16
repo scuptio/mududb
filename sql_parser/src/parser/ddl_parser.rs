@@ -12,6 +12,12 @@ pub struct DDLParser {
     parser: SQLParser,
 }
 
+impl Default for DDLParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DDLParser {
     pub fn new() -> DDLParser {
         Self {

@@ -40,17 +40,18 @@ use mudu_binding::universal::uni_dat_type::UniDatType;
 use mudu_binding::universal::uni_dat_value::UniDatValue;
 use mudu_binding::universal::uni_scalar::UniScalar;
 use mudu_binding::universal::uni_scalar_value::UniScalarValue;
+use mudu_sys::sync::SMutex;
 use mudu_type::dat_typed::DatTyped;
 use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use substring::Substring;
 use tree_sitter::{Language, Node, Parser};
 use tree_sitter_sql;
 
 pub struct SQLParser {
-    parser: Mutex<Parser>,
+    parser: SMutex<Parser>,
 }
 
 struct ParseContext {
@@ -68,7 +69,7 @@ impl ParseContext {
 }
 
 fn sql_language() -> Language {
-    tree_sitter_sql::LANGUAGE.clone().into()
+    tree_sitter_sql::LANGUAGE.into()
 }
 
 fn traverse_tree_for_error_nodes<'t>(node: &Node<'t>, error_nodes: &mut Vec<Node<'t>>) {
@@ -77,7 +78,7 @@ fn traverse_tree_for_error_nodes<'t>(node: &Node<'t>, error_nodes: &mut Vec<Node
     }
 
     if node.kind() == "ERROR" || node.is_missing() {
-        error_nodes.push(node.clone());
+        error_nodes.push(*node);
     }
 
     let mut cursor = node.walk();
@@ -116,7 +117,7 @@ fn error_text(
         if let Some(s) = opt {
             let str = if i == line_start && i != line_end {
                 s[column_start..].to_string()
-            } else if i != line_end && i == line_end {
+            } else if i != line_start && i == line_end {
                 s[..column_end].to_string()
             } else if i == line_start && i == line_end {
                 s[column_start..column_end].to_string()
@@ -185,12 +186,18 @@ fn print_parse_error<W: Write>(parse_text: &str, node: &Node, writer: &mut W) ->
     Ok(())
 }
 
+impl Default for SQLParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SQLParser {
     pub fn new() -> SQLParser {
         let mut parser = Parser::new();
         parser.set_language(&sql_language()).unwrap();
         Self {
-            parser: Mutex::new(parser),
+            parser: SMutex::new(parser),
         }
     }
 
@@ -652,7 +659,7 @@ impl SQLParser {
             EC::ParseErr,
             format!(
                 "unknown expression {}",
-                ts_node_context_string(&context.parse_str(), &node)?
+                ts_node_context_string(context.parse_str(), &node)?
             )
         ))
     }
@@ -662,7 +669,7 @@ impl SQLParser {
             .child_by_field_name(ts_field_name::KEYWORD_NULL)
             .is_some()
             || node.kind() == ts_kind_name::S_KEYWORD_NULL
-            || ts_node_context_string(&context.parse_str(), &node)?.eq_ignore_ascii_case("null")
+            || ts_node_context_string(context.parse_str(), &node)?.eq_ignore_ascii_case("null")
         {
             return Ok(ExprLiteral::Null);
         }
@@ -728,7 +735,7 @@ impl SQLParser {
 
     fn visit_operator(&self, context: &ParseContext, node: Node) -> RS<Operator> {
         let op_string = ts_node_context_string(context.parse_str(), &node)?;
-        Operator::from_str(op_string)
+        Operator::from_name(op_string)
     }
 
     fn visit_relation(&self, context: &ParseContext, node: Node, stmt: &mut StmtSelect) -> RS<()> {
@@ -813,18 +820,18 @@ impl SQLParser {
                 EC::NoneErr,
                 format!(
                     "alias not found in {}",
-                    ts_node_context_string(&context.parse_str(), &node)?
+                    ts_node_context_string(context.parse_str(), &node)?
                 )
             )),
             Some(n) => {
-                let s = ts_node_context_string(&context.parse_str(), &n)?;
+                let s = ts_node_context_string(context.parse_str(), &n)?;
                 Ok(s)
             }
         }
     }
 
     fn visit_identifier(&self, context: &ParseContext, node: Node) -> RS<String> {
-        ts_node_context_string(&context.parse_str(), &node)
+        ts_node_context_string(context.parse_str(), &node)
     }
 
     fn visit_string(&self, context: &ParseContext, node: Node) -> RS<String> {
@@ -1055,7 +1062,7 @@ impl SQLParser {
 
     fn visit_char_param(&self, context: &ParseContext, node: Node) -> RS<UniDatValue> {
         if let Some(n) = node.child_by_field_name(ts_field_name::LENGTH) {
-            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let s = ts_node_context_string(context.parse_str(), &n)?;
             let r = i64::from_str(s.as_str());
             match r {
                 Ok(l) => Ok(UniDatValue::Scalar(UniScalarValue::I64(l))),
@@ -1073,13 +1080,13 @@ impl SQLParser {
     ) -> RS<Option<Vec<UniDatValue>>> {
         let mut params = Vec::new();
         if let Some(n) = node.child_by_field_name(ts_field_name::PRECISION) {
-            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let s = ts_node_context_string(context.parse_str(), &n)?;
             let value = i64::from_str(s.as_str())
                 .map_err(|e| m_error!(EC::ParseErr, "parse precision error", e))?;
             params.push(UniDatValue::Scalar(UniScalarValue::I64(value)));
         }
         if let Some(n) = node.child_by_field_name(ts_field_name::SCALE) {
-            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let s = ts_node_context_string(context.parse_str(), &n)?;
             let value = i64::from_str(s.as_str())
                 .map_err(|e| m_error!(EC::ParseErr, "parse scale error", e))?;
             params.push(UniDatValue::Scalar(UniScalarValue::I64(value)));
@@ -1100,7 +1107,7 @@ impl SQLParser {
             .child_by_field_name(ts_field_name::PRECISION)
             .or_else(|| node.child_by_field_name(ts_field_name::SIZE));
         if let Some(n) = opt {
-            let s = ts_node_context_string(&context.parse_str(), &n)?;
+            let s = ts_node_context_string(context.parse_str(), &n)?;
             let value = i64::from_str(s.as_str())
                 .map_err(|e| m_error!(EC::ParseErr, "parse precision error", e))?;
             Ok(Some(vec![UniDatValue::Scalar(UniScalarValue::I64(value))]))
@@ -1180,7 +1187,7 @@ impl SQLParser {
                 EC::ParseErr,
                 format!(
                     "no value expression list node {}",
-                    ts_node_context_string(&context.parse_str(), &node).unwrap()
+                    ts_node_context_string(context.parse_str(), &node).unwrap()
                 )
             )
         })?;
@@ -1213,7 +1220,7 @@ impl SQLParser {
     }
 
     fn visit_column(&self, context: &ParseContext, node: Node) -> RS<String> {
-        ts_node_context_string(&context.parse_str(), &node)
+        ts_node_context_string(context.parse_str(), &node)
     }
 
     fn visit_update_statement(&self, context: &ParseContext, node: Node) -> RS<StmtUpdate> {

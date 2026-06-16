@@ -16,8 +16,8 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn to_proc_desc(&self, module_name: &String, custom_types: &UniTypeDesc) -> RS<ProcDesc> {
-        if self.arg_list.len() < 1 {
+    pub fn to_proc_desc(&self, module_name: &str, custom_types: &UniTypeDesc) -> RS<ProcDesc> {
+        if self.arg_list.is_empty() {
             return Err(m_error!(
                 EC::InternalErr,
                 "procedure must have at least one OID argument"
@@ -40,7 +40,7 @@ impl Function {
             vec![]
         };
         Ok(ProcDesc::new(
-            module_name.clone(),
+            module_name.to_owned(),
             self.name.clone(),
             TupleFieldDesc::new(params),
             TupleFieldDesc::new(rets),

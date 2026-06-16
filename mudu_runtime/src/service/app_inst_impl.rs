@@ -17,12 +17,12 @@ use mudu_contract::database::sql::{Context, DBConn};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_kernel::server::worker_local::WorkerLocalRef;
 use mudu_utils::task_id::{TaskID, new_task_id};
 use mudu_utils::task_trace;
 use scc::HashMap;
-use std::fs::File;
+use mudu_sys::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -40,18 +40,18 @@ struct AppInstImplInner {
     modules: HashMap<String, PackageModule>,
     _conn: HashMap<u128, DBConn>,
     component_target: ComponentTarget,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl AppInstImpl {
     pub async fn build(
-        db_path: &String,
+        db_path: &str,
         package: &MuduPackage,
         vec_modules: Vec<(String, PackageModule)>,
         component_target: ComponentTarget,
         enable_async: bool,
         server_mode: ServerMode,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> RS<Self> {
         Ok(Self {
             inner: Arc::new(
@@ -90,29 +90,29 @@ impl AppInstImpl {
     }
 
     pub fn schema_mgr(&self) -> &SchemaMgr {
-        &self.inner.schema_mgr()
+        self.inner.schema_mgr()
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.inner.async_runtime()
     }
 }
 
 impl AppInstImplInner {
     async fn build(
-        db_path: &String,
+        db_path: &str,
         package: &MuduPackage,
         vec_modules: Vec<(String, PackageModule)>,
         component_target: ComponentTarget,
         enable_async: bool,
         server_mode: ServerMode,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> RS<Self> {
         let modules = HashMap::new();
         let app_cfg = &package.package_cfg;
         let ddl_sql = &package.ddl_sql;
         let init_sql = &package.initdb_sql;
-        let schema_mgr = SchemaMgr::from_sql_text(&ddl_sql)?;
+        let schema_mgr = SchemaMgr::from_sql_text(ddl_sql)?;
         for (name, module) in vec_modules {
             let _ = modules.insert_sync(name, module);
         }
@@ -132,7 +132,7 @@ impl AppInstImplInner {
             package_cfg: app_cfg.clone(),
             enable_async,
             server_mode,
-            db_path: db_path.clone(),
+            db_path: db_path.to_owned(),
             schema_mgr,
             modules,
             _conn: Default::default(),
@@ -150,7 +150,7 @@ impl AppInstImplInner {
         });
         Ok(vec)
     }
-    pub fn describe_procedure(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>> {
+    pub fn describe_procedure(&self, mod_name: &str, proc_name: &str) -> RS<Arc<ProcDesc>> {
         let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
             m_error!(
                 EC::NoneErr,
@@ -163,8 +163,8 @@ impl AppInstImplInner {
     pub async fn invoke_procedure(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
@@ -185,14 +185,14 @@ impl AppInstImplInner {
                 Context::rollback(xid)?;
             }
         }
-        Ok(result?)
+        result
     }
 
     pub async fn invoke_procedure_async(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
@@ -231,7 +231,7 @@ impl AppInstImplInner {
             }
         }
         trace.watch("procedure.stage", "done");
-        Ok(result?)
+        result
     }
 
     pub fn procedure(&self, mod_name: &str, proc_name: &str) -> Option<Procedure> {
@@ -272,15 +272,15 @@ impl AppInstImplInner {
         &self.schema_mgr
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.async_runtime.clone()
     }
 
     async fn pre_invoke(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
     ) -> RS<(Procedure, ProcedureParam, bool)> {
         let trace = task_trace!();
@@ -313,11 +313,11 @@ impl AppInstImplInner {
 }
 
 async fn new_conn(
-    db_path: &String,
-    app_name: &String,
+    db_path: &str,
+    app_name: &str,
     enable_async: bool,
     server_mode: ServerMode,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<DBConn> {
     let db_type = if matches!(server_mode, ServerMode::IOUring | ServerMode::Tokio) {
         "MuduDB".to_string()
@@ -332,16 +332,16 @@ async fn new_conn(
 }
 
 async fn initdb(
-    db_path: &String,
-    app_name: &String,
-    sql: &String,
+    db_path: &str,
+    app_name: &str,
+    sql: &str,
     schema_mgr: &SchemaMgr,
     enable_async: bool,
     server_mode: ServerMode,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<()> {
     let init_db_lock = PathBuf::from(&db_path).join(format!("{}.lock", app_name));
-    if init_db_lock.exists() {
+    if fs::sync::sync_path_exists(&init_db_lock) {
         if matches!(server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             return Ok(());
         }
@@ -359,8 +359,8 @@ async fn initdb(
         }
     }
     let conn = new_conn(db_path, app_name, enable_async, server_mode, async_runtime).await?;
-    conn.execute_silent(sql.clone()).await?;
-    File::create(&init_db_lock).map_err(|e| {
+    conn.execute_silent(sql.to_owned()).await?;
+    fs::sync::SFile::create(&init_db_lock).map_err(|e| {
         m_error!(
             EC::IOErr,
             format!("failed to create file: {}", init_db_lock.to_str().unwrap()),
@@ -371,12 +371,12 @@ async fn initdb(
 }
 
 async fn is_schema_initialized(
-    db_path: &String,
-    app_name: &String,
+    db_path: &str,
+    app_name: &str,
     schema_mgr: &SchemaMgr,
     enable_async: bool,
     server_mode: ServerMode,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<bool> {
     let conn = new_conn(db_path, app_name, enable_async, server_mode, async_runtime).await?;
     for table_name in schema_mgr.table_names() {
@@ -415,8 +415,8 @@ impl AppInst for AppInstImpl {
     async fn invoke(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
@@ -428,8 +428,8 @@ impl AppInst for AppInstImpl {
     async fn invoke_async(
         &self,
         task_id: TaskID,
-        mod_name: &String,
-        proc_name: &String,
+        mod_name: &str,
+        proc_name: &str,
         param: ProcedureParam,
         worker_local: Option<WorkerLocalRef>,
     ) -> RS<ProcedureResult> {
@@ -438,7 +438,7 @@ impl AppInst for AppInstImpl {
             .await
     }
 
-    fn describe(&self, mod_name: &String, proc_name: &String) -> RS<Arc<ProcDesc>> {
+    fn describe(&self, mod_name: &str, proc_name: &str) -> RS<Arc<ProcDesc>> {
         self.inner.describe_procedure(mod_name, proc_name)
     }
 }

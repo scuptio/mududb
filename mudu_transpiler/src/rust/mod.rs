@@ -7,7 +7,6 @@ use mudu::utils::json::{from_json_str, to_json_str};
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 mod function;
@@ -20,28 +19,20 @@ mod template_proc;
 mod ts_const;
 
 /// Transpile Rust source code to target language
-pub fn transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(
-    input: I,
-    output: O,
-    module_name: String,
-    verbose: bool,
-    enable_async: bool,
-    src_mod: Option<String>,
-    dst_mod: Option<String>,
-    output_desc_file: Option<String>,
-    opt_custom_type_def_file: Option<String>,
-) -> i32 {
-    let r = _transpile_rust(
-        input,
-        output,
-        module_name,
-        verbose,
-        enable_async,
-        src_mod,
-        dst_mod,
-        output_desc_file,
-        opt_custom_type_def_file,
-    );
+pub struct TranspileRustOptions<I, O> {
+    pub input: I,
+    pub output: O,
+    pub module_name: String,
+    pub verbose: bool,
+    pub enable_async: bool,
+    pub src_mod: Option<String>,
+    pub dst_mod: Option<String>,
+    pub output_desc_file: Option<String>,
+    pub custom_type_def_file: Option<String>,
+}
+
+pub fn transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(options: TranspileRustOptions<I, O>) -> i32 {
+    let r = _transpile_rust(options);
     match r {
         Ok(()) => 0,
         Err(e) => {
@@ -52,18 +43,21 @@ pub fn transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(
 }
 
 pub fn _transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(
-    input: I,
-    output: O,
-    module_name: String,
-    verbose: bool,
-    enable_async: bool,
-    src_mod: Option<String>,
-    dst_mod: Option<String>,
-    opt_output_desc_file: Option<String>,
-    opt_custom_type_def_file: Option<String>,
+    options: TranspileRustOptions<I, O>,
 ) -> RS<()> {
+    let TranspileRustOptions {
+        input,
+        output,
+        module_name,
+        verbose,
+        enable_async,
+        src_mod,
+        dst_mod,
+        output_desc_file,
+        custom_type_def_file,
+    } = options;
     // Read input file
-    let code = fs::read_to_string(input)
+    let code = mudu_sys::fs::sync::sync_read_to_string(input)
         .map_err(|e| m_error!(EC::IOErr, "read rust source code error", e))?;
     let mut context = ParseContext::new(code, src_mod, dst_mod);
     RustParser::parse(&mut context)?;
@@ -75,15 +69,14 @@ pub fn _transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(
     let transpiled_code = context.render_source(module_name.clone(), enable_async)?;
 
     // Write output file
-    fs::write(&output, transpiled_code)
+    mudu_sys::fs::sync::sync_write(&output, transpiled_code)
         .map_err(|e| m_error!(EC::IOErr, "write transpiled rust source code error", e))?;
 
-    if let Some(desc_files) = opt_output_desc_file {
-        let custom_types = if let Some(type_desc_file) = opt_custom_type_def_file {
-            let text = fs::read_to_string(type_desc_file)
+    if let Some(desc_files) = output_desc_file {
+        let custom_types = if let Some(type_desc_file) = custom_type_def_file {
+            let text = mudu_sys::fs::sync::sync_read_to_string(type_desc_file)
                 .map_err(|e| m_error!(EC::IOErr, "read type description file error", e))?;
-            let map = from_json_str::<UniTypeDesc>(&text)?;
-            map
+            from_json_str::<UniTypeDesc>(&text)?
         } else {
             Default::default()
         };
@@ -91,7 +84,7 @@ pub fn _transpile_rust<I: AsRef<Path>, O: AsRef<Path>>(
         let modules = HashMap::from_iter(vec![(module_name.clone(), proc_desc_list)]);
         let package_desc = ModProcDesc::new(modules);
         let toml_str = to_json_str(&package_desc)?;
-        fs::write(&desc_files, toml_str)
+        mudu_sys::fs::sync::sync_write(&desc_files, toml_str)
             .map_err(|e| m_error!(EC::IOErr, "write description files error", e))?;
     }
     if verbose {

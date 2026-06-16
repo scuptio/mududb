@@ -5,6 +5,7 @@ use crate::universal::uni_sql_stmt::UniSqlStmt;
 use crate::universal::uni_sql_param::UniSqlParam;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub struct UniQueryArgv {
     pub oid: UniOid,
 
@@ -13,14 +14,3 @@ pub struct UniQueryArgv {
     pub param_list: UniSqlParam,
 }
 
-impl Default for UniQueryArgv {
-    fn default() -> Self {
-        Self {
-            oid: Default::default(),
-
-            query: Default::default(),
-
-            param_list: Default::default(),
-        }
-    }
-}

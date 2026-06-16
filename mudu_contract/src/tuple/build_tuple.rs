@@ -50,7 +50,7 @@ pub fn build_tuple_into(
     Ok(Ok(offset))
 }
 
-pub fn build_tuple(vec: &Vec<Buf>, tuple_desc: &TupleBinaryDesc) -> RS<TupleBinary> {
+pub fn build_tuple(vec: &[Buf], tuple_desc: &TupleBinaryDesc) -> RS<TupleBinary> {
     let mut tuple = vec![0; tuple_desc.min_tuple_size()];
     tuple.resize(tuple_desc.min_tuple_size(), 0);
     if vec.len() != tuple_desc.field_count() {

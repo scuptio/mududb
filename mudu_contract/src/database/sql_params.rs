@@ -49,8 +49,7 @@ pub trait SQLParams: Send + Sync {
             ));
         }
         let mut vec = Vec::with_capacity(size);
-        for i in 0..size {
-            let datum_desc = &desc[i];
+        for (i, datum_desc) in desc.iter().enumerate().take(size) {
             let datum = self.get_idx_unchecked(i as u64);
             let binary = datum.to_binary(datum_desc.dat_type())?;
             vec.push(binary.into())

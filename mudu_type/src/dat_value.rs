@@ -173,27 +173,27 @@ impl DatValue {
 
     /// Conversion methods to owned values
     pub fn to_f32(&self) -> f32 {
-        self.expect_f32().clone()
+        *self.expect_f32()
     }
 
     pub fn to_f64(&self) -> f64 {
-        self.expect_f64().clone()
+        *self.expect_f64()
     }
 
     pub fn to_i32(&self) -> i32 {
-        self.expect_i32().clone()
+        *self.expect_i32()
     }
 
     pub fn to_i64(&self) -> i64 {
-        self.expect_i64().clone()
+        *self.expect_i64()
     }
 
     pub fn to_i128(&self) -> i128 {
-        self.expect_i128().clone()
+        *self.expect_i128()
     }
 
     pub fn to_oid(&self) -> u128 {
-        self.expect_u128().clone()
+        *self.expect_u128()
     }
 }
 

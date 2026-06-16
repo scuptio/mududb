@@ -1,7 +1,6 @@
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::table_desc::TableDesc;
-use mudu_sys::io::file as async_file;
 use crate::x_engine::api::{OptRead, Predicate, RangeData, VecSelTerm, XContract};
 use crate::x_engine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -10,12 +9,26 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::contract::file_options::FileOptions;
+use mudu_sys::sync::async_::AMutex;
 use std::ops::Bound;
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct SaveToFile {
     inner: AMutex<_SaveToFile>,
+}
+
+pub struct SaveToFileParams {
+    pub file_path: String,
+    pub tx_mgr: Arc<dyn TxMgr>,
+    pub table_id: OID,
+    pub key_indexing: Vec<usize>,
+    pub value_indexing: Vec<usize>,
+    pub x_contract: Arc<dyn XContract>,
+    pub meta_mgr: Arc<dyn MetaMgr>,
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 struct _SaveToFile {
@@ -26,29 +39,14 @@ struct _SaveToFile {
     value_indexing: Vec<usize>,
     x_contract: Arc<dyn XContract>,
     meta_mgr: Arc<dyn MetaMgr>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     affected_rows: u64,
 }
 
 impl SaveToFile {
-    pub fn new(
-        file_path: String,
-        tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        key_indexing: Vec<usize>,
-        value_indexing: Vec<usize>,
-        x_contract: Arc<dyn XContract>,
-        meta_mgr: Arc<dyn MetaMgr>,
-    ) -> Self {
+    pub fn new(params: SaveToFileParams) -> Self {
         Self {
-            inner: AMutex::new(_SaveToFile::new(
-                file_path,
-                tx_mgr,
-                table_id,
-                key_indexing,
-                value_indexing,
-                x_contract,
-                meta_mgr,
-            )),
+            inner: AMutex::new(_SaveToFile::new(params)),
         }
     }
 }
@@ -74,23 +72,16 @@ impl CmdExec for SaveToFile {
 }
 
 impl _SaveToFile {
-    fn new(
-        file_path: String,
-        tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        key_indexing: Vec<usize>,
-        value_indexing: Vec<usize>,
-        x_contract: Arc<dyn XContract>,
-        meta_mgr: Arc<dyn MetaMgr>,
-    ) -> Self {
+    fn new(params: SaveToFileParams) -> Self {
         Self {
-            file_path,
-            tx_mgr,
-            table_id,
-            key_indexing,
-            value_indexing,
-            x_contract,
-            meta_mgr,
+            file_path: params.file_path,
+            tx_mgr: params.tx_mgr,
+            table_id: params.table_id,
+            key_indexing: params.key_indexing,
+            value_indexing: params.value_indexing,
+            x_contract: params.x_contract,
+            meta_mgr: params.meta_mgr,
+            async_runtime: params.async_runtime,
             affected_rows: 0,
         }
     }
@@ -168,7 +159,11 @@ impl _SaveToFile {
             )
         })?;
         let file_path = normalized_copy_path(&self.file_path);
-        write_csv_payload(&file_path, payload).await?;
+        let async_runtime = self
+            .async_runtime
+            .as_ref()
+            .ok_or_else(|| m_error!(ER::IOErr, "save failed, no async runtime available"))?;
+        write_csv_payload(async_runtime, &file_path, payload).await?;
         Ok(rows)
     }
 
@@ -229,30 +224,35 @@ impl _SaveToFile {
     }
 }
 
-async fn write_csv_payload(path: &str, payload: Vec<u8>) -> RS<()> {
-    // io_uring workers also have a Tokio runtime, so checking for a current
-    // Tokio handle is not a valid backend switch. Keep COPY TO on the shared
-    // kernel async file path instead of falling back to `mudu_sys::tokio::fs`.
-    let file = async_file::open(
-        path,
-        libc::O_CREAT | libc::O_TRUNC | libc::O_WRONLY | async_file::cloexec_flag(),
-        0o644,
-    )
-    .await
-    .map_err(|e| {
-        m_error!(
-            ER::IOErr,
-            format!("save failed, open csv file {} error, {}", path, e)
+async fn write_csv_payload(
+    async_runtime: &Arc<dyn AsyncIoProvider>,
+    path: &str,
+    payload: Vec<u8>,
+) -> RS<()> {
+    let fs = async_runtime.fs_arc();
+    let file = fs
+        .open(
+            Path::new(path),
+            FileOptions::new(
+                libc::O_CREAT | libc::O_TRUNC | libc::O_WRONLY | libc::O_CLOEXEC,
+                0o644,
+            ),
         )
-    })?;
-    let write_result = async_file::write(&file, payload, 0).await.map_err(|e| {
+        .await
+        .map_err(|e| {
+            m_error!(
+                ER::IOErr,
+                format!("save failed, open csv file {} error, {}", path, e)
+            )
+        })?;
+    let write_result = file.write_all_at(0, &payload).await.map_err(|e| {
         m_error!(
             ER::IOErr,
             format!("save failed, write csv file {} error, {}", path, e)
         )
     });
-    let flush_result = async_file::flush(&file).await;
-    let close_result = async_file::close(file).await;
+    let flush_result = file.fsync().await;
+    let close_result = file.close().await;
     write_result?;
     flush_result.map_err(|e| {
         m_error!(

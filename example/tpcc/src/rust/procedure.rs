@@ -9,14 +9,13 @@ use crate::rust::procedure_common::{
 };
 use crate::rust::stock::object::Stock;
 use crate::rust::warehouse::object::Warehouse;
-use mududb::common::result::RS;
 use mududb::common::id::OID;
+use mududb::common::result::RS;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ec::EC::MuduError;
 use mududb::m_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
-
 
 fn query_one_entity<R: Entity>(
     xid: OID,
@@ -154,7 +153,7 @@ fn tpcc_seed_inner(
     Ok(())
 }
 
-fn tpcc_new_order_inner(
+struct TpccNewOrderRequest {
     xid: OID,
     warehouse_id: i32,
     district_id: i32,
@@ -163,7 +162,19 @@ fn tpcc_new_order_inner(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
     warehouse_partitioned: bool,
-) -> RS<String> {
+}
+
+fn tpcc_new_order_inner(request: TpccNewOrderRequest) -> RS<String> {
+    let TpccNewOrderRequest {
+        xid,
+        warehouse_id,
+        district_id,
+        customer_id,
+        item_ids,
+        supplier_warehouse_ids,
+        quantities,
+        warehouse_partitioned,
+    } = request;
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -324,7 +335,6 @@ fn tpcc_payment_inner(
     amount: i32,
     warehouse_partitioned: bool,
 ) -> RS<i32> {
-
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -465,7 +475,7 @@ pub fn tpcc_new_order(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -473,8 +483,8 @@ pub fn tpcc_new_order(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        false,
-    )
+        warehouse_partitioned: false,
+    })
 }
 
 /**mudu-proc**/
@@ -487,7 +497,7 @@ pub fn tpcc_new_order_partitioned(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -495,8 +505,8 @@ pub fn tpcc_new_order_partitioned(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        true,
-    )
+        warehouse_partitioned: true,
+    })
 }
 
 /**mudu-proc**/

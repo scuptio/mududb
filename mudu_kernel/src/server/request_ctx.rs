@@ -7,8 +7,10 @@ use mudu_contract::protocol::{
     encode_get_response, encode_procedure_invoke_response, encode_put_response,
     encode_range_scan_response, encode_server_response, encode_session_close_response,
     encode_session_create_response, GetResponse, KeyValue, ProcedureInvokeResponse, PutResponse,
-    RangeScanResponse, ServerResponse, SessionCloseResponse, SessionCreateResponse,
+    RangeScanResponse, ServerPerfDigest, ServerResponse, SessionCloseResponse, SessionCreateResponse,
 };
+use mudu_sys::perf::TxnStage;
+use mudu_sys::time::instant_now;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use std::sync::Arc;
 
@@ -82,7 +84,11 @@ impl RequestCtx {
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> RS<HandleResult> {
+        let trace = mudu_utils::task_trace!();
+        trace.watch("put.stage", "request_ctx_put_start");
+        trace.watch("put.session_id", &session_id.to_string());
         self.worker.put_async(session_id, key, value).await?;
+        trace.watch("put.stage", "request_ctx_put_encode_response");
         Ok(HandleResult::Response(encode_put_response(
             self.request_id,
             &PutResponse::new(true),
@@ -92,6 +98,7 @@ impl RequestCtx {
     pub(in crate::server) async fn invoke_procedure(
         &self,
         request: mudu_contract::protocol::ProcedureInvokeRequest,
+        perf_digest: Option<ServerPerfDigest>,
     ) -> RS<HandleResult> {
         let trace = mudu_utils::task_trace!();
         trace.watch("procedure.kernel.request_ctx.stage", "handle_request_start");
@@ -103,18 +110,25 @@ impl RequestCtx {
             "procedure.kernel.request_ctx.name",
             request.procedure_name(),
         );
+        let exec_start = instant_now();
         let response = self
             .worker
             .handle_procedure_request(self.conn_id, &request)
             .await?;
+        let exec_ns = exec_start.elapsed().as_nanos() as u64;
         trace.watch("procedure.kernel.request_ctx.stage", "handle_request_done");
         trace.watch(
             "procedure.kernel.request_ctx.stage",
             "encode_response_start",
         );
+        let mut response = ProcedureInvokeResponse::new(response.into_result());
+        if let Some(mut digest) = perf_digest {
+            digest.set(TxnStage::ProcedureExec, exec_ns);
+            response = response.with_server_perf_digest(digest);
+        }
         Ok(HandleResult::Response(encode_procedure_invoke_response(
             self.request_id,
-            &ProcedureInvokeResponse::new(response.into_result()),
+            &response,
         )?))
     }
 
@@ -144,12 +158,21 @@ impl RequestCtx {
         oid: OID,
         _app_name: &str,
         sql: &str,
+        perf_digest: Option<ServerPerfDigest>,
     ) -> RS<HandleResult> {
+        let exec_start = instant_now();
         let response = self
             .worker
             .query(oid, Box::new(sql.to_string()), Box::new(()))
             .await?;
-        let response = Self::query_response(response).await?;
+        let mut response = Self::query_response(response, perf_digest).await?;
+        let exec_ns = exec_start.elapsed().as_nanos() as u64;
+        let mut digest = response
+            .server_perf_digest()
+            .copied()
+            .unwrap_or_else(|| ServerPerfDigest::new(0));
+        digest.set(TxnStage::QueryExec, exec_ns);
+        response = response.with_server_perf_digest(digest);
         self.encode_server_response(response)
     }
 
@@ -234,7 +257,10 @@ impl RequestCtx {
         )?))
     }
 
-    async fn query_response(result_set: Arc<dyn ResultSetAsync>) -> RS<ServerResponse> {
+    async fn query_response(
+        result_set: Arc<dyn ResultSetAsync>,
+        perf_digest: Option<ServerPerfDigest>,
+    ) -> RS<ServerResponse> {
         let desc = result_set.desc().clone();
         let mut rows = Vec::new();
         while let Some(row) = result_set.next().await? {
@@ -243,6 +269,10 @@ impl RequestCtx {
             }
             rows.push(row);
         }
-        Ok(ServerResponse::new(desc, rows, 0, None))
+        let mut response = ServerResponse::new(desc, rows, 0, None);
+        if let Some(digest) = perf_digest {
+            response = response.with_server_perf_digest(digest);
+        }
+        Ok(response)
     }
 }

@@ -5,7 +5,10 @@ edition = "2021"
 
 [features]
 test = []
-debug_trace = ["mudu_utils/debug_trace", "dep:async-backtrace"]
+debug_trace = ["mudu_sys/debug_trace", "mudu_utils/debug_trace", "dep:async-backtrace"]
+
+[lints]
+workspace = true
 
 [dependencies]
 
@@ -46,6 +49,3 @@ socket2 = "0.5.8"
 crossbeam-queue = "0.3.11"
 
 byteorder = "1.5.0"
-
-[dev-dependencies]
-tokio = { workspace = true }

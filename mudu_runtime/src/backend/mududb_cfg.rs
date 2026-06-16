@@ -4,9 +4,8 @@ use mudu::error::ec::EC;
 use mudu::m_error;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::env::{home_dir, temp_dir};
+use std::env::home_dir;
 use std::fmt::Display;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize_repr, Deserialize_repr, Eq, PartialEq, Debug, Clone, Copy, Default)]
@@ -67,60 +66,60 @@ pub struct MuduDBCfg {
 impl Display for MuduDBCfg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         let component_target = self.component_target();
-        write!(f, "MuduDB Setting:\n")?;
-        write!(f, "-------------------\n")?;
-        write!(f, "  -> Package path: {}\n", self.mpk_path)?;
-        write!(f, "  -> Data path: {}\n", self.db_path)?;
-        write!(f, "  -> Listen IP address: {}\n", self.listen_ip)?;
-        write!(f, "  -> HTTP Listening port: {}\n", self.http_listen_port)?;
-        write!(
+        writeln!(f, "MuduDB Setting:")?;
+        writeln!(f, "-------------------")?;
+        writeln!(f, "  -> Package path: {}", self.mpk_path)?;
+        writeln!(f, "  -> Data path: {}", self.db_path)?;
+        writeln!(f, "  -> Listen IP address: {}", self.listen_ip)?;
+        writeln!(f, "  -> HTTP Listening port: {}", self.http_listen_port)?;
+        writeln!(
             f,
-            "  -> HTTP worker threads: {}\n",
+            "  -> HTTP worker threads: {}",
             self.http_worker_threads
         )?;
-        write!(f, "  -> PG Listening port: {}\n", self.pg_listen_port)?;
-        write!(f, "  -> Component target: {:?}\n", component_target)?;
-        write!(f, "  -> Enable Async: {}\n", self.enable_async)?;
-        write!(f, "  -> Server mode: {:?}\n", self.server_mode)?;
-        write!(f, "  -> TCP Listening port: {}\n", self.tcp_listen_port)?;
-        write!(f, "  -> TCP Multi-port: {}\n", self.tcp_multi_port)?;
-        write!(
+        writeln!(f, "  -> PG Listening port: {}", self.pg_listen_port)?;
+        writeln!(f, "  -> Component target: {:?}", component_target)?;
+        writeln!(f, "  -> Enable Async: {}", self.enable_async)?;
+        writeln!(f, "  -> Server mode: {:?}", self.server_mode)?;
+        writeln!(f, "  -> TCP Listening port: {}", self.tcp_listen_port)?;
+        writeln!(f, "  -> TCP Multi-port: {}", self.tcp_multi_port)?;
+        writeln!(
             f,
-            "  -> workers: {}\n",
+            "  -> workers: {}",
             self.worker_threads
         )?;
-        write!(
+        writeln!(
             f,
-            "  -> io_uring ring entries: {}\n",
+            "  -> io_uring ring entries: {}",
             self.io_uring_ring_entries
         )?;
-        write!(
+        writeln!(
             f,
-            "  -> io_uring accept multishot: {}\n",
+            "  -> io_uring accept multishot: {}",
             self.io_uring_accept_multishot
         )?;
-        write!(
+        writeln!(
             f,
-            "  -> io_uring recv multishot: {}\n",
+            "  -> io_uring recv multishot: {}",
             self.io_uring_recv_multishot
         )?;
-        write!(
+        writeln!(
             f,
-            "  -> io_uring fixed buffers: {}\n",
+            "  -> io_uring fixed buffers: {}",
             self.io_uring_enable_fixed_buffers
         )?;
-        write!(
+        writeln!(
             f,
-            "  -> io_uring fixed files: {}\n",
+            "  -> io_uring fixed files: {}",
             self.io_uring_enable_fixed_files
         )?;
-        write!(f, "  -> Routing mode: {:?}\n", self.routing_mode)?;
-        write!(
+        writeln!(f, "  -> Routing mode: {:?}", self.routing_mode)?;
+        writeln!(
             f,
-            "  -> io_uring log chunk size: {}\n",
+            "  -> io_uring log chunk size: {}",
             self.io_uring_log_chunk_size
         )?;
-        write!(f, "-------------------\n")?;
+        writeln!(f, "-------------------")?;
         Ok(())
     }
 }
@@ -128,8 +127,8 @@ impl Display for MuduDBCfg {
 impl Default for MuduDBCfg {
     fn default() -> Self {
         Self {
-            mpk_path: temp_dir().to_str().unwrap().to_string(),
-            db_path: temp_dir().to_str().unwrap().to_string(),
+            mpk_path: mudu_sys::env_var::temp_dir().to_str().unwrap().to_string(),
+            db_path: mudu_sys::env_var::temp_dir().to_str().unwrap().to_string(),
             listen_ip: "127.0.0.1".to_string(),
             http_listen_port: 8300,
             http_worker_threads: default_http_worker_threads(),
@@ -217,7 +216,7 @@ pub fn load_mududb_cfg(opt_cfg_path: Option<String>) -> RS<MuduDBCfg> {
 }
 
 fn read_mududb_cfg<P: AsRef<Path>>(path: P) -> RS<MuduDBCfg> {
-    let r = fs::read_to_string(path);
+    let r = mudu_sys::fs::sync::read_to_string(path.as_ref());
     let s = r.map_err(|e| m_error!(EC::IOErr, "read MuduDB configuration error", e))?;
     let r = toml::from_str::<MuduDBCfg>(s.as_str());
     let cfg = r.map_err(|e| {
@@ -232,16 +231,15 @@ fn read_mududb_cfg<P: AsRef<Path>>(path: P) -> RS<MuduDBCfg> {
 
 fn write_mududb_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)
+    if let Some(parent) = path.parent()
+        && !parent.exists() {
+            mudu_sys::fs::sync::create_dir_all(parent)
                 .map_err(|e| m_error!(EC::IOErr, "create directory error", e))?;
         }
-    }
     let r = toml::to_string(cfg);
     let s = r.map_err(|e| m_error!(EC::EncodeErr, "serialize configuration error", e))?;
 
-    let r = fs::write(path, s);
+    let r = mudu_sys::fs::sync::write(path, s.as_bytes());
     r.map_err(|e| m_error!(EC::IOErr, "write configuration file error", e))?;
     Ok(())
 }
@@ -250,7 +248,7 @@ fn write_mududb_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
 mod _test {
     use crate::backend::mududb_cfg::{MuduDBCfg, read_mududb_cfg, write_mududb_cfg};
     use std::env::temp_dir;
-    use std::fs;
+
     #[test]
     fn test_conf() {
         let cfg = MuduDBCfg::default();
@@ -267,9 +265,9 @@ mod _test {
     fn test_conf_with_comments_and_numeric_enums() {
         let path = temp_dir().join("mudu/mududb_cfg_with_comments.toml");
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            mudu_sys::fs::sync::create_dir_all(parent).unwrap();
         }
-        fs::write(
+        mudu_sys::fs::sync::write(
             &path,
             r#"
 # Example config with comments

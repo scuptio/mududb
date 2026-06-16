@@ -8,3 +8,9 @@ pub(crate) mod handle_sys_query;
 pub mod handle_sys_session;
 mod sql_param_value;
 mod sql_stmt_text;
+
+use mudu::common::id::OID;
+use mudu_contract::database::sql_params::SQLParams;
+use mudu_contract::database::sql_stmt::SQLStmt;
+
+pub type SqlParamPair = (OID, Box<dyn SQLStmt>, Box<dyn SQLParams>);

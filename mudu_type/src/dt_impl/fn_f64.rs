@@ -30,7 +30,7 @@ pub fn fn_f64_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         None => {
             return Err(TyErr::new(
                 TyEC::TypeConvertFailed,
-                format!("cannot convert json {} to f64", v.to_string()),
+                format!("cannot convert json {} to f64", v),
             ));
         }
     };
@@ -38,7 +38,7 @@ pub fn fn_f64_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         Some(num) => Ok(DatValue::from_f64(num)),
         None => Err(TyErr::new(
             TyEC::TypeConvertFailed,
-            format!("cannot convert json {} to f64", v.to_string()),
+            format!("cannot convert json {} to f64", v),
         )),
     }
 }

@@ -9,7 +9,7 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::async_::AMutex;
 use std::sync::Arc;
 use mudu_sys::sync::SMutex as StdMutex;
 use tracing::debug;
@@ -48,7 +48,7 @@ impl ResultSetAsync for LibSQLAsyncResultSet {
     }
 
     fn desc(&self) -> &TupleFieldDesc {
-        &self.inner.tuple_desc.as_ref()
+        self.inner.tuple_desc.as_ref()
     }
 }
 
@@ -84,21 +84,19 @@ impl ResultSetInner {
     }
 
     fn release_lease(&self) {
-        if let Ok(mut guard) = self.lease.lock() {
-            if let Some(lease) = guard.take() {
+        if let Ok(mut guard) = self.lease.lock()
+            && let Some(lease) = guard.take() {
                 lease.release();
             }
-        }
     }
 }
 
 impl Drop for ResultSetInner {
     fn drop(&mut self) {
-        if let Ok(mut guard) = self.lease.lock() {
-            if let Some(lease) = guard.take() {
+        if let Ok(mut guard) = self.lease.lock()
+            && let Some(lease) = guard.take() {
                 lease.release();
             }
-        }
     }
 }
 
@@ -107,8 +105,7 @@ fn libsql_db_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleVal
     if row.column_count() as usize != item_desc.len() {
         return Err(m_error!(EC::FatalError, "column count mismatch"));
     }
-    for i in 0..item_desc.len() {
-        let desc = &item_desc[i];
+    for (i, desc) in item_desc.iter().enumerate() {
         let n = i as i32;
         let raw = row.get_value(n).unwrap();
         debug!("col={}, name={:?}, raw={:?}", n, row.column_name(n), raw);

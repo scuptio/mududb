@@ -32,7 +32,7 @@ pub fn get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
 
 pub async fn get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let key = key.to_vec();
-    mudu_sys::task_async::spawn_blocking(move || get(session_id, &key)).await?
+    mudu_sys::task::async_::spawn_blocking(move || get(session_id, &key)).await?
 }
 
 pub fn put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
@@ -53,7 +53,7 @@ pub fn put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
 pub async fn put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     let key = key.to_vec();
     let value = value.to_vec();
-    mudu_sys::task_async::spawn_blocking(move || put(session_id, &key, &value)).await?
+    mudu_sys::task::async_::spawn_blocking(move || put(session_id, &key, &value)).await?
 }
 
 pub fn range(session_id: OID, start_key: &[u8], end_key: &[u8]) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -114,7 +114,7 @@ pub async fn range_async(
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     let start_key = start_key.to_vec();
     let end_key = end_key.to_vec();
-    mudu_sys::task_async::spawn_blocking(move || range(session_id, &start_key, &end_key)).await?
+    mudu_sys::task::async_::spawn_blocking(move || range(session_id, &start_key, &end_key)).await?
 }
 
 pub fn ensure_session_exists(session_id: OID) -> RS<()> {
@@ -143,5 +143,5 @@ pub fn ensure_session_exists(session_id: OID) -> RS<()> {
 }
 
 pub async fn ensure_session_exists_async(session_id: OID) -> RS<()> {
-    mudu_sys::task_async::spawn_blocking(move || ensure_session_exists(session_id)).await?
+    mudu_sys::task::async_::spawn_blocking(move || ensure_session_exists(session_id)).await?
 }

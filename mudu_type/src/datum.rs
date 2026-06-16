@@ -64,7 +64,7 @@ impl<D: Datum> DatumDyn for Vec<D> {
             return Err(m_error!(EC::TypeErr));
         }
         let dat_mem = vec_to_dat_value(self)?;
-        Ok(dat_type.dat_type_id().fn_send()(&dat_mem, dat_type).map_err(|e| e.to_m_err())?)
+        dat_type.dat_type_id().fn_send()(&dat_mem, dat_type).map_err(|e| e.to_m_err())
     }
 
     fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
@@ -72,7 +72,7 @@ impl<D: Datum> DatumDyn for Vec<D> {
             return Err(m_error!(EC::TypeErr));
         }
         let dat_mem = vec_to_dat_value(self)?;
-        Ok(dat_type.dat_type_id().fn_output()(&dat_mem, dat_type).map_err(|e| e.to_m_err())?)
+        dat_type.dat_type_id().fn_output()(&dat_mem, dat_type).map_err(|e| e.to_m_err())
     }
 
     fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
@@ -100,7 +100,7 @@ impl<U: AsDatumDynRef + ?Sized> AsDatumDynRef for &U {
     }
 }
 
-impl<'a, U: AsDatumDynRef> AsDatumDynRef for &'a [U] {
+impl<U: AsDatumDynRef> AsDatumDynRef for &[U] {
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn {
         if self.is_empty() {
             panic!("Empty slice");
@@ -142,7 +142,7 @@ pub fn value_to_typed<T: Datum, S: AsRef<str>>(data: &DatValue, _type_str: S) ->
 
 pub fn value_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<DatValue> {
     let dat_bin = t.to_value(T::dat_type())?;
-    Ok(dat_bin.into())
+    Ok(dat_bin)
 }
 
 impl<D: Datum> Datum for Vec<D> {
@@ -225,18 +225,16 @@ macro_rules! impl_datum_trait {
                         if dat_type.dat_type_id() != DatTypeID::$variant_upper {
                             return Err(m_error!(EC::TypeErr));
                         }
-                        Ok(dat_type.dat_type_id().fn_send()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
-                             .map_err(|e| e.to_m_err())?,
-                        )
+                        dat_type.dat_type_id().fn_send()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
+                             .map_err(|e| e.to_m_err())
                     }
 
                     fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
                         if dat_type.dat_type_id() != DatTypeID::$variant_upper {
                             return Err(m_error!(EC::TypeErr));
                         }
-                        Ok(dat_type.dat_type_id().fn_output()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
-                             .map_err(|e| e.to_m_err())?,
-                        )
+                        dat_type.dat_type_id().fn_output()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
+                             .map_err(|e| e.to_m_err())
                     }
 
                     fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {

@@ -7,6 +7,12 @@ pub struct StmtDelete {
     where_predicate: Vec<ExprCompare>,
 }
 
+impl Default for StmtDelete {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StmtDelete {
     pub fn new() -> Self {
         Self {

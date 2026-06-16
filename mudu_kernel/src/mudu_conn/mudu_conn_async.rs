@@ -13,21 +13,25 @@ use mudu_contract::protocol::{
     encode_batch_request, encode_client_request_with_message_type, encode_session_create_request,
     ClientRequest, Frame, FrameHeader, MessageType, SessionCreateRequest, HEADER_LEN,
 };
-use mudu_sys::sync::a_mutex::{AMutex, AMutexGuard};
+use mudu_sys::sync::async_::{AMutex, AMutexGuard};
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
+use mudu_sys::common::provider_type::ProviderType;
+use mudu_sys::contract::async_mode::AsyncMode;
+use mudu_sys::contract::async_stream::AsyncStream;
 use mudu_sys::sync::SMutex;
 
-use mudu_sys::async_rt::contract::{AsyncRuntime, AsyncStream};
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::provider::create_io_provider;
 use crate::mudu_conn::mudu_prepared_stmt::MuduPreparedStmt;
 use crate::server::worker_local::{try_current_worker_local, WorkerExecute, WorkerLocalRef};
 use crate::sql::describer::Describer;
 
 static DEFAULT_REMOTE_ADDR: OnceLock<SMutex<Option<String>>> = OnceLock::new();
 static DEFAULT_REMOTE_WORKER_ID: OnceLock<SMutex<Option<OID>>> = OnceLock::new();
-static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<SMutex<Option<Arc<dyn AsyncRuntime>>>> =
+static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<SMutex<Option<Arc<dyn AsyncIoProvider>>>> =
     OnceLock::new();
 
 enum ConnBackend {
@@ -38,7 +42,7 @@ enum ConnBackend {
 struct RemoteWorkerConn {
     addr: String,
     worker_id: Option<OID>,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     session_id: SMutex<Option<OID>>,
     stream: AMutex<Option<RemoteProtocolClient>>,
 }
@@ -68,7 +72,7 @@ pub fn set_default_remote_worker_id(worker_id: Option<OID>) {
     }
 }
 
-pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) {
+pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncIoProvider>>) {
     let slot = DEFAULT_REMOTE_ASYNC_RUNTIME.get_or_init(|| SMutex::new(None));
     if let Ok(mut guard) = slot.lock() {
         *guard = async_runtime;
@@ -98,7 +102,7 @@ fn default_remote_worker_id() -> Option<OID> {
         .and_then(|slot| slot.lock().ok().and_then(|guard| *guard))
 }
 
-fn default_remote_async_runtime() -> Option<Arc<dyn AsyncRuntime>> {
+fn default_remote_async_runtime() -> Option<Arc<dyn AsyncIoProvider>> {
     DEFAULT_REMOTE_ASYNC_RUNTIME
         .get()
         .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()))
@@ -109,7 +113,7 @@ impl MuduConnAsync {
         Self::new_with_runtime(default_remote_async_runtime())
     }
 
-    pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
+    pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<Self> {
         if let Some(worker_local) = try_current_worker_local() {
             return Ok(Self {
                 backend: ConnBackend::WorkerLocal(worker_local),
@@ -256,7 +260,7 @@ impl RemoteWorkerConn {
 }
 
 impl RemoteProtocolClient {
-    async fn connect(addr: &str, async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
+    async fn connect(addr: &str, async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<Self> {
         let addr: SocketAddr = addr.parse().map_err(|e| {
             m_error!(
                 EC::ParseErr,
@@ -264,13 +268,8 @@ impl RemoteProtocolClient {
                 e
             )
         })?;
-        let stream = match async_runtime.or_else(default_remote_async_runtime) {
-            Some(async_runtime) => async_runtime.net().connect_tcp(addr).await?,
-            None => {
-                let runtime = mudu_sys::async_rt::tokio::runtime::TokioRuntime::new();
-                runtime.net().connect_tcp(addr).await?
-            }
-        };
+        let runtime = select_remote_runtime(async_runtime.or_else(default_remote_async_runtime));
+        let stream = runtime.net().connect_tcp(addr).await?;
         Ok(Self {
             stream,
             next_request_id: 1,
@@ -306,6 +305,21 @@ impl RemoteProtocolClient {
         }
         Ok(frame)
     }
+}
+
+fn select_remote_runtime(
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+) -> Arc<dyn AsyncIoProvider> {
+    if let Some(async_runtime) = async_runtime {
+        #[cfg(target_os = "linux")]
+        if async_runtime.mode() == AsyncMode::IoUring
+            && !mudu_sys::io::worker_ring::has_current_worker_ring()
+        {
+            return create_io_provider(ProviderType::Tokio);
+        }
+        return async_runtime;
+    }
+    create_io_provider(ProviderType::Tokio)
 }
 
 async fn read_exact(stream: &mut dyn AsyncStream, buf: &mut [u8]) -> RS<()> {

@@ -3,6 +3,9 @@ name = "mududb"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true, optional = true }
 mudu_type = { workspace = true, optional = true }

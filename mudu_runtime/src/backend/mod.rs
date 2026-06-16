@@ -1,3 +1,4 @@
+#![allow(clippy::module_inception)]
 mod accept_handle_task;
 pub mod app_mgr;
 pub mod backend;

@@ -22,17 +22,23 @@ use crate::sql::plan_ctx::PlanCtx;
 use crate::sql::planner::Planner;
 use crate::x_engine::api::XContract;
 use crate::x_engine::tx_mgr::TxMgr;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 pub struct MuduConnCore {
     meta_mgr: Arc<dyn MetaMgr>,
     parser: Arc<SQLParser>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl MuduConnCore {
-    pub fn new(meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    pub fn new(
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> Self {
         Self {
             meta_mgr,
             parser: Arc::new(SQLParser::new()),
+            async_runtime,
         }
     }
 
@@ -105,6 +111,7 @@ impl MuduConnCore {
             tx_mgr,
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
+            async_runtime: self.async_runtime.clone(),
         });
         trace.watch("query.stage", "plan");
         let exec = planner.plan_query(bound_query).await?;
@@ -132,6 +139,7 @@ impl MuduConnCore {
             tx_mgr,
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
+            async_runtime: self.async_runtime.clone(),
         });
         trace.watch("procedure.core_execute.stage", "plan_command_start");
         let cmd = planner.plan_command(bound_command).await?;

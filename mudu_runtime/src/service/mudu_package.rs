@@ -8,7 +8,7 @@ use mudu::utils::json::from_json_str;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
+use mudu_sys::fs;
 use std::io::Read;
 use std::path::Path;
 
@@ -55,7 +55,7 @@ impl MuduPackage {
 
 fn load_and_extract_package<P: AsRef<Path>>(package_path: P) -> RS<MuduPackage> {
     // Open the archive file
-    let file = fs::File::open(package_path.as_ref()).map_err(|e| {
+    let file = fs::sync::SFile::open(package_path.as_ref()).map_err(|e| {
         m_error!(
             EC::IOErr,
             format!("no such package file {:?}", package_path.as_ref()),

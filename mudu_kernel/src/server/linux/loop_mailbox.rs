@@ -10,7 +10,7 @@ use crate::server::worker_mailbox::WorkerMailboxMsg;
 
 pub(in crate::server) struct LoopMailboxSubmitCtx<'a> {
     pub worker_id: u128,
-    pub ring: &'a mut mudu_sys::uring::IoUring,
+    pub ring: &'a mut mudu_sys::io::iouring::IoUring,
     pub mailbox_fd: i32,
     pub mailbox_read_submitted: &'a mut bool,
     pub inflight: &'a mut HashMap<u64, InflightOp>,

@@ -23,10 +23,9 @@ For a tuple (i32, String)
     let decoded = <(i32, String)>::from_binary(&binary, desc.fields()).unwrap();
 ```
 **/
-
 pub trait TupleDatum: EnumerableDatum + Sized + 'static {
-    fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<Self>;
-    fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<Self>;
+    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self>;
+    fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<Self>;
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc;
 }
 
@@ -48,8 +47,8 @@ fn to_tuple_desc(fields: Vec<(String, DatType)>) -> TupleFieldDesc {
     let desc: Vec<_> = fields
         .into_iter()
         .map(|(name, ty)| {
-            let desc = DatumDesc::new(name, ty);
-            desc
+            
+            DatumDesc::new(name, ty)
         })
         .collect();
     TupleFieldDesc::new(desc)
@@ -140,7 +139,7 @@ impl<T> TupleDatum for T
 where
     T: Datum + TupleDatumMarker,
 {
-    fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<Self> {
+    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self> {
         if vec_value.len() != 1 || desc.len() != 1 {
             return Err(m_error!(
                 EC::ParseErr,
@@ -154,7 +153,7 @@ where
         datum_from_value::<T>(&vec_value[0])
     }
 
-    fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<T> {
+    fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<T> {
         if vec_bin.len() != 1 || desc.len() != 1 {
             return Err(m_error!(
                 EC::ParseErr,
@@ -197,12 +196,11 @@ macro_rules! impl_rs_tuple_datum {
         }
 
         impl TupleDatum for () {
-            fn from_value(_vec_value:&Vec<DatValue>, _desc:&[DatumDesc]) -> RS<Self> {
+            fn from_value(_vec_value: &[DatValue], _desc: &[DatumDesc]) -> RS<Self> {
                 Ok(())
             }
 
-
-            fn from_binary(_vec_bin: &Vec<Vec<u8>>, _desc: &[DatumDesc]) -> RS<()> {
+            fn from_binary(_vec_bin: &[Vec<u8>], _desc: &[DatumDesc]) -> RS<()> {
                 Ok(())
             }
 
@@ -272,7 +270,7 @@ macro_rules! impl_rs_tuple_datum {
         impl<$($T: Datum + TupleDatumMarker),*> TupleDatum for ($($T,)*) {
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<($($T,)*)> {
+            fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<($($T,)*)> {
                 let expected = count_types!($($T),*);
                 if vec_value.len() != expected || desc.len() != expected {
                     return Err(m_error!(
@@ -295,7 +293,7 @@ macro_rules! impl_rs_tuple_datum {
 
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<($($T,)*)> {
+            fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<($($T,)*)> {
                 let expected = count_types!($($T),*);
                 if vec_bin.len() != expected || desc.len() != expected {
                     return Err(m_error!(

@@ -6,6 +6,9 @@ edition = "2024"
 [features]
 test = []
 
+[lints]
+workspace = true
+
 [dependencies]
 scc = { workspace = true }
 byteorder = { workspace = true }

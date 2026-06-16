@@ -1,0 +1,38 @@
+[package]
+name = "mudu_sys_impl"
+version = "0.1.0"
+edition = "2021"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sim)'] }
+
+[lints.clippy]
+disallowed-types = "allow"
+
+[features]
+debug_trace = []
+
+[dependencies]
+mudu = { workspace = true }
+mudu_sys_contract = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+lazy_static = { workspace = true }
+scc = { workspace = true }
+async-backtrace = { workspace = true }
+futures = { workspace = true }
+crossbeam-queue = "0.3.11"
+host = "0.1.2"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libc = { workspace = true }
+socket2 = "0.5.8"
+tokio = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rliburing = { git = "https://github.com/scuptio/rliburing.git" }
+
+[dev-dependencies]
+project-root = { workspace = true }

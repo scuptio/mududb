@@ -305,7 +305,7 @@ impl<'a> PageBlockRef<'a> {
 
             let offset = slot.offset() as usize;
             let size = slot.size() as usize;
-            if offset % RECORD_ALIGN != 0 {
+            if !offset.is_multiple_of(RECORD_ALIGN) {
                 return Err(m_error!(
                     EC::DecodeErr,
                     format!(

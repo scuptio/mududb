@@ -11,13 +11,14 @@ mod test {
     use crate::task_sync::spawn_thread_named;
     #[cfg(feature = "debug_trace")]
     use std::io::{Read, Write};
+    use mudu_sys::net::sync::StdTcpListener;
     use std::net::SocketAddr;
     use std::time::Duration;
 
     #[test]
     fn test_server() {
         log_setup("info");
-        let listener = match std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))) {
+        let listener = match StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))) {
             Ok(listener) => listener,
             Err(err) => {
                 eprintln!("skip test_server: cannot bind local port: {err}");
@@ -54,13 +55,13 @@ mod test {
 
         #[cfg(feature = "debug_trace")]
         {
-            let response = (|| -> std::io::Result<String> {
-                let mut stream = std::net::TcpStream::connect(addr)?;
+            let response = (|| -> mudu::common::result::RS<String> {
+                let mut stream = mudu_sys::net::sync::connect_tcp(addr)?;
                 stream.write_all(
                     b"GET /task HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
-                )?;
+                ).map_err(|e| mudu::m_error!(mudu::error::ec::EC::IOErr, "debug server write error", e))?;
                 let mut buf = String::new();
-                stream.read_to_string(&mut buf)?;
+                stream.read_to_string(&mut buf).map_err(|e| mudu::m_error!(mudu::error::ec::EC::IOErr, "debug server read error", e))?;
                 Ok(buf)
             })()
             .expect("debug server did not accept requests");

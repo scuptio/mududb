@@ -9,9 +9,9 @@ use mudu::m_error;
 use mudu_kernel::server::worker_registry::WorkerRegistry;
 use mudu_utils::notifier::Waiter;
 use mudu_utils::task_async::build_current_thread_runtime;
+use mudu_sys::task::sync::spawn_thread_named;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::thread;
 use tracing::{error, info};
 
 pub fn spawn_management_thread(
@@ -21,13 +21,13 @@ pub fn spawn_management_thread(
     stop: Waiter,
 ) -> RS<()> {
     let (startup_tx, startup_rx) = mpsc::channel();
-    thread::Builder::new()
-        .name("manager-service".to_string())
-        .spawn(move || {
-            let listener = match std::net::TcpListener::bind(format!(
-                "{}:{}",
-                cfg.listen_ip, cfg.http_listen_port
-            )) {
+    spawn_thread_named(
+        "manager-service",
+        move || {
+            let addr: std::net::SocketAddr = format!("{}:{}", cfg.listen_ip, cfg.http_listen_port)
+                .parse()
+                .expect("invalid management server address");
+            let listener = match mudu_sys::net::sync::bind_tcp(addr) {
                 Ok(listener) => listener,
                 Err(e) => {
                     let _ = startup_tx.send(Err(m_error!(

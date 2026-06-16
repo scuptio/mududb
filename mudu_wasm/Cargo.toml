@@ -10,6 +10,9 @@ transpile = ["mududb/component-model", "mududb/async"]
 [lib]
 crate-type = ["cdylib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { workspace = true }
 wit-bindgen = { workspace = true }

@@ -71,7 +71,7 @@ impl CopyLayout {
             .values()
             .map(|field| (field.column_index(), field.name().clone()))
             .collect();
-        columns.sort_by(|left, right| left.0.cmp(&right.0));
+        columns.sort_by_key(|left| left.0);
         columns.into_iter().map(|(_, name)| name).collect()
     }
 }

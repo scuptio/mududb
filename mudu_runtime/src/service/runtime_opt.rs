@@ -1,10 +1,9 @@
 use crate::backend::mududb_cfg::ServerMode;
-use mudu_sys::async_rt::contract::AsyncRuntime;
-#[cfg(target_os = "linux")]
-use mudu_sys::async_rt::linux::runtime::IoUringRuntime;
-use mudu_sys::async_rt::tokio::runtime::TokioRuntime;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use mudu_sys::common::provider_type::ProviderType;
+use mudu_sys::provider::create_io_provider;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -19,7 +18,7 @@ pub struct RuntimeOpt {
     pub component_target: ComponentTarget,
     pub enable_async: bool,
     pub sever_mode: ServerMode,
-    pub async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl RuntimeOpt {
@@ -27,18 +26,25 @@ impl RuntimeOpt {
         self.component_target
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.async_runtime.clone()
     }
 
-    pub fn build_async_runtime(server_mode: ServerMode) -> Option<Arc<dyn AsyncRuntime>> {
-        match server_mode {
-            #[cfg(target_os = "linux")]
-            ServerMode::IOUring => Some(Arc::new(IoUringRuntime::new())),
-            ServerMode::Tokio => Some(Arc::new(TokioRuntime::new())),
-            _ => None,
+    pub fn build_async_runtime(server_mode: ServerMode) -> Option<Arc<dyn AsyncIoProvider>> {
+        let opt_mode = Self::server_mode_to_runtime_mode(server_mode);
+        opt_mode.map(|m| {
+            create_io_provider(m)
+        })
+    }
+
+    fn server_mode_to_runtime_mode(mode: ServerMode) -> Option<ProviderType> {
+        match mode {
+            ServerMode::Legacy => None,
+            ServerMode::IOUring => Some(ProviderType::IoUring),
+            ServerMode::Tokio => Some(ProviderType::Tokio),
         }
     }
+
 }
 
 impl Default for RuntimeOpt {

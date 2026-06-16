@@ -13,7 +13,7 @@ use mudu_kernel::server::server::TokioTcpBackend as KernelTokioTcpBackend;
 use mudu_kernel::server::server_cfg::ServerCfg;
 use mudu_kernel::server::server_launch::ServerLaunch;
 use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
-use mudu_sys::task_async;
+use mudu_sys::task::async_ as task_async;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use std::sync::{Arc, OnceLock};
 use mudu_sys::sync::SMutex;

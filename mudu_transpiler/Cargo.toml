@@ -5,11 +5,15 @@ edition = "2024"
 
 build = "build.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
 mudu_binding = {workspace = true}
 clap = { workspace = true, features = ["derive"] }
 mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
 mudu_utils = { workspace = true }
 askama = {workspace = true}
 tree-sitter-rust = { version = "0.24.0" }

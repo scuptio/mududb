@@ -1,10 +1,12 @@
+
 use mudu::common::result::RS;
 use mudu_cli::client::client::SyncClient;
-use std::net::{TcpListener, TcpStream};
+use std::net::SocketAddr;
+use mudu_sys::net::sync::StdTcpListener;
 use std::time::Duration;
 
 pub fn reserve_port() -> RS<Option<u16>> {
-    match TcpListener::bind("127.0.0.1:0") {
+    match StdTcpListener::bind("127.0.0.1:0".parse().unwrap()) {
         Ok(listener) => Ok(Some(
             listener
                 .local_addr()
@@ -13,7 +15,6 @@ pub fn reserve_port() -> RS<Option<u16>> {
                 })?
                 .port(),
         )),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(None),
         Err(e) => Err(mudu::m_error!(
             mudu::error::ec::EC::NetErr,
             "reserve local tcp port error",
@@ -37,7 +38,7 @@ pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
                 ok = false;
                 break;
             };
-            match TcpListener::bind(("127.0.0.1", port)) {
+            match StdTcpListener::bind(format!("127.0.0.1:{}", port).parse().unwrap()) {
                 Ok(listener) => listeners.push(listener),
                 Err(_) => {
                     ok = false;
@@ -55,10 +56,10 @@ pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
 pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], port))).is_ok() {
             return Ok(());
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -73,11 +74,11 @@ pub fn connect_sync_client_with_retry(port: u16) -> RS<SyncClient> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(5);
     let mut last_err = None;
     while mudu_sys::time::instant_now() < deadline {
-        match SyncClient::connect(("127.0.0.1", port)) {
+        match SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port))) {
             Ok(client) => return Ok(client),
             Err(err) => {
                 last_err = Some(err);
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(50));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
             }
         }
     }

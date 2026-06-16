@@ -1,0 +1,18 @@
+[package]
+name = "mudu_sys_contract"
+version = "0.1.0"
+edition = "2021"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sim)'] }
+
+[lints.clippy]
+disallowed-types = "allow"
+
+[features]
+debug_trace = []
+
+[dependencies]
+mudu = { workspace = true }
+async-trait = { workspace = true }
+libc = { workspace = true }

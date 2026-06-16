@@ -8,6 +8,9 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { path = "../../../mududb", default-features = false, features = ["app"] }
 wit-bindgen = "0.54.0"

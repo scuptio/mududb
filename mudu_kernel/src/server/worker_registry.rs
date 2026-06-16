@@ -1,9 +1,10 @@
-use mudu::common::id::{gen_oid, OID};
+use mudu::common::id::OID;
+use mudu_utils::oid::gen_oid;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, OpenOptions};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ pub fn load_or_create_worker_registry<P: AsRef<Path>>(
         ));
     }
     let log_dir = log_dir.as_ref().to_path_buf();
-    fs::create_dir_all(&log_dir)
+    mudu_sys::fs::sync::create_dir_all(&log_dir)
         .map_err(|e| m_error!(EC::IOErr, "create worker registry log directory error", e))?;
 
     let mut loaded = scan_worker_identities(&log_dir)?;
@@ -125,11 +126,9 @@ impl WorkerRegistry {
 fn scan_worker_identities(log_dir: &Path) -> RS<Vec<WorkerIdentity>> {
     let mut worker_ids = HashMap::<usize, OID>::new();
     let mut partitions = HashMap::<OID, Vec<OID>>::new();
-    for entry in fs::read_dir(log_dir)
+    for entry in mudu_sys::fs::sync::read_dir_entries(log_dir)
         .map_err(|e| m_error!(EC::IOErr, "scan worker registry directory error", e))?
     {
-        let entry = entry
-            .map_err(|e| m_error!(EC::IOErr, "read worker registry directory entry error", e))?;
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
@@ -224,7 +223,7 @@ fn validate_worker_identities(workers: &[WorkerIdentity], worker_count: usize) -
 }
 
 fn touch_marker(path: PathBuf) -> RS<()> {
-    OpenOptions::new()
+    mudu_sys::fs::sync::SOpenOptions::new()
         .create_new(true)
         .write(true)
         .open(path)

@@ -1,8 +1,8 @@
 use arbitrary::Unstructured;
+use mudu_sys::fs::sync::{SOpenOptions, sync_create_dir_all, sync_read_to_string, sync_write};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
@@ -13,10 +13,10 @@ use crate::contract::schema_table::SchemaTable;
 
 pub fn fuzz_printable(schema_path: String, output_path: String, u: &mut Unstructured) -> RS<()> {
     if !fs::exists(output_path.clone()).unwrap() {
-        fs::create_dir_all(output_path.clone()).unwrap();
+        sync_create_dir_all(output_path.clone()).unwrap();
     }
-    let json = fs::read_to_string(&schema_path)
-        .expect(format!("failed to read schema file {}", schema_path).as_str());
+    let json = sync_read_to_string(&schema_path)
+        .unwrap_or_else(|_| panic!("failed to read schema file {}", schema_path));
     let schema = serde_json::from_str::<SchemaTable>(&json).unwrap();
     let table_name = schema.table_name().clone();
 
@@ -30,8 +30,8 @@ pub fn fuzz_printable(schema_path: String, output_path: String, u: &mut Unstruct
 }
 
 pub fn write_data_to_csv(schema_path: String, output_path: String) -> RS<()> {
-    let json = fs::read_to_string(&schema_path)
-        .expect(format!("failed to read schema file {}", schema_path).as_str());
+    let json = sync_read_to_string(&schema_path)
+        .unwrap_or_else(|_| panic!("failed to read schema file {}", schema_path));
     let schema = serde_json::from_str::<SchemaTable>(&json).unwrap();
     let table_name = schema.table_name().clone();
     let mut db_path = PathBuf::from(output_path.clone());
@@ -48,11 +48,11 @@ fn write_map_to_csv(output_csv_path: String, map: &HashMap<Vec<String>, Vec<Stri
     let path = PathBuf::from(output_csv_path.clone());
     let parent = path.parent().unwrap();
     if !fs::exists(parent).unwrap() {
-        fs::create_dir_all(parent).unwrap();
+        sync_create_dir_all(parent).unwrap();
     }
 
     let mut file = BufWriter::new(
-        OpenOptions::new()
+        SOpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -69,13 +69,13 @@ fn write_map_to_csv(output_csv_path: String, map: &HashMap<Vec<String>, Vec<Stri
     Ok(())
 }
 
-pub fn format_comma_line(vec: &Vec<String>) -> String {
+pub fn format_comma_line(vec: &[String]) -> String {
     let mut s_ret = "".to_string();
-    for (i, s) in vec.into_iter().enumerate() {
+    for (i, s) in vec.iter().enumerate() {
         if i != 0 {
             s_ret.push_str(", ");
         }
-        s_ret.push_str(&s);
+        s_ret.push_str(s);
     }
     s_ret
 }
@@ -99,13 +99,13 @@ fn fuzz_row_for_schema<'a>(
     u: &mut Unstructured<'a>,
     key_value_map: &mut HashMap<Vec<String>, Vec<String>>,
 ) -> arbitrary::Result<()> {
-    if u.len() == 0 {
+    if u.is_empty() {
         return Ok(());
     }
     let key = loop {
         let key_columns = schema.key_columns();
         let mut key = Vec::with_capacity(key_columns.len());
-        if u.len() == 0 {
+        if u.is_empty() {
             return Ok(());
         }
         for c in key_columns {
@@ -167,7 +167,7 @@ fn to_json_string(vec: &Vec<String>) -> String {
     serde_json::to_string_pretty(vec).unwrap()
 }
 
-fn from_json_string(json: &String) -> Vec<String> {
+fn from_json_string(json: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(json).unwrap()
 }
 
@@ -181,7 +181,7 @@ impl FuzzDb {
         if !PathBuf::from(path).exists() {
             return Ok(Self::default());
         }
-        let text = fs::read_to_string(path).unwrap();
+        let text = sync_read_to_string(path).unwrap();
         Ok(serde_json::from_str(&text).unwrap())
     }
 
@@ -189,11 +189,11 @@ impl FuzzDb {
         let parent = PathBuf::from(path).parent().map(|p| p.to_path_buf());
         if let Some(parent) = parent {
             if !fs::exists(&parent).unwrap() {
-                fs::create_dir_all(parent).unwrap();
+                sync_create_dir_all(parent).unwrap();
             }
         }
         let text = serde_json::to_string_pretty(self).unwrap();
-        fs::write(path, text).unwrap();
+        sync_write(path, text).unwrap();
         Ok(())
     }
 }

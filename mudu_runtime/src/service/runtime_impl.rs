@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_utils::notifier::Notifier;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ impl RuntimeImpl {
         for ps in [package_path, db_path] {
             let path = PathBuf::from(ps);
             if !path.exists() {
-                std::fs::create_dir_all(&path).map_err(|e| {
+                mudu_sys::fs::sync::create_dir_all(&path).map_err(|e| {
                     m_error!(
                         EC::IOErr,
                         format!("error creating database directory: {}", ps),
@@ -57,7 +57,7 @@ impl Runtime for RuntimeImpl {
         self.inner.install(pkg_path).await
     }
 
-    fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.inner.async_runtime()
     }
 }
@@ -73,11 +73,8 @@ pub async fn create_runtime_service(
     rt_opt: RuntimeOpt,
 ) -> RS<Arc<dyn Runtime>> {
     let runtime = RuntimeImpl::new(package_path, db_path, rt_opt).await?;
-    match opt_initialized_notifier {
-        Some(notifier) => {
-            notifier.notify_all();
-        }
-        None => {}
+    if let Some(notifier) = opt_initialized_notifier {
+        notifier.notify_all();
     }
     Ok(Arc::new(runtime))
 }

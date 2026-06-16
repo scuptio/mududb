@@ -95,9 +95,9 @@ pub fn render_rust_p2_wrapper(
 }
 
 pub fn procedure_interface_name(name: &str) -> String {
-    format!("procedure-{}", to_kebab_case(&name.to_string()))
+    format!("procedure-{}", to_kebab_case(name))
 }
 
 pub fn procedure_adapter_name(name: &str) -> String {
-    format!("adapter-{}", to_kebab_case(&name.to_string()))
+    format!("adapter-{}", to_kebab_case(name))
 }

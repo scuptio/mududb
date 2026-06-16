@@ -13,7 +13,7 @@ mod tests {
     use mudu_binding::universal::uni_scalar::UniScalar;
     use mudu_binding::universal::uni_scalar_value::UniScalarValue;
     use project_root::get_project_root;
-    use std::fs;
+
     use std::path::Path;
 
     fn parse_sql(sql: &str) -> RS<Vec<StmtType>> {
@@ -36,7 +36,7 @@ mod tests {
     }
 
     fn parse_file<P: AsRef<Path>>(path: P) -> RS<Vec<StmtType>> {
-        let sql = fs::read_to_string(path).unwrap();
+        let sql = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         parse_sql(&sql)
     }
 

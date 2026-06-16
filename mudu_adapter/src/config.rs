@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
+use mudu_sys::sync::SRwLock;
 
-static DB_PATH_OVERRIDE: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+static DB_PATH_OVERRIDE: OnceLock<SRwLock<Option<PathBuf>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Driver {
@@ -31,7 +32,7 @@ pub enum ConnectionConfig {
 }
 
 pub fn set_db_path(path: impl Into<PathBuf>) {
-    let lock = DB_PATH_OVERRIDE.get_or_init(|| RwLock::new(None));
+    let lock = DB_PATH_OVERRIDE.get_or_init(|| SRwLock::new(None));
     *lock.write().expect("db path lock poisoned") = Some(path.into());
 }
 
@@ -43,17 +44,16 @@ pub fn reset_db_path_override_for_test() {
 }
 
 pub fn db_path() -> PathBuf {
-    if let Some(lock) = DB_PATH_OVERRIDE.get() {
-        if let Some(path) = lock.read().expect("db path lock poisoned").clone() {
+    if let Some(lock) = DB_PATH_OVERRIDE.get()
+        && let Some(path) = lock.read().expect("db path lock poisoned").clone() {
             return path;
         }
-    }
 
     match connection() {
         ConnectionConfig::Sqlite { path } => path,
         ConnectionConfig::Postgres { .. }
         | ConnectionConfig::MySql { .. }
-        | ConnectionConfig::Mudud { .. } => std::env::current_dir()
+        | ConnectionConfig::Mudud { .. } => mudu_sys::env_var::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join("mudu_debug.db"),
     }
@@ -113,14 +113,13 @@ pub fn mudud_async_session_loop() -> bool {
 }
 
 pub fn connection() -> ConnectionConfig {
-    if let Some(lock) = DB_PATH_OVERRIDE.get() {
-        if let Some(path) = lock.read().expect("db path lock poisoned").clone() {
+    if let Some(lock) = DB_PATH_OVERRIDE.get()
+        && let Some(path) = lock.read().expect("db path lock poisoned").clone() {
             return ConnectionConfig::Sqlite { path };
         }
-    }
 
     let raw =
-        std::env::var("MUDU_CONNECTION").unwrap_or_else(|_| "sqlite://./mudu_debug.db".to_string());
+        mudu_sys::env_var::var("MUDU_CONNECTION").unwrap_or_else(|| "sqlite://./mudu_debug.db".to_string());
     parse_connection(&raw)
 }
 

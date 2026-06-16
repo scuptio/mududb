@@ -10,6 +10,9 @@ _FUZZ_GEN_TEST_JSON_ = []
 [package.metadata]
 cargo-fuzz = true
 
+[lints]
+workspace = true
+
 [dependencies]
 libfuzzer-sys = "0.4.7"
 tracing = { version = "0.1.40" }

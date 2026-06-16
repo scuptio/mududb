@@ -44,15 +44,15 @@ fn fn_handle_array(inner: &String) -> String {
     format!("Vec<{}>", inner)
 }
 
-fn fn_handle_option(inner: &String) -> String {
+fn fn_handle_option(inner: &str) -> String {
     format!("Option<{}>", inner)
 }
 
-fn fn_handle_tuple(inner: &Vec<String>) -> String {
+fn fn_handle_tuple(inner: &[String]) -> String {
     lang_handle_tuple(inner)
 }
 
-fn fn_handle_box(inner: &String) -> String {
+fn fn_handle_box(inner: &str) -> String {
     format!("Box<{}>", inner)
 }
 

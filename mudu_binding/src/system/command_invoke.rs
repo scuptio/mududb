@@ -8,7 +8,7 @@ pub fn serialize_command_param(oid: OID, stmt: &dyn SQLStmt, param: &dyn SQLPara
     handle_sys_command::command_param_serialize(oid, stmt, param)
 }
 
-pub fn deserialize_command_param(param: &[u8]) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+pub fn deserialize_command_param(param: &[u8]) -> RS<crate::codec::SqlParamPair> {
     handle_sys_command::command_param_deserialize(param)
 }
 

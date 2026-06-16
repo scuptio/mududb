@@ -121,7 +121,7 @@ pub fn fn_object_in_msgpack(msg_pack: &MsgPackValue, ty: &DatType) -> Result<Dat
         let opt_v = field_map.get(name.as_str());
         match opt_v {
             Some(v) => {
-                let v = ty.dat_type_id().fn_input_msg_pack()(*v, ty)?;
+                let v = ty.dat_type_id().fn_input_msg_pack()(v, ty)?;
                 vec.push(v);
             }
             None => {
@@ -198,8 +198,7 @@ pub fn fn_object_dat_output_len(dat_value: &DatValue, dat_type: &DatType) -> Res
 
 pub fn fn_object_send(value: &DatValue, dat_type: &DatType) -> Result<DatBinary, TyErr> {
     let size = fn_object_dat_output_len(value, dat_type)?;
-    let mut vec = Vec::with_capacity(size as usize);
-    unsafe { vec.set_len(size as usize) };
+    let mut vec = vec![0; size as usize];
     fn_object_send_to(value, dat_type, &mut vec)?;
     Ok(DatBinary::from(vec))
 }

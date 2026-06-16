@@ -9,7 +9,9 @@
     serde_repr::Deserialize_repr,
 )]
 #[repr(u32)]
+#[derive(Default)]
 pub enum UniDatTypeId {
+    #[default]
     Bool = 0,
 
     U8 = 1,
@@ -57,8 +59,3 @@ pub enum UniDatTypeId {
     TimestampTz = 22,
 }
 
-impl Default for UniDatTypeId {
-    fn default() -> Self {
-        Self::Bool
-    }
-}

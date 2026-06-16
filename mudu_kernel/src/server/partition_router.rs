@@ -224,7 +224,7 @@ fn build_route_tuple_desc(table_desc: &TableDesc, ref_attrs: &[usize]) -> RS<Tup
         .iter()
         .map(|attr| {
             let field = table_desc.get_attr(*attr);
-            (field.type_desc().clone(), field.datum_index() as usize)
+            (field.type_desc().clone(), field.datum_index())
         })
         .collect::<Vec<_>>();
     fields.sort_by_key(|(_, datum_index)| *datum_index);
@@ -343,6 +343,9 @@ mod tests {
 
     #[async_trait]
     impl MetaMgr for TestMetaMgr {
+        async fn initialize(&self) -> RS<()> {
+            Ok(())
+        }
         async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
             if self.table_desc.id() == oid {
                 Ok(self.table_desc.clone())
@@ -354,7 +357,7 @@ mod tests {
             }
         }
 
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+        async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
             Ok((self.table_desc.name() == name).then(|| self.table_desc.clone()))
         }
 
@@ -390,8 +393,9 @@ mod tests {
         .unwrap()
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn unpartitioned_table_routes_to_default_global_partition() {
+    #[test]
+    fn unpartitioned_table_routes_to_default_global_partition() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let table_desc = test_table_desc();
         let router = PartitionRouter::new(Arc::new(TestMetaMgr {
             table_desc: table_desc.clone(),
@@ -416,5 +420,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(range, Some(vec![DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID]));
+        }).unwrap()
     }
 }

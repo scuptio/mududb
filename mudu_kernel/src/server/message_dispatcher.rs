@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu_contract::protocol::{Frame, MessageType};
-
+use mudu_sys::scoped_task_trace;
 use crate::server::async_func_task::HandleResult;
 use crate::server::handlers::{
     BatchHandler, ExecuteHandler, GetHandler, HandshakeHandler, ProcedureInvokeHandler, PutHandler,
@@ -47,6 +47,7 @@ impl MessageDispatcher {
         ctx: &RequestCtx,
         frame: &Frame,
     ) -> Option<RS<HandleResult>> {
+        scoped_task_trace!();
         let (_, handler) = self
             .handlers
             .iter()

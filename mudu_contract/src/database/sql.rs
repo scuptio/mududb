@@ -14,9 +14,10 @@ use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_sys::sync::SMutex;
 use mudu_type::datum::DatumDyn;
 use scc::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::debug;
 
 pub fn function_sql_stmt(stmt: &dyn SQLStmt) -> &dyn SQLStmt {
@@ -41,12 +42,12 @@ impl DBConn {
     pub async fn begin_tx(&self) -> RS<OID> {
         let xid = match self {
             DBConn::Sync(conn) => {
-                let xid = conn.begin_tx()?;
-                xid
+                
+                conn.begin_tx()?
             }
             DBConn::Async(conn) => {
-                let xid = conn.begin_tx().await?;
-                xid
+                
+                conn.begin_tx().await?
             }
         };
         Ok(xid)
@@ -80,8 +81,8 @@ pub struct Context {
 
 struct ContextInner {
     session_id: OID,
-    xid: Mutex<OID>,
-    result_set: Mutex<Option<ContextResult>>,
+    xid: SMutex<OID>,
+    result_set: SMutex<Option<ContextResult>>,
     conn: DBConn,
 }
 
@@ -126,8 +127,8 @@ impl ContextInner {
     fn new(oid: OID, conn: DBConn) -> RS<Self> {
         let s = Self {
             session_id: oid,
-            xid: Mutex::new(0),
-            result_set: Mutex::new(Default::default()),
+            xid: SMutex::new(0),
+            result_set: SMutex::new(Default::default()),
             conn,
         };
         Ok(s)
@@ -135,10 +136,7 @@ impl ContextInner {
 
     fn set_xid(&self, xid: OID) {
         let mut g = self.xid.lock();
-        match &mut g {
-            Ok(v) => **v = xid,
-            Err(_) => {}
-        }
+        if let Ok(v) = &mut g { **v = xid }
     }
     fn xid(&self) -> OID {
         let g = self.xid.lock();
@@ -223,6 +221,7 @@ impl Context {
         Ok(())
     }
 
+    #[allow(clippy::self_named_constructors)]
     pub fn context(oid: OID) -> Option<Context> {
         let opt = SessionContext.get_sync(&oid);
         opt.map(|e| e.get().clone())
@@ -273,8 +272,8 @@ impl Context {
             let opt = SessionContext.get_async(&xid).await;
             match opt {
                 Some(e) => {
-                    let ctx = e.get().clone();
-                    ctx
+                    
+                    e.get().clone()
                 }
                 None => return Err(m_error!(EC::NoSuchElement, "no such context")),
             }

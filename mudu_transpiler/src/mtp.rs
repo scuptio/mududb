@@ -1,7 +1,7 @@
 use clap::{ArgAction, Parser};
 use mudu::common::result::RS;
+use mudu_sys::process;
 use std::path::PathBuf;
-use std::process;
 
 /// Command-line arguments structure for the Mudu Transpiler
 #[derive(Parser, Clone)]
@@ -113,17 +113,17 @@ fn handle_rust(args: Args) -> Result<(), String> {
     let output_file = PathBuf::from(&args.output);
     let module = args.module.unwrap_or_else(|| "module".to_string());
 
-    let ret = crate::rust::transpile_rust(
-        &input_file,
-        &output_file,
-        module,
-        args.verbose,
-        args.enable_async,
-        args.src_mod,
-        args.dst_mod,
-        args.package_desc,
-        args.type_desc_file,
-    );
+    let ret = crate::rust::transpile_rust(crate::rust::TranspileRustOptions {
+        input: &input_file,
+        output: &output_file,
+        module_name: module,
+        verbose: args.verbose,
+        enable_async: args.enable_async,
+        src_mod: args.src_mod,
+        dst_mod: args.dst_mod,
+        output_desc_file: args.package_desc,
+        custom_type_def_file: args.type_desc_file,
+    });
 
     if ret == 0 {
         Ok(())

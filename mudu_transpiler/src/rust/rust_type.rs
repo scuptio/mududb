@@ -47,7 +47,7 @@ impl RustType {
                     s.push_str(t.to_type_str().as_str());
                     s.push_str(", ");
                 }
-                s.push_str(")");
+                s.push(')');
                 s
             }
             RustType::Custom(s) => s.clone(),
@@ -57,7 +57,7 @@ impl RustType {
                     s.push_str(t.to_type_str().as_str());
                     s.push_str(", ");
                 }
-                s.push_str(">");
+                s.push('>');
                 s
             }
         }
@@ -118,7 +118,7 @@ impl RustType {
                 _ => {
                     let ty = custom_types.types.get(s).map_or_else(
                         || Err(m_error!(EC::NoneErr, format!("no such type name:{}", s))),
-                        |t| Ok(t),
+                        Ok,
                     )?;
                     ty.clone().uni_to()?
                 }

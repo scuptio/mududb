@@ -6,8 +6,12 @@ edition = "2024"
 
 build = "build.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
+mudu_sys = { workspace = true }
 sql_parser = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-wit = { workspace = true }
@@ -24,6 +28,7 @@ tree-sitter = { workspace = true }
 tree-sitter-wit = { workspace = true }
 base16ct = { workspace = true }
 serde = { workspace = true }
+mudu_sys = { workspace = true }
 [lib]
 path = "src/lib.rs"
 

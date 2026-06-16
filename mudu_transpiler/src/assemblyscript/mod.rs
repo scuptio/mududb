@@ -15,7 +15,6 @@ use mudu::m_error;
 use mudu::utils::json::to_json_str;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Transpile AssemblyScript source code to Mudu procedure adapter artifacts.
@@ -48,7 +47,7 @@ fn _transpile_assemblyscript<I: AsRef<Path>, O: AsRef<Path>>(
     verbose: bool,
     opt_output_desc_file: Option<String>,
 ) -> RS<()> {
-    let code = fs::read_to_string(&input)
+    let code = mudu_sys::fs::sync::sync_read_to_string(input.as_ref())
         .map_err(|e| m_error!(EC::IOErr, "read assemblyscript source code error", e))?;
     let procedures = discover_procedures(&code)?;
     if procedures.is_empty() {
@@ -59,7 +58,7 @@ fn _transpile_assemblyscript<I: AsRef<Path>, O: AsRef<Path>>(
     }
 
     let adapter_source = render_adapter_source(input.as_ref(), output.as_ref(), &procedures)?;
-    fs::write(&output, adapter_source)
+    mudu_sys::fs::sync::sync_write(output.as_ref(), adapter_source.as_bytes())
         .map_err(|e| m_error!(EC::IOErr, "write assemblyscript adapter source error", e))?;
 
     let output_path = output.as_ref();
@@ -67,10 +66,10 @@ fn _transpile_assemblyscript<I: AsRef<Path>, O: AsRef<Path>>(
     let wit_path = sibling_with_extension(output_path, "wit");
 
     let rust_source = render_rust_wrapper(&procedures, &module_name)?;
-    fs::write(&rust_path, rust_source)
+    mudu_sys::fs::sync::sync_write(&rust_path, rust_source.as_bytes())
         .map_err(|e| m_error!(EC::IOErr, "write assemblyscript rust wrapper error", e))?;
 
-    fs::write(&wit_path, render_wit(&procedures))
+    mudu_sys::fs::sync::sync_write(&wit_path, render_wit(&procedures).as_bytes())
         .map_err(|e| m_error!(EC::IOErr, "write assemblyscript procedure wit error", e))?;
 
     let desc_path = if let Some(desc_file) = opt_output_desc_file {
@@ -78,7 +77,7 @@ fn _transpile_assemblyscript<I: AsRef<Path>, O: AsRef<Path>>(
         let modules = HashMap::from_iter(vec![(module_name.clone(), proc_desc_list)]);
         let package_desc = ModProcDesc::new(modules);
         let json = to_json_str(&package_desc)?;
-        fs::write(&desc_file, json)
+        mudu_sys::fs::sync::sync_write(&desc_file, json)
             .map_err(|e| m_error!(EC::IOErr, "write assemblyscript procedure desc error", e))?;
         Some(desc_file)
     } else {

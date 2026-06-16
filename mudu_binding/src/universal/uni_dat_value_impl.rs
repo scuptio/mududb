@@ -16,7 +16,8 @@ impl UniDatValue {
     pub fn uni_to(self) -> RS<DatValue> {
         let value = match self {
             UniDatValue::Scalar(value) => {
-                let v = match value {
+                
+                match value {
                     UniScalarValue::Bool(_) => {
                         return Err(m_error!(EC::TypeErr, "scalar bool is not supported"));
                     }
@@ -70,8 +71,7 @@ impl UniDatValue {
                             |e| m_error!(EC::TypeErr, format!("invalid timestamptz {}", e)),
                         )?)
                     }
-                };
-                v
+                }
             }
             UniDatValue::Array(inner) => {
                 let mut vec = Vec::with_capacity(inner.len());
@@ -98,22 +98,22 @@ impl UniDatValue {
         let id = dat_value.dat_type_id()?;
         let mu_v = match id {
             DatTypeID::I32 => {
-                UniDatValue::from_scalar(UniScalarValue::I32(dat_value.expect_i32().clone()))
+                UniDatValue::from_scalar(UniScalarValue::I32(*dat_value.expect_i32()))
             }
             DatTypeID::I64 => {
-                UniDatValue::from_scalar(UniScalarValue::I64(dat_value.expect_i64().clone()))
+                UniDatValue::from_scalar(UniScalarValue::I64(*dat_value.expect_i64()))
             }
             DatTypeID::I128 => {
-                UniDatValue::from_scalar(UniScalarValue::I128(dat_value.expect_i128().clone()))
+                UniDatValue::from_scalar(UniScalarValue::I128(*dat_value.expect_i128()))
             }
             DatTypeID::U128 => {
-                UniDatValue::from_scalar(UniScalarValue::U128(dat_value.expect_u128().clone()))
+                UniDatValue::from_scalar(UniScalarValue::U128(*dat_value.expect_u128()))
             }
             DatTypeID::F32 => {
-                UniDatValue::from_scalar(UniScalarValue::F32(dat_value.expect_f32().clone()))
+                UniDatValue::from_scalar(UniScalarValue::F32(*dat_value.expect_f32()))
             }
             DatTypeID::F64 => {
-                UniDatValue::from_scalar(UniScalarValue::F64(dat_value.expect_f64().clone()))
+                UniDatValue::from_scalar(UniScalarValue::F64(*dat_value.expect_f64()))
             }
             DatTypeID::String => {
                 UniDatValue::from_scalar(UniScalarValue::String(dat_value.expect_string().clone()))

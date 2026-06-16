@@ -3,6 +3,8 @@ mod init_log;
 pub mod log;
 pub mod md5;
 pub mod notifier;
+pub mod oid;
+pub use oid::{gen_oid, new_xid};
 pub mod sync;
 #[deprecated(note = "use mudu_utils::task_async or mudu_utils::task_sync instead")]
 pub mod task;

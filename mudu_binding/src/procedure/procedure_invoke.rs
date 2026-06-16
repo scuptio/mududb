@@ -94,20 +94,20 @@ fn _invoke_wrapper(
 ) -> Result<(), (i32, MError)> {
     let param: ProcedureParam = unsafe {
         let slice = slice::from_raw_parts(p1_ptr, p1_len);
-        let param = deserialize_param(slice).map_err(|e| {
+        
+        deserialize_param(slice).map_err(|e| {
             error!(
                 "deserialized input parameter error {}, length {}",
                 e, p1_len
             );
             (-1001, e)
-        })?;
-        param
+        })?
     };
     let result = f(&param);
     debug!("invoke function, return {:?}", &result);
     let out_buf = unsafe {
-        let slice = slice::from_raw_parts_mut(p2_ptr, p2_len);
-        slice
+        
+        slice::from_raw_parts_mut(p2_ptr, p2_len)
     };
 
     let result_b = serialize_result(result).map_err(|e| (-2002, e))?;

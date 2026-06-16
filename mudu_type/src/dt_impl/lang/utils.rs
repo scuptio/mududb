@@ -27,15 +27,12 @@ pub fn lang_type_name_2_dat_type_id(
         if !name2id.contains_key(*s) {
         } else {
             let opt = name2id.get_mut(*s);
-            match opt {
-                Some((t, vec)) => {
-                    insert_sorted(vec, id.clone());
-                    *t = vec.pop().unwrap();
-                }
-                None => {}
+            if let Some((t, vec)) = opt {
+                insert_sorted(vec, *id);
+                *t = vec.pop().unwrap();
             }
         }
-        name2id.insert(s.to_string(), (id.clone(), Default::default()));
+        name2id.insert(s.to_string(), (*id, Default::default()));
     }
 
     name2id

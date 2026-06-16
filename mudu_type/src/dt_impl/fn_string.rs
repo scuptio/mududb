@@ -32,7 +32,7 @@ pub fn fn_string_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> 
         None => {
             return Err(TyErr::new(
                 TyEC::TypeConvertFailed,
-                format!("cannot convert json {} to string", v.to_string()),
+                format!("cannot convert json {} to string", v),
             ));
         }
     };
@@ -70,7 +70,7 @@ pub fn fn_string_len(_: &DatType) -> Result<Option<u32>, TyErr> {
 
 pub fn fn_string_dat_output_len(val: &DatValue, _ty: &DatType) -> Result<u32, TyErr> {
     let s = val.expect_string();
-    Ok((s.as_bytes().len() + BinSize::size_of()) as u32)
+    Ok((s.len() + BinSize::size_of()) as u32)
 }
 
 pub fn fn_string_send(v: &DatValue, _: &DatType) -> Result<DatBinary, TyErr> {
@@ -95,7 +95,7 @@ pub fn fn_string_send_to(v: &DatValue, _: &DatType, buf: &mut [u8]) -> Result<u3
             format!("cannot convert string {} to binary", s),
         ));
     }
-    Ok((s.as_bytes().len() + size_of::<u32>()) as u32)
+    Ok((s.len() + size_of::<u32>()) as u32)
 }
 
 pub fn fn_string_recv(buf: &[u8], _: &DatType) -> Result<(DatValue, u32), TyErr> {

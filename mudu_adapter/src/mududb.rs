@@ -21,15 +21,15 @@ use mudu_contract::protocol::{
 };
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_sys::sync::a_mutex::AMutex;
-use mudu_sys::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::tokio_mutex::AMutex;
+use mudu_sys::sync::tokio_rwlock::ARwLock;
 use mudu_utils::task_async::build_current_thread_runtime;
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::Arc;
 use mudu_sys::sync::SMutex;
-use std::thread;
+use mudu_sys::task::sync::spawn_thread_named;
 
 struct MududSession {
     client: SyncClient,
@@ -48,6 +48,8 @@ struct AsyncMududSession {
     client: AsyncClientImpl,
     remote_session_id: u128,
 }
+
+type RangeResult = Vec<(Vec<u8>, Vec<u8>)>;
 
 struct QueryRows {
     row_desc: TupleFieldDesc,
@@ -79,7 +81,7 @@ enum AsyncCommand {
         session_id: OID,
         start_key: Vec<u8>,
         end_key: Vec<u8>,
-        response: SyncSender<RS<Vec<(Vec<u8>, Vec<u8>)>>>,
+        response: SyncSender<RS<RangeResult>>,
     },
     Query {
         session_id: OID,
@@ -114,9 +116,11 @@ pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
         return async_open(argv.worker_oid());
     }
 
-    let addr = config::mudud_addr()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud tcp address"))?;
-    let mut client = SyncClient::connect(addr.as_str())?;
+    let addr: std::net::SocketAddr = config::mudud_addr()
+        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud tcp address"))?
+        .parse()
+        .map_err(|e| m_error!(EC::DBInternalError, "invalid mudud tcp address", e))?;
+    let mut client = SyncClient::connect(addr)?;
     let remote_session_id = client.create_session(session_open_config_json(argv.worker_oid()))?;
     let session_id = state::next_session_id();
     let session = Arc::new(SMutex::new(MududSession {
@@ -586,10 +590,11 @@ fn session_open_config_json(worker_id: OID) -> Option<String> {
 impl AsyncManager {
     fn start() -> Self {
         let (sender, receiver) = mpsc::channel();
-        thread::Builder::new()
-            .name("mudu-adapter-mudud-async".to_string())
-            .spawn(move || run_async_manager(receiver))
-            .expect("spawn mudud async manager thread");
+        spawn_thread_named(
+            "mudu-adapter-mudud-async",
+            move || run_async_manager(receiver),
+        )
+        .expect("spawn mudud async manager thread");
         Self { sender }
     }
 }

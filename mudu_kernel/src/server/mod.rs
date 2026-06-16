@@ -5,6 +5,7 @@
 //! public API falls back to a portable thread-per-worker implementation.
 //! Modules that depend on `rliburing` are therefore compiled only on Linux.
 
+#![allow(clippy::module_inception)]
 pub mod async_func_runtime;
 mod async_func_task;
 #[cfg(target_os = "linux")]

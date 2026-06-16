@@ -73,8 +73,8 @@ mod tests {
     use mudu::common::result::RS;
     use mudu::utils::json::{read_json, write_json};
     use std::collections::HashMap;
+    use mudu_sys::random::next_uuid_v4_string;
     use std::env::temp_dir;
-    use uuid::Uuid;
 
     #[test]
     fn test_app_proc_desc() {
@@ -101,7 +101,7 @@ mod tests {
             map.insert(mod_name, vec);
         }
         let app_proc_desc = ModProcDesc { modules: map };
-        let id = Uuid::new_v4().to_string();
+        let id = next_uuid_v4_string();
         let path = format!("{}/proc_desc_{}.toml", temp_dir().to_str().unwrap(), id);
 
         println!("{}", path);

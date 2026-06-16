@@ -11,7 +11,7 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use std::any::Any;
 use std::sync::Arc;
 
-pub fn create_ls_conn(db_path: &String, app_name: &String, ddl_path: &String) -> RS<DBConn> {
+pub fn create_ls_conn(db_path: &str, app_name: &str, ddl_path: &str) -> RS<DBConn> {
     Ok(DBConn::Sync(Arc::new(LSConn::new(
         db_path, app_name, ddl_path,
     )?)))
@@ -28,7 +28,7 @@ pub fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection
 }
 
 impl LSConn {
-    fn new(db_path: &String, app_name: &String, ddl_path: &String) -> RS<Self> {
+    fn new(db_path: &str, app_name: &str, ddl_path: &str) -> RS<Self> {
         let inner = LSSyncConn::new(db_path, app_name, ddl_path)?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -37,8 +37,8 @@ impl LSConn {
 }
 
 impl DBConnSync for LSConn {
-    fn exec_silent(&self, sql_text: &String) -> RS<()> {
-        self.inner.exe_sql(sql_text.clone())
+    fn exec_silent(&self, sql_text: &str) -> RS<()> {
+        self.inner.exe_sql(sql_text.to_owned())
     }
 
     fn begin_tx(&self) -> RS<OID> {
@@ -86,7 +86,7 @@ mod test {
     use mudu_contract::database::sql::DBConn;
     use mudu_sys::tokio::runtime::Builder;
     use mudu_utils::log::log_setup;
-    use mudu_utils::notifier::NotifyWait;
+    use mudu_utils::notifier::notify_wait;
     use mudu_utils::task_async::spawn_task;
     use std::env::temp_dir;
     use std::fs;
@@ -180,13 +180,13 @@ mod test {
 
         let conn_max = 1;
         builder.block_on(async move {
-            let notifier = NotifyWait::new();
+            let (_cancel_notifier, cancel_waiter) = notify_wait();
             prepare_test_db().await;
             let mut join = vec![];
             {
                 let db_path = test_db_temp_folder();
                 let ddl_path = test_db_sql_folder();
-                let j = spawn_task(notifier.clone(), &"task_0".to_string(), async move {
+                let j = spawn_task(cancel_waiter, &"task_0".to_string(), async move {
                     handle_conn(0, conn_max, APP_NAME.to_string(), db_path, ddl_path)
                         .await
                         .unwrap();

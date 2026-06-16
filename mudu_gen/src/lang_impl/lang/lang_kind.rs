@@ -18,7 +18,7 @@ impl LangKind {
             LangKind::CSharp => "csharp",
         }
     }
-    pub fn from_str(lang: &str) -> Option<LangKind> {
+    pub fn from_name(lang: &str) -> Option<LangKind> {
         let s = lang.to_lowercase();
         match s.as_str() {
             "rust" => Some(LangKind::Rust),

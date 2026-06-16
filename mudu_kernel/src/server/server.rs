@@ -1,22 +1,24 @@
-use mudu_sys::async_rt::contract::AsyncRuntime;
+#![allow(clippy::disallowed_methods)]
+
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::async_func_task::HandleResult;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 use crate::server::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
 use crate::server::message_bus_api::{
-    register_worker_message_bus, set_current_message_bus, unregister_worker_message_bus,
-    unset_current_message_bus, EndpointId, Envelope, MessageBus, MessageBusRef, MessageId,
-    OnRecvCallback, OutgoingMessage, RecvFilter, ServerInstanceId, SubscriptionId,
+    EndpointId, Envelope, MessageBus, MessageBusRef, MessageId, OnRecvCallback, OutgoingMessage,
+    RecvFilter, ServerInstanceId, SubscriptionId, register_worker_message_bus,
+    set_current_message_bus, unregister_worker_message_bus, unset_current_message_bus,
 };
 use crate::server::message_bus_state::WorkerMessageBusState;
 use crate::server::session_bound_worker_runtime::{
     as_worker_local_ref, new_session_bound_worker_runtime,
 };
-use crate::server::worker::WorkerRuntime;
+use crate::server::worker::{WorkerRuntime, WorkerRuntimeParams};
 use crate::server::worker_local::{set_current_worker_local, unset_current_worker_local};
 use crate::server::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::wal::worker_log::WorkerLogBatching;
-use crate::wal::worker_log::{decode_frames, WorkerLogBackend};
+use crate::wal::worker_log::{WorkerLogBackend, decode_frames};
 use crate::wal::xl_batch::decode_xl_batches;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
@@ -26,28 +28,27 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_contract::protocol::encode_merror_response;
-use mudu_sys::sync::stop_flag::{stop_channel, StopRx, StopTx};
+use mudu_sys::net::{AsyncTcpListener, AsyncTcpStream};
+use mudu_sys::sync::stop_flag::{StopRx, StopTx, stop_channel};
 use mudu_sys::tokio;
 use mudu_sys::tokio::io::{AsyncReadExt, AsyncWriteExt};
-use mudu_sys::tokio::net::{TcpListener as TokioTcpListener, TcpStream as TokioTcpStream};
 use mudu_sys::tokio::sync::Notify;
-use mudu_utils::notifier::{notify_wait, Notifier, Waiter};
+use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use mudu_utils::scoped_task_trace;
 use mudu_utils::task_async::{
-    build_current_thread_runtime, spawn_local_detached, spawn_local_task, CurrentThreadTaskRuntime,
+    CurrentThreadTaskRuntime, build_current_thread_runtime, spawn_local_detached, spawn_local_task,
 };
 
-use socket2::{Domain, Protocol, Socket, Type};
-
-use std::net::{SocketAddr, TcpListener};
+use mudu_sys::net::sync::StdTcpListener;
+use mudu_sys::sync::SMutex;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{atomic::AtomicBool, Arc};
-use mudu_sys::sync::SMutex;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use crate::server::server_launch::{ServerLaunch, WorkerTcpBackendConfig};
-use std::thread;
-use std::thread::JoinHandle;
+use mudu_sys::task::sync::SJoinHandle;
+
 use tracing::trace;
 
 /// Backend entry point for the `client` transport.
@@ -128,7 +129,7 @@ impl MessageBus for TokioWorkerMessageBus {
             msg_id,
             message.correlation_id(),
             self.local_endpoint(),
-            dst.clone(),
+            dst,
             message.kind(),
             message.payload_owned(),
             message.delivery(),
@@ -202,7 +203,7 @@ struct WorkerBuildConfig {
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     worker_identity: WorkerIdentity,
     worker_registry: Arc<WorkerRegistry>,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl WorkerBuildConfig {
@@ -234,18 +235,19 @@ impl WorkerBuildConfig {
     }
 
     async fn build_worker(self) -> RS<WorkerRuntime> {
-        WorkerRuntime::new_with_log_batching_and_runtime(
-            self.worker_identity,
-            self.worker_count,
-            self.log_dir,
-            self.data_dir,
-            self.log_chunk_size,
-            self.log_batching,
-            self.procedure_runtime,
-            self.worker_registry,
-            self.async_runtime,
-            self.server_instance_id,
-        ).await
+        WorkerRuntime::new(WorkerRuntimeParams {
+            identity: self.worker_identity,
+            worker_count: self.worker_count,
+            log_dir: self.log_dir,
+            data_dir: self.data_dir,
+            log_chunk_size: self.log_chunk_size,
+            log_batching: self.log_batching,
+            procedure_runtime: self.procedure_runtime,
+            registry: self.worker_registry,
+            async_runtime: self.async_runtime,
+            server_instance_id: self.server_instance_id,
+        })
+        .await
     }
 }
 
@@ -255,25 +257,21 @@ fn spawn_stop_bridge(
     stop_flag: Arc<AtomicBool>,
     service_ready: Arc<AtomicBool>,
     stop_tx: StopTx,
-) -> RS<JoinHandle<RS<()>>> {
-    thread::Builder::new()
-        .name(name.to_string())
-        .spawn(move || {
-            let runtime = build_current_thread_runtime().map_err(|e| {
-                m_error!(EC::TokioErr, format!("create runtime for {name} error"), e)
-            })?;
-            trace!(bridge = name, "tokio stop bridge waiting for stop");
-            runtime.block_on(stop.wait());
-            trace!(bridge = name, "tokio stop bridge observed stop");
-            service_ready.store(false, Ordering::Relaxed);
-            stop_flag.store(true, Ordering::Relaxed);
-            stop_tx.stop();
-            Ok(())
-        })
-        .map_err(|e| m_error!(EC::ThreadErr, format!("spawn {name} error"), e))
+) -> RS<SJoinHandle<RS<()>>> {
+    mudu_sys::task::sync::spawn_thread_named(name, move || {
+        let runtime = build_current_thread_runtime()
+            .map_err(|e| m_error!(EC::TokioErr, format!("create runtime for {name} error"), e))?;
+        trace!(bridge = name, "tokio stop bridge waiting for stop");
+        runtime.block_on(stop.wait());
+        trace!(bridge = name, "tokio stop bridge observed stop");
+        service_ready.store(false, Ordering::Relaxed);
+        stop_flag.store(true, Ordering::Relaxed);
+        stop_tx.stop();
+        Ok(())
+    })
 }
 
-fn wait_stop_bridge(name: &'static str, handle: JoinHandle<RS<()>>) -> RS<()> {
+fn wait_stop_bridge(name: &'static str, handle: SJoinHandle<RS<()>>) -> RS<()> {
     handle
         .join()
         .map_err(|_| m_error!(EC::ThreadErr, format!("join {name} error")))?
@@ -306,7 +304,7 @@ impl WorkerTcpBackend {
     ) -> RS<()> {
         #[cfg(target_os = "linux")]
         {
-            return crate::server::server_iouring::sync_serve_iouring(cfg, stop, ready);
+            crate::server::server_iouring::sync_serve_iouring(cfg, stop, ready)
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -424,17 +422,21 @@ fn sync_serve_tokio(
                 })?;
             create_listener(listen_addr)?
         };
-        let handle = thread::Builder::new()
-            .name(format!("tokio-tcp-worker-{worker_id}"))
-            .spawn(move || {
+        let handle = mudu_sys::task::sync::spawn_thread_named(
+            format!("tokio-tcp-worker-{worker_id}"),
+            move || {
                 let runtime = CurrentThreadTaskRuntime::new()
                     .map_err(|e| m_error!(EC::TokioErr, "build tokio worker runtime error", e))?;
                 let result = runtime.block_on(async move {
                     trace!(worker_id, "tokio worker thread starting");
-                    listener
-                        .set_nonblocking(true)
-                        .map_err(|e| m_error!(EC::NetErr, "set tokio listener nonblocking error", e))?;
+                    listener.set_nonblocking(true).map_err(|e| {
+                        m_error!(EC::NetErr, "set tokio listener nonblocking error", e)
+                    })?;
                     let worker = worker_cfg.build_worker().await?;
+                    worker
+                        .initialize()
+                        .await
+                        .map_err(|e| m_error!(EC::StorageErr, "initialize worker failed", e))?;
                     worker.bootstrap_storage_async().await.map_err(|e| {
                         m_error!(EC::StorageErr, "bootstrap worker storage failed", e)
                     })?;
@@ -447,10 +449,9 @@ fn sync_serve_tokio(
                     let worker_id = worker.worker_id();
                     let server_instance_id = worker.server_instance_id();
                     let conn_tasks = TokioConnTaskState::new();
-                    set_current_worker_local(as_worker_local_ref(new_session_bound_worker_runtime(
-                        worker.clone(),
-                        0,
-                    )));
+                    set_current_worker_local(as_worker_local_ref(
+                        new_session_bound_worker_runtime(worker.clone(), 0),
+                    ));
                     let message_bus_ref = message_bus.bus_ref();
                     set_current_message_bus(message_bus_ref.clone());
                     register_worker_message_bus(
@@ -459,15 +460,15 @@ fn sync_serve_tokio(
                         &message_bus_ref,
                     )?;
                     trace!(worker_id, "tokio worker loop entering");
-                    let listener = TokioTcpListener::from_std(listener)
+                    let listener = AsyncTcpListener::from_std(listener.into_inner())
                         .map_err(|e| m_error!(EC::NetErr, "convert tokio tcp listener error", e))?;
                     worker.ensure_partition_rpc_handler()?;
                     recover_worker_log_tokio(&worker).await?;
                     let (_task_notifier, task_waiter) = notify_wait();
                     let join = spawn_local_task(
-                        task_waiter.into(),
+                        task_waiter,
                         &format!("tokio_worker_loop_{worker_id}"),
-                        run_worker_loop_tokio(
+                        run_worker_loop_tokio(TokioWorkerLoopArgs {
                             worker,
                             listener,
                             bus_inbox,
@@ -477,9 +478,9 @@ fn sync_serve_tokio(
                             stop,
                             stop_rx,
                             service_ready,
-                            conn_tasks.clone(),
-                            Some(rpc_ready_tx),
-                        ),
+                            conn_tasks: conn_tasks.clone(),
+                            rpc_ready_tx: Some(rpc_ready_tx),
+                        }),
                     )?;
                     let _ = started_tx.send(Ok(()));
                     let _ = unregister_worker_message_bus(server_instance_id, worker_id);
@@ -496,8 +497,8 @@ fn sync_serve_tokio(
 
                 trace!(worker_id, "tokio worker thread exiting");
                 result
-            })
-            .map_err(|e| m_error!(EC::ThreadErr, "spawn tokio worker error", e))?;
+            },
+        )?;
         handles.push(handle);
     }
     drop(started_tx);
@@ -545,19 +546,34 @@ fn sync_serve_tokio(
     Ok(())
 }
 
-async fn run_worker_loop_tokio(
+struct TokioWorkerLoopArgs {
     worker: WorkerRuntime,
-    listener: TokioTcpListener,
+    listener: AsyncTcpListener,
     bus_inbox: Arc<SegQueue<Envelope>>,
     message_bus: Arc<TokioWorkerMessageBus>,
     bus_wake: Arc<Notify>,
     conn_id_alloc: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
-    mut stop_rx: StopRx,
+    stop_rx: StopRx,
     service_ready: Arc<AtomicBool>,
     conn_tasks: TokioConnTaskState,
     rpc_ready_tx: Option<mpsc::Sender<RS<()>>>,
-) -> RS<()> {
+}
+
+async fn run_worker_loop_tokio(args: TokioWorkerLoopArgs) -> RS<()> {
+    let TokioWorkerLoopArgs {
+        worker,
+        listener,
+        bus_inbox,
+        message_bus,
+        bus_wake,
+        conn_id_alloc,
+        stop,
+        mut stop_rx,
+        service_ready,
+        conn_tasks,
+        rpc_ready_tx,
+    } = args;
     scoped_task_trace!();
     if let Some(tx) = rpc_ready_tx {
         let _ = tx.send(Ok(()));
@@ -627,9 +643,10 @@ async fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
     let Some(log) = worker.worker_log() else {
         return Ok(());
     };
+    let fs = log.fs();
     let chunk_paths = log.chunk_paths_sorted().await?;
     for path in chunk_paths {
-        let bytes = std::fs::read(&path).map_err(|e| {
+        let bytes = fs.read_all(&path).await.map_err(|e| {
             m_error!(
                 EC::IOErr,
                 format!("read worker log chunk {} error", path.display()),
@@ -650,7 +667,7 @@ async fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
 
 async fn handle_tokio_connection(
     worker: WorkerRuntime,
-    mut stream: TokioTcpStream,
+    mut stream: AsyncTcpStream,
     conn_id: u64,
     remote_addr: SocketAddr,
     stop: Arc<AtomicBool>,
@@ -727,45 +744,30 @@ fn drain_message_bus_tokio(
     Ok(progressed)
 }
 
-fn create_listener(listen_addr: SocketAddr) -> RS<TcpListener> {
-    let domain = if listen_addr.is_ipv4() {
-        Domain::IPV4
-    } else {
-        Domain::IPV6
-    };
-    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
-        .map_err(|e| m_error!(EC::NetErr, "create tcp listener socket error", e))?;
-    socket
-        .set_reuse_address(true)
-        .map_err(|e| m_error!(EC::NetErr, "enable SO_REUSEADDR error", e))?;
-    socket
-        .set_nonblocking(true)
-        .map_err(|e| m_error!(EC::NetErr, "set listener nonblocking error", e))?;
-    socket
-        .bind(&listen_addr.into())
-        .map_err(|e| m_error!(EC::NetErr, "bind io_uring tcp listener error", e))?;
-    socket
-        .listen(1024)
-        .map_err(|e| m_error!(EC::NetErr, "listen io_uring tcp listener error", e))?;
-    Ok(socket.into())
+fn create_listener(listen_addr: SocketAddr) -> RS<StdTcpListener> {
+    mudu_sys::net::sync::bind_tcp(listen_addr)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mudu_contract::protocol::encode_get_request;
     use mudu_contract::protocol::GetRequest;
     use mudu_contract::protocol::HEADER_LEN;
+    use mudu_contract::protocol::encode_get_request;
 
     #[test]
     fn try_decode_next_frame_waits_for_full_payload() {
         let encoded = encode_get_request(1, &GetRequest::new(1, b"k".to_vec())).unwrap();
-        assert!(try_decode_next_frame(&encoded[..HEADER_LEN - 1])
-            .unwrap()
-            .is_none());
-        assert!(try_decode_next_frame(&encoded[..HEADER_LEN])
-            .unwrap()
-            .is_none());
+        assert!(
+            try_decode_next_frame(&encoded[..HEADER_LEN - 1])
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            try_decode_next_frame(&encoded[..HEADER_LEN])
+                .unwrap()
+                .is_none()
+        );
         let decoded = try_decode_next_frame(&encoded).unwrap().unwrap();
         assert_eq!(decoded.0.header().request_id(), 1);
         assert_eq!(decoded.1, encoded.len());

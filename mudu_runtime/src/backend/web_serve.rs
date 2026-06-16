@@ -1,3 +1,4 @@
+
 use crate::backend::http_api::{
     HttpApiCapabilities, LegacyHttpApi, serve_http_api_on_listener_with_stop,
 };
@@ -8,7 +9,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use mudu_utils::notifier::{Notifier, Waiter};
-use std::net::TcpListener;
+use mudu_sys::net::sync::StdTcpListener;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -44,7 +45,8 @@ pub async fn async_serve(
             e
         );
     })?;
-    let listener = TcpListener::bind(format!("{}:{}", cfg.listen_ip, cfg.http_listen_port))
+    let listener = StdTcpListener::bind(
+        format!("{}:{}", cfg.listen_ip, cfg.http_listen_port).parse().unwrap())
         .map_err(|e| m_error!(EC::IOErr, "bind backend http listener error", e))?;
     info!(
         listen_ip = %cfg.listen_ip,

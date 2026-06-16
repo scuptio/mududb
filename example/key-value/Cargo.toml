@@ -6,6 +6,9 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
 wit-bindgen = { workspace = true }

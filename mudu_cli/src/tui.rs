@@ -159,11 +159,10 @@ impl Tui {
 
             if event::poll(Duration::from_millis(150)).map_err(|e| e.to_string())? {
                 match event::read().map_err(|e| e.to_string())? {
-                    Event::Key(key) if key.kind == event::KeyEventKind::Press => {
-                        if handle_key(&mut state, &table, key) {
+                    Event::Key(key) if key.kind == event::KeyEventKind::Press
+                        && handle_key(&mut state, &table, key) => {
                             break;
                         }
-                    }
                     Event::Resize(_, _) => {
                         // The next loop iteration redraws with the new size.
                     }
@@ -213,16 +212,14 @@ fn handle_key(state: &mut QueryTableState, table: &QueryTable, key: KeyEvent) ->
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
-        KeyCode::Up => {
-            if state.selected_row > 0 {
+        KeyCode::Up
+            if state.selected_row > 0 => {
                 state.selected_row -= 1;
             }
-        }
-        KeyCode::Down => {
-            if state.selected_row + 1 < table.rows.len() {
+        KeyCode::Down
+            if state.selected_row + 1 < table.rows.len() => {
                 state.selected_row += 1;
             }
-        }
         KeyCode::PageUp => {
             state.selected_row = state.selected_row.saturating_sub(20);
         }
@@ -230,11 +227,10 @@ fn handle_key(state: &mut QueryTableState, table: &QueryTable, key: KeyEvent) ->
             state.selected_row = (state.selected_row + 20).min(table.rows.len().saturating_sub(1));
         }
         KeyCode::Home | KeyCode::Char('g') => state.selected_row = 0,
-        KeyCode::End | KeyCode::Char('G') => {
-            if !table.rows.is_empty() {
+        KeyCode::End | KeyCode::Char('G')
+            if !table.rows.is_empty() => {
                 state.selected_row = table.rows.len() - 1;
             }
-        }
         KeyCode::Left => state.selected_col = state.selected_col.saturating_sub(1),
         KeyCode::Right => {
             state.selected_col = (state.selected_col + 1).min(table.columns.len().saturating_sub(1))

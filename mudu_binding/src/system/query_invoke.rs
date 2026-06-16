@@ -14,7 +14,7 @@ pub fn serialize_query_dyn_param(
     handle_sys_query::query_param_serialize(oid, stmt, param)
 }
 
-pub fn deserialize_query_param(param: &[u8]) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+pub fn deserialize_query_param(param: &[u8]) -> RS<crate::codec::SqlParamPair> {
     handle_sys_query::query_param_deserialize(param)
 }
 

@@ -18,7 +18,7 @@ use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::notify_wait;
 use std::env::temp_dir;
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -36,10 +36,11 @@ fn reserve_port() -> Option<u16> {
 fn wait_until_server_ready(port: u16) {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        if mudu_sys::net::sync::connect_tcp(addr).is_ok() {
             return;
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
     panic!("io_uring backend did not become ready on port {}", port);
 }
@@ -128,7 +129,7 @@ fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path, server_mode: ServerMo
 }
 
 fn install_kv_package(app_mgr: &MuduAppMgr, package_path: &Path) -> RS<()> {
-    let pkg_binary = std::fs::read(package_path)
+    let pkg_binary = mudu_sys::fs::sync::read(package_path)
         .map_err(|e| m_error!(EC::IOErr, "read key-value mpk for test install error", e))?;
     let runtime = mudu_sys::tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -206,9 +207,9 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     let package_path = ensure_kv_package_built()?;
     let mpk_dir = temp_dir_with_prefix("mududb_kv_mpk");
     let data_dir = temp_dir_with_prefix("mududb_kv_data");
-    std::fs::create_dir_all(&mpk_dir)
+    mudu_sys::fs::sync::create_dir_all(&mpk_dir)
         .map_err(|e| m_error!(EC::IOErr, "create key-value test mpk dir error", e))?;
-    std::fs::create_dir_all(&data_dir)
+    mudu_sys::fs::sync::create_dir_all(&data_dir)
         .map_err(|e| m_error!(EC::IOErr, "create key-value test data dir error", e))?;
 
     let Some(port) = reserve_port() else {
@@ -245,7 +246,7 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     wait_until_server_ready(port);
 
     let test_result = (|| -> RS<()> {
-        let mut client = SyncClient::connect(("127.0.0.1", port))?;
+        let mut client = SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port)))?;
         let session_id = client.create_session(None)?;
 
         let _: () = invoke_and_decode(

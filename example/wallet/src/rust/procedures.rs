@@ -322,7 +322,7 @@ pub fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
     let receiver_wallet = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
-        sql_params!(&(to_user_id.clone(),)),
+        sql_params!(&(to_user_id,)),
     )?
     .next_record()?
     .ok_or_else(|| m_error!(MuduError, "Receiver wallet not found"))?;

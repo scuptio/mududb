@@ -152,5 +152,5 @@ async fn encode_pg_wire_row_data(
         }
     }
 
-    Ok(stream::iter(results.into_iter()))
+    Ok(stream::iter(results))
 }

@@ -10,7 +10,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 pub trait DBConnSync: Sync + Send + Any {
-    fn exec_silent(&self, sql_text: &String) -> RS<()>;
+    fn exec_silent(&self, sql_text: &str) -> RS<()>;
 
     fn begin_tx(&self) -> RS<OID>;
 

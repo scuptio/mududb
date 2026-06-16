@@ -29,6 +29,10 @@ impl TestMetaMgr {
 
 #[async_trait]
 impl MetaMgr for TestMetaMgr {
+    async fn initialize(&self) -> RS<()> {
+        Ok(())
+    }
+
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         self.tables
             .lock()
@@ -38,7 +42,7 @@ impl MetaMgr for TestMetaMgr {
             .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
     }
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+    async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(self
             .tables
             .lock()

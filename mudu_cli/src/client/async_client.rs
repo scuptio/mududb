@@ -1,3 +1,4 @@
+
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
@@ -5,16 +6,20 @@ use mudu::m_error;
 use mudu_contract::protocol::{
     ClientRequest, Frame, FrameHeader, GetRequest, GetResponse, HEADER_LEN, MessageType,
     ProcedureInvokeRequest, ProcedureInvokeResponse, PutRequest, PutResponse, RangeScanRequest,
-    RangeScanResponse, ServerResponse, SessionCloseRequest, SessionCloseResponse,
+    RangeScanResponse, ServerPerfDigest, ServerResponse, SessionCloseRequest, SessionCloseResponse,
     SessionCreateRequest, SessionCreateResponse, decode_error_response, decode_get_response,
     decode_procedure_invoke_response, decode_put_response, decode_range_scan_response,
     decode_server_response, decode_session_close_response, decode_session_create_response,
-    encode_batch_request, encode_client_request_with_message_type, encode_get_request,
-    encode_procedure_invoke_request, encode_put_request, encode_range_scan_request,
-    encode_session_close_request, encode_session_create_request,
+    encode_batch_request, encode_client_request_with_message_type,
+    encode_client_request_with_message_type_and_trace, encode_get_request,
+    encode_procedure_invoke_request_with_trace,
+    encode_put_request, encode_range_scan_request, encode_session_close_request,
+    encode_session_create_request,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use mudu_sys::net::AsyncTcpStream;
+use mudu_sys::perf::{PerfSpan, TxnStage, TraceContext, next_trace_id, should_sample};
+use mudu_sys::time::instant_now;
+use mudu_sys::tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[async_trait]
 pub trait AsyncClient: Send {
@@ -33,13 +38,13 @@ pub trait AsyncClient: Send {
 }
 
 pub struct AsyncClientImpl {
-    stream: TcpStream,
+    stream: AsyncTcpStream,
     next_request_id: u64,
 }
 
 impl AsyncClientImpl {
     pub async fn connect(addr: &str) -> RS<Self> {
-        let stream = TcpStream::connect(addr).await.map_err(|e| {
+        let stream = AsyncTcpStream::connect(addr).await.map_err(|e| {
             m_error!(
                 EC::NetErr,
                 format!("connect io_uring tcp server error: addr={addr}"),
@@ -61,33 +66,39 @@ impl AsyncClientImpl {
         request_id
     }
 
-    async fn send_and_receive(&mut self, payload: &[u8]) -> RS<Frame> {
-        self.stream
-            .write_all(payload)
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "write request frame error", e))?;
-        self.stream
-            .flush()
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "flush request frame error", e))?;
-
-        let mut header = [0u8; HEADER_LEN];
-        self.stream
-            .read_exact(&mut header)
-            .await
-            .map_err(|e| m_error!(EC::NetErr, "read response header error", e))?;
-        let payload_len = FrameHeader::decode_header_bytes(&header)?.payload_len() as usize;
-        let mut frame_bytes = Vec::with_capacity(HEADER_LEN + payload_len);
-        frame_bytes.extend_from_slice(&header);
-        if payload_len > 0 {
-            let mut body = vec![0u8; payload_len];
+    async fn send_and_receive(&mut self, payload: &[u8], trace_id: u64) -> RS<Frame> {
+        {
+            let _send = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
             self.stream
-                .read_exact(&mut body)
+                .write_all(payload)
                 .await
-                .map_err(|e| m_error!(EC::NetErr, "read response payload error", e))?;
-            frame_bytes.extend_from_slice(&body);
+                .map_err(|e| m_error!(EC::NetErr, "write request frame error", e))?;
+            self.stream
+                .flush()
+                .await
+                .map_err(|e| m_error!(EC::NetErr, "flush request frame error", e))?;
         }
-        let frame = Frame::decode(&frame_bytes)?;
+
+        let frame = {
+            let _recv = PerfSpan::new(TxnStage::ClientNetworkRecv, trace_id);
+            let mut header = [0u8; HEADER_LEN];
+            self.stream
+                .read_exact(&mut header)
+                .await
+                .map_err(|e| m_error!(EC::NetErr, "read response header error", e))?;
+            let payload_len = FrameHeader::decode_header_bytes(&header)?.payload_len() as usize;
+            let mut frame_bytes = Vec::with_capacity(HEADER_LEN + payload_len);
+            frame_bytes.extend_from_slice(&header);
+            if payload_len > 0 {
+                let mut body = vec![0u8; payload_len];
+                self.stream
+                    .read_exact(&mut body)
+                    .await
+                    .map_err(|e| m_error!(EC::NetErr, "read response payload error", e))?;
+                frame_bytes.extend_from_slice(&body);
+            }
+            Frame::decode(&frame_bytes)?
+        };
         self.ensure_success_frame(&frame)?;
         Ok(frame)
     }
@@ -105,18 +116,86 @@ impl AsyncClientImpl {
         }
         Ok(())
     }
+
+    fn log_end_to_end_perf(
+        trace_id: u64,
+        total_ns: u64,
+        serialize_ns: u64,
+        deserialize_ns: u64,
+        server_exec_stage: TxnStage,
+        server_digest: &ServerPerfDigest,
+    ) {
+        let net_recv = server_digest.get(TxnStage::NetworkRecv).unwrap_or(0);
+        let server_exec = server_digest.get(server_exec_stage).unwrap_or(0);
+        let network_rtt = total_ns.saturating_sub(serialize_ns + server_exec + deserialize_ns);
+        tracing::info!(
+            trace_id,
+            total_us = total_ns / 1000,
+            serialize_us = serialize_ns / 1000,
+            network_rtt_us = network_rtt / 1000,
+            server_network_recv_us = net_recv / 1000,
+            server_exec_us = server_exec / 1000,
+            server_exec_stage = ?server_exec_stage,
+            deserialize_us = deserialize_ns / 1000,
+            "end-to-end perf",
+        );
+    }
 }
 
 #[async_trait]
 impl AsyncClient for AsyncClientImpl {
     async fn query(&mut self, request: ClientRequest) -> RS<ServerResponse> {
-        let payload = encode_client_request_with_message_type(
-            MessageType::Query,
-            self.take_request_id(),
-            &request,
-        )?;
-        let frame = self.send_and_receive(&payload).await?;
-        decode_server_response(&frame)
+        let trace_id = if should_sample() { next_trace_id() } else { 0 };
+        let _total = PerfSpan::new(TxnStage::Total, trace_id);
+        let request_id = self.take_request_id();
+        let trace_context = if trace_id != 0 {
+            TraceContext::new(trace_id)
+        } else {
+            TraceContext::empty()
+        };
+
+        let total_start = instant_now();
+
+        let payload = {
+            let _s = PerfSpan::new(TxnStage::ClientSerialize, trace_id);
+            let start = instant_now();
+            let payload = encode_client_request_with_message_type_and_trace(
+                MessageType::Query,
+                request_id,
+                trace_context,
+                &request,
+            )?;
+            (payload, start.elapsed().as_nanos() as u64)
+        };
+        let (payload, serialize_ns) = payload;
+
+        let frame = {
+            let _s = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
+            let _s = PerfSpan::new(TxnStage::ClientNetworkRecv, trace_id);
+            self.send_and_receive(&payload, trace_id).await?
+        };
+
+        let response = {
+            let _s = PerfSpan::new(TxnStage::ClientDeserialize, trace_id);
+            let start = instant_now();
+            let response = decode_server_response(&frame)?;
+            (response, start.elapsed().as_nanos() as u64)
+        };
+        let (response, deserialize_ns) = response;
+        let total_ns = total_start.elapsed().as_nanos() as u64;
+
+        if let Some(server_digest) = response.server_perf_digest() {
+            Self::log_end_to_end_perf(
+                trace_id,
+                total_ns,
+                serialize_ns,
+                deserialize_ns,
+                TxnStage::QueryExec,
+                server_digest,
+            );
+        }
+
+        Ok(response)
     }
 
     async fn execute(&mut self, request: ClientRequest) -> RS<ServerResponse> {
@@ -125,31 +204,31 @@ impl AsyncClient for AsyncClientImpl {
             self.take_request_id(),
             &request,
         )?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_server_response(&frame)
     }
 
     async fn batch(&mut self, request: ClientRequest) -> RS<ServerResponse> {
         let payload = encode_batch_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_server_response(&frame)
     }
 
     async fn get(&mut self, request: GetRequest) -> RS<GetResponse> {
         let payload = encode_get_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_get_response(&frame)
     }
 
     async fn put(&mut self, request: PutRequest) -> RS<PutResponse> {
         let payload = encode_put_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_put_response(&frame)
     }
 
     async fn range_scan(&mut self, request: RangeScanRequest) -> RS<RangeScanResponse> {
         let payload = encode_range_scan_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_range_scan_response(&frame)
     }
 
@@ -157,20 +236,67 @@ impl AsyncClient for AsyncClientImpl {
         &mut self,
         request: ProcedureInvokeRequest,
     ) -> RS<ProcedureInvokeResponse> {
-        let payload = encode_procedure_invoke_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
-        decode_procedure_invoke_response(&frame)
+        let trace_id = if should_sample() { next_trace_id() } else { 0 };
+        let _total = PerfSpan::new(TxnStage::Total, trace_id);
+        let request_id = self.take_request_id();
+        let trace_context = if trace_id != 0 {
+            TraceContext::new(trace_id)
+        } else {
+            TraceContext::empty()
+        };
+
+        let total_start = instant_now();
+
+        let payload = {
+            let _s = PerfSpan::new(TxnStage::ClientSerialize, trace_id);
+            let start = instant_now();
+            let payload = encode_procedure_invoke_request_with_trace(
+                request_id,
+                trace_context,
+                &request,
+            )?;
+            (payload, start.elapsed().as_nanos() as u64)
+        };
+        let (payload, serialize_ns) = payload;
+
+        let frame = {
+            let _s = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
+            let _s = PerfSpan::new(TxnStage::ClientNetworkRecv, trace_id);
+            self.send_and_receive(&payload, trace_id).await?
+        };
+
+        let response = {
+            let _s = PerfSpan::new(TxnStage::ClientDeserialize, trace_id);
+            let start = instant_now();
+            let response = decode_procedure_invoke_response(&frame)?;
+            (response, start.elapsed().as_nanos() as u64)
+        };
+        let (response, deserialize_ns) = response;
+        let total_ns = total_start.elapsed().as_nanos() as u64;
+
+        if let Some(server_digest) = response.server_perf_digest() {
+            Self::log_end_to_end_perf(
+                trace_id,
+                total_ns,
+                serialize_ns,
+                deserialize_ns,
+                TxnStage::ProcedureExec,
+                server_digest,
+            );
+        }
+
+        Ok(response)
     }
 
     async fn create_session(&mut self, request: SessionCreateRequest) -> RS<SessionCreateResponse> {
         let payload = encode_session_create_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_session_create_response(&frame)
     }
 
     async fn close_session(&mut self, request: SessionCloseRequest) -> RS<SessionCloseResponse> {
         let payload = encode_session_close_request(self.take_request_id(), &request)?;
-        let frame = self.send_and_receive(&payload).await?;
+        let frame = self.send_and_receive(&payload, 0).await?;
         decode_session_close_response(&frame)
     }
 }
@@ -193,11 +319,11 @@ mod tests {
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dat_value::DatValue;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::thread;
+    use mudu_sys::net::sync::StdTcpListener;
+    use mudu_sys::task::sync::spawn_thread;
 
-    fn bind_test_listener() -> Option<TcpListener> {
-        match TcpListener::bind("127.0.0.1:0") {
+    fn bind_test_listener() -> Option<StdTcpListener> {
+        match StdTcpListener::bind("127.0.0.1:0".parse().unwrap()) {
             Ok(listener) => Some(listener),
             Err(err) => {
                 eprintln!("skip async tcp client test: {err}");
@@ -206,13 +332,14 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn tokio_client_supports_query_and_execute() {
+    #[test]
+    fn tokio_client_supports_query_and_execute() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
         let Some(listener) = bind_test_listener() else {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
 
             let query_frame = read_frame(&mut socket);
@@ -269,16 +396,18 @@ mod tests {
             .unwrap();
         assert_eq!(execute.affected_rows(), 2);
 
-        server.join().unwrap();
+        server.unwrap().join().unwrap();
+        }).unwrap();
     }
 
-    #[tokio::test]
-    async fn tokio_client_supports_kv_and_invoke_roundtrip() {
+    #[test]
+    fn tokio_client_supports_kv_and_invoke_roundtrip() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
         let Some(listener) = bind_test_listener() else {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
 
             let create_frame = read_frame(&mut socket);
@@ -409,10 +538,11 @@ mod tests {
             .unwrap();
         assert!(close.closed());
 
-        server.join().unwrap();
+        server.unwrap().join().unwrap();
+        }).unwrap();
     }
 
-    fn read_frame(socket: &mut std::net::TcpStream) -> Frame {
+    fn read_frame(socket: &mut mudu_sys::net::sync::SStdTcpStream) -> Frame {
         let mut header = [0u8; HEADER_LEN];
         socket.read_exact(&mut header).unwrap();
         let payload_len = FrameHeader::decode_header_bytes(&header)

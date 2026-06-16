@@ -1,9 +1,10 @@
 use crate::fuzz::_golden_corpus::golden_corpus_path;
 use lazy_static::lazy_static;
+use mudu_sys::fs::sync::{sync_create_dir_all, sync_write};
+use mudu_sys::env_var;
 use mudu_utils::md5::calc_md5;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::{env, fs};
 
 type FuzzRun = fn(&[u8]);
 
@@ -43,16 +44,16 @@ pub fn _target(name: &str, data: &[u8]) {
 }
 
 fn _fuzz_write_data(name: &str, data: &[u8]) {
-    let fuzz_data_dump = env::var("GOLDEN_CORPUS").is_ok();
+    let fuzz_data_dump = env_var::var("GOLDEN_CORPUS").is_some();
     if !fuzz_data_dump {
         return;
     }
     let mut path = PathBuf::from(golden_corpus_path());
     path.push(name);
     if !path.exists() {
-        fs::create_dir_all(&path).unwrap();
+        sync_create_dir_all(&path).unwrap();
     }
     let md5 = calc_md5(data);
     path.push(md5);
-    fs::write(path, data).unwrap();
+    sync_write(path, data).unwrap();
 }

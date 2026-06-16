@@ -10,8 +10,8 @@ fn arb_finite_f32(u: &mut Unstructured) -> arbitrary::Result<f32> {
 }
 
 pub fn fn_f32_arb_val(u: &mut Unstructured, dat_type: &DatType) -> arbitrary::Result<DatValue> {
-    Ok(DatValue::from_datum(arb_finite_f32(u)?, dat_type)
-        .map_err(|_| arbitrary::Error::IncorrectFormat)?)
+    DatValue::from_datum(arb_finite_f32(u)?, dat_type)
+        .map_err(|_| arbitrary::Error::IncorrectFormat)
 }
 
 pub fn fn_f32_arb_printable(u: &mut Unstructured, _: &DatType) -> arbitrary::Result<String> {

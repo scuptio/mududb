@@ -1,6 +1,7 @@
 use crate::contract::ssn_ctx::SsnCtx;
 use mudu::common::result::RS;
-use mudu::common::xid::{new_xid, OID};
+use mudu::common::xid::OID;
+use mudu_utils::oid::new_xid;
 
 pub async fn get_tx(ctx: &dyn SsnCtx) -> RS<OID> {
     let opt_tx = ctx.current_tx();

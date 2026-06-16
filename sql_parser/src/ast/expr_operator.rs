@@ -61,14 +61,14 @@ fn name2op(name: String) -> RS<Operator> {
 }
 
 impl Operator {
-    pub fn from_str(name: String) -> RS<Self> {
+    pub fn from_name(name: String) -> RS<Self> {
         name2op(name)
     }
 
     pub fn logical_connect(&self) -> Option<LogicalConnective> {
         match self {
             Operator::OValueCompare(_) => None,
-            Operator::OLogicalConnective(c) => Some(c.clone()),
+            Operator::OLogicalConnective(c) => Some(*c),
             &Operator::OArithmetic(_) => None,
         }
     }

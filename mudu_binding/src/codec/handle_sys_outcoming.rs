@@ -19,8 +19,8 @@ use mudu_contract::tuple::tuple_value::TupleValue;
 pub fn query_outcoming_serialize(result: RS<(ResultBatch, TupleFieldDesc)>) -> Vec<u8> {
     let r = _handle_query_outcoming(result);
     let mu_r = UniResult::from(r);
-    let mu_r_bin = serialize_to_vec(&mu_r).unwrap_or_default();
-    mu_r_bin
+    
+    serialize_to_vec(&mu_r).unwrap_or_default()
 }
 pub fn query_outcoming_deserialize(param: &[u8]) -> RS<(ResultBatch, TupleFieldDesc)> {
     if param.is_empty() {
@@ -105,8 +105,8 @@ fn tuple_value_from_mu(mu_tuple_row: UniTupleRow) -> RS<TupleValue> {
 fn handle_fetch_outcoming(result: RS<ResultBatch>, desc: &TupleFieldDesc) -> Vec<u8> {
     let r = _handle_fetch_outcoming(result);
     let mu_r = UniResult::from(r);
-    let mu_r_bin = serialize_to_vec(&mu_r).unwrap_or_default();
-    mu_r_bin
+    
+    serialize_to_vec(&mu_r).unwrap_or_default()
 }
 
 fn _handle_fetch_outcoming(result: RS<ResultBatch>) -> Result<UniResultSet, UniError> {

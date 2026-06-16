@@ -13,7 +13,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let wit_folder = PathBuf::from(&td_folder)
             .join("wit-schema")
             .to_str()

@@ -20,7 +20,7 @@ fn tpcc_procedure_reproduces_benchmark_100_connection_hang_tokio() -> RS<()> {
 }
 
 fn run_tpcc_procedure_reproduces_benchmark_100_connection_hang(server_mode: ServerMode) -> RS<()> {
-    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let log_level = mudu_sys::env_var::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|| "info".to_string());
     setup_tpcc_test_log(&log_level);
     ensure_tpcc_debug_server();
     if !supports_server_mode(server_mode) {

@@ -34,7 +34,7 @@ pub fn _fuzz_decode_and_encode<'a, T: Arbitrary<'a> + Decode + Encode + Eq + Deb
 
         assert_eq!(t, _t);
 
-        if u.len() == 0 {
+        if u.is_empty() {
             break;
         }
     }

@@ -1,17 +1,18 @@
-use super::{Args, BenchmarkMode, run_sync, run_tcp};
+use super::{Args, BenchmarkMode, run_sync_async, run_tcp};
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, ServerMode};
 use mudu_utils::notifier::{Notifier, notify_wait};
 use mududb::common::result::RS;
 use std::env;
 use std::ffi::OsStr;
+use std::future::Future;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 use testing::{reserve_port, wait_until_port_ready};
-use tokio::sync::Mutex;
+use mudu_sys::tokio::sync::Mutex;
 
 mod interactive;
 mod partitioned;
@@ -30,11 +31,17 @@ fn temp_dir(prefix: &str) -> PathBuf {
     std::env::temp_dir().join(format!("tpcc_benchmark_{prefix}_{suffix}"))
 }
 
-pub(super) fn with_connection_env<T>(value: &str, f: impl FnOnce() -> T) -> T {
+pub(super) async fn with_connection_env_async<T, Fut>(
+    value: &str,
+    f: impl FnOnce() -> Fut,
+) -> T
+where
+    Fut: Future<Output = T>,
+{
     let prev = env::var("MUDU_CONNECTION").ok();
     // SAFETY: guarded by test_lock so process env mutation is serialized in this test.
     unsafe { env::set_var("MUDU_CONNECTION", value) };
-    let result = f();
+    let result = f().await;
     match prev {
         Some(prev) => {
             // SAFETY: guarded by test_lock.

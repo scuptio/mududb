@@ -9,7 +9,8 @@ use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use std::sync::{Arc, Mutex};
+use mudu_sys::sync::SMutex;
+use std::sync::Arc;
 
 #[allow(unused)]
 pub fn invoke_host_command<F>(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams, f: F) -> RS<u64>
@@ -399,13 +400,13 @@ where
 }
 
 pub struct ResultSetWrapper {
-    batch: Mutex<ResultBatch>,
+    batch: SMutex<ResultBatch>,
 }
 
 impl ResultSetWrapper {
     pub fn new(batch: ResultBatch) -> ResultSetWrapper {
         ResultSetWrapper {
-            batch: Mutex::new(batch),
+            batch: SMutex::new(batch),
         }
     }
 }
@@ -502,8 +503,9 @@ mod tests {
         assert_eq!(records.next_record().unwrap(), Some(8));
     }
 
-    #[tokio::test]
-    async fn async_host_helpers_roundtrip_sync_payload_shapes() {
+    #[test]
+    fn async_host_helpers_roundtrip_sync_payload_shapes() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let stmt = SQLStmtText::new("SELECT 1".to_string());
 
         let oid = async_invoke_host_open(|_| async { Ok(serialize_open_result(31)) })
@@ -546,5 +548,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(got, Some(b"v".to_vec()));
+        }).unwrap();
     }
 }

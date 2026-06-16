@@ -5,10 +5,14 @@ use std::backtrace::Backtrace;
 
 struct ThreadContextGuard {
     id: TaskID,
+    owned: bool,
 }
 
 impl ThreadContextGuard {
     fn new() -> Self {
+        if let Some(id) = mudu_sys::task::sync::try_this_thread_task_id() {
+            return Self { id, owned: false };
+        }
         let id = new_task_id();
         let name = std::thread::current()
             .name()
@@ -16,7 +20,7 @@ impl ThreadContextGuard {
             .unwrap_or_else(|| format!("thread-{id}"));
 
         let _ = TaskContext::new(id, name);
-        Self { id }
+        Self { id, owned: true }
     }
 
     fn id(&self) -> TaskID {
@@ -26,7 +30,9 @@ impl ThreadContextGuard {
 
 impl Drop for ThreadContextGuard {
     fn drop(&mut self) {
-        TaskContext::remove_context(self.id);
+        if self.owned {
+            TaskContext::remove_context(self.id);
+        }
     }
 }
 
@@ -44,12 +50,24 @@ pub struct ThreadTrace {
 
 pub struct NoopThreadTrace;
 
+impl Default for NoopThreadTrace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoopThreadTrace {
     pub fn new() -> Self {
         Self
     }
 
     pub fn watch(&self, _key: &str, _value: &str) {}
+}
+
+impl Default for ThreadTrace {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ThreadTrace {
@@ -125,6 +143,13 @@ macro_rules! thread_trace {
             $crate::thread_trace::NoopThreadTrace::new()
         }
     }};
+}
+
+#[macro_export]
+macro_rules! scoped_thread_trace {
+    () => {
+        let _thread_trace = $crate::thread_trace!();
+    };
 }
 
 #[macro_export]

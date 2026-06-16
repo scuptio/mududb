@@ -1,4 +1,6 @@
 use mudu_sys::io::socket::{close, IoSocket};
+use mudu_sys::task::async_::current_poll_task_id;
+use mudu_sys::task::context::TaskContext;
 use crate::server::async_func_task::HandleResult;
 use crate::server::frame_dispatch::dispatch_frame_async;
 use crate::server::protocol_codec::{read_next_frame, write_response};
@@ -6,14 +8,25 @@ use crate::server::worker::WorkerRuntime;
 use mudu_sys::server::worker_task::WorkerTaskFuture;
 use mudu::common::result::RS;
 use mudu_contract::protocol::encode_merror_response;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::sync::Arc;
 use tracing::trace;
 
+use mudu_sys::sync::SMutex;
+
+fn watch_conn(key: &str, value: &str) {
+    if let Some(task_id) = current_poll_task_id() {
+        if let Some(ctx) = TaskContext::get(task_id) {
+            ctx.watch(key, value);
+        }
+    }
+}
+
 pub(in crate::server) fn spawn_connection_worker_task(
     worker: WorkerRuntime,
-    connections: Arc<scc::HashMap<u64, RawFd>>,
+    connections: Arc<SMutex<HashMap<u64, RawFd>>>,
     conn_id: u64,
     socket: IoSocket,
     remote_addr: SocketAddr,
@@ -34,7 +47,7 @@ pub(in crate::server) fn spawn_connection_worker_task(
 
 async fn run_connection_worker_task(
     worker: WorkerRuntime,
-    connections: Arc<scc::HashMap<u64, RawFd>>,
+    connections: Arc<SMutex<HashMap<u64, RawFd>>>,
     conn_id: u64,
     socket: IoSocket,
     remote_addr: SocketAddr,
@@ -43,7 +56,7 @@ async fn run_connection_worker_task(
     mudu_utils::scoped_task_trace!();
     let r =
         _run_connection_worker_task(worker, conn_id, socket, remote_addr, initial_response).await;
-    let _ = connections.remove_sync(&conn_id);
+    let _ = connections.lock().unwrap().remove(&conn_id);
     r
 }
 async fn _run_connection_worker_task(
@@ -63,6 +76,7 @@ async fn _run_connection_worker_task(
     );
 
     if let Some(response) = initial_response {
+        watch_conn("conn.phase", "write_initial_response");
         trace!(
             conn_id,
             bytes = response.len(),
@@ -72,16 +86,20 @@ async fn _run_connection_worker_task(
     }
 
     loop {
+        watch_conn("conn.phase", "read_frame");
         trace!(conn_id, "waiting for next protocol frame");
         let frame = match read_next_frame(socket.as_ref().unwrap(), &mut read_buf).await {
             Ok(Some(frame)) => frame,
             Ok(None) => {
+                watch_conn("conn.phase", "close_socket");
                 trace!(conn_id, "connection closed by peer");
                 close(socket.take().unwrap()).await?;
+                watch_conn("conn.phase", "close_connection_sessions");
                 worker.close_connection_sessions(conn_id)?;
                 break;
             }
             Err(err) => {
+                watch_conn("conn.phase", "read_frame_error_close_socket");
                 trace!(conn_id, error = %err, "read protocol frame failed");
                 let _ = close(socket.take().unwrap()).await;
                 return Err(err);
@@ -89,6 +107,9 @@ async fn _run_connection_worker_task(
         };
 
         let request_id = frame.header().request_id();
+        watch_conn("conn.phase", "dispatch_frame");
+        watch_conn("conn.request_id", &request_id.to_string());
+        watch_conn("conn.message_type", &format!("{:?}", frame.header().message_type()));
         trace!(
             conn_id,
             request_id,
@@ -98,6 +119,7 @@ async fn _run_connection_worker_task(
         );
         match dispatch_frame_async(&worker, conn_id, &frame).await {
             Ok(HandleResult::Response(response)) => {
+                watch_conn("conn.phase", "write_response");
                 trace!(
                     conn_id,
                     request_id,
@@ -107,6 +129,7 @@ async fn _run_connection_worker_task(
                 write_response(socket.as_ref().unwrap(), &response).await?;
             }
             Err(err) => {
+                watch_conn("conn.phase", "write_error_response");
                 trace!(
                     conn_id,
                     request_id,
@@ -117,6 +140,7 @@ async fn _run_connection_worker_task(
                 write_response(socket.as_ref().unwrap(), &response).await?;
             }
         }
+        watch_conn("conn.phase", "frame_done");
         read_buf = frame.into_payload();
     }
     trace!(conn_id, "io_uring connection worker stopped");

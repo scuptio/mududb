@@ -1,6 +1,6 @@
 use crate::server::message_bus_api::ServerInstanceId;
 use crate::server::routing::RoutingMode;
-use mudu::common::id::gen_oid;
+use mudu_utils::oid::gen_oid;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;

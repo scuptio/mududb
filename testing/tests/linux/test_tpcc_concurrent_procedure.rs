@@ -13,6 +13,7 @@ use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_utils::debug::debug_serve;
 use mudu_utils::log::log_setup_ex;
 use mudu_utils::notifier::{Notifier, NotifyWait, Waiter, notify_wait};
+use mudu_utils::task_async::spawn_task_detached;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, Once, mpsc as std_mpsc};
@@ -30,7 +31,7 @@ static TPCC_DEBUG_SERVER_ONCE: Once = Once::new();
 mod test_tpcc_concurrent_procedure_100_connection;
 
 fn setup_tpcc_test_log(level: &str) {
-    let parse = std::env::var("TPCC_TEST_LOG_FILTER").unwrap_or_else(|_| {
+    let parse = mudu_sys::env_var::var("TPCC_TEST_LOG_FILTER").unwrap_or_else(|| {
         "testing=trace,mudu=trace,mudu_api=trace,mudu_binding=trace,mudu_cli=trace,mudu_contract=trace,mudu_kernel=trace,mudu_runtime=trace,mudu_sys=trace,mudu_utils=trace".to_string()
     });
     log_setup_ex(level, &parse, false);
@@ -51,7 +52,7 @@ fn ensure_tpcc_debug_server() {
 
 #[test]
 fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
-    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let log_level = mudu_sys::env_var::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|| "info".to_string());
     setup_tpcc_test_log(&log_level);
     if !supports_server_mode(ServerMode::IOUring) {
         info!("skip tpcc concurrent test: io_uring unavailable");
@@ -63,7 +64,7 @@ fn tpcc_procedure_concurrent_terminals_metrics() -> RS<()> {
 
 #[test]
 fn tpcc_procedure_concurrent_terminals_metrics_tokio() -> RS<()> {
-    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let log_level = mudu_sys::env_var::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|| "info".to_string());
     setup_tpcc_test_log(&log_level);
     run_tpcc_procedure_concurrent_terminals_metrics(ServerMode::Tokio)
 }
@@ -79,7 +80,7 @@ fn run_tpcc_procedure_concurrent_terminals_metrics_with_cfg(
     let _guard = TPCC_BENCH_TEST_LOCK
         .lock()
         .expect("tpcc benchmark test lock poisoned");
-    let log_level = std::env::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let log_level = mudu_sys::env_var::var("TPCC_TEST_LOG_LEVEL").unwrap_or_else(|| "info".to_string());
     ensure_tpcc_debug_server();
 
     info!(log_level = %log_level, "starting tpcc concurrent procedure test");
@@ -170,28 +171,32 @@ async fn run_benchmark(ctx: &TestContext, cfg: &TpccBenchCfg, mpk_path: &Path) -
             let addr = addr.clone();
             let app_name = app_name.clone();
             let cfg = cfg.clone();
-            tokio::spawn(async move {
-                debug!(terminal_id, "terminal task started");
-                let report = timeout(
-                    Duration::from_millis(cfg.bench_timeout_ms),
-                    run_terminal(terminal_id, &addr, &app_name, &cfg),
-                )
-                .await
-                .map_err(|_| {
-                    m_error!(
-                        mudu::error::ec::EC::TokioErr,
-                        format!(
-                            "terminal task timeout terminal_id={} timeout_ms={}",
-                            terminal_id, cfg.bench_timeout_ms
-                        )
+            spawn_task_detached(
+                &format!("terminal-{terminal_id}"),
+                async move {
+                    debug!(terminal_id, "terminal task started");
+                    let report = timeout(
+                        Duration::from_millis(cfg.bench_timeout_ms),
+                        run_terminal(terminal_id, &addr, &app_name, &cfg),
                     )
-                })
-                .and_then(|r| r);
-                if report.is_ok() {
-                    debug!(terminal_id, "terminal task finished");
-                }
-                let _ = tx.send(report);
-            });
+                    .await
+                    .map_err(|_| {
+                        m_error!(
+                            mudu::error::ec::EC::TokioErr,
+                            format!(
+                                "terminal task timeout terminal_id={} timeout_ms={}",
+                                terminal_id, cfg.bench_timeout_ms
+                            )
+                        )
+                    })
+                    .and_then(|r| r);
+                    if report.is_ok() {
+                        debug!(terminal_id, "terminal task finished");
+                    }
+                    let _ = tx.send(report);
+                },
+            )
+            .unwrap();
         }
         drop(tx);
 
@@ -684,8 +689,8 @@ impl TpccBenchCfg {
             treat_tx_errors_as_aborts: false,
             invoke_timeout_ms: read_env_u64("TPCC_INVOKE_TIMEOUT_MS", 30_000),
             bench_timeout_ms: read_env_u64("TPCC_BENCH_TIMEOUT_MS", 300_000),
-            app_name: std::env::var("TPCC_APP_NAME").unwrap_or_else(|_| "tpcc".to_string()),
-            mpk_path_env: std::env::var("TPCC_MPK_PATH").ok().map(PathBuf::from),
+            app_name: mudu_sys::env_var::var("TPCC_APP_NAME").unwrap_or_else(|| "tpcc".to_string()),
+            mpk_path_env: mudu_sys::env_var::var("TPCC_MPK_PATH").map(PathBuf::from),
         }
     }
 
@@ -704,8 +709,8 @@ impl TpccBenchCfg {
             treat_tx_errors_as_aborts: true,
             invoke_timeout_ms: read_env_u64("TPCC_INVOKE_TIMEOUT_MS", 3000_000),
             bench_timeout_ms: read_env_u64("TPCC_BENCH_TIMEOUT_MS", 6000_000),
-            app_name: std::env::var("TPCC_APP_NAME").unwrap_or_else(|_| "tpcc".to_string()),
-            mpk_path_env: std::env::var("TPCC_MPK_PATH").ok().map(PathBuf::from),
+            app_name: mudu_sys::env_var::var("TPCC_APP_NAME").unwrap_or_else(|| "tpcc".to_string()),
+            mpk_path_env: mudu_sys::env_var::var("TPCC_MPK_PATH").map(PathBuf::from),
         }
     }
 
@@ -809,40 +814,35 @@ fn percentile_ms(latency_us: &mut [u64], percentile: f64) -> f64 {
 }
 
 fn read_env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key)
-        .ok()
+    mudu_sys::env_var::var(key)
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(default)
 }
 
 fn read_env_i32(key: &str, default: i32) -> i32 {
-    std::env::var(key)
-        .ok()
+    mudu_sys::env_var::var(key)
         .and_then(|v| v.parse::<i32>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(default)
 }
 
 fn read_env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key)
-        .ok()
+    mudu_sys::env_var::var(key)
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(default)
 }
 
 fn read_env_u16(key: &str, default: u16) -> u16 {
-    std::env::var(key)
-        .ok()
+    mudu_sys::env_var::var(key)
         .and_then(|v| v.parse::<u16>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(default)
 }
 
 fn read_env_bool(key: &str, default: bool) -> bool {
-    std::env::var(key)
-        .ok()
+    mudu_sys::env_var::var(key)
         .map(|v| match v.to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "y" | "on" => true,
             "0" | "false" | "no" | "n" | "off" => false,
@@ -926,7 +926,7 @@ impl TestContext {
             return Ok(None);
         };
 
-        let base_dir = std::env::temp_dir().join(format!(
+        let base_dir = mudu_sys::env_var::temp_dir().join(format!(
             "mududb-tpcc-testing-{}",
             mudu_sys::random::uuid_v4()
         ));
@@ -1011,7 +1011,7 @@ fn workspace_root() -> PathBuf {
 fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
     // Benchmarks should not start until the backend reports logical readiness;
     // a live listener can still be ahead of worker recovery in io_uring mode.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
+    let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
     })
     .map_err(|e| {

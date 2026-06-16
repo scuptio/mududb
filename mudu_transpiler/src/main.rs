@@ -10,6 +10,6 @@ use std::error::Error;
 /// Mudu Transpiler (mtp) - A tool to transpile source code to Mudu procedure
 /// Supports: AssemblyScript, C#, Golang, Python, Rust
 fn main() -> Result<(), Box<dyn Error>> {
-    main_inner(std::env::args_os()).map_err(|e| Box::new(e))?;
+    main_inner(mudu_sys::env_var::args_os()).map_err(Box::new)?;
     Ok(())
 }

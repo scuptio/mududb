@@ -15,7 +15,7 @@ use mudu_contract::database::sql_stmt_text::SQLStmtText;
 
 pub fn query_incoming_deserialize(
     incoming: &[u8],
-) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+) -> RS<crate::codec::SqlParamPair> {
     let (argument, _) = deserialize_from::<UniQueryArgv>(incoming)?;
     let stmt = argument.query.uni_to()?;
     let params = argument.param_list.uni_to()?;
@@ -25,7 +25,7 @@ pub fn query_incoming_deserialize(
 
 pub fn command_incoming_deserialize(
     incoming: &[u8],
-) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+) -> RS<crate::codec::SqlParamPair> {
     let (argument, _) = deserialize_from::<UniCommandArgv>(incoming)?;
     let stmt = argument.command.uni_to()?;
     let params = argument.param_list.uni_to()?;

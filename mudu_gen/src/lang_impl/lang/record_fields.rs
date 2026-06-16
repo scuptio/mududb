@@ -7,7 +7,7 @@ use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
 use mudu_binding::universal::uni_def::RecordField;
 
-pub fn to_field_info(fields: &Vec<RecordField>, lang: &LangKind) -> RS<Vec<RecordFieldInfo>> {
+pub fn to_field_info(fields: &[RecordField], lang: &LangKind) -> RS<Vec<RecordFieldInfo>> {
     let mut vec = Vec::new();
     for (i, field) in fields.iter().enumerate() {
         let field_name = if *lang == LangKind::CSharp {

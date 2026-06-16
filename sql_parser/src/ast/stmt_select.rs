@@ -11,6 +11,12 @@ pub struct StmtSelect {
     where_predicate: Vec<ExprCompare>,
 }
 
+impl Default for StmtSelect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StmtSelect {
     pub fn new() -> Self {
         Self {

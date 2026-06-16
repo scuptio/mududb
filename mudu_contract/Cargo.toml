@@ -3,8 +3,13 @@ name = "mudu_contract"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_sys_contract = { workspace = true }
 mudu_type = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }

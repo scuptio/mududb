@@ -7,7 +7,6 @@ use mudu::utils::json::JsonValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use serde_json::Value;
-use std::fs;
 use std::path::Path;
 
 /// Describes a procedure's interface including parameter and return types
@@ -71,13 +70,13 @@ impl ProcDesc {
     /// Writes the procedure description to a file as TOML
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> RS<()> {
         let s = self.to_toml_str();
-        fs::write(path, s).map_err(|e| m_error!(EC::IOErr, "write to file error", e))?;
+        mudu_sys::fs::sync::sync_write(path.as_ref(), s.as_bytes()).map_err(|e| m_error!(EC::IOErr, "write to file error", e))?;
         Ok(())
     }
 
     /// Reads and deserializes a procedure description from a TOML file
     pub fn from_path<P: AsRef<Path>>(path: P) -> RS<Self> {
-        let s = fs::read_to_string(path).map_err(|e| m_error!(EC::IOErr, "read path error", e))?;
+        let s = mudu_sys::fs::sync::sync_read_to_string(path.as_ref()).map_err(|e| m_error!(EC::IOErr, "read path error", e))?;
         let ret: Self = toml::from_str::<Self>(&s)
             .map_err(|e| m_error!(EC::DecodeErr, "decode from toml string error", e))?;
         Ok(ret)
@@ -159,6 +158,6 @@ mod test {
             loaded_desc.default_return_json().unwrap().to_string()
         );
         // Clean up test file
-        let _ = std::fs::remove_file(&path);
+        let _ = mudu_sys::fs::sync::sync_remove_file(&path);
     }
 }

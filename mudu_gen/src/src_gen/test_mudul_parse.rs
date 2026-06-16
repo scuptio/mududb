@@ -5,7 +5,7 @@ mod tests {
     use mudu::error::ec::EC;
     use mudu::this_file;
     use rust_format::Formatter;
-    use std::fs;
+
     use std::path::PathBuf;
 
     #[test]
@@ -38,10 +38,10 @@ mod tests {
                         .unwrap()
                         .join("artifact");
                     if !path.exists() {
-                        fs::create_dir_all(&path).unwrap()
+                        mudu_sys::fs::sync::sync_create_dir_all(&path).unwrap()
                     }
                     let path = path.join(format!("{}.rs", name));
-                    fs::write(path, src).unwrap();
+                    mudu_sys::fs::sync::sync_write(path, src).unwrap();
                 }
             }
         }

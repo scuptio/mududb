@@ -51,26 +51,27 @@ impl PartialEq<Self> for KeyTuple {
 
 impl PartialOrd<Self> for KeyTuple {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyTuple {
+    fn cmp(&self, other: &Self) -> Ordering {
         let r = CompareContext::with_context_mut(|c: &mut CompareContext| {
             if c.result.is_err() {
                 return None;
             }
-            let r: RS<Ordering> = (c.comparator.compare)(&self.tuple, &other.tuple, &c.desc);
+            let r: RS<Ordering> =
+                (c.comparator.compare)(&self.tuple, &other.tuple, &c.desc);
             match r {
-                Ok(ord) => Some(ord),
+                Ok(o) => Some(o),
                 Err(e) => {
                     c.result = Err(e);
                     None
                 }
             }
         });
-        r.or(Some(Ordering::Equal))
-    }
-}
-
-impl Ord for KeyTuple {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap_or(Ordering::Equal)
+        r.unwrap_or(Ordering::Equal)
     }
 }
 

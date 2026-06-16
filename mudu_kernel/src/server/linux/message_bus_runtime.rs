@@ -18,7 +18,7 @@ use crate::server::server_iouring;
 use crate::server::task;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
 use crate::server::worker_registry::WorkerRegistry;
-use mudu_sys::server::worker_task::spawn_system_worker_task;
+
 use tracing::debug;
 
 pub(crate) struct WorkerMessageBus {
@@ -81,10 +81,7 @@ impl WorkerMessageBus {
                 "message_bus dispatching callback task"
             );
             let future = (callback)(envelope);
-            task::spawn_system(
-                "iouring-message-bus-callback",
-                spawn_system_worker_task(future),
-            );
+            task::spawn_system("iouring-message-bus-callback", future);
         }
         Ok(())
     }
@@ -136,7 +133,7 @@ impl MessageBus for WorkerMessageBus {
             msg_id,
             message.correlation_id(),
             self.local_endpoint(),
-            dst.clone(),
+            dst,
             message.kind(),
             message.payload_owned(),
             message.delivery(),
@@ -183,10 +180,7 @@ impl MessageBus for WorkerMessageBus {
         };
         if let Some(envelope) = maybe_envelope {
             let future = (callback)(envelope);
-            task::spawn_system(
-                "iouring-message-bus-on-recv",
-                spawn_system_worker_task(future),
-            );
+            task::spawn_system("iouring-message-bus-on-recv", future);
         }
         Ok(callback_id)
     }
@@ -233,8 +227,9 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn recv_consumes_buffered_message() {
+    #[test]
+    fn recv_consumes_buffered_message() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bus = test_bus(11);
         bus.handle_incoming(Envelope::new(
             1,
@@ -256,10 +251,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(message.payload(), b"ping");
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn recv_waiter_is_fulfilled_by_incoming_message() {
+    #[test]
+    fn recv_waiter_is_fulfilled_by_incoming_message() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bus = test_bus(11);
         let mut recv = Box::pin(bus.recv(RecvFilter {
             src: Some(12),
@@ -285,5 +282,6 @@ mod tests {
 
         let message = recv.await.unwrap();
         assert_eq!(message.correlation_id(), Some(9));
+        }).unwrap()
     }
 }

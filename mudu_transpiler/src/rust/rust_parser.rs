@@ -9,6 +9,8 @@ use crate::rust::function::Function;
 use crate::rust::rust_type::RustType;
 use tree_sitter::{Language, Node, Parser};
 
+type ScopeMap = HashMap<String, (Option<String>, Position, Position)>;
+
 const MUDU_PROC_MARKER: &str = "/**mudu-proc**/";
 
 pub struct RustParser {}
@@ -56,7 +58,7 @@ impl RustParser {
         opt_function_name: &Option<String>,
     ) -> RS<()> {
         let mut cursor = node.walk();
-        for (_, child) in node.children(&mut cursor).enumerate() {
+        for child in node.children(&mut cursor) {
             let kind = child.kind();
             match kind {
                 ts_const::ts_kind_name::S_USE_DECLARATION => {
@@ -124,7 +126,7 @@ impl RustParser {
 
     fn build_path_list(
         &self,
-        stack: &Vec<HashMap<String, (Option<String>, Position, Position)>>,
+        stack: &[ScopeMap],
     ) -> Vec<Vec<(String, Position, Position)>> {
         let opt = stack.last();
         let mut ret = Vec::new();
@@ -163,9 +165,9 @@ impl RustParser {
     fn refactor_use_mod(
         &self,
         context: &mut ParseContext,
-        path: &Vec<(String, Position, Position)>,
-        src: &Vec<String>,
-        dst: &Vec<String>,
+        path: &[(String, Position, Position)],
+        src: &[String],
+        dst: &[String],
     ) -> RS<()> {
         if src.len() != dst.len() {
             panic!(
@@ -208,7 +210,7 @@ impl RustParser {
         node: Node,
         find_next_identifier: &mut bool,
         path: &mut Vec<String>,
-        stack: &mut Vec<HashMap<String, (Option<String>, Position, Position)>>,
+        stack: &mut Vec<ScopeMap>,
     ) -> RS<()> {
         let mut new_level_parent = path.last().cloned();
         let mut increase_depth = false;
@@ -414,7 +416,7 @@ impl RustParser {
         for child in node.children(&mut cursor) {
             let k = child.kind();
             if k != "(" && k != "," && k != ")" {
-                let rust_type = self.visit_type(&context, child)?;
+                let rust_type = self.visit_type(context, child)?;
                 vec.push(rust_type);
             }
         }
@@ -487,18 +489,15 @@ impl RustParser {
         node: Node,
         call_chains: &mut Vec<(CallIdentifier, CallArguments)>,
     ) -> RS<()> {
-        match node.kind() {
-            ts_const::ts_kind_name::S_CALL_EXPRESSION => {
-                let function = expected_child_filed(&node, ts_const::ts_field_name::FUNCTION)?;
-                let opt_identifier = self.visit_function(context, function)?;
-                if let Some(identifier) = opt_identifier {
-                    let arguments =
-                        expected_child_filed(&node, ts_const::ts_field_name::ARGUMENTS)?;
-                    let call_arguments = self.visit_call_arguments(context, arguments)?;
-                    call_chains.push((identifier, call_arguments))
-                }
+        if node.kind() == ts_const::ts_kind_name::S_CALL_EXPRESSION {
+            let function = expected_child_filed(&node, ts_const::ts_field_name::FUNCTION)?;
+            let opt_identifier = self.visit_function(context, function)?;
+            if let Some(identifier) = opt_identifier {
+                let arguments =
+                    expected_child_filed(&node, ts_const::ts_field_name::ARGUMENTS)?;
+                let call_arguments = self.visit_call_arguments(context, arguments)?;
+                call_chains.push((identifier, call_arguments))
             }
-            _ => {}
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -541,7 +540,7 @@ fn expected_child_filed<'tree>(node: &Node<'tree>, field: &str) -> RS<Node<'tree
                 format!("cannot find child filed for {}", field)
             ))
         },
-        |child| Ok(child),
+        Ok,
     )?;
     Ok(child)
 }

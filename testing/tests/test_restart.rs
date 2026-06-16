@@ -254,7 +254,7 @@ impl Drop for RunningServer {
             while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
                 let _ = TcpStream::connect(("127.0.0.1", self.http_port));
                 let _ = TcpStream::connect(("127.0.0.1", self.tcp_port));
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
             }
             let join_result = handle.join().expect("join server thread");
             if let Err(err) = join_result {
@@ -291,7 +291,7 @@ impl TestContext {
         };
 
         let base_dir =
-            std::env::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
+            mudu_sys::env_var::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
         let mpk_dir = base_dir.join("mpk");
         let data_dir = base_dir.join("data");
         fs::create_dir_all(&mpk_dir).map_err(|e| {
@@ -422,7 +422,7 @@ fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
     Err(mudu::m_error!(
         mudu::error::ec::EC::NetErr,
@@ -437,7 +437,7 @@ fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
     // A listening socket only proves that bind/listen completed. In io_uring
     // mode the workers may still be replaying WAL, so tests must also wait for
     // the backend's logical readiness barrier before issuing requests.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
+    let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
     })
     .map_err(|e| {

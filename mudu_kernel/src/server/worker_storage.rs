@@ -1,13 +1,13 @@
+use mudu_sys::sync::SMutex;
 use std::collections::{BTreeMap, Bound};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::sync::{Arc, OnceLock, Weak};
-use mudu_sys::sync::SMutex;
 
-use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_utils::{scoped_task_trace, task_trace};
 use scc::HashMap as SccHashMap;
 
@@ -48,7 +48,7 @@ pub struct WorkerStorage {
     mgr: Arc<dyn MetaMgr>,
     default_partition_id: OID,
     relation_path: String,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     relation_store: SccHashMap<PhysicalRelationId, Arc<Relation>>,
     kv_store: SccHashMap<Vec<u8>, DataRow>,
     applied_cross_tx: SccHashMap<OID, ()>,
@@ -71,7 +71,7 @@ impl WorkerStorage {
         mgr: Arc<dyn MetaMgr>,
         partition_id: OID,
         relation_path: String,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> Self {
         Self {
             mgr,
@@ -187,8 +187,8 @@ impl WorkerStorage {
         let key_tuple = KeyTuple::from(key.clone());
         let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
 
-            self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
-                .await?;
+        self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
+            .await?;
         txm.put_relation(relation_id, key, value);
         Ok(())
     }
@@ -207,8 +207,8 @@ impl WorkerStorage {
     ) -> RS<Option<Vec<u8>>> {
         let key_tuple = KeyTuple::from(key.to_vec());
         let relation_id = self.relation_id(oid, self.physical_partition_id(partition_id));
-            self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
-                .await?;
+        self.ensure_no_relation_write_conflict(oid, partition_id, &key_tuple, &txm.snapshot())
+            .await?;
         let current = match txm.get_relation(relation_id, key) {
             Some(staged) => staged,
             None => {
@@ -341,7 +341,6 @@ impl WorkerStorage {
         .await
     }
 
-
     pub(crate) async fn prepare_worker_kv_commit(
         &self,
         snapshot: &WorkerSnapshot,
@@ -349,7 +348,8 @@ impl WorkerStorage {
         items: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         batch: XLBatch,
     ) -> RS<PreparedWorkerCommit> {
-        self.prepare_commit_parts_async(snapshot, xid, BTreeMap::new(), items, batch).await
+        self.prepare_commit_parts_async(snapshot, xid, BTreeMap::new(), items, batch)
+            .await
     }
 
     pub(crate) fn prepare_worker_kv_autocommit(
@@ -366,7 +366,6 @@ impl WorkerStorage {
             batch,
         }
     }
-
 
     pub(crate) async fn apply_prepared_commit_async(
         &self,
@@ -423,10 +422,12 @@ impl WorkerStorage {
                         self.worker_delete_local(delete.key, entry.xid)?;
                     }
                     TxOp::Write(XLWrite::Insert(insert)) => {
-                        self.apply_relation_replay_insert_async(insert, entry.xid).await?;
+                        self.apply_relation_replay_insert_async(insert, entry.xid)
+                            .await?;
                     }
                     TxOp::Write(XLWrite::Delete(delete)) => {
-                        self.apply_relation_replay_delete_async(delete, entry.xid).await?;
+                        self.apply_relation_replay_delete_async(delete, entry.xid)
+                            .await?;
                     }
                     _ => {}
                 }
@@ -626,8 +627,8 @@ impl WorkerStorage {
 
         let relation = match &self.async_runtime {
             Some(async_runtime) => Arc::new(
-                Relation::new_with_fs(
-                    async_runtime.fs_arc(),
+                Relation::new_with_provider(
+                    async_runtime.clone(),
                     oid,
                     partition_id,
                     self.relation_path.clone(),
@@ -717,7 +718,7 @@ impl WorkerStorage {
 
     async fn apply_drop_table_local_async(&self, oid: OID) {
         let trace = task_trace!();
-        let task_id = mudu_sys::task_async::try_this_task_id();
+        let task_id = mudu_sys::task::async_::try_this_task_id();
         let relation_id = self.relation_id(oid, self.default_partition_id);
         trace.watch("relation_store.op", "remove_async");
         trace.watch("relation_store.phase", "before_remove");
@@ -732,7 +733,6 @@ impl WorkerStorage {
             "relation_store remove_async"
         );
     }
-
 
     async fn broadcast_create_table_async(&self, schema: &SchemaTable) -> RS<()> {
         trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async enter");
@@ -880,10 +880,11 @@ fn bounds_to_scan(bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> (Vec<u8>, Vec<u8>) {
 mod tests {
     use std::future::Future;
 
-    use mudu_sys::async_rt::tokio::runtime::TokioRuntime;
     use crate::contract::schema_column::SchemaColumn;
     use crate::server::test_meta_mgr::TestMetaMgr;
     use mudu::common::id::OID;
+    use mudu_sys::common::provider_type::ProviderType;
+    use mudu_sys::provider::create_io_provider;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
 
@@ -893,7 +894,7 @@ mod tests {
     where
         F: Future,
     {
-        mudu_sys::task_async::build_current_thread_runtime()
+        mudu_sys::task::async_::build_current_thread_runtime()
             .unwrap()
             .block_on(fut)
     }
@@ -923,10 +924,10 @@ mod tests {
         let storage = WorkerStorage::new(
             mgr,
             0,
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!(
                     "worker_storage_test_{}",
-                    mudu::common::id::gen_oid()
+                    mudu_utils::oid::gen_oid()
                 ))
                 .to_string_lossy()
                 .to_string(),
@@ -944,10 +945,10 @@ mod tests {
         OID,
     )> {
         let mgr = Arc::new(TestMetaMgr::new());
-        let root = std::env::temp_dir()
+        let root = mudu_sys::env_var::temp_dir()
             .join(format!(
                 "worker_storage_shared_test_{}",
-                mudu::common::id::gen_oid()
+                mudu_utils::oid::gen_oid()
             ))
             .to_string_lossy()
             .to_string();
@@ -1017,14 +1018,14 @@ mod tests {
         let storage = WorkerStorage::new_with_async_runtime(
             mgr,
             0,
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!(
                     "worker_storage_async_bootstrap_test_{}",
-                    mudu::common::id::gen_oid()
+                    mudu_utils::oid::gen_oid()
                 ))
                 .to_string_lossy()
                 .to_string(),
-            Some(Arc::new(TokioRuntime::new())),
+            Some(create_io_provider(ProviderType::Tokio)),
         );
         storage.bootstrap_existing_tables_async().await?;
 
@@ -1267,18 +1268,22 @@ mod tests {
         let snapshot1 = WorkerSnapshot::new(1, vec![]);
         let snapshot2 = WorkerSnapshot::new(2, vec![1]);
 
-        let prepared1 = storage.prepare_worker_kv_commit(
-            &snapshot1,
-            snapshot1.xid(),
-            BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
-            XLBatch::new(vec![]),
-        ).await?;
-        let prepared2 = storage.prepare_worker_kv_commit(
-            &snapshot2,
-            snapshot2.xid(),
-            BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
-            XLBatch::new(vec![]),
-        ).await?;
+        let prepared1 = storage
+            .prepare_worker_kv_commit(
+                &snapshot1,
+                snapshot1.xid(),
+                BTreeMap::from([(b"a".to_vec(), Some(b"1".to_vec()))]),
+                XLBatch::new(vec![]),
+            )
+            .await?;
+        let prepared2 = storage
+            .prepare_worker_kv_commit(
+                &snapshot2,
+                snapshot2.xid(),
+                BTreeMap::from([(b"b".to_vec(), Some(b"2".to_vec()))]),
+                XLBatch::new(vec![]),
+            )
+            .await?;
 
         storage.apply_prepared_commit_async(prepared1).await?;
         storage.apply_prepared_commit_async(prepared2).await?;
@@ -1411,10 +1416,10 @@ mod tests {
         let storage = WorkerStorage::new(
             mgr,
             123,
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!(
                     "worker_storage_bootstrap_test_{}",
-                    mudu::common::id::gen_oid()
+                    mudu_utils::oid::gen_oid()
                 ))
                 .to_string_lossy()
                 .to_string(),

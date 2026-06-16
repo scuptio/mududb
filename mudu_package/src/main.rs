@@ -10,8 +10,8 @@ use mudu::utils::toml::read_toml;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, File};
 use std::io::{self, Write};
+use mudu_sys::fs::sync::{SFile, sync_create_dir_all, sync_path_exists};
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -49,7 +49,7 @@ impl MPKPackage {
         ];
 
         for (path, name) in required_files {
-            if !fs::exists(path)? {
+            if !sync_path_exists(path) {
                 return Err(anyhow!("Required file '{}' not found at: {}", name, path));
             }
         }
@@ -61,7 +61,7 @@ impl MPKPackage {
 
         // Check if all WASM files exist and have correct extension
         for wasm_path in &self.wasm_files {
-            if !fs::exists(wasm_path)? {
+            if !sync_path_exists(wasm_path) {
                 return Err(anyhow!("WASM file not found: {}", wasm_path));
             }
             if PathBuf::from(wasm_path)
@@ -273,11 +273,11 @@ fn parse_arguments() -> Result<MPKCommand> {
 }
 
 fn add_file_to_zip<P: AsRef<Path>>(
-    zip_writer: &mut ZipWriter<File>,
+    zip_writer: &mut ZipWriter<SFile>,
     file_path: P,
     zip_path: &str,
 ) -> Result<()> {
-    let mut file = File::open(file_path.as_ref())?;
+    let mut file = SFile::open(file_path.as_ref())?;
     zip_writer.start_file(
         zip_path,
         SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
@@ -286,7 +286,7 @@ fn add_file_to_zip<P: AsRef<Path>>(
     Ok(())
 }
 
-fn add_bytes_to_zip(zip_writer: &mut ZipWriter<File>, bytes: &[u8], zip_path: &str) -> Result<()> {
+fn add_bytes_to_zip(zip_writer: &mut ZipWriter<SFile>, bytes: &[u8], zip_path: &str) -> Result<()> {
     zip_writer.start_file(
         zip_path,
         SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
@@ -304,11 +304,11 @@ struct PackageManifest {
 fn create_package(config: &MPKPackage) -> Result<()> {
     // Create output directory if it doesn't exist
     if let Some(parent) = PathBuf::from(&config.output_path).parent() {
-        fs::create_dir_all(parent)?;
+        sync_create_dir_all(parent)?;
     }
 
     // Create zip file
-    let file = File::create(&config.output_path)?;
+    let file = SFile::create(&config.output_path)?;
     let mut zip = ZipWriter::new(file);
 
     // Build and embed a manifest for forward/backward-compatible extensions.
@@ -388,7 +388,7 @@ fn create_mpk_package(config: MPKPackage) -> Result<()> {
 
     // Print package contents
     println!("\nPackage contents:");
-    let package_file = File::open(&config.output_path)?;
+    let package_file = SFile::open(&config.output_path)?;
     let zip_archive = zip::ZipArchive::new(package_file)?;
     for file_name in zip_archive.file_names() {
         println!("  - {}", file_name);
@@ -399,7 +399,6 @@ fn create_mpk_package(config: MPKPackage) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use std::io::Write;
     use tempfile::TempDir;
 
@@ -420,7 +419,7 @@ mod tests {
         ];
 
         for (filename, content) in files {
-            let mut file = File::create(dir.join(filename))?;
+            let mut file = SFile::create(dir.join(filename))?;
             write!(file, "{}", content)?;
         }
 
@@ -483,9 +482,9 @@ mod tests {
         create_package(&config)?;
 
         // Verify the package was created and contains expected files
-        assert!(PathBuf::from(&config.output_path).exists());
+        assert!(sync_path_exists(&config.output_path));
 
-        let package_file = File::open(&config.output_path)?;
+        let package_file = SFile::open(&config.output_path)?;
         let mut zip_archive = zip::ZipArchive::new(package_file)?;
 
         let expected_files = [

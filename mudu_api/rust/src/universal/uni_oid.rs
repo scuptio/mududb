@@ -1,6 +1,7 @@
 // object id
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub struct UniOid {
     // higher 64 bits
     pub h: u64,
@@ -9,12 +10,3 @@ pub struct UniOid {
     pub l: u64,
 }
 
-impl Default for UniOid {
-    fn default() -> Self {
-        Self {
-            h: Default::default(),
-
-            l: Default::default(),
-        }
-    }
-}

@@ -23,6 +23,9 @@ impl WorkerRingLoop {
                 self.shutdown_connection_tasks();
             }
             self.poll_flush_log()?;
+            if self.shutting_down {
+                self.force_flush_log()?;
+            }
             self.worker_local_ring
                 .worker_task_registry()
                 .drain_completions();
@@ -41,11 +44,21 @@ impl WorkerRingLoop {
             }
 
             if self.shutting_down && self.worker_local_ring.worker_task_registry().is_empty() {
-                return self.finish_shutdown();
+                // Make sure the WAL has been fully flushed before tearing the
+                // worker loop down. The flush task is not tracked in the worker
+                // task registry, so the registry being empty is not enough to
+                // guarantee durability.
+                let log_flushed = match &self.log {
+                    Some(log) => log.backend().is_flush_idle()?,
+                    None => true,
+                };
+                if log_flushed {
+                    return self.finish_shutdown();
+                }
             }
 
             if self.inflight.is_empty() {
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(1));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(1));
                 continue;
             }
 
@@ -130,12 +143,11 @@ impl WorkerRingLoop {
     }
 
     fn shutdown_connection_tasks(&mut self) {
-        self.connection_task_fds.iter_sync(|_, fd| {
+        for fd in self.connection_task_fds.lock().unwrap().values() {
             unsafe {
                 libc::shutdown(*fd, libc::SHUT_RDWR);
             }
-            true
-        });
+        }
     }
 
     fn finish_shutdown(&mut self) -> RS<WorkerLoopStats> {
@@ -143,7 +155,7 @@ impl WorkerRingLoop {
         Ok(self.stats.clone())
     }
 
-    fn wait_for_cqe(&mut self) -> RS<Result<mudu_sys::uring::Cqe, i32>> {
+    fn wait_for_cqe(&mut self) -> RS<Result<mudu_sys::io::iouring::Cqe, i32>> {
         if let Some(timeout) = self.log_flush_wait_timeout()? {
             trace!(
                 timeout_us = timeout.as_micros() as u64,
@@ -173,6 +185,15 @@ impl WorkerRingLoop {
         };
         let started = log.backend().poll_flush_log()?;
         trace!(started, "worker_ring_loop poll_flush_log result");
+        Ok(())
+    }
+
+    fn force_flush_log(&mut self) -> RS<()> {
+        let Some(log) = &self.log else {
+            return Ok(());
+        };
+        let started = log.backend().force_flush_log()?;
+        trace!(started, "worker_ring_loop force_flush_log result");
         Ok(())
     }
 }

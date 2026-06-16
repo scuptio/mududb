@@ -47,8 +47,7 @@ impl ParseContext {
         let lines: Vec<String> = text
             .lines()
             .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
         let refactor_src_dst_mod = if let Some(src) = src_mod
             && let Some(dst) = dst_mod
         {
@@ -101,12 +100,12 @@ impl ParseContext {
         }
     }
 
-    pub fn add_call_dependency(&mut self, caller: &String, callee: &String) {
+    pub fn add_call_dependency(&mut self, caller: &str, callee: &str) {
         if let Some(set) = self.call_dependencies.get_mut(callee) {
-            set.insert(caller.clone());
+            set.insert(caller.to_owned());
         } else {
-            let caller_set = HashSet::from_iter(vec![caller.clone()]);
-            self.call_dependencies.insert(callee.clone(), caller_set);
+            let caller_set = HashSet::from_iter(vec![caller.to_owned()]);
+            self.call_dependencies.insert(callee.to_owned(), caller_set);
         }
     }
 
@@ -130,7 +129,7 @@ impl ParseContext {
 
     pub fn gen_procedure_desc_list(
         &self,
-        module_name: &String,
+        module_name: &str,
         custom_types: &UniTypeDesc,
     ) -> RS<Vec<ProcDesc>> {
         let mut vec = Vec::new();
@@ -183,13 +182,8 @@ impl ParseContext {
         self.position_call_end = position_call_end;
         for (name, function) in self.mudu_procedure.iter_mut() {
             let opt = self.position_fn_start.get(name);
-            match opt {
-                Some((_, is_async)) => {
-                    if *is_async {
-                        function.is_async = true;
-                    }
-                }
-                None => {}
+            if let Some((_, is_async)) = opt && *is_async {
+                function.is_async = true;
             }
         }
     }
@@ -225,11 +219,9 @@ impl ParseContext {
         let set = self.get_caller_of_callee(callee).unwrap_or(&_set);
         for caller in set {
             let opt = position_fn_start.get_mut(caller);
-            if let Some((_pos, is_async)) = opt {
-                if !*is_async {
-                    *is_async = true;
-                    callers.insert(caller.clone());
-                }
+            if let Some((_pos, is_async)) = opt && !*is_async {
+                *is_async = true;
+                callers.insert(caller.clone());
             }
             self.mark_all_async_caller(caller, callers, position_fn_start);
         }
@@ -376,7 +368,7 @@ fn function_to_template(
         opt_underline_async = "_async".to_string();
     }
     let return_tuple = function.return_type.as_ref().map_or_else(
-        || vec![],
+        Vec::new,
         |return_type| {
             let ret_types = return_type.as_ret_type();
             return_type

@@ -35,7 +35,8 @@ impl DatType {
             panic!("DatType::default_for({:?})", id);
         }
         let opt = id.opt_fn_param();
-        let param_obj = match opt {
+        
+        match opt {
             Some(t) => {
                 if let Some(d) = t.default {
                     d()
@@ -44,8 +45,7 @@ impl DatType {
                 }
             }
             None => DatType::new_no_param(id),
-        };
-        param_obj
+        }
     }
 
     pub fn dat_type_id(&self) -> DatTypeID {
@@ -172,13 +172,8 @@ macro_rules! impl_dat_type_methods {
                     #[doc = "` value"]
                     pub fn [<as_ $variant_lower _param>](&self) -> Option<&$inner_type> {
                         match &self.param {
-                            Some(p) => {
-                                match p {
-                                    DTPKind::$variant_upper(v) => { Some(v.as_ref()) },
-                                    _ => { None }
-                                }
-                            }
-                            None => { None }
+                            Some(DTPKind::$variant_upper(v)) => Some(v.as_ref()),
+                            _ => None,
                         }
                     }
 
@@ -194,13 +189,8 @@ macro_rules! impl_dat_type_methods {
                     #[doc = "` value"]
                     pub fn [<into_ $variant_lower _param>](self) -> $inner_type {
                         match self.param {
-                            Some(p) => {
-                                match p {
-                                    DTPKind::$variant_upper(v) => { Box::into_inner(v) },
-                                    _ => { unsafe{ std::hint::unreachable_unchecked() } }
-                                }
-                            }
-                            None => { unsafe{ std::hint::unreachable_unchecked() } }
+                            Some(DTPKind::$variant_upper(v)) => Box::into_inner(v),
+                            _ => unsafe { std::hint::unreachable_unchecked() },
                         }
                     }
                 }

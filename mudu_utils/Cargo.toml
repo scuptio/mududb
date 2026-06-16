@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-debug_trace = []
+debug_trace = ["mudu_sys/debug_trace"]
+
+[lints]
+workspace = true
 
 [dependencies]
 md-5 = { workspace = true }

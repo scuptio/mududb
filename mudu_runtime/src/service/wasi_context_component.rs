@@ -34,8 +34,8 @@ impl WasiContextComponent {
 
 pub fn build_wasi_component_context(worker_local: Option<WorkerLocalRef>) -> WasiContextComponent {
     let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_args().build();
-    let context = WasiContextComponent::new(wasi, worker_local);
-    context
+    
+    WasiContextComponent::new(wasi, worker_local)
 }
 
 pub mod sync_host {

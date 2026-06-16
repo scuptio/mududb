@@ -13,9 +13,9 @@ impl UniOid {
     }
 }
 
-impl Into<OID> for UniOid {
-    fn into(self) -> OID {
-        self.to_oid()
+impl From<UniOid> for OID {
+    fn from(val: UniOid) -> Self {
+        val.to_oid()
     }
 }
 

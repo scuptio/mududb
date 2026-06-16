@@ -1,4 +1,3 @@
-use libsql;
 
 pub struct LibSQLParam {
     inner: Vec<libsql::Value>,

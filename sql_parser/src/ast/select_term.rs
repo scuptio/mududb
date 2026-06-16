@@ -6,6 +6,12 @@ pub struct SelectTerm {
     alias: String,
 }
 
+impl Default for SelectTerm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SelectTerm {
     pub fn new() -> Self {
         Self {

@@ -10,6 +10,12 @@ use std::sync::Arc;
 
 pub struct Describer {}
 
+impl Default for Describer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Describer {
     pub fn new() -> Self {
         Self {}
@@ -51,7 +57,7 @@ impl Describer {
             .ok_or_else(|| m_error!(ER::NoSuchElement, format!("cannot find column {}", name)))
     }
 
-    async fn get_table_by_name(meta_mgr: &dyn MetaMgr, name: &String) -> RS<Arc<TableDesc>> {
+    async fn get_table_by_name(meta_mgr: &dyn MetaMgr, name: &str) -> RS<Arc<TableDesc>> {
         meta_mgr
             .get_table_by_name(name)
             .await?

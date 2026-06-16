@@ -160,7 +160,7 @@ impl DatTypeID {
     pub fn fn_param_default(&self) -> Option<FnParamDefault> {
         self.opt_fn_param()
             .as_ref()
-            .and_then(|param| param.default.clone())
+            .and_then(|param| param.default)
     }
 
     // Type classification
@@ -183,16 +183,16 @@ impl DatTypeID {
     }
 
     pub fn has_param(&self) -> bool {
-        match self {
+        !matches!(
+            self,
             DatTypeID::I32
-            | DatTypeID::I64
-            | DatTypeID::I128
-            | DatTypeID::F32
-            | DatTypeID::F64
-            | DatTypeID::U128
-            | DatTypeID::Date => false,
-            _ => true,
-        }
+                | DatTypeID::I64
+                | DatTypeID::I128
+                | DatTypeID::F32
+                | DatTypeID::F64
+                | DatTypeID::U128
+                | DatTypeID::Date
+        )
     }
 
     // Test/arbitrary function accessors (conditionally compiled)

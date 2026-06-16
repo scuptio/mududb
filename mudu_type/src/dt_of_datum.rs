@@ -6,6 +6,12 @@ pub struct DtOfDatum {
     id_2_type: scc::HashMap<TypeId, Box<DatType>>,
 }
 
+impl Default for DtOfDatum {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DtOfDatum {
     pub fn new() -> Self {
         Self {
@@ -20,8 +26,8 @@ impl DtOfDatum {
         let id = TypeId::of::<D>();
         let dat_type = match self.id_2_type.get_sync(&id) {
             Some(dt) => {
-                let boxed: &Box<DatType> = dt.get();
-                let pointer: *const DatType = &**boxed;
+                let boxed: &DatType = dt.get();
+                let pointer: *const DatType = boxed;
                 pointer
             }
             None => {

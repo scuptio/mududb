@@ -82,7 +82,7 @@ impl UniDatType {
                     UniDatType::Record(record)
                 }
                 _ => {
-                    return Err(m_error!(EC::TypeErr, "unexpected type".to_string()));
+                    return Err(m_error!(EC::TypeErr, "unexpected type"));
                 }
             }
         };
@@ -196,7 +196,7 @@ fn _rewrite_inline(vec_ty: Vec<UniDatType>) -> RS<Vec<UniDatType>> {
             // `u` requires `v` to be processed before it.
             dependency_index
                 .entry(*u)
-                .or_insert(Default::default())
+                .or_default()
                 .insert(v);
         }
     }
@@ -317,8 +317,8 @@ fn visit_ty(
 ///
 /// # Arguments
 /// * `dependency` - A HashMap where the key is a node, and the value is a set of nodes that the key depends on.
-///                  Specifically, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
-///                  This represents directed edges from each vᵢ to u (vᵢ -> u).
+///   Specifically, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
+///   This represents directed edges from each vᵢ to u (vᵢ -> u).
 ///
 /// # Returns
 /// * `HashMap<u64, HashSet<u64>>` - A reversed adjacency list where:
@@ -337,20 +337,20 @@ fn reverse_adj(dependency: &HashMap<u64, HashSet<u64>>) -> HashMap<u64, HashSet<
             // Add the current node to the set of nodes that depend on dependency_node
             reversed
                 .entry(dependency_node)
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .insert(dependent_node);
         }
 
         // Ensure all nodes appear in the reversed map, even if they have no incoming edges
         // This is optional but can be useful for completeness
-        reversed.entry(dependent_node).or_insert_with(HashSet::new);
+        reversed.entry(dependent_node).or_default();
     }
 
     // Also ensure that nodes that only appear as dependencies (not as keys)
     // are included in the reversed map
     for dependencies in dependency.values() {
         for &node in dependencies {
-            reversed.entry(node).or_insert_with(HashSet::new);
+            reversed.entry(node).or_default();
         }
     }
 
@@ -361,11 +361,11 @@ fn reverse_adj(dependency: &HashMap<u64, HashSet<u64>>) -> HashMap<u64, HashSet<
 ///
 /// # Arguments
 /// * `dependency` - A HashMap where the key is a node, and the value is a set of nodes that the key depends on.
-///                  In other words, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
+///   In other words, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
 ///
 /// # Returns
 /// * `Vec<u64>` - A topological ordering of nodes if the graph is acyclic.
-///                If a cycle is detected, returns an empty vector.
+///   If a cycle is detected, returns an empty vector.
 ///
 /// # Algorithm
 /// This implementation uses Kahn's algorithm:
@@ -408,7 +408,7 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
     let reserve_dependency = reverse_adj(&dependency);
     for (node, deps) in &reserve_dependency {
         for dep in deps {
-            *in_degree.entry(dep.clone()).or_insert(0) += 1;
+            *in_degree.entry(*dep).or_insert(0) += 1;
         }
         // Ensure the key node itself is in the map (with its current in-degree or 0)
         in_degree.entry(*node).or_insert(0);
@@ -422,7 +422,7 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
         }
     }
     for i in queue.iter() {
-        in_degree.remove(&i);
+        in_degree.remove(i);
     }
 
     // Step 4: Process nodes in topological order
@@ -434,14 +434,14 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
 
         // Also check if current node itself has dependencies that are now satisfied
         // (This handles nodes that only appear as keys, not as dependencies)
-        if remaining_deps.contains_key(&current) {
-            if let Some(deps) = remaining_deps.get(&current) {
+        if remaining_deps.contains_key(&current)
+            && let Some(deps) = remaining_deps.get(&current) {
                 if deps.is_empty() {
                     remaining_deps.remove(&current);
                 } else {
                     for dependent in deps {
                         // Decrease in-degree of the dependent
-                        if let Some(degree) = in_degree.get_mut(&dependent) {
+                        if let Some(degree) = in_degree.get_mut(dependent) {
                             *degree -= 1;
                             // If in-degree becomes zero, add to queue
                             if *degree == 0 {
@@ -451,7 +451,6 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
                     }
                 }
             }
-        }
     }
 
     // Step 5: Check if topological ordering includes all nodes

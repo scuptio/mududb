@@ -16,14 +16,14 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_sys::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::tokio_rwlock::ARwLock;
 use postgres::types::Type;
 use postgres::{Client, NoTls, Row};
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use mudu_sys::sync::SMutex;
-use tokio::task::JoinHandle;
+use mudu_sys::tokio::task::JoinHandle;
 use tokio_postgres::{Client as AsyncClient, NoTls as AsyncNoTls};
 
 type PgClientRef = Arc<SMutex<Client>>;
@@ -31,7 +31,7 @@ const SCHEMA_INIT_LOCK_ID: i64 = 0x4d55_4455_4b56;
 
 struct PgAsyncSession {
     client: AsyncClient,
-    connection_task: JoinHandle<()>,
+    connection_task: JoinHandle<Option<()>>,
 }
 
 lazy_static! {
@@ -55,9 +55,9 @@ async fn connect_async() -> RS<PgAsyncSession> {
     let (client, connection) = tokio_postgres::connect(&url, AsyncNoTls)
         .await
         .map_err(|e| m_error!(EC::DBInternalError, "connect postgres error", e))?;
-    let connection_task = mudu_sys::task_async::spawn_tokio(async move {
+    let connection_task = mudu_sys::task::async_::spawn_task_detached("postgres-connection", async move {
         let _ = connection.await;
-    });
+    })?;
     initialize_schema_async(&client).await?;
     Ok(PgAsyncSession {
         client,

@@ -3,7 +3,8 @@ use mudu_contract::database::sql_stmt_text::SQLStmtText;
 use std::env;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use mudu_sys::time::system_time_now;
+use std::time::UNIX_EPOCH;
 
 fn test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -11,11 +12,11 @@ fn test_lock() -> &'static Mutex<()> {
 }
 
 fn temp_db_path(name: &str) -> PathBuf {
-    let suffix = SystemTime::now()
+    let suffix = system_time_now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("mudu_adapter_{name}_{suffix}.db"))
+    mudu_sys::env_var::temp_dir().join(format!("mudu_adapter_{name}_{suffix}.db"))
 }
 
 fn with_connection_env<T>(value: &str, f: impl FnOnce() -> T) -> T {
@@ -146,8 +147,7 @@ fn backend_batch_attempts_mudud_driver_request_instead_of_not_implemented() {
 #[test]
 fn sqlite_async_session_kv_query_command_and_batch_work() {
     let _guard = test_lock().lock().unwrap();
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    runtime.block_on(async {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async {
         config::reset_db_path_override_for_test();
         let db_path = temp_db_path("sqlite_async");
         config::set_db_path(&db_path);
@@ -191,5 +191,5 @@ fn sqlite_async_session_kv_query_command_and_batch_work() {
 
         backend::mudu_close_async(session_id).await.unwrap();
         assert!(kv::ensure_session_exists(session_id).is_err());
-    });
+    }).unwrap();
 }

@@ -1,8 +1,8 @@
 use md5::{Digest, Md5};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::fs::{read_to_string, File};
 use std::io::Write;
+use mudu_sys::fs::sync::{SFile, sync_read_to_string};
 use std::path::{Path, PathBuf};
 use tree_sitter::Language;
 use tree_sitter_sql::LANGUAGE;
@@ -14,10 +14,8 @@ pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(output_path: O, grammar_path: G) {
         seq_index: Default::default(),
     };
     let grammar_path_str = grammar_path.as_ref().to_str().unwrap().to_string();
-    let grammar_str = read_to_string(&grammar_path).expect(&format!(
-        "grammar json file path {} cannot be found",
-        grammar_path_str
-    ));
+    let grammar_str = sync_read_to_string(&grammar_path).unwrap_or_else(|_| panic!("grammar json file path {} cannot be found",
+        grammar_path_str));
     let opt_new_md5 = grammar_file_changed(&grammar_str);
     let new_md5 = match opt_new_md5 {
         None => return,
@@ -25,7 +23,7 @@ pub fn gen_rs<O: AsRef<Path>, G: AsRef<Path>>(output_path: O, grammar_path: G) {
         Some(s) => s,
     };
     let json: Value = serde_json::from_str(grammar_str.as_str())
-        .expect(&format!("parse json file {} failed", grammar_path_str));
+        .unwrap_or_else(|_| panic!("parse json file {} failed", grammar_path_str));
     visit_rule(json, &mut constant);
     output_rust_file(output_path, &constant);
     write_grammar_md5(&new_md5);
@@ -43,6 +41,7 @@ macro_rules! this_file {
     };
 }
 
+#[allow(clippy::disallowed_methods)]
 fn _this_file(file: &str) -> String {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok().unwrap();
     let manifest_dir_path_buf = PathBuf::from(&manifest_dir);
@@ -87,7 +86,7 @@ macro_rules! write_content {
 
         // Write the content to the file
         let mut file =
-            File::create(&file_path).expect(&format!("Failed to create file: {:?}", file_path));
+            SFile::create(&file_path).expect(&format!("Failed to create file: {:?}", file_path));
         file.write_all($content.as_bytes())
             .expect(&format!("Failed to write to file: {:?}", file_path));
 
@@ -99,23 +98,23 @@ fn write_grammar_md5(md5: &String) {
     write_content!(grammar_md5_file!(), md5)
 }
 
-const COMMENTS: &'static str = include_str!("comments.txt");
+const COMMENTS: &str = include_str!("comments.txt");
 
-const RULES: &'static str = "rules";
+const RULES: &str = "rules";
 
-const TYPE: &'static str = "type";
+const TYPE: &str = "type";
 
-const REPEAT: &'static str = "REPEAT";
-const REPEAT1: &'static str = "REPEAT1";
-const SEQ: &'static str = "SEQ";
-const CHOICE: &'static str = "CHOICE";
-const FIELD: &'static str = "FIELD";
-const PREC: &'static str = "PREC";
-const PREC_LEFT: &'static str = "PREC_LEFT";
-const PREC_RIGHT: &'static str = "PREC_RIGHT";
-const MEMBERS: &'static str = "members";
-const CONTENT: &'static str = "content";
-const NAME: &'static str = "name";
+const REPEAT: &str = "REPEAT";
+const REPEAT1: &str = "REPEAT1";
+const SEQ: &str = "SEQ";
+const CHOICE: &str = "CHOICE";
+const FIELD: &str = "FIELD";
+const PREC: &str = "PREC";
+const PREC_LEFT: &str = "PREC_LEFT";
+const PREC_RIGHT: &str = "PREC_RIGHT";
+const MEMBERS: &str = "members";
+const CONTENT: &str = "content";
+const NAME: &str = "name";
 
 struct Constant {
     node_name: HashSet<String>,
@@ -124,20 +123,20 @@ struct Constant {
 }
 
 fn language() -> Language {
-    LANGUAGE.clone().into()
+    LANGUAGE.into()
 }
 
 fn language_name() -> &'static str {
     language().name().unwrap()
 }
 
-fn format_name(names: &Vec<String>) -> String {
+fn format_name(names: &[String]) -> String {
     let mut name_ret = String::new();
     for (i, name) in names.iter().enumerate() {
         if i != names.len() - 1 {
             let f20char = if name.len() > 20 { &name[0..20] } else { name };
             name_ret.push_str(f20char);
-            name_ret.push_str("_");
+            name_ret.push('_');
         } else {
             name_ret.push_str(name);
         }
@@ -166,7 +165,7 @@ fn visit_a_rule(rule_content: &Value, names: &mut Vec<String>, constant: &mut Co
                     panic!("member must have a type");
                 };
                 names.push(name);
-                let formated_name = format_name(&names);
+                let formated_name = format_name(names);
                 names.pop();
                 let opt_value = constant.seq_index.get_mut(&formated_name);
                 match opt_value {
@@ -235,11 +234,11 @@ fn output_rust_file<P: AsRef<Path>>(path: P, constant: &Constant) {
         .node_name
         .iter()
         .map(|k| {
-            let id = language().id_for_node_kind(&k, true);
+            let id = language().id_for_node_kind(k, true);
             (k.clone(), id)
         })
         .collect();
-    node_kind_id.sort_by(|(_, id1), (_, id2)| id1.cmp(&id2));
+    node_kind_id.sort_by_key(|(_, id1)| *id1);
 
     let mut field_name: Vec<String> = constant.field_name.iter().cloned().collect();
     field_name.sort();
@@ -265,11 +264,11 @@ fn output_rust_file<P: AsRef<Path>>(path: P, constant: &Constant) {
     path_kind_names.push("ts_kind_name.rs");
     path_seq_index.push("ts_seq_index.rs");
 
-    let mut file_kind_name_ids = File::create(path_kind_name_ids).unwrap();
-    let mut file_kind_names = File::create(path_kind_names).unwrap();
-    let mut file_field_names = File::create(path_field_names).unwrap();
-    let mut file_field_ids = File::create(path_field_ids).unwrap();
-    let mut file_seq_index = File::create(path_seq_index).unwrap();
+    let mut file_kind_name_ids = SFile::create(path_kind_name_ids).unwrap();
+    let mut file_kind_names = SFile::create(path_kind_names).unwrap();
+    let mut file_field_names = SFile::create(path_field_names).unwrap();
+    let mut file_field_ids = SFile::create(path_field_ids).unwrap();
+    let mut file_seq_index = SFile::create(path_seq_index).unwrap();
 
     file_kind_name_ids
         .write_fmt(format_args!("{}", COMMENTS))

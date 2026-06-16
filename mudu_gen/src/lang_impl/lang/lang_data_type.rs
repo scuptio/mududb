@@ -85,9 +85,9 @@ fn to_non_scalar_type(non_scalar: &NonScalarType, lang: &LangKind) -> RS<String>
     Ok(lang_impl::lang_non_scalar_name(lang, non_scalar))
 }
 
-fn handle_wit_tuple(vec_wit_ty: &Vec<UniDatType>, lang: &LangKind) -> RS<String> {
+fn handle_wit_tuple(vec_wit_ty: &[UniDatType], lang: &LangKind) -> RS<String> {
     let mut vec = Vec::new();
-    for (_i, wit_ty) in vec_wit_ty.iter().enumerate() {
+    for wit_ty in vec_wit_ty.iter() {
         let ty = uni_data_type_to_name(wit_ty, lang)?;
         vec.push(ty);
     }
@@ -99,8 +99,8 @@ fn handle_wit_tuple(vec_wit_ty: &Vec<UniDatType>, lang: &LangKind) -> RS<String>
 fn _to_lang_type(wit_ty: &UniDatType, lang: &LangKind) -> RS<String> {
     let ty_str = match wit_ty {
         UniDatType::Scalar(p_ty) => {
-            let s = to_scalar_type(p_ty, lang)?;
-            s
+            
+            to_scalar_type(p_ty, lang)?
         }
         UniDatType::Tuple(vec) => handle_wit_tuple(vec, lang)?,
         UniDatType::Array(inner_ty) => {

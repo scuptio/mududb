@@ -9,7 +9,7 @@ use mudu_gen::src_gen::gen_entity::gen_rust;
 use mudu_gen::src_gen::gen_message::gen_message;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let r = main_inner(std::env::args());
+    let r = main_inner(mudu_sys::env_var::args_os());
     match r {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -159,10 +159,10 @@ where
                 || e.kind() == clap::error::ErrorKind::DisplayVersion
             {
                 eprintln!("{}", e);
-                std::process::exit(0);
+                mudu_sys::process::exit(0);
             } else {
                 eprintln!("parse arguments error: \n{}", e);
-                std::process::exit(0);
+                mudu_sys::process::exit(0);
             }
         }
     };
@@ -191,8 +191,7 @@ fn process_arguments(matches: ArgMatches) -> RS<()> {
 fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
     let input: Vec<String> = sub_args
         .get_many::<String>("input-source-files")
-        .ok_or_else(|| m_error!(EC::NoneErr, "no input source path specify"))?
-        .map(|s| s.clone())
+        .ok_or_else(|| m_error!(EC::NoneErr, "no input source path specify"))?.cloned()
         .collect();
 
     let output = sub_args
@@ -203,8 +202,7 @@ fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
     let type_desc = sub_args.get_one::<String>("type-desc").cloned();
 
     let lang = sub_args
-        .get_one::<String>("lang")
-        .map(|s| s.clone())
+        .get_one::<String>("lang").cloned()
         .unwrap_or_else(|| "rust".to_string());
 
     Ok(EntityConfig {
@@ -227,8 +225,7 @@ fn handle_message_command(sub_args: &ArgMatches) -> RS<MessageConfig> {
         .clone();
 
     let lang = sub_args
-        .get_one::<String>("lang")
-        .map(|s| s.clone())
+        .get_one::<String>("lang").cloned()
         .unwrap_or_else(|| "rust".to_string());
 
     let namespace = sub_args.get_one::<String>("namespace").cloned();

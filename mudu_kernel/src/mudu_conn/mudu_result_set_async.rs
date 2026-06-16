@@ -3,7 +3,7 @@ use mudu::common::result::RS;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_sys::sync::f_mutex::FMutex;
+use mudu_sys::sync::futures_mutex::FMutex;
 use std::sync::Arc;
 
 use crate::contract::query_exec::QueryExec;

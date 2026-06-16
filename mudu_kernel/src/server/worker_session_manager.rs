@@ -3,7 +3,8 @@ use crate::mudu_conn::mudu_conn_core::MuduConnCore;
 use crate::x_engine::tx_mgr::TxMgr;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::common::xid::new_xid;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_utils::oid::new_xid;
 use mudu::error::ec::EC;
 use mudu::m_error;
 use scc::HashMap as SccHashMap;
@@ -17,6 +18,7 @@ pub(crate) struct WorkerSessionManager {
     session_contexts: SccHashMap<OID, Arc<SessionContext>>,
     active_sessions: Arc<AtomicUsize>,
     meta_mgr: Arc<dyn MetaMgr>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 pub(crate) struct SessionContext {
@@ -25,13 +27,18 @@ pub(crate) struct SessionContext {
 }
 
 impl WorkerSessionManager {
-    pub(crate) fn new(active_sessions: Arc<AtomicUsize>, meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    pub(crate) fn new(
+        active_sessions: Arc<AtomicUsize>,
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> Self {
         Self {
             session_owner: SccHashMap::new(),
             connection_sessions: SccHashMap::new(),
             session_contexts: SccHashMap::new(),
             active_sessions,
             meta_mgr,
+            async_runtime,
         }
     }
 
@@ -41,7 +48,10 @@ impl WorkerSessionManager {
             if self.session_owner.insert_sync(session_id, conn_id).is_err() {
                 continue;
             }
-            let session_context = Arc::new(SessionContext::new(self.meta_mgr.clone()));
+            let session_context = Arc::new(SessionContext::new(
+                self.meta_mgr.clone(),
+                self.async_runtime.clone(),
+            ));
             if self
                 .session_contexts
                 .insert_sync(session_id, session_context)
@@ -226,10 +236,13 @@ impl WorkerSessionManager {
 }
 
 impl SessionContext {
-    fn new(meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    fn new(
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> Self {
         Self {
             tx_manager: SMutex::new(None),
-            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr)),
+            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr, async_runtime)),
         }
     }
 

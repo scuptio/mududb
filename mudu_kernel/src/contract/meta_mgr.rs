@@ -11,9 +11,10 @@ use mudu::common::result::RS;
 
 #[async_trait]
 pub trait MetaMgr: Send + Sync {
+    async fn initialize(&self) -> RS<()>;
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>>;
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>>;
+    async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>>;
 
     async fn create_table(&self, schema: &SchemaTable) -> RS<()>;
 

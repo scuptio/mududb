@@ -3,7 +3,8 @@
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use mudu_sys::time::system_time_now;
+use std::time::UNIX_EPOCH;
 use sys_interface::{async_api, host, sync_api};
 
 fn test_lock() -> &'static Mutex<()> {
@@ -16,11 +17,11 @@ fn lock_tests() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn temp_db_path(name: &str) -> PathBuf {
-    let suffix = SystemTime::now()
+    let suffix = system_time_now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("sys_interface_{name}_{suffix}.db"))
+    mudu_sys::env_var::temp_dir().join(format!("sys_interface_{name}_{suffix}.db"))
 }
 
 #[test]

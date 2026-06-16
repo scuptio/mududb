@@ -39,25 +39,25 @@ pub fn create_vote(
     if end_time <= mududb::sys::time::utc_now().timestamp() {
         return Err(m_error!(
             MuduError,
-            "End time must be in future".to_string()
+            "End time must be in future"
         ));
     }
     if vote_type != "single" && vote_type != "multiple" {
         return Err(m_error!(
             MuduError,
-            "Vote type must be 'single' or 'multiple'".to_string()
+            "Vote type must be 'single' or 'multiple'"
         ));
     }
     if vote_type == "single" && max_choices != 1 {
         return Err(m_error!(
             MuduError,
-            "Single vote requires max_choices=1".to_string()
+            "Single vote requires max_choices=1"
         ));
     }
     if visibility_rule != "always" && visibility_rule != "after_end" {
         return Err(m_error!(
             MuduError,
-            "Visibility rule must be 'always' or 'after_end'".to_string()
+            "Visibility rule must be 'always' or 'after_end'"
         ));
     }
 
@@ -95,10 +95,10 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
         sql_params!(&(vote_id.clone(),)),
     )?
     .next()?
-    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    .ok_or_else(|| m_error!(MuduError, "Vote not found"))?;
 
     if mududb::sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
-        return Err(m_error!(MuduError, "Voting has ended".to_string()));
+        return Err(m_error!(MuduError, "Voting has ended"));
     }
 
     // Check user hasn't voted or has withdrawn previous vote
@@ -114,7 +114,7 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
     if has_active_vote {
         return Err(m_error!(
             MuduError,
-            "User already voted and hasn't withdrawn".to_string()
+            "User already voted and hasn't withdrawn"
         ));
     }
 
@@ -122,11 +122,11 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
     if vote.get_vote_type().as_ref().unwrap() == "single" && option_ids.len() != 1 {
         return Err(m_error!(
             MuduError,
-            "Single vote requires exactly one option".to_string()
+            "Single vote requires exactly one option"
         ));
     }
     if vote.get_vote_type().as_ref().unwrap() == "multiple" && option_ids.len() > 3 {
-        return Err(m_error!(MuduError, "Exceeded max choices".to_string()));
+        return Err(m_error!(MuduError, "Exceeded max choices"));
     }
 
     // Create vote action
@@ -166,12 +166,12 @@ pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
         sql_params!(&(vote_id.clone(),)),
     )?
     .next()?
-    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    .ok_or_else(|| m_error!(MuduError, "Vote not found"))?;
 
     if mududb::sys::time::utc_now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(m_error!(
             MuduError,
-            "Voting has ended, cannot withdraw".to_string()
+            "Voting has ended, cannot withdraw"
         ));
     }
 
@@ -183,7 +183,7 @@ pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
         sql_params!(&(user_id, vote_id)),
     )?
     .next()?
-    .ok_or_else(|| m_error!(MuduError, "No active vote to withdraw".to_string()))?;
+    .ok_or_else(|| m_error!(MuduError, "No active vote to withdraw"))?;
 
     let action_id = active_action.get_action_id().as_ref().unwrap().clone();
     mudu_command(
@@ -207,7 +207,7 @@ pub fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
         sql_params!(&(vote_id.clone(),)),
     )?
     .next()?
-    .ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    .ok_or_else(|| m_error!(MuduError, "Vote not found"))?;
 
     let now = mududb::sys::time::utc_now().timestamp();
     let vote_ended = now > vote.get_end_time().unwrap() as i64;
@@ -216,7 +216,7 @@ pub fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
     if vote.get_visibility_rule().as_ref().unwrap() == "after_end" && !vote_ended {
         return Err(m_error!(
             MuduError,
-            "Results only visible after vote ends".to_string()
+            "Results only visible after vote ends"
         ));
     }
 

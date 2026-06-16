@@ -1,4 +1,5 @@
-use std::net::TcpListener;
+
+use mudu_sys::net::sync::StdTcpListener;
 
 use mudu::common::result::RS;
 
@@ -9,7 +10,7 @@ use crate::server::server_runtime_deps::ServerRuntimeDeps;
 pub struct ServerLaunch {
     cfg: ServerCfg,
     deps: ServerRuntimeDeps,
-    prebound_listener: Option<TcpListener>,
+    prebound_listener: Option<StdTcpListener>,
 }
 
 impl ServerLaunch {
@@ -26,7 +27,7 @@ impl ServerLaunch {
         Ok(Self::new(cfg, deps))
     }
 
-    pub fn with_prebound_listener(mut self, listener: TcpListener) -> Self {
+    pub fn with_prebound_listener(mut self, listener: StdTcpListener) -> Self {
         self.prebound_listener = Some(listener);
         self
     }
@@ -39,7 +40,7 @@ impl ServerLaunch {
         &self.deps
     }
 
-    pub fn take_prebound_listener(&mut self) -> Option<TcpListener> {
+    pub fn take_prebound_listener(&mut self) -> Option<StdTcpListener> {
         self.prebound_listener.take()
     }
 }

@@ -3,7 +3,6 @@ use crate::assemblyscript::procedure::{AsParam, AsProcedure, AsValueType};
 use crate::assemblyscript::render::{render_adapter_source, render_wit};
 use crate::mtp::main_inner;
 use std::env::temp_dir;
-use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tree_sitter::Parser;
@@ -148,7 +147,7 @@ fn transpiles_assemblyscript_and_generates_all_artifacts() {
             .unwrap()
             .as_nanos()
     ));
-    fs::create_dir_all(&tmp_pb).unwrap();
+    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb).unwrap();
 
     let input_path = tmp_pb.join("procedure.ts");
     let output_path = tmp_pb.join("procedure.gen.ts");
@@ -156,7 +155,7 @@ fn transpiles_assemblyscript_and_generates_all_artifacts() {
     let output_wit_path = tmp_pb.join("procedure.gen.wit");
     let output_proc_desc_path = tmp_pb.join("procedure.desc.json");
 
-    fs::write(
+    mudu_sys::fs::sync::sync_write(
         &input_path,
         r#"
 import { Oid, Result, ValueList } from "@mududb/assemblyscript-binding";
@@ -190,10 +189,10 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
     let result = main_inner(args);
     assert!(result.is_ok(), "AssemblyScript code");
 
-    let ts = fs::read_to_string(&output_path).unwrap();
-    let rs = fs::read_to_string(output_rust_path).unwrap();
-    let wit = fs::read_to_string(output_wit_path).unwrap();
-    let desc = fs::read_to_string(&output_proc_desc_path).unwrap();
+    let ts = mudu_sys::fs::sync::sync_read_to_string(&output_path).unwrap();
+    let rs = mudu_sys::fs::sync::sync_read_to_string(output_rust_path).unwrap();
+    let wit = mudu_sys::fs::sync::sync_read_to_string(output_wit_path).unwrap();
+    let desc = mudu_sys::fs::sync::sync_read_to_string(&output_proc_desc_path).unwrap();
 
     assert_typescript_syntax(&ts);
     syn::parse_file(&rs).expect("generated Rust wrapper syntax should be valid");

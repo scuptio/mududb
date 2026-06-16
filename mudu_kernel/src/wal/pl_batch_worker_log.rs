@@ -76,10 +76,7 @@ pub fn decode_pl_batches_with_pending(
     Ok(out)
 }
 
-pub async fn append_pl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &PLBatch) -> RS<LSN> {
-    let frames = backend.serialize_entry(batch)?;
-    backend.append_frames_async(frames).await
-}
+
 
 #[cfg(test)]
 mod tests {

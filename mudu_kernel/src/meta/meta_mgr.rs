@@ -1,16 +1,18 @@
+use mudu_sys::sync::SMutex;
+use mudu_sys::time::system_time_now;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, OnceLock, Weak};
+use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::sync::async_::AMutex;
 use tracing::trace;
 
 use crate::contract::meta_mgr::MetaMgr;
@@ -39,14 +41,14 @@ use crate::storage::relation::relation::Relation;
 type MetaMgrRegistry = HashMap<String, Vec<Weak<MetaMgrImpl>>>;
 type DdlLockRegistry = HashMap<String, Weak<AMutex<()>>>;
 
-fn registry() -> &'static StdMutex<MetaMgrRegistry> {
-    static REGISTRY: OnceLock<StdMutex<MetaMgrRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| StdMutex::new(HashMap::new()))
+fn registry() -> &'static SMutex<MetaMgrRegistry> {
+    static REGISTRY: OnceLock<SMutex<MetaMgrRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| SMutex::new(HashMap::new()))
 }
 
-fn ddl_lock_registry() -> &'static StdMutex<DdlLockRegistry> {
-    static DDL_LOCKS: OnceLock<StdMutex<DdlLockRegistry>> = OnceLock::new();
-    DDL_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()))
+fn ddl_lock_registry() -> &'static SMutex<DdlLockRegistry> {
+    static DDL_LOCKS: OnceLock<SMutex<DdlLockRegistry>> = OnceLock::new();
+    DDL_LOCKS.get_or_init(|| SMutex::new(HashMap::new()))
 }
 
 fn ddl_lock_for(path: &str) -> Arc<AMutex<()>> {
@@ -59,14 +61,19 @@ fn ddl_lock_for(path: &str) -> Arc<AMutex<()>> {
     created
 }
 
+#[derive(Clone)]
+struct CatalogRelation {
+    schema_catalog: Arc<Relation>,
+    partition_rule_catalog: Arc<Relation>,
+    partition_binding_catalog: Arc<Relation>,
+    partition_placement_catalog: Arc<Relation>,
+}
 pub struct MetaMgrImpl {
     path: String,
     ddl_lock: Arc<AMutex<()>>,
-    schema_catalog: Relation,
-    partition_rule_catalog: Relation,
-    partition_binding_catalog: Relation,
-    partition_placement_catalog: Relation,
+    catalog: SMutex<Option<CatalogRelation>>,
     next_catalog_xid: AtomicU64,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     id2table: scc::HashMap<OID, TableInfo>,
     name2id: scc::HashMap<String, OID>,
     table: scc::HashMap<String, TableInfo>,
@@ -77,26 +84,69 @@ pub struct MetaMgrImpl {
 }
 
 impl MetaMgrImpl {
-    pub async fn new<P: AsRef<Path>>(path: P) -> RS<Self> {
-        let path = PathBuf::from(path.as_ref());
-        if fs::metadata(&path).is_err() {
-            fs::create_dir_all(&path).map_err(|e| m_error!(ER::IOErr, "", e))?;
+    fn catalog_relation(&self) -> RS<CatalogRelation> {
+        self.catalog
+            .lock()?
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| m_error!(ER::InternalErr, "meta manager is not initialized"))
+    }
+
+    pub async fn initialize_inner(&self) -> RS<()> {
+        let path = PathBuf::from(&self.path);
+        if !mudu_sys::fs::sync::path_exists(&path) {
+            mudu_sys::fs::sync::create_dir_all(&path).map_err(|e| m_error!(ER::IOErr, "", e))?;
         }
 
+        let schema_catalog = open_schema_catalog(&self.path, self.async_runtime.clone()).await?;
+        let partition_rule_catalog =
+            open_partition_rule_catalog(&self.path, self.async_runtime.clone()).await?;
+        let partition_binding_catalog =
+            open_partition_binding_catalog(&self.path, self.async_runtime.clone()).await?;
+        let partition_placement_catalog =
+            open_partition_placement_catalog(&self.path, self.async_runtime.clone()).await?;
+        for schema in load_schemas_from_catalog(&schema_catalog).await? {
+            self.apply_create_table_local(&schema)?;
+        }
+        for rule in load_partition_rules_from_catalog(&partition_rule_catalog).await? {
+            self.apply_create_partition_rule_local(&rule);
+        }
+        for binding in load_partition_bindings_from_catalog(&partition_binding_catalog).await? {
+            self.apply_bind_table_partition_local(&binding);
+        }
+        for placement in
+            load_partition_placements_from_catalog(&partition_placement_catalog).await?
+        {
+            self.apply_partition_placement_local(&placement);
+        }
+        let catalog = CatalogRelation {
+            schema_catalog: Arc::new(schema_catalog),
+            partition_rule_catalog: Arc::new(partition_rule_catalog),
+            partition_placement_catalog: Arc::new(partition_placement_catalog),
+            partition_binding_catalog: Arc::new(partition_binding_catalog),
+        };
+        let mut guard = self.catalog.lock()?;
+        *guard = Some(catalog);
+        Ok(())
+    }
+
+    pub async fn new<P: AsRef<Path>>(path: P) -> RS<Self> {
+        Self::new_with_async_runtime(path, None).await
+    }
+
+    pub async fn new_with_async_runtime<P: AsRef<Path>>(
+        path: P,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> RS<Self> {
+        let path = PathBuf::from(path.as_ref());
         let path_string = path.to_string_lossy().to_string();
         let ddl_lock = ddl_lock_for(&path_string);
-        let schema_catalog = open_schema_catalog(&path_string).await?;
-        let partition_rule_catalog = open_partition_rule_catalog(&path_string).await?;
-        let partition_binding_catalog = open_partition_binding_catalog(&path_string).await?;
-        let partition_placement_catalog = open_partition_placement_catalog(&path_string).await?;
         let this = Self {
-            path: path_string,
+            path: path.to_string_lossy().to_string(),
             ddl_lock,
-            schema_catalog,
-            partition_rule_catalog,
-            partition_binding_catalog,
-            partition_placement_catalog,
+            catalog: SMutex::new(None),
             next_catalog_xid: AtomicU64::new(now_catalog_xid()),
+            async_runtime,
             id2table: Default::default(),
             name2id: Default::default(),
             table: Default::default(),
@@ -105,19 +155,7 @@ impl MetaMgrImpl {
             binding_by_table_id: Default::default(),
             placement_by_partition_id: Default::default(),
         };
-        for schema in load_schemas_from_catalog(&this.schema_catalog).await? {
-            this.apply_create_table_local(&schema)?;
-        }
-        for rule in load_partition_rules_from_catalog(&this.partition_rule_catalog).await? {
-            this.apply_create_partition_rule_local(&rule);
-        }
-        for binding in load_partition_bindings_from_catalog(&this.partition_binding_catalog).await? {
-            this.apply_bind_table_partition_local(&binding);
-        }
-        for placement in load_partition_placements_from_catalog(&this.partition_placement_catalog).await?
-        {
-            this.apply_partition_placement_local(&placement);
-        }
+        // this.initialize_inner().await?;
         Ok(this)
     }
 
@@ -134,7 +172,7 @@ impl MetaMgrImpl {
         opt.map(|entry| entry.get().clone())
     }
 
-    pub fn lookup_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+    pub fn lookup_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
         let opt = self.table.get_sync(name);
         let table_desc = match opt {
             None => return Ok(None),
@@ -203,7 +241,8 @@ impl MetaMgrImpl {
         }
 
         trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr writing schema to catalog");
-        write_schema_to_catalog(&self.schema_catalog, schema, self.next_catalog_xid()).await?;
+        let schema_catalog = self.catalog_relation()?.schema_catalog;
+        write_schema_to_catalog(&schema_catalog, schema, self.next_catalog_xid()).await?;
         trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr wrote schema to catalog");
         let r = self.broadcast_create(schema);
         trace!(table = %schema.table_name(), oid = schema.id(), "meta_mgr broadcast create done");
@@ -215,8 +254,9 @@ impl MetaMgrImpl {
         let table = self
             .lookup_table_info_by_id(oid)
             .ok_or_else(|| m_error!(ER::NoSuchElement, format!("no such table {}", oid)))?;
+        let schema_catalog = self.catalog_relation()?.schema_catalog;
 
-        delete_schema_from_catalog(&self.schema_catalog, oid, self.next_catalog_xid()).await?;
+        delete_schema_from_catalog(&schema_catalog, oid, self.next_catalog_xid()).await?;
         self.broadcast_drop(table.schema().table_name(), oid)
     }
 
@@ -228,12 +268,10 @@ impl MetaMgrImpl {
                 format!("partition rule {} already exists", rule.name)
             ));
         }
-        write_partition_rule_to_catalog(
-            &self.partition_rule_catalog,
-            rule,
-            self.next_catalog_xid(),
-        )
-        .await?;
+        let partition_rule_catalog = self.catalog_relation()?.partition_rule_catalog;
+
+        write_partition_rule_to_catalog(&partition_rule_catalog, rule, self.next_catalog_xid())
+            .await?;
         self.broadcast_create_partition_rule(rule)
     }
 
@@ -251,8 +289,10 @@ impl MetaMgrImpl {
                 format!("no such partition rule {}", binding.rule_id)
             ));
         }
+        let partition_binding_catalog = self.catalog_relation()?.partition_binding_catalog;
+
         write_partition_binding_to_catalog(
-            &self.partition_binding_catalog,
+            &partition_binding_catalog,
             binding,
             self.next_catalog_xid(),
         )
@@ -265,9 +305,11 @@ impl MetaMgrImpl {
         placements: &[PartitionPlacement],
     ) -> RS<()> {
         let _ddl_guard = self.ddl_lock.lock().await;
+        let partition_placement_catalog = self.catalog_relation()?.partition_placement_catalog;
+
         for placement in placements {
             write_partition_placement_to_catalog(
-                &self.partition_placement_catalog,
+                &partition_placement_catalog,
                 placement,
                 self.next_catalog_xid(),
             )
@@ -404,7 +446,7 @@ impl MetaMgrImpl {
 }
 
 fn now_catalog_xid() -> u64 {
-    SystemTime::now()
+    system_time_now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()
@@ -413,6 +455,10 @@ fn now_catalog_xid() -> u64 {
 
 #[async_trait]
 impl MetaMgr for MetaMgrImpl {
+    async fn initialize(&self) -> RS<()> {
+        self.initialize_inner().await
+    }
+
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         let opt = self.lookup_table_info_by_id(oid);
         match opt {
@@ -424,7 +470,7 @@ impl MetaMgr for MetaMgrImpl {
         }
     }
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+    async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
         self.lookup_table_by_name(name)
     }
 
@@ -503,7 +549,7 @@ mod tests {
         F: Future + 'static,
         F::Output: 'static,
     {
-        mudu_sys::task_async::block_on_tokio_current_thread(fut).unwrap()
+        mudu_sys::task::async_::block_on_tokio_current_thread(fut).unwrap()
     }
 
     fn test_schema() -> SchemaTable {
@@ -527,31 +573,28 @@ mod tests {
     }
 
     #[test]
-    fn meta_mgr_recovers_schema_catalog_after_reopen()  {
+    fn meta_mgr_recovers_schema_catalog_after_reopen() {
         block_on(async move {
             let r = _meta_mgr_recovers_schema_catalog_after_reopen().await;
             assert!(r.is_ok());
         });
     }
     async fn _meta_mgr_recovers_schema_catalog_after_reopen() -> RS<()> {
-        let dir = temp_dir().join(format!("meta_mgr_catalog_{}", mudu::common::id::gen_oid()));
+        let dir = temp_dir().join(format!("meta_mgr_catalog_{}", mudu_utils::oid::gen_oid()));
         let initial_dir = dir.clone();
-        let mgr =
-            Arc::new(MetaMgrImpl::new(initial_dir).await?);
+        let mgr = Arc::new(MetaMgrImpl::new(initial_dir).await?);
         mgr.register_global();
+        mgr.initialize().await?;
         let _mgr = mgr.clone();
         let schema = test_schema();
         let _schema = schema.clone();
         _mgr.create_table(&_schema).await?;
-        assert_eq!(
-            load_schemas_from_catalog(&mgr.schema_catalog).await
-                ?
-                .len(),
-            1
-        );
+        let schema_catalog = mgr.catalog_relation()?.schema_catalog;
+        assert_eq!(load_schemas_from_catalog(&schema_catalog).await?.len(), 1);
         drop(mgr);
 
         let reopened = MetaMgrImpl::new(dir).await?;
+        reopened.initialize().await?;
         let schema_id = schema.id();
         let table = reopened.get_table_by_id(schema_id).await?;
         assert_eq!(table.name(), schema.table_name());
@@ -566,11 +609,13 @@ mod tests {
         });
     }
     async fn _meta_mgr_broadcasts_ddl_to_peer_instances() -> RS<()> {
-        let dir = temp_dir().join(format!("meta_mgr_peer_{}", mudu::common::id::gen_oid()));
+        let dir = temp_dir().join(format!("meta_mgr_peer_{}", mudu_utils::oid::gen_oid()));
         let mgr1 = Arc::new(MetaMgrImpl::new(&dir).await?);
         mgr1.register_global();
+        mgr1.initialize().await?;
         let mgr2 = Arc::new(MetaMgrImpl::new(&dir).await?);
         mgr2.register_global();
+        mgr2.initialize().await?;
 
         let schema = test_schema();
         mgr1.create_table(&schema).await?;

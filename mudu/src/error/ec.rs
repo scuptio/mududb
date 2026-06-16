@@ -61,7 +61,7 @@ impl EC {
         if (ec != 0 && ec <= ERROR_CODE_START_AT) || ec >= ERROR_CODE_END_AT {
             return None;
         }
-        EC::try_from_primitive(ec).map_or_else(|_| None, |ec| Some(ec))
+        EC::try_from_primitive(ec).ok()
     }
 
     pub fn message(&self) -> &'static str {

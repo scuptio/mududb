@@ -12,14 +12,14 @@ pub fn command_param_serialize(oid: OID, stmt: &dyn SQLStmt, param: &dyn SQLPara
     handle_sys_incoming::command_incoming_serialize(oid, stmt, param)
 }
 
-pub fn command_param_deserialize(param: &[u8]) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+pub fn command_param_deserialize(param: &[u8]) -> RS<crate::codec::SqlParamPair> {
     handle_sys_incoming::command_incoming_deserialize(param)
 }
 
 pub fn command_result_serialize(result: RS<u64>) -> Vec<u8> {
     let mu_r = UniResult::from(result).map_err(error_to_mu);
-    let mu_r_bin = serialize_to_vec(&mu_r).unwrap_or_default();
-    mu_r_bin
+    
+    serialize_to_vec(&mu_r).unwrap_or_default()
 }
 
 pub fn command_result_deserialize(result: &[u8]) -> RS<u64> {

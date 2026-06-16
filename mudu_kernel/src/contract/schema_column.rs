@@ -1,6 +1,7 @@
 #[cfg(any(test, feature = "test"))]
 use arbitrary::{Arbitrary, Unstructured};
-use mudu::common::id::{gen_oid, AttrIndex, OID};
+use mudu::common::id::{AttrIndex, OID};
+use mudu_utils::oid::gen_oid;
 use mudu_type::dat_type_id::DatTypeID as TypeID;
 use mudu_type::dt_info::DTInfo;
 use serde::{Deserialize, Serialize};

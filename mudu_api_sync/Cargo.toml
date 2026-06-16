@@ -10,3 +10,6 @@ path = "src/lib.rs"
 
 [build-dependencies]
 toml = { workspace = true }
+
+[lints]
+workspace = true

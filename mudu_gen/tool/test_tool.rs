@@ -16,7 +16,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let args = vec![
             "mgen".to_string(),
             "entity".to_string(),
@@ -52,7 +52,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let wit_folder = PathBuf::from(&td_folder)
             .join("wit")
             .to_str()
@@ -85,7 +85,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let wit_folder = PathBuf::from(&td_folder)
             .join("wit")
             .to_str()
@@ -137,7 +137,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let output = PathBuf::from(&tmp_folder)
             .join("Contract.cs")
             .to_str()
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_csharp_message_generation_maps_blob_to_byte_array() {
-        let tmp_folder = std::env::temp_dir().to_str().unwrap().to_string();
+        let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let wit_file = PathBuf::from(&tmp_folder).join("blob-test.wit");
         let output = PathBuf::from(&tmp_folder).join("BlobTest.cs");
         fs::write(

@@ -6,6 +6,9 @@ edition = "2024"
 [features]
 debug_trace = ["mudu_runtime/debug_trace", "mudu_utils/debug_trace"]
 
+[lints]
+workspace = true
+
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 mudu_runtime = { workspace = true }

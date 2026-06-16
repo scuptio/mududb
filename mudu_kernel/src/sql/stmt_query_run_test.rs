@@ -8,7 +8,7 @@ mod tests {
     use crate::sql::stmt_query_run::run_query_stmt;
     use async_trait::async_trait;
     use futures::StreamExt;
-    use mudu::common::id::gen_oid;
+    use mudu_utils::oid::gen_oid;
     use mudu::common::result::RS;
     use mudu::common::id::OID;
     use mudu::error::ec::EC;
@@ -112,8 +112,9 @@ use mudu_sys::sync::SMutex;
         )])
     }
 
-    #[tokio::test]
-    async fn run_query_stmt_returns_stream_on_success() {
+    #[test]
+    fn run_query_stmt_returns_stream_on_success() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let ctx = TestSsnCtx::default();
         let stmt = TestStmtQuery {
             fail_realize: false,
@@ -129,10 +130,12 @@ use mudu_sys::sync::SMutex;
         assert!(stream.next().await.is_none());
         assert!(ctx.current_tx().is_some());
         assert!(!ctx.ended());
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn run_query_stmt_ends_tx_on_row_shape_error() {
+    #[test]
+    fn run_query_stmt_ends_tx_on_row_shape_error() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let ctx = TestSsnCtx::default();
         let stmt = TestStmtQuery {
             fail_realize: false,
@@ -151,5 +154,6 @@ use mudu_sys::sync::SMutex;
             .to_string()
             .contains("fatal error: non consistent column number"));
         assert!(ctx.ended());
+        }).unwrap()
     }
 }

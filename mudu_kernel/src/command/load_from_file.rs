@@ -1,6 +1,5 @@
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
-use mudu_sys::io::file as async_file;
 use crate::x_engine::api::{OptInsert, VecDatum, XContract};
 use crate::x_engine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -9,15 +8,29 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ec::EC as ER;
 use mudu::m_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::contract::file_options::FileOptions;
+use mudu_sys::sync::async_::AMutex;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_utils::scoped_task_trace;
-use mudu_sys::sync::a_mutex::AMutex;
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
 pub struct LoadFromFile {
     inner: Arc<AMutex<_LoadFromFile>>,
+}
+
+pub struct LoadFromFileParams {
+    pub csv_file: String,
+    pub tx_mgr: Arc<dyn TxMgr>,
+    pub table_id: OID,
+    pub key_index: Vec<usize>,
+    pub value_index: Vec<usize>,
+    pub x_contract: Arc<dyn XContract>,
+    pub meta_mgr: Arc<dyn MetaMgr>,
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 struct _LoadFromFile {
@@ -28,51 +41,29 @@ struct _LoadFromFile {
     value_index: Vec<usize>,
     x_contract: Arc<dyn XContract>,
     meta_mgr: Arc<dyn MetaMgr>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     affected_rows: u64,
 }
 
 impl LoadFromFile {
-    pub fn new(
-        csv_file: String,
-        tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        key_index: Vec<usize>,
-        value_index: Vec<usize>,
-        x_contract: Arc<dyn XContract>,
-        meta_mgr: Arc<dyn MetaMgr>,
-    ) -> Self {
+    pub fn new(params: LoadFromFileParams) -> Self {
         Self {
-            inner: Arc::new(AMutex::new(_LoadFromFile::new(
-                csv_file,
-                tx_mgr,
-                table_id,
-                key_index,
-                value_index,
-                x_contract,
-                meta_mgr,
-            ))),
+            inner: Arc::new(AMutex::new(_LoadFromFile::new(params))),
         }
     }
 }
 
 impl _LoadFromFile {
-    fn new(
-        csv_file: String,
-        tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        key_index: Vec<usize>,
-        value_index: Vec<usize>,
-        x_contract: Arc<dyn XContract>,
-        meta_mgr: Arc<dyn MetaMgr>,
-    ) -> Self {
+    fn new(params: LoadFromFileParams) -> Self {
         Self {
-            csv_file,
-            tx_mgr,
-            table_id,
-            key_index,
-            value_index,
-            x_contract,
-            meta_mgr,
+            csv_file: params.csv_file,
+            tx_mgr: params.tx_mgr,
+            table_id: params.table_id,
+            key_index: params.key_index,
+            value_index: params.value_index,
+            x_contract: params.x_contract,
+            meta_mgr: params.meta_mgr,
+            async_runtime: params.async_runtime,
             affected_rows: 0,
         }
     }
@@ -103,7 +94,11 @@ impl _LoadFromFile {
         );
         let table_desc = self.meta_mgr.get_table_by_id(self.table_id).await?;
         let csv_path = normalized_copy_path(&self.csv_file);
-        let payload = read_csv_payload(&csv_path).await?;
+        let async_runtime = self
+            .async_runtime
+            .as_ref()
+            .ok_or_else(|| m_error!(ER::IOErr, "load failed, no async runtime available"))?;
+        let payload = read_csv_payload(async_runtime, &csv_path).await?;
 
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
@@ -235,12 +230,13 @@ impl _LoadFromFile {
     }
 }
 
-async fn read_csv_payload(path: &str) -> RS<Vec<u8>> {
-    // Even on the io_uring backend, worker threads run inside a Tokio runtime.
-    // Routing COPY FROM through `mudu_sys::tokio::fs` here would silently bypass the
-    // worker-ring/io_uring file path and reintroduce the hang we fixed.
-    // Always use the kernel async file abstraction instead.
-    let file = async_file::open(path, libc::O_RDONLY | async_file::cloexec_flag(), 0)
+async fn read_csv_payload(async_runtime: &Arc<dyn AsyncIoProvider>, path: &str) -> RS<Vec<u8>> {
+    let fs = async_runtime.fs_arc();
+    let file = fs
+        .open(
+            Path::new(path),
+            FileOptions::new(libc::O_RDONLY | libc::O_CLOEXEC, 0),
+        )
         .await
         .map_err(|e| {
             m_error!(
@@ -250,19 +246,19 @@ async fn read_csv_payload(path: &str) -> RS<Vec<u8>> {
         })?;
     // Query the length from the opened fd so COPY FROM does not depend on a
     // second path-based metadata lookup after open succeeds.
-    let len = async_file::metadata_len_by_file(&file).map_err(|e| {
+    let len = file.file_len().await.map_err(|e| {
         m_error!(
             ER::IOErr,
             format!("load failed, stat csv file {} error, {}", path, e)
         )
     })? as usize;
-    let result = async_file::read(&file, len, 0).await.map_err(|e| {
+    let result = file.read_exact_at(0, len).await.map_err(|e| {
         m_error!(
             ER::IOErr,
             format!("load failed, read csv file {} error, {}", path, e)
         )
     });
-    let close_result = async_file::close(file).await;
+    let close_result = file.close().await;
     let payload = result?;
     close_result.map_err(|e| {
         m_error!(

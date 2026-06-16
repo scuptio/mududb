@@ -35,13 +35,13 @@ use mudu_binding::universal::uni_oid::UniOid;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_sys::net::sync::StdTcpListener;
 use mudu_utils::notifier::Waiter;
 use mudu_utils::scoped_task_trace;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::net::TcpListener;
 use std::sync::Arc;
 use tracing::error;
 
@@ -198,14 +198,19 @@ pub async fn serve_http_api(
     cfg: &MuduDBCfg,
     capabilities: HttpApiCapabilities,
 ) -> std::io::Result<()> {
-    let listener = TcpListener::bind(format!("{}:{}", cfg.listen_ip, cfg.http_listen_port))?;
+    let listener = StdTcpListener::bind(
+        format!("{}:{}", cfg.listen_ip, cfg.http_listen_port)
+            .parse()
+            .unwrap(),
+    )
+    .map_err(std::io::Error::other)?;
     serve_http_api_on_listener_with_stop(api, listener, capabilities, cfg.http_worker_threads, None)
         .await
 }
 
 pub async fn serve_http_api_on_listener(
     api: Arc<dyn HttpApi>,
-    listener: TcpListener,
+    listener: StdTcpListener,
     capabilities: HttpApiCapabilities,
     worker_threads: usize,
 ) -> std::io::Result<()> {
@@ -214,7 +219,7 @@ pub async fn serve_http_api_on_listener(
 
 pub async fn serve_http_api_on_listener_with_stop(
     api: Arc<dyn HttpApi>,
-    listener: TcpListener,
+    listener: StdTcpListener,
     capabilities: HttpApiCapabilities,
     worker_threads: usize,
     stop: Option<Waiter>,
@@ -244,16 +249,17 @@ pub async fn serve_http_api_on_listener_with_stop(
             .configure(|cfg| configure_routes(cfg, capabilities))
     })
     .workers(worker_threads)
-    .listen(listener)?
+    .listen(listener.into_inner())?
     .run();
 
     if let Some(stop) = stop {
         let handle = server.handle();
-        mudu_sys::task_async::spawn_tokio(async move {
-            scoped_task_trace!();
-            stop.wait().await;
-            handle.stop(true).await;
-        });
+        let _ =
+            mudu_sys::task::async_::spawn_task_detached("http-server-stop-handler", async move {
+                scoped_task_trace!();
+                stop.wait().await;
+                handle.stop(true).await;
+            });
     }
 
     server.await
@@ -498,7 +504,7 @@ async fn runtime_get_app_and_desc(
         .app(app_name.to_string())
         .await
         .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app {}", app_name)))?;
-    let desc = app.describe(&mod_name.to_string(), &proc_name.to_string())?;
+    let desc = app.describe(mod_name, proc_name)?;
     Ok((app, desc))
 }
 
@@ -517,13 +523,7 @@ async fn legacy_invoke_sync_proc(
 
     let param = to_param(&argv, desc.param_desc().fields())?;
     let result = app
-        .invoke(
-            task_id,
-            &mod_name.to_string(),
-            &proc_name.to_string(),
-            param,
-            None,
-        )
+        .invoke(task_id, mod_name, proc_name, param, None)
         .await?;
     Ok(procedure_invoke::result_to_json(result))
 }
@@ -541,13 +541,7 @@ async fn legacy_invoke_async_proc(
     });
     let param = to_param(&argv, desc.param_desc().fields())?;
     let result = app
-        .invoke_async(
-            task_id,
-            &mod_name.to_string(),
-            &proc_name.to_string(),
-            param,
-            None,
-        )
+        .invoke_async(task_id, mod_name, proc_name, param, None)
         .await?;
     procedure_invoke::result_to_json(result)
 }
@@ -570,7 +564,6 @@ mod test {
     use super::*;
     use actix_web::{App, test};
     use mudu::common::app_info::AppInfo;
-    use mudu::common::id::gen_oid;
     use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
     use mudu_contract::procedure::procedure_result::ProcedureResult;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
@@ -580,8 +573,9 @@ mod test {
     use mudu_kernel::contract::partition_rule_binding::PartitionPlacement;
     use mudu_kernel::meta::meta_mgr_factory::MetaMgrFactory;
     use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
-    use mudu_type::dat_type_id::DatTypeID;
     use mudu_sys::sync::SMutex;
+    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_utils::oid::gen_oid;
 
     struct MockHttpApi;
 
@@ -750,8 +744,7 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_invokes_over_bridge() {
-        let log_dir =
-            std::env::temp_dir().join(format!("http_api_test_{}", mudu::common::id::gen_oid()));
+        let log_dir = std::env::temp_dir().join(format!("http_api_test_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
@@ -791,10 +784,7 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_routes_point_and_range_by_rule_name() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_route_test_{}",
-            mudu::common::id::gen_oid()
-        ));
+        let log_dir = std::env::temp_dir().join(format!("http_api_route_test_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
@@ -802,6 +792,7 @@ mod test {
         let meta_mgr = MetaMgrFactory::create(meta_dir.to_string_lossy().to_string())
             .await
             .unwrap();
+        meta_mgr.initialize().await.unwrap();
 
         let rule = PartitionRuleDesc::new_range(
             "global_rule".to_string(),
@@ -882,10 +873,7 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_lists_metadata_and_topology() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_meta_list_{}",
-            mudu::common::id::gen_oid()
-        ));
+        let log_dir = std::env::temp_dir().join(format!("http_api_meta_list_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 3)
                 .unwrap();
@@ -930,10 +918,7 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_surfaces_close_session_failure() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_close_err_{}",
-            mudu::common::id::gen_oid()
-        ));
+        let log_dir = std::env::temp_dir().join(format!("http_api_close_err_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 2)
                 .unwrap();
@@ -967,10 +952,7 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_rejects_mixed_route_request_shapes() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_route_shape_{}",
-            mudu::common::id::gen_oid()
-        ));
+        let log_dir = std::env::temp_dir().join(format!("http_api_route_shape_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 2)
                 .unwrap();
@@ -982,6 +964,7 @@ mod test {
         )
         .await
         .unwrap();
+        meta_mgr.initialize().await.unwrap();
         let rule = PartitionRuleDesc::new_range(
             "shape_rule".to_string(),
             vec![DatTypeID::I32],

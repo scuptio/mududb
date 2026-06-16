@@ -6,7 +6,8 @@ use futures::TryFutureExt;
 use lazy_static::lazy_static;
 use libsql::{Builder, Connection, Database, Statement, Transaction, params_from_iter};
 use mudu::common::result::RS;
-use mudu::common::xid::{OID, new_xid};
+use mudu::common::xid::OID;
+use mudu_utils::oid::new_xid;
 use mudu::error::ec::EC;
 use mudu::error::err::MError;
 use mudu::m_error;
@@ -22,13 +23,14 @@ use mudu_type::datum::{Datum, DatumDyn};
 use scc::HashMap as SCCHashMap;
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
+use mudu_sys::sync::SMutex;
 
 pub struct LibSQLAsyncConnInner {
     conn: Connection,
     trans: Option<Transaction>,
     xid: OID,
-    cached_prepared: Arc<StdMutex<HashMap<String, Prepared>>>,
+    cached_prepared: Arc<SMutex<HashMap<String, Prepared>>>,
 }
 
 lazy_static! {
@@ -61,7 +63,7 @@ impl LibSQLAsyncConnInner {
             conn: connection,
             trans: None,
             xid: 0,
-            cached_prepared: Arc::new(StdMutex::new(HashMap::new())),
+            cached_prepared: Arc::new(SMutex::new(HashMap::new())),
         })
     }
 
@@ -97,7 +99,7 @@ pub struct Prepared {
 }
 
 pub struct PreparedStmtImpl {
-    prepared: Arc<StdMutex<Option<Prepared>>>,
+    prepared: Arc<SMutex<Option<Prepared>>>,
 }
 
 #[async_trait]
@@ -248,12 +250,12 @@ fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
 fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
     let id = ty.dat_type_id();
     let v = match id {
-        DatTypeID::I32 => libsql::Value::Integer(datum.expect_i32().clone() as _),
-        DatTypeID::I64 => libsql::Value::Integer(datum.expect_i64().clone() as _),
+        DatTypeID::I32 => libsql::Value::Integer(*datum.expect_i32() as _),
+        DatTypeID::I64 => libsql::Value::Integer(*datum.expect_i64() as _),
         DatTypeID::U128 => libsql::Value::Text(datum.expect_u128().to_string()),
         DatTypeID::I128 => libsql::Value::Text(datum.expect_i128().to_string()),
-        DatTypeID::F32 => libsql::Value::Real(datum.expect_f32().clone() as _),
-        DatTypeID::F64 => libsql::Value::Real(datum.expect_f64().clone() as _),
+        DatTypeID::F32 => libsql::Value::Real(*datum.expect_f32() as _),
+        DatTypeID::F64 => libsql::Value::Real(*datum.expect_f64() as _),
         DatTypeID::String => libsql::Value::Text(datum.expect_string().clone()),
         DatTypeID::Numeric => libsql::Value::Text(datum.expect_numeric().to_plain_string()),
         DatTypeID::Date => libsql::Value::Text(datum.expect_date().format()),
@@ -316,7 +318,7 @@ impl LibSQLAsyncConnInner {
         let sql_str = sql_stmt.to_string();
         let (_, prepared) = self.prepared(sql_str, true).await?;
         Ok(Arc::new(PreparedStmtImpl {
-            prepared: Arc::new(StdMutex::new(Some(prepared))),
+            prepared: Arc::new(SMutex::new(Some(prepared))),
         }))
     }
 
@@ -373,7 +375,7 @@ impl LibSQLAsyncConnInner {
 
 struct CachedPreparedLease {
     sql: String,
-    cache: Arc<StdMutex<HashMap<String, Prepared>>>,
+    cache: Arc<SMutex<HashMap<String, Prepared>>>,
     prepared: Option<Prepared>,
 }
 
@@ -388,7 +390,7 @@ impl ResultSetLease for CachedPreparedLease {
 }
 
 struct PreparedSlotLease {
-    slot: Arc<StdMutex<Option<Prepared>>>,
+    slot: Arc<SMutex<Option<Prepared>>>,
     prepared: Option<Prepared>,
 }
 
@@ -420,8 +422,9 @@ mod tests {
             .to_string()
     }
 
-    #[tokio::test]
-    async fn reset_statement_before_consuming_rows_turns_values_null() {
+    #[test]
+    fn reset_statement_before_consuming_rows_turns_values_null() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let db_path = temp_db_path("reset-before-read");
         let db = Builder::new_local(&db_path).build().await.unwrap();
         let conn = db.connect().unwrap();
@@ -448,11 +451,13 @@ mod tests {
 
         let row = rows.next().await.unwrap().unwrap();
         assert!(matches!(row.get_value(0).unwrap(), Value::Null));
-        let _ = std::fs::remove_file(db_path);
+        let _ = mudu_sys::fs::sync::remove_file(db_path);
+        }).unwrap()
     }
 
-    #[tokio::test]
-    async fn consuming_rows_before_reset_keeps_values() {
+    #[test]
+    fn consuming_rows_before_reset_keeps_values() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let db_path = temp_db_path("read-before-reset");
         let db = Builder::new_local(&db_path).build().await.unwrap();
         let conn = db.connect().unwrap();
@@ -479,6 +484,7 @@ mod tests {
         let row = rows.next().await.unwrap().unwrap();
         assert!(matches!(row.get_value(0).unwrap(), Value::Integer(1)));
         stmt.reset();
-        let _ = std::fs::remove_file(db_path);
+        let _ = mudu_sys::fs::sync::remove_file(db_path);
+        }).unwrap()
     }
 }

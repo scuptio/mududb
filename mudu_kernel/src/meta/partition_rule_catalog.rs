@@ -1,6 +1,8 @@
 use std::ops::Bound;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::time::system_time_now;
 
 use mudu::common::endian;
 use mudu::common::id::OID;
@@ -49,15 +51,32 @@ pub fn partition_rule_catalog_desc() -> RS<Arc<TableDesc>> {
     TableInfo::new(partition_rule_catalog_schema())?.table_desc()
 }
 
-pub async fn open_partition_rule_catalog(path: &str) -> RS<Relation> {
+pub async fn open_partition_rule_catalog(
+    path: &str,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+) -> RS<Relation> {
     let desc = partition_rule_catalog_desc()?;
-    Relation::new(
-        PARTITION_RULE_CATALOG_TABLE_ID,
-        PARTITION_RULE_CATALOG_PARTITION_ID,
-        path.to_string(),
-        desc.as_ref(),
-    )
-    .await
+    match async_runtime {
+        Some(provider) => {
+            Relation::new_with_provider(
+                provider,
+                PARTITION_RULE_CATALOG_TABLE_ID,
+                PARTITION_RULE_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+        None => {
+            Relation::new(
+                PARTITION_RULE_CATALOG_TABLE_ID,
+                PARTITION_RULE_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+    }
 }
 
 pub fn encode_partition_rule_catalog_key(oid: OID) -> RS<Vec<u8>> {
@@ -124,7 +143,7 @@ pub async fn write_partition_rule_to_catalog(
 }
 
 fn visible_snapshot_xid() -> u64 {
-    let base = SystemTime::now()
+    let base = system_time_now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()

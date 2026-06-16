@@ -15,6 +15,7 @@ use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use serde_json::{Value, json};
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::thread::{self, JoinHandle};
@@ -413,7 +414,7 @@ impl TestContext {
             return Ok(None);
         };
         let base_dir =
-            std::env::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
+            mudu_sys::env_var::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
         let mpk_dir = base_dir.join("mpk");
         let data_dir = base_dir.join("data");
         fs::create_dir_all(&mpk_dir).map_err(|e| {
@@ -569,7 +570,7 @@ impl TestContext {
         app_name: &str,
         sql: &str,
     ) -> RS<mudu_contract::protocol::ServerResponse> {
-        let mut client = SyncClient::connect(("127.0.0.1", self.client_port()))?;
+        let mut client = SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], self.client_port())))?;
         client.query(app_name.to_string(), sql.to_string())
     }
 
@@ -667,7 +668,7 @@ fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
     // Wallet end-to-end tests exercise the service immediately after startup,
     // so they must wait for logical readiness instead of only for a bound
     // socket.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
+    let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         tokio::time::timeout(std::time::Duration::from_secs(10), waiter.wait()).await
     })
     .map_err(|e| {

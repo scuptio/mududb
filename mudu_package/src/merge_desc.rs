@@ -1,7 +1,6 @@
 use anyhow::Result;
 use mudu::utils::json::{read_json, to_json_str};
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
-use std::fs;
 use std::path::Path;
 
 pub fn merge_desc_files<P: AsRef<Path>, D: AsRef<Path>>(
@@ -9,9 +8,8 @@ pub fn merge_desc_files<P: AsRef<Path>, D: AsRef<Path>>(
     output_desc_file: D,
 ) -> Result<()> {
     let mut package_desc = ModProcDesc::new(Default::default());
-    let dir = fs::read_dir(input_folder.as_ref())?;
-    for r_entry in dir {
-        let entry = r_entry?;
+    let dir = mudu_sys::fs::sync::sync_read_dir_entries(input_folder.as_ref())?;
+    for entry in dir {
         let meta = entry.metadata()?;
         if meta.is_file() {
             let s = entry.file_name().to_string_lossy().to_string();
@@ -23,7 +21,7 @@ pub fn merge_desc_files<P: AsRef<Path>, D: AsRef<Path>>(
     }
 
     let json_str = to_json_str(&package_desc)?;
-    fs::write(output_desc_file, json_str)?;
+    mudu_sys::fs::sync::sync_write(output_desc_file, json_str)?;
     Ok(())
 }
 
@@ -36,14 +34,13 @@ mod tests {
     use mudu_contract::procedure::proc_desc::ProcDesc;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use std::collections::HashMap;
-    use std::fs;
     use tempfile::tempdir;
 
     #[test]
     fn merge_desc_files_merges_all_desc_json_files() -> Result<()> {
         let dir = tempdir()?;
         let input = dir.path().join("input");
-        fs::create_dir_all(&input)?;
+        mudu_sys::fs::sync::sync_create_dir_all(&input)?;
 
         let mut modules1 = HashMap::new();
         modules1.insert(
@@ -57,7 +54,7 @@ mod tests {
             )],
         );
         let desc1 = ModProcDesc::new(modules1);
-        fs::write(input.join("one.desc.json"), to_json_str(&desc1)?)?;
+        mudu_sys::fs::sync::sync_write(input.join("one.desc.json"), to_json_str(&desc1)?)?;
 
         let mut modules2 = HashMap::new();
         modules2.insert(
@@ -81,10 +78,10 @@ mod tests {
             )],
         );
         let desc2 = ModProcDesc::new(modules2);
-        fs::write(input.join("two.desc.json"), to_json_str(&desc2)?)?;
+        mudu_sys::fs::sync::sync_write(input.join("two.desc.json"), to_json_str(&desc2)?)?;
 
         // Ensure non-desc files are ignored.
-        fs::write(input.join("ignored.json"), "{}")?;
+        mudu_sys::fs::sync::sync_write(input.join("ignored.json"), "{}")?;
 
         let output = dir.path().join("merged.desc.json");
         merge_desc_files(&input, &output)?;

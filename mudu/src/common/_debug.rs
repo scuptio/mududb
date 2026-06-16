@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use lazy_static::lazy_static;
 use std::env;
 

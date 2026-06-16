@@ -5,7 +5,7 @@ use mudu::common::result::RS;
 use mudu::error::ec::EC;
 use mudu::m_error;
 
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu_sys::sync::async_::AMutex;
 use pgwire::api::auth::md5pass::Md5PasswordAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::copy::CopyHandler;
@@ -52,7 +52,7 @@ impl SessionCtxInner {
         let conn_str = format!("db={} app={} db_type=LibSQL", db_path, app_name);
         let db_conn = DBConnector::connect(&conn_str).await?;
         let libsql_conn = DBConnector::get_libsql_conn(db_conn.expected_sync()?)
-            .map_or_else(|| Err(m_error!(EC::NoneErr)), |c| Ok(c))?;
+            .map_or_else(|| Err(m_error!(EC::NoneErr)), Ok)?;
         Ok(Self {
             conn: libsql_conn,
             _app_name: app_name.clone(),
