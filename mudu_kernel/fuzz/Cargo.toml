@@ -1,7 +1,10 @@
+[workspace]
+
 [package]
 name = "fuzz_mududb"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 
 
 [features]
@@ -12,9 +15,10 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.7"
-tracing = { version = "0.1.40" }
+tracing = "0.1.43"
 
 [dependencies.mududb]
+package = "mudu_kernel"
 path = ".."
 
 
@@ -55,6 +59,7 @@ path = "fuzz_targets/_gen_order_csv.rs"
 test = false
 doc = false
 bench = false
+
 
 [[bin]]
 name = "_delta_apply"

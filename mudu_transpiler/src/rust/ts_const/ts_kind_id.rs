@@ -4,6 +4,8 @@
 //
 // kind id of Node
 
+//! Auto-generated tree-sitter node kind id constants.
+
 pub const _NON_DELIM_TOKEN: u16 = 0;
 pub const SCOPED_TYPE_IDENTIFIER_IN_EXPRESSION_POSITION: u16 = 0;
 pub const _INNER_LINE_DOC_COMMENT_MARKER: u16 = 0;

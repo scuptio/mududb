@@ -30,6 +30,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build - ${{ matrix.os }}
@@ -42,6 +46,8 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_PROFILE_TEST_DEBUG: 0
       CARGO_PROFILE_RELEASE_DEBUG: 0
+      MUDU_TEST_BACKEND_READY_TIMEOUT_SECS: 120
+      MUDU_CLI_HTTP_TIMEOUT_SECS: 120
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -53,11 +59,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v5
 
-      - name: Setup Rust Nightly
+      - name: Setup pinned stable Rust
         if: matrix.os == 'ubuntu-latest'
-        uses: ./.github/actions/rust-nightly-setup
-        with:
-          rust_target: ${{ matrix.rust_target }}
+        uses: ./.github/actions/rust-stable-setup
 
       - name: Free disk space
         if: matrix.os == 'ubuntu-latest'
@@ -75,34 +79,86 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-nightly
+            ${{ runner.os }}-cargo-stable
 
       - name: Clean cargo cache (optional)
         if: env.ENABLE_CARGO_CLEAN == 'true'
-        run: cargo clean
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo clean 2>&1 | tee logs/build-clean.log
 
       - name: Check (debug)
         if: env.ENABLE_RELEASE_TEST != 'true'
-        run: cargo check
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo check 2>&1 | tee logs/build-check-debug.log
 
       - name: Check (release)
         if: env.ENABLE_RELEASE_TEST == 'true'
-        run: cargo check --release
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo check --release 2>&1 | tee logs/build-check-release.log
+
+      - name: Clippy
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee logs/build-clippy.log
 
       - name: Verify Install Script (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: python3 script/build/install_binaries.py --dry-run
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          python3 script/build/install_binaries.py --dry-run 2>&1 | tee logs/build-verify-install.log
 
       - name: Inspect io_uring Environment (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: bash script/build/inspect_iouring_env.sh
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          bash script/build/inspect_iouring_env.sh 2>&1 | tee logs/build-inspect-iouring.log
 
       - name: Test (debug)
         if: env.ENABLE_RELEASE_TEST != 'true'
-        run: cargo test
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo test -- --test-threads=1 2>&1 | tee logs/build-test-debug.log
 
       - name: Test (release)
         if: env.ENABLE_RELEASE_TEST == 'true'
-        run: cargo test --release
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo test --release -- --test-threads=1 2>&1 | tee logs/build-test-release.log
+
+  rustdoc:
+    name: Rustdoc
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-doc
+
+      - name: Generate documentation
+        run: cargo doc --workspace --no-deps

@@ -3,7 +3,7 @@ use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
-use mudu_sys::sync::notify_wait::Notify;
+use mudu_sys::sync::async_::notify_wait::Notify;
 
 #[derive(Debug, Clone)]
 pub enum LockResult {

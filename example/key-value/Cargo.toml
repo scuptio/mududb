@@ -2,9 +2,14 @@
 name = "key-value"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
@@ -13,3 +18,6 @@ wit-bindgen = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 mudu_adapter = { workspace = true }
 mududb = { workspace = true, features = ["async", "standalone-adapter"] }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']

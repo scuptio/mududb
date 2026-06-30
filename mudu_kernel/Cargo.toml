@@ -2,20 +2,26 @@
 name = "mudu_kernel"
 version = "0.0.1"
 edition = "2021"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [features]
 test = []
-debug_trace = ["mudu_utils/debug_trace", "dep:async-backtrace"]
+debug_trace = ["mudu_sys/debug_trace", "mudu_utils/debug_trace", "dep:async-backtrace"]
+
+[lints]
+workspace = true
 
 [dependencies]
 
 mudu = { workspace = true, features = ["test"] }
+mudu_compat_migrate = { workspace = true }
 mudu_sys = { workspace = true }
 
 mudu_type = { workspace = true, features = ["test"] }
 mudu_contract = { workspace = true }
 uuid = { workspace = true }
-short-uuid = "0.2.0"
+short-uuid = { workspace = true }
 
 serde = { workspace = true }
 rmp-serde = { workspace = true }
@@ -26,7 +32,7 @@ lazy_static = { workspace = true }
 serde_json = { workspace = true }
 
 async-trait = { workspace = true }
-arbitrary = { version = "1.4.2", features = ["derive"] }
+arbitrary = { workspace = true }
 tracing = { workspace = true }
 
 pgwire = { workspace = true }
@@ -34,18 +40,15 @@ futures = { workspace = true }
 scc = { workspace = true }
 project-root = { workspace = true }
 
-csv-async = { version = "1.3.0" }
-async-std = { version = "1.13.0" }
-csv = "1.3.1"
+csv = { workspace = true }
 libc = { workspace = true }
 sql_parser = { workspace = true }
 test_utils = { workspace = true }
 mudu_utils = { workspace = true }
 async-backtrace = { workspace = true, optional = true }
-socket2 = "0.5.8"
-crossbeam-queue = "0.3.11"
+crossbeam-queue = { workspace = true }
 
-byteorder = "1.5.0"
+byteorder = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

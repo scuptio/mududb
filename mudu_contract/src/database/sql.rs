@@ -1,3 +1,6 @@
+//! `database::sql` module.
+#![allow(missing_docs)]
+
 use crate::database::db_conn::{DBConnAsync, DBConnSync};
 use crate::database::entity::Entity;
 use crate::database::entity_set::RecordSet;
@@ -5,18 +8,18 @@ use crate::database::result_set::{ResultSet, ResultSetAsync};
 use crate::database::sql_params::SQLParams;
 use crate::database::sql_stmt::SQLStmt;
 use crate::database::v2h_param::QueryResult;
-use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::tuple::tuple_value::TupleValue;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::result_of::rs_option;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::sync::SMutex;
 use mudu_type::datum::DatumDyn;
 use scc::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::debug;
 
 pub fn function_sql_stmt(stmt: &dyn SQLStmt) -> &dyn SQLStmt {
@@ -40,14 +43,8 @@ pub enum DBConn {
 impl DBConn {
     pub async fn begin_tx(&self) -> RS<OID> {
         let xid = match self {
-            DBConn::Sync(conn) => {
-                let xid = conn.begin_tx()?;
-                xid
-            }
-            DBConn::Async(conn) => {
-                let xid = conn.begin_tx().await?;
-                xid
-            }
+            DBConn::Sync(conn) => conn.begin_tx()?,
+            DBConn::Async(conn) => conn.begin_tx().await?,
         };
         Ok(xid)
     }
@@ -62,13 +59,13 @@ impl DBConn {
     pub fn expected_sync(&self) -> RS<&dyn DBConnSync> {
         match self {
             DBConn::Sync(s) => Ok(s.as_ref()),
-            DBConn::Async(_) => unsafe { std::hint::unreachable_unchecked() },
+            DBConn::Async(_) => unreachable!(),
         }
     }
 
     pub fn expected_async(&self) -> RS<&dyn DBConnAsync> {
         match self {
-            DBConn::Sync(_) => unsafe { std::hint::unreachable_unchecked() },
+            DBConn::Sync(_) => unreachable!(),
             DBConn::Async(s) => Ok(s.as_ref()),
         }
     }
@@ -80,40 +77,26 @@ pub struct Context {
 
 struct ContextInner {
     session_id: OID,
-    xid: Mutex<OID>,
-    result_set: Mutex<Option<ContextResult>>,
+    xid: SMutex<OID>,
+    result_set: SMutex<Option<ContextResult>>,
     conn: DBConn,
 }
 
 struct ContextResult {
     result_set: Arc<dyn ResultSet>,
     row_desc: Arc<TupleFieldDesc>,
-    _tuple_desc: Arc<TupleBinaryDesc>,
-    datum_mapping: Vec<usize>,
 }
 
 impl ContextResult {
     fn new(result_set: Arc<dyn ResultSet>, row_desc: Arc<TupleFieldDesc>) -> RS<Self> {
-        let (tuple_desc, datum_mapping) = row_desc.to_tuple_binary_desc()?;
         Ok(Self {
             result_set,
             row_desc,
-            _tuple_desc: Arc::new(tuple_desc),
-            datum_mapping,
         })
     }
 
     fn row_desc(&self) -> &TupleFieldDesc {
         &self.row_desc
-    }
-
-    #[allow(dead_code)]
-    fn tuple_desc(&self) -> &TupleBinaryDesc {
-        &self._tuple_desc
-    }
-    #[allow(dead_code)]
-    fn datum_mapping(&self) -> &Vec<usize> {
-        &self.datum_mapping
     }
 
     fn query_next(&self) -> RS<Option<TupleValue>> {
@@ -126,26 +109,20 @@ impl ContextInner {
     fn new(oid: OID, conn: DBConn) -> RS<Self> {
         let s = Self {
             session_id: oid,
-            xid: Mutex::new(0),
-            result_set: Mutex::new(Default::default()),
+            xid: SMutex::new(0),
+            result_set: SMutex::new(Default::default()),
             conn,
         };
         Ok(s)
     }
 
     fn set_xid(&self, xid: OID) {
-        let mut g = self.xid.lock();
-        match &mut g {
-            Ok(v) => **v = xid,
-            Err(_) => {}
+        if let Ok(mut guard) = self.xid.lock() {
+            *guard = xid;
         }
     }
     fn xid(&self) -> OID {
-        let g = self.xid.lock();
-        match g {
-            Ok(v) => *v,
-            Err(_) => 0,
-        }
+        self.xid.lock().map(|g| *g).unwrap_or(0)
     }
     fn session_id(&self) -> OID {
         self.session_id
@@ -188,7 +165,10 @@ impl ContextInner {
     }
 
     fn cache_result(&self, result: (Arc<dyn ResultSet>, Arc<TupleFieldDesc>)) -> RS<QueryResult> {
-        let mut g = self.result_set.lock().unwrap();
+        let mut g = self
+            .result_set
+            .lock()
+            .map_err(|e| mudu_error!(ErrorCode::Mutex, "result_set lock poisoned", e))?;
         let context_result = ContextResult::new(result.0, result.1)?;
 
         let result = QueryResult::new(self.session_id, context_result.row_desc().clone());
@@ -197,7 +177,10 @@ impl ContextInner {
     }
 
     pub fn query_next(&self) -> RS<Option<TupleValue>> {
-        let mut g = self.result_set.lock().unwrap();
+        let mut g = self
+            .result_set
+            .lock()
+            .map_err(|e| mudu_error!(ErrorCode::Mutex, "result_set lock poisoned", e))?;
         match &*g {
             None => Ok(None),
             Some(result) => {
@@ -223,6 +206,7 @@ impl Context {
         Ok(())
     }
 
+    #[allow(clippy::self_named_constructors)]
     pub fn context(oid: OID) -> Option<Context> {
         let opt = SessionContext.get_sync(&oid);
         opt.map(|e| e.get().clone())
@@ -257,14 +241,16 @@ impl Context {
     pub async fn commit_async(oid: OID) -> RS<()> {
         let ctx = Self::context_async(oid).await?;
         ctx.commit_tx_async().await?;
-        debug!("transaction committed {}", ctx.inner.xid());
+        let xid = ctx.inner.xid();
+        debug!("transaction committed {}", xid);
         Ok(())
     }
 
     pub async fn rollback_async(oid: OID) -> RS<()> {
         let ctx = Self::context_async(oid).await?;
         ctx.rollback_tx_async().await?;
-        debug!("transaction rollback {}", ctx.inner.xid());
+        let xid = ctx.inner.xid();
+        debug!("transaction rollback {}", xid);
         Ok(())
     }
 
@@ -272,11 +258,8 @@ impl Context {
         let ctx = {
             let opt = SessionContext.get_async(&xid).await;
             match opt {
-                Some(e) => {
-                    let ctx = e.get().clone();
-                    ctx
-                }
-                None => return Err(m_error!(EC::NoSuchElement, "no such context")),
+                Some(e) => e.get().clone(),
+                None => return Err(mudu_error!(ErrorCode::EntityNotFound, "no such context")),
             }
         };
         Ok(ctx)

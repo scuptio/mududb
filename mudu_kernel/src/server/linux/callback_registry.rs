@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -142,50 +140,26 @@ impl CallbackRegistry {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    #[tokio::test]
-    async fn fires_event_callbacks_once() {
-        let mut registry = CallbackRegistry::new();
-        let hit = Arc::new(AtomicUsize::new(0));
-        let hit_clone = hit.clone();
-        registry.register_event(
-            CallbackEventKey { kind: 1, id: 7 },
-            Box::new(move || {
-                Box::pin(async move {
-                    hit_clone.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                })
-            }),
-        );
-
-        let ready = registry.fire_event(CallbackEventKey { kind: 1, id: 7 });
-        assert_eq!(ready.len(), 1);
-        assert_eq!(
-            ready[0].trigger,
-            CallbackTrigger::Event(CallbackEventKey { kind: 1, id: 7 })
-        );
-        for callback in ready {
-            (callback.callback)().await.unwrap();
-        }
-        assert_eq!(hit.load(Ordering::SeqCst), 1);
-        assert!(registry
-            .fire_event(CallbackEventKey { kind: 1, id: 7 })
-            .is_empty());
-        assert!(registry.is_empty());
-    }
-
-    #[tokio::test]
-    async fn advances_sequence_callbacks_up_to_frontier() {
-        let mut registry = CallbackRegistry::new();
-        let hit = Arc::new(AtomicUsize::new(0));
-        for target in [3u64, 5u64] {
+    #[test]
+    fn fires_event_callbacks_once() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut registry = CallbackRegistry::new();
+            let hit = Arc::new(AtomicUsize::new(0));
             let hit_clone = hit.clone();
-            registry.register_after(
-                CallbackDomain::Generic(9),
-                target,
+            registry.register_event(
+                CallbackEventKey { kind: 1, id: 7 },
                 Box::new(move || {
                     Box::pin(async move {
                         hit_clone.fetch_add(1, Ordering::SeqCst);
@@ -193,28 +167,66 @@ mod tests {
                     })
                 }),
             );
-        }
 
-        let ready = registry.advance_sequence(CallbackDomain::Generic(9), 3);
-        assert_eq!(ready.len(), 1);
-        assert_eq!(
-            ready[0].trigger,
-            CallbackTrigger::Sequence {
-                domain: CallbackDomain::Generic(9),
-                target: 3,
+            let ready = registry.fire_event(CallbackEventKey { kind: 1, id: 7 });
+            assert_eq!(ready.len(), 1);
+            assert_eq!(
+                ready[0].trigger,
+                CallbackTrigger::Event(CallbackEventKey { kind: 1, id: 7 })
+            );
+            for callback in ready {
+                (callback.callback)().await.unwrap();
             }
-        );
-        for callback in ready {
-            (callback.callback)().await.unwrap();
-        }
-        assert_eq!(hit.load(Ordering::SeqCst), 1);
+            assert_eq!(hit.load(Ordering::SeqCst), 1);
+            assert!(registry
+                .fire_event(CallbackEventKey { kind: 1, id: 7 })
+                .is_empty());
+            assert!(registry.is_empty());
+        })
+        .unwrap()
+    }
 
-        let ready = registry.advance_sequence(CallbackDomain::Generic(9), 5);
-        assert_eq!(ready.len(), 1);
-        for callback in ready {
-            (callback.callback)().await.unwrap();
-        }
-        assert_eq!(hit.load(Ordering::SeqCst), 2);
+    #[test]
+    fn advances_sequence_callbacks_up_to_frontier() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut registry = CallbackRegistry::new();
+            let hit = Arc::new(AtomicUsize::new(0));
+            for target in [3u64, 5u64] {
+                let hit_clone = hit.clone();
+                registry.register_after(
+                    CallbackDomain::Generic(9),
+                    target,
+                    Box::new(move || {
+                        Box::pin(async move {
+                            hit_clone.fetch_add(1, Ordering::SeqCst);
+                            Ok(())
+                        })
+                    }),
+                );
+            }
+
+            let ready = registry.advance_sequence(CallbackDomain::Generic(9), 3);
+            assert_eq!(ready.len(), 1);
+            assert_eq!(
+                ready[0].trigger,
+                CallbackTrigger::Sequence {
+                    domain: CallbackDomain::Generic(9),
+                    target: 3,
+                }
+            );
+            for callback in ready {
+                (callback.callback)().await.unwrap();
+            }
+            assert_eq!(hit.load(Ordering::SeqCst), 1);
+
+            let ready = registry.advance_sequence(CallbackDomain::Generic(9), 5);
+            assert_eq!(ready.len(), 1);
+            for callback in ready {
+                (callback.callback)().await.unwrap();
+            }
+            assert_eq!(hit.load(Ordering::SeqCst), 2);
+        })
+        .unwrap()
     }
 
     #[test]

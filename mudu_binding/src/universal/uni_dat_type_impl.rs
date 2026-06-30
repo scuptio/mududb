@@ -4,8 +4,8 @@ use crate::universal::uni_scalar::UniScalar;
 use crate::universal::uni_scalar_value::UniScalarValue;
 use mudu::common::into_result::ToResult;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dtp_array::DTPArray;
@@ -45,7 +45,7 @@ impl UniDatType {
                 DatType::from_id_param(DatTypeID::Record, Some(object_kind))
             }
             _ => {
-                return Err(m_error!(EC::TypeErr, "not supported type"));
+                return Err(mudu_error!(ErrorCode::InvalidType, "not supported type"));
             }
         };
         Ok(ty)
@@ -82,7 +82,7 @@ impl UniDatType {
                     UniDatType::Record(record)
                 }
                 _ => {
-                    return Err(m_error!(EC::TypeErr, "unexpected type".to_string()));
+                    return Err(mudu_error!(ErrorCode::InvalidType, "unexpected type"));
                 }
             }
         };
@@ -99,7 +99,10 @@ fn scalar_with_params_to(scalar: UniScalar, params: Option<Vec<UniDatValue>>) ->
         (UniScalar::String, Some(params)) if !params.is_empty() => {
             let Some(UniDatValue::Scalar(UniScalarValue::I64(length))) = params.first().cloned()
             else {
-                return Err(m_error!(EC::TypeErr, "string parameter must be i64"));
+                return Err(mudu_error!(
+                    ErrorCode::TypeConversionFailed,
+                    "string parameter must be i64"
+                ));
             };
             Ok(DatType::from_string(DTPString::new(length as u32)))
         }
@@ -111,54 +114,57 @@ fn scalar_with_params_to(scalar: UniScalar, params: Option<Vec<UniDatValue>>) ->
                 0
             };
             if precision < 0 || scale < 0 {
-                return Err(m_error!(
-                    EC::TypeErr,
+                return Err(mudu_error!(
+                    ErrorCode::InvalidType,
                     "numeric precision/scale must be non-negative"
                 ));
             }
             let param = DTPNumeric::new(precision as u8, scale as u8);
             param
                 .validate()
-                .map_err(|message| m_error!(EC::TypeErr, message))?;
+                .map_err(|message| mudu_error!(ErrorCode::TypeConversionFailed, message))?;
             Ok(DatType::from_numeric(param))
         }
         (UniScalar::Time, Some(params)) if !params.is_empty() => {
             let precision = extract_param_i64(&params, 0, "time precision")?;
             if precision < 0 {
-                return Err(m_error!(EC::TypeErr, "time precision must be non-negative"));
+                return Err(mudu_error!(
+                    ErrorCode::TypeConversionFailed,
+                    "time precision must be non-negative"
+                ));
             }
             let param = DTPTime::new(precision as u8);
             param
                 .validate()
-                .map_err(|message| m_error!(EC::TypeErr, message))?;
+                .map_err(|message| mudu_error!(ErrorCode::TypeConversionFailed, message))?;
             Ok(DatType::from_time(param))
         }
         (UniScalar::Timestamp, Some(params)) if !params.is_empty() => {
             let precision = extract_param_i64(&params, 0, "timestamp precision")?;
             if precision < 0 {
-                return Err(m_error!(
-                    EC::TypeErr,
+                return Err(mudu_error!(
+                    ErrorCode::InvalidType,
                     "timestamp precision must be non-negative"
                 ));
             }
             let param = DTPTimestamp::new(precision as u8);
             param
                 .validate()
-                .map_err(|message| m_error!(EC::TypeErr, message))?;
+                .map_err(|message| mudu_error!(ErrorCode::TypeConversionFailed, message))?;
             Ok(DatType::from_timestamp(param))
         }
         (UniScalar::TimestampTz, Some(params)) if !params.is_empty() => {
             let precision = extract_param_i64(&params, 0, "timestamptz precision")?;
             if precision < 0 {
-                return Err(m_error!(
-                    EC::TypeErr,
+                return Err(mudu_error!(
+                    ErrorCode::InvalidType,
                     "timestamptz precision must be non-negative"
                 ));
             }
             let param = DTPTimestampTz::new(precision as u8);
             param
                 .validate()
-                .map_err(|message| m_error!(EC::TypeErr, message))?;
+                .map_err(|message| mudu_error!(ErrorCode::TypeConversionFailed, message))?;
             Ok(DatType::from_timestamptz(param))
         }
         (scalar, _) => scalar.to(),
@@ -168,9 +174,12 @@ fn scalar_with_params_to(scalar: UniScalar, params: Option<Vec<UniDatValue>>) ->
 fn extract_param_i64(params: &[UniDatValue], index: usize, name: &str) -> RS<i64> {
     let value = params
         .get(index)
-        .ok_or_else(|| m_error!(EC::TypeErr, format!("missing {}", name)))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::TypeConversionFailed, format!("missing {}", name)))?;
     let UniDatValue::Scalar(UniScalarValue::I64(value)) = value else {
-        return Err(m_error!(EC::TypeErr, format!("{} must be i64", name)));
+        return Err(mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("{} must be i64", name)
+        ));
     };
     Ok(*value)
 }
@@ -186,18 +195,15 @@ fn _rewrite_inline(vec_ty: Vec<UniDatType>) -> RS<Vec<UniDatType>> {
         for record_name in set.iter() {
             let v = record_ty.get(record_name).map_or_else(
                 || {
-                    Err(m_error!(
-                        EC::NoneErr,
+                    Err(mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("No data type named {}", record_name)
                     ))
                 },
                 |v| Ok(*v),
             )?;
             // `u` requires `v` to be processed before it.
-            dependency_index
-                .entry(*u)
-                .or_insert(Default::default())
-                .insert(v);
+            dependency_index.entry(*u).or_default().insert(v);
         }
     }
     let mut records = HashMap::<String, UniDatType>::new();
@@ -215,8 +221,8 @@ fn build_inline(ty: &mut UniDatType, records: &mut HashMap<String, UniDatType>) 
         UniDatType::Identifier(record_name) => {
             let record_ty = records.get(record_name).map_or_else(
                 || {
-                    Err(m_error!(
-                        EC::NoneErr,
+                    Err(mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("no such record named {}", record_name)
                     ))
                 },
@@ -317,8 +323,8 @@ fn visit_ty(
 ///
 /// # Arguments
 /// * `dependency` - A HashMap where the key is a node, and the value is a set of nodes that the key depends on.
-///                  Specifically, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
-///                  This represents directed edges from each vᵢ to u (vᵢ -> u).
+///   Specifically, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
+///   This represents directed edges from each vᵢ to u (vᵢ -> u).
 ///
 /// # Returns
 /// * `HashMap<u64, HashSet<u64>>` - A reversed adjacency list where:
@@ -337,20 +343,20 @@ fn reverse_adj(dependency: &HashMap<u64, HashSet<u64>>) -> HashMap<u64, HashSet<
             // Add the current node to the set of nodes that depend on dependency_node
             reversed
                 .entry(dependency_node)
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .insert(dependent_node);
         }
 
         // Ensure all nodes appear in the reversed map, even if they have no incoming edges
         // This is optional but can be useful for completeness
-        reversed.entry(dependent_node).or_insert_with(HashSet::new);
+        reversed.entry(dependent_node).or_default();
     }
 
     // Also ensure that nodes that only appear as dependencies (not as keys)
     // are included in the reversed map
     for dependencies in dependency.values() {
         for &node in dependencies {
-            reversed.entry(node).or_insert_with(HashSet::new);
+            reversed.entry(node).or_default();
         }
     }
 
@@ -361,11 +367,11 @@ fn reverse_adj(dependency: &HashMap<u64, HashSet<u64>>) -> HashMap<u64, HashSet<
 ///
 /// # Arguments
 /// * `dependency` - A HashMap where the key is a node, and the value is a set of nodes that the key depends on.
-///                  In other words, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
+///   In other words, `dependency[u] = {v1, v2, ...}` means `u` requires `v1, v2, ...` to be processed before it.
 ///
 /// # Returns
 /// * `Vec<u64>` - A topological ordering of nodes if the graph is acyclic.
-///                If a cycle is detected, returns an empty vector.
+///   If a cycle is detected, returns an empty vector.
 ///
 /// # Algorithm
 /// This implementation uses Kahn's algorithm:
@@ -408,7 +414,7 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
     let reserve_dependency = reverse_adj(&dependency);
     for (node, deps) in &reserve_dependency {
         for dep in deps {
-            *in_degree.entry(dep.clone()).or_insert(0) += 1;
+            *in_degree.entry(*dep).or_insert(0) += 1;
         }
         // Ensure the key node itself is in the map (with its current in-degree or 0)
         in_degree.entry(*node).or_insert(0);
@@ -422,7 +428,7 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
         }
     }
     for i in queue.iter() {
-        in_degree.remove(&i);
+        in_degree.remove(i);
     }
 
     // Step 4: Process nodes in topological order
@@ -434,19 +440,19 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
 
         // Also check if current node itself has dependencies that are now satisfied
         // (This handles nodes that only appear as keys, not as dependencies)
-        if remaining_deps.contains_key(&current) {
-            if let Some(deps) = remaining_deps.get(&current) {
-                if deps.is_empty() {
-                    remaining_deps.remove(&current);
-                } else {
-                    for dependent in deps {
-                        // Decrease in-degree of the dependent
-                        if let Some(degree) = in_degree.get_mut(&dependent) {
-                            *degree -= 1;
-                            // If in-degree becomes zero, add to queue
-                            if *degree == 0 {
-                                queue.push_back(*dependent);
-                            }
+        if remaining_deps.contains_key(&current)
+            && let Some(deps) = remaining_deps.get(&current)
+        {
+            if deps.is_empty() {
+                remaining_deps.remove(&current);
+            } else {
+                for dependent in deps {
+                    // Decrease in-degree of the dependent
+                    if let Some(degree) = in_degree.get_mut(dependent) {
+                        *degree -= 1;
+                        // If in-degree becomes zero, add to queue
+                        if *degree == 0 {
+                            queue.push_back(*dependent);
                         }
                     }
                 }

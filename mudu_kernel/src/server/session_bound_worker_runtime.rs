@@ -9,8 +9,8 @@ use crate::server::worker_snapshot::KvItem;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
@@ -49,8 +49,13 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
     }
 
     fn message_bus(&self) -> MessageBusRef {
-        message_bus_for_worker(self.worker.server_instance_id(), self.worker.worker_id())
-            .expect("message bus is not registered")
+        #[expect(
+            clippy::expect_used,
+            reason = "message bus is expected to be registered"
+        )]
+        let bus = message_bus_for_worker(self.worker.server_instance_id(), self.worker.worker_id())
+            .expect("message bus is not registered");
+        bus
     }
 
     async fn open_async(&self) -> RS<OID> {
@@ -61,8 +66,8 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
         if worker_id == 0 || worker_id == self.worker.worker_id() {
             self.open_async().await
         } else {
-            Err(m_error!(
-                EC::NotImplemented,
+            Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 format!(
                     "worker-local open cannot move from worker {} to worker {}",
                     self.worker.worker_id(),

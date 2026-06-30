@@ -1,3 +1,5 @@
+//! Remote Mudud protocol backend implementation.
+
 use crate::config;
 use crate::result_set::LocalResultSet;
 use crate::sql::replace_placeholders;
@@ -5,8 +7,8 @@ use crate::state;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
@@ -21,15 +23,16 @@ use mudu_contract::protocol::{
 };
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_sys::sync::a_mutex::AMutex;
-use mudu_sys::sync::a_rwlock::ARwLock;
+use mudu_sys::sync::SMutex;
+use mudu_sys::sync::async_::mutex::AMutex;
+use mudu_sys::sync::async_::rwlock::ARwLock;
+use mudu_sys::task::sync::spawn_thread_named;
 use mudu_utils::task_async::build_current_thread_runtime;
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
-use std::thread;
+use std::sync::OnceLock;
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 
 struct MududSession {
     client: SyncClient,
@@ -48,6 +51,8 @@ struct AsyncMududSession {
     client: AsyncClientImpl,
     remote_session_id: u128,
 }
+
+type RangeResult = Vec<(Vec<u8>, Vec<u8>)>;
 
 struct QueryRows {
     row_desc: TupleFieldDesc,
@@ -79,7 +84,7 @@ enum AsyncCommand {
         session_id: OID,
         start_key: Vec<u8>,
         end_key: Vec<u8>,
-        response: SyncSender<RS<Vec<(Vec<u8>, Vec<u8>)>>>,
+        response: SyncSender<RS<RangeResult>>,
     },
     Query {
         session_id: OID,
@@ -105,18 +110,32 @@ struct AsyncManager {
     sender: Sender<AsyncCommand>,
 }
 
-lazy_static! {
-    static ref ASYNC_MANAGER: AsyncManager = AsyncManager::start();
+static ASYNC_MANAGER: OnceLock<AsyncManager> = OnceLock::new();
+
+fn async_manager() -> RS<&'static AsyncManager> {
+    if let Some(manager) = ASYNC_MANAGER.get() {
+        return Ok(manager);
+    }
+    let manager = AsyncManager::start()?;
+    // If another thread initialized the manager concurrently, `set` returns Err
+    // with our value; in either case a value is present afterwards.
+    let _ = ASYNC_MANAGER.set(manager);
+    ASYNC_MANAGER
+        .get()
+        .ok_or_else(|| mudu_error!(ErrorCode::Internal, "async manager not initialized"))
 }
 
+/// Creates a new remote Mudud session.
 pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
     if config::mudud_async_session_loop() {
         return async_open(argv.worker_oid());
     }
 
-    let addr = config::mudud_addr()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud tcp address"))?;
-    let mut client = SyncClient::connect(addr.as_str())?;
+    let addr: std::net::SocketAddr = config::mudud_addr()
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?
+        .parse()
+        .map_err(|e| mudu_error!(ErrorCode::Database, "invalid mudud tcp address", e))?;
+    let mut client = SyncClient::connect(addr)?;
     let remote_session_id = client.create_session(session_open_config_json(argv.worker_oid()))?;
     let session_id = state::next_session_id();
     let session = Arc::new(SMutex::new(MududSession {
@@ -127,10 +146,11 @@ pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
     Ok(session_id)
 }
 
+/// Asynchronous version of [`mudu_open`].
 pub async fn mudu_open_async(argv: &UniSessionOpenArgv) -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
     let addr = config::mudud_addr()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud tcp address"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?;
     let mut client = AsyncClientImpl::connect(addr.as_str()).await?;
     let remote_session_id = client
         .create_session(SessionCreateRequest::new(session_open_config_json(
@@ -150,26 +170,28 @@ pub async fn mudu_open_async(argv: &UniSessionOpenArgv) -> RS<OID> {
     Ok(session_id)
 }
 
+/// Closes a remote Mudud session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     if config::mudud_async_session_loop() {
         return async_close(session_id);
     }
 
     let entry = SESSIONS.remove_sync(&session_id).ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
     let session_ref = entry.1;
     let mut session = session_ref
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "mudud session lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "mudud session lock poisoned"))?;
     let remote_session_id = session.remote_session_id;
     let _ = session.client.close_session(remote_session_id)?;
     Ok(())
 }
 
+/// Asynchronous version of [`mudu_close`].
 pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = {
@@ -177,8 +199,8 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
         sessions.remove(&session_id)
     }
     .ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -191,6 +213,7 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     Ok(())
 }
 
+/// Retrieves a value from a remote Mudud session.
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     if config::mudud_async_session_loop() {
         return async_get(session_id, key);
@@ -201,6 +224,7 @@ pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     })
 }
 
+/// Asynchronous version of [`mudu_get`].
 pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let _trace = mudu_utils::task_trace!();
     let session = async_session(session_id).await?;
@@ -213,6 +237,7 @@ pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> 
         .into_value())
 }
 
+/// Stores a value in a remote Mudud session.
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     if config::mudud_async_session_loop() {
         return async_put(session_id, key, value);
@@ -225,6 +250,7 @@ pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     })
 }
 
+/// Asynchronous version of [`mudu_put`].
 pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = async_session(session_id).await?;
@@ -241,13 +267,14 @@ pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()>
     if put.ok() {
         Ok(())
     } else {
-        Err(m_error!(
-            EC::NetErr,
+        Err(mudu_error!(
+            ErrorCode::Network,
             "remote put operation returned failure"
         ))
     }
 }
 
+/// Scans a range of keys in a remote Mudud session.
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],
@@ -270,6 +297,7 @@ pub fn mudu_range(
     })
 }
 
+/// Asynchronous version of [`mudu_range`].
 pub async fn mudu_range_async(
     session_id: OID,
     start_key: &[u8],
@@ -294,6 +322,7 @@ pub async fn mudu_range_async(
         .collect())
 }
 
+/// Executes a query on a remote Mudud session and returns the resulting record set.
 pub fn mudu_query<R: Entity>(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
@@ -302,7 +331,7 @@ pub fn mudu_query<R: Entity>(
     let _trace = mudu_utils::task_trace!();
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
 
     if config::mudud_async_session_loop() {
         return async_query(session_id, app_name, sql_text);
@@ -319,6 +348,7 @@ pub fn mudu_query<R: Entity>(
     })
 }
 
+/// Asynchronous version of [`mudu_query`].
 pub async fn mudu_query_async<R: Entity>(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
@@ -326,7 +356,7 @@ pub async fn mudu_query_async<R: Entity>(
 ) -> RS<RecordSet<R>> {
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let session = async_session(session_id).await?;
     let mut session = session.lock().await;
     let response = session
@@ -341,10 +371,11 @@ pub async fn mudu_query_async<R: Entity>(
     ))
 }
 
+/// Executes a parameterized SQL command on a remote Mudud session.
 pub fn mudu_command(session_id: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
 
     if config::mudud_async_session_loop() {
         return async_command(session_id, app_name, sql_text);
@@ -356,15 +387,16 @@ pub fn mudu_command(session_id: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLPar
     })
 }
 
+/// Executes a batch SQL statement on a remote Mudud session.
 pub fn mudu_batch(session_id: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let sql_text = sql_stmt.to_sql_string();
 
     if config::mudud_async_session_loop() {
@@ -377,6 +409,7 @@ pub fn mudu_batch(session_id: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParam
     })
 }
 
+/// Asynchronous version of [`mudu_command`].
 pub async fn mudu_command_async(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
@@ -385,7 +418,7 @@ pub async fn mudu_command_async(
     let _trace = mudu_utils::task_trace!();
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let session = async_session(session_id).await?;
     let mut session = session.lock().await;
     let response = session
@@ -395,19 +428,20 @@ pub async fn mudu_command_async(
     Ok(response.affected_rows())
 }
 
+/// Asynchronous version of [`mudu_batch`].
 pub async fn mudu_batch_async(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
 ) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
     let app_name = config::mudud_app_name()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud app name"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let session = async_session(session_id).await?;
     let mut session = session.lock().await;
     let response = session
@@ -422,15 +456,15 @@ where
     F: FnOnce(&mut MududSession) -> RS<R>,
 {
     let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
     let session_ref = entry.get().clone();
     let mut session = session_ref
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "mudud session lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "mudud session lock poisoned"))?;
     f(&mut session)
 }
 
@@ -441,8 +475,8 @@ async fn async_session(session_id: OID) -> RS<Arc<AMutex<AsyncMududSession>>> {
         .get(&session_id)
         .cloned()
         .ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} does not exist", session_id)
             )
         })
@@ -451,46 +485,64 @@ async fn async_session(session_id: OID) -> RS<Arc<AMutex<AsyncMududSession>>> {
 fn async_open(worker_id: OID) -> RS<OID> {
     let session_id = state::next_session_id();
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Open {
             session_id,
             worker_id,
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async open command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async open command error",
+                e
+            )
+        })?;
     recv_response(rx)?;
     Ok(session_id)
 }
 
 fn async_close(session_id: OID) -> RS<()> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Close {
             session_id,
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async close command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async close command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn async_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Get {
             session_id,
             key: key.to_vec(),
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async get command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async get command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn async_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Put {
             session_id,
@@ -498,13 +550,19 @@ fn async_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
             value: value.to_vec(),
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async put command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async put command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn async_range(session_id: OID, start_key: &[u8], end_key: &[u8]) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Range {
             session_id,
@@ -512,13 +570,19 @@ fn async_range(session_id: OID, start_key: &[u8], end_key: &[u8]) -> RS<Vec<(Vec
             end_key: end_key.to_vec(),
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async range command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async range command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -> RS<RecordSet<R>> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Query {
             session_id,
@@ -526,7 +590,13 @@ fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -
             sql_text,
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async query command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async query command error",
+                e
+            )
+        })?;
     let response = recv_response(rx)?;
     let desc = response.row_desc;
     let rows = response.rows;
@@ -538,7 +608,7 @@ fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -
 
 fn async_command(session_id: OID, app_name: String, sql_text: String) -> RS<u64> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Command {
             session_id,
@@ -546,13 +616,19 @@ fn async_command(session_id: OID, app_name: String, sql_text: String) -> RS<u64>
             sql_text,
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn async_batch(session_id: OID, app_name: String, sql_text: String) -> RS<u64> {
     let (tx, rx) = mpsc::sync_channel(1);
-    ASYNC_MANAGER
+    async_manager()?
         .sender
         .send(AsyncCommand::Batch {
             session_id,
@@ -560,13 +636,19 @@ fn async_batch(session_id: OID, app_name: String, sql_text: String) -> RS<u64> {
             sql_text,
             response: tx,
         })
-        .map_err(|e| m_error!(EC::ThreadErr, "send mudud async batch command error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "send mudud async batch command error",
+                e
+            )
+        })?;
     recv_response(rx)
 }
 
 fn recv_response<T>(rx: Receiver<RS<T>>) -> RS<T> {
     rx.recv()
-        .map_err(|e| m_error!(EC::ThreadErr, "receive mudud async response error", e))?
+        .map_err(|e| mudu_error!(ErrorCode::Thread, "receive mudud async response error", e))?
 }
 
 fn session_open_config_json(worker_id: OID) -> Option<String> {
@@ -584,24 +666,32 @@ fn session_open_config_json(worker_id: OID) -> Option<String> {
 }
 
 impl AsyncManager {
-    fn start() -> Self {
+    fn start() -> RS<Self> {
         let (sender, receiver) = mpsc::channel();
-        thread::Builder::new()
-            .name("mudu-adapter-mudud-async".to_string())
-            .spawn(move || run_async_manager(receiver))
-            .expect("spawn mudud async manager thread");
-        Self { sender }
+        let runtime = build_current_thread_runtime().map_err(|e| {
+            mudu_error!(
+                ErrorCode::Thread,
+                "build mudud async manager runtime error",
+                e
+            )
+        })?;
+        spawn_thread_named("mudu-adapter-mudud-async", move || {
+            runtime.block_on(async move {
+                let mut sessions = HashMap::<OID, AsyncMududSession>::new();
+                while let Ok(command) = receiver.recv() {
+                    handle_async_command(&mut sessions, command).await;
+                }
+            });
+        })
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::Thread,
+                "spawn mudud async manager thread error",
+                e
+            )
+        })?;
+        Ok(Self { sender })
     }
-}
-
-fn run_async_manager(receiver: Receiver<AsyncCommand>) {
-    let runtime = build_current_thread_runtime().expect("build mudud async manager runtime");
-    runtime.block_on(async move {
-        let mut sessions = HashMap::<OID, AsyncMududSession>::new();
-        while let Ok(command) = receiver.recv() {
-            handle_async_command(&mut sessions, command).await;
-        }
-    });
 }
 
 async fn handle_async_command(
@@ -616,7 +706,7 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let addr = config::mudud_addr()
-                    .ok_or_else(|| m_error!(EC::DBInternalError, "missing mudud tcp address"))?;
+                    .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?;
                 let mut client = AsyncClientImpl::connect(addr.as_str()).await?;
                 let remote_session_id = client
                     .create_session(SessionCreateRequest::new(session_open_config_json(
@@ -642,8 +732,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let mut session = sessions.remove(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -663,8 +753,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -685,8 +775,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -697,8 +787,8 @@ async fn handle_async_command(
                 if put.ok() {
                     Ok(())
                 } else {
-                    Err(m_error!(
-                        EC::NetErr,
+                    Err(mudu_error!(
+                        ErrorCode::Network,
                         "remote put operation returned failure"
                     ))
                 }
@@ -714,8 +804,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -743,8 +833,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -768,8 +858,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -790,8 +880,8 @@ async fn handle_async_command(
         } => {
             let result = async {
                 let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                    m_error!(
-                        EC::NoSuchElement,
+                    mudu_error!(
+                        ErrorCode::EntityNotFound,
                         format!("session {} does not exist", session_id)
                     )
                 })?;
@@ -804,5 +894,307 @@ async fn handle_async_command(
             .await;
             let _ = response.send(result);
         }
+    }
+}
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+    // Test-only helpers may use `panic!`, `todo!` or `unimplemented!` for
+    // assertions and stubs; these are not production code paths.
+    #![allow(clippy::panic, clippy::todo, clippy::unimplemented)]
+
+    use super::*;
+    use crate::config;
+    use mudu::common::result::RS;
+    use mudu::error::ErrorCode;
+    use mudu_binding::universal::uni_oid::UniOid;
+    use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
+    use mudu_contract::database::sql_stmt_text::SQLStmtText;
+
+    fn with_connection_env<T>(value: &str, f: impl FnOnce() -> RS<T>) -> RS<T> {
+        let prev = mudu_sys::env_var::var("MUDU_CONNECTION");
+        mudu_sys::env_var::set_var("MUDU_CONNECTION", value);
+        let result = f();
+        match prev {
+            Some(prev) => mudu_sys::env_var::set_var("MUDU_CONNECTION", &prev),
+            None => mudu_sys::env_var::remove_var("MUDU_CONNECTION"),
+        }
+        result
+    }
+
+    #[test]
+    fn session_open_config_json_zero_worker_returns_none() {
+        assert!(session_open_config_json(0).is_none());
+    }
+
+    #[test]
+    fn session_open_config_json_nonzero_worker_contains_session_id_and_worker_id() -> RS<()> {
+        let worker_id = 42;
+        let json = match session_open_config_json(worker_id) {
+            Some(json) => json,
+            None => panic!("non-zero worker should yield JSON"),
+        };
+
+        let value: serde_json::Value = match serde_json::from_str(&json) {
+            Ok(value) => value,
+            Err(err) => panic!("valid JSON: {err}"),
+        };
+        assert_eq!(
+            value.get("session_id"),
+            Some(&serde_json::json!(UniOid::from(0)))
+        );
+        assert_eq!(
+            value.get("worker_id"),
+            Some(&serde_json::json!(UniOid::from(worker_id)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mudud_addr_returns_none_under_sqlite_config() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("sqlite://./mududb_test.db", || {
+            assert_eq!(config::mudud_addr(), None);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudud_app_name_returns_none_under_sqlite_config() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("sqlite://./mududb_test.db", || {
+            assert_eq!(config::mudud_app_name(), None);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_open_returns_database_error_when_mudud_addr_missing() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("sqlite://./mududb_test.db", || {
+            let argv = UniSessionOpenArgv {
+                worker_id: UniOid::from(1),
+            };
+            let err = match mudu_open(&argv) {
+                Ok(_) => panic!("expected database error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Database);
+            assert!(err.to_string().contains("missing mudud tcp address"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_query_returns_database_error_when_mudud_app_name_missing() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("sqlite://./mududb_test.db", || {
+            let stmt = SQLStmtText::new("SELECT 1".to_string());
+            let err = match mudu_query::<String>(1, &stmt, &()) {
+                Ok(_) => panic!("expected mudu_query to fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Database);
+            assert!(err.to_string().contains("missing mudud app name"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn recv_response_maps_dropped_sender_to_thread_error() -> RS<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        let err = match recv_response::<()>(rx) {
+            Ok(_) => panic!("expected thread error"),
+            Err(err) => err,
+        };
+        assert_eq!(err.ec(), ErrorCode::Thread);
+        Ok(())
+    }
+
+    #[test]
+    fn async_manager_returns_ok_and_second_call_returns_same_instance() -> RS<()> {
+        let first = match async_manager() {
+            Ok(manager) => manager,
+            Err(err) => panic!("async manager should initialize: {err}"),
+        };
+        let second = match async_manager() {
+            Ok(manager) => manager,
+            Err(err) => panic!("async manager should already exist: {err}"),
+        };
+        assert!(std::ptr::eq(first, second));
+        Ok(())
+    }
+
+    #[test]
+    fn mudu_open_returns_database_error_when_mudud_addr_invalid() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://not-a-socket-addr/test", || {
+            let argv = UniSessionOpenArgv {
+                worker_id: UniOid::from(1),
+            };
+            let err = match mudu_open(&argv) {
+                Ok(_) => panic!("expected database error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Database);
+            assert!(err.to_string().contains("invalid mudud tcp address"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_close_get_put_range_return_entity_not_found_for_missing_session() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://127.0.0.1:9999/test", || {
+            let session_id = 9999;
+
+            let err = match mudu_close(session_id) {
+                Ok(_) => panic!("expected entity not found error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+
+            let err = match mudu_get(session_id, b"key") {
+                Ok(_) => panic!("expected entity not found error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+
+            let err = match mudu_put(session_id, b"key", b"value") {
+                Ok(_) => panic!("expected entity not found error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+
+            let err = match mudu_range(session_id, b"start", b"end") {
+                Ok(_) => panic!("expected entity not found error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_query_and_command_return_entity_not_found_for_missing_session() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://127.0.0.1:9999/test", || {
+            let session_id = 9999;
+            let stmt = SQLStmtText::new("SELECT 1".to_string());
+
+            let err = match mudu_query::<i32>(session_id, &stmt, &()) {
+                Ok(_) => panic!("expected mudu_query to fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+
+            let err = match mudu_command(session_id, &stmt, &()) {
+                Ok(_) => panic!("expected mudu_command to fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_batch_returns_not_implemented_with_params() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://127.0.0.1:9999/test", || {
+            let stmt = SQLStmtText::new("INSERT INTO t VALUES (?)".to_string());
+            let err = match mudu_batch(9999, &stmt, &42i32) {
+                Ok(_) => panic!("expected not implemented error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::NotImplemented);
+            assert!(
+                err.to_string()
+                    .contains("batch syscall does not support SQL parameters")
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_batch_returns_entity_not_found_for_missing_session_with_empty_params() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://127.0.0.1:9999/test", || {
+            let session_id = 9999;
+            let stmt = SQLStmtText::new("INSERT INTO t VALUES (1)".to_string());
+            let err = match mudu_batch(session_id, &stmt, &()) {
+                Ok(_) => panic!("expected entity not found error"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert!(
+                err.to_string()
+                    .contains(&format!("session {} does not exist", session_id))
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn mudu_query_and_command_return_parse_error_on_placeholder_mismatch() -> RS<()> {
+        let _guard = config::test_lock().lock()?;
+        config::reset_db_path_override_for_test();
+        with_connection_env("mudud://127.0.0.1:9999/test", || {
+            let stmt = SQLStmtText::new("SELECT ?1, ?2".to_string());
+
+            let err = match mudu_query::<i32>(9999, &stmt, &42i32) {
+                Ok(_) => panic!("expected mudu_query to fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Parse);
+            assert!(
+                err.to_string()
+                    .contains("parameter and placeholder count mismatch")
+            );
+
+            let err = match mudu_command(9999, &stmt, &42i32) {
+                Ok(_) => panic!("expected mudu_command to fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Parse);
+            assert!(
+                err.to_string()
+                    .contains("parameter and placeholder count mismatch")
+            );
+            Ok(())
+        })
     }
 }

@@ -1,3 +1,6 @@
+//! Generated WebAssembly voting example implementation.
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 pub mod options;
 pub mod procedure;
 pub mod users;

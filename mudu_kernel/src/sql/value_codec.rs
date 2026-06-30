@@ -1,8 +1,8 @@
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu::data_type::numeric::Numeric;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_typed::DatTyped;
@@ -25,7 +25,7 @@ impl ValueCodec {
             ExprValue::ValuePlaceholder => {
                 let index = *param_index as u64;
                 let datum = params.get_idx(index).ok_or_else(|| {
-                    m_error!(ER::IndexOutOfRange, format!("missing parameter {}", index))
+                    mudu_error!(ER::IndexOutOfRange, format!("missing parameter {}", index))
                 })?;
                 *param_index += 1;
                 datum.to_binary(dat_type).map(|binary| Some(binary.into()))
@@ -43,7 +43,7 @@ impl ValueCodec {
                 .dat_internal()
                 .to_binary(dat_type)
                 .map(|binary| Some(binary.into()))
-                .map_err(|e| m_error!(ER::TypeBaseErr, "literal type mismatch", e)),
+                .map_err(|e| mudu_error!(ER::TypeConversionFailed, "literal type mismatch", e)),
         }
     }
 
@@ -85,7 +85,9 @@ impl ValueCodec {
                     .expect_numeric()
                     .to_plain_string()
                     .parse::<f64>()
-                    .map_err(|e| m_error!(ER::TypeBaseErr, "numeric to f64 literal cast", e))?,
+                    .map_err(|e| {
+                        mudu_error!(ER::TypeConversionFailed, "numeric to f64 literal cast", e)
+                    })?,
             ),
             (DatTypeID::Numeric, DatTypeID::F32) => DatTyped::from_f32(
                 literal
@@ -93,7 +95,9 @@ impl ValueCodec {
                     .expect_numeric()
                     .to_plain_string()
                     .parse::<f32>()
-                    .map_err(|e| m_error!(ER::TypeBaseErr, "numeric to f32 literal cast", e))?,
+                    .map_err(|e| {
+                        mudu_error!(ER::TypeConversionFailed, "numeric to f32 literal cast", e)
+                    })?,
             ),
             _ => return Ok(literal.clone()),
         };

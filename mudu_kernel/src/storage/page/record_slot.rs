@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use std::cmp::Ordering;
 
 pub const RECORD_SLOT_SIZE: usize = 32;
@@ -62,8 +62,8 @@ impl RecordSlot {
 
     pub fn decode(input: &[u8]) -> RS<Self> {
         if input.len() < RECORD_SLOT_SIZE {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "record slot requires {} bytes, got {}",
                     RECORD_SLOT_SIZE,
@@ -85,8 +85,8 @@ impl RecordSlot {
 
     pub fn encode(&self, out: &mut [u8]) -> RS<()> {
         if out.len() < RECORD_SLOT_SIZE {
-            return Err(m_error!(
-                EC::EncodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Encode,
                 format!(
                     "record slot encode requires {} bytes, got {}",
                     RECORD_SLOT_SIZE,
@@ -192,6 +192,14 @@ impl RecordSlot {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::{
         RecordSlot, RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_FLAG_PARTIAL_CONTINUED,
         RECORD_SLOT_FLAG_PARTIAL_LAST, RECORD_SLOT_SIZE,

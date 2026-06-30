@@ -1,8 +1,9 @@
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "test", fuzzing))]
 use arbitrary::{Arbitrary, Unstructured};
-use mudu::common::id::{gen_oid, AttrIndex, OID};
+use mudu::common::id::{AttrIndex, OID};
 use mudu_type::dat_type_id::DatTypeID as TypeID;
 use mudu_type::dt_info::DTInfo;
+use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -100,7 +101,7 @@ fn default_nullable() -> bool {
     true
 }
 
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "test", fuzzing))]
 impl<'a> Arbitrary<'a> for SchemaColumn {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let name = String::arbitrary(u)?;

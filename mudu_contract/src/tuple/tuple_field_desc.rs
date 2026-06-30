@@ -1,9 +1,14 @@
+//! `tuple::tuple_field_desc` module.
+#![allow(missing_docs)]
+
 use crate::tuple::{datum_desc::DatumDesc, tuple_binary_desc::TupleBinaryDesc};
 use mudu::common::result::RS;
 use mudu::common::serde_utils;
 use mudu_type::dat_type::DatType;
 use mudu_type::dtp_object::DTPRecord;
 use serde::{Deserialize, Serialize};
+
+type FieldMappingInfo = (usize, bool, Option<u16>);
 
 /// Describes the structure and types of a tuple's elements
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,8 +42,8 @@ impl TupleFieldDesc {
         for field in &self.fields {
             if field.nullable() {
                 let bit_idx = u16::try_from(nullable_count).map_err(|_| {
-                    mudu::m_error!(
-                        mudu::error::ec::EC::ParseErr,
+                    mudu::mudu_error!(
+                        mudu::error::ErrorCode::Parse,
                         "nullable column count exceeds u16::MAX"
                     )
                 })?;
@@ -49,7 +54,7 @@ impl TupleFieldDesc {
             }
         }
 
-        let type_descs_with_indices: Vec<(DatType, (usize, bool, Option<u16>))> = self
+        let type_descs_with_indices: Vec<(DatType, FieldMappingInfo)> = self
             .fields
             .iter()
             .enumerate()
@@ -104,33 +109,5 @@ impl TupleFieldDesc {
 impl AsRef<TupleFieldDesc> for TupleFieldDesc {
     fn as_ref(&self) -> &TupleFieldDesc {
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tuple::datum_desc::DatumDesc;
-    use mudu::common::serde_utils::{deserialize_from_json, serialize_to_json};
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-
-    #[test]
-    fn test_serialization_round_trip() {
-        let fields = vec![
-            DatumDesc::new("c1".to_string(), DatType::default_for(DatTypeID::I32)),
-            DatumDesc::new("c2".to_string(), DatType::default_for(DatTypeID::I64)),
-            DatumDesc::new("c3".to_string(), DatType::default_for(DatTypeID::I32)),
-        ];
-
-        let original_desc = TupleFieldDesc::new(fields);
-        let json = serialize_to_json(&original_desc).unwrap();
-        println!("Serialized JSON:\n{}", json);
-
-        let deserialized_desc: TupleFieldDesc = deserialize_from_json(&json).unwrap();
-        assert_eq!(
-            original_desc.fields().len(),
-            deserialized_desc.fields().len()
-        );
     }
 }

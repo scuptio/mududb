@@ -18,13 +18,20 @@ impl XLBatch {
 }
 
 pub use crate::wal::xl_batch_worker_log::{
-    append_xl_batch_async, decode_xl_batches, decode_xl_batches_with_pending,
-    deserialize_batch, new_xl_batch_worker_log, new_xl_batch_writer, serialize_batch,
-    NoopXLBatchRecoveryHandler, XLBatchWorkerLog,
+    append_xl_batch_async, decode_xl_batches, decode_xl_batches_with_pending, deserialize_batch,
+    new_xl_batch_worker_log, new_xl_batch_writer, serialize_batch, NoopXLBatchRecoveryHandler,
+    XLBatchWorkerLog,
 };
 
-#[allow(unused)]
 pub mod _fuzz {
-    #[allow(dead_code)]
+
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     pub fn _de_en_x_l_batch(_data: &[u8]) {}
 }

@@ -2,29 +2,40 @@
 name = "mudu_utils"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [features]
-debug_trace = []
+debug_trace = [
+    "mudu_sys/debug_trace",
+    "dep:http",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:lazy_static",
+]
+
+[lints]
+workspace = true
 
 [dependencies]
 md-5 = { workspace = true }
-hyper = "1.5.0"
-hyper-util = "0.1.10"
-tracing-subscriber = { workspace = true }
-bytes = "1.10.1"
-http = "1.3.1"
-http-body-util = "0.1.3"
-lazy_static = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+lazy_static = { workspace = true, optional = true }
 mudu = { workspace = true }
 mudu_sys = { workspace = true }
 scc = { workspace = true }
-uuid = { workspace = true }
 async-backtrace = { workspace = true }
 tracing = { workspace = true }
 hex = { workspace = true }
-console-subscriber = {workspace = true}
-async-trait = { workspace = true }
-futures = { workspace = true }
-tree-sitter = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
-base16ct = { workspace = true }
+toml = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+console-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true }

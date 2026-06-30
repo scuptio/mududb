@@ -1,17 +1,17 @@
-use mududb::common::result::RS;
 use mududb::common::id::OID;
-use mududb::error::ec::EC;
-use mududb::m_error;
+use mududb::common::result::RS;
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
 
-fn kv_data_key(user_key: &str) -> String {
+pub(crate) fn kv_data_key(user_key: &str) -> String {
     format!("user/{user_key}")
 }
 
-fn decode_utf8(label: &str, bytes: Vec<u8>) -> RS<String> {
+pub(crate) fn decode_utf8(label: &str, bytes: Vec<u8>) -> RS<String> {
     String::from_utf8(bytes).map_err(|e| {
-        m_error!(
-            EC::DecodeErr,
+        mudu_error!(
+            ErrorCode::Decode,
             format!("invalid utf8 in key-value {label}"),
             e.to_string()
         )
@@ -20,8 +20,12 @@ fn decode_utf8(label: &str, bytes: Vec<u8>) -> RS<String> {
 
 fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
-    let value = mudu_get(session_id, key.as_bytes())?
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
+    let value = mudu_get(session_id, key.as_bytes())?.ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("key-value key not found: {user_key}")
+        )
+    })?;
     decode_utf8("value", value)
 }
 
@@ -39,8 +43,12 @@ pub fn kv_read(xid: OID, user_key: String) -> RS<String> {
 /**mudu-proc**/
 pub fn kv_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
-    let _ = mudu_get(xid, key.as_bytes())?
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("key-value key not found: {user_key}")))?;
+    let _ = mudu_get(xid, key.as_bytes())?.ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("key-value key not found: {user_key}")
+        )
+    })?;
     mudu_put(xid, key.as_bytes(), value.as_bytes())
 }
 
@@ -73,27 +81,34 @@ pub fn kv_read_modify_write(xid: OID, user_key: String, append_value: String) ->
 #[cfg(test)]
 mod tests {
     use super::{kv_insert, kv_read, kv_read_modify_write, kv_scan, kv_update};
+    use mududb::sys::env_var::temp_dir;
+    use mududb::sys::sync::SMutex;
+    use mududb::sys::time::system_time_now;
     use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::OnceLock;
+    use std::time::UNIX_EPOCH;
 
-    fn test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    fn test_lock() -> &'static SMutex<()> {
+        static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| SMutex::new(()))
     }
 
     fn temp_db_path(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        let suffix = system_time_now()
             .duration_since(UNIX_EPOCH)
             .expect("system time before unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("key_value_{name}_{suffix}.db"))
+        temp_dir().join(format!("key_value_{name}_{suffix}.db"))
     }
 
+    // Miri cannot execute FFI calls into SQLite (via rusqlite), so skip this
+    // test under Miri. The standalone adapter path is still covered by normal
+    // `cargo test` runs.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn key_value_procedures_roundtrip_against_standalone_adapter() {
-        let _guard = test_lock().lock().unwrap_or_else(|err| err.into_inner());
+        let _guard = test_lock().lock().unwrap();
         let db_path = temp_db_path("roundtrip");
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);
@@ -117,9 +132,12 @@ mod tests {
         mudu_close(xid).unwrap();
     }
 
+    // Miri cannot execute FFI calls into SQLite (via rusqlite), so skip this
+    // test under Miri.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn kv_update_requires_existing_key() {
-        let _guard = test_lock().lock().unwrap_or_else(|err| err.into_inner());
+        let _guard = test_lock().lock().unwrap();
         let db_path = temp_db_path("missing");
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);

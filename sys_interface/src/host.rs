@@ -9,9 +9,10 @@ use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use std::sync::{Arc, Mutex};
+use mudu_sys::sync::SMutex;
+use std::sync::Arc;
 
-#[allow(unused)]
+/// Invoke the host `command` operation.
 pub fn invoke_host_command<F>(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams, f: F) -> RS<u64>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -23,7 +24,7 @@ where
     Ok(affected_rows)
 }
 
-#[allow(unused)]
+/// Invoke the host `batch` operation.
 pub fn invoke_host_batch<F>(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams, f: F) -> RS<u64>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -31,7 +32,7 @@ where
     invoke_host_command(oid, sql, params, f)
 }
 
-#[allow(unused)]
+/// Invoke the host `query` operation.
 pub fn invoke_host_query<R: Entity, F>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -53,114 +54,142 @@ where
     Ok(record_set)
 }
 
+/// Serialize get param parameters.
 pub fn serialize_get_param(key: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_get_param(key)
 }
 
+/// Serialize session get param parameters.
 pub fn serialize_session_get_param(session_id: OID, key: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_session_get_param(session_id, key)
 }
 
+/// Deserialize get param parameters/results.
 pub fn deserialize_get_param(input: &[u8]) -> RS<Vec<u8>> {
     handle_sys_session::deserialize_get_param(input)
 }
 
+/// Deserialize session get param parameters/results.
 pub fn deserialize_session_get_param(input: &[u8]) -> RS<(OID, Vec<u8>)> {
     handle_sys_session::deserialize_session_get_param(input)
 }
 
+/// Serialize get result parameters.
 pub fn serialize_get_result(value: Option<&[u8]>) -> Vec<u8> {
     handle_sys_session::serialize_get_result(value)
 }
 
+/// Deserialize get result parameters/results.
 pub fn deserialize_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
     handle_sys_session::deserialize_get_result(input)
 }
 
+/// Serialize put param parameters.
 pub fn serialize_put_param(key: &[u8], value: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_put_param(key, value)
 }
 
+/// Serialize session put param parameters.
 pub fn serialize_session_put_param(session_id: OID, key: &[u8], value: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_session_put_param(session_id, key, value)
 }
 
+/// Deserialize put param parameters/results.
 pub fn deserialize_put_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
     handle_sys_session::deserialize_put_param(input)
 }
 
+/// Deserialize session put param parameters/results.
 pub fn deserialize_session_put_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     handle_sys_session::deserialize_session_put_param(input)
 }
 
+/// Serialize put result parameters.
 pub fn serialize_put_result() -> Vec<u8> {
     handle_sys_session::serialize_put_result()
 }
 
+/// Deserialize put result parameters/results.
 pub fn deserialize_put_result(input: &[u8]) -> RS<()> {
     handle_sys_session::deserialize_put_result(input)
 }
 
+/// Serialize range param parameters.
 pub fn serialize_range_param(start_key: &[u8], end_key: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_range_param(start_key, end_key)
 }
 
+/// Serialize session range param parameters.
 pub fn serialize_session_range_param(session_id: OID, start_key: &[u8], end_key: &[u8]) -> Vec<u8> {
     handle_sys_session::serialize_session_range_param(session_id, start_key, end_key)
 }
 
+/// Deserialize range param parameters/results.
 pub fn deserialize_range_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
     handle_sys_session::deserialize_range_param(input)
 }
 
+/// Deserialize session range param parameters/results.
 pub fn deserialize_session_range_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     handle_sys_session::deserialize_session_range_param(input)
 }
 
+/// Serialize open param parameters.
 pub fn serialize_open_param() -> Vec<u8> {
     handle_sys_session::serialize_open_param()
 }
 
+/// Serialize open argv param parameters.
 pub fn serialize_open_argv_param(argv: &UniSessionOpenArgv) -> Vec<u8> {
     handle_sys_session::serialize_open_argv_param(argv)
 }
 
+/// Deserialize open param parameters/results.
 pub fn deserialize_open_param(input: &[u8]) -> RS<UniSessionOpenArgv> {
     handle_sys_session::deserialize_open_param(input)
 }
 
+/// Serialize open result parameters.
 pub fn serialize_open_result(session_id: OID) -> Vec<u8> {
     handle_sys_session::serialize_open_result(session_id)
 }
 
+/// Deserialize open result parameters/results.
 pub fn deserialize_open_result(input: &[u8]) -> RS<OID> {
     handle_sys_session::deserialize_open_result(input)
 }
 
+/// Serialize close param parameters.
 pub fn serialize_close_param(session_id: OID) -> Vec<u8> {
     handle_sys_session::serialize_close_param(session_id)
 }
 
+/// Deserialize close param parameters/results.
 pub fn deserialize_close_param(input: &[u8]) -> RS<OID> {
     handle_sys_session::deserialize_close_param(input)
 }
 
+/// Serialize close result parameters.
 pub fn serialize_close_result() -> Vec<u8> {
     handle_sys_session::serialize_close_result()
 }
 
+/// Deserialize close result parameters/results.
 pub fn deserialize_close_result(input: &[u8]) -> RS<()> {
     handle_sys_session::deserialize_close_result(input)
 }
 
+/// Serialize range result parameters.
 pub fn serialize_range_result(items: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     handle_sys_session::serialize_range_result(items)
 }
 
+/// Deserialize range result parameters/results.
 pub fn deserialize_range_result(input: &[u8]) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     handle_sys_session::deserialize_range_result(input)
 }
 
+/// Invoke the host `get` operation.
 pub fn invoke_host_get<F>(key: &[u8], f: F) -> RS<Option<Vec<u8>>>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -170,6 +199,7 @@ where
     deserialize_get_result(&result)
 }
 
+/// Invoke the host `open` operation.
 pub fn invoke_host_open<F>(f: F) -> RS<OID>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -179,6 +209,7 @@ where
     deserialize_open_result(&result)
 }
 
+/// Invoke the host `open argv` operation.
 pub fn invoke_host_open_argv<F>(argv: &UniSessionOpenArgv, f: F) -> RS<OID>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -188,6 +219,7 @@ where
     deserialize_open_result(&result)
 }
 
+/// Invoke the host `close` operation.
 pub fn invoke_host_close<F>(session_id: OID, f: F) -> RS<()>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -197,6 +229,7 @@ where
     deserialize_close_result(&result)
 }
 
+/// Invoke the host `session get` operation.
 pub fn invoke_host_session_get<F>(session_id: OID, key: &[u8], f: F) -> RS<Option<Vec<u8>>>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -206,6 +239,7 @@ where
     deserialize_get_result(&result)
 }
 
+/// Invoke the host `session put` operation.
 pub fn invoke_host_session_put<F>(session_id: OID, key: &[u8], value: &[u8], f: F) -> RS<()>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -215,6 +249,7 @@ where
     deserialize_put_result(&result)
 }
 
+/// Invoke the host `session range` operation.
 pub fn invoke_host_session_range<F>(
     session_id: OID,
     start_key: &[u8],
@@ -229,6 +264,7 @@ where
     deserialize_range_result(&result)
 }
 
+/// Invoke the host `put` operation.
 pub fn invoke_host_put<F>(key: &[u8], value: &[u8], f: F) -> RS<()>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -238,6 +274,7 @@ where
     deserialize_put_result(&result)
 }
 
+/// Invoke the host `range` operation.
 pub fn invoke_host_range<F>(start_key: &[u8], end_key: &[u8], f: F) -> RS<Vec<(Vec<u8>, Vec<u8>)>>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
@@ -247,7 +284,7 @@ where
     deserialize_range_result(&result)
 }
 
-#[allow(unused)]
+/// Asynchronously invoke the host `command` operation.
 pub async fn async_invoke_host_command<F>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -264,7 +301,7 @@ where
     Ok(affected_rows)
 }
 
-#[allow(unused)]
+/// Asynchronously invoke the host `batch` operation.
 pub async fn async_invoke_host_batch<F>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -277,7 +314,7 @@ where
     async_invoke_host_command(oid, sql, params, f).await
 }
 
-#[allow(unused)]
+/// Asynchronously invoke the host `query` operation.
 pub async fn async_invoke_host_query<R: Entity, F>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -299,6 +336,7 @@ where
     Ok(record_set)
 }
 
+/// Asynchronously invoke the host `get` operation.
 pub async fn async_invoke_host_get<F>(key: &[u8], f: F) -> RS<Option<Vec<u8>>>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
@@ -308,6 +346,7 @@ where
     deserialize_get_result(&result)
 }
 
+/// Asynchronously invoke the host `open` operation.
 pub async fn async_invoke_host_open<F>(f: F) -> RS<OID>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
@@ -317,6 +356,7 @@ where
     deserialize_open_result(&result)
 }
 
+/// Asynchronously invoke the host `open argv` operation.
 pub async fn async_invoke_host_open_argv<F>(argv: &UniSessionOpenArgv, f: F) -> RS<OID>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
@@ -326,6 +366,7 @@ where
     deserialize_open_result(&result)
 }
 
+/// Asynchronously invoke the host `close` operation.
 pub async fn async_invoke_host_close<F>(session_id: OID, f: F) -> RS<()>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
@@ -335,6 +376,7 @@ where
     deserialize_close_result(&result)
 }
 
+/// Asynchronously invoke the host `session get` operation.
 pub async fn async_invoke_host_session_get<F>(
     session_id: OID,
     key: &[u8],
@@ -348,6 +390,7 @@ where
     deserialize_get_result(&result)
 }
 
+/// Asynchronously invoke the host `session put` operation.
 pub async fn async_invoke_host_session_put<F>(
     session_id: OID,
     key: &[u8],
@@ -362,6 +405,7 @@ where
     deserialize_put_result(&result)
 }
 
+/// Asynchronously invoke the host `session range` operation.
 pub async fn async_invoke_host_session_range<F>(
     session_id: OID,
     start_key: &[u8],
@@ -376,6 +420,7 @@ where
     deserialize_range_result(&result)
 }
 
+/// Asynchronously invoke the host `put` operation.
 pub async fn async_invoke_host_put<F>(key: &[u8], value: &[u8], f: F) -> RS<()>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
@@ -385,6 +430,7 @@ where
     deserialize_put_result(&result)
 }
 
+/// Asynchronously invoke the host `range` operation.
 pub async fn async_invoke_host_range<F>(
     start_key: &[u8],
     end_key: &[u8],
@@ -398,27 +444,30 @@ where
     deserialize_range_result(&result)
 }
 
+/// Adapter that wraps a [`ResultBatch`] as a synchronous [`ResultSet`].
 pub struct ResultSetWrapper {
-    batch: Mutex<ResultBatch>,
+    batch: SMutex<ResultBatch>,
 }
 
 impl ResultSetWrapper {
+    /// Create a new instance from the provided batch.
     pub fn new(batch: ResultBatch) -> ResultSetWrapper {
         ResultSetWrapper {
-            batch: Mutex::new(batch),
+            batch: SMutex::new(batch),
         }
     }
 }
 
 impl ResultSet for ResultSetWrapper {
     fn next(&self) -> RS<Option<TupleValue>> {
-        let mut batch = self.batch.lock().unwrap();
+        let mut batch = self.batch.lock()?;
         let t = batch.mut_rows().pop();
         Ok(t)
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use mudu_binding::system::{command_invoke, query_invoke};
@@ -502,49 +551,52 @@ mod tests {
         assert_eq!(records.next_record().unwrap(), Some(8));
     }
 
-    #[tokio::test]
-    async fn async_host_helpers_roundtrip_sync_payload_shapes() {
-        let stmt = SQLStmtText::new("SELECT 1".to_string());
+    #[test]
+    fn async_host_helpers_roundtrip_sync_payload_shapes() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let stmt = SQLStmtText::new("SELECT 1".to_string());
 
-        let oid = async_invoke_host_open(|_| async { Ok(serialize_open_result(31)) })
-            .await
-            .unwrap();
-        assert_eq!(oid, 31);
+            let oid = async_invoke_host_open(|_| async { Ok(serialize_open_result(31)) })
+                .await
+                .unwrap();
+            assert_eq!(oid, 31);
 
-        let affected = async_invoke_host_batch(6, &stmt, &(), |input: Vec<u8>| async move {
-            let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
-            assert_eq!(oid, 6);
-            Ok(command_invoke::serialize_command_result(Ok(2)))
-        })
-        .await
-        .unwrap();
-        assert_eq!(affected, 2);
-
-        let records =
-            async_invoke_host_query::<i32, _>(8, &stmt, &(), |input: Vec<u8>| async move {
-                let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
-                assert_eq!(oid, 8);
-                Ok(query_invoke::serialize_query_result(Ok((
-                    mudu_contract::database::result_batch::ResultBatch::from(
-                        8,
-                        vec![TupleValue::from(vec![DatValue::from_i32(13)])],
-                        true,
-                    ),
-                    <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
-                ))))
+            let affected = async_invoke_host_batch(6, &stmt, &(), |input: Vec<u8>| async move {
+                let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
+                assert_eq!(oid, 6);
+                Ok(command_invoke::serialize_command_result(Ok(2)))
             })
             .await
             .unwrap();
-        assert_eq!(records.next_record().unwrap(), Some(13));
+            assert_eq!(affected, 2);
 
-        let got = async_invoke_host_session_get(9, b"k", |input: Vec<u8>| async move {
-            let (oid, key) = deserialize_session_get_param(&input).unwrap();
-            assert_eq!(oid, 9);
-            assert_eq!(key, b"k");
-            Ok(serialize_get_result(Some(b"v")))
+            let records =
+                async_invoke_host_query::<i32, _>(8, &stmt, &(), |input: Vec<u8>| async move {
+                    let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
+                    assert_eq!(oid, 8);
+                    Ok(query_invoke::serialize_query_result(Ok((
+                        mudu_contract::database::result_batch::ResultBatch::from(
+                            8,
+                            vec![TupleValue::from(vec![DatValue::from_i32(13)])],
+                            true,
+                        ),
+                        <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
+                    ))))
+                })
+                .await
+                .unwrap();
+            assert_eq!(records.next_record().unwrap(), Some(13));
+
+            let got = async_invoke_host_session_get(9, b"k", |input: Vec<u8>| async move {
+                let (oid, key) = deserialize_session_get_param(&input).unwrap();
+                assert_eq!(oid, 9);
+                assert_eq!(key, b"k");
+                Ok(serialize_get_result(Some(b"v")))
+            })
+            .await
+            .unwrap();
+            assert_eq!(got, Some(b"v".to_vec()));
         })
-        .await
         .unwrap();
-        assert_eq!(got, Some(b"v".to_vec()));
     }
 }

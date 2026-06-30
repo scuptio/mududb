@@ -4,7 +4,7 @@
 
 [<img src="doc/pic/mudu_logo.svg" width="10%">](doc/cn/name.cn.md)
 
-[English](readme.md)
+[English](README.MD)
 
 ---
 
@@ -36,6 +36,39 @@ MuduDB 采用一种内核-运行时架构，将应用逻辑与数据管理带入
 执行围绕“每核一个 worker”的模型组织。每个 CPU 核心对应一个专用工作线程，而 I/O、网络处理以及用户代码执行都通过协作式方式复用在这些 worker 中。这种设计减少了线程间协调、加锁以及抢占式上下文切换，从而提升局部性并降低开销。
 
 
+
+---
+
+## 快速开始
+
+在 Ubuntu 24.04 上，最快体验 MuduDB 的方式是使用一键脚本：
+
+```bash
+git clone https://github.com/scuptio/mududb.git
+cd mududb
+
+# 1. 安装系统依赖和 Rust 工具链
+bash script/shell/install_deps.sh
+
+# 2. 编译全部组件和 wallet 示例
+bash script/shell/build_all.sh
+
+# 3. 启动服务器并运行 CRUD 测试
+bash script/shell/run_test.sh
+```
+
+`run_test.sh` 通过后，`mudud`、`mcli`、`mpk`、`mgen`、`mtp` 会被安装到 `~/.cargo/bin/`，并有一个可工作的 MuduDB 服务器。
+
+如果不希望从源码构建，可直接使用 [`mudup`](doc/cn/how_to_start.cn.md) 安装发布版二进制。
+
+详细说明见[如何开始](doc/cn/how_to_start.cn.md)：Dev Container、手动配置、工具介绍以及第一个 procedure。
+
+## 文档导航
+
+- [文档索引](doc/README.md)
+- [核心概念](doc/cn/concepts.cn.md)
+- [第一个 Procedure 教程](doc/cn/your_first_procedure.cn.md)
+- [部署指南](doc/cn/DEPLOY.md)
 
 ---
 

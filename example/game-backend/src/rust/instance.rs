@@ -6,7 +6,7 @@ thread_local! {
     static MAP:RefCell<HashMap<u64, GameObject>> = RefCell::new(HashMap::new());
 }
 
-struct Instance {}
+pub(crate) struct Instance {}
 
 impl Instance {
     pub fn put(id: u64, object: GameObject) {

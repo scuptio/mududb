@@ -2,6 +2,7 @@ use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dt_info::DTInfo;
 
+/// SQL data type declaration extracted from a column definition.
 #[derive(Clone, Debug)]
 pub struct TypeDeclare {
     id: DatTypeID,
@@ -9,6 +10,7 @@ pub struct TypeDeclare {
 }
 
 impl TypeDeclare {
+    /// Create a new type declaration from a concrete data type.
     pub fn new(param: DatType) -> Self {
         Self {
             id: param.dat_type_id(),
@@ -16,14 +18,17 @@ impl TypeDeclare {
         }
     }
 
+    /// Return the data type identifier.
     pub fn id(&self) -> DatTypeID {
         self.id
     }
 
+    /// Return the underlying data type.
     pub fn param(&self) -> &DatType {
         &self.param
     }
 
+    /// Return the data type metadata info.
     pub fn param_info(&self) -> DTInfo {
         self.param.to_info()
     }

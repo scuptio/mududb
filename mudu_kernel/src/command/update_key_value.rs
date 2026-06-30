@@ -4,9 +4,9 @@ use crate::x_engine::api::{OptUpdate, Predicate, XContract};
 use crate::x_engine::x_param::PUpdateKeyValue;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
-use mudu_sys::sync::f_mutex::FMutex;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
+use mudu_sys::sync::async_::futures_mutex::FMutex;
 use mudu_utils::task_trace;
 use std::sync::Arc;
 
@@ -50,10 +50,10 @@ impl _UpdateKeyValue {
     async fn prepare(&self) -> RS<()> {
         let _ = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if self.param.key.data().is_empty() {
-            return Err(m_error!(ER::NoSuchElement, "update key is empty"));
+            return Err(mudu_error!(ER::EntityNotFound, "update key is empty"));
         }
         if self.param.value.data().is_empty() {
-            return Err(m_error!(ER::NoSuchElement, "update value is empty"));
+            return Err(mudu_error!(ER::EntityNotFound, "update value is empty"));
         }
         Ok(())
     }

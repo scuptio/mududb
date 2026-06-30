@@ -1,3 +1,6 @@
+//! `database::attr_value` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_desc::DatumDesc;
 use mudu_type::dat_type::DatType;
 use mudu_type::datum::Datum;

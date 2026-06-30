@@ -1,3 +1,9 @@
+//! Portable/universal types used for FFI, RPC and serialization.
+//!
+//! This module is large, mostly mechanical bindings and therefore exempted
+//! from the `missing_docs` lint.
+#![allow(missing_docs)]
+
 pub mod test_uni;
 pub mod uni_command_argv;
 pub mod uni_command_argv_impl;
@@ -5,9 +11,16 @@ pub mod uni_dat_type;
 pub mod uni_dat_type_id;
 pub mod uni_dat_type_id_impl;
 pub mod uni_dat_type_impl;
+#[cfg(test)]
+mod uni_dat_type_test;
 pub mod uni_dat_value;
 pub mod uni_dat_value_impl;
+#[cfg(test)]
+mod uni_dat_value_test;
 pub mod uni_def;
+#[cfg(test)]
+mod uni_def_test;
+
 pub mod uni_error;
 pub mod uni_get_argv;
 pub mod uni_get_result;
@@ -32,6 +45,8 @@ pub mod uni_result_type;
 pub mod uni_scalar;
 pub mod uni_scalar_impl;
 pub mod uni_scalar_value;
+#[cfg(test)]
+mod uni_scalar_value_test;
 pub mod uni_session_open_argv;
 pub mod uni_session_open_argv_impl;
 pub mod uni_sql_param;

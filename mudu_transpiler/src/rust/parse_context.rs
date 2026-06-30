@@ -1,9 +1,15 @@
+//! Parse context for the Rust front-end.
+//!
+//! `ParseContext` tracks the original source text, discovered Mudu procedures,
+//! call dependencies, and source positions that need `async`/`await` rewriting.
+
 use crate::rust::function::Function;
 use crate::rust::template_proc::{ArgumentInfo, ProcedureInfo, ReturnInfo, TemplateProc};
 use askama::Template;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
 use mudu::utils::case_convert::{to_kebab_case, to_pascal_case};
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use mudu_contract::procedure::proc;
@@ -12,29 +18,44 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use tree_sitter::Node;
 
+/// Source position replacement recorded for a `use` path refactor.
 #[derive(Debug, Clone)]
 pub struct UseRefactor {
+    /// Start position of the text to replace.
     pub start_position: Position,
+    /// End position of the text to replace.
     pub end_position: Position,
+    /// Original source text.
     pub src_string: String,
+    /// Replacement source text.
     pub dst_string: String,
 }
 
+/// Mutable state accumulated while parsing and rewriting a Rust source file.
 #[derive(Debug)]
 pub struct ParseContext {
+    /// Original source text.
     pub text: String,
+    /// Names of Mudu system calls that require async handling.
     pub sys_call: HashSet<String>,
-    /// callee key -> caller value
+    /// Callee key -> caller value.
     pub call_dependencies: HashMap<String, HashSet<String>>,
+    /// End positions of calls per function, with a flag for system calls.
     pub position_call_end: HashMap<String, Vec<(Position, bool)>>,
+    /// Start positions of function declarations and whether they are async.
     pub position_fn_start: HashMap<String, (Position, bool)>,
+    /// Discovered Mudu procedures keyed by function name.
     pub mudu_procedure: HashMap<String, Function>,
+    /// Pending `use` path replacements.
     pub position_refactor_use: Vec<UseRefactor>,
+    /// Source lines.
     pub lines: Vec<String>,
+    /// Optional `(src, dst)` module path pair for `use` rewriting.
     pub refactor_src_dst_mod: Option<(Vec<String>, Vec<String>)>,
 }
 
 impl ParseContext {
+    /// Create a new context from source text and optional module rewrite paths.
     pub fn new(text: String, src_mod: Option<String>, dst_mod: Option<String>) -> Self {
         let mut sys_call = HashSet::new();
         sys_call.insert("mudu_query".to_string());
@@ -44,11 +65,7 @@ impl ParseContext {
         sys_call.insert("mudu_get".to_string());
         sys_call.insert("mudu_put".to_string());
         sys_call.insert("mudu_range".to_string());
-        let lines: Vec<String> = text
-            .lines()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .into();
+        let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect::<Vec<_>>();
         let refactor_src_dst_mod = if let Some(src) = src_mod
             && let Some(dst) = dst_mod
         {
@@ -75,17 +92,20 @@ impl ParseContext {
         }
     }
 
+    /// Extract the source text covered by `node`.
     pub fn node_text(&self, node: &Node) -> RS<String> {
         let s = node
             .utf8_text(self.text.as_bytes())
-            .map_err(|e| m_error!(EC::DecodeErr, "decode utf8 error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode utf8 error", e))?;
         Ok(s.to_string())
     }
 
+    /// Return whether `name` is a Mudu system call.
     pub fn is_sys_call(&self, name: &str) -> bool {
         self.sys_call.contains(name)
     }
 
+    /// Record the end position of a call inside `fn_name`.
     pub fn add_func_call_end_position(
         &mut self,
         fn_name: String,
@@ -101,49 +121,56 @@ impl ParseContext {
         }
     }
 
-    pub fn add_call_dependency(&mut self, caller: &String, callee: &String) {
+    /// Record that `caller` calls `callee`.
+    pub fn add_call_dependency(&mut self, caller: &str, callee: &str) {
         if let Some(set) = self.call_dependencies.get_mut(callee) {
-            set.insert(caller.clone());
+            set.insert(caller.to_owned());
         } else {
-            let caller_set = HashSet::from_iter(vec![caller.clone()]);
-            self.call_dependencies.insert(callee.clone(), caller_set);
+            let caller_set = HashSet::from_iter(vec![caller.to_owned()]);
+            self.call_dependencies.insert(callee.to_owned(), caller_set);
         }
     }
 
-    pub fn render_async(&self) -> String {
+    /// Render the source text with `async`/`await` annotations applied.
+    pub fn render_async(&self) -> RS<String> {
         let positions = self.update_positions();
         let mut lines = self.lines.clone();
         for (up_ty, pos) in positions {
             let line = &mut lines[pos.row];
-            let (range, to_replaced_str, replace_str) = up_ty.to_replace_string();
+            let (range, to_replaced_str, replace_str) = up_ty.to_replace_string()?;
             if line.len() < range.start
                 || line.len() < range.end
                 || range.start > range.end
                 || line[range.start..range.end] != to_replaced_str
             {
-                panic!("render error, range mismatch, possible a bug");
+                return Err(mudu_error!(
+                    ErrorCode::Internal,
+                    "render error, range mismatch, possible a bug"
+                ));
             }
             line.replace_range(range.start..range.end, &replace_str)
         }
-        lines.join("\n")
+        Ok(lines.join("\n"))
     }
 
+    /// Generate procedure descriptors for all discovered procedures.
     pub fn gen_procedure_desc_list(
         &self,
-        module_name: &String,
+        module_name: &str,
         custom_types: &UniTypeDesc,
     ) -> RS<Vec<ProcDesc>> {
         let mut vec = Vec::new();
-        for (_, function) in self.mudu_procedure.iter() {
+        for function in self.mudu_procedure.values() {
             let proc_desc = function.to_proc_desc(module_name, custom_types)?;
             vec.push(proc_desc);
         }
         Ok(vec)
     }
 
+    /// Render the final source file, including generated procedure wrappers.
     pub fn render_source(&self, module_name: String, enable_async: bool) -> RS<String> {
         let mut src = if enable_async {
-            self.render_async()
+            self.render_async()?
         } else {
             self.text.clone()
         };
@@ -153,17 +180,19 @@ impl ParseContext {
         } else {
             src.replace("sys_interface::api", "sys_interface::sync_api")
         };
-        for (_, function) in self.mudu_procedure.iter() {
-            let template = function_to_template(function, module_name.clone(), enable_async);
+        for function in self.mudu_procedure.values() {
+            let template = function_to_template(function, module_name.clone(), enable_async)?;
             let source = template
                 .render()
-                .map_err(|e| m_error!(EC::EncodeErr, "encode mudu error", e))?;
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode mudu error", e))?;
             src.push_str(&source);
         }
 
         Ok(src)
     }
 
+    /// Rewrite internal state so that Mudu system calls and their transitive
+    /// callers are marked async.
     pub fn tran_to_async(&mut self) {
         let mut position_fn_start = HashMap::new();
         let mut position_call_end = HashMap::new();
@@ -183,13 +212,10 @@ impl ParseContext {
         self.position_call_end = position_call_end;
         for (name, function) in self.mudu_procedure.iter_mut() {
             let opt = self.position_fn_start.get(name);
-            match opt {
-                Some((_, is_async)) => {
-                    if *is_async {
-                        function.is_async = true;
-                    }
-                }
-                None => {}
+            if let Some((_, is_async)) = opt
+                && *is_async
+            {
+                function.is_async = true;
             }
         }
     }
@@ -225,11 +251,11 @@ impl ParseContext {
         let set = self.get_caller_of_callee(callee).unwrap_or(&_set);
         for caller in set {
             let opt = position_fn_start.get_mut(caller);
-            if let Some((_pos, is_async)) = opt {
-                if !*is_async {
-                    *is_async = true;
-                    callers.insert(caller.clone());
-                }
+            if let Some((_pos, is_async)) = opt
+                && !*is_async
+            {
+                *is_async = true;
+                callers.insert(caller.clone());
             }
             self.mark_all_async_caller(caller, callers, position_fn_start);
         }
@@ -253,22 +279,22 @@ impl ParseContext {
 
     fn update_positions(&self) -> Vec<(UpdateType, Position)> {
         let mut vec = Vec::new();
-        for (_, (pos, is_async)) in self.position_fn_start.iter() {
+        for (pos, is_async) in self.position_fn_start.values() {
             if *is_async {
-                vec.push((UpdateType::Async(pos.clone()), pos.clone()));
+                vec.push((UpdateType::Async(*pos), *pos));
             }
         }
-        for (_, vec_call_pos) in self.position_call_end.iter() {
+        for vec_call_pos in self.position_call_end.values() {
             for (pos, is_async) in vec_call_pos.iter() {
                 if *is_async {
-                    vec.push((UpdateType::Await(pos.clone()), pos.clone()));
+                    vec.push((UpdateType::Await(*pos), *pos));
                 }
             }
         }
         for use_refactor in self.position_refactor_use.iter() {
             vec.push((
                 UpdateType::Use(use_refactor.clone()),
-                use_refactor.start_position.clone(),
+                use_refactor.start_position,
             ))
         }
 
@@ -290,13 +316,17 @@ fn mod_path_to_vec(str: &str) -> Vec<String> {
     str.split("::").map(|x| x.to_string()).collect()
 }
 
-#[derive(Debug, Clone)]
+/// Zero-based row/column position in a source file.
+#[derive(Debug, Clone, Copy)]
 pub struct Position {
+    /// Row index.
     pub row: usize,
+    /// Column index.
     pub col: usize,
 }
 
 impl Position {
+    /// Convert a `tree_sitter::Point` into a `Position`.
     pub fn from_ts(pos: tree_sitter::Point) -> Self {
         Self {
             row: pos.row,
@@ -312,36 +342,39 @@ enum UpdateType {
 }
 
 impl UpdateType {
-    fn to_replace_string(&self) -> (Range<usize>, String, String) {
+    fn to_replace_string(&self) -> RS<(Range<usize>, String, String)> {
         match self {
-            UpdateType::Async(position) => (
+            UpdateType::Async(position) => Ok((
                 Range {
                     start: position.col,
                     end: position.col,
                 },
                 "".to_string(),
                 "async ".to_string(),
-            ),
-            UpdateType::Await(position) => (
+            )),
+            UpdateType::Await(position) => Ok((
                 Range {
                     start: position.col,
                     end: position.col,
                 },
                 "".to_string(),
                 ".await".to_string(),
-            ),
+            )),
             UpdateType::Use(use_refactor) => {
                 if use_refactor.start_position.row != use_refactor.end_position.row {
-                    panic!("start position and end position must be in the same row")
+                    return Err(mudu_error!(
+                        ErrorCode::Internal,
+                        "start position and end position must be in the same row"
+                    ));
                 }
-                (
+                Ok((
                     Range {
                         start: use_refactor.start_position.col,
                         end: use_refactor.end_position.col,
                     },
                     use_refactor.src_string.clone(),
                     use_refactor.dst_string.clone(),
-                )
+                ))
             }
         }
     }
@@ -351,7 +384,7 @@ fn function_to_template(
     function: &Function,
     module_name: String,
     enable_async: bool,
-) -> TemplateProc {
+) -> RS<TemplateProc> {
     let fn_name = function.name.clone();
     let mod_name = format!("{}{}", proc::MUDU_PROC_PREFIX_MOD, fn_name);
     let fn_exported_name = format!("{}{}", proc::MUDU_PROC_P2_PREFIX, fn_name);
@@ -376,21 +409,20 @@ fn function_to_template(
         opt_underline_async = "_async".to_string();
     }
     let return_tuple = function.return_type.as_ref().map_or_else(
-        || vec![],
+        || Ok::<_, MuduError>(Vec::new()),
         |return_type| {
-            let ret_types = return_type.as_ret_type();
-            return_type
-                .to_ret_type_str()
+            let ret_types = return_type.as_ret_type()?;
+            Ok(return_type
+                .to_ret_type_str()?
                 .into_iter()
                 .enumerate()
                 .map(|(i, e)| ReturnInfo {
                     ret_type: e,
-                    ret_index: i,
                     is_binary: ret_types[i].is_vec_u8(),
                 })
-                .collect()
+                .collect())
         },
-    );
+    )?;
     //ignore the first argument, ID
     let argument_list = function.arg_list[1..]
         .iter()
@@ -403,7 +435,7 @@ fn function_to_template(
         })
         .collect::<Vec<ArgumentInfo>>();
 
-    TemplateProc {
+    Ok(TemplateProc {
         procedure: ProcedureInfo {
             mod_name,
             fn_name,
@@ -421,10 +453,12 @@ fn function_to_template(
             return_len: function
                 .return_type
                 .as_ref()
-                .map_or(0, |return_type| return_type.as_ret_type().len()),
+                .map_or(Ok::<_, MuduError>(0), |return_type| {
+                    Ok(return_type.as_ret_type()?.len())
+                })?,
             opt_async,
             opt_dot_await,
             opt_underline_async,
         },
-    }
+    })
 }

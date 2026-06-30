@@ -1,3 +1,6 @@
+//! `tuple::datum_convert` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
 use mudu_type::dat_type::DatType;
@@ -9,7 +12,7 @@ pub fn datum_from_binary<T: Datum + 'static, B: AsRef<[u8]>>(datum: B, _: &Datum
 }
 
 pub fn datum_to_binary<T: Datum + 'static>(datum: &T, _: &DatumDesc) -> RS<Vec<u8>> {
-    let dat_binary = datum.to_binary(T::dat_type())?;
+    let dat_binary = datum.to_binary(&T::dat_type())?;
     Ok(dat_binary.into())
 }
 

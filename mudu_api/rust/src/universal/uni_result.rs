@@ -11,13 +11,13 @@ where
     Err(E),
 }
 
-impl<T, E> Into<Result<T, E>> for UniResult<T, E>
+impl<T, E> From<UniResult<T, E>> for Result<T, E>
 where
     T: Serialize + DeserializeOwned + Clone + Debug,
     E: Serialize + DeserializeOwned + Clone + Debug,
 {
-    fn into(self) -> Result<T, E> {
-        match self {
+    fn from(val: UniResult<T, E>) -> Self {
+        match val {
             UniResult::Ok(t) => Ok(t),
             UniResult::Err(e) => Err(e),
         }

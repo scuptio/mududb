@@ -1,2 +1,2 @@
-use crate::error::err::MError;
-pub type RS<X> = Result<X, MError>;
+use crate::error::MuduError;
+pub type RS<X> = Result<X, MuduError>;

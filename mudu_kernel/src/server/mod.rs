@@ -5,9 +5,11 @@
 //! public API falls back to a portable thread-per-worker implementation.
 //! Modules that depend on `rliburing` are therefore compiled only on Linux.
 
+#![allow(missing_docs)]
+#![allow(clippy::module_inception)]
 pub mod async_func_runtime;
 mod async_func_task;
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "linux/callback_registry.rs"]
 mod callback_registry;
 pub mod connection_state;
@@ -35,6 +37,7 @@ pub mod partition_router;
 mod partition_rpc;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "linux/perf_test.rs"]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod perf_test;
 mod procedure_runtimes;
 #[cfg(target_os = "linux")]
@@ -53,6 +56,7 @@ pub mod server_runtime_deps;
 mod session_bound_worker_runtime;
 mod task;
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub(crate) mod test_meta_mgr;
 pub mod worker;
 pub mod worker_local;

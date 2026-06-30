@@ -1,16 +1,18 @@
+//! Command-line interface for the `mtp` transpiler binary.
+
 use clap::{ArgAction, Parser};
 use mudu::common::result::RS;
+use mudu_sys::process;
 use std::path::PathBuf;
-use std::process;
 
-/// Command-line arguments structure for the Mudu Transpiler
+/// Command-line arguments structure for the Mudu Transpiler.
 #[derive(Parser, Clone)]
 #[command(
     name = "mtp",
     version = "1.0",
     author = "scuptio",
     about = "Mudu Transpiler (mtp), transpile source code to Mudu procedure",
-    long_about = "Transpiles source code from various programming languages to Mudu procedure format"
+    long_about = "Transpiles source code from supported programming languages to Mudu procedure format"
 )]
 pub struct Args {
     /// Subcommand specifying the source language
@@ -54,50 +56,27 @@ pub struct Args {
     pub package_desc: Option<String>,
 }
 
-/// Supported source language subcommands
+/// Supported source language subcommands.
 #[derive(Parser, Clone)]
 pub enum CommandType {
     /// Transpile Rust source code
     #[command(alias = "rs")]
-    Rust(RustArgs),
-
-    /// Transpile C# source code
-    #[command(alias = "c#")]
-    CSharp(CommonArgs),
-
-    /// Transpile Python source code
-    #[command(alias = "py")]
-    Python(CommonArgs),
-
-    /// Transpile Go source code
-    #[command(alias = "go")]
-    Golang(CommonArgs),
+    Rust,
 
     /// Transpile AssemblyScript source code
     #[command(alias = "as")]
-    AssemblyScript(CommonArgs),
+    AssemblyScript,
 }
 
-/// Common arguments shared by all subcommands
-#[derive(Parser, Clone)]
-pub struct CommonArgs {}
-
-/// Rust-specific arguments
-#[derive(Parser, Clone)]
-pub struct RustArgs {}
-
-/// Execute the CLI command based on parsed arguments
+/// Execute the CLI command based on parsed arguments.
 pub fn execute(args: Args) -> Result<(), String> {
     if args.verbose {
         println!("Mudu Transpiler started");
     }
 
     match &args.command {
-        CommandType::Rust(_) => handle_rust(args.clone()),
-        CommandType::CSharp(_) => handle_csharp(args.clone()),
-        CommandType::Python(_) => handle_python(args.clone()),
-        CommandType::Golang(_) => handle_golang(args.clone()),
-        CommandType::AssemblyScript(_) => handle_assemblyscript(args.clone()),
+        CommandType::Rust => handle_rust(args.clone()),
+        CommandType::AssemblyScript => handle_assemblyscript(args.clone()),
     }
 }
 
@@ -113,59 +92,23 @@ fn handle_rust(args: Args) -> Result<(), String> {
     let output_file = PathBuf::from(&args.output);
     let module = args.module.unwrap_or_else(|| "module".to_string());
 
-    let ret = crate::rust::transpile_rust(
-        &input_file,
-        &output_file,
-        module,
-        args.verbose,
-        args.enable_async,
-        args.src_mod,
-        args.dst_mod,
-        args.package_desc,
-        args.type_desc_file,
-    );
+    let ret = crate::rust::transpile_rust(crate::rust::TranspileRustOptions {
+        input: &input_file,
+        output: &output_file,
+        module_name: module,
+        verbose: args.verbose,
+        enable_async: args.enable_async,
+        src_mod: args.src_mod,
+        dst_mod: args.dst_mod,
+        output_desc_file: args.package_desc,
+        custom_type_def_file: args.type_desc_file,
+    });
 
     if ret == 0 {
         Ok(())
     } else {
         Err(format!("Rust transpilation failed with exit code: {}", ret))
     }
-}
-
-/// Handle C# transpilation
-fn handle_csharp(args: Args) -> Result<(), String> {
-    if args.verbose {
-        println!("Source language: C#");
-        println!("Input file: {}", args.input);
-        println!("Output file: {}", args.output);
-    }
-    // TODO: Implement C# transpilation
-    println!("C# transpilation not yet implemented");
-    Ok(())
-}
-
-/// Handle Python transpilation
-fn handle_python(args: Args) -> Result<(), String> {
-    if args.verbose {
-        println!("Source language: Python");
-        println!("Input file: {}", args.input);
-        println!("Output file: {}", args.output);
-    }
-    // TODO: Implement Python transpilation
-    println!("Python transpilation not yet implemented");
-    Ok(())
-}
-
-/// Handle Go transpilation
-fn handle_golang(args: Args) -> Result<(), String> {
-    if args.verbose {
-        println!("Source language: Go");
-        println!("Input file: {}", args.input);
-        println!("Output file: {}", args.output);
-    }
-    // TODO: Implement Go transpilation
-    println!("Go transpilation not yet implemented");
-    Ok(())
 }
 
 /// Handle AssemblyScript transpilation
@@ -197,15 +140,30 @@ fn handle_assemblyscript(args: Args) -> Result<(), String> {
     }
 }
 
+/// Parse command-line arguments from `args` and run the transpiler.
+///
+/// Errors are returned as a string so tests can assert on them without the
+/// binary terminating the process.
+pub fn run<I, T>(args: I) -> Result<(), String>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let args = Args::try_parse_from(args).map_err(|e| e.to_string())?;
+    execute(args)
+}
+
+/// Parse command-line arguments from `args` and run the transpiler.
+///
+/// This is exposed as a library entry point so it can be exercised from
+/// integration tests without spawning a subprocess. On error it prints to
+/// stderr and exits the process with code 1.
 pub fn main_inner<I, T>(args: I) -> RS<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let args = Args::parse_from(args);
-
-    // Execute the logic
-    if let Err(e) = execute(args) {
+    if let Err(e) = run(args) {
         eprintln!("Error: {}", e);
         process::exit(1);
     }

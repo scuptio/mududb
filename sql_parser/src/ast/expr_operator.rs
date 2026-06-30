@@ -1,35 +1,53 @@
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use std::collections::HashMap;
 
+/// SQL operator enum.
 #[derive(Copy, Clone)]
 pub enum Operator {
+    /// Value comparison operator (`=`, `<`, `>`, etc.).
     OValueCompare(ValueCompare),
+    /// Logical connective operator (`AND`).
     OLogicalConnective(LogicalConnective),
+    /// Arithmetic operator (`+`, `-`, `*`, `/`).
     OArithmetic(Arithmetic),
 }
 
+/// Arithmetic operators.
 #[derive(Clone, Copy, Debug)]
 pub enum Arithmetic {
+    /// Addition (`+`).
     PLUS,
+    /// Subtraction (`-`).
     MINUS,
+    /// Multiplication (`*`).
     MULTIPLE,
+    /// Division (`/`).
     DIVIDE,
 }
 
+/// Value comparison operators.
 #[derive(Copy, Clone, Debug)]
 pub enum ValueCompare {
+    /// Equal (`=`).
     EQ,
+    /// Less than or equal (`<=`).
     LE,
+    /// Less than (`<`).
     LT,
+    /// Greater than or equal (`>=`).
     GE,
+    /// Greater than (`>`).
     GT,
+    /// Not equal (`!=`).
     NE,
 }
 
+/// Logical connective operators.
 #[derive(Copy, Clone, Debug)]
 pub enum LogicalConnective {
+    /// Logical AND.
     AND,
 }
 
@@ -52,8 +70,8 @@ fn name2op(name: String) -> RS<Operator> {
     let op = if let Some(op) = opt_op {
         *op
     } else {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!("operator {} not found", name)
         ));
     };
@@ -61,18 +79,21 @@ fn name2op(name: String) -> RS<Operator> {
 }
 
 impl Operator {
-    pub fn from_str(name: String) -> RS<Self> {
+    /// Parse an operator from its SQL symbol or keyword name.
+    pub fn from_name(name: String) -> RS<Self> {
         name2op(name)
     }
 
+    /// Return the logical connective variant, if any.
     pub fn logical_connect(&self) -> Option<LogicalConnective> {
         match self {
             Operator::OValueCompare(_) => None,
-            Operator::OLogicalConnective(c) => Some(c.clone()),
+            Operator::OLogicalConnective(c) => Some(*c),
             &Operator::OArithmetic(_) => None,
         }
     }
 
+    /// Return `true` if this operator is a logical `AND`.
     pub fn is_logical_and(&self) -> bool {
         match self.logical_connect() {
             None => false,
@@ -84,6 +105,9 @@ impl Operator {
 }
 
 impl ValueCompare {
+    /// Reverse the comparison direction.
+    ///
+    /// Used to normalize `literal OP field` into `field OP' literal`.
     pub fn revert_cmp_op(op: ValueCompare) -> ValueCompare {
         match op {
             ValueCompare::EQ => ValueCompare::EQ,

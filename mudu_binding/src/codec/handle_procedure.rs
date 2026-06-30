@@ -9,12 +9,14 @@ use mudu::utils::json::{JsonValue, to_json_value};
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
 
+/// Deserializes a procedure parameter from its universal representation.
 pub fn procedure_deserialize_param(param: &[u8]) -> RS<ProcedureParam> {
     let (param, _) = deserialize_from::<UniProcedureParam>(param)?;
     let proc_param = param.uni_to()?;
     Ok(proc_param)
 }
 
+/// Serializes a procedure parameter into its universal representation.
 pub fn procedure_serialize_param(param: ProcedureParam) -> Vec<u8> {
     let r = _procedure_serialize_param(param);
     r.unwrap_or_default()
@@ -25,11 +27,13 @@ fn _procedure_serialize_param(param: ProcedureParam) -> RS<Vec<u8>> {
     serialize_to_vec(&mu_proc_param)
 }
 
+/// Serializes a procedure result (or error) into its universal representation.
 pub fn procedure_serialize_result(result: RS<ProcedureResult>) -> Vec<u8> {
     let r = _procedure_serialize_result(result);
     r.unwrap_or_default()
 }
 
+/// Deserializes a procedure result from its universal representation.
 pub fn procedure_deserialize_result(result: &[u8]) -> RS<ProcedureResult> {
     _procedure_deserialize_result(result)
 }
@@ -59,6 +63,7 @@ fn _procedure_serialize_result(result: RS<ProcedureResult>) -> RS<Vec<u8>> {
     serialize_to_vec(&mu_result)
 }
 
+/// Converts a procedure result into a JSON value.
 pub fn result_to_json(r: ProcedureResult) -> RS<JsonValue> {
     let result_mu = UniProcedureResult::uni_from(r)?;
     to_json_value(&result_mu)
@@ -68,17 +73,17 @@ pub fn result_to_json(r: ProcedureResult) -> RS<JsonValue> {
 mod test {
     use crate::system::command_invoke::{deserialize_command_result, serialize_command_result};
     use mudu::common::result::RS;
-    use mudu::error::ec::EC;
-    use mudu::m_error;
+    use mudu::error::ErrorCode;
+    use mudu::mudu_error;
 
     #[test]
     fn test_mu_result() {
-        let result: RS<u64> = Err(m_error!(EC::DBInternalError, "db error"));
+        let result: RS<u64> = Err(mudu_error!(ErrorCode::Database, "db error"));
         let s = serialize_command_result(result);
         let de_result = deserialize_command_result(&s);
         assert!(
             de_result.is_err()
-                && de_result.as_ref().expect_err("expected error").ec() == EC::DBInternalError
+                && de_result.as_ref().expect_err("expected error").ec() == ErrorCode::Database
         );
         println!("{:?}", de_result)
     }

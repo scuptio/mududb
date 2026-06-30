@@ -1,4 +1,6 @@
-#![allow(dead_code)]
+//! In-memory catalog managers for schemas, partitions, rules, and placements.
+
+#![allow(missing_docs)]
 
 pub mod _fuzz;
 

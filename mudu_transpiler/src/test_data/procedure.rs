@@ -1,3 +1,5 @@
+//! Sample Mudu procedures used as test data for the Rust transpiler.
+
 use crate::rust::options::object::Options;
 use crate::rust::vote_actions::object::VoteActions;
 use crate::rust::vote_history_item::object::VoteHistoryItem;
@@ -7,17 +9,17 @@ use chrono::Utc;
 use fallible_iterator::FallibleIterator;
 use mudu::common::result::RS;
 use mudu::common::id::OID;
-use mudu::error::ec::EC::MuduError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::{sql_params, sql_stmt};
+use mudu_sys::random::next_uuid_v4_string;
 use sys_interface::sync_api::{mudu_command, mudu_query};
-use uuid::Uuid;
 
 // User management
 /**mudu-proc**/
 pub fn create_user(xid: OID, phone: String) -> RS<String> {
-    let user_id = Uuid::new_v4().to_string();
+    let user_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO users (user_id, phone) VALUES (?, ?)"),
@@ -39,19 +41,19 @@ pub fn create_vote(
 ) -> RS<String> {
     // Validate input
     if end_time <= Utc::now().timestamp() {
-        return Err(m_error!(MuduError, "End time must be in future".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "End time must be in future".to_string()));
     }
     if vote_type != "single" && vote_type != "multiple" {
-        return Err(m_error!(MuduError, "Vote type must be 'single' or 'multiple'".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "Vote type must be 'single' or 'multiple'".to_string()));
     }
     if vote_type == "single" && max_choices != 1 {
-        return Err(m_error!(MuduError, "Single vote requires max_choices=1".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "Single vote requires max_choices=1".to_string()));
     }
     if visibility_rule != "always" && visibility_rule != "after_end" {
-        return Err(m_error!(MuduError, "Visibility rule must be 'always' or 'after_end'".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "Visibility rule must be 'always' or 'after_end'".to_string()));
     }
 
-    let vote_id = Uuid::new_v4().to_string();
+    let vote_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(
@@ -66,7 +68,7 @@ pub fn create_vote(
 // Add option to vote
 /**mudu-proc**/
 pub fn add_option(xid: OID, vote_id: String, option_text: String) -> RS<String> {
-    let option_id = Uuid::new_v4().to_string();
+    let option_id = next_uuid_v4_string();
     mudu_command(
         xid,
         sql_stmt!(&"INSERT INTO options (option_id, vote_id, option_text) VALUES (?, ?, ?)"),
@@ -83,10 +85,10 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
-        return Err(m_error!(MuduError, "Voting has ended".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidState, "Voting has ended".to_string()));
     }
 
     // Check user hasn't voted or has withdrawn previous vote
@@ -98,19 +100,19 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
     let has_active_vote = rs.next()?.is_some();
 
     if has_active_vote {
-        return Err(m_error!(MuduError, "User already voted and hasn't withdrawn".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidState, "User already voted and hasn't withdrawn".to_string()));
     }
 
     // Validate choices
     if vote.get_vote_type().as_ref().unwrap() == "single" && option_ids.len() != 1 {
-        return Err(m_error!(MuduError, "Single vote requires exactly one option".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "Single vote requires exactly one option".to_string()));
     }
     if vote.get_vote_type().as_ref().unwrap() == "multiple" && option_ids.len() > 3 {
-        return Err(m_error!(MuduError, "Exceeded max choices".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidArgument, "Exceeded max choices".to_string()));
     }
 
     // Create vote action
-    let action_id = Uuid::new_v4().to_string();
+    let action_id = next_uuid_v4_string();
     let action_time = Utc::now().timestamp();
     mudu_command(
         xid,
@@ -123,7 +125,7 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
 
     // Create vote choices
     for option_id in option_ids {
-        let choice_id = Uuid::new_v4().to_string();
+        let choice_id = next_uuid_v4_string();
         mudu_command(
             xid,
             sql_stmt!(
@@ -144,17 +146,17 @@ pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
-        return Err(m_error!(MuduError, "Voting has ended, cannot withdraw".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidState, "Voting has ended, cannot withdraw".to_string()));
     }
 
     let active_action = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(&"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"),
         sql_params!(&(user_id, vote_id)),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "No active vote to withdraw".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "No active vote to withdraw".to_string()))?;
 
     let action_id = active_action.get_action_id().as_ref().unwrap().clone();
     mudu_command(
@@ -176,14 +178,14 @@ pub fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| m_error!(MuduError, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
 
     let now = Utc::now().timestamp();
     let vote_ended = now > vote.get_end_time().unwrap() as i64;
 
     // Check visibility rules
     if vote.get_visibility_rule().as_ref().unwrap() == "after_end" && !vote_ended {
-        return Err(m_error!(MuduError, "Results only visible after vote ends".to_string()));
+        return Err(mudu_error!(ErrorCode::InvalidState, "Results only visible after vote ends".to_string()));
     }
 
     // Calculate results

@@ -1,3 +1,6 @@
+//! `procedure::procedure_result` module.
+#![allow(missing_docs)]
+
 use crate::tuple::tuple_datum::TupleDatum;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;

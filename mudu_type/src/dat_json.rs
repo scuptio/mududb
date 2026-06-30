@@ -1,4 +1,5 @@
 use mudu::utils::json::JsonValue;
+use std::fmt;
 use std::ops;
 
 pub struct DatJson {
@@ -17,9 +18,11 @@ impl DatJson {
     pub fn into_json_value(self) -> JsonValue {
         self.json
     }
+}
 
-    pub fn to_string(&self) -> String {
-        self.json.to_string()
+impl fmt::Display for DatJson {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.json.fmt(f)
     }
 }
 

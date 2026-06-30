@@ -699,3 +699,226 @@ impl<'de> serde::Deserialize<'de> for UniScalarValue {
         deserializer.deserialize_seq(UniScalarValueVisitor {})
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::UniScalarValue;
+    use mudu::common::serde_utils::{
+        deserialize_from, deserialize_from_json, serialize_to_json, serialize_to_vec,
+    };
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
+
+    type AccessorPredicate = Box<dyn Fn(&UniScalarValue) -> bool>;
+
+    fn assert_json_and_binary_roundtrip<T>(value: &T)
+    where
+        T: Serialize + DeserializeOwned + Clone + std::fmt::Debug + 'static,
+    {
+        let json = serialize_to_json(value).unwrap();
+        let binary = serialize_to_vec(value).unwrap();
+
+        let decoded_json: T = deserialize_from_json(json.as_str()).unwrap();
+        let (decoded_binary, used): (T, u64) = deserialize_from(binary.as_slice()).unwrap();
+
+        let json_after = serialize_to_json(&decoded_json).unwrap();
+        let binary_after = serialize_to_vec(&decoded_binary).unwrap();
+
+        assert_eq!(json_after, json);
+        assert_eq!(binary_after, binary);
+        assert_eq!(used as usize, binary.len());
+    }
+
+    #[test]
+    fn default_is_bool_false() {
+        assert_eq!(UniScalarValue::default().as_bool(), Some(&false));
+    }
+
+    #[test]
+    fn constructors_and_accessors_match_for_every_variant() {
+        let cases: Vec<(UniScalarValue, AccessorPredicate)> = vec![
+            (
+                UniScalarValue::from_bool(true),
+                Box::new(|v| v.as_bool() == Some(&true)),
+            ),
+            (
+                UniScalarValue::from_u8(3),
+                Box::new(|v| v.as_u8() == Some(&3)),
+            ),
+            (
+                UniScalarValue::from_i8(7),
+                Box::new(|v| v.as_i8() == Some(&7)),
+            ),
+            (
+                UniScalarValue::from_u16(16),
+                Box::new(|v| v.as_u16() == Some(&16)),
+            ),
+            (
+                UniScalarValue::from_i16(-16),
+                Box::new(|v| v.as_i16() == Some(&-16)),
+            ),
+            (
+                UniScalarValue::from_u32(32),
+                Box::new(|v| v.as_u32() == Some(&32)),
+            ),
+            (
+                UniScalarValue::from_i32(-32),
+                Box::new(|v| v.as_i32() == Some(&-32)),
+            ),
+            (
+                UniScalarValue::from_u64(64),
+                Box::new(|v| v.as_u64() == Some(&64)),
+            ),
+            (
+                UniScalarValue::from_u128(128),
+                Box::new(|v| v.as_u128() == Some(&128)),
+            ),
+            (
+                UniScalarValue::from_i64(-64),
+                Box::new(|v| v.as_i64() == Some(&-64)),
+            ),
+            (
+                UniScalarValue::from_i128(-128),
+                Box::new(|v| v.as_i128() == Some(&-128)),
+            ),
+            (
+                UniScalarValue::from_f32(3.25),
+                Box::new(|v| v.as_f32() == Some(&3.25)),
+            ),
+            (
+                UniScalarValue::from_f64(-9.5),
+                Box::new(|v| v.as_f64() == Some(&-9.5)),
+            ),
+            (
+                UniScalarValue::from_char('z'),
+                Box::new(|v| v.as_char() == Some(&'z')),
+            ),
+            (
+                UniScalarValue::from_string("hello".to_string()),
+                Box::new(|v| v.as_string() == Some(&"hello".to_string())),
+            ),
+            (
+                UniScalarValue::from_numeric("12.3400".to_string()),
+                Box::new(|v| v.as_numeric() == Some(&"12.3400".to_string())),
+            ),
+            (
+                UniScalarValue::from_date("2026-05-20".to_string()),
+                Box::new(|v| v.as_date() == Some(&"2026-05-20".to_string())),
+            ),
+            (
+                UniScalarValue::from_time("12:34:56".to_string()),
+                Box::new(|v| v.as_time() == Some(&"12:34:56".to_string())),
+            ),
+            (
+                UniScalarValue::from_timestamp("2026-05-20 14:30:00".to_string()),
+                Box::new(|v| v.as_timestamp() == Some(&"2026-05-20 14:30:00".to_string())),
+            ),
+            (
+                UniScalarValue::from_timestamptz("2026-05-20T14:30:00+08:00".to_string()),
+                Box::new(|v| v.as_timestamptz() == Some(&"2026-05-20T14:30:00+08:00".to_string())),
+            ),
+        ];
+
+        for (value, predicate) in cases {
+            assert!(
+                predicate(&value),
+                "accessor did not return expected value for {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accessors_return_none_for_wrong_variant() {
+        let i32_value = UniScalarValue::from_i32(42);
+        assert!(i32_value.as_bool().is_none());
+        assert!(i32_value.as_u8().is_none());
+        assert!(i32_value.as_i8().is_none());
+        assert!(i32_value.as_u16().is_none());
+        assert!(i32_value.as_i16().is_none());
+        assert!(i32_value.as_u32().is_none());
+        assert!(i32_value.as_u64().is_none());
+        assert!(i32_value.as_u128().is_none());
+        assert!(i32_value.as_i64().is_none());
+        assert!(i32_value.as_i128().is_none());
+        assert!(i32_value.as_f32().is_none());
+        assert!(i32_value.as_f64().is_none());
+        assert!(i32_value.as_char().is_none());
+        assert!(i32_value.as_string().is_none());
+        assert!(i32_value.as_numeric().is_none());
+        assert!(i32_value.as_date().is_none());
+        assert!(i32_value.as_time().is_none());
+        assert!(i32_value.as_timestamp().is_none());
+        assert!(i32_value.as_timestamptz().is_none());
+
+        let string_value = UniScalarValue::from_string("x".to_string());
+        assert!(string_value.as_i32().is_none());
+        assert!(string_value.as_numeric().is_none());
+
+        let numeric_value = UniScalarValue::from_numeric("1.5".to_string());
+        assert!(numeric_value.as_string().is_none());
+        assert!(numeric_value.as_date().is_none());
+
+        let date_value = UniScalarValue::from_date("2026-01-01".to_string());
+        assert!(date_value.as_time().is_none());
+        assert!(date_value.as_timestamp().is_none());
+        assert!(date_value.as_timestamptz().is_none());
+    }
+
+    #[test]
+    fn serde_roundtrip_for_all_variants() {
+        let cases = vec![
+            UniScalarValue::from_bool(true),
+            UniScalarValue::from_bool(false),
+            UniScalarValue::from_u8(0),
+            UniScalarValue::from_u8(255),
+            UniScalarValue::from_i8(0),
+            UniScalarValue::from_i8(255),
+            UniScalarValue::from_u16(16),
+            UniScalarValue::from_i16(-16),
+            UniScalarValue::from_u32(32),
+            UniScalarValue::from_i32(-32),
+            UniScalarValue::from_u64(64),
+            UniScalarValue::from_u128(128),
+            UniScalarValue::from_i64(-64),
+            UniScalarValue::from_i128(-128),
+            UniScalarValue::from_f32(3.25),
+            UniScalarValue::from_f64(-9.5),
+            UniScalarValue::from_char('z'),
+            UniScalarValue::from_string("hello".to_string()),
+            UniScalarValue::from_numeric("12.3400".to_string()),
+            UniScalarValue::from_numeric("-999999999999999999.999999999999".to_string()),
+            UniScalarValue::from_date("2026-05-20".to_string()),
+            UniScalarValue::from_time("12:34:56.123456".to_string()),
+            UniScalarValue::from_timestamp("2026-05-20 14:30:45.123456".to_string()),
+            UniScalarValue::from_timestamptz("2026-05-20T14:30:45.123456+08:00".to_string()),
+        ];
+
+        for value in cases {
+            assert_json_and_binary_roundtrip(&value);
+        }
+    }
+
+    #[test]
+    fn serde_rejects_unknown_tag() {
+        assert!(deserialize_from_json::<UniScalarValue>("[99,0]").is_err());
+    }
+
+    #[test]
+    fn serde_rejects_missing_payload() {
+        assert!(deserialize_from_json::<UniScalarValue>("[6]").is_err());
+    }
+
+    #[test]
+    fn binary_rejects_truncated_payload() {
+        let value = UniScalarValue::from_string("hello".to_string());
+        let binary = serialize_to_vec(&value).unwrap();
+        let truncated = &binary[..binary.len() - 1];
+        assert!(deserialize_from::<UniScalarValue>(truncated).is_err());
+    }
+
+    #[test]
+    fn json_shape_sanity_i32() {
+        let value = UniScalarValue::from_i32(6);
+        assert_eq!(serde_json::to_string(&value).unwrap(), "[6,6]");
+    }
+}

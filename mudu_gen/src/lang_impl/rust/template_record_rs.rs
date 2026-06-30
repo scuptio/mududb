@@ -6,14 +6,18 @@ use mudu::common::result::RS;
 use crate::lang_impl::lang::record_info::RecordInfo;
 use mudu_binding::universal::uni_def::UniRecordDef;
 
+/// Askama template for a Rust record.
 #[derive(Template)]
 #[template(path = "rust/record.rs.jinja", escape = "none")]
 pub struct TemplateRecordRS {
+    /// Generation configuration.
     pub cfg: CodegenCfg,
+    /// Normalized record metadata.
     pub record: RecordInfo,
 }
 
 impl TemplateRecordRS {
+    /// Build the template from a WIT record definition.
     pub fn from(record_def: UniRecordDef, cfg: CodegenCfg) -> RS<Self> {
         Ok(Self {
             record: RecordInfo::from(record_def, LangKind::Rust)?,

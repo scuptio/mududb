@@ -1,10 +1,13 @@
+//! `database::entity_utils` module.
+#![allow(missing_docs)]
+
 use crate::database::entity::Entity;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::tuple::tuple_value::TupleValue;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type as data_type;
 use mudu_type::dat_binary::DatBinary;
 use mudu_type::dat_textual::DatTextual;
@@ -19,17 +22,20 @@ fn _entity_from_tuple<R: Entity, T: AsRef<TupleField>, D: AsRef<TupleFieldDesc>>
 ) -> RS<R> {
     let mut s = R::new_empty();
     if row.as_ref().fields().len() != desc.as_ref().fields().len() {
-        panic!(
-            "Entity from_tuple wrong length tuple fields:{}, description fields:{}",
-            row.as_ref().fields().len(),
-            desc.as_ref().fields().len()
-        );
+        return Err(mudu_error!(
+            ErrorCode::InvalidType,
+            format!(
+                "Entity from_tuple wrong length tuple fields:{}, description fields:{}",
+                row.as_ref().fields().len(),
+                desc.as_ref().fields().len()
+            )
+        ));
     }
     for (i, dat) in row.as_ref().fields().iter().enumerate() {
         let dd = &desc.as_ref().fields()[i];
         let Some(dat) = dat else {
-            return Err(m_error!(
-                EC::NotImplemented,
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "NULL entity field conversion is not implemented"
             ));
         };
@@ -44,11 +50,14 @@ fn _entity_from_tuple_value<R: Entity, T: AsRef<TupleValue>, D: AsRef<TupleField
 ) -> RS<R> {
     let mut s = R::new_empty();
     if row.as_ref().values().len() != desc.as_ref().fields().len() {
-        panic!(
-            "Entity from tuple value, wrong length tuple fields:{}, description fields:{}",
-            row.as_ref().values().len(),
-            desc.as_ref().fields().len()
-        );
+        return Err(mudu_error!(
+            ErrorCode::InvalidType,
+            format!(
+                "Entity from tuple value, wrong length tuple fields:{}, description fields:{}",
+                row.as_ref().values().len(),
+                desc.as_ref().fields().len()
+            )
+        ));
     }
     for (i, dat) in row.as_ref().values().iter().enumerate() {
         let dd = &desc.as_ref().fields()[i];
@@ -64,7 +73,10 @@ fn _entity_to_tuple<R: Entity, D: AsRef<TupleFieldDesc>>(record: &R, desc: D) ->
         if let Some(datum) = opt_datum {
             tuple.push(datum);
         } else {
-            panic!("Field {} return None", d.name());
+            return Err(mudu_error!(
+                ErrorCode::InvalidType,
+                format!("Field {} returned None", d.name())
+            ));
         }
     }
     Ok(TupleField::new(tuple))
@@ -78,12 +90,18 @@ fn _entity_from_value<R: Entity, V: AsRef<DatValue>, D: AsRef<TupleFieldDesc>>(
     let object = if let Some(object) = opt_object {
         object
     } else {
-        return Err(m_error!(EC::TypeErr, "expected a object type"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidType,
+            "expected a object type"
+        ));
     };
 
     let mut record = R::new_empty();
     if desc.as_ref().fields().len() != object.len() {
-        return Err(m_error!(EC::TypeErr, "wrong field length expected"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidType,
+            "wrong field length expected"
+        ));
     }
     for (i, filed_data) in object.iter().enumerate() {
         let field_name = desc.as_ref().fields()[i].name();
@@ -96,14 +114,22 @@ fn _entity_to_value<R: Entity>(record: &R, ty: &DatType) -> RS<DatValue> {
     let mut value = vec![];
     let object_param = match ty.dat_type_id() {
         DatTypeID::Record => ty.expect_record_param(),
-        _ => return Err(m_error!(EC::TypeErr, "convert object to other not support")),
+        _ => {
+            return Err(mudu_error!(
+                ErrorCode::TypeConversionFailed,
+                "convert object to other not support"
+            ));
+        }
     };
     for (f_name, _ty) in object_param.fields() {
         let opt_value = record.get_field_value(f_name)?;
         if let Some(datum) = opt_value {
             value.push(datum);
         } else {
-            panic!("Field {} return None", f_name);
+            return Err(mudu_error!(
+                ErrorCode::InvalidType,
+                format!("Field {} returned None", f_name)
+            ));
         }
     }
     Ok(DatValue::from_record(value))
@@ -123,8 +149,13 @@ pub fn entity_from_value<E: Entity, V: AsRef<DatValue>>(value: V) -> RS<E> {
 
 pub fn entity_from_textual<E: Entity>(textual: &str) -> RS<E> {
     let ty = E::dat_type();
-    let value = ty.dat_type_id().fn_input()(textual, ty)
-        .map_err(|e| m_error!(EC::TypeErr, "input from string error", e))?;
+    let value = ty.dat_type_id().fn_input()(textual, &ty).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "input from string error",
+            e
+        )
+    })?;
     entity_from_value(&value)
 }
 
@@ -134,8 +165,13 @@ pub fn entity_dat_type_id() -> RS<DatTypeID> {
 
 pub fn entity_from_binary<E: Entity>(binary: &[u8]) -> RS<E> {
     let ty = E::dat_type();
-    let (value, _) = ty.dat_type_id().fn_recv()(binary, ty)
-        .map_err(|e| m_error!(EC::TypeErr, "convert binary to entity error", e))?;
+    let (value, _) = ty.dat_type_id().fn_recv()(binary, &ty).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "convert binary to entity error",
+            e
+        )
+    })?;
     let entity = entity_from_value(&value)?;
     Ok(entity)
 }
@@ -158,16 +194,26 @@ pub fn entity_to_tuple<E: Entity>(entity: &E) -> RS<TupleField> {
 pub fn entity_to_binary<E: Entity>(entity: &E, ty: &DatType) -> RS<DatBinary> {
     let value = entity_to_value(entity, ty)?;
     let id = ty.dat_type_id();
-    let binary = id.fn_send()(&value, ty)
-        .map_err(|e| m_error!(EC::CompareErr, "convert to binary error", e))?;
+    let binary = id.fn_send()(&value, ty).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "convert to binary error",
+            e
+        )
+    })?;
     Ok(binary)
 }
 
 pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DatType) -> RS<DatTextual> {
     let value = entity_to_value(entity, ty)?;
     let id = ty.dat_type_id();
-    let textual = id.fn_output()(&value, ty)
-        .map_err(|e| m_error!(EC::CompareErr, "convert to textual error", e))?;
+    let textual = id.fn_output()(&value, ty).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "convert to textual error",
+            e
+        )
+    })?;
     Ok(textual)
 }
 

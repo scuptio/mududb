@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::contract::table_desc::TableDesc;
 use crate::x_engine::api::VecSelTerm;
 use mudu_contract::tuple::datum_desc::DatumDesc;

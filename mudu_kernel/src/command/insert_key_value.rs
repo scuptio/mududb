@@ -4,8 +4,8 @@ use crate::x_engine::api::{OptInsert, XContract};
 use crate::x_engine::x_param::PInsertKeyValue;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -53,7 +53,7 @@ impl InsertKeyValue {
         let _ = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         for (key, _value) in &self.param.rows {
             if key.data().is_empty() {
-                return Err(m_error!(ER::NoSuchElement, "key is empty"));
+                return Err(mudu_error!(ER::EntityNotFound, "key is empty"));
             }
         }
         Ok(())

@@ -1,5 +1,6 @@
-use mudu::common::id::{gen_oid, OID};
+use mudu::common::id::OID;
 use mudu_type::dat_type_id::DatTypeID;
+use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

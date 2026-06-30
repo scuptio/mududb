@@ -1,3 +1,6 @@
+//! `tuple::tuple_value` module.
+#![allow(missing_docs)]
+
 use mudu_type::dat_value::DatValue;
 use serde::{Deserialize, Serialize};
 

@@ -33,7 +33,7 @@ impl UniDatValue {
     pub fn expect_scalar(&self) -> &UniScalarValue {
         match self {
             Self::Scalar(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => expect_failed("expect_scalar called on a non-scalar UniDatValue"),
         }
     }
 
@@ -51,7 +51,7 @@ impl UniDatValue {
     pub fn expect_array(&self) -> &Vec<UniDatValue> {
         match self {
             Self::Array(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => expect_failed("expect_array called on a non-array UniDatValue"),
         }
     }
 
@@ -69,7 +69,7 @@ impl UniDatValue {
     pub fn expect_record(&self) -> &Vec<UniDatValue> {
         match self {
             Self::Record(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => expect_failed("expect_record called on a non-record UniDatValue"),
         }
     }
 
@@ -87,16 +87,23 @@ impl UniDatValue {
     pub fn expect_binary(&self) -> &Vec<u8> {
         match self {
             Self::Binary(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => expect_failed("expect_binary called on a non-binary UniDatValue"),
         }
     }
 }
 
+/// Panics with `msg`. Extracted into a small helper so the `expect_*`
+/// accessors can keep their "panic on wrong variant" contract while the
+/// scoped `#[allow(clippy::panic)]` stays minimal and close to the panic.
+#[inline]
+#[track_caller]
+#[allow(clippy::panic)]
+fn expect_failed(msg: &str) -> ! {
+    panic!("{msg}");
+}
+
 impl serde::Serialize for UniDatValue {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeSeq;
         let mut serialize_seq = serializer.serialize_seq(Some(2))?;
         match self {
@@ -133,10 +140,7 @@ impl<'de> serde::de::Visitor<'de> for UniDatValueVisitor {
         formatter.write_str("a sequence")
     }
 
-    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
         use serde::de::Error;
         use serde::de::Unexpected;
         let mut seq = seq;
@@ -182,10 +186,7 @@ impl<'de> serde::de::Visitor<'de> for UniDatValueVisitor {
 }
 
 impl<'de> serde::Deserialize<'de> for UniDatValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_seq(UniDatValueVisitor {})
     }
 }

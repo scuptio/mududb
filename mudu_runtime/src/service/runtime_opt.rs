@@ -1,42 +1,56 @@
 use crate::backend::mududb_cfg::ServerMode;
-use mudu_sys::async_rt::contract::AsyncRuntime;
-#[cfg(target_os = "linux")]
-use mudu_sys::async_rt::linux::runtime::IoUringRuntime;
-use mudu_sys::async_rt::tokio::runtime::TokioRuntime;
+use mudu_sys::common::provider_type::ProviderType;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::provider::create_io_provider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Target Wasm component model version.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ComponentTarget {
+    /// Preview 2 component model.
     #[default]
     P2,
+    /// Preview 3 component model.
     P3,
 }
 
+/// Options controlling runtime behavior.
 #[derive(Clone)]
 pub struct RuntimeOpt {
+    /// Target component model version.
     pub component_target: ComponentTarget,
+    /// Whether async runtime support is enabled.
     pub enable_async: bool,
+    /// Selected server mode.
     pub sever_mode: ServerMode,
-    pub async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    /// Optional async I/O provider.
+    pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl RuntimeOpt {
+    /// Returns the target component model version.
     pub fn component_target(&self) -> ComponentTarget {
         self.component_target
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    /// Returns the configured async I/O provider, if any.
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.async_runtime.clone()
     }
 
-    pub fn build_async_runtime(server_mode: ServerMode) -> Option<Arc<dyn AsyncRuntime>> {
-        match server_mode {
-            #[cfg(target_os = "linux")]
-            ServerMode::IOUring => Some(Arc::new(IoUringRuntime::new())),
-            ServerMode::Tokio => Some(Arc::new(TokioRuntime::new())),
-            _ => None,
+    /// Builds an async I/O provider matching the given server mode, if applicable.
+    pub fn build_async_runtime(server_mode: ServerMode) -> Option<Arc<dyn AsyncIoProvider>> {
+        let opt_mode = Self::server_mode_to_runtime_mode(server_mode);
+        opt_mode.map(create_io_provider)
+    }
+
+    fn server_mode_to_runtime_mode(mode: ServerMode) -> Option<ProviderType> {
+        match mode {
+            ServerMode::Legacy => None,
+            ServerMode::IOUring => Some(ProviderType::IoUring),
+            ServerMode::Tokio => Some(ProviderType::Tokio),
         }
     }
 }

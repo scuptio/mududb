@@ -1,6 +1,7 @@
 use crate::ast::ast_node::ASTNode;
 use std::fmt::Debug;
 
+/// `COPY ... TO` statement AST node.
 #[derive(Debug, Clone)]
 pub struct StmtCopyTo {
     file_path: String,
@@ -9,6 +10,7 @@ pub struct StmtCopyTo {
 }
 
 impl StmtCopyTo {
+    /// Create a new `COPY ... TO` statement.
     pub fn new(to_file_path: String, table: String, columns: Vec<String>) -> Self {
         Self {
             file_path: to_file_path,
@@ -17,14 +19,17 @@ impl StmtCopyTo {
         }
     }
 
+    /// Return the destination file path.
     pub fn copy_to_file_path(&self) -> &String {
         &self.file_path
     }
 
+    /// Return the source table name.
     pub fn copy_from_table_name(&self) -> &String {
         &self.table
     }
 
+    /// Return the source column names.
     pub fn table_columns(&self) -> &Vec<String> {
         &self.columns
     }

@@ -1,17 +1,25 @@
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::contract::cmd_exec::CmdExec;
     use crate::contract::ssn_ctx::SsnCtx;
     use crate::sql::stmt_cmd::StmtCmd;
     use crate::sql::stmt_cmd_run::run_cmd_stmt;
     use async_trait::async_trait;
-    use mudu::common::result::RS;
     use mudu::common::id::OID;
-    use mudu::error::ec::EC;
-    use mudu::m_error;
+    use mudu::common::result::RS;
+    use mudu::error::ErrorCode;
+    use mudu::mudu_error;
+    use mudu_sys::sync::SMutex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
     #[derive(Default)]
     struct TestSsnCtx {
@@ -51,7 +59,7 @@ use mudu_sys::sync::SMutex;
     impl CmdExec for TestCmdExec {
         async fn prepare(&self) -> RS<()> {
             if self.fail_prepare {
-                Err(m_error!(EC::InternalErr, "prepare failed"))
+                Err(mudu_error!(ErrorCode::Internal, "prepare failed"))
             } else {
                 Ok(())
             }
@@ -59,7 +67,7 @@ use mudu_sys::sync::SMutex;
 
         async fn run(&self) -> RS<()> {
             if self.fail_run {
-                Err(m_error!(EC::InternalErr, "run failed"))
+                Err(mudu_error!(ErrorCode::Internal, "run failed"))
             } else {
                 Ok(())
             }
@@ -80,7 +88,7 @@ use mudu_sys::sync::SMutex;
     impl StmtCmd for TestStmtCmd {
         async fn realize(&self, _ctx: &dyn SsnCtx) -> RS<()> {
             if self.fail_realize {
-                Err(m_error!(EC::InternalErr, "realize failed"))
+                Err(mudu_error!(ErrorCode::Internal, "realize failed"))
             } else {
                 Ok(())
             }
@@ -88,47 +96,53 @@ use mudu_sys::sync::SMutex;
 
         async fn build(&self, _ctx: &dyn SsnCtx) -> RS<Arc<dyn CmdExec>> {
             if self.fail_build {
-                Err(m_error!(EC::InternalErr, "build failed"))
+                Err(mudu_error!(ErrorCode::Internal, "build failed"))
             } else {
                 Ok(self.exec.clone())
             }
         }
     }
 
-    #[tokio::test]
-    async fn run_cmd_stmt_returns_affected_rows_on_success() {
-        let ctx = TestSsnCtx::default();
-        let stmt = TestStmtCmd {
-            fail_realize: false,
-            fail_build: false,
-            exec: Arc::new(TestCmdExec {
-                fail_prepare: false,
-                fail_run: false,
-                affected_rows: 3,
-            }),
-        };
+    #[test]
+    fn run_cmd_stmt_returns_affected_rows_on_success() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let ctx = TestSsnCtx::default();
+            let stmt = TestStmtCmd {
+                fail_realize: false,
+                fail_build: false,
+                exec: Arc::new(TestCmdExec {
+                    fail_prepare: false,
+                    fail_run: false,
+                    affected_rows: 3,
+                }),
+            };
 
-        let rows = run_cmd_stmt(&stmt, &ctx).await.unwrap();
-        assert_eq!(rows, 3);
-        assert!(ctx.current_tx().is_some());
-        assert!(!ctx.ended());
+            let rows = run_cmd_stmt(&stmt, &ctx).await.unwrap();
+            assert_eq!(rows, 3);
+            assert!(ctx.current_tx().is_some());
+            assert!(!ctx.ended());
+        })
+        .unwrap()
     }
 
-    #[tokio::test]
-    async fn run_cmd_stmt_ends_tx_on_build_error() {
-        let ctx = TestSsnCtx::default();
-        let stmt = TestStmtCmd {
-            fail_realize: false,
-            fail_build: true,
-            exec: Arc::new(TestCmdExec {
-                fail_prepare: false,
-                fail_run: false,
-                affected_rows: 0,
-            }),
-        };
+    #[test]
+    fn run_cmd_stmt_ends_tx_on_build_error() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let ctx = TestSsnCtx::default();
+            let stmt = TestStmtCmd {
+                fail_realize: false,
+                fail_build: true,
+                exec: Arc::new(TestCmdExec {
+                    fail_prepare: false,
+                    fail_run: false,
+                    affected_rows: 0,
+                }),
+            };
 
-        let err = run_cmd_stmt(&stmt, &ctx).await.unwrap_err();
-        assert!(err.to_string().contains("build failed"));
-        assert!(ctx.ended());
+            let err = run_cmd_stmt(&stmt, &ctx).await.unwrap_err();
+            assert!(err.to_string().contains("build failed"));
+            assert!(ctx.ended());
+        })
+        .unwrap()
     }
 }

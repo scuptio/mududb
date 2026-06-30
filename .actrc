@@ -8,3 +8,4 @@
 --security-opt=seccomp=unconfined
 --container-options
 --security-opt=apparmor=unconfined
+--env ACT=true

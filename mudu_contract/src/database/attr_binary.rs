@@ -1,3 +1,6 @@
+//! `database::attr_binary` module.
+#![allow(missing_docs)]
+
 use mudu::common::result::RS;
 
 pub trait AttrBinary<T> {

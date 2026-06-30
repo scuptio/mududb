@@ -5,8 +5,8 @@ use crate::service::wasi_context_component;
 use crate::service::wasi_context_component::WasiContextComponent;
 use crate::service::wt_instance_pre::WTInstancePre;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use wasmtime::component::{Component, HasSelf, Linker};
@@ -26,10 +26,15 @@ impl WTRuntimeComponent {
         cfg.wasm_component_model(true);
         if runtime_opt.enable_async {
             cfg.wasm_component_model_async(true)
-                .wasm_component_model_async_builtins(true);
+                .wasm_component_model_more_async_builtins(true);
         }
-        let engine = Engine::new(&mut cfg)
-            .map_err(|e| m_error!(EC::InternalErr, "failed create new wasm runtime engine", e))?;
+        let engine = Engine::new(&cfg).map_err(|e| {
+            mudu_error!(
+                ErrorCode::Internal,
+                "failed create new wasm runtime engine",
+                e
+            )
+        })?;
         // Configure linker with host functions
         let linker = Linker::new(&engine);
         Ok(Self {
@@ -45,19 +50,29 @@ impl WTRuntimeComponent {
             &mut self.linker,
             |c| c,
         )
-        .map_err(|e| m_error!(EC::InternalErr, "instantiate, link async function error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Internal, "instantiate, link async function error", e))?;
         wasi_context_component::sync_host::mududb::api::system::add_to_linker::<_, HasSelf<_>>(
             &mut self.linker,
             |c| c,
         )
-        .map_err(|e| m_error!(EC::InternalErr, "instantiate, link sync function error", e))?;
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::Internal,
+                "instantiate, link sync function error",
+                e
+            )
+        })?;
         match component_target {
             ComponentTarget::P2 => add_to_linker_sync(&mut self.linker).map_err(|e| {
-                m_error!(EC::MuduError, "wasmtime_wasi add_to_linker_sync error", e)
+                mudu_error!(
+                    ErrorCode::Internal,
+                    "wasmtime_wasi add_to_linker_sync error",
+                    e
+                )
             })?,
             ComponentTarget::P3 => {
-                return Err(m_error!(
-                    EC::NotImplemented,
+                return Err(mudu_error!(
+                    ErrorCode::NotImplemented,
                     "component target p3 is not implemented yet"
                 ));
             }
@@ -75,15 +90,15 @@ fn instantiate_component(
     engine: &Engine,
     linker: &Linker<WasiContextComponent>,
     name: String,
-    byte_code: &Vec<u8>,
-    desc_vec: &Vec<ProcDesc>,
+    byte_code: &[u8],
+    desc_vec: &[ProcDesc],
 ) -> RS<PackageModule> {
-    let component = match Component::from_binary(&engine, &byte_code) {
+    let component = match Component::from_binary(engine, byte_code) {
         Ok(component) => component,
         Err(component_err) => {
             if Module::from_binary(engine, byte_code).is_ok() {
-                return Err(m_error!(
-                    EC::MuduError,
+                return Err(mudu_error!(
+                    ErrorCode::DomainViolation,
                     format!(
                         "package module {} is a WebAssembly module, but runtime target is component; rebuild the package for wasm32-wasip2",
                         name
@@ -91,8 +106,8 @@ fn instantiate_component(
                     component_err
                 ));
             }
-            return Err(m_error!(
-                EC::MuduError,
+            return Err(mudu_error!(
+                ErrorCode::DomainViolation,
                 format!("build component {} from binary error", name),
                 component_err
             ));
@@ -100,8 +115,8 @@ fn instantiate_component(
     };
 
     let instance_pre = linker.instantiate_pre(&component).map_err(|e| {
-        m_error!(
-            EC::MuduError,
+        mudu_error!(
+            ErrorCode::DomainViolation,
             format!("instantiate module {} error", name),
             e
         )
@@ -109,7 +124,7 @@ fn instantiate_component(
 
     PackageModule::new(
         WTInstancePre::from_component(instance_pre),
-        desc_vec.clone(),
+        desc_vec.to_owned(),
     )
 }
 
@@ -122,10 +137,12 @@ pub fn instantiate_component_modules(
 
     let package_desc: &ModProcDesc = &package.package_desc;
     for (mod_name, vec_desc) in package_desc.modules() {
-        let byte_code = package
-            .modules
-            .get(mod_name)
-            .ok_or_else(|| m_error!(EC::NoneErr, format!("no such module named {}", mod_name)))?;
+        let byte_code = package.modules.get(mod_name).ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("no such module named {}", mod_name)
+            )
+        })?;
         let module = instantiate_component(engine, linker, mod_name.clone(), byte_code, vec_desc)?;
         modules.push((mod_name.clone(), module));
     }

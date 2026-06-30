@@ -1,22 +1,32 @@
+//! Field metadata extracted from a column definition.
+
 use crate::lang_impl::lang::lang_data_type::uni_data_type_to_name;
 use crate::lang_impl::lang::lang_kind::LangKind;
 use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case, to_snake_case_upper};
 use mudu_binding::record::field_def::FieldDef;
 
+/// Metadata for a single field/column of a generated entity.
 #[derive(Debug)]
 pub struct FieldInfo {
+    /// Raw column name.
     pub field_name: String,
+    /// Snake-case field name.
     pub field_name_snake_case: String,
+    /// Pascal-case field name.
     pub field_name_pascal_case: String,
-    pub data_type: String, // Ex. i32, String
+    /// Language-specific type name (e.g. `i32`, `String`).
+    pub data_type: String,
+    /// Name of the attribute struct the field belongs to.
     pub attr_struct_name: String,
+    /// Upper-snake-case constant name for the field.
     pub field_name_const: String,
 }
 
 impl FieldInfo {
+    /// Build [`FieldInfo`] from a [`FieldDef`] and target language.
     pub fn from_column_schema(
-        table_name: &String,
+        table_name: &str,
         column_schema: &FieldDef,
         lang: &LangKind,
     ) -> RS<Self> {

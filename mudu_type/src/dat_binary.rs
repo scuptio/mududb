@@ -1,7 +1,7 @@
 use mudu::common::buf::Buf;
 use std::ops;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct DatBinary {
     datum: Buf,
 }
@@ -21,14 +21,6 @@ impl DatBinary {
 
     pub fn as_slice(&self) -> &[u8] {
         self.datum.as_slice()
-    }
-}
-
-impl Default for DatBinary {
-    fn default() -> Self {
-        Self {
-            datum: Buf::default(),
-        }
     }
 }
 

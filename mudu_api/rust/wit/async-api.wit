@@ -1,23 +1,25 @@
 package mududb:async-api;
 
 interface system {
-    query: func(query-in: list<u8>) -> list<u8>;
+    query: async func(query-in: list<u8>) -> list<u8>;
 
-    fetch: func(query-result: list<u8>) -> list<u8>;
+    fetch: async func(query-result: list<u8>) -> list<u8>;
 
-    command: func(command-in: list<u8>) -> list<u8>;
+    command: async func(command-in: list<u8>) -> list<u8>;
 
-    batch: func(batch-in:list<u8>) -> list<u8>;
+    batch: async func(batch-in:list<u8>) -> list<u8>;
 
-    open: func(open-in: list<u8>) -> list<u8>;
+    open: async func(open-in: list<u8>) -> list<u8>;
 
-    close: func(close-in: list<u8>) -> list<u8>;
+    close: async func(close-in: list<u8>) -> list<u8>;
 
-    get: func(get-in: list<u8>) -> list<u8>;
+    get: async func(get-in: list<u8>) -> list<u8>;
 
-    put: func(put-in: list<u8>) -> list<u8>;
+    put: async func(put-in: list<u8>) -> list<u8>;
 
-    range: func(range-in: list<u8>) -> list<u8>;
+    delete: async func(delete-in: list<u8>) -> list<u8>;
+
+    range: async func(range-in: list<u8>) -> list<u8>;
 }
 
 world async-api {

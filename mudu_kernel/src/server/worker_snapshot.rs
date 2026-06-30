@@ -1,9 +1,9 @@
 use crate::contract::snapshot::{RunningXList, Snapshot};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use std::sync::atomic::{AtomicU64, Ordering};
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KvItem {
@@ -41,18 +41,15 @@ impl WorkerSnapshot {
 }
 
 impl WorkerSnapshotMgr {
-    pub fn begin_tx(&self) -> WorkerSnapshot {
+    pub fn begin_tx(&self) -> RS<WorkerSnapshot> {
         let xid = self.next_ts.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut running = self
-            .running
-            .lock()
-            .expect("worker snapshot manager running list lock poisoned");
+        let mut running = self.running.lock()?;
         let snapshot = WorkerSnapshot {
             xid,
             running: running.clone(),
         };
         insert_sorted_unique(&mut running, xid);
-        snapshot
+        Ok(snapshot)
     }
 
     pub fn alloc_committed_ts(&self) -> u64 {
@@ -64,17 +61,14 @@ impl WorkerSnapshotMgr {
     }
 
     pub fn end_tx(&self, xid: u64) -> RS<()> {
-        let mut running = self
-            .running
-            .lock()
-            .expect("worker snapshot manager running list lock poisoned");
+        let mut running = self.running.lock()?;
         match running.binary_search(&xid) {
             Ok(index) => {
                 running.remove(index);
                 Ok(())
             }
-            Err(_) => Err(m_error!(
-                EC::NoSuchElement,
+            Err(_) => Err(mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("transaction {} is not active", xid)
             )),
         }

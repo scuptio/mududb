@@ -113,6 +113,16 @@ mod tests {
     }
 
     #[test]
+    fn slice_mut_ref_resets_write_position() {
+        let mut buf = [0_u8; 4];
+        let mut writer = SliceMutRef::new(&mut buf);
+        writer.write(b"ab").unwrap();
+        writer.set_write_pos();
+        assert_eq!(writer.write_pos(), 0);
+        assert_eq!(writer.as_slice(), b"");
+    }
+
+    #[test]
     fn slice_ref_read_returns_capacity_error() {
         let mut reader = SliceRef::new(b"a");
         let mut buf = [0_u8; 2];

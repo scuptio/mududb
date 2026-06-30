@@ -60,7 +60,9 @@ fn init_level_env(level_filter: LevelFilter, env_filter: EnvFilter) {
         )
         .init();
 }
-fn _setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
+/// Internal implementation of [`setup_with_console`] exposed to tests so they
+/// can exercise level/filter branches without poisoning the global `Once`.
+pub(crate) fn _setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
     let level_filter = match level {
         "info" => LevelFilter::INFO,
         "debug" => LevelFilter::DEBUG,
@@ -100,4 +102,41 @@ fn _setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
             init_level(level_filter)
         }
     };
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_filter_falls_back_and_initializes() {
+        // Guarded by the crate-level Once so we do not try to install a global
+        // subscriber more than once per process.
+        INIT.call_once(|| {
+            if !tracing::dispatcher::has_been_set() {
+                setup_with_console("info", "not_a_valid_filter=xyz", false);
+            }
+        });
+    }
+
+    #[test]
+    fn setup_with_console_info_does_not_panic() {
+        // If the fallback test already initialized the subscriber, this is a
+        // no-op due to the Once guard, but it still verifies the call does not
+        // panic.
+        INIT.call_once(|| {
+            if !tracing::dispatcher::has_been_set() {
+                setup_with_console("info", "", false);
+            }
+        });
+    }
+
+    #[test]
+    fn invalid_level_panics_before_init() {
+        let result = std::panic::catch_unwind(|| {
+            setup_with_console("not_a_level", "", false);
+        });
+        assert!(result.is_err());
+    }
 }

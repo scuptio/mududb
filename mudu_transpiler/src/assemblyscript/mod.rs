@@ -1,21 +1,28 @@
+//! AssemblyScript front-end for the Mudu transpiler.
+//!
+//! This module discovers `/**mudu-proc*/` functions in TypeScript-compatible
+//! AssemblyScript source and emits an adapter module, a Rust P2 wrapper, and
+//! the WIT interfaces needed for component composition.
+
 mod desc;
 mod parser;
 mod procedure;
 mod render;
 
-#[cfg(test)]
+// tree-sitter grammars are implemented in C and call foreign functions that Miri
+// does not support, so skip these parser tests under Miri.
+#[cfg(all(test, not(miri)))]
 mod tests;
 
 use crate::assemblyscript::desc::gen_procedure_desc_list;
 use crate::assemblyscript::parser::discover_procedures;
 use crate::assemblyscript::render::{render_adapter_source, render_rust_wrapper, render_wit};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::to_json_str;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Transpile AssemblyScript source code to Mudu procedure adapter artifacts.
@@ -48,38 +55,33 @@ fn _transpile_assemblyscript<I: AsRef<Path>, O: AsRef<Path>>(
     verbose: bool,
     opt_output_desc_file: Option<String>,
 ) -> RS<()> {
-    let code = fs::read_to_string(&input)
-        .map_err(|e| m_error!(EC::IOErr, "read assemblyscript source code error", e))?;
+    let code = mudu_sys::fs::sync::sync_read_to_string(input.as_ref())?;
     let procedures = discover_procedures(&code)?;
     if procedures.is_empty() {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             "no AssemblyScript procedure marked with /**mudu-proc*/ found"
         ));
     }
 
     let adapter_source = render_adapter_source(input.as_ref(), output.as_ref(), &procedures)?;
-    fs::write(&output, adapter_source)
-        .map_err(|e| m_error!(EC::IOErr, "write assemblyscript adapter source error", e))?;
+    mudu_sys::fs::sync::sync_write(output.as_ref(), adapter_source.as_bytes())?;
 
     let output_path = output.as_ref();
     let rust_path = sibling_with_extension(output_path, "rs");
     let wit_path = sibling_with_extension(output_path, "wit");
 
     let rust_source = render_rust_wrapper(&procedures, &module_name)?;
-    fs::write(&rust_path, rust_source)
-        .map_err(|e| m_error!(EC::IOErr, "write assemblyscript rust wrapper error", e))?;
+    mudu_sys::fs::sync::sync_write(&rust_path, rust_source.as_bytes())?;
 
-    fs::write(&wit_path, render_wit(&procedures))
-        .map_err(|e| m_error!(EC::IOErr, "write assemblyscript procedure wit error", e))?;
+    mudu_sys::fs::sync::sync_write(&wit_path, render_wit(&procedures).as_bytes())?;
 
     let desc_path = if let Some(desc_file) = opt_output_desc_file {
         let proc_desc_list = gen_procedure_desc_list(&module_name, &procedures);
         let modules = HashMap::from_iter(vec![(module_name.clone(), proc_desc_list)]);
         let package_desc = ModProcDesc::new(modules);
         let json = to_json_str(&package_desc)?;
-        fs::write(&desc_file, json)
-            .map_err(|e| m_error!(EC::IOErr, "write assemblyscript procedure desc error", e))?;
+        mudu_sys::fs::sync::sync_write(&desc_file, json)?;
         Some(desc_file)
     } else {
         None

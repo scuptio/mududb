@@ -1,0 +1,63 @@
+name: Compatibility
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  format-compatibility-gate:
+    name: Format compatibility gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check format compatibility
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash ./script/ci/check_format_compatibility.sh "${BASE_REF}" 2>&1 | tee logs/compat-format.log
+
+  golden-fixtures:
+    name: Golden fixture compatibility tests
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-stable
+
+      - name: Run golden fixture tests
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo test -p testing --test compat_golden 2>&1 | tee logs/compat-golden.log

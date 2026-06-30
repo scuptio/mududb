@@ -145,7 +145,7 @@ fn {{ config.helper_prefix }}build_procedure_result(
     for index in 0..values.len() {
         let value = values
             .value(index)
-            .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+            .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalError, err.message))?;
         return_list.push({{ config.helper_prefix }}dat_value_from_value(value));
     }
     Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
@@ -169,7 +169,7 @@ pub fn {{ procedure.fn_inner_name }}(
         {{ config.helper_prefix }}oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalError, err.message))?;
     {{ config.helper_prefix }}build_procedure_result(return_values)
 }
 

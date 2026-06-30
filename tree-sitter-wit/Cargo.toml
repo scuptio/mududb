@@ -3,12 +3,13 @@ name = "tree-sitter-wit"
 description = "WIT grammar for tree-sitter"
 version = "1.2.0"
 authors = ["Liam Woodleigh-Hardinge <liam.woodleigh@gmail.com>"]
-license = "Apache-2.0 WITH LLVM-exception"
+license = "Apache-2.0"
 readme = "readme.md"
 keywords = ["incremental", "parsing", "tree-sitter", "wit"]
 categories = ["parser-implementations", "parsing", "text-editors"]
 repository = "https://github.com/liamwh/tree-sitter-wit"
 edition = "2021"
+rust-version.workspace = true
 autoexamples = false
 
 build = "bindings/rust/build.rs"
@@ -23,6 +24,9 @@ include = [
 
 [lib]
 path = "bindings/rust/lib.rs"
+
+[lints]
+workspace = true
 
 [dependencies]
 tree-sitter-language = { workspace = true }

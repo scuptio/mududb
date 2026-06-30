@@ -1,19 +1,22 @@
+//! Arbitrary name generators.
+
 use crate::_arb_limit;
 use arbitrary::{Arbitrary, Unstructured};
 
+/// Generates an arbitrary ASCII name of bounded length.
 pub fn _arbitrary_name(u: &mut Unstructured) -> arbitrary::Result<String> {
     let arb_u32 = u32::arbitrary(u)?;
     let name_len = (arb_u32 as usize) % _arb_limit::_ARB_MAX_NAME_LEN + 1;
     let mut name = String::new();
     for _i in 0..name_len {
         let v = u8::arbitrary(u)?;
-        let c = if v <= 'Z' as u8 {
-            v % ('Z' as u8 - 'A' as u8) + 'A' as u8
+        let c = if v <= b'Z' {
+            v % (b'Z' - b'A') + b'A'
         } else {
-            v % ('z' as u8 - 'a' as u8) + 'a' as u8
+            v % (b'z' - b'a') + b'a'
         };
         name.push(char::from(c))
     }
 
-    Ok(String::new())
+    Ok(name)
 }

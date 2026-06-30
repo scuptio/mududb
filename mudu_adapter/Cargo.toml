@@ -2,9 +2,14 @@
 name = "mudu_adapter"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [features]
 debug_trace = ["dep:async-backtrace", "mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
 
 [dependencies]
 mudu = { workspace = true }
@@ -20,10 +25,8 @@ mysql = { workspace = true }
 mysql_async = { workspace = true }
 scc = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
 lazy_static = { workspace = true }
 async-backtrace = { workspace = true, optional = true }
 
-
-#[cfg(not(target_arch = "wasm32"))]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { workspace = true, features = ["bundled", "column_decltype"] }

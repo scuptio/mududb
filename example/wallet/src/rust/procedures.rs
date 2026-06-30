@@ -1,45 +1,52 @@
+//! Wallet business logic and stored procedures.
+
 use crate::rust::wallets::object::Wallets;
-use mududb::common::result::RS;
 use mududb::common::id::OID;
-use mududb::contract::database::attr_value::AttrValue;
+use mududb::common::result::RS;
 use mududb::contract::{sql_params, sql_stmt};
-use mududb::error::ec::EC::MuduError;
-use mududb::m_error;
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 use mududb::types::datum::DatumDyn;
 use std::time::UNIX_EPOCH;
 
-fn current_timestamp() -> i64 {
+/// Returns the current Unix timestamp in seconds.
+fn current_timestamp() -> RS<i64> {
     let now = mududb::sys::time::system_time_now();
     let duration_since_epoch = now
         .duration_since(UNIX_EPOCH)
-        .expect("SystemTime before UNIX EPOCH!");
+        .map_err(|_| mudu_error!(ErrorCode::DomainViolation, "SystemTime before UNIX EPOCH!"))?;
 
     let seconds = duration_since_epoch.as_secs();
-    seconds as _
+    Ok(seconds as _)
 }
 
+/// Returns the wallet's balance, failing if the balance column is `NULL`.
 fn required_balance(wallet: &Wallets) -> RS<i32> {
     wallet
         .get_balance()
         .as_ref()
         .copied()
-        .ok_or_else(|| m_error!(MuduError, "wallet balance is null"))
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidState, "wallet balance is null"))
 }
 
 /**mudu-proc**/
+/// Transfers `amount` funds from `from_user_id` to `to_user_id`.
 pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
-        return Err(m_error!(
-            MuduError,
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
             "The transfer amount must be greater than 0"
         ));
     }
 
     // Cannot transfer money to oneself
     if from_user_id == to_user_id {
-        return Err(m_error!(MuduError, "Cannot transfer money to oneself"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Cannot transfer money to oneself"
+        ));
     }
 
     // Check whether the transfer-out account exists and has sufficient balance
@@ -52,13 +59,16 @@ pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(ErrorCode::EntityNotFound, "no such user"));
     };
 
-    if *from_wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "insufficient funds"));
-    }
     let from_balance = required_balance(&from_wallet)?;
+    if from_balance < amount {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "insufficient funds"
+        ));
+    }
 
     // Check the user account existing
     let to_wallet = mudu_query::<Wallets>(
@@ -69,7 +79,7 @@ pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let _to_wallet = if let Some(row) = to_wallet.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(ErrorCode::EntityNotFound, "no such user"));
     };
     let to_balance = required_balance(&_to_wallet)?;
 
@@ -81,7 +91,10 @@ pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(from_balance - amount, from_user_id)),
     )?;
     if deduct_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "transfer fund failed"
+        ));
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = mudu_command(
@@ -90,7 +103,10 @@ pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(to_balance + amount, to_user_id)),
     )?;
     if increase_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "transfer fund failed"
+        ));
     }
 
     // 3. Entity the transaction
@@ -107,14 +123,18 @@ pub fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(id, from_user_id, to_user_id, amount)),
     )?;
     if insert_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "transfer fund failed"
+        ));
     }
     Ok(())
 }
 
 /**mudu-proc**/
+/// Creates a new user and an associated wallet with a zero balance.
 pub fn create_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
-    let now = current_timestamp();
+    let now = current_timestamp()?;
 
     // Insert user
     let user_created = mudu_command(
@@ -126,7 +146,10 @@ pub fn create_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()
     )?;
 
     if user_created != 1 {
-        return Err(m_error!(MuduError, "Failed to create user"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Failed to create user"
+        ));
     }
 
     // Create wallet with 0 balance
@@ -137,13 +160,17 @@ pub fn create_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()
     )?;
 
     if wallet_created != 1 {
-        return Err(m_error!(MuduError, "Failed to create wallet"));
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Failed to create wallet"
+        ));
     }
 
     Ok(())
 }
 
 /**mudu-proc**/
+/// Deletes a user and their wallet if the wallet balance is zero.
 pub fn delete_user(xid: OID, user_id: i32) -> RS<()> {
     // Check wallet balance
     let wallet_rs = mudu_query::<Wallets>(
@@ -152,13 +179,15 @@ pub fn delete_user(xid: OID, user_id: i32) -> RS<()> {
         sql_params!(&(user_id,)),
     )?;
 
-    let wallet = wallet_rs
-        .next_record()?
-        .ok_or(m_error!(MuduError, "User wallet not found"))?;
+    let wallet = wallet_rs.next_record()?.ok_or(mudu_error!(
+        ErrorCode::EntityNotFound,
+        "User wallet not found"
+    ))?;
 
-    if *wallet.get_balance().as_ref().unwrap() != 0 {
-        return Err(m_error!(
-            MuduError,
+    let balance = required_balance(&wallet)?;
+    if balance != 0 {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
             "Cannot delete user with non-zero balance"
         ));
     }
@@ -181,8 +210,9 @@ pub fn delete_user(xid: OID, user_id: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
+/// Updates a user's name and/or email.
 pub fn update_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()> {
-    let now = current_timestamp();
+    let now = current_timestamp()?;
     let mut params: Vec<Box<dyn DatumDyn>> = vec![];
 
     let mut sql = "UPDATE users SET updated_at = ?".to_string();
@@ -204,19 +234,23 @@ pub fn update_user(xid: OID, user_id: i32, name: String, email: String) -> RS<()
     let updated = mudu_command(xid, sql_stmt!(&sql), sql_params!(&params))?;
 
     if updated != 1 {
-        return Err(m_error!(MuduError, "User not found"));
+        return Err(mudu_error!(ErrorCode::EntityNotFound, "User not found"));
     }
 
     Ok(())
 }
 
 /**mudu-proc**/
+/// Deposits `amount` funds into the user's wallet.
 pub fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
-        return Err(m_error!(MuduError, "Amount must be positive"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "Amount must be positive"
+        ));
     }
 
-    let now = current_timestamp();
+    let now = current_timestamp()?;
     let tx_id = mududb::sys::random::next_uuid_v4_string();
     let wallet = mudu_query::<Wallets>(
         xid,
@@ -224,7 +258,7 @@ pub fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
         sql_params!(&(user_id,)),
     )?
     .next_record()?
-    .ok_or_else(|| m_error!(MuduError, "User wallet not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "User wallet not found"))?;
     let next_balance = required_balance(&wallet)? + amount;
 
     // Update wallet balance
@@ -235,7 +269,10 @@ pub fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     )?;
 
     if updated != 1 {
-        return Err(m_error!(MuduError, "User wallet not found"));
+        return Err(mudu_error!(
+            ErrorCode::EntityNotFound,
+            "User wallet not found"
+        ));
     }
 
     // Entity transaction
@@ -251,9 +288,13 @@ pub fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
+/// Withdraws `amount` funds from the user's wallet.
 pub fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     if amount <= 0 {
-        return Err(m_error!(MuduError, "Amount must be positive"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "Amount must be positive"
+        ));
     }
 
     // Check balance
@@ -265,15 +306,19 @@ pub fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
 
     let wallet = wallet_rs
         .next_record()?
-        .ok_or_else(|| m_error!(MuduError, "User wallet not found"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "User wallet not found"))?;
 
-    if *wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "Insufficient funds"));
+    let balance = required_balance(&wallet)?;
+    if balance < amount {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Insufficient funds"
+        ));
     }
 
-    let now = current_timestamp();
+    let now = current_timestamp()?;
     let tx_id = mududb::sys::random::next_uuid_v4_string();
-    let next_balance = required_balance(&wallet)? - amount;
+    let next_balance = balance - amount;
 
     // Update wallet balance
     mudu_command(
@@ -295,13 +340,20 @@ pub fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
 }
 
 /**mudu-proc**/
+/// Transfers `amount` funds from `from_user_id` to `to_user_id`.
 pub fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     if from_user_id == to_user_id {
-        return Err(m_error!(MuduError, "Cannot transfer to self"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "Cannot transfer to self"
+        ));
     }
 
     if amount <= 0 {
-        return Err(m_error!(MuduError, "Amount must be positive"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "Amount must be positive"
+        ));
     }
 
     // Check sender balance
@@ -311,25 +363,28 @@ pub fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
         sql_params!(&(from_user_id,)),
     )?
     .next_record()?
-    .ok_or_else(|| m_error!(MuduError, "Sender wallet not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Sender wallet not found"))?;
 
-    if *sender_wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "Insufficient funds"));
-    }
     let sender_balance = required_balance(&sender_wallet)?;
+    if sender_balance < amount {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Insufficient funds"
+        ));
+    }
 
     // Check receiver exists
     let receiver_wallet = mudu_query::<Wallets>(
         xid,
         sql_stmt!(&"SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?"),
-        sql_params!(&(to_user_id.clone(),)),
+        sql_params!(&(to_user_id,)),
     )?
     .next_record()?
-    .ok_or_else(|| m_error!(MuduError, "Receiver wallet not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Receiver wallet not found"))?;
 
     let receiver_balance = required_balance(&receiver_wallet)?;
 
-    let now = current_timestamp();
+    let now = current_timestamp()?;
     let tx_id = mududb::sys::random::next_uuid_v4_string();
 
     // Debit sender
@@ -366,10 +421,14 @@ pub fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS
 }
 
 /**mudu-proc**/
+/// Records a purchase of `amount` funds by the user.
 pub fn purchase(xid: OID, user_id: i32, amount: i32, description: String) -> RS<()> {
     let _ = description;
     if amount <= 0 {
-        return Err(m_error!(MuduError, "Amount must be positive"));
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "Amount must be positive"
+        ));
     }
 
     // Check balance
@@ -379,15 +438,19 @@ pub fn purchase(xid: OID, user_id: i32, amount: i32, description: String) -> RS<
         sql_params!(&(user_id,)),
     )?
     .next_record()?
-    .ok_or_else(|| m_error!(MuduError, "Wallet not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Wallet not found"))?;
 
-    if *wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "Insufficient funds"));
+    let balance = required_balance(&wallet)?;
+    if balance < amount {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "Insufficient funds"
+        ));
     }
 
-    let now = current_timestamp();
+    let now = current_timestamp()?;
     let tx_id = mududb::sys::random::next_uuid_v4_string();
-    let next_balance = required_balance(&wallet)? - amount;
+    let next_balance = balance - amount;
 
     // Deduct amount
     mudu_command(

@@ -18,7 +18,7 @@ wit_bindgen::generate!({
     async: true,    // all bindings are async
 });
 
-#[allow(unused)]
+/// Forward a `query` call to the component-model host interface.
 pub async fn inner_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -30,7 +30,7 @@ pub async fn inner_query<R: Entity>(
     .await
 }
 
-#[allow(unused)]
+/// Forward a `command` call to the component-model host interface.
 pub async fn inner_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     async_invoke_host_command(oid, sql, params, async |param| {
         Ok(system::command(param).await)
@@ -38,7 +38,7 @@ pub async fn inner_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) 
     .await
 }
 
-#[allow(unused)]
+/// Forward a `batch` call to the component-model host interface.
 pub async fn inner_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     async_invoke_host_batch(oid, sql, params, async |param| {
         Ok(system::batch(param).await)
@@ -46,28 +46,28 @@ pub async fn inner_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) ->
     .await
 }
 
-#[allow(unused)]
+/// Forward a `open` call to the component-model host interface.
 pub async fn inner_open() -> RS<OID> {
     async_invoke_host_open(async |param| Ok(system::open(param).await)).await
 }
 
-#[allow(unused)]
+/// Forward a `open argv` call to the component-model host interface.
 pub async fn inner_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
     crate::host::async_invoke_host_open_argv(argv, async |param| Ok(system::open(param).await))
         .await
 }
 
-#[allow(unused)]
+/// Forward a `close` call to the component-model host interface.
 pub async fn inner_close(session_id: OID) -> RS<()> {
     async_invoke_host_close(session_id, async |param| Ok(system::close(param).await)).await
 }
 
-#[allow(unused)]
+/// Forward a `get` call to the component-model host interface.
 pub async fn inner_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     async_invoke_host_session_get(session_id, key, async |param| Ok(system::get(param).await)).await
 }
 
-#[allow(unused)]
+/// Forward a `put` call to the component-model host interface.
 pub async fn inner_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     async_invoke_host_session_put(session_id, key, value, async |param| {
         Ok(system::put(param).await)
@@ -75,7 +75,7 @@ pub async fn inner_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     .await
 }
 
-#[allow(unused)]
+/// Forward a `range` call to the component-model host interface.
 pub async fn inner_range(
     session_id: OID,
     start_key: &[u8],

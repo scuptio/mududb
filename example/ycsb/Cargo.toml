@@ -2,6 +2,8 @@
 name = "ycsb"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 autobins = false
 
 [lib]
@@ -20,6 +22,9 @@ benchmark-runner = [
     "debug_trace",
     "mududb/standalone-adapter",
 ]
+
+[lints]
+workspace = true
 
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
@@ -40,3 +45,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 name = "ycsb-benchmark"
 path = "src/bin/ycsb_benchmark.rs"
 required-features = ["benchmark-runner"]
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']

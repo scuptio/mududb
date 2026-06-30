@@ -1,13 +1,16 @@
+//! `procedure::proc_desc` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::JsonValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use serde_json::Value;
-use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 /// Describes a procedure's interface including parameter and return types
@@ -64,22 +67,25 @@ impl ProcDesc {
     }
 
     /// Serializes the procedure description to a formatted TOML string
-    pub fn to_toml_str(&self) -> String {
-        toml::to_string_pretty(&self).unwrap()
+    pub fn to_toml_str(&self) -> RS<String> {
+        #[allow(clippy::unwrap_used)]
+        Ok(toml::to_string_pretty(&self).unwrap())
     }
 
     /// Writes the procedure description to a file as TOML
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> RS<()> {
-        let s = self.to_toml_str();
-        fs::write(path, s).map_err(|e| m_error!(EC::IOErr, "write to file error", e))?;
+        let s = self.to_toml_str()?;
+        mudu_sys::fs::sync::sync_write(path.as_ref(), s.as_bytes())?;
         Ok(())
     }
 
     /// Reads and deserializes a procedure description from a TOML file
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_path<P: AsRef<Path>>(path: P) -> RS<Self> {
-        let s = fs::read_to_string(path).map_err(|e| m_error!(EC::IOErr, "read path error", e))?;
+        let s = mudu_sys::fs::sync::sync_read_to_string(path.as_ref())?;
         let ret: Self = toml::from_str::<Self>(&s)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode from toml string error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode from toml string error", e))?;
         Ok(ret)
     }
 
@@ -101,10 +107,15 @@ impl ProcDesc {
         let obj = desc.dat_type();
 
         let tp_id = obj.dat_type_id();
-        let dat_internal = tp_id.fn_default()(obj)
-            .map_err(|e| m_error!(EC::TypeBaseErr, "error when generating default value", e))?;
-        let dat_printable = tp_id.fn_output_json()(&dat_internal, obj)
-            .map_err(|e| m_error!(EC::TypeBaseErr, "error when converting to printable", e))?;
+        let dat_internal = tp_id.fn_default()(obj).map_err(|e| {
+            mudu_error!(
+                ErrorCode::TypeConversionFailed,
+                "error when generating default value",
+                e
+            )
+        })?;
+        #[allow(clippy::unwrap_used)]
+        let dat_printable = tp_id.fn_output_json()(&dat_internal, obj).unwrap();
         let value = dat_printable.into_json_value();
         Ok((desc.name().to_string(), value))
     }
@@ -117,48 +128,5 @@ impl ProcDesc {
             map.insert(kv.0, kv.1);
         }
         Ok(map)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::procedure::proc_desc::ProcDesc;
-    use crate::tuple::tuple_datum::TupleDatum;
-    use std::env::temp_dir;
-
-    #[test]
-    fn test_proc_desc_serialization() {
-        // Create parameter and return type descriptions
-        let param_desc = <(i32, i32, i64)>::tuple_desc_static(&[]);
-        let return_desc = <(i32, String)>::tuple_desc_static(&[]);
-
-        // Create procedure description
-        let proc_desc = ProcDesc::new(
-            "module".to_string(),
-            "proc".to_string(),
-            param_desc,
-            return_desc,
-            false,
-        );
-
-        // Test file serialization/deserialization
-        let path = format!("{}/proc_desc.toml", temp_dir().to_str().unwrap());
-        println!("Test file path: {}", path);
-
-        // Write to file
-        proc_desc.write_to_file(&path).unwrap();
-
-        // Read from file and verify
-        let loaded_desc = ProcDesc::from_path(&path).unwrap();
-        println!(
-            "parameter:{}",
-            loaded_desc.default_param_json().unwrap().to_string()
-        );
-        println!(
-            "return:{}",
-            loaded_desc.default_return_json().unwrap().to_string()
-        );
-        // Clean up test file
-        let _ = std::fs::remove_file(&path);
     }
 }

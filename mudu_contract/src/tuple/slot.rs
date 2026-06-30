@@ -1,9 +1,12 @@
+//! `tuple::slot` module.
+#![allow(missing_docs)]
+
 use byteorder::ByteOrder;
 use mudu::common::buf::Buf;
 use mudu::common::endian::Endian;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,8 +18,8 @@ pub struct Slot {
 impl Slot {
     pub fn from_binary(binary: &[u8]) -> RS<Self> {
         if binary.len() < Self::size_of() {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "slot binary size {} is less than {}",
                     binary.len(),
@@ -31,8 +34,8 @@ impl Slot {
 
     pub fn to_binary(&self, binary: &mut [u8]) -> RS<()> {
         if binary.len() < Self::size_of() {
-            return Err(m_error!(
-                EC::EncodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Encode,
                 format!(
                     "slot binary capacity {} is less than {}",
                     binary.len(),
@@ -70,14 +73,17 @@ impl Slot {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::Slot;
-    use mudu::error::ec::EC;
+    use mudu::error::ErrorCode;
 
     #[test]
     fn slot_rejects_short_binary() {
         let err = Slot::from_binary(&[0u8; 4]).unwrap_err();
-        assert_eq!(err.ec(), EC::DecodeErr);
+        assert_eq!(err.ec(), ErrorCode::Decode);
     }
 
     #[test]
@@ -85,6 +91,6 @@ mod tests {
         let slot = Slot::new(1, 2);
         let mut buf = [0u8; 4];
         let err = slot.to_binary(&mut buf).unwrap_err();
-        assert_eq!(err.ec(), EC::EncodeErr);
+        assert_eq!(err.ec(), ErrorCode::Encode);
     }
 }

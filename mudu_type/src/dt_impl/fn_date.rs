@@ -141,19 +141,152 @@ pub const FN_DATE_CONVERT: FnBase = FnBase {
 
 #[cfg(test)]
 mod tests {
-    use super::{fn_date_recv, fn_date_send};
+    use super::{
+        fn_date_dat_output_len, fn_date_default, fn_date_equal, fn_date_hash, fn_date_in_json,
+        fn_date_in_msgpack, fn_date_in_textual, fn_date_len, fn_date_order, fn_date_out_json,
+        fn_date_out_msgpack, fn_date_out_textual, fn_date_recv, fn_date_send, fn_date_send_to,
+    };
+    use crate::dat_textual::DatTextual;
     use crate::dat_type::DatType;
     use crate::dat_type_id::DatTypeID;
     use crate::dat_value::DatValue;
     use mudu::data_type::date::DateValue;
+    use mudu::utils::json::JsonValue;
+    use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    fn date_type() -> DatType {
+        DatType::default_for(DatTypeID::Date)
+    }
+
+    fn sample_date() -> DatValue {
+        DatValue::from_date(DateValue::parse("2026-05-20").unwrap())
+    }
 
     #[test]
     fn date_binary_roundtrip_preserves_value() {
-        let ty = DatType::default_for(DatTypeID::Date);
-        let value = DatValue::from_date(DateValue::parse("2026-05-20").unwrap());
+        let ty = date_type();
+        let value = sample_date();
         let binary = fn_date_send(&value, &ty).unwrap();
         let (decoded, used) = fn_date_recv(binary.as_ref(), &ty).unwrap();
         assert_eq!(used as usize, size_of::<i32>());
         assert_eq!(decoded.expect_date().format(), "2026-05-20");
+    }
+
+    #[test]
+    fn date_send_to_and_recv_roundtrip() {
+        let ty = date_type();
+        let value = sample_date();
+        let mut buf = vec![0u8; 8];
+        let written = fn_date_send_to(&value, &ty, &mut buf).unwrap();
+        assert_eq!(written as usize, size_of::<i32>());
+
+        let (decoded, used) = fn_date_recv(&buf, &ty).unwrap();
+        assert_eq!(used, written);
+        assert_eq!(decoded.expect_date().format(), "2026-05-20");
+    }
+
+    #[test]
+    fn date_send_to_rejects_short_buffer() {
+        let ty = date_type();
+        let value = sample_date();
+        let mut buf = vec![0u8; 1];
+        assert!(fn_date_send_to(&value, &ty, &mut buf).is_err());
+    }
+
+    #[test]
+    fn date_recv_rejects_short_buffer() {
+        let ty = date_type();
+        assert!(fn_date_recv(&[0u8; 1], &ty).is_err());
+    }
+
+    #[test]
+    fn date_textual_roundtrip_preserves_value() {
+        let ty = date_type();
+        let textual = DatTextual::from("\"2026-05-20\"".to_string());
+        let value = fn_date_in_textual(textual.as_str(), &ty).unwrap();
+        let out = fn_date_out_textual(&value, &ty).unwrap();
+        assert_eq!(out.as_str(), "\"2026-05-20\"");
+    }
+
+    #[test]
+    fn date_textual_rejects_invalid_json() {
+        let ty = date_type();
+        assert!(fn_date_in_textual("not json", &ty).is_err());
+    }
+
+    #[test]
+    fn date_json_roundtrip_preserves_value() {
+        let ty = date_type();
+        let json = JsonValue::String("2026-05-20".to_string());
+        let value = fn_date_in_json(&json, &ty).unwrap();
+        let out = fn_date_out_json(&value, &ty).unwrap();
+        assert_eq!(out.as_json_value().as_str(), Some("2026-05-20"));
+    }
+
+    #[test]
+    fn date_json_rejects_non_string() {
+        let ty = date_type();
+        let json = JsonValue::Number(42.into());
+        assert!(fn_date_in_json(&json, &ty).is_err());
+    }
+
+    #[test]
+    fn date_msgpack_roundtrip_preserves_value() {
+        let ty = date_type();
+        let msg = MsgPackValue::String(MsgPackUtf8String::from("2026-05-20".to_string()));
+        let value = fn_date_in_msgpack(&msg, &ty).unwrap();
+        let out = fn_date_out_msgpack(&value, &ty).unwrap();
+        assert_eq!(out.as_str(), Some("2026-05-20"));
+    }
+
+    #[test]
+    fn date_msgpack_rejects_non_string() {
+        let ty = date_type();
+        let msg = MsgPackValue::Integer(42.into());
+        assert!(fn_date_in_msgpack(&msg, &ty).is_err());
+    }
+
+    #[test]
+    fn date_len_and_output_len_are_fixed() {
+        let ty = date_type();
+        assert_eq!(fn_date_len(&ty).unwrap(), Some(size_of::<i32>() as u32));
+        let value = sample_date();
+        assert_eq!(
+            fn_date_dat_output_len(&value, &ty).unwrap(),
+            size_of::<i32>() as u32
+        );
+    }
+
+    #[test]
+    fn date_default_is_epoch_zero() {
+        let ty = date_type();
+        let value = fn_date_default(&ty).unwrap();
+        assert_eq!(value.expect_date().days_since_epoch(), 0);
+    }
+
+    #[test]
+    fn date_order_and_equal_reflect_underlying_value() {
+        let a = DatValue::from_date(DateValue::parse("2026-05-20").unwrap());
+        let b = DatValue::from_date(DateValue::parse("2026-05-21").unwrap());
+        assert!(fn_date_equal(&a, &a).unwrap());
+        assert!(!fn_date_equal(&a, &b).unwrap());
+        assert_eq!(fn_date_order(&a, &b).unwrap(), std::cmp::Ordering::Less);
+        assert_eq!(fn_date_order(&b, &a).unwrap(), std::cmp::Ordering::Greater);
+        assert_eq!(fn_date_order(&a, &a).unwrap(), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn date_hash_uses_days_since_epoch() {
+        let value = sample_date();
+        let mut hasher = DefaultHasher::new();
+        fn_date_hash(&value, &mut hasher).unwrap();
+        let direct = {
+            let mut h = DefaultHasher::new();
+            value.expect_date().days_since_epoch().hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hasher.finish(), direct);
     }
 }

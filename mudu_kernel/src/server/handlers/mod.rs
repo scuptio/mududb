@@ -9,6 +9,9 @@ mod range_scan;
 mod session_close;
 mod session_create;
 
+#[cfg(test)]
+mod handshake_test;
+
 pub(in crate::server) use batch::BatchHandler;
 pub(in crate::server) use execute::ExecuteHandler;
 pub(in crate::server) use get::GetHandler;

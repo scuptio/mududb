@@ -5,10 +5,14 @@ use std::backtrace::Backtrace;
 
 struct ThreadContextGuard {
     id: TaskID,
+    owned: bool,
 }
 
 impl ThreadContextGuard {
     fn new() -> Self {
+        if let Some(id) = mudu_sys::task::sync::try_this_thread_task_id() {
+            return Self { id, owned: false };
+        }
         let id = new_task_id();
         let name = std::thread::current()
             .name()
@@ -16,7 +20,7 @@ impl ThreadContextGuard {
             .unwrap_or_else(|| format!("thread-{id}"));
 
         let _ = TaskContext::new(id, name);
-        Self { id }
+        Self { id, owned: true }
     }
 
     fn id(&self) -> TaskID {
@@ -26,7 +30,9 @@ impl ThreadContextGuard {
 
 impl Drop for ThreadContextGuard {
     fn drop(&mut self) {
-        TaskContext::remove_context(self.id);
+        if self.owned {
+            TaskContext::remove_context(self.id);
+        }
     }
 }
 
@@ -44,12 +50,24 @@ pub struct ThreadTrace {
 
 pub struct NoopThreadTrace;
 
+impl Default for NoopThreadTrace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoopThreadTrace {
     pub fn new() -> Self {
         Self
     }
 
     pub fn watch(&self, _key: &str, _value: &str) {}
+}
+
+impl Default for ThreadTrace {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ThreadTrace {
@@ -128,6 +146,13 @@ macro_rules! thread_trace {
 }
 
 #[macro_export]
+macro_rules! scoped_thread_trace {
+    () => {
+        let _thread_trace = $crate::thread_trace!();
+    };
+}
+
+#[macro_export]
 macro_rules! dump_thread_trace {
     () => {{
         #[cfg(feature = "debug_trace")]
@@ -158,4 +183,45 @@ macro_rules! thread_backtrace {
 #[macro_export]
 macro_rules! this_thread_id {
     () => {{ $crate::thread_trace::this_thread_id() }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn this_thread_id_returns_valid_id() {
+        let id = this_thread_id();
+        assert_eq!(id, this_thread_id());
+        assert_eq!(id, this_thread_id!());
+    }
+
+    #[test]
+    fn thread_trace_lifecycle_does_not_panic() {
+        let trace = ThreadTrace::new();
+        trace.watch("key", "value");
+        let bt = ThreadTrace::backtrace();
+        assert!(bt.is_empty() || bt.contains("thread backtrace"));
+        let dump = ThreadTrace::dump_thread_trace();
+        let _ = dump;
+        drop(trace);
+    }
+
+    #[test]
+    fn thread_trace_macros_do_not_panic() {
+        let _id = this_thread_id!();
+        let tt = thread_trace!();
+        tt.watch("macro-key", "macro-value");
+        let _bt = thread_backtrace!();
+        let _dump = dump_thread_trace!();
+        {
+            scoped_thread_trace!();
+        }
+    }
+
+    #[test]
+    fn noop_thread_trace_is_noop() {
+        let noop = NoopThreadTrace::new();
+        noop.watch("k", "v");
+    }
 }

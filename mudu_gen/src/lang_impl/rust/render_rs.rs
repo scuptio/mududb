@@ -1,7 +1,7 @@
 use askama::Template;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
 use mudu_binding::record::record_def::RecordDef;
 use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
@@ -16,6 +16,7 @@ use crate::lang_impl::rust::template_record_rs::TemplateRecordRS;
 use crate::lang_impl::rust::template_variant_rs::TemplateVariantRS;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 
+/// Create a Rust renderer.
 pub fn create_render() -> Arc<dyn Render> {
     Arc::new(RenderRS::new())
 }
@@ -64,7 +65,12 @@ impl RenderRS {
                     let s = Self::render_entity_rs(entity)?;
                     code_block.push(s);
                 }
-                TemplateKind::Table(_) => todo!(),
+                TemplateKind::Table(_) => {
+                    return Err(mudu_error!(
+                        ErrorCode::NotImplemented,
+                        "Rust table template is not implemented"
+                    ));
+                }
             }
         }
         Ok(code_block)
@@ -92,7 +98,7 @@ impl RenderRS {
         let template = TemplateRecordRS::from(def, cfg)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render rust record template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust record template error", e))?;
         Ok(s)
     }
 
@@ -100,7 +106,7 @@ impl RenderRS {
         let template = TemplateEnumRS::from(def, cfg)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render rust enum template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust enum template error", e))?;
         Ok(s)
     }
 
@@ -108,7 +114,7 @@ impl RenderRS {
         let template = TemplateVariantRS::from(def, cfg)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render rust variant template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust variant template error", e))?;
         Ok(s)
     }
 
@@ -116,7 +122,7 @@ impl RenderRS {
         let template = TemplateEntityRS::from_table_schema(&table_schema)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render rust entity template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust entity template error", e))?;
         Ok(s)
     }
 }

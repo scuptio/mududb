@@ -29,6 +29,8 @@ mod fn_binary;
 mod fn_binary_arb;
 #[cfg(any(test, feature = "test"))]
 mod fn_date_arb;
+#[cfg(test)]
+mod fn_date_arb_test;
 #[cfg(any(test, feature = "test"))]
 mod fn_f32_arb;
 #[cfg(any(test, feature = "test"))]
@@ -41,6 +43,8 @@ mod fn_i32_arb;
 mod fn_i64_arb;
 #[cfg(any(test, feature = "test"))]
 mod fn_numeric_arb;
+#[cfg(test)]
+mod fn_numeric_arb_test;
 mod fn_object;
 #[cfg(any(test, feature = "test"))]
 mod fn_object_arb;
@@ -49,14 +53,21 @@ mod fn_object_param;
 mod fn_string_arb;
 #[cfg(any(test, feature = "test"))]
 mod fn_time_arb;
+#[cfg(test)]
+mod fn_time_arb_test;
 #[cfg(any(test, feature = "test"))]
 mod fn_timestamp_arb;
+#[cfg(test)]
+mod fn_timestamp_arb_test;
 #[cfg(any(test, feature = "test"))]
 mod fn_timestamptz_arb;
+#[cfg(test)]
+mod fn_timestamptz_arb_test;
 #[cfg(any(test, feature = "test"))]
 mod fn_u128_arb;
 
-#[cfg(test)]
+// Property tests with many arbitrary inputs are too slow under Miri.
+#[cfg(all(test, not(miri)))]
 mod generic_prop_test;
 
 #[cfg(test)]

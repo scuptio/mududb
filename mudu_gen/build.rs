@@ -1,31 +1,24 @@
-use crate::ts_const_gen::from_gram::gen_rs;
-use std::path::PathBuf;
-pub mod ts_const_gen;
+use mudu_build_common::repo_root;
+use mudu_build_common::ts_const_generate;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let path = PathBuf::from(&path).parent().unwrap().to_path_buf();
-    let mut grammar_path = path.clone();
-    let mut output_path = path.clone();
-    let mut md5_path = path.clone();
+    let repo_root = repo_root()?;
 
-    grammar_path.push("tree-sitter-wit");
-    grammar_path.push("src");
-    grammar_path.push("grammar.json");
+    let grammar_path = repo_root
+        .join("tree-sitter-wit")
+        .join("src")
+        .join("grammar.json");
+    let output_path = repo_root.join("mudu_gen").join("src").join("ts_const");
+    let md5_path = repo_root
+        .join("mudu_gen")
+        .join("ts_const_gen")
+        .join("grammar.md5.txt");
 
-    output_path.push("mudu_gen");
-    output_path.push("src");
-    output_path.push("ts_const");
-
-    md5_path.push("mudu_gen");
-    md5_path.push("ts_const_gen");
-    md5_path.push("grammar.md5.txt");
-
-    gen_rs(
+    ts_const_generate(
         output_path,
         grammar_path,
-        md5_path,
+        Some(md5_path),
         tree_sitter_wit::LANGUAGE.into(),
-    );
+    )?;
     Ok(())
 }

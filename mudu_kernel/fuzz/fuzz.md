@@ -46,24 +46,24 @@ Caused by:
 
 1. run fuzz testing on target
     ```shell
-    cargo +nightly fuzz run [target]
+    cargo +nightly-2026-06-17 fuzz run [target]
     ```
 
 2. Minify target corpus of input files
     ```shell
-    cargo +nightly fuzz cmin [target]
+    cargo +nightly-2026-06-17 fuzz cmin [target]
     ```
 
 3. Generate test coverage(only run case in corpus)
 
    run fuzz coverage
    ```shell
-    cargo +nightly fuzz coverage [target]
+    cargo +nightly-2026-06-17 fuzz coverage [target]
    ```
 
 4. Generate golden corpus (in folder /[path_to_project]/fuzz/golden_corpus)
    ```shell
-   GOLDEN_CORPUS=true cargo +nightly fuzz coverage [target]
+   GOLDEN_CORPUS=true cargo +nightly-2026-06-17 fuzz coverage [target]
    ```
 
    

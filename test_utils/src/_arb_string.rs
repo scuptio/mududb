@@ -1,5 +1,8 @@
+//! Arbitrary string generators.
+
 use arbitrary::{Arbitrary, Unstructured};
 
+/// Generates an arbitrary string whose length is bounded by `len`.
 pub fn _arbitrary_string(u: &mut Unstructured, len: usize) -> arbitrary::Result<String> {
     if len == 0 {
         Ok(String::new())

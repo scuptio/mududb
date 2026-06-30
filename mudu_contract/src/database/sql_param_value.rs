@@ -1,3 +1,6 @@
+//! `database::sql_param_value` module.
+#![allow(missing_docs)]
+
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::DatumDyn;
 

@@ -1,5 +1,13 @@
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::schema_table::SchemaTable;
     use crate::contract::table_info::TableInfo;

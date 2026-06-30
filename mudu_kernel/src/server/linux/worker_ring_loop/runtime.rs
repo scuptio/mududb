@@ -20,9 +20,12 @@ impl WorkerRingLoop {
                     self.handle_mailbox_message(msg)?;
                 }
             } else {
-                self.shutdown_connection_tasks();
+                self.shutdown_connection_tasks()?;
             }
             self.poll_flush_log()?;
+            if self.shutting_down {
+                self.force_flush_log()?;
+            }
             self.worker_local_ring
                 .worker_task_registry()
                 .drain_completions();
@@ -34,18 +37,28 @@ impl WorkerRingLoop {
             let submitted = self.ring.submit();
             trace!(submitted, "worker_ring_loop ring.submit done");
             if submitted < 0 {
-                return Err(m_error!(
-                    EC::NetErr,
+                return Err(mudu_error!(
+                    ErrorCode::Network,
                     format!("io_uring_submit error {}", submitted)
                 ));
             }
 
             if self.shutting_down && self.worker_local_ring.worker_task_registry().is_empty() {
-                return self.finish_shutdown();
+                // Make sure the WAL has been fully flushed before tearing the
+                // worker loop down. The flush task is not tracked in the worker
+                // task registry, so the registry being empty is not enough to
+                // guarantee durability.
+                let log_flushed = match &self.log {
+                    Some(log) => log.backend().is_flush_idle()?,
+                    None => true,
+                };
+                if log_flushed {
+                    return self.finish_shutdown();
+                }
             }
 
             if self.inflight.is_empty() {
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(1));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(1));
                 continue;
             }
 
@@ -55,8 +68,8 @@ impl WorkerRingLoop {
                 Err(wait_rc) if wait_rc == -libc::ETIME => continue,
                 Err(wait_rc) if wait_rc == -libc::EINTR => continue,
                 Err(wait_rc) => {
-                    return Err(m_error!(
-                        EC::NetErr,
+                    return Err(mudu_error!(
+                        ErrorCode::Network,
                         format!("io_uring_wait_cqe error {}", wait_rc)
                     ))
                 }
@@ -73,8 +86,8 @@ impl WorkerRingLoop {
                     Ok(Some(cqe)) => cqe,
                     Ok(None) => break,
                     Err(peek_rc) => {
-                        return Err(m_error!(
-                            EC::NetErr,
+                        return Err(mudu_error!(
+                            ErrorCode::Network,
                             format!("io_uring_peek_cqe error {}", peek_rc)
                         ))
                     }
@@ -91,12 +104,12 @@ impl WorkerRingLoop {
             return Ok(());
         }
         self.shutting_down = true;
-        self.shutdown_connection_tasks();
+        self.shutdown_connection_tasks()?;
         if self.listener_fd >= 0 {
             let rc = unsafe { libc::close(self.listener_fd) };
             if rc != 0 {
-                return Err(m_error!(
-                    EC::NetErr,
+                return Err(mudu_error!(
+                    ErrorCode::Network,
                     "close io_uring listener during shutdown error",
                     std::io::Error::last_os_error()
                 ));
@@ -129,13 +142,13 @@ impl WorkerRingLoop {
         Ok(())
     }
 
-    fn shutdown_connection_tasks(&mut self) {
-        self.connection_task_fds.iter_sync(|_, fd| {
+    fn shutdown_connection_tasks(&mut self) -> RS<()> {
+        for fd in self.connection_task_fds.lock()?.values() {
             unsafe {
                 libc::shutdown(*fd, libc::SHUT_RDWR);
             }
-            true
-        });
+        }
+        Ok(())
     }
 
     fn finish_shutdown(&mut self) -> RS<WorkerLoopStats> {
@@ -143,7 +156,7 @@ impl WorkerRingLoop {
         Ok(self.stats.clone())
     }
 
-    fn wait_for_cqe(&mut self) -> RS<Result<mudu_sys::uring::Cqe, i32>> {
+    fn wait_for_cqe(&mut self) -> RS<Result<mudu_sys::io::iouring::Cqe, i32>> {
         if let Some(timeout) = self.log_flush_wait_timeout()? {
             trace!(
                 timeout_us = timeout.as_micros() as u64,
@@ -163,7 +176,7 @@ impl WorkerRingLoop {
             return Ok(None);
         };
         Ok(Some(
-            deadline.saturating_duration_since(mudu_sys::time::instant_now()),
+            deadline.saturating_duration_since(*mudu_sys::time::instant_now()),
         ))
     }
 
@@ -173,6 +186,15 @@ impl WorkerRingLoop {
         };
         let started = log.backend().poll_flush_log()?;
         trace!(started, "worker_ring_loop poll_flush_log result");
+        Ok(())
+    }
+
+    fn force_flush_log(&mut self) -> RS<()> {
+        let Some(log) = &self.log else {
+            return Ok(());
+        };
+        let started = log.backend().force_flush_log()?;
+        trace!(started, "worker_ring_loop force_flush_log result");
         Ok(())
     }
 }

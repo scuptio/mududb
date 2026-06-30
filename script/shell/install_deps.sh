@@ -4,6 +4,10 @@ set -euo pipefail
 echo "=== Installing MuduDB Dependencies ==="
 echo ""
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+STABLE_TOOLCHAIN="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' "$REPO_ROOT/rust-toolchain.toml")"
+NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < "$REPO_ROOT/.rust-nightly-version")"
+
 # 1. System packages
 echo "[1/5] Installing system packages..."
 if [ "$(id -u)" -eq 0 ]; then
@@ -19,18 +23,15 @@ update-ca-certificates 2>/dev/null || true
 echo "System packages installed."
 echo ""
 
-# 2. Rust nightly toolchain
-echo "[2/5] Installing Rust nightly toolchain..."
+# 2. Rust toolchains
+echo "[2/5] Installing pinned Rust toolchains..."
 if ! command -v rustup &> /dev/null; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
     source "$HOME/.cargo/env"
 fi
-rustup toolchain install nightly
-rustup default nightly
-rustup component add rustfmt --toolchain nightly
-rustup update nightly
-rustup target add wasm32-wasip2
-echo "Rust nightly toolchain installed."
+rustup toolchain install "$STABLE_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target x86_64-unknown-linux-gnu,wasm32-wasip2
+rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal
+echo "Stable build toolchain and nightly tooling toolchain installed."
 echo ""
 
 # 3. Python packages
@@ -41,16 +42,17 @@ echo ""
 
 # 4. cargo-make
 echo "[4/5] Installing cargo-make..."
-cargo install cargo-make
+cargo "+$STABLE_TOOLCHAIN" install cargo-make --version 0.37.24 --locked
 echo "cargo-make installed."
 echo ""
 
 # 5. Verify
 echo "[5/5] Verifying installation..."
-echo "  rustc: $(rustc --version)"
-echo "  cargo: $(cargo --version)"
-echo "  rustfmt: $(rustfmt +nightly --version 2>&1)"
-echo "  wasm32-wasip2 target: $(rustup target list | grep wasm32-wasip2 | grep installed)"
+echo "  stable rustc: $(rustc "+$STABLE_TOOLCHAIN" --version)"
+echo "  stable cargo: $(cargo "+$STABLE_TOOLCHAIN" --version)"
+echo "  stable rustfmt: $(rustfmt "+$STABLE_TOOLCHAIN" --version 2>&1)"
+echo "  nightly cargo: $(cargo "+$NIGHTLY_TOOLCHAIN" --version)"
+echo "  wasm32-wasip2 target: $(rustup target list --toolchain "$STABLE_TOOLCHAIN" | grep wasm32-wasip2 | grep installed)"
 echo "  python3: $(python3 --version)"
 echo "  cargo-make: $(cargo make --version 2>&1)"
 echo ""

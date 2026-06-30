@@ -1,6 +1,6 @@
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::panic::Location;
@@ -17,10 +17,9 @@ pub enum TyEC {
 #[derive(Debug, Clone)]
 pub struct TyErr {
     ec: TyEC,
-    #[allow(unused)]
     msg: String,
     #[allow(unused)]
-    src: Option<Arc<dyn Error>>,
+    src: Option<Arc<dyn Error + Send + Sync + 'static>>,
     #[allow(unused)]
     loc: String,
 }
@@ -49,7 +48,7 @@ impl TyErr {
         }
     }
 
-    pub fn new_with_src<S: Error + 'static>(ec: TyEC, msg: String, src: S) -> Self {
+    pub fn new_with_src<S: Error + Send + Sync + 'static>(ec: TyEC, msg: String, src: S) -> Self {
         let loc = format!(
             "{}:{}",
             Location::caller().file(),
@@ -63,8 +62,26 @@ impl TyErr {
         }
     }
 
-    pub fn to_m_err(&self) -> MError {
-        m_error!(EC::TypeErr, self.msg.clone(), self.clone())
+    pub fn to_m_err(&self) -> MuduError {
+        match self.ec {
+            TyEC::TypeConvertFailed | TyEC::ParamParseError => {
+                mudu_error!(
+                    ErrorCode::TypeConversionFailed,
+                    self.msg.clone(),
+                    self.clone()
+                )
+            }
+            TyEC::InsufficientSpace => {
+                mudu_error!(
+                    ErrorCode::InsufficientBufferSpace,
+                    self.msg.clone(),
+                    self.clone()
+                )
+            }
+            TyEC::FatalInternalError => {
+                mudu_error!(ErrorCode::FatalInternal, self.msg.clone(), self.clone())
+            }
+        }
     }
 
     pub fn msg(&self) -> String {

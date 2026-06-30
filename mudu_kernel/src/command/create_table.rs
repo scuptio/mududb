@@ -4,9 +4,9 @@ use crate::x_engine::api::XContract;
 use crate::x_engine::x_param::PCreateTable;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
+use mudu_sys::sync::async_::AMutex;
 use std::sync::Arc;
 use tracing::trace;
 
@@ -73,8 +73,8 @@ impl _InnerCreateTable {
             .await?
             .is_some()
         {
-            return Err(m_error!(
-                ER::ExistingSuchElement,
+            return Err(mudu_error!(
+                ER::EntityAlreadyExists,
                 format!("table {} already exists", table_name)
             ));
         }

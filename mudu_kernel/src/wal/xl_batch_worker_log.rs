@@ -4,11 +4,11 @@ use crate::wal::lsn::LSN;
 use crate::wal::typed_worker_log::{TypedWorkerLog, WorkerLogRecoveryHandler};
 use crate::wal::worker_log::WorkerLogBackend;
 use crate::wal::xl_batch::XLBatch;
-use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use std::sync::atomic::AtomicU32;
 use async_trait::async_trait;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use std::sync::atomic::AtomicU64;
 
 /// Typed worker-log wrapper specialized for [`XLBatch`].
 ///
@@ -73,7 +73,7 @@ where
 pub fn serialize_batch(
     batch: &XLBatch,
     max_part_size: usize,
-    next_lsn: &AtomicU32,
+    next_lsn: &AtomicU64,
 ) -> RS<Vec<Vec<u8>>> {
     serialize_entry(batch, max_part_size, next_lsn)
 }
@@ -87,7 +87,10 @@ pub fn decode_xl_batches(frames: &[Vec<u8>]) -> RS<Vec<XLBatch>> {
     let mut pending_start_lsn = None;
     let batches = decode_xl_batches_with_pending(frames, &mut pending, &mut pending_start_lsn)?;
     if !pending.is_empty() {
-        return Err(m_error!(EC::DecodeErr, "trailing partial xl batch frames"));
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            "trailing partial xl batch frames"
+        ));
     }
     Ok(batches)
 }
@@ -104,13 +107,21 @@ pub fn decode_xl_batches_with_pending(
     Ok(out)
 }
 
-pub async fn append_xl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<LSN> {
+pub async fn append_xl_batch_async<B: WorkerLogBackend>(backend: &B, batch: &XLBatch) -> RS<()> {
     let frames = backend.serialize_entry(batch)?;
     backend.append_frames_async(frames).await
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::*;
     use crate::wal::log_frame::{
         frame_lsns, split_frame, LOG_FRAME_HEADER_SIZE, LOG_FRAME_TAILER_SIZE,
@@ -142,7 +153,7 @@ mod tests {
     #[test]
     fn xl_batch_single_part_round_trip() {
         let batch = sample_batch(1, 32);
-        let next_lsn = AtomicU32::new(0);
+        let next_lsn = AtomicU64::new(0);
         let parts = serialize_batch(&batch, 4096, &next_lsn).unwrap();
         let lsns = frame_lsns(&parts).unwrap();
         assert_eq!(parts.len(), 1);
@@ -158,7 +169,7 @@ mod tests {
     #[test]
     fn xl_batch_splits_large_payload_into_multiple_parts() {
         let batch = sample_batch(4, 256);
-        let next_lsn = AtomicU32::new(10);
+        let next_lsn = AtomicU64::new(10);
         let parts = serialize_batch(&batch, 180, &next_lsn).unwrap();
         let lsns = frame_lsns(&parts).unwrap();
         assert!(parts.len() > 1);
@@ -177,7 +188,7 @@ mod tests {
     #[test]
     fn xl_batch_rejects_corrupted_payload_checksum() {
         let batch = sample_batch(1, 32);
-        let next_lsn = AtomicU32::new(0);
+        let next_lsn = AtomicU64::new(0);
         let mut parts = serialize_batch(&batch, 4096, &next_lsn).unwrap();
         let idx = parts[0].len() - LOG_FRAME_TAILER_SIZE - 1;
         parts[0][idx] ^= 0x7f;
@@ -189,7 +200,7 @@ mod tests {
     #[test]
     fn xl_batch_rejects_part_order_mismatch() {
         let batch = sample_batch(4, 256);
-        let next_lsn = AtomicU32::new(0);
+        let next_lsn = AtomicU64::new(0);
         let mut parts = serialize_batch(&batch, 180, &next_lsn).unwrap();
         parts.swap(0, 1);
         let err = deserialize_batch(&parts).unwrap_err();
@@ -204,7 +215,7 @@ mod tests {
     #[test]
     fn xl_batch_rejects_invalid_part_size_configuration() {
         let batch = sample_batch(1, 8);
-        let next_lsn = AtomicU32::new(0);
+        let next_lsn = AtomicU64::new(0);
         let err = serialize_batch(
             &batch,
             LOG_FRAME_HEADER_SIZE + LOG_FRAME_TAILER_SIZE,
@@ -238,7 +249,7 @@ mod tests {
             ],
         }]);
 
-        let next_lsn = AtomicU32::new(0);
+        let next_lsn = AtomicU64::new(0);
         let parts = serialize_batch(&batch, 4096, &next_lsn).unwrap();
         assert_eq!(deserialize_batch(&parts).unwrap(), batch);
     }

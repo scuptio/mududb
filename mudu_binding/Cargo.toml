@@ -2,7 +2,12 @@
 name = "mudu_binding"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
+
+[lints]
+workspace = true
 
 [dependencies]
 mudu = { workspace = true }
@@ -11,4 +16,7 @@ mudu_contract = {workspace = true}
 serde = { workspace = true }
 tracing = { workspace = true }
 serde_repr = {workspace = true}
-hex = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }

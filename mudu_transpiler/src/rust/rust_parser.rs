@@ -1,16 +1,25 @@
+//! Tree-sitter based parser for the Rust front-end.
+//!
+//! `RustParser` walks a Rust source file, records module-rewrite positions, and
+//! collects Mudu procedures annotated with `/**mudu-proc**/`. Call dependencies
+//! are also tracked so that `async`/`await` can be propagated transitively.
+
 use crate::rust::parse_context::{ParseContext, Position, UseRefactor};
 use crate::rust::ts_const;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use std::collections::HashMap;
 
 use crate::rust::function::Function;
 use crate::rust::rust_type::RustType;
 use tree_sitter::{Language, Node, Parser};
 
+type ScopeMap = HashMap<String, (Option<String>, Position, Position)>;
+
 const MUDU_PROC_MARKER: &str = "/**mudu-proc**/";
 
+/// Parser for Rust source code.
 pub struct RustParser {}
 
 fn rust_language() -> Language {
@@ -39,10 +48,15 @@ impl RustParser {
         Self {}
     }
 
+    /// Parse the Rust source in `context` and populate its procedure tables.
     pub fn parse(context: &mut ParseContext) -> RS<()> {
         let mut parser = Parser::new();
-        parser.set_language(&rust_language()).unwrap();
-        let tree = parser.parse(&context.text, None).unwrap();
+        parser
+            .set_language(&rust_language())
+            .map_err(|e| mudu_error!(ErrorCode::Parse, "load Rust grammar error", e))?;
+        let tree = parser
+            .parse(&context.text, None)
+            .ok_or_else(|| mudu_error!(ErrorCode::Parse, "parse Rust source error"))?;
         let node = tree.root_node();
         let parser = Self::new();
         parser.walk_node(context, node, &None)?;
@@ -56,7 +70,7 @@ impl RustParser {
         opt_function_name: &Option<String>,
     ) -> RS<()> {
         let mut cursor = node.walk();
-        for (_, child) in node.children(&mut cursor).enumerate() {
+        for child in node.children(&mut cursor) {
             let kind = child.kind();
             match kind {
                 ts_const::ts_kind_name::S_USE_DECLARATION => {
@@ -76,20 +90,26 @@ impl RustParser {
         Ok(())
     }
 
-    fn is_mudu_proc(&self, context: &ParseContext, function_item_start_row: usize) -> bool {
-        if context.lines.len() < function_item_start_row {
-            panic!("row index out of bounds");
+    fn is_mudu_proc(&self, context: &ParseContext, function_item_start_row: usize) -> RS<bool> {
+        if context.lines.len() <= function_item_start_row {
+            return Err(mudu_error!(
+                ErrorCode::IndexOutOfRange,
+                "row index out of bounds"
+            ));
         }
-        for i in 1..function_item_start_row {
+        for i in 1..=function_item_start_row {
             let line = &context.lines[function_item_start_row - i];
             let line_trim = line.trim();
             if line_trim == MUDU_PROC_MARKER {
-                return true;
-            } else if !line_trim.is_empty() {
-                return false;
+                return Ok(true);
+            } else if !line_trim.is_empty()
+                && !line_trim.starts_with("///")
+                && !line_trim.starts_with("#[")
+            {
+                return Ok(false);
             }
         }
-        false
+        Ok(false)
     }
 
     fn visit_use_declaration(&self, context: &mut ParseContext, node: Node) -> RS<()> {
@@ -122,19 +142,14 @@ impl RustParser {
         Ok(())
     }
 
-    fn build_path_list(
-        &self,
-        stack: &Vec<HashMap<String, (Option<String>, Position, Position)>>,
-    ) -> Vec<Vec<(String, Position, Position)>> {
+    fn build_path_list(&self, stack: &[ScopeMap]) -> Vec<Vec<(String, Position, Position)>> {
         let opt = stack.last();
         let mut ret = Vec::new();
         if let Some(map) = opt {
             for (name, (opt_parent, start, end)) in map.iter() {
                 let mut vec = Vec::new();
                 let name = name.clone();
-                let start = start.clone();
-                let end = end.clone();
-                vec.push((name, start, end));
+                vec.push((name, *start, *end));
                 let mut i = stack.len() - 1;
                 let mut opt_parent = opt_parent.clone();
                 while i >= 1 {
@@ -143,7 +158,7 @@ impl RustParser {
                             let parent_level = &stack[i - 1];
                             let opt = parent_level.get(parent);
                             if let Some((opt_p, s, e)) = opt {
-                                vec.push((parent.clone(), s.clone(), e.clone()));
+                                vec.push((parent.clone(), *s, *e));
                                 opt_parent = opt_p.clone()
                             }
                             i -= 1;
@@ -163,16 +178,19 @@ impl RustParser {
     fn refactor_use_mod(
         &self,
         context: &mut ParseContext,
-        path: &Vec<(String, Position, Position)>,
-        src: &Vec<String>,
-        dst: &Vec<String>,
+        path: &[(String, Position, Position)],
+        src: &[String],
+        dst: &[String],
     ) -> RS<()> {
         if src.len() != dst.len() {
-            panic!(
-                "cannot possible src len ({}) != dst len ({})",
-                src.len(),
-                dst.len()
-            );
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                format!(
+                    "cannot possible src len ({}) != dst len ({})",
+                    src.len(),
+                    dst.len()
+                )
+            ));
         }
         let mut i = 0;
         let mut j = 0;
@@ -183,7 +201,7 @@ impl RustParser {
             if path_i_str == path_j_str {
                 i += 1;
                 j += 1;
-                matches.push((path_i_str.clone(), start_pos.clone(), end_pos.clone()));
+                matches.push((path_i_str.clone(), *start_pos, *end_pos));
             } else {
                 i += 1;
                 j = 0;
@@ -208,7 +226,7 @@ impl RustParser {
         node: Node,
         find_next_identifier: &mut bool,
         path: &mut Vec<String>,
-        stack: &mut Vec<HashMap<String, (Option<String>, Position, Position)>>,
+        stack: &mut Vec<ScopeMap>,
     ) -> RS<()> {
         let mut new_level_parent = path.last().cloned();
         let mut increase_depth = false;
@@ -278,7 +296,7 @@ impl RustParser {
         let mut contains_async = false;
         let mut fn_start_pos = None;
         let start_pos = node.start_position();
-        let is_mudu_proc = self.is_mudu_proc(context, start_pos.row);
+        let is_mudu_proc = self.is_mudu_proc(context, start_pos.row)?;
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "fn" => {
@@ -364,8 +382,8 @@ impl RustParser {
             _ => {
                 let kind = node.kind();
                 let text = context.node_text(&node)?;
-                return Err(m_error!(
-                    EC::NoneErr,
+                return Err(mudu_error!(
+                    ErrorCode::UnsupportedOperation,
                     format!("node kind {}, do not support type {}", kind, text)
                 ));
             }
@@ -414,7 +432,7 @@ impl RustParser {
         for child in node.children(&mut cursor) {
             let k = child.kind();
             if k != "(" && k != "," && k != ")" {
-                let rust_type = self.visit_type(&context, child)?;
+                let rust_type = self.visit_type(context, child)?;
                 vec.push(rust_type);
             }
         }
@@ -439,7 +457,7 @@ impl RustParser {
                 let is_sys_call = context.is_sys_call(&identifier.name);
                 context.add_func_call_end_position(
                     identifier.name.clone(),
-                    arguments.end_position.clone(),
+                    arguments.end_position,
                     is_sys_call,
                 );
             }
@@ -487,18 +505,14 @@ impl RustParser {
         node: Node,
         call_chains: &mut Vec<(CallIdentifier, CallArguments)>,
     ) -> RS<()> {
-        match node.kind() {
-            ts_const::ts_kind_name::S_CALL_EXPRESSION => {
-                let function = expected_child_filed(&node, ts_const::ts_field_name::FUNCTION)?;
-                let opt_identifier = self.visit_function(context, function)?;
-                if let Some(identifier) = opt_identifier {
-                    let arguments =
-                        expected_child_filed(&node, ts_const::ts_field_name::ARGUMENTS)?;
-                    let call_arguments = self.visit_call_arguments(context, arguments)?;
-                    call_chains.push((identifier, call_arguments))
-                }
+        if node.kind() == ts_const::ts_kind_name::S_CALL_EXPRESSION {
+            let function = expected_child_filed(&node, ts_const::ts_field_name::FUNCTION)?;
+            let opt_identifier = self.visit_function(context, function)?;
+            if let Some(identifier) = opt_identifier {
+                let arguments = expected_child_filed(&node, ts_const::ts_field_name::ARGUMENTS)?;
+                let call_arguments = self.visit_call_arguments(context, arguments)?;
+                call_chains.push((identifier, call_arguments))
             }
-            _ => {}
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -533,15 +547,40 @@ impl RustParser {
     }
 }
 
+// tree-sitter's Rust grammar uses native code that Miri cannot execute.
+#[cfg(all(test, not(miri)))]
+mod marker_tests {
+    use super::RustParser;
+    use crate::rust::parse_context::ParseContext;
+    use std::error::Error;
+
+    #[test]
+    fn discovers_procedure_with_doc_comment_after_marker() -> Result<(), Box<dyn Error>> {
+        let code = r#"/**mudu-proc**/
+/// Creates a user.
+#[allow(dead_code)]
+pub fn create_user(xid: OID, user_id: i32) -> RS<()> {
+    Ok(())
+}
+"#;
+        let mut context = ParseContext::new(code.to_string(), None, None);
+
+        RustParser::parse(&mut context)?;
+
+        assert!(context.mudu_procedure.contains_key("create_user"));
+        Ok(())
+    }
+}
+
 fn expected_child_filed<'tree>(node: &Node<'tree>, field: &str) -> RS<Node<'tree>> {
     let child = node.child_by_field_name(field).map_or_else(
         || {
-            Err(m_error!(
-                EC::NoneErr,
+            Err(mudu_error!(
+                ErrorCode::Parse,
                 format!("cannot find child filed for {}", field)
             ))
         },
-        |child| Ok(child),
+        Ok,
     )?;
     Ok(child)
 }
@@ -550,22 +589,24 @@ fn opt_child_filed<'tree>(node: &Node<'tree>, field: &str) -> Option<Node<'tree>
     Some(child)
 }
 
-#[cfg(test)]
+// tree-sitter's Rust grammar uses native code that Miri cannot execute.
+#[cfg(all(test, not(miri)))]
 mod tests {
     use crate::rust::parse_context::ParseContext;
     use crate::rust::rust_parser::RustParser;
+    use std::error::Error;
 
     #[test]
-    fn test_rust_parser() {
+    fn test_rust_parser() -> Result<(), Box<dyn Error>> {
         let text_rs = include_str!("test_rs/proc1.rs");
         let mut c = ParseContext::new(
             text_rs.to_string(),
             Some("wasm".to_string()),
             Some("wasm_generated".to_string()),
         );
-        RustParser::parse(&mut c).unwrap();
+        RustParser::parse(&mut c)?;
         c.tran_to_async();
-        let s = c.render_source("app_test".to_string(), true).unwrap();
+        let s = c.render_source("app_test".to_string(), true)?;
         assert!(s.contains("pub async fn proc_sys_call"));
         assert!(s.contains("use sys_interface::async_api::"));
         assert!(s.contains("mudu_command(xid,"));
@@ -577,5 +618,6 @@ mod tests {
         assert!(s.contains("let value = mudu_get(session_id, &a).await?;"));
         assert!(s.contains("let pairs = mudu_range(session_id, &a, &b).await?;"));
         assert!(s.contains("mudu_close(session_id).await?;"));
+        Ok(())
     }
 }

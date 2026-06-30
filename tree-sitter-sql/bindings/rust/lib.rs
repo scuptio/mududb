@@ -4,6 +4,12 @@
 //! tree-sitter [`Parser`], and then use the parser to parse some code:
 //!
 //! ```
+//! // Miri cannot load the native C grammar shared library used by tree-sitter,
+//! // so this example is skipped under Miri.
+//! # #[cfg(miri)]
+//! # fn main() {}
+//! # #[cfg(not(miri))]
+//! # fn main() {
 //! let code = r#"
 //! "#;
 //! let mut parser = tree_sitter::Parser::new();
@@ -13,6 +19,7 @@
 //!     .expect("Error loading SQL parser");
 //! let tree = parser.parse(code, None).unwrap();
 //! assert!(!tree.root_node().has_error());
+//! # }
 //! ```
 //!
 //! [`Parser`]: https://docs.rs/tree-sitter/0.25.4/tree_sitter/struct.Parser.html
@@ -42,6 +49,9 @@ pub const NODE_TYPES: &str = include_str!("../../src/node-types.json");
 #[cfg(test)]
 mod tests {
     #[test]
+    // Miri cannot execute the native C grammar shared library loaded by
+    // tree-sitter, so skip this smoke test under Miri.
+    #[cfg_attr(miri, ignore)]
     fn test_can_load_grammar() {
         let mut parser = tree_sitter::Parser::new();
         parser

@@ -1,0 +1,12 @@
+[package]
+name = "mudu_compat_migrate"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }

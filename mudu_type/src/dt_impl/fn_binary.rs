@@ -41,7 +41,7 @@ pub fn fn_binary_in_json(json: &JsonValue, _: &DatType) -> Result<DatValue, TyEr
                     "expected a number".to_string(),
                 ))
             },
-            |e| Ok(e),
+            Ok,
         )?;
         binary.push(n as u8);
     }
@@ -78,7 +78,7 @@ pub fn fn_binary_in_msgpack(msg_pack: &MsgPackValue, _: &DatType) -> Result<DatV
                     "in msgpack, expected a number".to_string(),
                 ))
             },
-            |e| Ok(e),
+            Ok,
         )?;
         binary.push(n as u8);
     }
@@ -120,10 +120,7 @@ pub fn fn_dat_output_len(dat_value: &DatValue, _: &DatType) -> Result<u32, TyErr
 
 pub fn fn_binary_send(dat_value: &DatValue, dat_type: &DatType) -> Result<DatBinary, TyErr> {
     let len = fn_dat_output_len(dat_value, dat_type)?;
-    let mut vec = Vec::with_capacity(len as usize);
-    unsafe {
-        vec.set_len(len as usize);
-    }
+    let mut vec = vec![0; len as usize];
     let _ = fn_binary_send_to(dat_value, dat_type, &mut vec)?;
     Ok(DatBinary::from(vec))
 }
@@ -162,8 +159,7 @@ pub fn fn_binary_recv(buf: &[u8], _: &DatType) -> Result<(DatValue, u32), TyErr>
     }
 
     let data_len = binary_bytes as usize - header_size();
-    let mut binary = Vec::with_capacity(data_len);
-    binary.resize(data_len, 0);
+    let mut binary = vec![0; data_len];
     binary.copy_from_slice(&buf[header_size()..binary_bytes as usize]);
     Ok((DatValue::from_binary(binary), binary_bytes))
 }

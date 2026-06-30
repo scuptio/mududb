@@ -1,4 +1,12 @@
 pub mod _fuzz {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use mudu::common::_arb_de_en::_fuzz_decode_and_encode;
     use mudu::common::update_delta::UpdateDelta;
 
@@ -11,6 +19,14 @@ pub mod _fuzz {
 
 #[cfg(test)]
 mod _test {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::fuzz::_test_target::_test::_test_target;
 
     #[test]

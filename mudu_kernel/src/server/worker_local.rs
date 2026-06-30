@@ -4,8 +4,6 @@ use crate::server::worker_snapshot::KvItem;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
@@ -38,8 +36,8 @@ pub trait WorkerLocal: Send + Sync {
         if worker_id == 0 {
             self.open_async().await
         } else {
-            Err(mudu::m_error!(
-                mudu::error::ec::EC::NotImplemented,
+            Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::NotImplemented,
                 format!("worker-local open on worker {} is not supported", worker_id)
             ))
         }
@@ -92,18 +90,6 @@ pub(crate) fn unset_current_worker_local() {
             *slot.get() = None;
         }
     });
-}
-
-#[allow(dead_code)]
-pub(crate) fn current_worker_local() -> RS<WorkerLocalRef> {
-    CURRENT_WORKER_LOCAL.with(|slot| {
-        // Safety: shared reads are confined to the current thread-local slot.
-        let worker_local = unsafe { &*slot.get() };
-        worker_local
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| m_error!(EC::NoneErr, "current worker local is not set"))
-    })
 }
 
 pub fn try_current_worker_local() -> Option<WorkerLocalRef> {

@@ -157,6 +157,10 @@ pub const FN_TIMESTAMP_CONVERT: FnBase = FnBase {
 };
 
 #[cfg(test)]
+#[path = "fn_timestamp_test.rs"]
+mod fn_timestamp_test;
+
+#[cfg(test)]
 mod tests {
     use super::{
         fn_timestamp_default, fn_timestamp_in_json, fn_timestamp_in_msgpack, fn_timestamp_out_json,

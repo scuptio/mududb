@@ -41,7 +41,7 @@ pub fn send_binary(value: &DatValue, ty: &DatType) -> Result<Vec<u8>, TyErr> {
     Ok(value.into())
 }
 
-pub fn recv_binary(value: &Vec<u8>, ty: &DatType) -> Result<Arc<DatValue>, TyErr> {
+pub fn recv_binary(value: &[u8], ty: &DatType) -> Result<Arc<DatValue>, TyErr> {
     let id = ty.dat_type_id();
     let (value, _) = id.fn_recv()(value, ty)?;
     Ok(Arc::new(value))

@@ -1,3 +1,6 @@
+//! `database::sql_stmt` module.
+#![allow(missing_docs)]
+
 use std::fmt;
 
 pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {

@@ -56,3 +56,80 @@ impl TxOp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
+    use super::*;
+    use crate::wal::xl_data_op::{XLDelete, XLInsert, XLUpdate, XLWrite};
+
+    fn sample_insert_write() -> XLWrite {
+        XLWrite::Insert(XLInsert {
+            table_id: 100,
+            partition_id: 200,
+            tuple_id: 1,
+            key: vec![1],
+            value: vec![2],
+        })
+    }
+
+    #[test]
+    fn xl_entry_serializes_and_deserializes() {
+        let orig = XLEntry {
+            xid: 123,
+            ops: vec![
+                TxOp::Begin,
+                TxOp::Write(sample_insert_write()),
+                TxOp::Commit,
+            ],
+        };
+        let encoded = rmp_serde::to_vec(&orig).unwrap();
+        let decoded: XLEntry = rmp_serde::from_slice(&encoded).unwrap();
+        assert_eq!(orig, decoded);
+    }
+
+    #[test]
+    fn tx_op_table_id_returns_write_table_id_or_none() {
+        assert_eq!(TxOp::Write(sample_insert_write()).table_id(), Some(100));
+        assert_eq!(TxOp::Begin.table_id(), None);
+        assert_eq!(TxOp::Commit.table_id(), None);
+        assert_eq!(TxOp::Abort.table_id(), None);
+    }
+
+    #[test]
+    fn tx_op_partition_id_returns_write_partition_id_or_none() {
+        assert_eq!(TxOp::Write(sample_insert_write()).partition_id(), Some(200));
+        assert_eq!(TxOp::Begin.partition_id(), None);
+        assert_eq!(TxOp::Commit.partition_id(), None);
+        assert_eq!(TxOp::Abort.partition_id(), None);
+    }
+
+    #[test]
+    fn tx_op_table_id_and_partition_id_for_update_and_delete() {
+        let update = XLWrite::Update(XLUpdate {
+            table_id: 300,
+            partition_id: 400,
+            tuple_id: 2,
+            key: vec![3],
+            delta: vec![4],
+        });
+        let delete = XLWrite::Delete(XLDelete {
+            table_id: 500,
+            partition_id: 600,
+            tuple_id: 3,
+            key: vec![5],
+        });
+
+        assert_eq!(TxOp::Write(update.clone()).table_id(), Some(300));
+        assert_eq!(TxOp::Write(update).partition_id(), Some(400));
+        assert_eq!(TxOp::Write(delete.clone()).table_id(), Some(500));
+        assert_eq!(TxOp::Write(delete).partition_id(), Some(600));
+    }
+}

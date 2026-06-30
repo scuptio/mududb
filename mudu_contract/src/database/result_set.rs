@@ -1,3 +1,6 @@
+//! `database::result_set` module.
+#![allow(missing_docs)]
+
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::tuple::tuple_value::TupleValue;
 use async_trait::async_trait;

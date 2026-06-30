@@ -5,17 +5,21 @@ use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::ServerMode;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
+use mudu_sys::net::sync::{SStdTcpStream, StdTcpListener};
+use mudu_sys::task::sync::{SJoinHandle, spawn_thread};
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
+use mudu_utils::notifier::{Notifier, notify_wait};
 use serde_json::{Value, json};
-use std::fs;
-use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use testing::support::*;
 use tracing::info;
 
+// These integration tests start a full mudud backend server and an interactive
+// mcli shell, which perform foreign-function calls and network I/O that Miri
+// cannot emulate. They are ignored under Miri and run only on native builds.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn interactive_mcli_shell_io_uring() -> RS<()> {
     log_setup("info");
@@ -27,12 +31,14 @@ fn interactive_mcli_shell_io_uring() -> RS<()> {
     run_interactive_mcli_shell_test(ServerMode::IOUring)
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn interactive_mcli_shell_tokio() -> RS<()> {
     log_setup("info");
     run_interactive_mcli_shell_test(ServerMode::Tokio)
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn interactive_mcli_shell_io_uring_tui() -> RS<()> {
     log_setup("info");
@@ -44,6 +50,7 @@ fn interactive_mcli_shell_io_uring_tui() -> RS<()> {
     run_interactive_mcli_tui_test(ServerMode::IOUring)
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn interactive_mcli_shell_tokio_tui() -> RS<()> {
     log_setup("info");
@@ -52,8 +59,8 @@ fn interactive_mcli_shell_tokio_tui() -> RS<()> {
 
 fn run_interactive_mcli_shell_test(server_mode: ServerMode) -> RS<()> {
     let _test_guard = test_runtime_domain_lock().lock().map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::MutexError,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Mutex,
             "test runtime domain lock poisoned"
         )
     })?;
@@ -73,8 +80,8 @@ fn run_interactive_mcli_shell_test(server_mode: ServerMode) -> RS<()> {
 
 fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
     let _test_guard = test_runtime_domain_lock().lock().map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::MutexError,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Mutex,
             "test runtime domain lock poisoned"
         )
     })?;
@@ -90,8 +97,8 @@ fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
         .iter()
         .find_map(extract_query_table)
         .ok_or_else(|| {
-            mudu::m_error!(
-                mudu::error::ec::EC::NoSuchElement,
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::EntityNotFound,
                 format!(
                     "no query output found for tui render: {}",
                     serde_json::to_string(&outputs).unwrap_or_default()
@@ -100,8 +107,8 @@ fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
         })?;
 
     let snapshot = render_query_table_snapshot(table, 80, 20).map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::MuduError,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::DomainViolation,
             format!("render tui failed: {e}")
         )
     })?;
@@ -110,18 +117,6 @@ fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
     assert!(snapshot.contains("Eva") || snapshot.contains("'Eva'"));
     drop(server);
     Ok(())
-}
-
-fn supports_server_mode(server_mode: ServerMode) -> bool {
-    match server_mode {
-        ServerMode::IOUring => mudu_sys::io_uring_available(),
-        ServerMode::Legacy | ServerMode::Tokio => true,
-    }
-}
-
-fn test_runtime_domain_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 fn crud_script() -> &'static str {
@@ -165,13 +160,13 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
     let app = app.to_string();
     let input = input.to_string();
 
-    let handle = thread::spawn(move || -> RS<Vec<Value>> {
+    let handle = spawn_thread(move || -> RS<Vec<Value>> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::IOErr,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::from(&e),
                     "build tokio runtime for interactive mcli shell failed",
                     e
                 )
@@ -218,11 +213,11 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
                     json!({ "app_name": current_app, "sql": statement, "kind": "execute" })
                 };
 
-                let output = tokio::time::timeout(Duration::from_secs(20), client.command(request))
+                let output = mudu_sys::timeout(Duration::from_secs(20), client.command(request))
                     .await
-                    .map_err(|_| {
-                        mudu::m_error!(
-                            mudu::error::ec::EC::TokioErr,
+                    .ok_or_else(|| {
+                        mudu::mudu_error!(
+                            mudu::error::ErrorCode::Tokio,
                             format!("interactive mcli command timed out: {}", statement)
                         )
                     })??;
@@ -231,11 +226,11 @@ fn run_shell_script_outputs(ctx: &TestContext, app: &str, input: &str) -> RS<Vec
 
             Ok(outputs)
         })
-    });
+    })?;
 
     handle.join().map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::ThreadErr,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Thread,
             "interactive mcli shell thread panicked"
         )
     })?
@@ -268,7 +263,6 @@ fn finalize_statement(buf: &str) -> String {
 
 fn looks_like_query(sql: &str) -> bool {
     let first = sql
-        .trim_start()
         .split_whitespace()
         .next()
         .unwrap_or("")
@@ -283,7 +277,7 @@ struct RunningServer {
     stop: Notifier,
     http_port: u16,
     tcp_port: u16,
-    handle: Option<JoinHandle<RS<()>>>,
+    handle: Option<SJoinHandle<RS<()>>>,
 }
 
 impl Drop for RunningServer {
@@ -292,9 +286,9 @@ impl Drop for RunningServer {
         if let Some(handle) = self.handle.take() {
             let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
             while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
-                let _ = TcpStream::connect(("127.0.0.1", self.http_port));
-                let _ = TcpStream::connect(("127.0.0.1", self.tcp_port));
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+                let _ = SStdTcpStream::connect(("127.0.0.1", self.http_port));
+                let _ = SStdTcpStream::connect(("127.0.0.1", self.tcp_port));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
             }
             assert!(
                 handle.is_finished(),
@@ -334,16 +328,11 @@ impl TestContext {
             return Ok(None);
         };
 
-        let base_dir =
-            std::env::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
+        let base_dir = temp_dir("mududb-testing");
         let mpk_dir = base_dir.join("mpk");
         let data_dir = base_dir.join("data");
-        fs::create_dir_all(&mpk_dir).map_err(|e| {
-            mudu::m_error!(mudu::error::ec::EC::IOErr, "create test mpk dir error", e)
-        })?;
-        fs::create_dir_all(&data_dir).map_err(|e| {
-            mudu::m_error!(mudu::error::ec::EC::IOErr, "create test data dir error", e)
-        })?;
+        create_dir_all(&mpk_dir)?;
+        create_dir_all(&data_dir)?;
 
         Ok(Some(Self {
             server_mode,
@@ -360,14 +349,14 @@ impl TestContext {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
         let (ready, ready_waiter) = notify_wait();
-        let handle = thread::spawn(move || {
+        let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        });
+        })?;
         wait_until_port_ready(self.http_port, "HTTP")?;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
-        wait_until_backend_ready(ready_waiter, "backend")?;
+        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
         Ok(RunningServer {
             stop,
             http_port: self.http_port,
@@ -377,20 +366,21 @@ impl TestContext {
     }
 
     fn build_cfg(&self) -> MuduDBCfg {
-        let mut cfg = MuduDBCfg::default();
-        cfg.listen_ip = "127.0.0.1".to_string();
-        cfg.http_listen_port = self.http_port;
-        cfg.pg_listen_port = self.pg_port;
-        cfg.tcp_listen_port = self.tcp_port;
-        cfg.http_worker_threads = 1;
-        cfg.worker_threads = 2;
-        cfg.server_mode = self.server_mode;
-        cfg.routing_mode = RoutingMode::ConnectionId;
-        cfg.enable_async = true;
-        cfg.component_target = Some(ComponentTarget::P2);
-        cfg.mpk_path = self.mpk_dir.to_string_lossy().into_owned();
-        cfg.db_path = self.data_dir.to_string_lossy().into_owned();
-        cfg
+        MuduDBCfg {
+            listen_ip: "127.0.0.1".to_string(),
+            http_listen_port: self.http_port,
+            pg_listen_port: self.pg_port,
+            tcp_listen_port: self.tcp_port,
+            http_worker_threads: 1,
+            worker_threads: 2,
+            server_mode: self.server_mode,
+            routing_mode: RoutingMode::ConnectionId,
+            enable_async: true,
+            component_target: Some(ComponentTarget::P2),
+            mpk_path: self.mpk_dir.to_string_lossy().into_owned(),
+            db_path: self.data_dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        }
     }
 
     fn client_port(&self) -> u16 {
@@ -403,23 +393,23 @@ impl TestContext {
 
 impl Drop for TestContext {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base_dir);
+        let _ = remove_dir_all(&self.base_dir);
     }
 }
 
 fn reserve_port() -> RS<Option<u16>> {
-    match TcpListener::bind("127.0.0.1:0") {
+    match StdTcpListener::bind("127.0.0.1:0".parse::<std::net::SocketAddr>().unwrap()) {
         Ok(listener) => Ok(Some(
             listener
                 .local_addr()
                 .map_err(|e| {
-                    mudu::m_error!(mudu::error::ec::EC::NetErr, "read local addr error", e)
+                    mudu::mudu_error!(mudu::error::ErrorCode::Network, "read local addr error", e)
                 })?
                 .port(),
         )),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(None),
-        Err(e) => Err(mudu::m_error!(
-            mudu::error::ec::EC::NetErr,
+        Err(e) if is_permission_denied(&e) => Ok(None),
+        Err(e) => Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
             "reserve local tcp port error",
             e
         )),
@@ -441,7 +431,7 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
                 ok = false;
                 break;
             };
-            match TcpListener::bind(("127.0.0.1", port)) {
+            match StdTcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], port))) {
                 Ok(listener) => listeners.push(listener),
                 Err(_) => {
                     ok = false;
@@ -459,38 +449,16 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
 fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
-    Err(mudu::m_error!(
-        mudu::error::ec::EC::NetErr,
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::Network,
         format!(
             "{} server did not become ready on port {}",
             service_name, port
         )
     ))
-}
-
-fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
-    // Listener readiness is not enough for io_uring mode because worker
-    // recovery continues after the port starts accepting connections.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
-        tokio::time::timeout(Duration::from_secs(10), waiter.wait()).await
-    })
-    .map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("wait for {} ready barrier runtime error", service_name),
-            e
-        )
-    })?;
-    result.map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("{} ready barrier timed out", service_name)
-        )
-    })?;
-    Ok(())
 }

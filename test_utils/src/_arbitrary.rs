@@ -1,5 +1,8 @@
+//! Generic arbitrary data helpers.
+
 use arbitrary::{Arbitrary, Unstructured};
 
+/// Repeatedly generates arbitrary values from `data` until it is exhausted.
 pub fn _arbitrary_data<'a, T: Arbitrary<'a> + 'static>(data: &'a [u8]) -> Vec<T> {
     let mut vec = vec![];
     let mut u = Unstructured::new(data);
@@ -14,13 +17,14 @@ pub fn _arbitrary_data<'a, T: Arbitrary<'a> + 'static>(data: &'a [u8]) -> Vec<T>
             }
         };
 
-        if u.len() == 0 {
+        if u.is_empty() {
             break;
         }
     }
     vec
 }
 
+/// Generates exactly `n` arbitrary values.
 pub fn _arbitrary_vec_n<'a, T: Arbitrary<'a> + 'static>(
     u: &mut Unstructured<'a>,
     n: usize,

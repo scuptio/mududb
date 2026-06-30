@@ -1,18 +1,18 @@
+#![allow(missing_docs)]
+
 use super::{
     HttpApi, legacy_invoke_async_proc, legacy_invoke_sync_proc, parse_json_object_body,
     runtime_get_app_and_desc,
 };
 use crate::service::runtime::Runtime;
 use async_trait::async_trait;
-use mudu::common::id::gen_oid;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::JsonValue;
 use mudu_contract::procedure::proc_desc::ProcDesc;
+use mudu_utils::oid::gen_oid;
 use serde_json::Value;
-use std::env::temp_dir;
-use std::fs;
 use std::sync::Arc;
 
 pub struct LegacyHttpApi {
@@ -54,12 +54,12 @@ impl HttpApi for LegacyHttpApi {
             .app(app_name.to_string())
             .await
             .ok_or_else(|| {
-                m_error!(
-                    EC::NoneErr,
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
                     format!("procedure detail error, no such app {}", app_name)
                 )
             })?;
-        let desc = app.describe(&mod_name.to_string(), &proc_name.to_string())?;
+        let desc = app.describe(mod_name, proc_name)?;
         Ok((
             desc.as_ref().clone(),
             desc.default_param_json()?,
@@ -68,15 +68,20 @@ impl HttpApi for LegacyHttpApi {
     }
 
     async fn install_mpk(&self, mpk_binary: Vec<u8>) -> RS<()> {
-        let temp_mpk_file = temp_dir().join(format!("{:x}.mpk", gen_oid()));
-        fs::write(&temp_mpk_file, &mpk_binary)
-            .map_err(|e| m_error!(EC::IOErr, "write temp mpk file error", e))?;
-        let file_path = temp_mpk_file
-            .as_path()
-            .to_str()
-            .ok_or_else(|| m_error!(EC::IOErr, "cannot get string of PathBuf"))?
-            .to_string();
-        self.service.install(file_path).await
+        let service = self.service.clone();
+        let file_path = actix_web::web::block(move || {
+            let temp_mpk_file = mudu_sys::env_var::temp_dir().join(format!("{:x}.mpk", gen_oid()));
+            mudu_sys::fs::sync::write(&temp_mpk_file, &mpk_binary)?;
+            let file_path = temp_mpk_file
+                .as_path()
+                .to_str()
+                .ok_or_else(|| mudu_error!(ErrorCode::InvalidUtf8, "cannot get string of PathBuf"))?
+                .to_string();
+            RS::Ok(file_path)
+        })
+        .await
+        .map_err(|e| mudu_error!(ErrorCode::Thread, "blocking install task failed", e))??;
+        service.install(file_path).await
     }
 
     async fn invoke_json(

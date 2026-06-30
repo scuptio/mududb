@@ -1,5 +1,10 @@
+//! Helpers for length-prefixed buffers.
+
 use crate::common::endian::{read_u32, write_u32};
 
+/// Writes `src` into `dest` prefixed with its length as a `u32`.
+///
+/// Returns the number of bytes written, or `0` if `dest` is too small.
 pub fn write_sized_buf(dest: &mut [u8], src: &[u8]) -> u32 {
     let len_bytes = size_of::<u32>();
     if dest.len() < len_bytes + src.len() {
@@ -11,6 +16,11 @@ pub fn write_sized_buf(dest: &mut [u8], src: &[u8]) -> u32 {
     }
 }
 
+/// Reads a length-prefixed buffer from `buf`.
+///
+/// On success returns `(total_consumed, payload)`. On failure returns the
+/// expected total length if it could be determined, or `None` if the input is
+/// too short to read the length prefix.
 pub fn read_sized_buf(buf: &[u8]) -> Result<(u32, &[u8]), Option<u32>> {
     let len_bytes = size_of::<u32>();
     if buf.len() < len_bytes {

@@ -4,6 +4,8 @@
 //
 // kind name of Node
 
+//! Auto-generated tree-sitter node kind name constants.
+
 pub const S__NON_DELIM_TOKEN: &str = "_non_delim_token";
 pub const S_SCOPED_TYPE_IDENTIFIER_IN_EXPRESSION_POSITION: &str =
     "scoped_type_identifier_in_expression_position";

@@ -3,13 +3,13 @@ mod test_tool_wit_schema;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_gen::src_gen::gen_entity::gen_rust;
 use mudu_gen::src_gen::gen_message::gen_message;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let r = main_inner(std::env::args());
+    let r = main_inner(mudu_sys::env_var::args_os());
     match r {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -159,10 +159,10 @@ where
                 || e.kind() == clap::error::ErrorKind::DisplayVersion
             {
                 eprintln!("{}", e);
-                std::process::exit(0);
+                mudu_sys::process::exit(0);
             } else {
                 eprintln!("parse arguments error: \n{}", e);
-                std::process::exit(0);
+                mudu_sys::process::exit(0);
             }
         }
     };
@@ -180,9 +180,12 @@ fn process_arguments(matches: ArgMatches) -> RS<()> {
             let config = handle_message_command(sub_args)?;
             run_gen_message(&config)
         }
-        Some((cmd, _)) => Err(m_error!(EC::NoneErr, format!("unknow command: {}", cmd))),
-        None => Err(m_error!(
-            EC::NoneErr,
+        Some((cmd, _)) => Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            format!("unknow command: {}", cmd)
+        )),
+        None => Err(mudu_error!(
+            ErrorCode::InvalidArgument,
             "Provide a sub-command. Use --help to show help"
         )),
     }
@@ -191,20 +194,20 @@ fn process_arguments(matches: ArgMatches) -> RS<()> {
 fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
     let input: Vec<String> = sub_args
         .get_many::<String>("input-source-files")
-        .ok_or_else(|| m_error!(EC::NoneErr, "no input source path specify"))?
-        .map(|s| s.clone())
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "no input source path specify"))?
+        .cloned()
         .collect();
 
     let output = sub_args
         .get_one::<String>("output-source-folder")
-        .ok_or_else(|| m_error!(EC::NoneErr, "no output path specified"))?
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "no output path specified"))?
         .clone();
 
     let type_desc = sub_args.get_one::<String>("type-desc").cloned();
 
     let lang = sub_args
         .get_one::<String>("lang")
-        .map(|s| s.clone())
+        .cloned()
         .unwrap_or_else(|| "rust".to_string());
 
     Ok(EntityConfig {
@@ -218,17 +221,22 @@ fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
 fn handle_message_command(sub_args: &ArgMatches) -> RS<MessageConfig> {
     let input = sub_args
         .get_one::<String>("input-wit-file")
-        .ok_or_else(|| m_error!(EC::NoneErr, "no input source file/directory specify"))?
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "no input source file/directory specify"
+            )
+        })?
         .clone();
 
     let output = sub_args
         .get_one::<String>("output-source-file")
-        .ok_or_else(|| m_error!(EC::NoneErr, "no output path specified"))?
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "no output path specified"))?
         .clone();
 
     let lang = sub_args
         .get_one::<String>("lang")
-        .map(|s| s.clone())
+        .cloned()
         .unwrap_or_else(|| "rust".to_string());
 
     let namespace = sub_args.get_one::<String>("namespace").cloned();
@@ -251,6 +259,8 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

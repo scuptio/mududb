@@ -1,8 +1,10 @@
+#![allow(missing_docs)]
+
 use crate::async_utils::blocking::run_async;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_binding::codec::handle_sys_session;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql::Context;
@@ -117,8 +119,8 @@ fn get_context(oid: OID) -> RS<Context> {
     let opt = Context::context(oid);
     match opt {
         Some(ctx) => Ok(ctx),
-        None => Err(m_error!(
-            EC::NoneErr,
+        None => Err(mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("no such session id: {}", oid)
         )),
     }
@@ -126,10 +128,10 @@ fn get_context(oid: OID) -> RS<Context> {
 
 pub fn open_internal_with_worker_local(
     open_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let open_argv = handle_sys_session::deserialize_open_param(open_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     let worker_oid = open_argv.worker_oid();
     let opened = run_async(async move { worker_local.open_argv_async(worker_oid).await })??;
     Ok(handle_sys_session::serialize_open_result(opened))
@@ -137,10 +139,10 @@ pub fn open_internal_with_worker_local(
 
 pub fn close_internal_with_worker_local(
     close_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let session_id: OID = handle_sys_session::deserialize_close_param(close_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     run_async(async move { worker_local.close_async(session_id).await })??;
     Ok(handle_sys_session::serialize_close_result())
 }
@@ -152,10 +154,10 @@ pub fn get_internal(get_in: &[u8]) -> Vec<u8> {
 
 pub fn get_internal_with_worker_local(
     get_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let (session_id, key) = handle_sys_session::deserialize_session_get_param(get_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     let result = run_async(async move { worker_local.get_async(session_id, &key).await })??;
     Ok(handle_sys_session::serialize_get_result(result.as_deref()))
 }
@@ -167,10 +169,10 @@ pub fn put_internal(put_in: &[u8]) -> Vec<u8> {
 
 pub fn put_internal_with_worker_local(
     put_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let (session_id, key, value) = handle_sys_session::deserialize_session_put_param(put_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     run_async(async move { worker_local.put_async(session_id, key, value).await })??;
     Ok(handle_sys_session::serialize_put_result())
 }
@@ -182,10 +184,10 @@ pub fn delete_internal(delete_in: &[u8]) -> Vec<u8> {
 
 pub fn delete_internal_with_worker_local(
     delete_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let (session_id, key) = handle_sys_session::deserialize_session_delete_param(delete_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     run_async(async move { worker_local.delete_async(session_id, &key).await })??;
     Ok(handle_sys_session::serialize_delete_result())
 }
@@ -197,10 +199,10 @@ pub fn range_internal(range_in: &[u8]) -> Vec<u8> {
 
 pub fn range_internal_with_worker_local(
     range_in: &[u8],
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> RS<Vec<u8>> {
     let (session_id, start, end) = handle_sys_session::deserialize_session_range_param(range_in)?;
-    let worker_local = require_worker_local(worker_local)?.clone();
+    let worker_local = require_worker_local(worker_local)?;
     let result =
         run_async(async move { worker_local.range_async(session_id, &start, &end).await })??;
     let result = result
@@ -216,12 +218,12 @@ pub async fn async_get_internal(get_in: Vec<u8>) -> Vec<u8> {
 
 pub async fn async_get_internal_with_worker_local(
     get_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result =
         handle_sys_session::deserialize_session_get_param(&get_in).and_then(|(session_id, key)| {
             let worker_local = require_worker_local(worker_local)?;
-            Ok((worker_local.clone(), session_id, key))
+            Ok((worker_local, session_id, key))
         });
     match result {
         Ok((worker_local, session_id, key)) => {
@@ -236,11 +238,11 @@ pub async fn async_get_internal_with_worker_local(
 
 pub async fn async_open_internal_with_worker_local(
     open_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result = handle_sys_session::deserialize_open_param(&open_in).and_then(|open_argv| {
         let worker_local = require_worker_local(worker_local)?;
-        Ok((open_argv, worker_local.clone()))
+        Ok((open_argv, worker_local))
     });
     match result {
         Ok((open_argv, worker_local)) => {
@@ -255,11 +257,11 @@ pub async fn async_open_internal_with_worker_local(
 
 pub async fn async_close_internal_with_worker_local(
     close_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result = handle_sys_session::deserialize_close_param(&close_in).and_then(|session_id| {
         let worker_local = require_worker_local(worker_local)?;
-        Ok((session_id, worker_local.clone()))
+        Ok((session_id, worker_local))
     });
     match result {
         Ok((session_id, worker_local)) => match worker_local.close_async(session_id).await {
@@ -276,12 +278,12 @@ pub async fn async_put_internal(put_in: Vec<u8>) -> Vec<u8> {
 
 pub async fn async_put_internal_with_worker_local(
     put_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result = handle_sys_session::deserialize_session_put_param(&put_in).and_then(
         |(session_id, key, value)| {
             let worker_local = require_worker_local(worker_local)?;
-            Ok((session_id, key, value, worker_local.clone()))
+            Ok((session_id, key, value, worker_local))
         },
     );
     match result {
@@ -301,12 +303,12 @@ pub async fn async_delete_internal(delete_in: Vec<u8>) -> Vec<u8> {
 
 pub async fn async_delete_internal_with_worker_local(
     delete_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result = handle_sys_session::deserialize_session_delete_param(&delete_in).and_then(
         |(session_id, key)| {
             let worker_local = require_worker_local(worker_local)?;
-            Ok((session_id, key, worker_local.clone()))
+            Ok((session_id, key, worker_local))
         },
     );
     match result {
@@ -326,12 +328,12 @@ pub async fn async_range_internal(range_in: Vec<u8>) -> Vec<u8> {
 
 pub async fn async_range_internal_with_worker_local(
     range_in: Vec<u8>,
-    worker_local: Option<&WorkerLocalRef>,
+    worker_local: Option<WorkerLocalRef>,
 ) -> Vec<u8> {
     let result = handle_sys_session::deserialize_session_range_param(&range_in).and_then(
         |(session_id, start, end)| {
             let worker_local = require_worker_local(worker_local)?;
-            Ok((session_id, start, end, worker_local.clone()))
+            Ok((session_id, start, end, worker_local))
         },
     );
     match result {
@@ -351,10 +353,10 @@ pub async fn async_range_internal_with_worker_local(
     }
 }
 
-fn require_worker_local(worker_local: Option<&WorkerLocalRef>) -> RS<&WorkerLocalRef> {
+fn require_worker_local(worker_local: Option<WorkerLocalRef>) -> RS<WorkerLocalRef> {
     worker_local.ok_or_else(|| {
-        m_error!(
-            EC::NotImplemented,
+        mudu_error!(
+            ErrorCode::NotImplemented,
             "worker local interface is not configured for this runtime path"
         )
     })

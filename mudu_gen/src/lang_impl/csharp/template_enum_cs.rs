@@ -5,15 +5,19 @@ use askama::Template;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_def::UniEnumDef;
 
+/// Askama template for a C# enum.
 #[derive(Template)]
 #[template(path = "csharp/enum.cs.jinja", escape = "none")]
 pub struct TemplateEnumCS {
     #[allow(unused)]
+    /// Generation configuration.
     pub cfg: CodegenCfg,
+    /// Normalized enum metadata.
     pub enum_def: EnumInfo,
 }
 
 impl TemplateEnumCS {
+    /// Build the template from a WIT enum definition.
     pub fn from(enum_def: UniEnumDef, cfg: CodegenCfg) -> RS<TemplateEnumCS> {
         Ok(Self {
             cfg,

@@ -1,10 +1,14 @@
+//! `database::entity_set` module.
+#![allow(missing_docs)]
+
 use crate::database::entity::Entity;
 use crate::database::entity_utils;
 use crate::database::result_set::ResultSet;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use fallible_iterator::FallibleIterator;
 use mudu::common::result::RS;
-use mudu::error::err::MError;
+use mudu::error::MuduError;
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -24,6 +28,12 @@ impl<R: Entity> RecordSet<R> {
     }
 }
 
+impl<R: Entity> fmt::Debug for RecordSet<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecordSet").finish_non_exhaustive()
+    }
+}
+
 impl<R: Entity> RecordSet<R> {
     pub fn next_record(&self) -> RS<Option<R>> {
         let opt = self.result_set.next()?;
@@ -38,7 +48,7 @@ impl<R: Entity> RecordSet<R> {
 
 impl<R: Entity + 'static> FallibleIterator for RecordSet<R> {
     type Item = R;
-    type Error = MError;
+    type Error = MuduError;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         self.next_record()

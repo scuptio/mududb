@@ -1,8 +1,8 @@
 use crate::server::worker_registry::WorkerRegistry;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 
@@ -96,8 +96,9 @@ pub fn parse_session_open_config(
 ) -> RS<SessionOpenConfig> {
     match config_json {
         Some(raw) => {
-            let parsed: RawSessionOpenConfig = serde_json::from_str(raw)
-                .map_err(|e| m_error!(EC::ParseErr, "parse session open config json error", e))?;
+            let parsed: RawSessionOpenConfig = serde_json::from_str(raw).map_err(|e| {
+                mudu_error!(ErrorCode::Parse, "parse session open config json error", e)
+            })?;
             let worker_id = parsed.worker_id.unwrap_or(default_worker_id);
             if worker_id == 0 {
                 return Ok(SessionOpenConfig::new(
@@ -110,8 +111,8 @@ pub fn parse_session_open_config(
                 registry
                     .worker_index_by_worker_id(worker_id)
                     .ok_or_else(|| {
-                        m_error!(
-                            EC::NoSuchElement,
+                        mudu_error!(
+                            ErrorCode::EntityNotFound,
                             format!("no such worker id {}", worker_id)
                         )
                     })?;

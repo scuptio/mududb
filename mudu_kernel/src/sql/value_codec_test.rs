@@ -1,5 +1,13 @@
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::sql::value_codec::ValueCodec;
     use mudu::data_type::numeric::Numeric;
     use mudu_type::dat_type::DatType;

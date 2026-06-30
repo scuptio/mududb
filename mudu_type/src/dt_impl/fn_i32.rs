@@ -33,7 +33,7 @@ pub fn fn_i32_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         None => {
             return Err(TyErr::new(
                 TyEC::TypeConvertFailed,
-                format!("cannot convert json {} to i32", v.to_string()),
+                format!("cannot convert json {} to i32", v),
             ));
         }
     };
@@ -41,7 +41,7 @@ pub fn fn_i32_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         Some(num) => Ok(DatValue::from_i32(num as i32)),
         None => Err(TyErr::new(
             TyEC::TypeConvertFailed,
-            format!("cannot convert json {} to i32", v.to_string()),
+            format!("cannot convert json {} to i32", v),
         )),
     }
 }

@@ -7,6 +7,7 @@ pub mod object {
     use mududb::contract::database::entity_utils;
     use mududb::contract::tuple::datum_desc::DatumDesc;
     use mududb::contract::tuple::tuple_field_desc::TupleFieldDesc;
+    use mududb::error::{ErrorCode, bail};
     use mududb::types::dat_binary::DatBinary;
     use mududb::types::dat_textual::DatTextual;
     use mududb::types::dat_type::DatType;
@@ -38,30 +39,31 @@ pub mod object {
         w_zip: Option<String>,
     }
 
+    pub struct WarehouseParams {
+        pub w_id: Option<i32>,
+        pub w_ytd: Option<f64>,
+        pub w_tax: Option<f64>,
+        pub w_name: Option<String>,
+        pub w_street_1: Option<String>,
+        pub w_street_2: Option<String>,
+        pub w_city: Option<String>,
+        pub w_state: Option<String>,
+        pub w_zip: Option<String>,
+    }
+
     impl Warehouse {
-        pub fn new(
-            w_id: Option<i32>,
-            w_ytd: Option<f64>,
-            w_tax: Option<f64>,
-            w_name: Option<String>,
-            w_street_1: Option<String>,
-            w_street_2: Option<String>,
-            w_city: Option<String>,
-            w_state: Option<String>,
-            w_zip: Option<String>,
-        ) -> Self {
-            let s = Self {
-                w_id,
-                w_ytd,
-                w_tax,
-                w_name,
-                w_street_1,
-                w_street_2,
-                w_city,
-                w_state,
-                w_zip,
-            };
-            s
+        pub fn new(params: WarehouseParams) -> Self {
+            Self {
+                w_id: params.w_id,
+                w_ytd: params.w_ytd,
+                w_tax: params.w_tax,
+                w_name: params.w_name,
+                w_street_1: params.w_street_1,
+                w_street_2: params.w_street_2,
+                w_city: params.w_city,
+                w_state: params.w_state,
+                w_zip: params.w_zip,
+            }
         }
 
         pub fn set_w_id(&mut self, w_id: i32) {
@@ -138,11 +140,11 @@ pub mod object {
     }
 
     impl Datum for Warehouse {
-        fn dat_type() -> &'static DatType {
-            lazy_static! {
-                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Warehouse>();
-            }
-            &DAT_TYPE
+        fn dat_type() -> DatType {
+            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+            ONCE_LOCK
+                .get_or_init(entity_utils::entity_dat_type::<Warehouse>)
+                .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
@@ -180,45 +182,9 @@ pub mod object {
         }
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::Warehouse;
-        use mududb::types::datum::{Datum, DatumDyn};
-
-        #[test]
-        fn warehouse_roundtrip_and_setters_work() {
-            let mut warehouse = Warehouse::new(
-                Some(1),
-                Some(10.5),
-                Some(0.1),
-                Some("Main".to_string()),
-                Some("Street1".to_string()),
-                Some("Street2".to_string()),
-                Some("City".to_string()),
-                Some("ST".to_string()),
-                Some("10000".to_string()),
-            );
-
-            warehouse.set_w_name("Central".to_string());
-            warehouse.set_w_tax(0.2);
-            assert_eq!(warehouse.get_w_name().as_deref(), Some("Central"));
-            assert_eq!(warehouse.get_w_tax(), &Some(0.2));
-
-            let from_value =
-                Warehouse::from_value(&warehouse.to_value(Warehouse::dat_type()).unwrap()).unwrap();
-            assert_eq!(from_value.get_w_city().as_deref(), Some("City"));
-
-            let from_binary = Warehouse::from_binary(
-                warehouse.to_binary(Warehouse::dat_type()).unwrap().as_ref(),
-            )
-            .unwrap();
-            assert_eq!(from_binary.get_w_zip().as_deref(), Some("10000"));
-        }
-    }
-
     impl Entity for Warehouse {
         fn new_empty() -> Self {
-            let s = Self {
+            Self {
                 w_id: None,
                 w_ytd: None,
                 w_tax: None,
@@ -228,8 +194,7 @@ pub mod object {
                 w_city: None,
                 w_state: None,
                 w_zip: None,
-            };
-            s
+            }
         }
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
@@ -263,9 +228,7 @@ pub mod object {
                 COLUMN_W_CITY => attr_field_access::attr_get_binary::<_>(&self.w_city),
                 COLUMN_W_STATE => attr_field_access::attr_get_binary::<_>(&self.w_state),
                 COLUMN_W_ZIP => attr_field_access::attr_get_binary::<_>(&self.w_zip),
-                _ => {
-                    panic!("unknown name");
-                }
+                _ => bail!(ErrorCode::InvalidArgument, "unknown field name"),
             }
         }
 
@@ -304,9 +267,7 @@ pub mod object {
                 COLUMN_W_ZIP => {
                     attr_field_access::attr_set_binary::<_, _>(&mut self.w_zip, binary.as_ref())?;
                 }
-                _ => {
-                    panic!("unknown name");
-                }
+                _ => bail!(ErrorCode::InvalidArgument, "unknown field name"),
             }
             Ok(())
         }
@@ -321,9 +282,7 @@ pub mod object {
                 COLUMN_W_CITY => attr_field_access::attr_get_value::<_>(&self.w_city),
                 COLUMN_W_STATE => attr_field_access::attr_get_value::<_>(&self.w_state),
                 COLUMN_W_ZIP => attr_field_access::attr_get_value::<_>(&self.w_zip),
-                _ => {
-                    panic!("unknown name");
-                }
+                _ => bail!(ErrorCode::InvalidArgument, "unknown field name"),
             }
         }
 
@@ -356,9 +315,7 @@ pub mod object {
                 COLUMN_W_ZIP => {
                     attr_field_access::attr_set_value::<_, _>(&mut self.w_zip, value)?;
                 }
-                _ => {
-                    panic!("unknown name");
-                }
+                _ => bail!(ErrorCode::InvalidArgument, "unknown field name"),
             }
             Ok(())
         }
@@ -369,12 +326,12 @@ pub mod object {
     impl AttrValue<i32> for AttrWId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -391,12 +348,12 @@ pub mod object {
     impl AttrValue<f64> for AttrWYtd {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -413,12 +370,12 @@ pub mod object {
     impl AttrValue<f64> for AttrWTax {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -435,12 +392,12 @@ pub mod object {
     impl AttrValue<String> for AttrWName {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -457,12 +414,12 @@ pub mod object {
     impl AttrValue<String> for AttrWStreet1 {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -479,12 +436,12 @@ pub mod object {
     impl AttrValue<String> for AttrWStreet2 {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -501,12 +458,12 @@ pub mod object {
     impl AttrValue<String> for AttrWCity {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -523,12 +480,12 @@ pub mod object {
     impl AttrValue<String> for AttrWState {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -545,12 +502,12 @@ pub mod object {
     impl AttrValue<String> for AttrWZip {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -559,6 +516,42 @@ pub mod object {
 
         fn attr_name() -> &'static str {
             COLUMN_W_ZIP
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Warehouse, WarehouseParams};
+        use mududb::common::result::RS;
+        use mududb::types::datum::{Datum, DatumDyn};
+
+        #[test]
+        fn warehouse_roundtrip_and_setters_work() -> RS<()> {
+            let mut warehouse = Warehouse::new(WarehouseParams {
+                w_id: Some(1),
+                w_ytd: Some(10.5),
+                w_tax: Some(0.1),
+                w_name: Some("Main".to_string()),
+                w_street_1: Some("Street1".to_string()),
+                w_street_2: Some("Street2".to_string()),
+                w_city: Some("City".to_string()),
+                w_state: Some("ST".to_string()),
+                w_zip: Some("10000".to_string()),
+            });
+
+            warehouse.set_w_name("Central".to_string());
+            warehouse.set_w_tax(0.2);
+            assert_eq!(warehouse.get_w_name().as_deref(), Some("Central"));
+            assert_eq!(warehouse.get_w_tax(), &Some(0.2));
+
+            let from_value = Warehouse::from_value(&warehouse.to_value(&Warehouse::dat_type())?)?;
+            assert_eq!(from_value.get_w_city().as_deref(), Some("City"));
+
+            let from_binary =
+                Warehouse::from_binary(warehouse.to_binary(&Warehouse::dat_type())?.as_ref())?;
+            assert_eq!(from_binary.get_w_zip().as_deref(), Some("10000"));
+
+            Ok(())
         }
     }
 } // end mod object

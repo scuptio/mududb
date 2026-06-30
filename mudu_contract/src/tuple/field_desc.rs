@@ -1,3 +1,6 @@
+//! `tuple::field_desc` module.
+#![allow(missing_docs)]
+
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
 use mudu::common::id::OID;

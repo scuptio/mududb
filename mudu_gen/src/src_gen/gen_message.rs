@@ -1,28 +1,35 @@
+//! Generate message source files from WIT definitions.
+
 use crate::lang_impl::lang::lang_kind::LangKind;
 use crate::src_gen::code_gen::CodeGen;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
-use rust_format::{Formatter, RustFmt};
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
 
+fn format_rust_source(src_code: &str) -> RS<String> {
+    let syntax = syn::parse_file(src_code)
+        .map_err(|e| mudu_error!(ErrorCode::FmtWrite, "parse source code error", e))?;
+    Ok(prettyplease::unparse(&syntax))
+}
+
+/// Generate message source files from WIT inputs.
 pub fn gen_message<I: AsRef<Path>, O: AsRef<Path>>(
     input_path: I,
     output_path: O,
     language: String,
     namespace: Option<String>,
 ) -> RS<()> {
-    let lang = LangKind::from_str(language.as_str())
-        .map_or_else(|| Err(m_error!(EC::NoneErr, "lang unknown")), |l| Ok(l))?;
-    if input_path.as_ref().is_dir() {
-        for r_dir_entry in fs::read_dir(input_path.as_ref())
-            .map_err(|e| m_error!(EC::IOErr, "read dir error", e))?
-        {
-            let dir_entry = r_dir_entry.map_err(|e| m_error!(EC::IOErr, "read dir error", e))?;
-            if dir_entry.path().is_file() && dir_entry.path().extension() == Some(OsStr::new("wit"))
+    let lang = LangKind::from_name(language.as_str()).map_or_else(
+        || Err(mudu_error!(ErrorCode::InvalidArgument, "lang unknown")),
+        Ok,
+    )?;
+    if mudu_sys::fs::sync::sync_metadata(input_path.as_ref())?.is_dir() {
+        for dir_entry in mudu_sys::fs::sync::sync_read_dir_entries(input_path.as_ref())? {
+            if dir_entry.file_type()?.is_file()
+                && dir_entry.path().extension() == Some(OsStr::new("wit"))
             {
                 _gen_message(
                     dir_entry.path(),
@@ -46,25 +53,26 @@ fn _gen_message<I: AsRef<Path>, O: AsRef<Path>>(
     namespace: Option<String>,
     is_input_a_dir: bool,
 ) -> RS<()> {
-    let str = fs::read_to_string(input_path.as_ref())
-        .map_err(|e| m_error!(EC::IOErr, "read input wit error", e))?;
+    let str = mudu_sys::fs::sync::sync_read_to_string(input_path.as_ref())?;
     let mut src_code =
         CodeGen::generate_message_code_from_wit(&str, lang_kind.to_str(), namespace)?;
     if lang_kind == LangKind::Rust {
-        src_code = RustFmt::default()
-            .format_str(src_code)
-            .map_err(|e| m_error!(EC::IOErr, "fmt source code error", e))?;
+        src_code = format_rust_source(&src_code)?;
     }
     let output_path_buf = if is_input_a_dir {
-        if !output_path.as_ref().exists() {
-            fs::create_dir_all(&output_path)
-                .map_err(|e| m_error!(EC::IOErr, "create dir error", e))?;
+        if !mudu_sys::fs::sync::sync_path_exists(output_path.as_ref()) {
+            mudu_sys::fs::sync::sync_create_dir_all(&output_path)?;
         }
         let stem = input_path.as_ref().file_stem().map_or_else(
-            || Err(m_error!(EC::NoneErr, "get file stem error")),
+            || {
+                Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    "get file stem error"
+                ))
+            },
             |e| {
                 e.to_str().map_or_else(
-                    || Err(m_error!(EC::NoneErr, "get file stem error")),
+                    || Err(mudu_error!(ErrorCode::InvalidUtf8, "get file stem error")),
                     |s| Ok(s.to_string()),
                 )
             },
@@ -77,14 +85,14 @@ fn _gen_message<I: AsRef<Path>, O: AsRef<Path>>(
         PathBuf::from(output_path.as_ref()).join(format!("{}.{}", stem, lang_kind.extension()))
     } else {
         let parent = output_path.as_ref().parent().map_or_else(
-            || Err(m_error!(EC::NoneErr, "get parent error")),
+            || Err(mudu_error!(ErrorCode::InvalidArgument, "get parent error")),
             |p| Ok(p.to_path_buf()),
         )?;
-        if !parent.exists() {
-            fs::create_dir_all(&parent).map_err(|e| m_error!(EC::IOErr, "create dir error", e))?;
+        if !mudu_sys::fs::sync::sync_path_exists(&parent) {
+            mudu_sys::fs::sync::sync_create_dir_all(&parent)?;
         }
         PathBuf::from(output_path.as_ref())
     };
-    fs::write(&output_path_buf, src_code).unwrap();
+    mudu_sys::fs::sync::sync_write(&output_path_buf, src_code)?;
     Ok(())
 }

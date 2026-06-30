@@ -1,8 +1,8 @@
-use mudu_sys::io::socket::{recv_into, send_all, IoSocket};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::protocol::{Frame, FrameHeader, HEADER_LEN};
+use mudu_sys::io::socket::{recv_into, send_all, IoSocket};
 
 pub(in crate::server) async fn read_next_frame(
     socket: &IoSocket,
@@ -21,8 +21,8 @@ pub(in crate::server) async fn read_next_frame(
         read_exact(socket, read_buf.as_mut_slice())
             .await?
             .ok_or_else(|| {
-                m_error!(
-                    EC::ParseErr,
+                mudu_error!(
+                    ErrorCode::Parse,
                     "connection closed with an incomplete protocol frame"
                 )
             })?;
@@ -43,8 +43,8 @@ async fn read_exact(socket: &IoSocket, mut dst: &mut [u8]) -> RS<Option<()>> {
         let read = recv_into(socket, dst, 0).await?;
         if read == 0 {
             if read_any {
-                return Err(m_error!(
-                    EC::ParseErr,
+                return Err(mudu_error!(
+                    ErrorCode::Parse,
                     "connection closed with an incomplete protocol frame"
                 ));
             }

@@ -3,21 +3,22 @@ use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
 use mudu_cli::management::{
     ServerTopology, fetch_server_topology, install_app_package, is_server_topology_unsupported,
 };
+use mudu_sys::fs::sync::read;
+use mudu_sys::sync::SMutex;
+use mudu_sys::task::sync::spawn_thread_named;
+use mudu_sys::time::{Instant, instant_now};
+use mudu_sys::tokio::runtime::Builder;
 use mududb::binding::procedure::procedure_invoke;
 use mududb::common::result::RS;
 use mududb::contract::procedure::procedure_param::ProcedureParam;
 use mududb::contract::protocol::ClientRequest;
 use mududb::contract::tuple::tuple_datum::TupleDatum;
 use mududb::contract::{sql_params, sql_stmt};
-use mududb::error::ec::EC::{NetErr, NoneErr, NotImplemented, ThreadErr, TokioErr};
-use mududb::m_error;
+use mududb::error::ErrorCode::{InvalidState, Network, NotImplemented, Thread, Tokio};
+use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_close, mudu_command, mudu_open};
-use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Instant;
-use tokio::runtime::Builder;
+use std::sync::Arc;
 use tpcc::rust::procedure::{
     tpcc_delivery, tpcc_delivery_partitioned, tpcc_new_order, tpcc_new_order_partitioned,
     tpcc_order_status, tpcc_order_status_partitioned, tpcc_payment, tpcc_payment_partitioned,
@@ -128,11 +129,17 @@ impl BenchmarkStats {
     }
 
     fn min_latency_ms(&self) -> f64 {
-        self.results.iter().map(|r| r.latency_ms).fold(f64::MAX, |a, b| a.min(b))
+        self.results
+            .iter()
+            .map(|r| r.latency_ms)
+            .fold(f64::MAX, |a, b| a.min(b))
     }
 
     fn max_latency_ms(&self) -> f64 {
-        self.results.iter().map(|r| r.latency_ms).fold(0.0, |a, b| a.max(b))
+        self.results
+            .iter()
+            .map(|r| r.latency_ms)
+            .fold(0.0, |a, b| a.max(b))
     }
 }
 
@@ -180,31 +187,52 @@ fn new_order_lines(
 }
 
 fn run_sync(args: Args) -> RS<()> {
-    let total_start = Instant::now();
+    let total_start = instant_now();
     let init_xid = mudu_open()?;
     init_schema_sync(init_xid, &args)?;
     run_seed_sync(init_xid, &args)?;
     prepare_sync_txn_context(init_xid, &args)?;
     mudu_close(init_xid)?;
+    run_sync_workload(args, total_start)
+}
+
+#[cfg(test)]
+async fn run_sync_async(args: Args) -> RS<()> {
+    let total_start = instant_now();
+    let init_xid = mudu_open()?;
+    init_schema_sync_async(init_xid, &args).await?;
+    run_seed_sync(init_xid, &args)?;
+    prepare_sync_txn_context(init_xid, &args)?;
+    mudu_close(init_xid)?;
+    run_sync_workload(args, total_start)
+}
+
+fn run_sync_workload(args: Args, total_start: Instant) -> RS<()> {
     let load_elapsed_secs = total_start.elapsed().as_secs_f64();
-    let txn_start = Instant::now();
-    let stats = Arc::new(Mutex::new(BenchmarkStats::default()));
-    let worker_count = args.connection_count.max(1).min(args.operation_count.max(1));
+    let txn_start = instant_now();
+    let stats = Arc::new(SMutex::new(BenchmarkStats::default()));
+    let worker_count = args
+        .connection_count
+        .max(1)
+        .min(args.operation_count.max(1));
     let mut handles = Vec::with_capacity(worker_count);
     for terminal_id in 0..worker_count {
         let worker_args = args.clone();
         let worker_stats = stats.clone();
-        handles.push(thread::spawn(move || {
-            run_sync_terminal(worker_args, terminal_id, worker_stats)
-        }));
+        handles.push(spawn_thread_named(
+            format!("tpcc-sync-worker-{terminal_id}"),
+            move || run_sync_terminal(worker_args, terminal_id, worker_stats),
+        )?);
     }
     for handle in handles {
         let result = handle
             .join()
-            .map_err(|_| m_error!(ThreadErr, "join tpcc sync benchmark worker error"))?;
+            .map_err(|_| mudu_error!(Thread, "join tpcc sync benchmark worker error"))?;
         result?;
     }
-    let stats = Arc::try_unwrap(stats).unwrap().into_inner().unwrap();
+    let stats = Arc::try_unwrap(stats)
+        .map_err(|_| mudu_error!(Thread, "arc unwrap failed"))?
+        .into_inner()?;
     print_summary(
         "sync",
         &args,
@@ -216,22 +244,21 @@ fn run_sync(args: Args) -> RS<()> {
     Ok(())
 }
 
-fn run_sync_terminal(
-    args: Args,
-    terminal_id: usize,
-    stats: Arc<Mutex<BenchmarkStats>>,
-) -> RS<()> {
+fn run_sync_terminal(args: Args, terminal_id: usize, stats: Arc<SMutex<BenchmarkStats>>) -> RS<()> {
     let xid = mudu_open()?;
     let mut local_stats = BenchmarkStats::default();
     for op_index in (terminal_id..args.operation_count).step_by(args.connection_count.max(1)) {
-        let start = Instant::now();
+        let start = instant_now();
         let result = run_sync_op(xid, &args, op_index, terminal_id);
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
         let aborted = result.is_err();
-        local_stats.push(OpResult { latency_ms, aborted });
+        local_stats.push(OpResult {
+            latency_ms,
+            aborted,
+        });
     }
     mudu_close(xid)?;
-    stats.lock().unwrap().merge(local_stats);
+    stats.lock()?.merge(local_stats);
     Ok(())
 }
 
@@ -338,30 +365,29 @@ fn prepare_sync_txn_context(xid: u128, args: &Args) -> RS<()> {
 }
 
 async fn run_tcp(args: Args) -> RS<()> {
-    let total_start = Instant::now();
+    let total_start = instant_now();
     if let Some(mpk_path) = &args.mpk {
-        let mpk_binary = fs::read(mpk_path)
-            .map_err(|e| m_error!(mududb::error::ec::EC::IOErr, "read tpcc mpk error", e))?;
+        let mpk_binary = read(mpk_path)?;
         install_app_package(&args.http_addr, mpk_binary)
             .await
-            .map_err(|e| m_error!(mududb::error::ec::EC::NetErr, "install tpcc mpk error", e))?;
+            .map_err(|e| {
+                mudu_error!(
+                    mududb::error::ErrorCode::Network,
+                    "install tpcc mpk error",
+                    e
+                )
+            })?;
     }
 
     let mut client = AsyncClientImpl::connect(&args.tcp_addr)
         .await
-        .map_err(|e| {
-            m_error!(
-                mududb::error::ec::EC::NetErr,
-                "connect tpcc tcp client error",
-                e
-            )
-        })?;
+        .map_err(|e| mudu_error!(Network, "connect tpcc tcp client error", e))?;
     let session_id = client
         .create_session(mududb::contract::protocol::SessionCreateRequest::new(None))
         .await
         .map_err(|e| {
-            m_error!(
-                mududb::error::ec::EC::NetErr,
+            mudu_error!(
+                mududb::error::ErrorCode::Network,
                 "create tpcc tcp session error",
                 e
             )
@@ -385,14 +411,15 @@ async fn run_tcp(args: Args) -> RS<()> {
     .await?;
     prepare_tcp_txn_context(&mut client, session_id, &args).await?;
     let load_elapsed_secs = total_start.elapsed().as_secs_f64();
-    let txn_start = Instant::now();
+    let txn_start = instant_now();
     let mut stats = BenchmarkStats::default();
 
     for op_index in 0..args.operation_count {
-        let warehouse_id = warehouse_for_op(op_index, op_index % args.connection_count.max(1), &args);
+        let warehouse_id =
+            warehouse_for_op(op_index, op_index % args.connection_count.max(1), &args);
         let district_id = value_for(op_index, args.districts_per_warehouse);
         let customer_id = value_for(op_index, args.customers_per_district);
-        let start = Instant::now();
+        let start = instant_now();
         let result = run_tcp_single_op(
             &mut client,
             session_id,
@@ -405,7 +432,10 @@ async fn run_tcp(args: Args) -> RS<()> {
         .await;
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
         let aborted = result.is_err();
-        stats.push(OpResult { latency_ms, aborted });
+        stats.push(OpResult {
+            latency_ms,
+            aborted,
+        });
     }
 
     let _ = client
@@ -414,8 +444,8 @@ async fn run_tcp(args: Args) -> RS<()> {
         ))
         .await
         .map_err(|e| {
-            m_error!(
-                mududb::error::ec::EC::NetErr,
+            mudu_error!(
+                mududb::error::ErrorCode::Network,
                 "close tpcc tcp session error",
                 e
             )
@@ -579,8 +609,16 @@ fn print_summary(
     let abort_count = stats.abort_count();
     let abort_rate = stats.abort_rate();
     let avg_latency = stats.avg_latency_ms();
-    let min_latency = if op_count > 0 { stats.min_latency_ms() } else { 0.0 };
-    let max_latency = if op_count > 0 { stats.max_latency_ms() } else { 0.0 };
+    let min_latency = if op_count > 0 {
+        stats.min_latency_ms()
+    } else {
+        0.0
+    };
+    let max_latency = if op_count > 0 {
+        stats.max_latency_ms()
+    } else {
+        0.0
+    };
     let p50 = stats.latency_percentile(50.0);
     let p90 = stats.latency_percentile(90.0);
     let p99 = stats.latency_percentile(99.0);
@@ -627,6 +665,18 @@ impl Args {
 fn init_schema_sync(xid: u128, args: &Args) -> RS<()> {
     if args.warehouse_partitioned {
         let topology = load_sync_topology()?;
+        execute_statement_sync(xid, &build_partition_rule_sql(args))?;
+        execute_statement_sync(xid, &build_partition_placement_sql(args, &topology)?)?;
+    }
+    execute_sql_script(xid, schema_sql(args))?;
+    execute_sql_script(xid, include_str!("../../sql/init.sql"))?;
+    Ok(())
+}
+
+#[cfg(test)]
+async fn init_schema_sync_async(xid: u128, args: &Args) -> RS<()> {
+    if args.warehouse_partitioned {
+        let topology = load_async_topology(&args.http_addr).await?;
         execute_statement_sync(xid, &build_partition_rule_sql(args))?;
         execute_statement_sync(xid, &build_partition_placement_sql(args, &topology)?)?;
     }
@@ -682,7 +732,10 @@ async fn execute_statement_tcp(
     statement: &str,
 ) -> RS<()> {
     let _ = client
-        .execute(ClientRequest::new(app_name.to_string(), statement.to_string()))
+        .execute(ClientRequest::new(
+            app_name.to_string(),
+            statement.to_string(),
+        ))
         .await?;
     Ok(())
 }
@@ -726,33 +779,33 @@ fn warehouse_for_op(op_index: usize, terminal_id: usize, args: &Args) -> i32 {
 
 fn load_sync_topology() -> RS<ServerTopology> {
     let Some(http_addr) = mudu_adapter::config::mudud_http_addr() else {
-        return Err(m_error!(
-            NoneErr,
+        return Err(mudu_error!(
+            InvalidState,
             "warehouse-partitioned benchmark requires a mudud connection with http_addr"
         ));
     };
     let runtime = Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| m_error!(TokioErr, "build tpcc topology runtime error", e))?;
+        .map_err(|e| mudu_error!(Tokio, "build tpcc topology runtime error", e))?;
     match runtime.block_on(fetch_server_topology(&http_addr)) {
         Ok(topology) => Ok(topology),
-        Err(err) if is_server_topology_unsupported(&err) => Err(m_error!(
-            NoneErr,
+        Err(err) if is_server_topology_unsupported(&err) => Err(mudu_error!(
+            InvalidState,
             "warehouse-partitioned benchmark requires server topology support"
         )),
-        Err(err) => Err(m_error!(NetErr, err)),
+        Err(err) => Err(mudu_error!(Network, err)),
     }
 }
 
 async fn load_async_topology(http_addr: &str) -> RS<ServerTopology> {
     match fetch_server_topology(http_addr).await {
         Ok(topology) => Ok(topology),
-        Err(err) if is_server_topology_unsupported(&err) => Err(m_error!(
-            NoneErr,
+        Err(err) if is_server_topology_unsupported(&err) => Err(mudu_error!(
+            InvalidState,
             "warehouse-partitioned benchmark requires server topology support"
         )),
-        Err(err) => Err(m_error!(NetErr, err)),
+        Err(err) => Err(mudu_error!(Network, err)),
     }
 }
 
@@ -766,14 +819,15 @@ fn build_partition_rule_sql(args: &Args) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "CREATE PARTITION RULE r_tpcc_wh RANGE (warehouse_id) ({partitions})"
-    )
+    format!("CREATE PARTITION RULE r_tpcc_wh RANGE ({partitions})")
 }
 
 fn build_partition_placement_sql(args: &Args, topology: &ServerTopology) -> RS<String> {
     if topology.workers.is_empty() {
-        return Err(m_error!(NoneErr, "server topology exposes no workers"));
+        return Err(mudu_error!(
+            InvalidState,
+            "server topology exposes no workers"
+        ));
     }
     let placements = (1..=args.warehouses)
         .map(|warehouse_id| {
@@ -871,8 +925,8 @@ async fn invoke_void<T: TupleDatum>(
         ))
         .await
         .map_err(|e| {
-            m_error!(
-                mududb::error::ec::EC::NetErr,
+            mudu_error!(
+                mududb::error::ErrorCode::Network,
                 "invoke void procedure error",
                 e
             )
@@ -898,8 +952,8 @@ async fn invoke_typed<T: TupleDatum, R: TupleDatum>(
         ))
         .await
         .map_err(|e| {
-            m_error!(
-                mududb::error::ec::EC::NetErr,
+            mudu_error!(
+                mududb::error::ErrorCode::Network,
                 "invoke typed procedure error",
                 e
             )
@@ -915,23 +969,24 @@ fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
     procedure_invoke::serialize_param(param)
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let args = Args::parse();
-    let result = if args.enable_async {
-        Err(m_error!(
-            NotImplemented,
-            "tpcc benchmark no longer uses handwritten async rust procedures; use transpiled generated wasm procedures instead"
-        ))
-    } else if args.mode == BenchmarkMode::StoredProcedure {
-        run_tcp(args).await
-    } else {
-        run_sync(args)
-    };
-    if let Err(err) = result {
-        eprintln!("tpcc benchmark failed: {err}");
-        std::process::exit(1);
-    }
+fn main() {
+    mudu_sys::task::async_::block_on_async_current(async {
+        let args = Args::parse();
+        let result = if args.enable_async {
+            Err(mudu_error!(
+                NotImplemented,
+                "tpcc benchmark no longer uses handwritten async rust procedures; use transpiled generated wasm procedures instead"
+            ))
+        } else if args.mode == BenchmarkMode::StoredProcedure {
+            run_tcp(args).await
+        } else {
+            run_sync(args)
+        };
+        if let Err(err) = result {
+            eprintln!("tpcc benchmark failed: {err}");
+            mudu_sys::process::exit(1);
+        }
+    });
 }
 
 #[cfg(all(test, target_os = "linux"))]

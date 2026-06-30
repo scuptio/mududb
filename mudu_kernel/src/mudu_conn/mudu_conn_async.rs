@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::db_conn::DBConnAsync;
 use mudu_contract::database::prepared_stmt::PreparedStmt;
 use mudu_contract::database::result_set::ResultSetAsync;
@@ -13,21 +13,25 @@ use mudu_contract::protocol::{
     encode_batch_request, encode_client_request_with_message_type, encode_session_create_request,
     ClientRequest, Frame, FrameHeader, MessageType, SessionCreateRequest, HEADER_LEN,
 };
-use mudu_sys::sync::a_mutex::{AMutex, AMutexGuard};
+use mudu_sys::common::provider_type::ProviderType;
+use mudu_sys::contract::async_mode::AsyncMode;
+use mudu_sys::contract::async_stream::AsyncStream;
+use mudu_sys::sync::async_::{AMutex, AMutexGuard};
+use mudu_sys::sync::SMutex;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
-use mudu_sys::sync::SMutex;
 
-use mudu_sys::async_rt::contract::{AsyncRuntime, AsyncStream};
 use crate::mudu_conn::mudu_prepared_stmt::MuduPreparedStmt;
 use crate::server::worker_local::{try_current_worker_local, WorkerExecute, WorkerLocalRef};
 use crate::sql::describer::Describer;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::provider::create_io_provider;
 
 static DEFAULT_REMOTE_ADDR: OnceLock<SMutex<Option<String>>> = OnceLock::new();
 static DEFAULT_REMOTE_WORKER_ID: OnceLock<SMutex<Option<OID>>> = OnceLock::new();
-static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<SMutex<Option<Arc<dyn AsyncRuntime>>>> =
+static DEFAULT_REMOTE_ASYNC_RUNTIME: OnceLock<SMutex<Option<Arc<dyn AsyncIoProvider>>>> =
     OnceLock::new();
 
 enum ConnBackend {
@@ -38,7 +42,7 @@ enum ConnBackend {
 struct RemoteWorkerConn {
     addr: String,
     worker_id: Option<OID>,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     session_id: SMutex<Option<OID>>,
     stream: AMutex<Option<RemoteProtocolClient>>,
 }
@@ -68,7 +72,7 @@ pub fn set_default_remote_worker_id(worker_id: Option<OID>) {
     }
 }
 
-pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) {
+pub fn set_default_remote_async_runtime(async_runtime: Option<Arc<dyn AsyncIoProvider>>) {
     let slot = DEFAULT_REMOTE_ASYNC_RUNTIME.get_or_init(|| SMutex::new(None));
     if let Ok(mut guard) = slot.lock() {
         *guard = async_runtime;
@@ -98,7 +102,7 @@ fn default_remote_worker_id() -> Option<OID> {
         .and_then(|slot| slot.lock().ok().and_then(|guard| *guard))
 }
 
-fn default_remote_async_runtime() -> Option<Arc<dyn AsyncRuntime>> {
+fn default_remote_async_runtime() -> Option<Arc<dyn AsyncIoProvider>> {
     DEFAULT_REMOTE_ASYNC_RUNTIME
         .get()
         .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()))
@@ -109,21 +113,21 @@ impl MuduConnAsync {
         Self::new_with_runtime(default_remote_async_runtime())
     }
 
-    pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
+    pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<Self> {
         if let Some(worker_local) = try_current_worker_local() {
             return Ok(Self {
                 backend: ConnBackend::WorkerLocal(worker_local),
-                parser: Arc::new(SQLParser::new()),
+                parser: Arc::new(SQLParser::new()?),
                 session_id: Arc::new(SMutex::new(None)),
             });
         }
         let addr = default_remote_addr().ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 "current worker local is not set and no default remote mududb addr is configured"
             )
         })?;
-        let parser = Arc::new(SQLParser::new());
+        let parser = Arc::new(SQLParser::new()?);
         let remote = Arc::new(RemoteWorkerConn {
             addr,
             worker_id: default_remote_worker_id(),
@@ -142,7 +146,10 @@ impl MuduConnAsync {
         let stmt_list = self.parser.parse(&sql.to_sql_string())?;
         let mut stmts = stmt_list.into_stmts();
         if stmts.len() != 1 {
-            return Err(m_error!(EC::ParseErr, "expected exactly one statement"));
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "expected exactly one statement"
+            ));
         }
         Ok(stmts.remove(0))
     }
@@ -151,12 +158,12 @@ impl MuduConnAsync {
         match &self.backend {
             ConnBackend::WorkerLocal(worker_local) => {
                 let trace = mudu_utils::task_trace!();
-                if let Some(session_id) = *self.session_id.lock().unwrap() {
+                if let Some(session_id) = *self.session_id.lock()? {
                     trace.watch("mudu_conn.ensure_session_id.stage", "cached");
                     return Ok(session_id);
                 }
                 let session_id = worker_local.open_async().await?;
-                let mut guard = self.session_id.lock().unwrap();
+                let mut guard = self.session_id.lock()?;
                 if let Some(existing) = *guard {
                     return Ok(existing);
                 }
@@ -172,9 +179,8 @@ impl MuduConnAsync {
         match &self.backend {
             ConnBackend::WorkerLocal(_) => self
                 .session_id
-                .lock()
-                .unwrap()
-                .ok_or_else(|| m_error!(EC::NoSuchElement, "no active session")),
+                .lock()?
+                .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no active session")),
             ConnBackend::Remote(remote) => remote.active_session_id().await,
         }
     }
@@ -191,13 +197,13 @@ impl RemoteWorkerConn {
     }
 
     async fn ensure_session_id(&self) -> RS<OID> {
-        if let Some(session_id) = *self.session_id.lock().unwrap() {
+        if let Some(session_id) = *self.session_id.lock()? {
             return Ok(session_id);
         }
         let mut client_guard = self.client().await?;
         let client = client_guard
             .as_mut()
-            .ok_or_else(|| m_error!(EC::InternalErr, "remote worker client is missing"))?;
+            .ok_or_else(|| mudu_error!(ErrorCode::Internal, "remote worker client is missing"))?;
         let request_id = client.take_request_id();
         let config_json = self.worker_id.map(|worker_id| {
             serde_json::json!({
@@ -210,7 +216,7 @@ impl RemoteWorkerConn {
             encode_session_create_request(request_id, &SessionCreateRequest::new(config_json))?;
         let frame = client.send_and_receive(&payload).await?;
         let session_id = decode_session_create_response(&frame)?.session_id();
-        let mut guard = self.session_id.lock().unwrap();
+        let mut guard = self.session_id.lock()?;
         if let Some(existing) = *guard {
             return Ok(existing);
         }
@@ -220,9 +226,8 @@ impl RemoteWorkerConn {
 
     async fn active_session_id(&self) -> RS<OID> {
         self.session_id
-            .lock()
-            .unwrap()
-            .ok_or_else(|| m_error!(EC::NoSuchElement, "no active session"))
+            .lock()?
+            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no active session"))
     }
 
     async fn batch_sql(&self, sql: String) -> RS<u64> {
@@ -230,7 +235,7 @@ impl RemoteWorkerConn {
         let mut client_guard = self.client().await?;
         let client = client_guard
             .as_mut()
-            .ok_or_else(|| m_error!(EC::InternalErr, "remote worker client is missing"))?;
+            .ok_or_else(|| mudu_error!(ErrorCode::Internal, "remote worker client is missing"))?;
         let payload = encode_batch_request(
             client.take_request_id(),
             &ClientRequest::new("default", sql),
@@ -244,7 +249,7 @@ impl RemoteWorkerConn {
         let mut client_guard = self.client().await?;
         let client = client_guard
             .as_mut()
-            .ok_or_else(|| m_error!(EC::InternalErr, "remote worker client is missing"))?;
+            .ok_or_else(|| mudu_error!(ErrorCode::Internal, "remote worker client is missing"))?;
         let payload = encode_client_request_with_message_type(
             MessageType::Execute,
             client.take_request_id(),
@@ -256,21 +261,16 @@ impl RemoteWorkerConn {
 }
 
 impl RemoteProtocolClient {
-    async fn connect(addr: &str, async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<Self> {
+    async fn connect(addr: &str, async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<Self> {
         let addr: SocketAddr = addr.parse().map_err(|e| {
-            m_error!(
-                EC::ParseErr,
+            mudu_error!(
+                ErrorCode::Parse,
                 format!("parse remote mududb addr error: {addr}"),
                 e
             )
         })?;
-        let stream = match async_runtime.or_else(default_remote_async_runtime) {
-            Some(async_runtime) => async_runtime.net().connect_tcp(addr).await?,
-            None => {
-                let runtime = mudu_sys::async_rt::tokio::runtime::TokioRuntime::new();
-                runtime.net().connect_tcp(addr).await?
-            }
-        };
+        let runtime = select_remote_runtime(async_runtime.or_else(default_remote_async_runtime));
+        let stream = runtime.net().connect_tcp(addr).await?;
         Ok(Self {
             stream,
             next_request_id: 1,
@@ -287,7 +287,7 @@ impl RemoteProtocolClient {
         self.stream
             .write_all(payload)
             .await
-            .map_err(|e| m_error!(EC::NetErr, "write request frame error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Network, "write request frame error", e))?;
 
         let mut header = [0u8; HEADER_LEN];
         read_exact(self.stream.as_mut(), &mut header).await?;
@@ -302,10 +302,25 @@ impl RemoteProtocolClient {
         let frame = Frame::decode(&frame_bytes)?;
         if frame.header().message_type() == MessageType::Error {
             let error = decode_error_response(&frame)?;
-            return Err(m_error!(EC::NetErr, error.message()));
+            return Err(mudu_error!(ErrorCode::Network, error.message()));
         }
         Ok(frame)
     }
+}
+
+fn select_remote_runtime(
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+) -> Arc<dyn AsyncIoProvider> {
+    if let Some(async_runtime) = async_runtime {
+        #[cfg(target_os = "linux")]
+        if async_runtime.mode() == AsyncMode::IoUring
+            && !mudu_sys::io::worker_ring::has_current_worker_ring()
+        {
+            return create_io_provider(ProviderType::Tokio);
+        }
+        return async_runtime;
+    }
+    create_io_provider(ProviderType::Tokio)
 }
 
 async fn read_exact(stream: &mut dyn AsyncStream, buf: &mut [u8]) -> RS<()> {
@@ -313,8 +328,8 @@ async fn read_exact(stream: &mut dyn AsyncStream, buf: &mut [u8]) -> RS<()> {
     while done < buf.len() {
         let n = stream.read(&mut buf[done..]).await?;
         if n == 0 {
-            return Err(m_error!(
-                EC::NetErr,
+            return Err(mudu_error!(
+                ErrorCode::Network,
                 "unexpected eof while reading remote response"
             ));
         }
@@ -337,8 +352,8 @@ impl DBConnAsync for MuduConnAsync {
                     Arc::new(desc),
                 )))
             }
-            ConnBackend::Remote(_) => Err(m_error!(
-                EC::NotImplemented,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "prepare is not supported without worker-local context"
             )),
         }
@@ -372,8 +387,8 @@ impl DBConnAsync for MuduConnAsync {
                 trace.watch("mudu_conn.begin_tx.stage", "execute_async_done");
                 Ok(session_id)
             }
-            ConnBackend::Remote(_) => Err(m_error!(
-                EC::NotImplemented,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "transaction control is not supported without worker-local context"
             )),
         }
@@ -387,8 +402,8 @@ impl DBConnAsync for MuduConnAsync {
                     .execute_async(session_id, WorkerExecute::RollbackTx)
                     .await
             }
-            ConnBackend::Remote(_) => Err(m_error!(
-                EC::NotImplemented,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "transaction control is not supported without worker-local context"
             )),
         }
@@ -402,8 +417,8 @@ impl DBConnAsync for MuduConnAsync {
                     .execute_async(session_id, WorkerExecute::CommitTx)
                     .await
             }
-            ConnBackend::Remote(_) => Err(m_error!(
-                EC::NotImplemented,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "transaction control is not supported without worker-local context"
             )),
         }
@@ -419,8 +434,8 @@ impl DBConnAsync for MuduConnAsync {
                 let session_id = self.ensure_session_id().await?;
                 worker_local.query(session_id, sql, param).await
             }
-            ConnBackend::Remote(_) => Err(m_error!(
-                EC::NotImplemented,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "query is not supported without worker-local context"
             )),
         }
@@ -434,8 +449,8 @@ impl DBConnAsync for MuduConnAsync {
             }
             ConnBackend::Remote(remote) => {
                 if param.size() != 0 {
-                    return Err(m_error!(
-                        EC::NotImplemented,
+                    return Err(mudu_error!(
+                        ErrorCode::NotImplemented,
                         "execute with parameters is not supported without worker-local context"
                     ));
                 }
@@ -452,8 +467,8 @@ impl DBConnAsync for MuduConnAsync {
             }
             ConnBackend::Remote(remote) => {
                 if param.size() != 0 {
-                    return Err(m_error!(
-                        EC::NotImplemented,
+                    return Err(mudu_error!(
+                        ErrorCode::NotImplemented,
                         "batch with parameters is not supported without worker-local context"
                     ));
                 }

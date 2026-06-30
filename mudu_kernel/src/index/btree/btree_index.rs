@@ -138,11 +138,19 @@ impl<V> BTreeIndex<V> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use std::cmp::Ordering;
     use std::hash::Hasher;
 
-    use mudu::error::ec::EC;
-    use mudu::m_error;
+    use mudu::error::ErrorCode;
+    use mudu::mudu_error;
     use mudu_contract::tuple::comparator::TupleComparator;
     use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc;
     use mudu_type::dat_type::DatType;
@@ -168,15 +176,15 @@ mod tests {
     }
 
     fn err_compare(_left: &[u8], _right: &[u8], _desc: &TupleBinaryDesc) -> RS<Ordering> {
-        Err(m_error!(EC::CompareErr, "compare failed"))
+        Err(mudu_error!(ErrorCode::ComparisonFailed, "compare failed"))
     }
 
     fn err_equal(_left: &[u8], _right: &[u8], _desc: &TupleBinaryDesc) -> RS<bool> {
-        Err(m_error!(EC::CompareErr, "compare failed"))
+        Err(mudu_error!(ErrorCode::ComparisonFailed, "compare failed"))
     }
 
     fn err_hash(_tuple: &[u8], _desc: &TupleBinaryDesc, _hasher: &mut dyn Hasher) -> RS<()> {
-        Err(m_error!(EC::CompareErr, "hash failed"))
+        Err(mudu_error!(ErrorCode::HashFailed, "hash failed"))
     }
 
     fn finish_hash(tuple: &[u8], desc: &TupleBinaryDesc, hasher: &mut dyn Hasher) -> RS<u64> {
@@ -236,7 +244,7 @@ mod tests {
 
         index.context.borrow_mut().comparator = comparator_err();
         let err = index.insert(KeyTuple::from(vec![2]), 20).unwrap_err();
-        assert_eq!(err.ec(), EC::CompareErr);
+        assert_eq!(err.ec(), ErrorCode::ComparisonFailed);
 
         index.context.borrow_mut().comparator = comparator_ok();
         assert_eq!(index.len().unwrap(), 1);
@@ -244,3 +252,7 @@ mod tests {
         assert_eq!(index.get(&KeyTuple::from(vec![2])).unwrap(), None);
     }
 }
+
+#[cfg(test)]
+#[path = "btree_index_test.rs"]
+mod btree_index_test;

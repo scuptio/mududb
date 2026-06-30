@@ -1,7 +1,7 @@
 use crate::contract::table_desc::TableDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use std::collections::HashMap;
 
 pub(crate) struct CopyLayout {
@@ -16,8 +16,8 @@ impl CopyLayout {
         } else if columns.len() == table_desc.oid2col().len() {
             columns.to_vec()
         } else {
-            return Err(m_error!(
-                ER::IOErr,
+            return Err(mudu_error!(
+                ER::InvalidArgument,
                 format!(
                     "the columns of table {} is not equal to the size specified {}",
                     table_desc.name(),
@@ -39,11 +39,14 @@ impl CopyLayout {
         ] {
             for oid in oids {
                 let info = table_desc.oid2col().get(oid).ok_or_else(|| {
-                    m_error!(ER::NoSuchElement, format!("cannot find column oid {}", oid))
+                    mudu_error!(
+                        ER::EntityNotFound,
+                        format!("cannot find column oid {}", oid)
+                    )
                 })?;
                 let position = name_to_position.get(info.name()).ok_or_else(|| {
-                    m_error!(
-                        ER::NoSuchElement,
+                    mudu_error!(
+                        ER::EntityNotFound,
                         format!("cannot find column name {}", info.name())
                     )
                 })?;
@@ -71,7 +74,7 @@ impl CopyLayout {
             .values()
             .map(|field| (field.column_index(), field.name().clone()))
             .collect();
-        columns.sort_by(|left, right| left.0.cmp(&right.0));
+        columns.sort_by_key(|left| left.0);
         columns.into_iter().map(|(_, name)| name).collect()
     }
 }

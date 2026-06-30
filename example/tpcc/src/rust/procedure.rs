@@ -9,14 +9,13 @@ use crate::rust::procedure_common::{
 };
 use crate::rust::stock::object::Stock;
 use crate::rust::warehouse::object::Warehouse;
-use mududb::common::result::RS;
 use mududb::common::id::OID;
+use mududb::common::result::RS;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
-use mududb::error::ec::EC::MuduError;
-use mududb::m_error;
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
-
 
 fn query_one_entity<R: Entity>(
     xid: OID,
@@ -25,7 +24,12 @@ fn query_one_entity<R: Entity>(
 ) -> RS<R> {
     mudu_query::<R>(xid, sql_stmt!(&sql), params)?
         .next_record()?
-        .ok_or_else(|| m_error!(MuduError, format!("query returned no rows: {sql}")))
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("query returned no rows: {sql}")
+            )
+        })
 }
 
 fn query_entities<R: Entity>(
@@ -48,21 +52,31 @@ fn query_count_i32(
 ) -> RS<i32> {
     let value = mudu_query::<i64>(xid, sql_stmt!(&sql), params)?
         .next_record()?
-        .ok_or_else(|| m_error!(MuduError, format!("query returned no rows: {sql}")))?;
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("query returned no rows: {sql}")
+            )
+        })?;
     Ok(value as i32)
 }
 
 fn required_i32(value: &Option<i32>, field: &str) -> RS<i32> {
-    value
-        .as_ref()
-        .copied()
-        .ok_or_else(|| m_error!(MuduError, format!("entity field is null: {field}")))
+    value.as_ref().copied().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidState,
+            format!("entity field is null: {field}")
+        )
+    })
 }
 
 fn required_string(value: &Option<String>, field: &str) -> RS<String> {
-    value
-        .clone()
-        .ok_or_else(|| m_error!(MuduError, format!("entity field is null: {field}")))
+    value.clone().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidState,
+            format!("entity field is null: {field}")
+        )
+    })
 }
 
 fn tpcc_seed_inner(
@@ -154,7 +168,7 @@ fn tpcc_seed_inner(
     Ok(())
 }
 
-fn tpcc_new_order_inner(
+struct TpccNewOrderRequest {
     xid: OID,
     warehouse_id: i32,
     district_id: i32,
@@ -163,7 +177,19 @@ fn tpcc_new_order_inner(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
     warehouse_partitioned: bool,
-) -> RS<String> {
+}
+
+fn tpcc_new_order_inner(request: TpccNewOrderRequest) -> RS<String> {
+    let TpccNewOrderRequest {
+        xid,
+        warehouse_id,
+        district_id,
+        customer_id,
+        item_ids,
+        supplier_warehouse_ids,
+        quantities,
+        warehouse_partitioned,
+    } = request;
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -173,8 +199,8 @@ fn tpcc_new_order_inner(
             .iter()
             .any(|&supplier_warehouse_id| supplier_warehouse_id != warehouse_id)
     {
-        return Err(m_error!(
-            MuduError,
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
             "partitioned tpcc_new_order requires local supplier warehouses"
         ));
     }
@@ -324,7 +350,6 @@ fn tpcc_payment_inner(
     amount: i32,
     warehouse_partitioned: bool,
 ) -> RS<i32> {
-
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -465,7 +490,7 @@ pub fn tpcc_new_order(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -473,8 +498,8 @@ pub fn tpcc_new_order(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        false,
-    )
+        warehouse_partitioned: false,
+    })
 }
 
 /**mudu-proc**/
@@ -487,7 +512,7 @@ pub fn tpcc_new_order_partitioned(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -495,8 +520,8 @@ pub fn tpcc_new_order_partitioned(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        true,
-    )
+        warehouse_partitioned: true,
+    })
 }
 
 /**mudu-proc**/
@@ -569,7 +594,12 @@ pub fn tpcc_delivery(xid: OID, warehouse_id: i32, district_id: i32, carrier_id: 
     .into_iter()
     .filter_map(|row| row.get_no_o_id().as_ref().copied())
     .min()
-    .ok_or_else(|| m_error!(MuduError, "delivery found no pending new_order rows"))?;
+    .ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            "delivery found no pending new_order rows"
+        )
+    })?;
     mudu_command(
         xid,
         sql_stmt!(&"DELETE FROM new_order WHERE no_w_id = ? AND no_d_id = ? AND no_o_id = ?"),
@@ -648,6 +678,8 @@ pub fn tpcc_stock_level_partitioned(
     tpcc_stock_level(xid, warehouse_id, district_id, threshold)
 }
 
+// Miri cannot execute FFI calls into SQLite (via rusqlite), so skip
+// these tests under Miri. They are still exercised by normal `cargo test`.
 #[cfg(test)]
 mod tests {
     use super::{
@@ -655,16 +687,18 @@ mod tests {
     };
     use crate::test_lock;
     use mududb::contract::{sql_params, sql_stmt};
+    use mududb::sys::env_var::temp_dir;
+    use mududb::sys::time::system_time_now;
     use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     fn temp_db_path(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        let suffix = system_time_now()
             .duration_since(UNIX_EPOCH)
             .expect("system time before unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("tpcc_sql_{name}_{suffix}.db"))
+        temp_dir().join(format!("tpcc_sql_{name}_{suffix}.db"))
     }
 
     fn init_schema(xid: u128) {
@@ -675,8 +709,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn tpcc_sync_procedures_roundtrip_against_standalone_adapter() {
-        let _guard = test_lock().lock().unwrap_or_else(|err| err.into_inner());
+        let _guard = test_lock().lock().unwrap();
         let db_path = temp_db_path("sync");
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);

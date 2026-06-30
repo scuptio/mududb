@@ -1,3 +1,6 @@
+//! `database::result_batch` module.
+#![allow(missing_docs)]
+
 use crate::database::result_set::{ResultSet, ResultSetAsync};
 use crate::tuple::tuple_value::TupleValue;
 use mudu::common::id::OID;

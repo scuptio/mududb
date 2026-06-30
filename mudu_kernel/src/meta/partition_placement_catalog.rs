@@ -1,6 +1,8 @@
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::time::system_time_now;
 use std::ops::Bound;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use mudu::common::endian;
 use mudu::common::id::OID;
@@ -49,15 +51,32 @@ pub fn partition_placement_catalog_desc() -> RS<Arc<TableDesc>> {
     TableInfo::new(partition_placement_catalog_schema())?.table_desc()
 }
 
-pub async fn open_partition_placement_catalog(path: &str) -> RS<Relation> {
+pub async fn open_partition_placement_catalog(
+    path: &str,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+) -> RS<Relation> {
     let desc = partition_placement_catalog_desc()?;
-    Relation::new(
-        PARTITION_PLACEMENT_CATALOG_TABLE_ID,
-        PARTITION_PLACEMENT_CATALOG_PARTITION_ID,
-        path.to_string(),
-        desc.as_ref(),
-    )
-    .await
+    match async_runtime {
+        Some(provider) => {
+            Relation::new_with_provider(
+                provider,
+                PARTITION_PLACEMENT_CATALOG_TABLE_ID,
+                PARTITION_PLACEMENT_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+        None => {
+            Relation::new(
+                PARTITION_PLACEMENT_CATALOG_TABLE_ID,
+                PARTITION_PLACEMENT_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+    }
 }
 
 pub fn encode_partition_placement_catalog_key(oid: OID) -> RS<Vec<u8>> {
@@ -68,8 +87,8 @@ pub fn encode_partition_placement_catalog_key(oid: OID) -> RS<Vec<u8>> {
 
 pub fn encode_partition_placement_catalog_value(placement: &PartitionPlacement) -> RS<Vec<u8>> {
     rmp_serde::to_vec(placement).map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::EncodeErr,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Encode,
             "encode partition placement catalog value error",
             e
         )
@@ -82,26 +101,30 @@ pub fn decode_partition_placement_catalog_key(tuple: &[u8]) -> RS<OID> {
 
 pub fn decode_partition_placement_catalog_value(tuple: &[u8]) -> RS<PartitionPlacement> {
     rmp_serde::from_slice(tuple).map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "decode partition placement catalog value error",
             e
         )
     })
 }
 
-pub async fn load_partition_placements_from_catalog(relation: &Relation) -> RS<Vec<PartitionPlacement>> {
-    let rows = relation.visible_range(
-        (Bound::Unbounded, Bound::Unbounded),
-        &WorkerSnapshot::new(visible_snapshot_xid(), vec![]),
-    ).await?;
+pub async fn load_partition_placements_from_catalog(
+    relation: &Relation,
+) -> RS<Vec<PartitionPlacement>> {
+    let rows = relation
+        .visible_range(
+            (Bound::Unbounded, Bound::Unbounded),
+            &WorkerSnapshot::new(visible_snapshot_xid(), vec![]),
+        )
+        .await?;
     let mut placements = Vec::with_capacity(rows.len());
     for (key, value) in rows {
         let key_oid = decode_partition_placement_catalog_key(&key)?;
         let placement = decode_partition_placement_catalog_value(&value)?;
         if key_oid != placement.partition_id {
-            return Err(mudu::m_error!(
-                mudu::error::ec::EC::DecodeErr,
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
                 format!(
                     "partition placement catalog key oid {} does not match partition oid {}",
                     key_oid, placement.partition_id
@@ -124,7 +147,7 @@ pub async fn write_partition_placement_to_catalog(
 }
 
 fn visible_snapshot_xid() -> u64 {
-    let base = SystemTime::now()
+    let base = system_time_now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()

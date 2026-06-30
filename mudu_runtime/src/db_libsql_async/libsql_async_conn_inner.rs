@@ -2,33 +2,34 @@ use crate::db_libsql_async::libsql_desc::desc_projection;
 use crate::db_libsql_async::param::LibSQLParam;
 use crate::db_libsql_async::result_set::{LibSQLAsyncResultSet, ResultSetLease};
 use async_trait::async_trait;
-use futures::TryFutureExt;
 use lazy_static::lazy_static;
 use libsql::{Builder, Connection, Database, Statement, Transaction, params_from_iter};
 use mudu::common::result::RS;
-use mudu::common::xid::{OID, new_xid};
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::common::xid::OID;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
 use mudu_contract::database::prepared_stmt::PreparedStmt;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_sys::sync::SMutex;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_type::datum::{Datum, DatumDyn};
+use mudu_type::datum::DatumDyn;
+use mudu_utils::oid::new_xid;
 use scc::HashMap as SCCHashMap;
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
 pub struct LibSQLAsyncConnInner {
     conn: Connection,
     trans: Option<Transaction>,
     xid: OID,
-    cached_prepared: Arc<StdMutex<HashMap<String, Prepared>>>,
+    cached_prepared: Arc<SMutex<HashMap<String, Prepared>>>,
 }
 
 lazy_static! {
@@ -40,10 +41,13 @@ async fn get_db(db_path: &String) -> RS<Arc<Database>> {
     match opt_db {
         Some(db) => Ok(db.get().clone()),
         None => {
-            let db = Builder::new_local(db_path)
-                .build()
-                .await
-                .map_err(|e| m_error!(EC::IOErr, format!("open database error {}", db_path), e))?;
+            let db = Builder::new_local(db_path).build().await.map_err(|e| {
+                mudu_error!(
+                    ErrorCode::Database,
+                    format!("open database error {}", db_path),
+                    e
+                )
+            })?;
             let arc_db = Arc::new(db);
             let _ = TURSO_DB.insert_async(db_path.clone(), arc_db.clone()).await;
             Ok(arc_db)
@@ -54,14 +58,18 @@ async fn get_db(db_path: &String) -> RS<Arc<Database>> {
 impl LibSQLAsyncConnInner {
     pub async fn new(db_path: String) -> RS<Self> {
         let db = get_db(&db_path).await?;
-        let connection = db
-            .connect()
-            .map_err(|e| m_error!(EC::IOErr, format!("connect db error {}", db_path), e))?;
+        let connection = db.connect().map_err(|e| {
+            mudu_error!(
+                ErrorCode::Database,
+                format!("connect db error {}", db_path),
+                e
+            )
+        })?;
         Ok(Self {
             conn: connection,
             trans: None,
             xid: 0,
-            cached_prepared: Arc::new(StdMutex::new(HashMap::new())),
+            cached_prepared: Arc::new(SMutex::new(HashMap::new())),
         })
     }
 
@@ -80,9 +88,9 @@ impl LibSQLAsyncConnInner {
             None => {
                 let stmt = self.conn.prepare(&sql).await.map_err(db_error)?;
                 let prepared = if query {
-                    Prepared::new_query_stmt(sql.clone(), stmt).await?
+                    Prepared::new_query_stmt(stmt).await?
                 } else {
-                    Prepared::new_command_stmt(sql.clone(), stmt).await?
+                    Prepared::new_command_stmt(stmt).await?
                 };
                 Ok((sql, prepared))
             }
@@ -91,13 +99,12 @@ impl LibSQLAsyncConnInner {
 }
 
 pub struct Prepared {
-    sql: String,
     stmt: Statement,
     project_tuple_desc: Arc<TupleFieldDesc>,
 }
 
 pub struct PreparedStmtImpl {
-    prepared: Arc<StdMutex<Option<Prepared>>>,
+    prepared: Arc<SMutex<Option<Prepared>>>,
 }
 
 #[async_trait]
@@ -123,10 +130,13 @@ impl PreparedStmt for PreparedStmtImpl {
         let guard = self
             .prepared
             .lock()
-            .map_err(|_| m_error!(EC::MutexError, "lock prepared stmt error"))?;
-        let prepared = guard
-            .as_ref()
-            .ok_or_else(|| m_error!(EC::ExistingSuchElement, "prepared query is still in use"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?;
+        let prepared = guard.as_ref().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityAlreadyExists,
+                "prepared query is still in use"
+            )
+        })?;
         Ok(prepared.project_tuple_desc())
     }
 
@@ -134,10 +144,13 @@ impl PreparedStmt for PreparedStmtImpl {
         let mut guard = self
             .prepared
             .lock()
-            .map_err(|_| m_error!(EC::MutexError, "lock prepared stmt error"))?;
-        let prepared = guard
-            .as_mut()
-            .ok_or_else(|| m_error!(EC::ExistingSuchElement, "prepared query is still in use"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?;
+        let prepared = guard.as_mut().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityAlreadyExists,
+                "prepared query is still in use"
+            )
+        })?;
         prepared.reset();
         Ok(())
     }
@@ -147,11 +160,11 @@ impl PreparedStmtImpl {
     fn take_prepared(&self) -> RS<Prepared> {
         self.prepared
             .lock()
-            .map_err(|_| m_error!(EC::MutexError, "lock prepared stmt error"))?
+            .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?
             .take()
             .ok_or_else(|| {
-                m_error!(
-                    EC::ExistingSuchElement,
+                mudu_error!(
+                    ErrorCode::EntityAlreadyExists,
                     "prepared statement is still in use"
                 )
             })
@@ -161,7 +174,7 @@ impl PreparedStmtImpl {
         let mut guard = self
             .prepared
             .lock()
-            .map_err(|_| m_error!(EC::MutexError, "lock prepared stmt error"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?;
         *guard = Some(prepared);
         Ok(())
     }
@@ -169,7 +182,7 @@ impl PreparedStmtImpl {
 
 impl Prepared {
     async fn query_with_lease(
-        mut self,
+        self,
         params: Box<dyn SQLParams>,
         lease: Box<dyn ResultSetLease>,
     ) -> RS<Arc<dyn ResultSetAsync>> {
@@ -198,18 +211,16 @@ impl Prepared {
         self.project_tuple_desc.clone()
     }
 
-    async fn new_query_stmt(sql: String, stmt: Statement) -> RS<Self> {
+    async fn new_query_stmt(stmt: Statement) -> RS<Self> {
         let desc = desc_projection(&stmt).await?;
         Ok(Self {
-            sql,
             stmt,
             project_tuple_desc: Arc::new(TupleFieldDesc::new(desc)),
         })
     }
 
-    async fn new_command_stmt(sql: String, stmt: Statement) -> RS<Self> {
+    async fn new_command_stmt(stmt: Statement) -> RS<Self> {
         Ok(Self {
-            sql,
             stmt,
             project_tuple_desc: Arc::new(TupleFieldDesc::new(Vec::new())),
         })
@@ -220,16 +231,16 @@ impl Prepared {
     }
 }
 
-fn db_error<E: Error + 'static>(e: E) -> MError {
+fn db_error<E: Error + Send + Sync + 'static>(e: E) -> MuduError {
     let detail = e.to_string();
-    m_error!(EC::IOErr, format!("db error: {}", detail), e)
+    mudu_error!(ErrorCode::Database, format!("db error: {}", detail), e)
 }
 
 fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
     let desc = sql_param.param_tuple_desc()?;
     if desc.fields().len() as u64 != sql_param.size() {
-        return Err(m_error!(
-            EC::DBInternalError,
+        return Err(mudu_error!(
+            ErrorCode::Database,
             "parameter and description mismatch"
         ));
     }
@@ -248,12 +259,12 @@ fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
 fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
     let id = ty.dat_type_id();
     let v = match id {
-        DatTypeID::I32 => libsql::Value::Integer(datum.expect_i32().clone() as _),
-        DatTypeID::I64 => libsql::Value::Integer(datum.expect_i64().clone() as _),
+        DatTypeID::I32 => libsql::Value::Integer(*datum.expect_i32() as _),
+        DatTypeID::I64 => libsql::Value::Integer(*datum.expect_i64() as _),
         DatTypeID::U128 => libsql::Value::Text(datum.expect_u128().to_string()),
         DatTypeID::I128 => libsql::Value::Text(datum.expect_i128().to_string()),
-        DatTypeID::F32 => libsql::Value::Real(datum.expect_f32().clone() as _),
-        DatTypeID::F64 => libsql::Value::Real(datum.expect_f64().clone() as _),
+        DatTypeID::F32 => libsql::Value::Real(*datum.expect_f32() as _),
+        DatTypeID::F64 => libsql::Value::Real(*datum.expect_f64() as _),
         DatTypeID::String => libsql::Value::Text(datum.expect_string().clone()),
         DatTypeID::Numeric => libsql::Value::Text(datum.expect_numeric().to_plain_string()),
         DatTypeID::Date => libsql::Value::Text(datum.expect_date().format()),
@@ -262,13 +273,13 @@ fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
             datum
                 .expect_timestamp()
                 .format(6)
-                .map_err(|e| m_error!(EC::TypeErr, e))?,
+                .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, e))?,
         ),
         DatTypeID::TimestampTz => libsql::Value::Text(
             datum
                 .expect_timestamptz()
                 .format(6)
-                .map_err(|e| m_error!(EC::TypeErr, e))?,
+                .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, e))?,
         ),
         DatTypeID::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
         DatTypeID::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
@@ -316,7 +327,7 @@ impl LibSQLAsyncConnInner {
         let sql_str = sql_stmt.to_string();
         let (_, prepared) = self.prepared(sql_str, true).await?;
         Ok(Arc::new(PreparedStmtImpl {
-            prepared: Arc::new(StdMutex::new(Some(prepared))),
+            prepared: Arc::new(SMutex::new(Some(prepared))),
         }))
     }
 
@@ -354,8 +365,8 @@ impl LibSQLAsyncConnInner {
         sql_params: Box<dyn SQLParams>,
     ) -> RS<u64> {
         if sql_params.size() != 0 {
-            return Err(m_error!(
-                EC::NotImplemented,
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "batch syscall does not support SQL parameters"
             ));
         }
@@ -373,7 +384,7 @@ impl LibSQLAsyncConnInner {
 
 struct CachedPreparedLease {
     sql: String,
-    cache: Arc<StdMutex<HashMap<String, Prepared>>>,
+    cache: Arc<SMutex<HashMap<String, Prepared>>>,
     prepared: Option<Prepared>,
 }
 
@@ -388,7 +399,7 @@ impl ResultSetLease for CachedPreparedLease {
 }
 
 struct PreparedSlotLease {
-    slot: Arc<StdMutex<Option<Prepared>>>,
+    slot: Arc<SMutex<Option<Prepared>>>,
     prepared: Option<Prepared>,
 }
 
@@ -406,28 +417,32 @@ impl ResultSetLease for PreparedSlotLease {
 #[cfg(test)]
 mod tests {
     use libsql::{Builder, Value, params};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     fn temp_db_path(label: &str) -> String {
         let nanos = mudu_sys::time::system_time_now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir()
+        mudu_sys::env_var::temp_dir()
             .join(format!("mudu-runtime-{label}-{nanos}.db"))
             .to_str()
             .unwrap()
             .to_string()
     }
 
-    #[tokio::test]
-    async fn reset_statement_before_consuming_rows_turns_values_null() {
-        let db_path = temp_db_path("reset-before-read");
-        let db = Builder::new_local(&db_path).build().await.unwrap();
-        let conn = db.connect().unwrap();
+    // libsql calls SQLite C functions that Miri does not support, so this test
+    // is ignored under Miri and runs only on native builds.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn reset_statement_before_consuming_rows_turns_values_null() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let db_path = temp_db_path("reset-before-read");
+            let db = Builder::new_local(&db_path).build().await.unwrap();
+            let conn = db.connect().unwrap();
 
-        conn.execute_batch(
-            r#"
+            conn.execute_batch(
+                r#"
             CREATE TABLE wallets (
                 user_id INT PRIMARY KEY,
                 balance INT,
@@ -435,30 +450,36 @@ mod tests {
             );
             INSERT INTO wallets (user_id, balance, updated_at) VALUES (1, 100, 0);
             "#,
-        )
-        .await
-        .unwrap();
-
-        let mut stmt = conn
-            .prepare("SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?")
+            )
             .await
             .unwrap();
-        let mut rows = stmt.query(params!(1)).await.unwrap();
-        stmt.reset();
 
-        let row = rows.next().await.unwrap().unwrap();
-        assert!(matches!(row.get_value(0).unwrap(), Value::Null));
-        let _ = std::fs::remove_file(db_path);
+            let stmt = conn
+                .prepare("SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?")
+                .await
+                .unwrap();
+            let mut rows = stmt.query(params!(1)).await.unwrap();
+            stmt.reset();
+
+            let row = rows.next().await.unwrap().unwrap();
+            assert!(matches!(row.get_value(0).unwrap(), Value::Null));
+            let _ = mudu_sys::fs::sync::remove_file(db_path);
+        })
+        .unwrap()
     }
 
-    #[tokio::test]
-    async fn consuming_rows_before_reset_keeps_values() {
-        let db_path = temp_db_path("read-before-reset");
-        let db = Builder::new_local(&db_path).build().await.unwrap();
-        let conn = db.connect().unwrap();
+    // libsql calls SQLite C functions that Miri does not support, so this test
+    // is ignored under Miri and runs only on native builds.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn consuming_rows_before_reset_keeps_values() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let db_path = temp_db_path("read-before-reset");
+            let db = Builder::new_local(&db_path).build().await.unwrap();
+            let conn = db.connect().unwrap();
 
-        conn.execute_batch(
-            r#"
+            conn.execute_batch(
+                r#"
             CREATE TABLE wallets (
                 user_id INT PRIMARY KEY,
                 balance INT,
@@ -466,19 +487,25 @@ mod tests {
             );
             INSERT INTO wallets (user_id, balance, updated_at) VALUES (1, 100, 0);
             "#,
-        )
-        .await
-        .unwrap();
-
-        let mut stmt = conn
-            .prepare("SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?")
+            )
             .await
             .unwrap();
-        let mut rows = stmt.query(params!(1)).await.unwrap();
 
-        let row = rows.next().await.unwrap().unwrap();
-        assert!(matches!(row.get_value(0).unwrap(), Value::Integer(1)));
-        stmt.reset();
-        let _ = std::fs::remove_file(db_path);
+            let stmt = conn
+                .prepare("SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?")
+                .await
+                .unwrap();
+            let mut rows = stmt.query(params!(1)).await.unwrap();
+
+            let row = rows.next().await.unwrap().unwrap();
+            assert!(matches!(row.get_value(0).unwrap(), Value::Integer(1)));
+            stmt.reset();
+            let _ = mudu_sys::fs::sync::remove_file(db_path);
+        })
+        .unwrap()
     }
 }
+
+#[cfg(test)]
+#[path = "libsql_async_conn_inner_test.rs"]
+mod libsql_async_conn_inner_test;

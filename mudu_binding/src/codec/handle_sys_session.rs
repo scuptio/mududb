@@ -1,3 +1,9 @@
+//! Low-level session key/value serialization helpers.
+//!
+//! This module is mostly boilerplate encode/decode routines and therefore
+//! exempted from the `missing_docs` lint.
+#![allow(missing_docs)]
+
 use crate::codec::adapter;
 use crate::universal::uni_error::UniError;
 use crate::universal::uni_session_open_argv::UniSessionOpenArgv;
@@ -5,7 +11,7 @@ use mudu::common::endian::{read_u128, write_u128};
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::common::serde_utils::{deserialize_from, serialize_to_vec};
-use mudu::error::err::MError;
+use mudu::error::MuduError;
 use std::mem::size_of;
 
 const ERROR_MAGIC: &[u8; 4] = b"MERR";
@@ -17,12 +23,15 @@ fn write_u32_be(output: &mut Vec<u8>, value: u32) {
 fn read_u32_be(input: &[u8], offset: &mut usize) -> RS<u32> {
     let end = *offset + size_of::<u32>();
     if end > input.len() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
-    let value = u32::from_be_bytes(input[*offset..end].try_into().unwrap());
+    let bytes = input[*offset..end]
+        .try_into()
+        .map_err(|_| mudu::mudu_error!(mudu::error::ErrorCode::Decode, "invalid u32 bytes"))?;
+    let value = u32::from_be_bytes(bytes);
     *offset = end;
     Ok(value)
 }
@@ -30,8 +39,8 @@ fn read_u32_be(input: &[u8], offset: &mut usize) -> RS<u32> {
 fn read_bytes(input: &[u8], offset: &mut usize, len: usize) -> RS<Vec<u8>> {
     let end = *offset + len;
     if end > input.len() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -48,7 +57,8 @@ fn decode_error_result(input: &[u8]) -> RS<()> {
     Err(adapter::error_from_mu(error))
 }
 
-pub fn serialize_error_result(error: MError) -> Vec<u8> {
+/// Serializes an error into a structured byte payload prefixed with `MERR`.
+pub fn serialize_error_result(error: MuduError) -> Vec<u8> {
     let mut output = Vec::new();
     output.extend_from_slice(ERROR_MAGIC);
     let encoded_error = serialize_to_vec(&adapter::error_to_mu(error)).unwrap_or_default();
@@ -76,8 +86,8 @@ pub fn deserialize_get_param(input: &[u8]) -> RS<Vec<u8>> {
 
 pub fn deserialize_session_get_param(input: &[u8]) -> RS<(OID, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -105,8 +115,8 @@ pub fn serialize_get_result(value: Option<&[u8]>) -> Vec<u8> {
 pub fn deserialize_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
     decode_error_result(input)?;
     if input.is_empty() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "empty get result"
         ));
     }
@@ -117,8 +127,8 @@ pub fn deserialize_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
             let value_len = read_u32_be(input, &mut offset)? as usize;
             Ok(Some(read_bytes(input, &mut offset, value_len)?))
         }
-        _ => Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        _ => Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "invalid get result tag"
         )),
     }
@@ -148,8 +158,8 @@ pub fn deserialize_put_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
 
 pub fn deserialize_session_put_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -172,8 +182,8 @@ pub fn deserialize_put_result(input: &[u8]) -> RS<()> {
     if input == [1] {
         Ok(())
     } else {
-        Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "invalid put result"
         ))
     }
@@ -228,8 +238,8 @@ pub fn deserialize_range_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
 
 pub fn deserialize_session_range_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -268,8 +278,8 @@ pub fn serialize_open_result(session_id: OID) -> Vec<u8> {
 pub fn deserialize_open_result(input: &[u8]) -> RS<OID> {
     decode_error_result(input)?;
     if input.len() < size_of::<u128>() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -284,8 +294,8 @@ pub fn serialize_close_param(session_id: OID) -> Vec<u8> {
 
 pub fn deserialize_close_param(input: &[u8]) -> RS<OID> {
     if input.len() < size_of::<u128>() {
-        return Err(mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "unexpected end of buffer"
         ));
     }
@@ -328,23 +338,5 @@ pub fn deserialize_range_result(input: &[u8]) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use mudu::error::ec::EC;
-
-    #[test]
-    fn deserialize_get_result_returns_structured_error() {
-        let payload = serialize_error_result(mudu::m_error!(EC::ParseErr, "bad get"));
-        let err = deserialize_get_result(&payload).unwrap_err();
-        assert_eq!(err.ec(), EC::ParseErr);
-        assert_eq!(err.message(), "bad get");
-    }
-
-    #[test]
-    fn deserialize_open_result_returns_structured_error() {
-        let payload = serialize_error_result(mudu::m_error!(EC::NoSuchElement, "missing session"));
-        let err = deserialize_open_result(&payload).unwrap_err();
-        assert_eq!(err.ec(), EC::NoSuchElement);
-        assert_eq!(err.message(), "missing session");
-    }
-}
+#[path = "handle_sys_session_test.rs"]
+mod handle_sys_session_test;

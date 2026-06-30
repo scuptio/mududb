@@ -1,0 +1,106 @@
+name: CI Hardening
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  format:
+    name: cargo-fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Check formatting
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo fmt -- --check 2>&1 | tee logs/hardening-fmt.log
+
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.19.9 --locked
+
+      - name: Run cargo-deny
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo deny check bans licenses advisories sources 2>&1 | tee logs/hardening-deny.log
+
+  cargo-hack:
+    name: cargo-hack
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --version 0.6.45 --locked
+
+      # The workspace currently has pre-existing feature-interaction issues in
+      # external crates (e.g. icu_normalizer, async-backtrace, zip) when checking
+      # individual feature combinations. Keep this job visible but non-blocking
+      # until those upstream/feature issues are resolved.
+      - name: Check feature combinations
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo hack check --workspace --each-feature --no-dev-deps 2>&1 | tee logs/hardening-hack.log
+        continue-on-error: true
+
+  cargo-outdated:
+    name: cargo-outdated
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated --version 0.19.0 --locked
+
+      # cargo-outdated copies the workspace to /tmp, which breaks the relative
+      # path used by the optional `mududb_ds` dependency in `mudu_sys_impl`.
+      # Keep this job visible but non-blocking until the workspace layout is
+      # adjusted to support it.
+      - name: Check outdated dependencies
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo outdated --workspace --root-deps-only 2>&1 | tee logs/hardening-outdated.log
+        continue-on-error: true

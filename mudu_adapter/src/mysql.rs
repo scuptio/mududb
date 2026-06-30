@@ -1,3 +1,5 @@
+//! MySQL backend implementation.
+
 use crate::config;
 use crate::result_set::LocalResultSet;
 use crate::sql::{datum_type_for_id, replace_placeholders};
@@ -5,8 +7,8 @@ use crate::state;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -14,10 +16,11 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
+use mudu_sys::sync::SMutex;
+use mudu_sys::sync::async_::mutex::AMutex;
+use mudu_sys::sync::async_::rwlock::ARwLock;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_sys::sync::a_mutex::AMutex;
-use mudu_sys::sync::a_rwlock::ARwLock;
 use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Opts, Pool, Row, Value};
@@ -29,7 +32,6 @@ use mysql_async::{
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
 type MySqlConnRef = Arc<SMutex<mysql::PooledConn>>;
 
@@ -45,28 +47,28 @@ lazy_static! {
 
 fn connect() -> RS<mysql::PooledConn> {
     let url = config::mysql_url()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mysql url env"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mysql url env"))?;
     let opts = Opts::from_url(&url)
-        .map_err(|e| m_error!(EC::DBInternalError, "parse mysql url error", e))?;
-    let pool =
-        Pool::new(opts).map_err(|e| m_error!(EC::DBInternalError, "create mysql pool error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "parse mysql url error", e))?;
+    let pool = Pool::new(opts)
+        .map_err(|e| mudu_error!(ErrorCode::Database, "create mysql pool error", e))?;
     let mut conn = pool
         .get_conn()
-        .map_err(|e| m_error!(EC::DBInternalError, "connect mysql error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "connect mysql error", e))?;
     initialize_schema(&mut conn)?;
     Ok(conn)
 }
 
 async fn connect_async() -> RS<MySqlAsyncSession> {
     let url = config::mysql_url()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing mysql url env"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mysql url env"))?;
     let opts = AsyncOpts::from_url(&url)
-        .map_err(|e| m_error!(EC::DBInternalError, "parse mysql url error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "parse mysql url error", e))?;
     let pool = AsyncPool::new(opts);
     let mut conn = pool
         .get_conn()
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "connect mysql error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "connect mysql error", e))?;
     initialize_schema_async(&mut conn).await?;
     Ok(MySqlAsyncSession { conn })
 }
@@ -81,7 +83,7 @@ fn initialize_schema(conn: &mut mysql::PooledConn) -> RS<()> {
         )
         "#,
     )
-    .map_err(|e| m_error!(EC::DBInternalError, "initialize mysql kv schema error", e))?;
+    .map_err(|e| mudu_error!(ErrorCode::Database, "initialize mysql kv schema error", e))?;
     Ok(())
 }
 
@@ -96,10 +98,11 @@ async fn initialize_schema_async(conn: &mut AsyncConn) -> RS<()> {
         "#,
     )
     .await
-    .map_err(|e| m_error!(EC::DBInternalError, "initialize mysql kv schema error", e))?;
+    .map_err(|e| mudu_error!(ErrorCode::Database, "initialize mysql kv schema error", e))?;
     Ok(())
 }
 
+/// Creates a new MySQL-backed session.
 pub fn mudu_open() -> RS<OID> {
     let session_id = state::next_session_id();
     let conn = Arc::new(SMutex::new(connect()?));
@@ -107,6 +110,7 @@ pub fn mudu_open() -> RS<OID> {
     Ok(session_id)
 }
 
+/// Asynchronous version of [`mudu_open`].
 pub async fn mudu_open_async() -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
     let session_id = state::next_session_id();
@@ -115,12 +119,14 @@ pub async fn mudu_open_async() -> RS<OID> {
     Ok(session_id)
 }
 
+/// Closes a MySQL-backed session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     ensure_session_exists(session_id)?;
     let _ = SESSIONS.remove_sync(&session_id);
     Ok(())
 }
 
+/// Asynchronous version of [`mudu_close`].
 pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = {
@@ -128,29 +134,31 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
         sessions.remove(&session_id)
     }
     .ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
     let session = Arc::try_unwrap(session)
-        .map_err(|_| m_error!(EC::InternalErr, "mysql async session still shared"))?
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "mysql async session still shared"))?
         .into_inner();
     session
         .conn
         .disconnect()
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "disconnect mysql error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "disconnect mysql error", e))?;
     Ok(())
 }
 
+/// Retrieves a value from a MySQL session.
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     with_session(session_id, |conn| {
         conn.exec_first("SELECT v FROM mudu_kv WHERE k = ?", (key.to_vec(),))
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql kv get error", e))
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv get error", e))
     })
 }
 
+/// Asynchronous version of [`mudu_get`].
 pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let _trace = mudu_utils::task_trace!();
     let session = with_async_session(session_id).await?;
@@ -159,9 +167,10 @@ pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> 
         .conn
         .exec_first("SELECT v FROM mudu_kv WHERE k = ?", (key.to_vec(),))
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql kv get error", e))
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv get error", e))
 }
 
+/// Stores a value in a MySQL session.
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     with_session(session_id, |conn| {
         conn.exec_drop(
@@ -169,11 +178,12 @@ pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
              ON DUPLICATE KEY UPDATE v = VALUES(v)",
             (key.to_vec(), value.to_vec()),
         )
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql kv put error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv put error", e))?;
         Ok(())
     })
 }
 
+/// Asynchronous version of [`mudu_put`].
 pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = with_async_session(session_id).await?;
@@ -186,10 +196,11 @@ pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()>
             (key.to_vec(), value.to_vec()),
         )
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql kv put error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv put error", e))?;
     Ok(())
 }
 
+/// Scans a range of keys in a MySQL session.
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],
@@ -201,17 +212,18 @@ pub fn mudu_range(
                 "SELECT k, v FROM mudu_kv WHERE k >= ? ORDER BY k ASC",
                 (start_key.to_vec(),),
             )
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql kv range error", e))
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv range error", e))
         } else {
             conn.exec(
                 "SELECT k, v FROM mudu_kv WHERE k >= ? AND k < ? ORDER BY k ASC",
                 (start_key.to_vec(), end_key.to_vec()),
             )
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql kv range error", e))
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv range error", e))
         }
     })
 }
 
+/// Asynchronous version of [`mudu_range`].
 pub async fn mudu_range_async(
     session_id: OID,
     start_key: &[u8],
@@ -228,7 +240,7 @@ pub async fn mudu_range_async(
                 (start_key.to_vec(),),
             )
             .await
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql kv range error", e))
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv range error", e))
     } else {
         session
             .conn
@@ -237,10 +249,11 @@ pub async fn mudu_range_async(
                 (start_key.to_vec(), end_key.to_vec()),
             )
             .await
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql kv range error", e))
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql kv range error", e))
     }
 }
 
+/// Executes a query on a MySQL session and returns the resulting record set.
 pub fn mudu_query<R: Entity>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -251,7 +264,7 @@ pub fn mudu_query<R: Entity>(
     with_session(oid, |conn| {
         let rows: Vec<Row> = conn
             .query(sql_text)
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql query error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql query error", e))?;
         let desc = build_desc(rows.first());
         let tuple_rows = rows
             .into_iter()
@@ -264,6 +277,7 @@ pub fn mudu_query<R: Entity>(
     })
 }
 
+/// Asynchronous version of [`mudu_query`].
 pub async fn mudu_query_async<R: Entity>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -276,7 +290,7 @@ pub async fn mudu_query_async<R: Entity>(
         .conn
         .query(sql_text)
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql query error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql query error", e))?;
     let desc = build_async_desc(rows.first());
     let tuple_rows = rows
         .into_iter()
@@ -288,29 +302,32 @@ pub async fn mudu_query_async<R: Entity>(
     ))
 }
 
+/// Executes a parameterized SQL command on a MySQL session.
 pub fn mudu_command(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     with_session(oid, |conn| {
         conn.query_drop(sql_text)
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql command error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql command error", e))?;
         Ok(conn.affected_rows())
     })
 }
 
+/// Executes a batch SQL statement on a MySQL session.
 pub fn mudu_batch(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
     with_session(oid, |conn| {
         conn.query_drop(sql_stmt.to_sql_string())
-            .map_err(|e| m_error!(EC::DBInternalError, "mysql batch error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "mysql batch error", e))?;
         Ok(conn.affected_rows())
     })
 }
 
+/// Asynchronous version of [`mudu_command`].
 pub async fn mudu_command_async(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -324,14 +341,15 @@ pub async fn mudu_command_async(
         .conn
         .query_drop(sql_text)
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql command error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql command error", e))?;
     Ok(session.conn.affected_rows())
 }
 
+/// Asynchronous version of [`mudu_batch`].
 pub async fn mudu_batch_async(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
@@ -341,7 +359,7 @@ pub async fn mudu_batch_async(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQL
         .conn
         .query_drop(sql_stmt.to_sql_string())
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "mysql batch error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "mysql batch error", e))?;
     Ok(session.conn.affected_rows())
 }
 
@@ -349,8 +367,8 @@ fn ensure_session_exists(session_id: OID) -> RS<()> {
     if SESSIONS.contains_sync(&session_id) {
         Ok(())
     } else {
-        Err(m_error!(
-            EC::NoSuchElement,
+        Err(mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         ))
     }
@@ -361,15 +379,15 @@ where
     F: FnOnce(&mut mysql::PooledConn) -> RS<R>,
 {
     let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
     let conn_ref = entry.get().clone();
     let mut conn = conn_ref
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "mysql session lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "mysql session lock poisoned"))?;
     f(&mut conn)
 }
 
@@ -380,8 +398,8 @@ async fn with_async_session(session_id: OID) -> RS<Arc<AMutex<MySqlAsyncSession>
         .get(&session_id)
         .cloned()
         .ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} does not exist", session_id)
             )
         })
@@ -491,7 +509,10 @@ fn infer_type_from_mysql_async_value(value: &AsyncValue) -> DatTypeID {
 
 fn mysql_value_to_dat_value(value: Value) -> RS<DatValue> {
     match value {
-        Value::NULL => Err(m_error!(EC::NotImplemented, "NULL value is not supported")),
+        Value::NULL => Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "NULL value is not supported"
+        )),
         Value::Int(v) => Ok(DatValue::from_i64(v)),
         Value::UInt(v) => Ok(DatValue::from_i64(v as i64)),
         Value::Float(v) => Ok(DatValue::from_f32(v)),
@@ -518,7 +539,10 @@ fn mysql_value_to_dat_value(value: Value) -> RS<DatValue> {
 
 fn mysql_async_value_to_dat_value(value: AsyncValue) -> RS<DatValue> {
     match value {
-        AsyncValue::NULL => Err(m_error!(EC::NotImplemented, "NULL value is not supported")),
+        AsyncValue::NULL => Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "NULL value is not supported"
+        )),
         AsyncValue::Int(v) => Ok(DatValue::from_i64(v)),
         AsyncValue::UInt(v) => Ok(DatValue::from_i64(v as i64)),
         AsyncValue::Float(v) => Ok(DatValue::from_f32(v)),

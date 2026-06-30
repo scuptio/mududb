@@ -1,0 +1,64 @@
+# Reproducible MuduDB development environment.
+# This image pins the same system packages and Rust toolchains used in CI.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH="${CARGO_HOME}/bin:${PATH}"
+
+# Install system dependencies documented in doc/en/how_to_start.md.
+RUN apt-get update -y && \
+    apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python-is-python3 \
+        build-essential \
+        curl \
+        liburing-dev \
+        clang \
+        libclang-dev \
+        llvm-dev \
+        pkgconf \
+        git \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install rustup without a default toolchain so the project pins are respected.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain none
+
+WORKDIR /workspace
+
+# Copy toolchain pins first for better Docker layer caching.
+COPY rust-toolchain.toml .rust-nightly-version ./
+
+# Install pinned stable and nightly toolchains.
+RUN STABLE_TOOLCHAIN="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')" && \
+    rustup toolchain install "${STABLE_TOOLCHAIN}" \
+        --profile minimal \
+        --component clippy,rustfmt \
+        --target x86_64-unknown-linux-gnu,wasm32-wasip2 && \
+    NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < .rust-nightly-version)" && \
+    rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal && \
+    rustup target add x86_64-unknown-linux-gnu --toolchain "${NIGHTLY_TOOLCHAIN}"
+
+# Install cargo-make globally.
+RUN cargo install cargo-make
+
+# Create a non-root developer user.
+RUN useradd -m -s /bin/bash developer && \
+    mkdir -p /workspace && \
+    chown -R developer:developer /workspace
+
+USER developer
+
+# Prepare a Python venv for the project.
+RUN python3 -m venv /workspace/.venv
+ENV PATH="/workspace/.venv/bin:${PATH}"
+RUN python -m pip install --upgrade pip && \
+    python -m pip install toml tomli-w
+
+CMD ["/bin/bash"]

@@ -1,5 +1,5 @@
 use crate::server::message_bus_api::{Envelope, OnRecvCallback, RecvFilter, SubscriptionId};
-use mudu_sys::sync::notify_wait::{create_notify_wait, Notify, Wait};
+use mudu_sys::sync::async_::notify_wait::{create_notify_wait, Notify, Wait};
 use std::collections::VecDeque;
 
 struct MessageBusRecvWaiter {

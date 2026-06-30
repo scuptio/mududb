@@ -1,8 +1,11 @@
+//! `procedure::procedure_param` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_vec::datum_vec_to_value_vec;
 use crate::tuple::tuple_datum::TupleDatum;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu::common::result::RS;
 use mudu::common::id::OID;
+use mudu::common::result::RS;
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::DatumDyn;
 

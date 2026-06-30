@@ -1,15 +1,17 @@
+//! Unit tests for the AssemblyScript front-end.
+#![allow(missing_docs)]
+
 use crate::assemblyscript::parser::discover_procedures;
 use crate::assemblyscript::procedure::{AsParam, AsProcedure, AsValueType};
 use crate::assemblyscript::render::{render_adapter_source, render_wit};
 use crate::mtp::main_inner;
-use std::env::temp_dir;
-use std::fs;
+use std::error::Error;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use tree_sitter::Parser;
 
 #[test]
-fn discovers_marked_procedure() {
+fn discovers_marked_procedure() -> Result<(), Box<dyn Error>> {
     let code = r#"
         import { Oid, Result, ValueList } from "@mududb/assemblyscript-binding";
 
@@ -18,7 +20,7 @@ fn discovers_marked_procedure() {
           return Result.ok<i64>(0);
         }
     "#;
-    let procedures = discover_procedures(code).unwrap();
+    let procedures = discover_procedures(code)?;
     assert_eq!(
         procedures,
         vec![AsProcedure {
@@ -50,8 +52,7 @@ fn discovers_marked_procedure() {
         Path::new("procedure.ts"),
         Path::new("procedure.gen.ts"),
         &procedures,
-    )
-    .unwrap();
+    )?;
     assert!(adapter.contains("export function adapter_transfer"));
     assert!(adapter.contains("const account1 = values.value(0).asInt64();"));
     assert!(adapter.contains("const account2 = values.value(1).asInt64();"));
@@ -63,18 +64,19 @@ fn discovers_marked_procedure() {
     let wit = render_wit(&procedures);
     assert!(wit.contains("interface procedure-transfer"));
     assert!(wit.contains("adapter-transfer: func"));
-    assert_typescript_syntax(&adapter);
+    assert_typescript_syntax(&adapter)?;
+    Ok(())
 }
 
 #[test]
-fn parses_procedure_signature_and_adapter_uses_original_function() {
+fn parses_procedure_signature_and_adapter_uses_original_function() -> Result<(), Box<dyn Error>> {
     let code = r#"
         /**mudu-proc*/
         export function transfer(session: Oid, account: i64): Result<i64> {
           return Result.ok<i64>(account);
         }
     "#;
-    let procedures = discover_procedures(code).unwrap();
+    let procedures = discover_procedures(code)?;
     assert_eq!(procedures[0].name, "transfer");
     assert_eq!(
         procedures[0].params,
@@ -99,8 +101,7 @@ fn parses_procedure_signature_and_adapter_uses_original_function() {
         Path::new("procedure.ts"),
         Path::new("procedure.gen.ts"),
         &procedures,
-    )
-    .unwrap();
+    )?;
     assert!(adapter.contains(
         "export function adapter_transfer(id: Oid, values: ValueList): MuduResult<ValueList>"
     ));
@@ -108,11 +109,12 @@ fn parses_procedure_signature_and_adapter_uses_original_function() {
     assert!(adapter.contains("const result = __mudu_proc_transfer(id, account);"));
     assert!(adapter.contains("returnValues.bind(0, MuduValue.int64(result.unwrap()));"));
     assert!(adapter.contains("return __muduProcedureResultErr(result.unwrapErr(), \"transfer\");"));
-    assert_typescript_syntax(&adapter);
+    assert_typescript_syntax(&adapter)?;
+    Ok(())
 }
 
 #[test]
-fn ignores_unlabeled_function_after_labeled_function() {
+fn ignores_unlabeled_function_after_labeled_function() -> Result<(), Box<dyn Error>> {
     let code = r#"
         /**mudu-proc*/
         export function transfer(id: Oid, amount: i64): Result<i64> {
@@ -123,9 +125,10 @@ fn ignores_unlabeled_function_after_labeled_function() {
           return Ok(amount);
         }
     "#;
-    let procedures = discover_procedures(code).unwrap();
+    let procedures = discover_procedures(code)?;
     assert_eq!(procedures.len(), 1);
     assert_eq!(procedures[0].name, "transfer");
+    Ok(())
 }
 
 #[test]
@@ -140,15 +143,14 @@ fn rejects_mismatched_procedure_signature() {
 }
 
 #[test]
-fn transpiles_assemblyscript_and_generates_all_artifacts() {
-    let tmp_pb = temp_dir().join(format!(
+fn transpiles_assemblyscript_and_generates_all_artifacts() -> Result<(), Box<dyn Error>> {
+    let tmp_pb = mudu_sys::env_var::temp_dir().join(format!(
         "mudu_transpiler_as_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
+        mudu_sys::time::system_time_now()
+            .duration_since(UNIX_EPOCH)?
             .as_nanos()
     ));
-    fs::create_dir_all(&tmp_pb).unwrap();
+    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb)?;
 
     let input_path = tmp_pb.join("procedure.ts");
     let output_path = tmp_pb.join("procedure.gen.ts");
@@ -156,7 +158,7 @@ fn transpiles_assemblyscript_and_generates_all_artifacts() {
     let output_wit_path = tmp_pb.join("procedure.gen.wit");
     let output_proc_desc_path = tmp_pb.join("procedure.desc.json");
 
-    fs::write(
+    mudu_sys::fs::sync::sync_write(
         &input_path,
         r#"
 import { Oid, Result, ValueList } from "@mududb/assemblyscript-binding";
@@ -166,12 +168,20 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
   return Result.ok<i64>(0);
 }
 "#,
-    )
-    .unwrap();
+    )?;
 
-    let input_path = input_path.to_str().unwrap().to_string();
-    let output_path = output_path.to_str().unwrap().to_string();
-    let output_proc_desc_path = output_proc_desc_path.to_str().unwrap().to_string();
+    let input_path = input_path
+        .to_str()
+        .ok_or("invalid UTF-8 in input path")?
+        .to_string();
+    let output_path = output_path
+        .to_str()
+        .ok_or("invalid UTF-8 in output path")?
+        .to_string();
+    let output_proc_desc_path = output_proc_desc_path
+        .to_str()
+        .ok_or("invalid UTF-8 in desc path")?
+        .to_string();
 
     let args = vec![
         "mtp",
@@ -190,17 +200,15 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
     let result = main_inner(args);
     assert!(result.is_ok(), "AssemblyScript code");
 
-    let ts = fs::read_to_string(&output_path).unwrap();
-    let rs = fs::read_to_string(output_rust_path).unwrap();
-    let wit = fs::read_to_string(output_wit_path).unwrap();
-    let desc = fs::read_to_string(&output_proc_desc_path).unwrap();
+    let ts = mudu_sys::fs::sync::sync_read_to_string(&output_path)?;
+    let rs = mudu_sys::fs::sync::sync_read_to_string(output_rust_path)?;
+    let wit = mudu_sys::fs::sync::sync_read_to_string(output_wit_path)?;
+    let desc = mudu_sys::fs::sync::sync_read_to_string(&output_proc_desc_path)?;
 
-    assert_typescript_syntax(&ts);
-    syn::parse_file(&rs).expect("generated Rust wrapper syntax should be valid");
-    assert_wit_syntax(&wit);
-    serde_json::from_str::<serde_json::Value>(&desc)
-        .expect("generated procedure desc JSON syntax should be valid");
-    let desc_json = serde_json::from_str::<serde_json::Value>(&desc).unwrap();
+    assert_typescript_syntax(&ts)?;
+    syn::parse_file(&rs)?;
+    assert_wit_syntax(&wit)?;
+    let desc_json = serde_json::from_str::<serde_json::Value>(&desc)?;
     let transfer_desc = &desc_json["modules"]["test"][0];
     assert_eq!(transfer_desc["module_name"], "test");
     assert_eq!(transfer_desc["proc_name"], "transfer");
@@ -239,24 +247,24 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
     assert!(wit.contains("interface procedure-transfer"));
     assert!(wit.contains("adapter-transfer: func"));
     assert!(desc.contains("\"transfer\""));
+    Ok(())
 }
 
-fn assert_typescript_syntax(source: &str) {
+fn assert_typescript_syntax(source: &str) -> Result<(), Box<dyn Error>> {
     let mut parser = Parser::new();
     let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
-    parser
-        .set_language(&language.into())
-        .expect("TypeScript grammar should load");
+    parser.set_language(&language.into())?;
     let tree = parser
         .parse(source, None)
-        .expect("TypeScript source should parse");
+        .ok_or("failed to parse TypeScript source")?;
     assert!(
         !tree.root_node().has_error(),
         "generated AssemblyScript/TypeScript syntax should be valid"
     );
+    Ok(())
 }
 
-fn assert_wit_syntax(source: &str) {
+fn assert_wit_syntax(source: &str) -> Result<(), Box<dyn Error>> {
     let source = source.replacen(
         "package mududb:component-shim;\n\n",
         r#"package mududb:component-shim;
@@ -288,6 +296,6 @@ interface system {
 "#,
         1,
     );
-    wit_parser::UnresolvedPackageGroup::parse_str("procedure.gen.wit", &source)
-        .expect("generated WIT syntax should be valid");
+    wit_parser::UnresolvedPackageGroup::parse("procedure.gen.wit", &source)?;
+    Ok(())
 }

@@ -7,6 +7,7 @@ use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Execute a query against the session.
 pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -16,41 +17,49 @@ pub fn mudu_query<R: Entity>(
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Execute a command against the session.
 pub fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     crate::inner_component::inner_command(oid, sql, params)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Execute a batch of statements against the session.
 pub fn mudu_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     crate::inner_component::inner_batch(oid, sql, params)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Open a new session against the session.
 pub fn mudu_open() -> RS<OID> {
     crate::inner_component::inner_open()
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Open a new session with arguments against the session.
 pub fn mudu_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
     crate::inner_component::inner_open_argv(argv)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Close a session against the session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     crate::inner_component::inner_close(session_id)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Get a value by key against the session.
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     crate::inner_component::inner_get(session_id, key)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Store a key-value pair against the session.
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     crate::inner_component::inner_put(session_id, key, value)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Scan a key range against the session.
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],

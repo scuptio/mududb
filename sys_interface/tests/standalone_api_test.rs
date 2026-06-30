@@ -1,29 +1,34 @@
+// Miri cannot execute FFI calls into SQLite (via rusqlite), so skip these
+// integration tests under Miri. They are still exercised by normal `cargo test`.
 #![cfg(all(not(target_arch = "wasm32"), feature = "standalone-adapter"))]
 
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
+use mudu_sys::sync::{SMutex, SMutexGuard};
+use mudu_sys::time::system_time_now;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
 use sys_interface::{async_api, host, sync_api};
 
-fn test_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn test_lock() -> &'static SMutex<()> {
+    static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| SMutex::new(()))
 }
 
-fn lock_tests() -> std::sync::MutexGuard<'static, ()> {
-    test_lock().lock().unwrap_or_else(|err| err.into_inner())
+fn lock_tests() -> SMutexGuard<'static, ()> {
+    test_lock().lock().unwrap()
 }
 
 fn temp_db_path(name: &str) -> PathBuf {
-    let suffix = SystemTime::now()
+    let suffix = system_time_now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("sys_interface_{name}_{suffix}.db"))
+    mudu_sys::env_var::temp_dir().join(format!("sys_interface_{name}_{suffix}.db"))
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn sync_standalone_kv_and_sql_wrappers_work() {
     let _guard = lock_tests();
     let db_path = temp_db_path("sync");
@@ -66,6 +71,7 @@ fn sync_standalone_kv_and_sql_wrappers_work() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn sync_bytes_kv_flow_roundtrips() {
     let _guard = lock_tests();
     let db_path = temp_db_path("sync_bytes");
@@ -98,6 +104,7 @@ fn sync_bytes_kv_flow_roundtrips() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn host_invoke_helpers_roundtrip_through_sync_bytes_handlers() {
     let _guard = lock_tests();
     let db_path = temp_db_path("host_helpers");
@@ -125,6 +132,7 @@ fn host_invoke_helpers_roundtrip_through_sync_bytes_handlers() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn async_standalone_kv_and_sql_wrappers_work() {
     let _guard = lock_tests();
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -165,6 +173,7 @@ fn async_standalone_kv_and_sql_wrappers_work() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn async_bytes_kv_flow_roundtrips() {
     let _guard = lock_tests();
     let runtime = tokio::runtime::Runtime::new().unwrap();

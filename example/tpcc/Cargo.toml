@@ -2,6 +2,8 @@
 name = "tpcc"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 autobins = false
 
 [lib]
@@ -15,16 +17,21 @@ benchmark-runner = [
     "dep:clap",
     "dep:mudu_adapter",
     "dep:mudu_cli",
+    "dep:mudu_sys",
     "dep:mudu_utils",
     "dep:tokio",
     "debug_trace",
     "mududb/standalone-adapter",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
 mudu_adapter = { workspace = true, optional = true }
 mudu_cli = { workspace = true, optional = true }
+mudu_sys = { workspace = true, optional = true }
 mudu_utils = { workspace = true, optional = true, features = ["debug_trace"] }
 wit-bindgen = { workspace = true }
 lazy_static = { workspace = true }
@@ -37,8 +44,13 @@ mudu_adapter = { workspace = true }
 mudu_runtime = { workspace = true }
 mududb = { workspace = true, features = ["async", "standalone-adapter"] }
 testing = { path = "../../testing" }
+tracing-subscriber = { workspace = true }
 
 [[bin]]
 name = "tpcc-benchmark"
 path = "src/bin/tpcc_benchmark.rs"
 required-features = ["benchmark-runner"]
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']
+development = ['mudu_runtime', 'testing']

@@ -4,7 +4,7 @@
 
 [<img src="doc/pic/mudu_logo.svg" width="10%">](doc/en/name.md)
 
-[汉语](readme.cn.md)
+[汉语](README.CN.MD)
 
 ---
 
@@ -36,6 +36,39 @@ At runtime, procedure invocation (④) executes close to the data within kernel-
 
 Execution is organized around a per-core worker model. Each CPU core is assigned a dedicated worker thread, and I/O, networking, and user-code execution are multiplexed cooperatively within those workers. This minimizes inter-thread coordination, locking, and preemptive context switching, improving locality and reducing overhead.
 
+
+---
+
+## Quick Start
+
+The fastest way to see MuduDB running on Ubuntu 24.04 is to use the one-click scripts:
+
+```bash
+git clone https://github.com/scuptio/mududb.git
+cd mududb
+
+# 1. Install system dependencies and Rust toolchains
+bash script/shell/install_deps.sh
+
+# 2. Build all components and the wallet example
+bash script/shell/build_all.sh
+
+# 3. Start the server and run CRUD tests
+bash script/shell/run_test.sh
+```
+
+After `run_test.sh` succeeds, you have a working `mudud` server plus `mcli`, `mpk`, `mgen`, and `mtp` in `~/.cargo/bin/`.
+
+For daily use without building from source, install the release binaries with [`mudup`](doc/en/how_to_start.md).
+
+See [How to start](doc/en/how_to_start.md) for detailed setup options (Dev Container, manual setup, tool explanations, and your first procedure).
+
+## Documentation
+
+- [Documentation index](doc/README.md)
+- [Core concepts](doc/en/concepts.md)
+- [Your first procedure tutorial](doc/en/your_first_procedure.md)
+- [Deployment guide](doc/en/DEPLOY.md)
 
 ---
 

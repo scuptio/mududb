@@ -1,25 +1,27 @@
+#![allow(unstable_name_collisions)]
+
 use crate::async_utils::blocking;
 use crate::db_libsql::ls_desc;
 use crate::db_libsql::ls_trans::LSTrans;
 use as_slice::AsSlice;
 use lazy_static::lazy_static;
 use libsql::{Builder, Connection, Database, Error, params};
-use mudu::common::result::RS;
 use mudu::common::id::OID;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::{AsSQLStmtRef, SQLStmt};
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use mudu_sys::sync::SMutex;
 use mudu_type::datum::{AsDatumDynRef, DatumDyn};
 use scc::HashMap;
 use std::io::{BufRead, BufReader, Cursor};
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 use tracing::debug;
 
 #[derive(Clone)]
@@ -45,7 +47,7 @@ impl LockedTrans {
         let mut guard = self
             .trans
             .lock()
-            .map_err(|_e| m_error!(EC::DBInternalError, "lock libsql DB error"))?;
+            .map_err(|_e| mudu_error!(ErrorCode::Database, "lock libsql DB error"))?;
         let mut opt_trans = opt_trans;
         mem::swap(&mut *guard, &mut opt_trans);
         Ok(())
@@ -55,7 +57,7 @@ impl LockedTrans {
         let mut guard = self
             .trans
             .lock()
-            .map_err(|_e| m_error!(EC::DBInternalError, "lock libsql DB error"))?;
+            .map_err(|_e| mudu_error!(ErrorCode::Database, "lock libsql DB error"))?;
         let mut opt_trans = None;
         mem::swap(&mut *guard, &mut opt_trans);
         Ok(opt_trans)
@@ -68,7 +70,10 @@ fn mudu_lib_db_file<P: AsRef<Path>>(db_path: P, app_name: String) -> RS<String> 
     let opt = path.to_str();
     match opt {
         Some(t) => Ok(t.to_string()),
-        None => Err(m_error!(EC::IOErr, "convert path to string error")),
+        None => Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "convert path to string error"
+        )),
     }
 }
 
@@ -85,7 +90,7 @@ async fn get_db(path: String, app_name: String) -> RS<Arc<Database>> {
             let db = Builder::new_local(&db_path)
                 .build()
                 .await
-                .map_err(|e| m_error!(EC::DBInternalError, "build libsql DB error", e))?;
+                .map_err(|e| mudu_error!(ErrorCode::Database, "build libsql DB error", e))?;
             Arc::new(db)
         }
     };
@@ -95,13 +100,11 @@ async fn get_db(path: String, app_name: String) -> RS<Arc<Database>> {
 }
 
 impl LSSyncConn {
-    pub fn new(db_path: &String, app_name: &String, _ddl_path: &String) -> RS<Self> {
-        let _db_path = db_path.clone();
-        let _app_name = app_name.clone();
-        let result = blocking::run_async(async move {
-            let r = LSAsyncConnInner::new(_db_path, _app_name).await;
-            r
-        })?;
+    pub fn new(db_path: &str, app_name: &str, _ddl_path: &str) -> RS<Self> {
+        let _db_path = db_path.to_string();
+        let _app_name = app_name.to_string();
+        let result =
+            blocking::run_async(async move { LSAsyncConnInner::new(_db_path, _app_name).await })?;
 
         let inner = result?;
         Ok(Self {
@@ -155,8 +158,8 @@ impl LSSyncConn {
         let sql_text = sql.to_string();
         let n = param.size();
         if n != 0 {
-            return Err(m_error!(
-                EC::NotImplemented,
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
                 "batch syscall does not support SQL parameters"
             ));
         }
@@ -181,7 +184,7 @@ impl LSAsyncConnInner {
         let db = get_db(db_path, app_name).await?;
         let conn = db
             .connect()
-            .map_err(|e| m_error!(EC::DBInternalError, "connect libsql DB error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "connect libsql DB error", e))?;
         let r1 = conn.execute("PRAGMA busy_timeout = 10000000;", ()).await;
         let r2 = conn.execute("PRAGMA journal_mode = WAL;", ()).await;
         for r in [r1, r2] {
@@ -194,7 +197,7 @@ impl LSAsyncConnInner {
                             // https://github.com/tursodatabase/go-libsql/issues/28#issuecomment-2571633180
                             Ok(())
                         }
-                        _ => Err(m_error!(EC::DBInternalError, "set pragma error", e)),
+                        _ => Err(mudu_error!(ErrorCode::Database, "set pragma error", e)),
                     }
                 }
             }?;
@@ -212,20 +215,24 @@ impl LSAsyncConnInner {
         let opt_trans = self.trans.tx_move()?;
         if opt_trans.is_none() {
             let trans = self.conn.transaction().await.map_err(|e| {
-                m_error!(EC::DBInternalError, "create transaction libsql DB error", e)
+                mudu_error!(ErrorCode::Database, "create transaction libsql DB error", e)
             })?;
             let tx = LSTrans::new(trans);
             let xid = tx.xid();
             self.trans.tx_set(Some(tx))?;
             Ok(xid)
         } else {
-            Err(m_error!(EC::ExistingSuchElement, "existing transaction"))
+            Err(mudu_error!(
+                ErrorCode::EntityAlreadyExists,
+                "existing transaction"
+            ))
         }
     }
 
     pub fn tx_move_out(&self) -> RS<LSTrans> {
         let opt = self.trans.tx_move()?;
-        let ls_trans = opt.ok_or_else(|| m_error!(EC::NoSuchElement, "no existing transaction"))?;
+        let ls_trans =
+            opt.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no existing transaction"))?;
         Ok(ls_trans)
     }
 
@@ -236,7 +243,7 @@ impl LSAsyncConnInner {
     ) -> RS<R> {
         let opt_trans = trans
             .tx_move()
-            .map_err(|_e| m_error!(EC::DBInternalError, "lock libsql DB error"))?;
+            .map_err(|_e| mudu_error!(ErrorCode::Database, "lock libsql DB error"))?;
         match &opt_trans {
             Some(tx) => {
                 let result = h(tx, sql).await;
@@ -244,7 +251,7 @@ impl LSAsyncConnInner {
                 let r = result?;
                 Ok(r)
             }
-            None => Err(m_error!(EC::DBInternalError, "no existing transaction")),
+            None => Err(mudu_error!(ErrorCode::Database, "no existing transaction")),
         }
     }
 
@@ -290,7 +297,7 @@ impl LSAsyncConnInner {
         let _desc = result_desc.clone();
         let rs = Self::transaction(
             trans,
-            async move |tx, s| tx.query(&s, params!([]), _desc.clone()).await,
+            async move |tx, s| tx.query(s, params!([]), _desc.clone()).await,
             &sql,
         )
         .await?;
@@ -298,19 +305,16 @@ impl LSAsyncConnInner {
     }
 
     pub fn replace_placeholder(
-        sql_string: &String,
-        desc: &Vec<DatumDesc>,
-        param: &Vec<Box<dyn DatumDyn>>,
+        sql_string: &str,
+        desc: &[DatumDesc],
+        param: &[Box<dyn DatumDyn>],
     ) -> RS<String> {
         let placeholder_str = "?";
         let placeholder_str_len = placeholder_str.len();
-        let vec_indices: Vec<_> = sql_string
-            .match_indices(placeholder_str)
-            .into_iter()
-            .collect();
+        let vec_indices: Vec<_> = sql_string.match_indices(placeholder_str).collect();
         if desc.len() != param.as_slice().len() || desc.len() != vec_indices.len() {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 "parameter and placeholder count mismatch"
             ));
         }
@@ -320,16 +324,16 @@ impl LSAsyncConnInner {
         for i in 0..desc.len() {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
-            sql_after_replaced.push_str(" ");
+            sql_after_replaced.push(' ');
             let s = param[i].to_textual(desc[i].dat_type())?;
             sql_after_replaced.push_str(s.as_str());
-            sql_after_replaced.push_str(" ");
+            sql_after_replaced.push(' ');
             start_pos += _s.len() + placeholder_str_len;
         }
         if start_pos != sql_string.len() {
             sql_after_replaced.push_str(&sql_string[start_pos..]);
         }
-        sql_after_replaced.push_str(" ");
+        sql_after_replaced.push(' ');
         Ok(sql_after_replaced)
     }
 
@@ -341,8 +345,8 @@ impl LSAsyncConnInner {
     ) -> RS<u64> {
         let sql = Self::replace_placeholder(&sql, &desc, &param)?;
         let trans = self.trans.clone();
-        let result = blocking::run_async(async move { Self::async_command_gut(trans, sql).await })?;
-        result
+
+        blocking::run_async(async move { Self::async_command_gut(trans, sql).await })?
     }
 
     fn async_batch(&self, sql: String) -> RS<u64> {
@@ -354,7 +358,7 @@ impl LSAsyncConnInner {
     async fn async_command_gut(trans: LockedTrans, sql: String) -> RS<u64> {
         let affected_rows = Self::transaction(
             trans,
-            async move |tx, s| tx.command(&s, params!([])).await,
+            async move |tx, s| tx.command(s, params!([])).await,
             &sql,
         )
         .await?;
@@ -374,7 +378,7 @@ impl LSAsyncConnInner {
                 let _ = conn
                     .execute_batch(&sql)
                     .await
-                    .map_err(|e| m_error!(EC::DBInternalError, "batch error", e))?;
+                    .map_err(|e| mudu_error!(ErrorCode::Database, "batch error", e))?;
                 Ok(conn.total_changes().saturating_sub(before))
             }
         }
@@ -405,7 +409,7 @@ impl LSAsyncConnInner {
         let mut sql_statement = String::new();
 
         for line in reader.lines() {
-            let line = line.map_err(|e| m_error!(EC::IOErr, "read line error", e))?;
+            let line = line.map_err(|e| mudu_error!(ErrorCode::from(&e), "read line error", e))?;
 
             // ignore commend and empty lines
             let trimmed = line.trim();
@@ -428,7 +432,7 @@ impl LSAsyncConnInner {
                 // execute SQL statement
                 conn.execute(&sql_statement, params!([]))
                     .await
-                    .map_err(|e| m_error!(EC::IOErr, "execute sql file error", e))?;
+                    .map_err(|e| mudu_error!(ErrorCode::Database, "execute sql file error", e))?;
 
                 // prepare for next statement
                 sql_statement.clear();
@@ -438,3 +442,7 @@ impl LSAsyncConnInner {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "ls_async_conn_test.rs"]
+mod ls_async_conn_test;

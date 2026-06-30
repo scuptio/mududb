@@ -1,13 +1,21 @@
+//! MessagePack serialization helpers.
+
 use crate::common::result::RS;
 use crate::common::serde_utils::Sizer;
-use crate::error::ec::EC;
-use crate::m_error;
+use crate::error::ErrorCode;
+use crate::mudu_error;
 use std::io::Cursor;
 
+/// MessagePack integer type alias.
 pub type MsgPackInteger = rmpv::Integer;
+
+/// MessagePack value type alias.
 pub type MsgPackValue = rmpv::Value;
+
+/// MessagePack UTF-8 string type alias.
 pub type MsgPackUtf8String = rmpv::Utf8String;
 
+/// Encodes a MessagePack value into its binary representation.
 pub fn msg_pack_value_to_binary(value: &MsgPackValue) -> RS<Vec<u8>> {
     let mut vec = Vec::with_capacity({
         let mut sizer = Sizer::new();
@@ -18,10 +26,12 @@ pub fn msg_pack_value_to_binary(value: &MsgPackValue) -> RS<Vec<u8>> {
     Ok(vec)
 }
 
+/// Decodes a MessagePack value from `binary` and returns the value plus the
+/// number of bytes consumed.
 pub fn msg_pack_binary_to_value(binary: &[u8]) -> RS<(MsgPackValue, u64)> {
     let mut cursor = Cursor::new(binary);
     let v = rmpv::decode::read_value(&mut cursor)
-        .map_err(|e| m_error!(EC::DecodeErr, "cannot decode from msg pack binary", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "cannot decode from msg pack binary", e))?;
     Ok((v, cursor.position()))
 }
 

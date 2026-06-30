@@ -1,3 +1,6 @@
+//! Render AssemblyScript adapter source, WIT interfaces, and the Rust P2
+//! wrapper from parsed procedures.
+
 use crate::assemblyscript::desc::gen_procedure_shim_inputs;
 use crate::assemblyscript::procedure::{AsParam, AsProcedure};
 use crate::procedure_shim::{
@@ -5,11 +8,12 @@ use crate::procedure_shim::{
 };
 use askama::Template;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use std::collections::HashSet;
 use std::path::{Component, Path};
 
+/// Askama template for the AssemblyScript adapter module.
 #[derive(Template)]
 #[template(path = "assemblyscript/adapter.ts.jinja", escape = "none")]
 struct AdapterTemplate<'a> {
@@ -17,6 +21,8 @@ struct AdapterTemplate<'a> {
     procedures: &'a [AdapterProcedure],
 }
 
+/// Render the AssemblyScript adapter source that imports and wraps the
+/// discovered Mudu procedures.
 pub(super) fn render_adapter_source(
     input_path: &Path,
     output_path: &Path,
@@ -32,7 +38,7 @@ pub(super) fn render_adapter_source(
         procedures: &adapter_procedures,
     }
     .render()
-    .map_err(|e| m_error!(EC::EncodeErr, "render assemblyscript adapter error", e))
+    .map_err(|e| mudu_error!(ErrorCode::Encode, "render assemblyscript adapter error", e))
 }
 
 struct AdapterProcedure {
@@ -93,6 +99,7 @@ impl AdapterArg {
     }
 }
 
+/// Render the WIT interfaces and world describing the procedure exports.
 pub(super) fn render_wit(procedures: &[AsProcedure]) -> String {
     let mut out = String::from("package mududb:component-shim;\n\n");
     for procedure in procedures {
@@ -197,6 +204,7 @@ fn normalized_components(path: &Path) -> Option<Vec<String>> {
     Some(components)
 }
 
+/// Render the Rust P2 wrapper source for the given AssemblyScript procedures.
 pub(super) fn render_rust_wrapper(procedures: &[AsProcedure], package_name: &str) -> RS<String> {
     render_rust_p2_wrapper(
         gen_procedure_shim_inputs(procedures),

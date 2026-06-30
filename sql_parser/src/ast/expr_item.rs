@@ -1,20 +1,29 @@
+//! Expression item AST node.
+
 use crate::ast::expr_literal::ExprLiteral;
 use crate::ast::expr_name::ExprName;
 use std::fmt::Debug;
 
+/// Atomic expression item: a name or a value.
 #[derive(Clone, Debug)]
 pub enum ExprItem {
+    /// Named identifier (table/column reference).
     ItemName(ExprName),
+    /// Value (literal or placeholder).
     ItemValue(ExprValue),
 }
 
+/// Expression value: a literal or a placeholder.
 #[derive(Clone, Debug)]
 pub enum ExprValue {
+    /// Typed literal value.
     ValueLiteral(ExprLiteral),
+    /// Parameter placeholder (`?`).
     ValuePlaceholder,
 }
 
 impl ExprItem {
+    /// If this item is a named field, return the name.
     pub fn to_field(&self) -> Option<&ExprName> {
         if let ExprItem::ItemName(field) = self {
             Some(field)
@@ -23,6 +32,7 @@ impl ExprItem {
         }
     }
 
+    /// If this item is a literal value, return the literal.
     pub fn to_literal(&self) -> Option<&ExprLiteral> {
         if let ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) = self {
             Some(literal)
@@ -34,6 +44,10 @@ impl ExprItem {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+
     use super::{ExprItem, ExprValue};
     use crate::ast::expr_literal::ExprLiteral;
     use crate::ast::expr_name::ExprName;
@@ -63,6 +77,7 @@ mod tests {
                 .to_literal()
                 .unwrap()
                 .dat_type()
+                .unwrap()
                 .dat_type()
                 .dat_type_id(),
             DatTypeID::String

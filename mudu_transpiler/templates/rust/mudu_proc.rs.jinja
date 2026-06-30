@@ -123,7 +123,7 @@ mod {{ procedure.mod_name }} {
         inline:
         r##"package mudu:{{ procedure.wit_fn_exported_name }};
             world mudu-app-{{ procedure.wit_fn_exported_name }} {
-                export {{ procedure.wit_fn_exported_name }}: func(param:list<u8>) -> list<u8>;
+                export {{ procedure.wit_fn_exported_name }}: {{procedure.opt_async }} func(param:list<u8>) -> list<u8>;
             }
         "##,
         {{ procedure.wit_async_true }}

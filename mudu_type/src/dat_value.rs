@@ -9,8 +9,8 @@ use mudu::data_type::numeric::Numeric;
 use mudu::data_type::time::TimeValue;
 use mudu::data_type::timestamp::TimestampValue;
 use mudu::data_type::timestamptz::TimestampTzValue;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -173,36 +173,28 @@ impl DatValue {
 
     /// Conversion methods to owned values
     pub fn to_f32(&self) -> f32 {
-        self.expect_f32().clone()
+        *self.expect_f32()
     }
 
     pub fn to_f64(&self) -> f64 {
-        self.expect_f64().clone()
+        *self.expect_f64()
     }
 
     pub fn to_i32(&self) -> i32 {
-        self.expect_i32().clone()
+        *self.expect_i32()
     }
 
     pub fn to_i64(&self) -> i64 {
-        self.expect_i64().clone()
+        *self.expect_i64()
     }
 
     pub fn to_i128(&self) -> i128 {
-        self.expect_i128().clone()
+        *self.expect_i128()
     }
 
     pub fn to_oid(&self) -> u128 {
-        self.expect_u128().clone()
+        *self.expect_u128()
     }
-}
-
-/// Safe wrapper for unsafe pointer casting between types
-/// Assumes the caller guarantees type compatibility
-#[inline]
-#[allow(unused)]
-fn unsafe_cast<S, D>(src: &S) -> &D {
-    unsafe { &*(src as *const S as *const D) }
 }
 
 impl ValueKind {
@@ -241,10 +233,14 @@ impl DatumDyn for DatValue {
 
     fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
         if self.is_null() {
-            return Err(m_error!(EC::TypeErr, "NULL has no binary payload"));
+            return Err(mudu_error!(
+                ErrorCode::InvalidType,
+                "NULL has no binary payload"
+            ));
         }
         let id = self.inner.get_dat_type_id();
-        id.fn_send()(self, dat_type).map_err(|e| m_error!(EC::TypeErr, "", e))
+        id.fn_send()(self, dat_type)
+            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "", e))
     }
 
     fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
@@ -252,7 +248,8 @@ impl DatumDyn for DatValue {
             return Ok(DatTextual::from("NULL".to_string()));
         }
         let id = self.inner.get_dat_type_id();
-        id.fn_output()(self, dat_type).map_err(|e| m_error!(EC::TypeErr, "", e))
+        id.fn_output()(self, dat_type)
+            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "", e))
     }
 
     fn to_value(&self, _: &DatType) -> RS<DatValue> {
@@ -266,7 +263,9 @@ impl DatumDyn for DatValue {
 
 #[cfg(test)]
 mod tests {
+    use crate::dat_type_id::DatTypeID;
     use crate::dat_value::DatValue;
+    use crate::datum::DatumDyn;
     use serde_json::json;
 
     #[test]
@@ -314,5 +313,48 @@ mod tests {
 
         let from_json: DatValue = serde_json::from_value(json_value).unwrap();
         assert_eq!(from_json.expect_record().len(), 3);
+    }
+
+    #[test]
+    fn wrong_accessor_returns_none() {
+        let i32_value = DatValue::from_i32(42);
+        assert!(i32_value.as_string().is_none());
+        assert!(i32_value.as_i64().is_none());
+        assert!(i32_value.as_f64().is_none());
+        assert!(i32_value.as_array().is_none());
+
+        let string_value = DatValue::from_string("hello".to_string());
+        assert!(string_value.as_i32().is_none());
+        assert!(string_value.as_binary().is_none());
+
+        let array_value = DatValue::from_array(vec![DatValue::from_i32(1)]);
+        assert!(array_value.as_record().is_none());
+        assert!(array_value.as_i32().is_none());
+    }
+
+    #[test]
+    fn null_value_is_null() {
+        let null = DatValue::null();
+        assert!(null.is_null());
+    }
+
+    #[test]
+    fn null_has_no_dat_type_id_matches_binary() {
+        let null = DatValue::null();
+        assert_eq!(null.dat_type_id().unwrap(), DatTypeID::Binary);
+    }
+
+    #[test]
+    fn array_and_record_constructors_round_trip() {
+        let array = DatValue::from_array(vec![DatValue::from_i32(1), DatValue::from_i32(2)]);
+        assert_eq!(array.as_array().unwrap().len(), 2);
+        assert_eq!(array.expect_array()[0].to_i32(), 1);
+
+        let record = DatValue::from_record(vec![
+            DatValue::from_string("x".to_string()),
+            DatValue::from_i64(9),
+        ]);
+        assert_eq!(record.as_record().unwrap().len(), 2);
+        assert_eq!(record.expect_record()[1].to_i64(), 9);
     }
 }

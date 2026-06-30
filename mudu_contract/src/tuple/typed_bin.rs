@@ -1,6 +1,9 @@
+//! `tuple::typed_bin` module.
+#![allow(missing_docs)]
+
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_binary::DatBinary;
 use mudu_type::dat_textual::DatTextual;
 use mudu_type::dat_type_id::DatTypeID;
@@ -41,18 +44,18 @@ impl DatumDyn for TypedBin {
     fn to_textual(&self, tyep_obj: &DatType) -> RS<DatTextual> {
         let fn_recv = self.dat_type_id.fn_recv();
         let (internal, _) = fn_recv(&self.bin, tyep_obj)
-            .map_err(|e| m_error!(EC::TypeBaseErr, "to_textual error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
 
         let fn_output = self.dat_type_id.fn_output();
         let output = fn_output(&internal, tyep_obj)
-            .map_err(|e| m_error!(EC::TypeBaseErr, "to_textual error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
         Ok(output)
     }
 
     fn to_value(&self, type_obj: &DatType) -> RS<DatValue> {
         let fn_recv = self.dat_type_id.fn_recv();
         let (internal, _) = fn_recv(&self.bin, type_obj)
-            .map_err(|e| m_error!(EC::TypeBaseErr, "to_textual error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
         Ok(internal)
     }
 

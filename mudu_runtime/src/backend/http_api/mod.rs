@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 mod http_api_capabilities;
 pub use http_api_capabilities::HttpApiCapabilities;
 
@@ -5,7 +7,7 @@ mod procedure_list;
 use procedure_list::ProcedureList;
 
 mod http_api_context;
-use http_api_context::HttpApiContext;
+pub(crate) use http_api_context::HttpApiContext;
 
 mod legacy_http_api;
 pub use legacy_http_api::LegacyHttpApi;
@@ -26,22 +28,22 @@ use async_trait::async_trait;
 use base64::Engine;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
 use mudu::utils::json::JsonValue;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_sys::net::sync::StdTcpListener;
 use mudu_utils::notifier::Waiter;
 use mudu_utils::scoped_task_trace;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::net::TcpListener;
 use std::sync::Arc;
 use tracing::error;
 
@@ -155,22 +157,22 @@ pub trait HttpApi: Send + Sync {
     ) -> RS<Value>;
 
     async fn route_partition(&self, _request: PartitionRouteRequest) -> RS<PartitionRouteResponse> {
-        Err(m_error!(
-            EC::NotImplemented,
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "partition route is not supported"
         ))
     }
 
     async fn server_topology(&self) -> RS<ServerTopology> {
-        Err(m_error!(
-            EC::NotImplemented,
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "server topology is not supported"
         ))
     }
 
     async fn uninstall_app(&self, app_name: &str) -> RS<()> {
-        Err(m_error!(
-            EC::NotImplemented,
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
             format!("uninstall is not supported for {}", app_name)
         ))
     }
@@ -198,14 +200,17 @@ pub async fn serve_http_api(
     cfg: &MuduDBCfg,
     capabilities: HttpApiCapabilities,
 ) -> std::io::Result<()> {
-    let listener = TcpListener::bind(format!("{}:{}", cfg.listen_ip, cfg.http_listen_port))?;
+    let addr: std::net::SocketAddr = format!("{}:{}", cfg.listen_ip, cfg.http_listen_port)
+        .parse()
+        .map_err(std::io::Error::other)?;
+    let listener = StdTcpListener::bind(addr).map_err(std::io::Error::other)?;
     serve_http_api_on_listener_with_stop(api, listener, capabilities, cfg.http_worker_threads, None)
         .await
 }
 
 pub async fn serve_http_api_on_listener(
     api: Arc<dyn HttpApi>,
-    listener: TcpListener,
+    listener: StdTcpListener,
     capabilities: HttpApiCapabilities,
     worker_threads: usize,
 ) -> std::io::Result<()> {
@@ -214,7 +219,7 @@ pub async fn serve_http_api_on_listener(
 
 pub async fn serve_http_api_on_listener_with_stop(
     api: Arc<dyn HttpApi>,
-    listener: TcpListener,
+    listener: StdTcpListener,
     capabilities: HttpApiCapabilities,
     worker_threads: usize,
     stop: Option<Waiter>,
@@ -244,22 +249,23 @@ pub async fn serve_http_api_on_listener_with_stop(
             .configure(|cfg| configure_routes(cfg, capabilities))
     })
     .workers(worker_threads)
-    .listen(listener)?
+    .listen(listener.into_inner())?
     .run();
 
     if let Some(stop) = stop {
         let handle = server.handle();
-        mudu_sys::task_async::spawn_tokio(async move {
-            scoped_task_trace!();
-            stop.wait().await;
-            handle.stop(true).await;
-        });
+        let _ =
+            mudu_sys::task::async_::spawn_task_detached("http-server-stop-handler", async move {
+                scoped_task_trace!();
+                stop.wait().await;
+                handle.stop(true).await;
+            });
     }
 
     server.await
 }
 
-fn configure_routes(cfg: &mut web::ServiceConfig, capabilities: HttpApiCapabilities) {
+pub(crate) fn configure_routes(cfg: &mut web::ServiceConfig, capabilities: HttpApiCapabilities) {
     cfg.service(app_list)
         .service(app_proc_list)
         .service(app_proc_detail)
@@ -284,7 +290,7 @@ fn http_ok(data: Value) -> HttpResponse {
     }))
 }
 
-fn error_payload(err: &MError) -> Value {
+fn error_payload(err: &MuduError) -> Value {
     serde_json::json!({
         "code": err.ec().to_u32(),
         "name": format!("{:?}", err.ec()),
@@ -294,7 +300,7 @@ fn error_payload(err: &MError) -> Value {
     })
 }
 
-fn http_err(user_message: impl Into<String>, err: &MError) -> HttpResponse {
+fn http_err(user_message: impl Into<String>, err: &MuduError) -> HttpResponse {
     let msg = user_message.into();
     let payload = error_payload(err);
     HttpResponse::Ok().json(serde_json::json!({
@@ -311,7 +317,11 @@ async fn partition_route(body: String, context: web::Data<HttpApiContext>) -> im
     let request = match serde_json::from_str::<PartitionRouteRequest>(&body) {
         Ok(request) => request,
         Err(e) => {
-            let err = m_error!(EC::DecodeErr, "fail to parse partition route request", e);
+            let err = mudu_error!(
+                ErrorCode::Decode,
+                "fail to parse partition route request",
+                e
+            );
             return http_err("fail to parse partition route request", &err);
         }
     };
@@ -429,18 +439,21 @@ async fn invoke(
     }
 }
 
-fn decode_install_request(body_str: &str) -> RS<Vec<u8>> {
+pub(crate) fn decode_install_request(body_str: &str) -> RS<Vec<u8>> {
     let map = serde_json::from_str::<HashMap<String, String>>(body_str)
-        .map_err(|e| m_error!(EC::DecodeErr, "deserialize body error: {}", e))?;
-    let mpk_base64 = map
-        .get("mpk_base64")
-        .ok_or_else(|| m_error!(EC::NoneErr, "mpk_base64 missing for install request"))?;
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "deserialize body error: {}", e))?;
+    let mpk_base64 = map.get("mpk_base64").ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidArgument,
+            "mpk_base64 missing for install request"
+        )
+    })?;
     base64::engine::general_purpose::STANDARD
         .decode(mpk_base64)
-        .map_err(|e| m_error!(EC::DecodeErr, "decode error", e))
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "decode error", e))
 }
 
-fn mpk_package_name(binary: &[u8]) -> Option<String> {
+pub(crate) fn mpk_package_name(binary: &[u8]) -> Option<String> {
     let cursor = Cursor::new(binary);
     let mut archive = zip::ZipArchive::new(cursor).ok()?;
     let mut package_cfg = String::new();
@@ -456,53 +469,60 @@ fn mpk_package_name(binary: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
-fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcedureParam> {
+pub(crate) fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcedureParam> {
     let mut vec = vec![];
     for datum_desc in desc.iter() {
         let value = argv
             .get(datum_desc.name())
             .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
                     format!("no parameter {}", datum_desc.name())
                 )
             })?
             .clone();
         let id = datum_desc.dat_type_id();
-        let dat_value = id.fn_input_json()(&value, datum_desc.dat_type())
-            .map_err(|e| m_error!(EC::TypeBaseErr, "convert printable to internal error", e))?;
+        let dat_value = id.fn_input_json()(&value, datum_desc.dat_type()).map_err(|e| {
+            mudu_error!(
+                ErrorCode::TypeConversionFailed,
+                "convert printable to internal error",
+                e
+            )
+        })?;
         vec.push(dat_value)
     }
     Ok(ProcedureParam::new(0, 0, vec))
 }
 
-fn parse_json_object_body(body: &str) -> RS<Map<String, Value>> {
-    let object: Value =
-        serde_json::from_str(body).map_err(|e| m_error!(EC::DecodeErr, "deserialize error", e))?;
+pub(crate) fn parse_json_object_body(body: &str) -> RS<Map<String, Value>> {
+    let object: Value = serde_json::from_str(body)
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "deserialize error", e))?;
     match object {
         Value::Object(obj_map) => Ok(obj_map),
-        _ => Err(m_error!(
-            EC::DecodeErr,
+        _ => Err(mudu_error!(
+            ErrorCode::Decode,
             "request json body must be an object"
         )),
     }
 }
 
-async fn runtime_get_app_and_desc(
+pub(crate) async fn runtime_get_app_and_desc(
     service: Arc<dyn Runtime>,
     app_name: &str,
     mod_name: &str,
     proc_name: &str,
 ) -> RS<(Arc<dyn AppInst>, Arc<ProcDesc>)> {
-    let app = service
-        .app(app_name.to_string())
-        .await
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app {}", app_name)))?;
-    let desc = app.describe(&mod_name.to_string(), &proc_name.to_string())?;
+    let app = service.app(app_name.to_string()).await.ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("no such app {}", app_name)
+        )
+    })?;
+    let desc = app.describe(mod_name, proc_name)?;
     Ok((app, desc))
 }
 
-async fn legacy_invoke_sync_proc(
+pub(crate) async fn legacy_invoke_sync_proc(
     mod_name: &str,
     proc_name: &str,
     argv: Map<String, Value>,
@@ -517,18 +537,12 @@ async fn legacy_invoke_sync_proc(
 
     let param = to_param(&argv, desc.param_desc().fields())?;
     let result = app
-        .invoke(
-            task_id,
-            &mod_name.to_string(),
-            &proc_name.to_string(),
-            param,
-            None,
-        )
+        .invoke(task_id, mod_name, proc_name, param, None)
         .await?;
     Ok(procedure_invoke::result_to_json(result))
 }
 
-async fn legacy_invoke_async_proc(
+pub(crate) async fn legacy_invoke_async_proc(
     mod_name: &str,
     proc_name: &str,
     argv: Map<String, Value>,
@@ -541,18 +555,12 @@ async fn legacy_invoke_async_proc(
     });
     let param = to_param(&argv, desc.param_desc().fields())?;
     let result = app
-        .invoke_async(
-            task_id,
-            &mod_name.to_string(),
-            &proc_name.to_string(),
-            param,
-            None,
-        )
+        .invoke_async(task_id, mod_name, proc_name, param, None)
         .await?;
     procedure_invoke::result_to_json(result)
 }
 
-async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
+pub(crate) async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
     let listed_apps = app_mgr
         .list(&ListOption {
             names: vec![app_name.to_string()],
@@ -562,15 +570,22 @@ async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppListItem> {
         .apps
         .into_iter()
         .find(|app| app.info.name == app_name)
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("no such app {}", app_name)))
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("no such app {}", app_name)
+            )
+        })
 }
 
+// These tests spin up an actix-web app. actix-router intentionally leaks route
+// capture names via `Box::leak`, which Miri reports as reachable memory leaks.
+// Each test below returns early when running under Miri.
 #[cfg(test)]
 mod test {
     use super::*;
     use actix_web::{App, test};
     use mudu::common::app_info::AppInfo;
-    use mudu::common::id::gen_oid;
     use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
     use mudu_contract::procedure::procedure_result::ProcedureResult;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
@@ -580,8 +595,9 @@ mod test {
     use mudu_kernel::contract::partition_rule_binding::PartitionPlacement;
     use mudu_kernel::meta::meta_mgr_factory::MetaMgrFactory;
     use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
-    use mudu_type::dat_type_id::DatTypeID;
     use mudu_sys::sync::SMutex;
+    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_utils::oid::gen_oid;
 
     struct MockHttpApi;
 
@@ -632,6 +648,10 @@ mod test {
 
     #[actix_web::test]
     async fn shared_routes_respect_capabilities() {
+        if cfg!(miri) {
+            // actix-router leaks route capture names via Box::leak; skip under Miri.
+            return;
+        }
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(HttpApiContext {
@@ -684,7 +704,7 @@ mod test {
 
         async fn close_session(&mut self, _session_id: u128) -> RS<bool> {
             if self.closed {
-                return Err(m_error!(EC::IOErr, "close session failed"));
+                return Err(mudu_error!(ErrorCode::InvalidState, "close session failed"));
             }
             self.closed = true;
             Ok(true)
@@ -744,14 +764,16 @@ mod test {
         }
 
         async fn create_invoker(&self, _cfg: &MuduDBCfg) -> RS<Arc<dyn AsyncFuncInvoker>> {
-            Err(m_error!(EC::NotImplemented, "unused in test"))
+            Err(mudu_error!(ErrorCode::NotImplemented, "unused in test"))
         }
     }
 
     #[actix_web::test]
     async fn kernel_http_api_invokes_over_bridge() {
-        let log_dir =
-            std::env::temp_dir().join(format!("http_api_test_{}", mudu::common::id::gen_oid()));
+        if cfg!(miri) {
+            return;
+        }
+        let log_dir = mudu_sys::env_var::temp_dir().join(format!("http_api_test_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
@@ -763,7 +785,7 @@ mod test {
             9527,
             registry,
             MetaMgrFactory::create(
-                std::env::temp_dir()
+                mudu_sys::env_var::temp_dir()
                     .join(format!("http_api_meta_test_{}", gen_oid()))
                     .to_string_lossy()
                     .to_string(),
@@ -791,17 +813,20 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_routes_point_and_range_by_rule_name() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_route_test_{}",
-            mudu::common::id::gen_oid()
-        ));
+        if cfg!(miri) {
+            return;
+        }
+        let log_dir =
+            mudu_sys::env_var::temp_dir().join(format!("http_api_route_test_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 4)
                 .unwrap();
-        let meta_dir = std::env::temp_dir().join(format!("http_api_route_meta_{}", gen_oid()));
+        let meta_dir =
+            mudu_sys::env_var::temp_dir().join(format!("http_api_route_meta_{}", gen_oid()));
         let meta_mgr = MetaMgrFactory::create(meta_dir.to_string_lossy().to_string())
             .await
             .unwrap();
+        meta_mgr.initialize().await.unwrap();
 
         let rule = PartitionRuleDesc::new_range(
             "global_rule".to_string(),
@@ -882,15 +907,16 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_lists_metadata_and_topology() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_meta_list_{}",
-            mudu::common::id::gen_oid()
-        ));
+        if cfg!(miri) {
+            return;
+        }
+        let log_dir =
+            mudu_sys::env_var::temp_dir().join(format!("http_api_meta_list_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 3)
                 .unwrap();
         let meta_mgr = MetaMgrFactory::create(
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!("http_api_meta_mgr_{}", gen_oid()))
                 .to_string_lossy()
                 .to_string(),
@@ -930,15 +956,16 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_surfaces_close_session_failure() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_close_err_{}",
-            mudu::common::id::gen_oid()
-        ));
+        if cfg!(miri) {
+            return;
+        }
+        let log_dir =
+            mudu_sys::env_var::temp_dir().join(format!("http_api_close_err_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 2)
                 .unwrap();
         let meta_mgr = MetaMgrFactory::create(
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!("http_api_close_meta_{}", gen_oid()))
                 .to_string_lossy()
                 .to_string(),
@@ -967,21 +994,23 @@ mod test {
 
     #[actix_web::test]
     async fn kernel_http_api_rejects_mixed_route_request_shapes() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "http_api_route_shape_{}",
-            mudu::common::id::gen_oid()
-        ));
+        if cfg!(miri) {
+            return;
+        }
+        let log_dir =
+            mudu_sys::env_var::temp_dir().join(format!("http_api_route_shape_{}", gen_oid()));
         let registry =
             mudu_kernel::server::worker_registry::load_or_create_worker_registry(&log_dir, 2)
                 .unwrap();
         let meta_mgr = MetaMgrFactory::create(
-            std::env::temp_dir()
+            mudu_sys::env_var::temp_dir()
                 .join(format!("http_api_route_shape_meta_{}", gen_oid()))
                 .to_string_lossy()
                 .to_string(),
         )
         .await
         .unwrap();
+        meta_mgr.initialize().await.unwrap();
         let rule = PartitionRuleDesc::new_range(
             "shape_rule".to_string(),
             vec![DatTypeID::I32],

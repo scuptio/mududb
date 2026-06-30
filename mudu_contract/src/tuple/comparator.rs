@@ -1,3 +1,6 @@
+//! `tuple::comparator` module.
+#![allow(missing_docs)]
+
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hasher;
@@ -5,8 +8,8 @@ use std::hash::Hasher;
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
@@ -104,12 +107,18 @@ fn _tuple_hash(desc: &TupleBinaryDesc, tuple: &[u8], hasher: &mut dyn Hasher) ->
 
 fn _hash_binary(id: DatTypeID, p: &DatType, val: &[u8], hasher: &mut dyn Hasher) -> RS<()> {
     let recv = id.fn_recv();
-    let (v_internal, _size) =
-        recv(val, p).map_err(|e| m_error!(EC::TypeBaseErr, "convert data format error", e))?;
+    let (v_internal, _size) = recv(val, p).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "convert data format error",
+            e
+        )
+    })?;
     if let Some(h) = id.fn_hash() {
-        h(&v_internal, hasher).map_err(|e| m_error!(EC::CompareErr, "hash binary error", e))
+        h(&v_internal, hasher)
+            .map_err(|e| mudu_error!(ErrorCode::HashFailed, "hash binary error", e))
     } else {
-        Err(m_error!(EC::TupleErr))
+        Err(mudu_error!(ErrorCode::InvalidTuple))
     }
 }
 
@@ -128,21 +137,23 @@ fn _compare_binary<
     let r2 = recv(value2, param);
     match (r1, r2) {
         (Ok((v1, _)), Ok((v2, _))) => compare(&id, &v1, &v2),
-        _ => Err(m_error!(EC::TupleErr)),
+        _ => Err(mudu_error!(ErrorCode::InvalidTuple)),
     }
 }
 
 fn _compare_binary_equal(data_type: &DatTypeID, value1: &DatValue, value2: &DatValue) -> RS<bool> {
     let opt_equal = data_type.fn_equal();
     let f = match opt_equal {
-        None => return Err(m_error!(EC::FunctionNotImplemented)),
+        None => return Err(mudu_error!(ErrorCode::UnsupportedOperation)),
         Some(f) => f,
     };
-    let r = f(value1, value2);
-    match r {
-        Ok(is_equal) => Ok(is_equal),
-        Err(_e) => Err(m_error!(EC::CompareErr, "compare binary equal error", _e)),
-    }
+    f(value1, value2).map_err(|_e| {
+        mudu_error!(
+            ErrorCode::ComparisonFailed,
+            "compare binary equal error",
+            _e
+        )
+    })
 }
 
 fn _compare_binary_ordering(
@@ -152,14 +163,16 @@ fn _compare_binary_ordering(
 ) -> RS<Ordering> {
     let opt_order = data_type.fn_order();
     let f = match opt_order {
-        None => return Err(m_error!(EC::FunctionNotImplemented)),
+        None => return Err(mudu_error!(ErrorCode::UnsupportedOperation)),
         Some(f) => f,
     };
-    let r = f(value1, value2);
-    match r {
-        Ok(ordering) => Ok(ordering),
-        Err(_e) => Err(m_error!(EC::CompareErr, "compare binary order error", _e)),
-    }
+    f(value1, value2).map_err(|_e| {
+        mudu_error!(
+            ErrorCode::ComparisonFailed,
+            "compare binary order error",
+            _e
+        )
+    })
 }
 
 fn _need_return_ordering(ord: Ordering) -> bool {

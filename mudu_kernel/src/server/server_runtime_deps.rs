@@ -1,22 +1,22 @@
 use std::sync::Arc;
 
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
-use mudu_sys::async_rt::contract::AsyncRuntime;
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::procedure_runtimes::ProcedureRuntimes;
 use crate::server::server_cfg::ServerCfg;
 use crate::server::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
 use crate::wal::worker_log::WorkerLogBatching;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 /// Dependencies assembled for one server process after pure configuration is known.
 pub struct ServerRuntimeDeps {
     log_batching: WorkerLogBatching,
     procedure_runtimes: ProcedureRuntimes,
     worker_registry: Arc<WorkerRegistry>,
-    async_runtime: Option<Arc<dyn AsyncRuntime>>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl ServerRuntimeDeps {
@@ -52,8 +52,8 @@ impl ServerRuntimeDeps {
         worker_registry: Arc<WorkerRegistry>,
     ) -> RS<Self> {
         if worker_registry.workers().len() != cfg.worker_count() {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 format!(
                     "worker registry count {} does not match expected {}",
                     worker_registry.workers().len(),
@@ -65,7 +65,7 @@ impl ServerRuntimeDeps {
         Ok(self)
     }
 
-    pub fn with_async_runtime(mut self, async_runtime: Option<Arc<dyn AsyncRuntime>>) -> Self {
+    pub fn with_async_runtime(mut self, async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> Self {
         self.async_runtime = async_runtime;
         self
     }
@@ -82,7 +82,7 @@ impl ServerRuntimeDeps {
         self.worker_registry.clone()
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.async_runtime.clone()
     }
 }

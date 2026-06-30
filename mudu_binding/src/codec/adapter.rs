@@ -1,20 +1,23 @@
 use mudu::common::id::OID;
-use mudu::error::ec::EC;
-use mudu::error::err::ErrorSource;
-use mudu::error::err::MError;
+use mudu::error::ErrorCode;
+use mudu::error::ErrorSource;
+use mudu::error::MuduError;
 
 use crate::universal::uni_error::UniError;
 use crate::universal::uni_oid::UniOid;
 
+/// Converts a universal OID into a `mudu` core OID.
 pub fn oid_from_mu(mu_oid: UniOid) -> OID {
     mu_oid.to_oid()
 }
 
+/// Converts a `mudu` core OID into a universal OID.
 pub fn oid_to_mu(oid: OID) -> UniOid {
     UniOid::from(oid)
 }
 
-pub fn error_to_mu(error: MError) -> UniError {
+/// Converts a `mudu` error into a universal error representation.
+pub fn error_to_mu(error: MuduError) -> UniError {
     UniError {
         err_code: error.ec().to_u32(),
         err_msg: error.message().to_string(),
@@ -23,9 +26,10 @@ pub fn error_to_mu(error: MError) -> UniError {
     }
 }
 
-pub fn error_from_mu(error: UniError) -> MError {
-    let error_code = EC::from_u32(error.err_code).unwrap_or(EC::InternalErr);
-    let error_msg = if EC::from_u32(error.err_code).is_none() {
+/// Converts a universal error back into a `mudu` error.
+pub fn error_from_mu(error: UniError) -> MuduError {
+    let error_code = ErrorCode::from_u32(error.err_code).unwrap_or(ErrorCode::Internal);
+    let error_msg = if ErrorCode::from_u32(error.err_code).is_none() {
         format!("unknown error code {}: {}", error.err_code, error.err_msg)
     } else {
         error.err_msg
@@ -36,9 +40,15 @@ pub fn error_from_mu(error: UniError) -> MError {
         ErrorSource::from_json_str(&error.err_src).into_error_source()
     };
     if error.err_loc.is_empty() {
-        MError::new_with_ec_msg_opt_src(error_code, error_msg, src)
+        MuduError::new_with_ec_msg_opt_src(error_code, error_msg, src)
     } else {
-        MError::new(error_code, error_msg, src, error.err_loc)
+        MuduError::new(
+            error_code,
+            error_msg,
+            src,
+            error.err_loc,
+            MuduError::capture_backtrace(),
+        )
     }
 }
 

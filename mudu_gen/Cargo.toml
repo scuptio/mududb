@@ -2,33 +2,39 @@
 name = "mudu_gen"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 
 build = "build.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_utils = { workspace = true }
 sql_parser = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-wit = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 askama = {workspace = true}
 serde = { workspace = true }
-rust-format = "0.3.4"
+prettyplease = "0.2"
+syn = { version = "2", features = ["full"] }
 paste = { workspace = true }
 mudu_binding = {workspace = true}
 [build-dependencies]
-md-5 = { workspace = true }
-serde_json = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-wit = { workspace = true }
-base16ct = { workspace = true }
+mudu_build_common = { workspace = true }
 serde = { workspace = true }
+mudu_sys = { workspace = true }
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
 name = "mgen"
 path = "tool/main.rs"
-
 

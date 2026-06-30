@@ -4,6 +4,8 @@
 //
 // field id
 
+//! Auto-generated tree-sitter field id constants.
+
 pub const FI_ALIAS: u16 = 1;
 pub const FI_ALTERNATIVE: u16 = 2;
 pub const FI_ARGUMENT: u16 = 3;

@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use crate::service::wasi_context_component::WasiContextComponent;
 use std::sync::Arc;
 

@@ -1,5 +1,13 @@
 #[cfg(test)]
 mod _test {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::fuzz::_test_target::_test::_test_target;
 
     #[test]

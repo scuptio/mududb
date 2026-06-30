@@ -1,3 +1,6 @@
+//! `tuple::datum_desc` module.
+#![allow(missing_docs)]
+
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use serde::{Deserialize, Serialize};

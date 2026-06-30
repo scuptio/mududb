@@ -59,7 +59,7 @@ impl TimeValue {
 
 #[cfg(test)]
 mod tests {
-    use super::{MICROS_PER_DAY, TimeValue};
+    use super::{MICROS_PER_DAY, MICROS_PER_HOUR, MICROS_PER_MINUTE, MICROS_PER_SECOND, TimeValue};
 
     #[test]
     fn time_parse_and_truncate_precision() {
@@ -77,5 +77,14 @@ mod tests {
     fn time_micros_must_stay_within_day() {
         assert!(TimeValue::from_micros_since_midnight(-1).is_err());
         assert!(TimeValue::from_micros_since_midnight(MICROS_PER_DAY).is_err());
+    }
+
+    #[test]
+    fn micros_since_midnight_accessor_roundtrips() {
+        let value = TimeValue::parse("12:34:56.123456").unwrap();
+        assert_eq!(
+            value.micros_since_midnight(),
+            12 * MICROS_PER_HOUR + 34 * MICROS_PER_MINUTE + 56 * MICROS_PER_SECOND + 123456
+        );
     }
 }

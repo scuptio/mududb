@@ -293,13 +293,33 @@ pub const FN_NUMERIC_CONVERT: FnBase = FnBase {
 
 #[cfg(test)]
 mod tests {
-    use super::{fn_numeric_len, fn_numeric_recv, fn_numeric_send, fn_numeric_send_to};
+    use super::{
+        fn_numeric_dat_output_len, fn_numeric_default, fn_numeric_equal, fn_numeric_hash,
+        fn_numeric_in_json, fn_numeric_in_msgpack, fn_numeric_in_textual, fn_numeric_len,
+        fn_numeric_order, fn_numeric_out_json, fn_numeric_out_msgpack, fn_numeric_out_textual,
+        fn_numeric_recv, fn_numeric_send, fn_numeric_send_to, precision_digit_count,
+    };
+    use crate::dat_textual::DatTextual;
     use crate::dat_type::DatType;
     use crate::dat_value::DatValue;
     use crate::dtp_numeric::DTPNumeric;
     use crate::type_error::TyEC;
     use mudu::data_type::numeric::Numeric;
+    use mudu::utils::json::JsonValue;
+    use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
     use std::cmp::Ordering;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+
+    #[test]
+    fn precision_digit_count_edge_cases() {
+        assert_eq!(precision_digit_count(""), 1);
+        assert_eq!(precision_digit_count("0"), 1);
+        assert_eq!(precision_digit_count("00"), 1);
+        assert_eq!(precision_digit_count("123"), 3);
+        assert_eq!(precision_digit_count("00123"), 3);
+        assert_eq!(precision_digit_count("-12.3400"), 6);
+    }
 
     #[test]
     fn numeric_binary_roundtrip_uses_scaled_i128() {
@@ -389,5 +409,96 @@ mod tests {
             negative_binary.as_ref().cmp(positive_binary.as_ref()),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn numeric_textual_roundtrip_preserves_value() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let textual = DatTextual::from("\"123.45\"".to_string());
+        let value = fn_numeric_in_textual(textual.as_str(), &ty).unwrap();
+        let out = fn_numeric_out_textual(&value, &ty).unwrap();
+        assert_eq!(out.as_str(), "\"123.45\"");
+    }
+
+    #[test]
+    fn numeric_textual_rejects_invalid_json() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        assert!(fn_numeric_in_textual("not json", &ty).is_err());
+    }
+
+    #[test]
+    fn numeric_json_roundtrip_preserves_value() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let json = JsonValue::String("123.45".to_string());
+        let value = fn_numeric_in_json(&json, &ty).unwrap();
+        let out = fn_numeric_out_json(&value, &ty).unwrap();
+        assert_eq!(out.as_json_value().as_str(), Some("123.45"));
+    }
+
+    #[test]
+    fn numeric_json_accepts_number_and_rejects_object() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let number = JsonValue::Number(12345i64.into());
+        assert!(fn_numeric_in_json(&number, &ty).is_ok());
+
+        let object = JsonValue::Object(Default::default());
+        assert!(fn_numeric_in_json(&object, &ty).is_err());
+    }
+
+    #[test]
+    fn numeric_msgpack_roundtrip_preserves_value() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let msg = MsgPackValue::String(MsgPackUtf8String::from("123.45".to_string()));
+        let value = fn_numeric_in_msgpack(&msg, &ty).unwrap();
+        let out = fn_numeric_out_msgpack(&value, &ty).unwrap();
+        assert_eq!(out.as_str(), Some("123.45"));
+    }
+
+    #[test]
+    fn numeric_msgpack_rejects_unsupported_types() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let boolean = MsgPackValue::Boolean(true);
+        assert!(fn_numeric_in_msgpack(&boolean, &ty).is_err());
+    }
+
+    #[test]
+    fn numeric_dat_output_len_is_fixed() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let value = DatValue::from_numeric(Numeric::parse("123.45").unwrap());
+        assert_eq!(
+            fn_numeric_dat_output_len(&value, &ty).unwrap(),
+            size_of::<i128>() as u32
+        );
+    }
+
+    #[test]
+    fn numeric_default_is_zero() {
+        let ty = DatType::from_numeric(DTPNumeric::new(10, 2));
+        let value = fn_numeric_default(&ty).unwrap();
+        assert_eq!(value.expect_numeric().to_plain_string(), "0.00");
+    }
+
+    #[test]
+    fn numeric_order_and_equal_reflect_value() {
+        let a = DatValue::from_numeric(Numeric::parse("1.00").unwrap());
+        let b = DatValue::from_numeric(Numeric::parse("2.00").unwrap());
+        assert!(fn_numeric_equal(&a, &a).unwrap());
+        assert!(!fn_numeric_equal(&a, &b).unwrap());
+        assert_eq!(fn_numeric_order(&a, &b).unwrap(), Ordering::Less);
+        assert_eq!(fn_numeric_order(&b, &a).unwrap(), Ordering::Greater);
+        assert_eq!(fn_numeric_order(&a, &a).unwrap(), Ordering::Equal);
+    }
+
+    #[test]
+    fn numeric_hash_uses_plain_string() {
+        let value = DatValue::from_numeric(Numeric::parse("123.45").unwrap());
+        let mut hasher = DefaultHasher::new();
+        fn_numeric_hash(&value, &mut hasher).unwrap();
+        let direct = {
+            let mut h = DefaultHasher::new();
+            h.write("123.45".as_bytes());
+            h.finish()
+        };
+        assert_eq!(hasher.finish(), direct);
     }
 }

@@ -1,17 +1,20 @@
+//! Database connection helpers for LibSQL and MuduDB backends.
+
 use crate::db_libsql::ls_conn::{create_ls_conn, db_conn_get_libsql_connection};
 use crate::db_libsql_async::libsql_async_conn::create_libsql_async_conn;
 use libsql::Connection;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::db_conn::DBConnSync;
 use mudu_contract::database::sql::DBConn;
-use mudu_sys::async_rt::contract::AsyncRuntime;
 use mudu_kernel::mudu_conn::mudu_conn_async::MuduConnAsync;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use std::str::FromStr;
 use std::sync::Arc;
 use strum_macros::EnumString;
 
+/// Database connection factory.
 pub struct DBConnector {}
 
 #[derive(EnumString)]
@@ -22,13 +25,15 @@ enum DBType {
 }
 
 impl DBConnector {
+    /// Connects to a database using the supplied connection string.
     pub async fn connect(connect_string: &str) -> RS<DBConn> {
         Self::connect_with_async_runtime(connect_string, None).await
     }
 
+    /// Connects to a database with an optional async I/O provider.
     pub async fn connect_with_async_runtime(
         connect_string: &str,
-        async_runtime: Option<Arc<dyn AsyncRuntime>>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     ) -> RS<DBConn> {
         let db_str_param = parse_db_connect_string(connect_string);
         let mut passing_param = Vec::new();
@@ -43,7 +48,9 @@ impl DBConnector {
                     opt_ddl_path = Some(value);
                 }
                 "db_type" => {
-                    let db = DBType::from_str(&value).unwrap();
+                    let db = DBType::from_str(&value).map_err(|_| {
+                        mudu_error!(ErrorCode::Parse, format!("unsupported db_type: {}", value))
+                    })?;
                     opt_db_type = Some(db)
                 }
                 "db" => {
@@ -58,11 +65,11 @@ impl DBConnector {
             }
         }
 
-        let ddl_path = opt_ddl_path.unwrap_or_else(|| String::default());
+        let ddl_path = opt_ddl_path.unwrap_or_else(String::default);
         let app_name = opt_app.unwrap_or(String::default());
         let db_path = match opt_db_path {
             Some(db_path) => db_path,
-            None => return Err(m_error!(EC::DBInternalError, "no db path specified")),
+            None => return Err(mudu_error!(ErrorCode::Database, "no db path specified")),
         };
         match opt_db_type {
             Some(db_type) => match db_type {
@@ -70,16 +77,17 @@ impl DBConnector {
                 DBType::LibSQLAsync => create_libsql_async_conn(&db_path, &app_name).await,
                 DBType::MuduDB => create_mudu_conn(async_runtime).await,
             },
-            None => Err(m_error!(EC::ParseErr, "not a valid DB type")),
+            None => Err(mudu_error!(ErrorCode::Parse, "not a valid DB type")),
         }
     }
 
+    /// Extracts the underlying LibSQL connection from a synchronous connection, if present.
     pub fn get_libsql_conn(db_conn: &dyn DBConnSync) -> Option<Connection> {
         db_conn_get_libsql_connection(db_conn)
     }
 }
 
-async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<DBConn> {
+async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<DBConn> {
     Ok(DBConn::Async(Arc::new(MuduConnAsync::new_with_runtime(
         async_runtime,
     )?)))
@@ -88,8 +96,8 @@ async fn create_mudu_conn(async_runtime: Option<Arc<dyn AsyncRuntime>>) -> RS<DB
 fn parse_key_value(s: &str) -> RS<(String, String)> {
     let parts: Vec<&str> = s.splitn(2, '=').collect();
     if parts.len() != 2 {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!("Invalid pull-push pair: '{}'", s)
         ));
     }

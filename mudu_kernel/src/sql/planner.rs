@@ -4,8 +4,8 @@ use crate::command::create_table::CreateTable;
 use crate::command::delete_key_value::DeleteKeyValue;
 use crate::command::drop_table::DropTable;
 use crate::command::insert_key_value::InsertKeyValue;
-use crate::command::load_from_file::LoadFromFile;
-use crate::command::save_to_file::SaveToFile;
+use crate::command::load_from_file::{LoadFromFile, LoadFromFileParams};
+use crate::command::save_to_file::{SaveToFile, SaveToFileParams};
 use crate::command::update_key_value::UpdateKeyValue;
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::query_exec::QueryExec;
@@ -219,32 +219,42 @@ impl Planner {
     }
 
     fn plan_copy_from(&self, stmt: BoundCopyFrom) -> LoadFromFile {
-        LoadFromFile::new(
-            stmt.file_path,
-            self.ctx.tx_mgr.clone(),
-            stmt.table_id,
-            stmt.key_index,
-            stmt.value_index,
-            self.ctx.x_contract.clone(),
-            self.ctx.meta_mgr.clone(),
-        )
+        LoadFromFile::new(LoadFromFileParams {
+            csv_file: stmt.file_path,
+            tx_mgr: self.ctx.tx_mgr.clone(),
+            table_id: stmt.table_id,
+            key_index: stmt.key_index,
+            value_index: stmt.value_index,
+            x_contract: self.ctx.x_contract.clone(),
+            meta_mgr: self.ctx.meta_mgr.clone(),
+            async_runtime: self.ctx.async_runtime.clone(),
+        })
     }
 
     fn plan_copy_to(&self, stmt: BoundCopyTo) -> SaveToFile {
-        SaveToFile::new(
-            stmt.file_path,
-            self.ctx.tx_mgr.clone(),
-            stmt.table_id,
-            stmt.key_indexing,
-            stmt.value_indexing,
-            self.ctx.x_contract.clone(),
-            self.ctx.meta_mgr.clone(),
-        )
+        SaveToFile::new(SaveToFileParams {
+            file_path: stmt.file_path,
+            tx_mgr: self.ctx.tx_mgr.clone(),
+            table_id: stmt.table_id,
+            key_indexing: stmt.key_indexing,
+            value_indexing: stmt.value_indexing,
+            x_contract: self.ctx.x_contract.clone(),
+            meta_mgr: self.ctx.meta_mgr.clone(),
+            async_runtime: self.ctx.async_runtime.clone(),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::Planner;
     use crate::contract::meta_mgr::MetaMgr;
     use crate::contract::schema_column::SchemaColumn;
@@ -263,13 +273,13 @@ mod tests {
     use mudu::common::id::OID;
     use mudu::common::result::RS;
     use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+    use mudu_sys::sync::SMutex;
     use mudu_type::dat_type::DatType;
     use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::dt_info::DTInfo;
     use std::collections::{BTreeMap, HashMap};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
     struct TestMetaMgr {
         tables: SMutex<HashMap<OID, Arc<TableDesc>>>,
@@ -292,16 +302,22 @@ use mudu_sys::sync::SMutex;
 
     #[async_trait]
     impl MetaMgr for TestMetaMgr {
+        async fn initialize(&self) -> RS<()> {
+            Ok(())
+        }
+
         async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
             self.tables
                 .lock()
                 .unwrap()
                 .get(&oid)
                 .cloned()
-                .ok_or_else(|| mudu::m_error!(mudu::error::ec::EC::NoSuchElement, oid.to_string()))
+                .ok_or_else(|| {
+                    mudu::mudu_error!(mudu::error::ErrorCode::EntityNotFound, oid.to_string())
+                })
         }
 
-        async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+        async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
             Ok(self
                 .tables
                 .lock()
@@ -512,58 +528,66 @@ use mudu_sys::sync::SMutex;
         )
     }
 
-    #[tokio::test]
-    async fn planner_uses_read_key_for_complete_primary_key_equality() {
-        let meta_mgr = Arc::new(TestMetaMgr::new(composite_schema()));
-        let x_contract = Arc::new(TestXContract::new());
-        let planner = Planner::new(PlanCtx {
-            tx_mgr: Arc::new(TestTxMgr),
-            meta_mgr: meta_mgr.clone(),
-            x_contract: x_contract.clone(),
-        });
+    #[test]
+    fn planner_uses_read_key_for_complete_primary_key_equality() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let meta_mgr = Arc::new(TestMetaMgr::new(composite_schema()));
+            let x_contract = Arc::new(TestXContract::new());
+            let planner = Planner::new(PlanCtx {
+                tx_mgr: Arc::new(TestTxMgr),
+                meta_mgr: meta_mgr.clone(),
+                x_contract: x_contract.clone(),
+                async_runtime: None,
+            });
 
-        let exec = planner
-            .plan_query(BoundQuery::Select(BoundSelect {
-                table_id: meta_mgr.table_id(),
-                select_attrs: vec![0],
-                tuple_desc: TupleFieldDesc::new(Vec::new()),
-                predicate: BoundPredicate::KeyEq {
-                    key: vec![(0, vec![1]), (1, vec![2])],
-                },
-            }))
-            .await
-            .unwrap();
+            let exec = planner
+                .plan_query(BoundQuery::Select(BoundSelect {
+                    table_id: meta_mgr.table_id(),
+                    select_attrs: vec![0],
+                    tuple_desc: TupleFieldDesc::new(Vec::new()),
+                    predicate: BoundPredicate::KeyEq {
+                        key: vec![(0, vec![1]), (1, vec![2])],
+                    },
+                }))
+                .await
+                .unwrap();
 
-        exec.open().await.unwrap();
-        let _ = exec.next().await.unwrap();
-        assert_eq!(x_contract.read_key_calls.load(Ordering::Relaxed), 1);
-        assert_eq!(x_contract.read_range_calls.load(Ordering::Relaxed), 0);
+            exec.open().await.unwrap();
+            let _ = exec.next().await.unwrap();
+            assert_eq!(x_contract.read_key_calls.load(Ordering::Relaxed), 1);
+            assert_eq!(x_contract.read_range_calls.load(Ordering::Relaxed), 0);
+        })
+        .unwrap()
     }
 
-    #[tokio::test]
-    async fn planner_uses_read_range_for_primary_key_prefix_equality() {
-        let meta_mgr = Arc::new(TestMetaMgr::new(composite_schema()));
-        let x_contract = Arc::new(TestXContract::new());
-        let planner = Planner::new(PlanCtx {
-            tx_mgr: Arc::new(TestTxMgr),
-            meta_mgr: meta_mgr.clone(),
-            x_contract: x_contract.clone(),
-        });
+    #[test]
+    fn planner_uses_read_range_for_primary_key_prefix_equality() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let meta_mgr = Arc::new(TestMetaMgr::new(composite_schema()));
+            let x_contract = Arc::new(TestXContract::new());
+            let planner = Planner::new(PlanCtx {
+                tx_mgr: Arc::new(TestTxMgr),
+                meta_mgr: meta_mgr.clone(),
+                x_contract: x_contract.clone(),
+                async_runtime: None,
+            });
 
-        let exec = planner
-            .plan_query(BoundQuery::Select(BoundSelect {
-                table_id: meta_mgr.table_id(),
-                select_attrs: vec![0],
-                tuple_desc: TupleFieldDesc::new(Vec::new()),
-                predicate: BoundPredicate::KeyPrefixEq {
-                    prefix: vec![(0, vec![1])],
-                },
-            }))
-            .await
-            .unwrap();
+            let exec = planner
+                .plan_query(BoundQuery::Select(BoundSelect {
+                    table_id: meta_mgr.table_id(),
+                    select_attrs: vec![0],
+                    tuple_desc: TupleFieldDesc::new(Vec::new()),
+                    predicate: BoundPredicate::KeyPrefixEq {
+                        prefix: vec![(0, vec![1])],
+                    },
+                }))
+                .await
+                .unwrap();
 
-        exec.open().await.unwrap();
-        assert_eq!(x_contract.read_key_calls.load(Ordering::Relaxed), 0);
-        assert_eq!(x_contract.read_range_calls.load(Ordering::Relaxed), 1);
+            exec.open().await.unwrap();
+            assert_eq!(x_contract.read_key_calls.load(Ordering::Relaxed), 0);
+            assert_eq!(x_contract.read_range_calls.load(Ordering::Relaxed), 1);
+        })
+        .unwrap()
     }
 }

@@ -2,15 +2,22 @@
 name = "mudu_package"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
 
 [dependencies]
 zip = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-tempfile = "3.23"
+tempfile = { workspace = true }
 anyhow = { workspace = true }
 mudu = { workspace = true }
 serde = { workspace = true }
 mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_utils = { workspace = true }
 
 [[bin]]
 name = "mpk"
