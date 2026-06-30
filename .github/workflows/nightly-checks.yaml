@@ -235,6 +235,7 @@ jobs:
             --lcov --output-path target/llvm-cov/coverage.lcov 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-lcov.log
 
       - name: Upload coverage artifacts
+        if: env.ACT != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ github.run_id }}-${{ github.sha }}
@@ -245,6 +246,7 @@ jobs:
           retention-days: 30
 
       - name: Summarize coverage in job summary
+        if: env.ACT != 'true'
         run: |
           echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"

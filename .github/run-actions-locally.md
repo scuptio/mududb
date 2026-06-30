@@ -208,14 +208,14 @@ The release workflow uses `softprops/action-gh-release`, which needs a GitHub to
 Run the release workflow without publishing (recommended for local verification):
 
 ```bash
-act workflow_dispatch -W .github/workflows/build-release.yml -j build-release
+act workflow_dispatch -W .github/workflows/build-release.yaml -j build-release
 ```
 
 Run with a token if you intentionally want to publish or update a real release:
 
 ```bash
 act workflow_dispatch \
-  -W .github/workflows/build-release.yml \
+  -W .github/workflows/build-release.yaml \
   -j build-release \
   -s GITHUB_TOKEN=ghp_xxx
 ```
@@ -228,7 +228,7 @@ By default, `act` runs inside a copied container workspace. Generated files, inc
 
 ```bash
 act workflow_dispatch \
-  -W .github/workflows/build-release.yml \
+  -W .github/workflows/build-release.yaml \
   -j build-release \
   --bind
 ```
