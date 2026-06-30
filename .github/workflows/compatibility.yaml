@@ -11,6 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   format-compatibility-gate:
     name: Format compatibility gate
@@ -26,7 +30,7 @@ jobs:
           mkdir -p logs
           set -o pipefail
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          sh ./script/ci/check_format_compatibility.sh "${BASE_REF}" 2>&1 | tee logs/compat-format.log
+          bash ./script/ci/check_format_compatibility.sh "${BASE_REF}" 2>&1 | tee logs/compat-format.log
 
   golden-fixtures:
     name: Golden fixture compatibility tests

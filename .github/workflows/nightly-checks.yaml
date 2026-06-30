@@ -20,6 +20,10 @@ concurrency:
 env:
   CARGO_INCREMENTAL: 0
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   cargo-udeps:
     name: cargo-udeps
