@@ -98,3 +98,45 @@ impl DTPDyn for DTPNumeric {
 }
 
 impl DTPStatic for DTPNumeric {}
+
+#[cfg(test)]
+mod tests {
+    use super::{DTPNumeric, NUMERIC_MAX_PRECISION, NUMERIC_MAX_SCALE};
+    use crate::dt_param::DTPDyn;
+
+    #[test]
+    fn validate_accepts_valid() {
+        let n = DTPNumeric::new(10, 2);
+        assert!(n.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_zero_precision() {
+        let n = DTPNumeric::new(0, 0);
+        assert!(n.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_scale_greater_than_precision() {
+        let n = DTPNumeric::new(5, 10);
+        assert!(n.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_precision_too_large() {
+        let n = DTPNumeric::new(NUMERIC_MAX_PRECISION + 1, 0);
+        assert!(n.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_scale_too_large() {
+        let n = DTPNumeric::new(NUMERIC_MAX_PRECISION, NUMERIC_MAX_SCALE + 1);
+        assert!(n.validate().is_err());
+    }
+
+    #[test]
+    fn name_format() {
+        let n = DTPNumeric::new(10, 2);
+        assert_eq!(n.name(), "numeric(10, 2)");
+    }
+}

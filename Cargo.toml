@@ -6,6 +6,9 @@ members = [
     "testing",
     "mudu",
     "mudu_sys",
+    "mudu_sys_wasm",
+    "mudu_sys_contract",
+    "mudu_sys_impl",
     "mudu_adapter",
     "mudu_type",
     "mudu_contract",
@@ -24,13 +27,25 @@ members = [
     "mudu_wasm",
     "mudu_utils",
     "mudu_api_sync",
+    "mudu_build_common",
     "sys_interface",
     "mudu_kernel",
+    "mudu_compat_migrate",
     "test_utils",
     "mudud",
     "mudu_package",
     "mudu_transpiler",
     "mudu_cli"]
+
+[workspace.package]
+rust-version = "1.96"
+
+[workspace.lints.rust]
+future_incompatible = { level = "allow", priority = -1 }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[workspace.lints.clippy]
+disallowed-types = "deny"
 
 [profile.release]
 panic = "abort"
@@ -43,7 +58,11 @@ mudu_adapter = { path = "mudu_adapter" }
 mudu = { path = "mudu" }
 mududb = { path = "mududb" }
 mudu_sys = { path = "mudu_sys" }
+mudu_sys_wasm = { path = "mudu_sys_wasm" }
+mudu_sys_contract = { path = "mudu_sys_contract" }
+mudu_sys_impl = { path = "mudu_sys_impl" }
 mudu_binding = { path = "mudu_binding" }
+mudu_build_common = { path = "mudu_build_common" }
 md-5 = { version = "0.11.0-rc.0" }
 sql_parser = { path = "sql_parser" }
 mudu_gen = { path = "mudu_gen" }
@@ -52,10 +71,11 @@ tree-sitter-wit = { path = "tree-sitter-wit" }
 tree-sitter = { version = "0.26.2" }
 tree-sitter-language = { version = "0.1.6" }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
-sha2 = { version = "0.10.9" }
+sha2 = { version = "0.11.0" }
 project-root = { version = "0.2.2" }
 mudu_runtime = { path = "mudu_runtime" }
 mudu_kernel = { path = "mudu_kernel" }
+mudu_compat_migrate = { path = "mudu_compat_migrate" }
 mudu_cli = { path = "mudu_cli" }
 mudu_utils = { path = "mudu_utils" }
 mudu_type = { path = "mudu_type" }
@@ -67,20 +87,20 @@ console-subscriber = { version = "0.5.0" }
 tokio = { version = "1.47.1", features = ["full"] }
 rmp-serde = { version = "1.3.0" }
 rmpv = { version = "1.3.0" }
-rusqlite = { version = "0.38.0" }
+rusqlite = { version = "0.40.1" }
 postgres = { version = "0.19.10" }
 tokio-postgres = { version = "0.7.15" }
 mysql = { version = "28.0.0" }
-mysql_async = { version = "0.36.1" }
+mysql_async = { version = "0.37.0" }
 scc = { version = "3.3.1" }
 clap = { version = "4.5.50" }
 cc = { version = "1.2.49" }
 base16ct = { version = "1.0.0" }
-askama = {version = "0.15.0" }
+askama = {version = "0.16.0" }
 toml = { version = "1.1.0", features = ["preserve_order"] }
-wit-bindgen = { version = "0.54.0" }
+wit-bindgen = { version = "0.58.0" }
 tracing = { version = "0.1.43" }
-pgwire = { version = "0.38.2", default-features = false, features = ["server-api-ring", "pg-ext-types"]}
+pgwire = { version = "0.40.3", default-features = false, features = ["server-api-ring", "pg-ext-types"]}
 lazy_static = { version = "1.5.0" }
 uuid = { version = "1.18.1", features = ["v4", "js"] }
 async-trait = { version = "0.1.89" }
@@ -90,7 +110,7 @@ byteorder = { version = "1.5.0" }
 paste = { version = "1.0.15" }
 reqwest = { version = "0.13.2", features = ["json"] }
 base64 = { version = "0.22.1" }
-anyhow = { version = "1.0.100" }
+anyhow = { version = "1.0.103" }
 libc = { version = "0.2.164" }
 fallible-iterator = { version = "0.3.0" }
 chrono = { version = "0.4.42" }
@@ -98,3 +118,44 @@ async-backtrace = { version = "0.2.7" }
 uniffi = { version = "0.31.0", features = ["scaffolding-ffi-buffer-fns"] }
 zip = { version = "8.4.0" }
 bigdecimal = { version = "0.4.10" }
+
+# Additional dependencies used by single crates; centralized so versions stay consistent.
+actix-cors = { version = "0.7.1" }
+actix-web = { version = "4.11.0" }
+bytes = { version = "1.10.1" }
+cargo_metadata = { version = "0.23.1" }
+crc = { version = "3.3.0" }
+crossbeam-queue = { version = "0.3.11" }
+crossterm = { version = "0.29.0" }
+csv = { version = "1.3.1" }
+heck = { version = "0.5.0" }
+http = { version = "1.3.1" }
+http-body-util = { version = "0.1.3" }
+hyper = { version = "1.5.0" }
+hyper-util = { version = "0.1.10" }
+libfuzzer-sys = { version = "0.4.7" }
+libsql = { version = "0.10.0-pre.4" }
+num_enum = { version = "0.7.4" }
+ratatui = { version = "0.30.2" }
+rust-format = { version = "0.3.4" }
+rustyline = { version = "18.0.0" }
+scopeguard = { version = "1.2.0" }
+short-uuid = { version = "0.2.0" }
+socket2 = { version = "0.6.4" }
+strum = { version = "0.28.0" }
+strum_macros = { version = "0.28.0" }
+substring = { version = "1.4.5" }
+syn = { version = "2.0.111", features = ["full"] }
+tempfile = { version = "3.23" }
+thiserror = { version = "2.0.17" }
+tree-sitter-rust = { version = "0.24.0" }
+tree-sitter-typescript = { version = "0.23.2" }
+unicode-width = { version = "0.2.0" }
+wit-parser = { version = "0.252.0" }
+
+# Git dependencies (keep version controlled here).
+rliburing = { git = "https://github.com/scuptio/rliburing.git", rev = "680c3183838c05ade6475dd1ab3469a3747ae0f5" }
+
+# wasmtime family (features preserved in consuming crates).
+wasmtime = { version = "46.0.1" }
+wasmtime-wasi = { version = "46.0.1" }

@@ -1,16 +1,29 @@
-mod merge_desc;
+//! Command-line binary for the `mudu_package` crate.
+//!
+//! This binary implements the `mpk` tool, which can create Mudu APP package
+//! archives and merge procedure-description files.
 
-use crate::merge_desc::merge_desc_files;
+#![deny(missing_docs)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::dbg_macro)]
+#![warn(clippy::panic)]
+#![warn(clippy::todo)]
+#![warn(clippy::unimplemented)]
+
 use anyhow::{Result, anyhow};
 use clap::{Arg, Command};
 use mudu::common::app_info::AppInfo;
-use mudu::utils::json::read_json;
 use mudu::utils::json::to_json_str;
-use mudu::utils::toml::read_toml;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
+use mudu_package::merge_desc::merge_desc_files;
+use mudu_sys::fs::sync::{SFile, sync_create_dir_all, sync_path_exists};
+use mudu_utils::json::read_json;
+use mudu_utils::toml::read_toml;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, File};
+#[cfg(test)]
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
@@ -49,7 +62,7 @@ impl MPKPackage {
         ];
 
         for (path, name) in required_files {
-            if !fs::exists(path)? {
+            if !sync_path_exists(path) {
                 return Err(anyhow!("Required file '{}' not found at: {}", name, path));
             }
         }
@@ -61,7 +74,7 @@ impl MPKPackage {
 
         // Check if all WASM files exist and have correct extension
         for wasm_path in &self.wasm_files {
-            if !fs::exists(wasm_path)? {
+            if !sync_path_exists(wasm_path) {
                 return Err(anyhow!("WASM file not found: {}", wasm_path));
             }
             if PathBuf::from(wasm_path)
@@ -113,8 +126,8 @@ fn validate_desc_matches_wasm_modules(
     Ok(())
 }
 
-fn parse_arguments() -> Result<MPKCommand> {
-    let matches = Command::new("mudu-package-tool")
+fn build_command() -> Command {
+    Command::new("mudu-package-tool")
         .version("0.1.0")
         .about("Package management tool for creating Mudu APP packages")
         .subcommand_required(true)
@@ -169,7 +182,7 @@ fn parse_arguments() -> Result<MPKCommand> {
                         .value_name("FILE")
                         .help("Output package archive file path")
                         .required(false),
-                )
+                ),
         )
         .subcommand(
             Command::new("create-from-toml")
@@ -181,7 +194,7 @@ fn parse_arguments() -> Result<MPKCommand> {
                         .value_name("FILE")
                         .help("Path to argument list toml file")
                         .required(true),
-                )
+                ),
         )
         .subcommand(
             Command::new("merge-desc")
@@ -201,9 +214,11 @@ fn parse_arguments() -> Result<MPKCommand> {
                         .value_name("FILE")
                         .help("Path to the output description file")
                         .required(true),
-                )
+                ),
         )
-        .get_matches();
+}
+
+fn parse_from_matches(matches: &clap::ArgMatches) -> Result<MPKCommand> {
     let mut mpk_cmd = match matches.subcommand() {
         Some(("create", sub_matches)) => {
             let cmd = MPKPackage {
@@ -272,12 +287,27 @@ fn parse_arguments() -> Result<MPKCommand> {
     Ok(mpk_cmd)
 }
 
+fn parse_arguments() -> Result<MPKCommand> {
+    let matches = build_command().get_matches();
+    parse_from_matches(&matches)
+}
+
+#[cfg(test)]
+fn parse_arguments_from<I, T>(args: I) -> Result<MPKCommand>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let matches = build_command().try_get_matches_from(args)?;
+    parse_from_matches(&matches)
+}
+
 fn add_file_to_zip<P: AsRef<Path>>(
-    zip_writer: &mut ZipWriter<File>,
+    zip_writer: &mut ZipWriter<SFile>,
     file_path: P,
     zip_path: &str,
 ) -> Result<()> {
-    let mut file = File::open(file_path.as_ref())?;
+    let mut file = SFile::open(file_path.as_ref())?;
     zip_writer.start_file(
         zip_path,
         SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
@@ -286,7 +316,7 @@ fn add_file_to_zip<P: AsRef<Path>>(
     Ok(())
 }
 
-fn add_bytes_to_zip(zip_writer: &mut ZipWriter<File>, bytes: &[u8], zip_path: &str) -> Result<()> {
+fn add_bytes_to_zip(zip_writer: &mut ZipWriter<SFile>, bytes: &[u8], zip_path: &str) -> Result<()> {
     zip_writer.start_file(
         zip_path,
         SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
@@ -304,11 +334,11 @@ struct PackageManifest {
 fn create_package(config: &MPKPackage) -> Result<()> {
     // Create output directory if it doesn't exist
     if let Some(parent) = PathBuf::from(&config.output_path).parent() {
-        fs::create_dir_all(parent)?;
+        sync_create_dir_all(parent)?;
     }
 
     // Create zip file
-    let file = File::create(&config.output_path)?;
+    let file = SFile::create(&config.output_path)?;
     let mut zip = ZipWriter::new(file);
 
     // Build and embed a manifest for forward/backward-compatible extensions.
@@ -388,7 +418,7 @@ fn create_mpk_package(config: MPKPackage) -> Result<()> {
 
     // Print package contents
     println!("\nPackage contents:");
-    let package_file = File::open(&config.output_path)?;
+    let package_file = SFile::open(&config.output_path)?;
     let zip_archive = zip::ZipArchive::new(package_file)?;
     for file_name in zip_archive.file_names() {
         println!("  - {}", file_name);
@@ -397,111 +427,7 @@ fn create_mpk_package(config: MPKPackage) -> Result<()> {
     Ok(())
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::File;
-    use std::io::Write;
-    use tempfile::TempDir;
+mod main_test;
 
-    fn create_test_files(dir: &Path) -> Result<()> {
-        let files = [
-            (
-                "package.cfg.json",
-                "{\"name\":\"test\",\"lang\":\"rust\",\"version\":\"0.1.0\",\"use_async\":true}",
-            ),
-            (
-                "package.desc.json",
-                "{\"modules\":{\"test1\":[{\"module_name\":\"test1\",\"proc_name\":\"proc1\",\"param_desc\":{\"fields\":[]},\"return_desc\":{\"fields\":[]}}],\"test2\":[{\"module_name\":\"test2\",\"proc_name\":\"proc2\",\"param_desc\":{\"fields\":[]},\"return_desc\":{\"fields\":[]}}]}}",
-            ),
-            ("ddl.sql", "CREATE TABLE test (id INT);"),
-            ("initdb.sql", "INSERT INTO test VALUES (1);"),
-            ("test1.wasm", "mock wasm content"),
-            ("test2.wasm", "mock wasm content 2"),
-        ];
-
-        for (filename, content) in files {
-            let mut file = File::create(dir.join(filename))?;
-            write!(file, "{}", content)?;
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_package_creation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        create_test_files(temp_dir.path())?;
-
-        let config = MPKPackage {
-            package_cfg: temp_dir
-                .path()
-                .join("package.cfg.json")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            package_desc: temp_dir
-                .path()
-                .join("package.desc.json")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            ddl_sql: temp_dir
-                .path()
-                .join("ddl.sql")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            initdb_sql: temp_dir
-                .path()
-                .join("initdb.sql")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            wasm_files: vec![
-                temp_dir
-                    .path()
-                    .join("test1.wasm")
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-                temp_dir
-                    .path()
-                    .join("test2.wasm")
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-            ],
-            output_path: temp_dir
-                .path()
-                .join("test.mudu")
-                .to_str()
-                .unwrap()
-                .to_string(),
-        };
-
-        config.validate()?;
-        create_package(&config)?;
-
-        // Verify the package was created and contains expected files
-        assert!(PathBuf::from(&config.output_path).exists());
-
-        let package_file = File::open(&config.output_path)?;
-        let mut zip_archive = zip::ZipArchive::new(package_file)?;
-
-        let expected_files = [
-            "package.cfg.json",
-            "package.desc.json",
-            "ddl.sql",
-            "initdb.sql",
-            "package.manifest.json",
-            "test1.wasm",
-            "test2.wasm",
-        ];
-
-        for expected_file in expected_files {
-            assert!(zip_archive.by_name(expected_file).is_ok());
-        }
-
-        Ok(())
-    }
-}
+#[cfg(test)]
+mod cli_test;

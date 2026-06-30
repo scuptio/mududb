@@ -4,8 +4,8 @@ use crate::storage::page::record_slot::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use std::cmp::Ordering;
 
 /// `RecordSlotRef` is a zero-copy slot reader backed by the original page bytes.
@@ -18,8 +18,8 @@ pub struct RecordSlotRef<'a> {
 impl<'a> RecordSlotRef<'a> {
     pub fn new(slot: &'a [u8]) -> RS<Self> {
         if slot.len() < RECORD_SLOT_SIZE {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "record slot requires {} bytes, got {}",
                     RECORD_SLOT_SIZE,

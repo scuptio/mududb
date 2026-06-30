@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use super::kernel_invoke_client::KernelInvokeClient;
 use super::{AsyncKernelInvokeClient, AsyncKernelInvokeClientFactory};
 use async_trait::async_trait;

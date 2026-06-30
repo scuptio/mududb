@@ -47,7 +47,7 @@ Or use the project script: `python script/build/install_binaries.py`
 
 ### 3. Configure
 
-MuduDB reads `~/.mudu/mududb_cfg.toml`. Key settings for io_uring mode:
+MuduDB reads `~/.mududb/mududb_cfg.toml`. Key settings for io_uring mode:
 
 ```toml
 mpk_path = "/tmp/mudu_test/mpk"       # directory with .mpk app packages

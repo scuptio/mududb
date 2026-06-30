@@ -4,11 +4,13 @@ use mudu::common::result::RS;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use scc::HashMap;
 
+/// A loaded WebAssembly module and its procedure descriptors.
 pub struct PackageModule {
     procedure: HashMap<String, Procedure>,
 }
 
 impl PackageModule {
+    /// Creates a package module from a pre-instantiated component and procedure descriptors.
     pub fn new(instance_pre: WTInstancePre, desc_list: Vec<ProcDesc>) -> RS<PackageModule> {
         let procedure = HashMap::with_capacity(desc_list.len());
         for desc in desc_list {
@@ -18,10 +20,12 @@ impl PackageModule {
         Ok(Self { procedure })
     }
 
+    /// Looks up a procedure by name.
     pub fn procedure(&self, proc_name: &str) -> Option<Procedure> {
         self.procedure.get_sync(proc_name).map(|e| e.get().clone())
     }
 
+    /// Lists all exposed procedures as (module, procedure) pairs.
     pub fn procedure_list(&self) -> Vec<(String, String)> {
         let mut vec = Vec::new();
         self.procedure.iter_sync(|_k, v| {

@@ -3,12 +3,15 @@ name = "mududb-rs-shim"
 version = "0.1.0"
 edition = "2024"
 description = "Rust WebAssembly Component Model shim for MuduDB language bindings"
-license = "MIT"
+license = "Apache-2.0"
 
 [workspace]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 mududb = { path = "../../mududb", default-features = false, features = ["app"] }

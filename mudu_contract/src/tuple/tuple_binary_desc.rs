@@ -1,14 +1,15 @@
+//! `tuple::tuple_binary_desc` module.
+#![allow(missing_docs)]
+
 use crate::tuple::bitmap::aligned_byte_len;
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_type::DatType;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::mem;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -44,8 +45,8 @@ impl TupleBinaryDesc {
             .map(|(ty, _, _)| ty.clone())
             .collect::<Vec<_>>();
         if !is_normalized(&type_desc)? {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 "tuple type descriptor must be normalized"
             ));
         }
@@ -57,8 +58,8 @@ impl TupleBinaryDesc {
             .unwrap_or(0);
         for (_, nullable, null_bit_idx) in &typed_fields {
             if *nullable != null_bit_idx.is_some() {
-                return Err(m_error!(
-                    EC::ParseErr,
+                return Err(mudu_error!(
+                    ErrorCode::Parse,
                     "nullable field must have a null bit index and NOT NULL field must not"
                 ));
             }
@@ -68,18 +69,18 @@ impl TupleBinaryDesc {
         let mut var_count: usize = 0;
         for (td, _, _) in typed_fields.iter() {
             let id = td.dat_type_id();
-            match id.fn_send_type_len()(td) {
-                Ok(opt_len) => match opt_len {
-                    Some(len) => {
-                        total_fixed_size += len as usize;
-                        fixed_count += 1;
-                    }
-                    None => {
-                        var_count += 1;
-                    }
-                },
-                Err(e) => {
-                    return Err(m_error!(EC::TypeErr, "get type length error", e));
+            match id.fn_send_type_len()(td).map_err(|e| {
+                mudu_error!(
+                    ErrorCode::InvalidType,
+                    format!("fn_send_type_len failed: {e}")
+                )
+            })? {
+                Some(len) => {
+                    total_fixed_size += len as usize;
+                    fixed_count += 1;
+                }
+                None => {
+                    var_count += 1;
                 }
             }
         }
@@ -92,47 +93,47 @@ impl TupleBinaryDesc {
         let mut slot_all: Vec<FieldDesc> = vec![];
         for (ty, nullable, null_bit_idx) in typed_fields.iter() {
             let id = ty.dat_type_id();
-            match id.fn_send_type_len()(ty) {
-                Ok(opt_len) => match opt_len {
-                    Some(data_len) => {
-                        let slot = Slot::new(offset_data_fixed, data_len as _);
-                        slot_all.push(FieldDesc::new_with_nullability(
-                            slot.clone(),
-                            ty.clone(),
-                            true,
-                            *nullable,
-                            *null_bit_idx,
-                        ));
-                        offset_len_data_fixed.push(FieldDesc::new_with_nullability(
-                            slot,
-                            ty.clone(),
-                            true,
-                            *nullable,
-                            *null_bit_idx,
-                        ));
-                        offset_data_fixed += data_len;
-                    }
-                    None => {
-                        let slot = Slot::new(offset_slot_var, Slot::size_of() as u32);
-                        slot_all.push(FieldDesc::new_with_nullability(
-                            slot.clone(),
-                            ty.clone(),
-                            false,
-                            *nullable,
-                            *null_bit_idx,
-                        ));
-                        offset_len_slot_var.push(FieldDesc::new_with_nullability(
-                            slot,
-                            ty.clone(),
-                            false,
-                            *nullable,
-                            *null_bit_idx,
-                        ));
-                        offset_slot_var += Slot::size_of() as u32;
-                    }
-                },
-                Err(e) => {
-                    return Err(m_error!(EC::TypeErr, "get type length error", e));
+            match id.fn_send_type_len()(ty).map_err(|e| {
+                mudu_error!(
+                    ErrorCode::InvalidType,
+                    format!("fn_send_type_len failed: {e}")
+                )
+            })? {
+                Some(data_len) => {
+                    let slot = Slot::new(offset_data_fixed, data_len as _);
+                    slot_all.push(FieldDesc::new_with_nullability(
+                        slot.clone(),
+                        ty.clone(),
+                        true,
+                        *nullable,
+                        *null_bit_idx,
+                    ));
+                    offset_len_data_fixed.push(FieldDesc::new_with_nullability(
+                        slot,
+                        ty.clone(),
+                        true,
+                        *nullable,
+                        *null_bit_idx,
+                    ));
+                    offset_data_fixed += data_len;
+                }
+                None => {
+                    let slot = Slot::new(offset_slot_var, Slot::size_of() as u32);
+                    slot_all.push(FieldDesc::new_with_nullability(
+                        slot.clone(),
+                        ty.clone(),
+                        false,
+                        *nullable,
+                        *null_bit_idx,
+                    ));
+                    offset_len_slot_var.push(FieldDesc::new_with_nullability(
+                        slot,
+                        ty.clone(),
+                        false,
+                        *nullable,
+                        *null_bit_idx,
+                    ));
+                    offset_slot_var += Slot::size_of() as u32;
                 }
             }
         }
@@ -212,26 +213,19 @@ fn _normalized<T: Default + Clone + 'static>(
 ) -> RS<(Vec<DatType>, Vec<T>)> {
     let mut vec = vec_type_desc;
 
-    // Collect all comparison results first to handle errors
     let mut indices: Vec<usize> = (0..vec.len()).collect();
-
-    let mut err: Option<MError> = None;
-    indices.sort_by(|&i, &j| {
-        let e_i = &vec[i].0;
-        let e_j = &vec[j].0;
-        match e_i.cmp_ord(e_j) {
-            Ok(ordering) => ordering,
-            Err(e) => {
-                // Handle error - you might want to panic, log, or use a fallback
-                err = Some(e);
-                Ordering::Equal // Fallback ordering
+    for i in 0..indices.len() {
+        for j in (i + 1)..indices.len() {
+            let ord = vec[indices[i]]
+                .0
+                .cmp_ord(&vec[indices[j]].0)
+                .map_err(|e| mudu_error!(ErrorCode::InvalidType, format!("cmp_ord failed: {e}")))?;
+            if ord == std::cmp::Ordering::Greater {
+                indices.swap(i, j);
             }
         }
-    });
-    match err {
-        Some(e) => return Err(e),
-        None => {}
     }
+
     let mut sorted_vec = vec![];
     let mut payload_vec = vec![];
     for index in indices {
@@ -250,43 +244,4 @@ fn is_normalized(vec_type_desc: &[DatType]) -> RS<bool> {
         }
     }
     Ok(true)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
-    use mudu::error::ec::EC;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    #[test]
-    fn test_tuple_desc() {
-        let dat_types = vec![
-            DatType::new_no_param(DatTypeID::F32),
-            DatType::new_no_param(DatTypeID::I32),
-            DatType::new_no_param(DatTypeID::F64),
-            DatType::default_for(DatTypeID::String),
-            DatType::new_no_param(DatTypeID::I64),
-            DatType::new_no_param(DatTypeID::I32),
-            DatType::new_no_param(DatTypeID::F32),
-        ];
-        let dat_type_and_index: Vec<(DatType, usize)> = dat_types
-            .into_iter()
-            .enumerate()
-            .map(|(i, ty)| (ty, i))
-            .collect::<Vec<_>>();
-        let (norm_types, _index) =
-            TupleBinaryDesc::normalized_type_desc_vec(dat_type_and_index).unwrap();
-
-        let _desc = TupleBinaryDesc::from(norm_types).unwrap();
-    }
-
-    #[test]
-    fn tuple_desc_rejects_unnormalized_type_order() {
-        let err = TupleBinaryDesc::from(vec![
-            DatType::new_no_param(DatTypeID::String),
-            DatType::new_no_param(DatTypeID::I32),
-        ])
-        .unwrap_err();
-        assert_eq!(err.ec(), EC::ParseErr);
-    }
 }

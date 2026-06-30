@@ -1,3 +1,5 @@
+//! High-level code generation API.
+
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
 use crate::lang_impl::lang::lang_kind::LangKind;
 use crate::lang_impl::lang::template_kind::TemplateKind;
@@ -5,8 +7,8 @@ use crate::src_gen::codegen_cfg::CodegenCfg;
 use crate::src_gen::create_render::create_render;
 use crate::src_gen::wit_parser::WitParser;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
 use mudu_binding::record::record_def::RecordDef;
 use mudu_binding::universal::uni_dat_type::UniDatType;
@@ -14,17 +16,19 @@ use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use sql_parser::parser::ddl_parser::DDLParser;
 use std::collections::HashMap;
 
+/// Entry point for generating source code from WIT or SQL inputs.
 pub struct CodeGen {}
 
+/// Result of a code-generation run.
 pub struct GenResult {
-    /// use defined record type
-    /// `key`: record name
-    /// `value`: UniDatType struct
+    /// User-defined record types produced during generation.
+    ///
+    /// Key: record name; value: the corresponding [`UniDatType`].
     pub used_defined_record_type: UniTypeDesc,
 
-    /// source code
-    /// `key`: file name(stem without extension)
-    /// `value`: source content text
+    /// Generated source files.
+    ///
+    /// Key: file stem (without extension); value: source content.
     pub source_code: HashMap<String, String>,
 }
 
@@ -36,6 +40,7 @@ impl GenResult {
         }
     }
 
+    /// Merge another generation result into `self`.
     pub fn extend(&mut self, other: Self) {
         self.used_defined_record_type
             .extend(other.used_defined_record_type);
@@ -48,29 +53,46 @@ impl Default for GenResult {
         Self::new()
     }
 }
+impl Default for CodeGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodeGen {
+    /// Create a new [`CodeGen`].
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Return the file extension for the given language name.
     pub fn extension_of_lang(lang: &str) -> RS<String> {
-        let lang = LangKind::from_str(lang).unwrap();
+        let lang = LangKind::from_name(lang).map_or_else(
+            || {
+                Err(mudu_error!(
+                    ErrorCode::Decode,
+                    format!("unknown language {}", lang)
+                ))
+            },
+            Ok,
+        )?;
         Ok(lang.extension().to_string())
     }
 
     fn from_lang(lang: &str) -> RS<LangKind> {
-        let lang_kind = LangKind::from_str(lang).map_or_else(
+        let lang_kind = LangKind::from_name(lang).map_or_else(
             || {
-                return Err(m_error!(
-                    EC::DecodeErr,
+                Err(mudu_error!(
+                    ErrorCode::Decode,
                     format!("unknown language {}", lang)
-                ));
+                ))
             },
-            |lang| return Ok(lang),
+            Ok,
         )?;
         Ok(lang_kind)
     }
 
+    /// Generate message types from a WIT text.
     pub fn generate_message_code_from_wit(
         text: &str,
         lang: &str,
@@ -80,6 +102,7 @@ impl CodeGen {
         Self::_generate_message(text, &lang_kind, &namespace)
     }
 
+    /// Generate entity code from DDL SQL text.
     pub fn generate_entity_code_from_ddl_sql(
         text: &str,
         lang: &str,
@@ -89,31 +112,7 @@ impl CodeGen {
         Self::_generate_from_sql(text, &lang_kind, gen_ty_def)
     }
 
-    #[allow(unused)]
-    fn inline_schema_field_type(
-        schema: &mut Vec<RecordDef>,
-        uni_type: &mut Vec<UniDatType>,
-    ) -> RS<()> {
-        if schema.len() != uni_type.len() {
-            return Err(m_error!(
-                EC::InternalErr,
-                format!(
-                    "table schema and its record type length mismatch {} != {}",
-                    schema.len(),
-                    uni_type.len()
-                )
-            ));
-        }
-        let n = schema.len();
-        for i in 0..n {
-            let schema = &mut schema[i];
-            let uni_type = &uni_type[i];
-            schema.update_field_inline(uni_type)?;
-        }
-        Ok(())
-    }
-
-    fn _generate_record_type(record_list: &Vec<RecordDef>, ty_def: &mut UniTypeDesc) -> RS<()> {
+    fn _generate_record_type(record_list: &[RecordDef], ty_def: &mut UniTypeDesc) -> RS<()> {
         let mut vec = Vec::with_capacity(record_list.len());
         for table in record_list.iter() {
             let ty = table.to_record_type()?;
@@ -126,8 +125,8 @@ impl CodeGen {
                     ty_def.types.insert(to_pascal_case(&r.record_name), ty);
                 }
                 _ => {
-                    return Err(m_error!(
-                        EC::DBInternalError,
+                    return Err(mudu_error!(
+                        ErrorCode::Database,
                         format!("expected a record type, {:?}", ty)
                     ));
                 }
@@ -137,7 +136,7 @@ impl CodeGen {
     }
 
     fn _generate_from_sql(text: &str, lang: &LangKind, gen_ty_def: bool) -> RS<GenResult> {
-        let ml_parser = DDLParser::new();
+        let ml_parser = DDLParser::new()?;
         let mut gen_result = GenResult::default();
         let vec_table_def = ml_parser.parse(text)?;
         Self::__generate_entity(&vec_table_def, lang, &mut gen_result.source_code)?;
@@ -180,10 +179,11 @@ impl CodeGen {
             for interface_name in wit_dat.interface {
                 if template.namespace.is_empty() {
                     template.namespace = interface_name;
-                } else {
-                    if template.namespace != interface_name {
-                        return Err(m_error!(EC::ParseErr, "expected at most one interface"));
-                    }
+                } else if template.namespace != interface_name {
+                    return Err(mudu_error!(
+                        ErrorCode::Parse,
+                        "expected at most one interface"
+                    ));
                 }
             }
         }
@@ -211,22 +211,84 @@ impl CodeGen {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod test {
-    use crate::src_gen::code_gen::CodeGen;
-    use mudu::this_file;
-    use rust_format::{Formatter, RustFmt};
-    use std::env::temp_dir;
-    use std::fs;
+    use crate::src_gen::code_gen::{CodeGen, GenResult};
+    use mudu::error::ErrorCode;
+    use mudu_utils::this_file;
     use std::path::PathBuf;
 
-    #[test]
-    fn test() {
+    fn contract_wit() -> String {
         let path = PathBuf::from(this_file!());
         let path = path.parent().unwrap().to_path_buf().join("contract.wit");
-        let str = fs::read_to_string(path).unwrap();
-        let src_code = CodeGen::generate_message_code_from_wit(&str, "rust", None).unwrap();
-        let src_code = RustFmt::default().format_str(src_code).unwrap();
-        let tmp_path = temp_dir().join("interface.rs");
-        fs::write(tmp_path, src_code).unwrap();
+        mudu_sys::fs::sync::sync_read_to_string(path).unwrap()
+    }
+
+    // Miri cannot execute FFI calls into the tree-sitter C parser, so skip this
+    // test under Miri. Code generation is still exercised by normal `cargo test`.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test() {
+        let src_code =
+            CodeGen::generate_message_code_from_wit(&contract_wit(), "rust", None).unwrap();
+        let syntax = syn::parse_file(&src_code).unwrap();
+        let src_code = prettyplease::unparse(&syntax);
+        let tmp_path = mudu_sys::env_var::temp_dir().join("interface.rs");
+        mudu_sys::fs::sync::sync_write(tmp_path, src_code).unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn extension_of_lang_returns_extension() {
+        assert_eq!(CodeGen::extension_of_lang("rust").unwrap(), "rs");
+        assert_eq!(CodeGen::extension_of_lang("csharp").unwrap(), "cs");
+    }
+
+    #[test]
+    fn extension_of_lang_rejects_unknown_language() {
+        let err = CodeGen::extension_of_lang("java").unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::Decode);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_message_code_from_wit_produces_csharp() {
+        let src_code =
+            CodeGen::generate_message_code_from_wit(&contract_wit(), "csharp", None).unwrap();
+        assert!(src_code.contains("namespace"));
+        assert!(src_code.contains("class"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_entity_code_from_ddl_sql_produces_rust() {
+        let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
+        let GenResult {
+            source_code,
+            used_defined_record_type,
+        } = CodeGen::generate_entity_code_from_ddl_sql(sql, "rust", false).unwrap();
+        assert!(source_code.contains_key("t"));
+        assert!(used_defined_record_type.types.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_entity_code_from_ddl_sql_produces_csharp() {
+        let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
+        let GenResult { source_code, .. } =
+            CodeGen::generate_entity_code_from_ddl_sql(sql, "csharp", false).unwrap();
+        assert!(source_code.contains_key("t"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_entity_code_from_ddl_sql_includes_type_def_when_requested() {
+        let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
+        let GenResult {
+            used_defined_record_type,
+            ..
+        } = CodeGen::generate_entity_code_from_ddl_sql(sql, "rust", true).unwrap();
+        assert!(!used_defined_record_type.types.is_empty());
     }
 }

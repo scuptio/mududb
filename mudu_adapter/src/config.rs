@@ -1,64 +1,116 @@
+//! Connection configuration resolved from the `MUDU_CONNECTION` environment variable.
+
+use mudu_sys::sync::{SMutex, SRwLock};
 use std::path::PathBuf;
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
 
-static DB_PATH_OVERRIDE: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+static DB_PATH_OVERRIDE: OnceLock<SRwLock<Option<PathBuf>>> = OnceLock::new();
 
+/// Global test lock for tests that mutate connection configuration.
+///
+/// `MUDU_CONNECTION` and `DB_PATH_OVERRIDE` are process-global state, so any
+/// test that touches them must hold this lock to avoid flaky cross-crate
+/// interference when `cargo test --workspace` runs multiple test binaries in
+/// parallel.
+#[doc(hidden)]
+pub fn test_lock() -> &'static SMutex<()> {
+    static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| SMutex::new(()))
+}
+
+/// Supported database backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Driver {
+    /// SQLite backend.
     Sqlite,
+    /// PostgreSQL backend.
     Postgres,
+    /// MySQL backend.
     MySql,
+    /// Remote Mudud backend.
     Mudud,
 }
 
+/// Parsed connection configuration for a backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionConfig {
+    /// SQLite connection using a file path.
     Sqlite {
+        /// Path to the SQLite database file.
         path: PathBuf,
     },
+    /// PostgreSQL connection using a URL.
     Postgres {
+        /// PostgreSQL connection URL.
         url: String,
     },
+    /// MySQL connection using a URL.
     MySql {
+        /// MySQL connection URL.
         url: String,
     },
+    /// Remote Mudud connection.
     Mudud {
+        /// TCP address of the Mudud server.
         addr: String,
+        /// HTTP address of the Mudud server.
         http_addr: String,
+        /// Application name used for Mudud requests.
         app_name: String,
+        /// Whether to run the Mudud session loop asynchronously.
         async_session_loop: bool,
     },
 }
 
+/// Overrides the database file path used by the SQLite backend.
 pub fn set_db_path(path: impl Into<PathBuf>) {
-    let lock = DB_PATH_OVERRIDE.get_or_init(|| RwLock::new(None));
-    *lock.write().expect("db path lock poisoned") = Some(path.into());
-}
-
-#[doc(hidden)]
-pub fn reset_db_path_override_for_test() {
-    if let Some(lock) = DB_PATH_OVERRIDE.get() {
-        *lock.write().expect("db path lock poisoned") = None;
+    let lock = DB_PATH_OVERRIDE.get_or_init(|| SRwLock::new(None));
+    #[expect(
+        clippy::expect_used,
+        reason = "lock poisoning indicates a fatal bug in a prior holder"
+    )]
+    {
+        *lock.write().expect("db path lock poisoned") = Some(path.into());
     }
 }
 
-pub fn db_path() -> PathBuf {
+/// Resets the database path override. Only intended for tests.
+#[doc(hidden)]
+pub fn reset_db_path_override_for_test() {
     if let Some(lock) = DB_PATH_OVERRIDE.get() {
-        if let Some(path) = lock.read().expect("db path lock poisoned").clone() {
-            return path;
+        #[expect(
+            clippy::expect_used,
+            reason = "lock poisoning indicates a fatal bug in a prior holder"
+        )]
+        {
+            *lock.write().expect("db path lock poisoned") = None;
         }
+    }
+}
+
+/// Returns the SQLite database file path.
+pub fn db_path() -> PathBuf {
+    #[expect(
+        clippy::expect_used,
+        reason = "lock poisoning indicates a fatal bug in a prior holder"
+    )]
+    if let Some(lock) = DB_PATH_OVERRIDE.get()
+        && let Some(path) = lock.read().expect("db path lock poisoned").clone()
+    {
+        return path;
     }
 
     match connection() {
         ConnectionConfig::Sqlite { path } => path,
         ConnectionConfig::Postgres { .. }
         | ConnectionConfig::MySql { .. }
-        | ConnectionConfig::Mudud { .. } => std::env::current_dir()
+        | ConnectionConfig::Mudud { .. } => mudu_sys::env_var::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join("mudu_debug.db"),
     }
 }
 
+/// Returns the currently configured backend driver.
 pub fn driver() -> Driver {
     match connection() {
         ConnectionConfig::Sqlite { .. } => Driver::Sqlite,
@@ -68,6 +120,7 @@ pub fn driver() -> Driver {
     }
 }
 
+/// Returns the PostgreSQL connection URL if configured.
 pub fn postgres_url() -> Option<String> {
     match connection() {
         ConnectionConfig::Postgres { url } => Some(url),
@@ -75,6 +128,7 @@ pub fn postgres_url() -> Option<String> {
     }
 }
 
+/// Returns the MySQL connection URL if configured.
 pub fn mysql_url() -> Option<String> {
     match connection() {
         ConnectionConfig::MySql { url } => Some(url),
@@ -82,6 +136,7 @@ pub fn mysql_url() -> Option<String> {
     }
 }
 
+/// Returns the Mudud TCP address if configured.
 pub fn mudud_addr() -> Option<String> {
     match connection() {
         ConnectionConfig::Mudud { addr, .. } => Some(addr),
@@ -89,6 +144,7 @@ pub fn mudud_addr() -> Option<String> {
     }
 }
 
+/// Returns the Mudud HTTP address if configured.
 pub fn mudud_http_addr() -> Option<String> {
     match connection() {
         ConnectionConfig::Mudud { http_addr, .. } => Some(http_addr),
@@ -96,6 +152,7 @@ pub fn mudud_http_addr() -> Option<String> {
     }
 }
 
+/// Returns the Mudud application name if configured.
 pub fn mudud_app_name() -> Option<String> {
     match connection() {
         ConnectionConfig::Mudud { app_name, .. } => Some(app_name),
@@ -103,6 +160,7 @@ pub fn mudud_app_name() -> Option<String> {
     }
 }
 
+/// Returns whether the Mudud async session loop is enabled.
 pub fn mudud_async_session_loop() -> bool {
     match connection() {
         ConnectionConfig::Mudud {
@@ -112,15 +170,20 @@ pub fn mudud_async_session_loop() -> bool {
     }
 }
 
+/// Returns the parsed connection configuration.
 pub fn connection() -> ConnectionConfig {
-    if let Some(lock) = DB_PATH_OVERRIDE.get() {
-        if let Some(path) = lock.read().expect("db path lock poisoned").clone() {
-            return ConnectionConfig::Sqlite { path };
-        }
+    #[expect(
+        clippy::expect_used,
+        reason = "lock poisoning indicates a fatal bug in a prior holder"
+    )]
+    if let Some(lock) = DB_PATH_OVERRIDE.get()
+        && let Some(path) = lock.read().expect("db path lock poisoned").clone()
+    {
+        return ConnectionConfig::Sqlite { path };
     }
 
-    let raw =
-        std::env::var("MUDU_CONNECTION").unwrap_or_else(|_| "sqlite://./mudu_debug.db".to_string());
+    let raw = mudu_sys::env_var::var("MUDU_CONNECTION")
+        .unwrap_or_else(|| "sqlite:///tmp/mududb.db".to_string());
     parse_connection(&raw)
 }
 

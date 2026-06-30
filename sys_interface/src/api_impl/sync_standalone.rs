@@ -6,6 +6,7 @@ use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
+/// Execute a query against the session.
 pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -14,34 +15,42 @@ pub fn mudu_query<R: Entity>(
     mudu_adapter::syscall::mudu_query(oid, sql, params)
 }
 
+/// Execute a command against the session.
 pub fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     mudu_adapter::syscall::mudu_command(oid, sql, params)
 }
 
+/// Execute a batch of statements against the session.
 pub fn mudu_batch(_oid: OID, _sql: &dyn SQLStmt, _params: &dyn SQLParams) -> RS<u64> {
     mudu_adapter::syscall::mudu_batch(_oid, _sql, _params)
 }
 
+/// Open a new session against the session.
 pub fn mudu_open() -> RS<OID> {
     mudu_adapter::syscall::mudu_open(0)
 }
 
+/// Open a new session with arguments against the session.
 pub fn mudu_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
     mudu_adapter::syscall::mudu_open_argv(argv)
 }
 
+/// Close a session against the session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     mudu_adapter::syscall::mudu_close(session_id)
 }
 
+/// Get a value by key against the session.
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     mudu_adapter::syscall::mudu_get(session_id, key)
 }
 
+/// Store a key-value pair against the session.
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     mudu_adapter::syscall::mudu_put(session_id, key, value)
 }
 
+/// Scan a key range against the session.
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],

@@ -13,8 +13,8 @@ use crate::sql::bound_stmt::{
 use crate::sql::copy_layout::CopyLayout;
 use crate::sql::value_codec::ValueCodec;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dt_info::DTInfo;
@@ -62,9 +62,9 @@ impl Binder {
             StmtCommand::CreatePartitionRule(stmt) => Ok(BoundCommand::CreatePartitionRule(
                 self.bind_create_partition_rule(stmt)?,
             )),
-            StmtCommand::CreateTable(stmt) => {
-                Ok(BoundCommand::CreateTable(self.bind_create_table(stmt).await?))
-            }
+            StmtCommand::CreateTable(stmt) => Ok(BoundCommand::CreateTable(
+                self.bind_create_table(stmt).await?,
+            )),
             StmtCommand::DropTable(stmt) => {
                 Ok(BoundCommand::DropTable(self.bind_drop_table(stmt).await?))
             }
@@ -131,15 +131,16 @@ impl Binder {
             value_indices,
         );
         let partition_binding = if let Some(partition) = stmt.partition() {
-            let rule =
-                self.meta_mgr
-                    .get_partition_rule_by_name(partition.rule_name()).await?
-            .ok_or_else(|| {
-                m_error!(
-                    ER::NoSuchElement,
-                    format!("no such partition rule {}", partition.rule_name())
-                )
-            })?;
+            let rule = self
+                .meta_mgr
+                .get_partition_rule_by_name(partition.rule_name())
+                .await?
+                .ok_or_else(|| {
+                    mudu_error!(
+                        ER::EntityNotFound,
+                        format!("no such partition rule {}", partition.rule_name())
+                    )
+                })?;
             let ref_attr_indices = partition
                 .reference_columns()
                 .iter()
@@ -149,16 +150,16 @@ impl Binder {
                         .iter()
                         .position(|field| field.get_name() == column)
                         .ok_or_else(|| {
-                            m_error!(
-                                ER::NoSuchElement,
+                            mudu_error!(
+                                ER::EntityNotFound,
                                 format!("no such partition reference column {}", column)
                             )
                         })
                 })
                 .collect::<RS<Vec<_>>>()?;
             if rule.partitions.is_empty() {
-                return Err(m_error!(
-                    ER::ParseErr,
+                return Err(mudu_error!(
+                    ER::Parse,
                     format!("partition rule {} has no partitions", partition.rule_name())
                 ));
             }
@@ -214,8 +215,8 @@ impl Binder {
                 };
                 if let Some(expected) = width {
                     if expected != values.len() {
-                        return Err(m_error!(
-                            ER::ParseErr,
+                        return Err(mudu_error!(
+                            ER::Parse,
                             "partition bound width mismatch in CREATE PARTITION RULE"
                         ));
                     }
@@ -236,8 +237,8 @@ impl Binder {
                 .into_iter()
                 .map(|item| item.to_dat_type_id())
                 .collect()),
-            None => Err(m_error!(
-                ER::ParseErr,
+            None => Err(mudu_error!(
+                ER::Parse,
                 "cannot infer partition key types from unbounded rule"
             )),
         }
@@ -252,8 +253,8 @@ impl Binder {
             .get_partition_rule_by_name(stmt.rule_name())
             .await?
             .ok_or_else(|| {
-                m_error!(
-                    ER::NoSuchElement,
+                mudu_error!(
+                    ER::EntityNotFound,
                     format!("no such partition rule {}", stmt.rule_name())
                 )
             })?;
@@ -264,8 +265,8 @@ impl Binder {
                 .iter()
                 .find(|partition| partition.name == placement.partition_name())
                 .ok_or_else(|| {
-                    m_error!(
-                        ER::NoSuchElement,
+                    mudu_error!(
+                        ER::EntityNotFound,
                         format!(
                             "no such partition {} in rule {}",
                             placement.partition_name(),
@@ -274,8 +275,8 @@ impl Binder {
                     )
                 })?;
             let worker_id = placement.worker_id().parse::<u128>().map_err(|e| {
-                m_error!(
-                    ER::ParseErr,
+                mudu_error!(
+                    ER::Parse,
                     format!("invalid worker id {}", placement.worker_id()),
                     e
                 )
@@ -296,17 +297,13 @@ impl Binder {
     }
 
     async fn bind_drop_table(&self, stmt: StmtDropTable) -> RS<BoundDropTable> {
-        match self
-            .meta_mgr
-            .get_table_by_name(&stmt.table_name().to_string())
-            .await?
-        {
+        match self.meta_mgr.get_table_by_name(stmt.table_name()).await? {
             Some(table_desc) => Ok(BoundDropTable {
                 oid: Some(table_desc.id()),
             }),
             None if stmt.drop_if_exists() => Ok(BoundDropTable { oid: None }),
-            None => Err(m_error!(
-                ER::NoSuchElement,
+            None => Err(mudu_error!(
+                ER::EntityNotFound,
                 format!("cannot find table {}", stmt.table_name())
             )),
         }
@@ -328,7 +325,10 @@ impl Binder {
         let mut rows = Vec::with_capacity(stmt.values_list().len());
         for values in stmt.values_list() {
             if columns.len() != values.len() {
-                return Err(m_error!(ER::IOErr, "insert column size mismatch"));
+                return Err(mudu_error!(
+                    ER::InvalidArgument,
+                    "insert column size mismatch"
+                ));
             }
 
             let mut key = vec![];
@@ -343,15 +343,15 @@ impl Binder {
                     &mut param_index,
                 )?;
                 if binary.is_none() && !field.nullable() {
-                    return Err(m_error!(
-                        ER::TupleErr,
+                    return Err(mudu_error!(
+                        ER::InvalidTuple,
                         format!("cannot insert NULL into NOT NULL column {}", field.name())
                     ));
                 }
                 if field.primary_index().is_some() {
                     let binary = binary.ok_or_else(|| {
-                        m_error!(
-                            ER::TupleErr,
+                        mudu_error!(
+                            ER::InvalidTuple,
                             format!("cannot insert NULL into key column {}", field.name())
                         )
                     })?;
@@ -406,13 +406,13 @@ impl Binder {
             let attr = self.attr_index_by_name(&table_desc, assignment.get_column_reference())?;
             let field = table_desc.get_attr(attr);
             if field.primary_index().is_some() {
-                return Err(m_error!(
+                return Err(mudu_error!(
                     ER::NotImplemented,
                     "updating primary key columns is not implemented"
                 ));
             }
             let AssignedValue::Value(expr) = assignment.get_set_value() else {
-                return Err(m_error!(
+                return Err(mudu_error!(
                     ER::NotImplemented,
                     "expression updates are not implemented"
                 ));
@@ -420,8 +420,8 @@ impl Binder {
             let binary =
                 ValueCodec::binary_from_expr(expr, field.type_desc(), params, &mut param_index)?;
             if binary.is_none() && !field.nullable() {
-                return Err(m_error!(
-                    ER::TupleErr,
+                return Err(mudu_error!(
+                    ER::InvalidTuple,
                     format!("cannot update NOT NULL column {} to NULL", field.name())
                 ));
             }
@@ -480,7 +480,7 @@ impl Binder {
         for predicate in predicates {
             let (field_name, expr_value, op) =
                 self.field_literal_compare(predicate).ok_or_else(|| {
-                    m_error!(
+                    mudu_error!(
                         ER::NotImplemented,
                         "only column/literal predicates are supported"
                     )
@@ -488,7 +488,7 @@ impl Binder {
             let attr = self.attr_index_by_name(table_desc, field_name)?;
             let field = table_desc.get_attr(attr);
             if field.primary_index().is_none() {
-                return Err(m_error!(
+                return Err(mudu_error!(
                     ER::NotImplemented,
                     "non-key predicates are not implemented"
                 ));
@@ -496,7 +496,7 @@ impl Binder {
             let binary =
                 ValueCodec::binary_from_expr(&expr_value, field.type_desc(), params, param_index)?;
             let binary = binary.ok_or_else(|| {
-                m_error!(
+                mudu_error!(
                     ER::NotImplemented,
                     "NULL key predicates are not implemented; use IS NULL"
                 )
@@ -508,7 +508,7 @@ impl Binder {
                 ValueCompare::LE => end = Bound::Included(vec![(attr, binary)]),
                 ValueCompare::LT => end = Bound::Excluded(vec![(attr, binary)]),
                 ValueCompare::NE => {
-                    return Err(m_error!(
+                    return Err(mudu_error!(
                         ER::NotImplemented,
                         "not-equal predicates are not implemented"
                     ))
@@ -520,10 +520,15 @@ impl Binder {
             && matches!(start, Bound::Unbounded)
             && matches!(end, Bound::Unbounded)
         {
-            eq_items.sort_by_key(|(attr, _)| table_desc.get_attr(*attr).primary_index().unwrap());
+            eq_items.sort_by_key(|(attr, _)| {
+                table_desc
+                    .get_attr(*attr)
+                    .primary_index()
+                    .unwrap_or_default()
+            });
             for (index, (attr, _)) in eq_items.iter().enumerate() {
                 if table_desc.get_attr(*attr).primary_index() != Some(index) {
-                    return Err(m_error!(
+                    return Err(mudu_error!(
                         ER::NotImplemented,
                         "select equality predicates on primary keys must cover a left prefix of the primary key"
                     ));
@@ -536,7 +541,7 @@ impl Binder {
         }
 
         if !eq_items.is_empty() {
-            return Err(m_error!(
+            return Err(mudu_error!(
                 ER::NotImplemented,
                 "mixed equality and range predicates are not implemented"
             ));
@@ -565,15 +570,20 @@ impl Binder {
         match self.bind_predicate_from(table_desc, predicates, params, param_index)? {
             BoundPredicate::KeyEq { mut key } => {
                 if key.len() != table_desc.key_indices().len() {
-                    return Err(m_error!(
+                    return Err(mudu_error!(
                         ER::NotImplemented,
                         "update/delete require a complete primary key predicate"
                     ));
                 }
-                key.sort_by_key(|(attr, _)| table_desc.get_attr(*attr).primary_index().unwrap());
+                key.sort_by_key(|(attr, _)| {
+                    table_desc
+                        .get_attr(*attr)
+                        .primary_index()
+                        .unwrap_or_default()
+                });
                 for (index, (attr, _)) in key.iter().enumerate() {
                     if table_desc.get_attr(*attr).primary_index() != Some(index) {
-                        return Err(m_error!(
+                        return Err(mudu_error!(
                             ER::NotImplemented,
                             "update/delete require one equality predicate for each primary key column"
                         ));
@@ -581,15 +591,15 @@ impl Binder {
                 }
                 Ok(key)
             }
-            BoundPredicate::KeyPrefixEq { .. } => Err(m_error!(
+            BoundPredicate::KeyPrefixEq { .. } => Err(mudu_error!(
                 ER::NotImplemented,
                 "update/delete require a complete primary key predicate"
             )),
-            BoundPredicate::True => Err(m_error!(
+            BoundPredicate::True => Err(mudu_error!(
                 ER::NotImplemented,
                 "full-table update/delete is not implemented"
             )),
-            BoundPredicate::KeyRange { .. } => Err(m_error!(
+            BoundPredicate::KeyRange { .. } => Err(mudu_error!(
                 ER::NotImplemented,
                 "range update/delete is not implemented"
             )),
@@ -648,14 +658,14 @@ impl Binder {
         let total = table_desc.fields().len();
         (0..total)
             .find(|attr| table_desc.get_attr(*attr).name() == name)
-            .ok_or_else(|| m_error!(ER::NoSuchElement, format!("cannot find column {}", name)))
+            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("cannot find column {}", name)))
     }
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Arc<TableDesc>> {
+    async fn get_table_by_name(&self, name: &str) -> RS<Arc<TableDesc>> {
         self.meta_mgr
             .get_table_by_name(name)
             .await?
-            .ok_or_else(|| m_error!(ER::NoSuchElement, format!("no such table {}", name)))
+            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("no such table {}", name)))
     }
 }
 
@@ -687,7 +697,7 @@ impl InferredKeyType {
 
 fn infer_textual_value_type(raw: &[u8]) -> RS<InferredKeyType> {
     let text = String::from_utf8(raw.to_vec())
-        .map_err(|e| m_error!(ER::DecodeErr, "partition bound text is not utf8", e))?;
+        .map_err(|e| mudu_error!(ER::Decode, "partition bound text is not utf8", e))?;
     let text = strip_text_literal_quotes(text.trim());
     if text.parse::<i64>().is_ok() {
         return Ok(InferredKeyType::I64);

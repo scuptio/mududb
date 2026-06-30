@@ -1,8 +1,13 @@
+//! JSON-facing wrapper around the async MuduDB client.
+//!
+//! Accepts and returns `serde_json::Value` bodies, converting to and from the
+//! universal value encoding used by MuduDB's KV and procedure APIs.
+
 use crate::client::async_client::{AsyncClient, AsyncClientImpl};
 use base64::Engine;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_binding::universal::uni_dat_value::UniDatValue;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_scalar_value::UniScalarValue;
@@ -16,21 +21,27 @@ use serde::Deserialize;
 use serde::de::{self, Deserializer};
 use serde_json::{Value, json};
 
+/// JSON wrapper around an async client.
+///
+/// `C` is the underlying client type (usually `AsyncClientImpl`).
 pub struct JsonClient<C> {
     inner: C,
 }
 
 impl<C> JsonClient<C> {
+    /// Wrap `inner` in a new `JsonClient`.
     pub fn new(inner: C) -> Self {
         Self { inner }
     }
 
+    /// Consume `self` and return the underlying client.
     pub fn into_inner(self) -> C {
         self.inner
     }
 }
 
 impl JsonClient<AsyncClientImpl> {
+    /// Connect to `addr` and wrap the resulting client.
     pub async fn connect(addr: &str) -> RS<Self> {
         Ok(Self::new(AsyncClientImpl::connect(addr).await?))
     }
@@ -40,9 +51,10 @@ impl<C> JsonClient<C>
 where
     C: AsyncClient,
 {
+    /// Send a SQL query or execute request encoded as JSON.
     pub async fn command(&mut self, request: Value) -> RS<Value> {
         let request = serde_json::from_value::<JsonCommandRequest>(request)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode json command request error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode json command request error", e))?;
         let client_request = ClientRequest::new(request.app_name, request.sql);
         let response = if request.kind == Some(CommandKind::Execute) {
             self.inner.execute(client_request).await?
@@ -52,9 +64,10 @@ where
         server_response_to_json(&response)
     }
 
+    /// Put a key-value item from a JSON request body.
     pub async fn put(&mut self, request: Value) -> RS<Value> {
         let request = serde_json::from_value::<JsonPutRequest>(request)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode json put request error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode json put request error", e))?;
         let response = self
             .inner
             .put(PutRequest::new(
@@ -66,9 +79,10 @@ where
         Ok(json!({ "ok": response.ok() }))
     }
 
+    /// Get a value by key from a JSON request body.
     pub async fn get(&mut self, request: Value) -> RS<Value> {
         let request = serde_json::from_value::<JsonGetRequest>(request)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode json get request error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode json get request error", e))?;
         let response = self
             .inner
             .get(GetRequest::new(
@@ -82,9 +96,10 @@ where
         }
     }
 
+    /// Scan a key range from a JSON request body.
     pub async fn range(&mut self, request: Value) -> RS<Value> {
         let request = serde_json::from_value::<JsonRangeRequest>(request)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode json range request error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode json range request error", e))?;
         let response = self
             .inner
             .range_scan(RangeScanRequest::new(
@@ -101,9 +116,10 @@ where
         Ok(Value::Array(items))
     }
 
+    /// Invoke a stored procedure from a JSON request body.
     pub async fn invoke(&mut self, request: Value) -> RS<Value> {
         let request = serde_json::from_value::<JsonInvokeRequest>(request)
-            .map_err(|e| m_error!(EC::DecodeErr, "decode json invoke request error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode json invoke request error", e))?;
         let response = self
             .inner
             .invoke_procedure(ProcedureInvokeRequest::new(
@@ -181,7 +197,7 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
     match value {
         Value::Null => Ok(UniDatValue::from_binary(
             serde_json::to_vec(&Value::Null)
-                .map_err(|e| m_error!(EC::EncodeErr, "encode null payload error", e))?,
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode null payload error", e))?,
         )),
         Value::Bool(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_bool(inner))),
         Value::Number(inner) => {
@@ -192,7 +208,10 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
             } else if let Some(value) = inner.as_f64() {
                 Ok(UniDatValue::from_scalar(UniScalarValue::from_f64(value)))
             } else {
-                Err(m_error!(EC::DecodeErr, "unsupported numeric json payload"))
+                Err(mudu_error!(
+                    ErrorCode::Decode,
+                    "unsupported numeric json payload"
+                ))
             }
         }
         Value::String(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_string(inner))),
@@ -206,27 +225,29 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
                 let encoded = object
                     .remove("base64")
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                    .ok_or_else(|| m_error!(EC::DecodeErr, "base64 payload must be a string"))?;
+                    .ok_or_else(|| {
+                        mudu_error!(ErrorCode::Decode, "base64 payload must be a string")
+                    })?;
                 return base64::engine::general_purpose::STANDARD
                     .decode(encoded)
                     .map(UniDatValue::from_binary)
-                    .map_err(|e| m_error!(EC::DecodeErr, "decode base64 payload error", e));
+                    .map_err(|e| mudu_error!(ErrorCode::Decode, "decode base64 payload error", e));
             }
             serde_json::to_vec(&Value::Object(object))
                 .map(UniDatValue::from_binary)
-                .map_err(|e| m_error!(EC::EncodeErr, "encode json object payload error", e))
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode json object payload error", e))
         }
     }
 }
 
 fn json_value_to_universal_bytes(value: Value) -> RS<Vec<u8>> {
     serde_json::to_vec(&json_value_to_uni_dat_value(value)?)
-        .map_err(|e| m_error!(EC::EncodeErr, "encode universal kv value error", e))
+        .map_err(|e| mudu_error!(ErrorCode::Encode, "encode universal kv value error", e))
 }
 
 fn decode_uni_dat_value(bytes: &[u8]) -> RS<UniDatValue> {
     serde_json::from_slice(bytes)
-        .map_err(|e| m_error!(EC::DecodeErr, "decode universal kv value error", e))
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "decode universal kv value error", e))
 }
 
 fn uni_dat_value_to_json_value(value: UniDatValue) -> RS<Value> {
@@ -272,15 +293,16 @@ fn decode_json_bytes(value: Value) -> RS<Vec<u8>> {
             let encoded = object
                 .remove("base64")
                 .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                .ok_or_else(|| m_error!(EC::DecodeErr, "base64 payload must be a string"))?;
+                .ok_or_else(|| mudu_error!(ErrorCode::Decode, "base64 payload must be a string"))?;
             return base64::engine::general_purpose::STANDARD
                 .decode(encoded)
-                .map_err(|e| m_error!(EC::DecodeErr, "decode base64 payload error", e));
+                .map_err(|e| mudu_error!(ErrorCode::Decode, "decode base64 payload error", e));
         }
         return serde_json::to_vec(&Value::Object(object))
-            .map_err(|e| m_error!(EC::EncodeErr, "encode json payload error", e));
+            .map_err(|e| mudu_error!(ErrorCode::Encode, "encode json payload error", e));
     }
-    serde_json::to_vec(&value).map_err(|e| m_error!(EC::EncodeErr, "encode json payload error", e))
+    serde_json::to_vec(&value)
+        .map_err(|e| mudu_error!(ErrorCode::Encode, "encode json payload error", e))
 }
 
 fn encode_json_bytes(bytes: &[u8]) -> RS<Value> {
@@ -466,31 +488,34 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn json_client_maps_command_requests() {
-        let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
-        let response = client
-            .command(json!({
-                "app_name": "demo",
-                "command": "select 1"
-            }))
-            .await
-            .unwrap();
-        assert_eq!(response["rows"], json!([["1"]]));
+    #[test]
+    fn json_client_maps_command_requests() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
+            let response = client
+                .command(json!({
+                    "app_name": "demo",
+                    "command": "select 1"
+                }))
+                .await
+                .unwrap();
+            assert_eq!(response["rows"], json!([["1"]]));
 
-        let response = client
-            .command(json!({
-                "app_name": "demo",
-                "sql": "delete from t",
-                "kind": "execute"
-            }))
-            .await
-            .unwrap();
-        assert_eq!(response["affected_rows"], json!(2));
+            let response = client
+                .command(json!({
+                    "app_name": "demo",
+                    "sql": "delete from t",
+                    "kind": "execute"
+                }))
+                .await
+                .unwrap();
+            assert_eq!(response["affected_rows"], json!(2));
 
-        let inner = client.into_inner();
-        assert_eq!(inner.last_query.unwrap().sql(), "select 1");
-        assert_eq!(inner.last_execute.unwrap().sql(), "delete from t");
+            let inner = client.into_inner();
+            assert_eq!(inner.last_query.unwrap().sql(), "select 1");
+            assert_eq!(inner.last_execute.unwrap().sql(), "delete from t");
+        })
+        .unwrap();
     }
 
     #[test]
@@ -510,87 +535,93 @@ mod tests {
         assert_eq!(value["rows"], json!([[null]]));
     }
 
-    #[tokio::test]
-    async fn json_client_maps_kv_and_invoke_payloads() {
-        let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
+    #[test]
+    fn json_client_maps_kv_and_invoke_payloads() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
 
-        let put = client
-            .put(json!({
-                "oid": {"h": 0, "l": 7},
-                "key": {"user": "u1"},
-                "value": {"score": 9}
-            }))
-            .await
-            .unwrap();
-        assert_eq!(put, json!({"ok": true}));
+            let put = client
+                .put(json!({
+                    "oid": {"h": 0, "l": 7},
+                    "key": {"user": "u1"},
+                    "value": {"score": 9}
+                }))
+                .await
+                .unwrap();
+            assert_eq!(put, json!({"ok": true}));
 
-        let get = client
-            .get(json!({
-                "oid": {"h": 0, "l": 7},
-                "key": {"user": "u1"}
-            }))
-            .await
-            .unwrap();
-        assert_eq!(get, json!("value-1"));
+            let get = client
+                .get(json!({
+                    "oid": {"h": 0, "l": 7},
+                    "key": {"user": "u1"}
+                }))
+                .await
+                .unwrap();
+            assert_eq!(get, json!("value-1"));
 
-        let range = client
-            .range(json!({
-                "oid": {"h": 0, "l": 7},
-                "start_key": "a",
-                "end_key": "z"
-            }))
-            .await
-            .unwrap();
-        assert_eq!(
-            range,
-            json!([
-                {"key": "a", "value": {"value": 1}},
-                {"key": {"base64": "/wA="}, "value": {"base64": "AQI="}}
-            ])
-        );
+            let range = client
+                .range(json!({
+                    "oid": {"h": 0, "l": 7},
+                    "start_key": "a",
+                    "end_key": "z"
+                }))
+                .await
+                .unwrap();
+            assert_eq!(
+                range,
+                json!([
+                    {"key": "a", "value": {"value": 1}},
+                    {"key": {"base64": "/wA="}, "value": {"base64": "AQI="}}
+                ])
+            );
 
-        let invoke = client
-            .invoke(json!({
-                "session_id": 7,
-                "procedure_name": "app/mod/proc",
-                "procedure_parameters": {"base64": "cGF5bG9hZA=="}
-            }))
-            .await
-            .unwrap();
-        assert_eq!(invoke, json!({"base64": "/wE="}));
+            let invoke = client
+                .invoke(json!({
+                    "session_id": 7,
+                    "procedure_name": "app/mod/proc",
+                    "procedure_parameters": {"base64": "cGF5bG9hZA=="}
+                }))
+                .await
+                .unwrap();
+            assert_eq!(invoke, json!({"base64": "/wE="}));
 
-        let inner = client.into_inner();
-        assert_eq!(
-            universal_bytes_to_json_value(inner.last_put.unwrap().key()).unwrap(),
-            json!({"user": "u1"})
-        );
-        assert_eq!(
-            universal_bytes_to_json_value(inner.last_get.unwrap().key()).unwrap(),
-            json!({"user": "u1"})
-        );
-        assert_eq!(
-            universal_bytes_to_json_value(inner.last_range.unwrap().start_key()).unwrap(),
-            json!("a")
-        );
-        assert_eq!(
-            inner.last_invoke.unwrap().procedure_parameters(),
-            b"payload"
-        );
+            let inner = client.into_inner();
+            assert_eq!(
+                universal_bytes_to_json_value(inner.last_put.unwrap().key()).unwrap(),
+                json!({"user": "u1"})
+            );
+            assert_eq!(
+                universal_bytes_to_json_value(inner.last_get.unwrap().key()).unwrap(),
+                json!({"user": "u1"})
+            );
+            assert_eq!(
+                universal_bytes_to_json_value(inner.last_range.unwrap().start_key()).unwrap(),
+                json!("a")
+            );
+            assert_eq!(
+                inner.last_invoke.unwrap().procedure_parameters(),
+                b"payload"
+            );
+        })
+        .unwrap();
     }
 
-    #[tokio::test]
-    async fn json_client_accepts_large_universal_oid() {
-        let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
-        let session_id = 312629621299694386177868034580325764009u128;
-        client
-            .put(json!({
-                "oid": serde_json::to_value(UniOid::from_oid(session_id)).unwrap(),
-                "key": "user-1",
-                "value": "value-1"
-            }))
-            .await
-            .unwrap();
-        let inner = client.into_inner();
-        assert_eq!(inner.last_put.unwrap().session_id(), session_id);
+    #[test]
+    fn json_client_accepts_large_universal_oid() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut client = JsonClient::new(MockAsyncIoUringTcpClient::new());
+            let session_id = 312629621299694386177868034580325764009u128;
+            client
+                .put(json!({
+                    "oid": serde_json::to_value(UniOid::from_oid(session_id)).unwrap(),
+                    "key": "user-1",
+                    "value": "value-1"
+                }))
+                .await
+                .unwrap();
+            let inner = client.into_inner();
+            assert_eq!(inner.last_put.unwrap().session_id(), session_id);
+        })
+        .unwrap();
     }
 }

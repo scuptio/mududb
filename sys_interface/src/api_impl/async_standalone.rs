@@ -6,6 +6,7 @@ use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
+/// Execute a query against the session.
 pub async fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -14,34 +15,42 @@ pub async fn mudu_query<R: Entity>(
     mudu_adapter::syscall::mudu_query_async(oid, sql, params).await
 }
 
+/// Execute a command against the session.
 pub async fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     mudu_adapter::syscall::mudu_command_async(oid, sql, params).await
 }
 
+/// Execute a batch of statements against the session.
 pub async fn mudu_batch(_oid: OID, _sql: &dyn SQLStmt, _params: &dyn SQLParams) -> RS<u64> {
     mudu_adapter::syscall::mudu_batch_async(_oid, _sql, _params).await
 }
 
+/// Open a new session against the session.
 pub async fn mudu_open() -> RS<OID> {
     mudu_adapter::syscall::mudu_open_async(0).await
 }
 
+/// Open a new session with arguments against the session.
 pub async fn mudu_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
     mudu_adapter::syscall::mudu_open_argv_async(argv).await
 }
 
+/// Close a session against the session.
 pub async fn mudu_close(session_id: OID) -> RS<()> {
     mudu_adapter::syscall::mudu_close_async(session_id).await
 }
 
+/// Get a value by key against the session.
 pub async fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     mudu_adapter::syscall::mudu_get_async(session_id, key).await
 }
 
+/// Store a key-value pair against the session.
 pub async fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     mudu_adapter::syscall::mudu_put_async(session_id, key, value).await
 }
 
+/// Scan a key range against the session.
 pub async fn mudu_range(
     session_id: OID,
     start_key: &[u8],

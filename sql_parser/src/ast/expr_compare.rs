@@ -1,3 +1,5 @@
+//! Comparison expression AST node.
+
 use std::fmt::{Debug, Formatter};
 
 use crate::ast::ast_node::ASTNode;
@@ -8,6 +10,7 @@ use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::ValueCompare;
 
 // currently, we only support a ExprField compare with ExprLiteral
+/// Comparison expression (`=`, `<`, `>`, etc.) with left and right operands.
 #[derive(Clone)]
 pub struct ExprCompare {
     op: ValueCompare,
@@ -16,22 +19,29 @@ pub struct ExprCompare {
 }
 
 impl ExprCompare {
+    /// Create a new comparison expression.
     pub fn new(op: ValueCompare, left: ExprItem, right: ExprItem) -> Self {
         Self { op, left, right }
     }
 
+    /// Return the comparison operator.
     pub fn op(&self) -> &ValueCompare {
         &self.op
     }
 
+    /// Return the left operand.
     pub fn left(&self) -> &ExprItem {
         &self.left
     }
 
+    /// Return the right operand.
     pub fn right(&self) -> &ExprItem {
         &self.right
     }
 
+    /// If this comparison is `field OP literal`, return the normalized triple.
+    ///
+    /// Reverses the operator when the literal appears on the left side.
     pub fn expr_field_op_literal(&self) -> Option<(ExprName, ExprLiteral, ValueCompare)> {
         match (&self.left, &self.right) {
             (ExprItem::ItemName(_l), ExprItem::ItemValue(ExprValue::ValueLiteral(_r))) => {}
@@ -67,6 +77,10 @@ impl ASTNode for ExprCompare {}
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+
     use super::ExprCompare;
     use crate::ast::expr_item::{ExprItem, ExprValue};
     use crate::ast::expr_literal::ExprLiteral;
@@ -92,7 +106,7 @@ mod tests {
         let (field, literal, op) = cmp.expr_field_op_literal().unwrap();
 
         assert_eq!(field.name(), "id");
-        assert_eq!(literal.dat_type().dat_internal().to_i32(), 7);
+        assert_eq!(literal.dat_type().unwrap().dat_internal().to_i32(), 7);
         assert!(matches!(op, ValueCompare::LE));
     }
 

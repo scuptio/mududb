@@ -2,22 +2,23 @@
 name = "mudu_type"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [features]
 test = []
 
+[lints]
+workspace = true
+
 [dependencies]
-scc = { workspace = true }
 byteorder = { workspace = true }
 serde = { workspace = true }
-serde_repr = {workspace = true}
 serde_json = { workspace = true }
 lazy_static = { workspace = true }
 paste = { workspace = true }
 mudu = { workspace = true }
-hex = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-console-subscriber = { workspace = true}
 arbitrary = { workspace = true }
 test_utils = { workspace = true }

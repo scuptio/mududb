@@ -1,9 +1,9 @@
 // Example hyper http server
 // https://github.com/hyperium/hyper/blob/master/examples/echo.rs
 
-use std::net::SocketAddr;
 #[cfg(feature = "debug_trace")]
-use std::net::TcpListener as StdTcpListener;
+use mudu_sys::net::sync::StdTcpListener;
+use std::net::SocketAddr;
 
 #[cfg(feature = "debug_trace")]
 use bytes::Bytes;
@@ -28,19 +28,19 @@ use scc::{HashIndex, HashSet};
 
 #[cfg(feature = "debug_trace")]
 use crate::dump_task_trace;
+#[cfg(feature = "debug_trace")]
+use crate::notifier::Notifier;
 use crate::notifier::NotifyWait;
 #[cfg(feature = "debug_trace")]
 use crate::task_async::CurrentThreadTaskRuntime;
-#[cfg(feature = "debug_trace")]
-use crate::notifier::Notifier;
 use mudu::common::result::RS;
 #[cfg(feature = "debug_trace")]
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
 #[cfg(feature = "debug_trace")]
-use mudu::m_error;
+use mudu::mudu_error;
 #[cfg(feature = "debug_trace")]
-use mudu_sys::tokio::net::TcpListener;
+use mudu_sys::net::AsyncTcpListener;
 #[cfg(feature = "debug_trace")]
 use mudu_sys::tokio::task::JoinSet;
 #[cfg(feature = "debug_trace")]
@@ -97,7 +97,7 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
 }
 
 #[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MError> {
+pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MuduError> {
     async_debug_serve_until_with_ready(addr, stop, None).await
 }
 
@@ -106,20 +106,20 @@ pub async fn async_debug_serve_until_with_ready(
     addr: SocketAddr,
     stop: NotifyWait,
     ready: Option<Notifier>,
-) -> Result<(), MError> {
+) -> Result<(), MuduError> {
     crate::scoped_task_trace!();
     let port = addr.port();
     let r = SERVER.insert_sync(port);
     if r.is_err() {
-        return Err(m_error!(EC::ExistingSuchElement, ""));
+        return Err(mudu_error!(ErrorCode::EntityAlreadyExists, ""));
     }
 
     // Bind to the port and listen for incoming TCP connections
-    let listener = match TcpListener::bind(addr).await {
+    let listener = match AsyncTcpListener::bind(addr).await {
         Ok(listener) => listener,
         Err(e) => {
             let _ = SERVER.remove_sync(&port);
-            return Err(m_error!(EC::IOErr, "bind to address error", e));
+            return Err(mudu_error!(e.ec(), "bind to address error", e));
         }
     };
     if let Some(ready) = ready {
@@ -130,10 +130,10 @@ pub async fn async_debug_serve_until_with_ready(
 
 #[cfg(feature = "debug_trace")]
 async fn async_debug_serve_with_tokio_listener(
-    listener: TcpListener,
+    listener: AsyncTcpListener,
     port: u16,
     stop: NotifyWait,
-) -> Result<(), MError> {
+) -> Result<(), MuduError> {
     let mut tasks = JoinSet::new();
     loop {
         let accepted = mudu_sys::tokio::select! {
@@ -148,7 +148,7 @@ async fn async_debug_serve_with_tokio_listener(
                 tasks.abort_all();
                 while tasks.join_next().await.is_some() {}
                 let _ = SERVER.remove_sync(&port);
-                return Err(m_error!(EC::IOErr, "accept error", e));
+                return Err(mudu_error!(e.ec(), "accept error", e));
             }
         };
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
@@ -174,28 +174,30 @@ async fn async_debug_serve_with_tokio_listener(
 }
 
 #[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MError> {
+pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MuduError> {
     async_debug_serve_until(addr, NotifyWait::new()).await
 }
 
 #[cfg(not(feature = "debug_trace"))]
-pub async fn async_debug_serve_until(_addr: SocketAddr, _stop: NotifyWait) -> Result<(), MError> {
+pub async fn async_debug_serve_until(
+    _addr: SocketAddr,
+    _stop: NotifyWait,
+) -> Result<(), MuduError> {
     Ok(())
 }
 
 #[cfg(not(feature = "debug_trace"))]
-pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MError> {
+pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MuduError> {
     Ok(())
 }
 
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve(canceler: NotifyWait, port: u16) {
-    let async_debug_serve =
-        async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
+    let async_debug_serve = async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
     let runtime = CurrentThreadTaskRuntime::new().unwrap();
     let join = runtime
         .local()
-        .spawn(canceler, "debug_server", async_debug_serve)
+        .spawn(canceler.as_waiter(), "debug_server", async_debug_serve)
         .unwrap();
     runtime.block_on(async {
         let _ = join.await;
@@ -212,7 +214,7 @@ pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Noti
     let runtime = CurrentThreadTaskRuntime::new().unwrap();
     let join = runtime
         .local()
-        .spawn(canceler, "debug_server", async_debug_serve)
+        .spawn(canceler.as_waiter(), "debug_server", async_debug_serve)
         .unwrap();
     runtime.block_on(async {
         let _ = join.await;
@@ -220,28 +222,24 @@ pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Noti
 }
 
 #[cfg(feature = "debug_trace")]
-pub fn debug_serve_with_listener(
-    canceler: NotifyWait,
-    listener: StdTcpListener,
-    ready: Notifier,
-) {
+pub fn debug_serve_with_listener(canceler: NotifyWait, listener: StdTcpListener, ready: Notifier) {
     let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
     let canceler_for_future = canceler.clone();
     let async_debug_serve = async move {
         if let Err(e) = listener.set_nonblocking(true) {
             let _ = SERVER.remove_sync(&port);
-            return Err(m_error!(
-                EC::IOErr,
+            return Err(mudu_error!(
+                e.ec(),
                 "set debug server listener nonblocking error",
                 e
             ));
         }
-        let listener = match TcpListener::from_std(listener) {
+        let listener = match AsyncTcpListener::from_std(listener.into_inner()) {
             Ok(listener) => listener,
             Err(e) => {
                 let _ = SERVER.remove_sync(&port);
-                return Err(m_error!(
-                    EC::IOErr,
+                return Err(mudu_error!(
+                    e.ec(),
                     "create tokio listener from std listener error",
                     e
                 ));
@@ -253,7 +251,7 @@ pub fn debug_serve_with_listener(
     let runtime = CurrentThreadTaskRuntime::new().unwrap();
     let join = runtime
         .local()
-        .spawn(canceler, "debug_server", async_debug_serve)
+        .spawn(canceler.as_waiter(), "debug_server", async_debug_serve)
         .unwrap();
     runtime.block_on(async {
         let _ = join.await;

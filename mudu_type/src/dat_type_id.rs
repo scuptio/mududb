@@ -158,9 +158,7 @@ impl DatTypeID {
 
     // Parameter function accessors
     pub fn fn_param_default(&self) -> Option<FnParamDefault> {
-        self.opt_fn_param()
-            .as_ref()
-            .and_then(|param| param.default.clone())
+        self.opt_fn_param().as_ref().and_then(|param| param.default)
     }
 
     // Type classification
@@ -183,16 +181,16 @@ impl DatTypeID {
     }
 
     pub fn has_param(&self) -> bool {
-        match self {
+        !matches!(
+            self,
             DatTypeID::I32
-            | DatTypeID::I64
-            | DatTypeID::I128
-            | DatTypeID::F32
-            | DatTypeID::F64
-            | DatTypeID::U128
-            | DatTypeID::Date => false,
-            _ => true,
-        }
+                | DatTypeID::I64
+                | DatTypeID::I128
+                | DatTypeID::F32
+                | DatTypeID::F64
+                | DatTypeID::U128
+                | DatTypeID::Date
+        )
     }
 
     // Test/arbitrary function accessors (conditionally compiled)
@@ -214,5 +212,98 @@ impl DatTypeID {
     #[cfg(any(test, feature = "test"))]
     pub fn fn_arb_printable(&self) -> FnArbPrintable {
         self.fn_arbitrary().value_print
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DatTypeID;
+    use crate::dt_kind::DTKind;
+
+    #[test]
+    fn to_u32_from_u32_roundtrip_for_all_variants() {
+        let variants = [
+            DatTypeID::I32,
+            DatTypeID::I64,
+            DatTypeID::F32,
+            DatTypeID::F64,
+            DatTypeID::String,
+            DatTypeID::U128,
+            DatTypeID::I128,
+            DatTypeID::Numeric,
+            DatTypeID::Date,
+            DatTypeID::Time,
+            DatTypeID::Timestamp,
+            DatTypeID::TimestampTz,
+            DatTypeID::Array,
+            DatTypeID::Record,
+            DatTypeID::Binary,
+        ];
+        for v in variants {
+            assert_eq!(
+                DatTypeID::from_u32(v.to_u32()),
+                v,
+                "roundtrip failed for {v:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_matches_binary() {
+        assert_eq!(DatTypeID::max(), DatTypeID::Binary.to_u32());
+    }
+
+    #[test]
+    fn is_scalar_type_true_for_scalars_false_for_complex() {
+        assert!(DatTypeID::I32.is_scalar_type());
+        assert!(DatTypeID::I64.is_scalar_type());
+        assert!(DatTypeID::F32.is_scalar_type());
+        assert!(DatTypeID::F64.is_scalar_type());
+        assert!(DatTypeID::String.is_scalar_type());
+        assert!(DatTypeID::U128.is_scalar_type());
+        assert!(DatTypeID::I128.is_scalar_type());
+        assert!(DatTypeID::Numeric.is_scalar_type());
+        assert!(DatTypeID::Date.is_scalar_type());
+        assert!(DatTypeID::Time.is_scalar_type());
+        assert!(DatTypeID::Timestamp.is_scalar_type());
+        assert!(DatTypeID::TimestampTz.is_scalar_type());
+        assert!(!DatTypeID::Array.is_scalar_type());
+        assert!(!DatTypeID::Record.is_scalar_type());
+        assert!(!DatTypeID::Binary.is_scalar_type());
+    }
+
+    #[test]
+    fn has_param_matches_expectations() {
+        let has_param = [
+            DatTypeID::String,
+            DatTypeID::Numeric,
+            DatTypeID::Time,
+            DatTypeID::Timestamp,
+            DatTypeID::TimestampTz,
+        ];
+        let no_param = [
+            DatTypeID::I32,
+            DatTypeID::I64,
+            DatTypeID::I128,
+            DatTypeID::F32,
+            DatTypeID::F64,
+            DatTypeID::U128,
+            DatTypeID::Date,
+        ];
+        for v in has_param {
+            assert!(v.has_param(), "{v:?} should have parameter");
+        }
+        for v in no_param {
+            assert!(!v.has_param(), "{v:?} should not have parameter");
+        }
+    }
+
+    #[test]
+    fn dat_kind_returns_correct_kind() {
+        assert_eq!(DatTypeID::I32.dat_kind(), DTKind::Scalar);
+        assert_eq!(DatTypeID::String.dat_kind(), DTKind::Scalar);
+        assert_eq!(DatTypeID::Array.dat_kind(), DTKind::Array);
+        assert_eq!(DatTypeID::Record.dat_kind(), DTKind::Record);
+        assert_eq!(DatTypeID::Binary.dat_kind(), DTKind::Binary);
     }
 }

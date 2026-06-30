@@ -6,6 +6,7 @@ use mudu::common::result::RS;
 use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
 use std::sync::Arc;
 
+/// Trait implemented by application managers.
 #[async_trait(?Send)]
 pub trait AppMgr: Send + Sync {
     /// Install one application package from its `.mpk` binary payload.

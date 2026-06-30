@@ -1,4 +1,4 @@
-use std::net::TcpListener;
+use mudu_sys::net::sync::StdTcpListener;
 
 use mudu::common::result::RS;
 
@@ -9,7 +9,7 @@ use crate::server::server_runtime_deps::ServerRuntimeDeps;
 pub struct ServerLaunch {
     cfg: ServerCfg,
     deps: ServerRuntimeDeps,
-    prebound_listener: Option<TcpListener>,
+    prebound_listeners: Vec<Option<StdTcpListener>>,
 }
 
 impl ServerLaunch {
@@ -17,7 +17,7 @@ impl ServerLaunch {
         Self {
             cfg,
             deps,
-            prebound_listener: None,
+            prebound_listeners: Vec::new(),
         }
     }
 
@@ -26,8 +26,22 @@ impl ServerLaunch {
         Ok(Self::new(cfg, deps))
     }
 
-    pub fn with_prebound_listener(mut self, listener: TcpListener) -> Self {
-        self.prebound_listener = Some(listener);
+    /// Supplies a single pre-bound listener for worker 0.
+    ///
+    /// For multi-port configurations use [`Self::with_prebound_listeners`] so
+    /// that every worker receives its own reserved listener.
+    pub fn with_prebound_listener(mut self, listener: StdTcpListener) -> Self {
+        self.prebound_listeners.push(Some(listener));
+        self
+    }
+
+    /// Supplies one pre-bound listener per worker.
+    ///
+    /// The vector index corresponds to the worker id; worker `i` will receive
+    /// `listeners[i]`. This avoids races when multiple workers need contiguous
+    /// ports in multi-port mode.
+    pub fn with_prebound_listeners(mut self, listeners: Vec<StdTcpListener>) -> Self {
+        self.prebound_listeners = listeners.into_iter().map(Some).collect();
         self
     }
 
@@ -39,8 +53,12 @@ impl ServerLaunch {
         &self.deps
     }
 
-    pub fn take_prebound_listener(&mut self) -> Option<TcpListener> {
-        self.prebound_listener.take()
+    /// Removes and returns the pre-bound listener for `worker_id`, if one was
+    /// supplied.
+    pub fn take_prebound_listener(&mut self, worker_id: usize) -> Option<StdTcpListener> {
+        self.prebound_listeners
+            .get_mut(worker_id)
+            .and_then(Option::take)
     }
 }
 

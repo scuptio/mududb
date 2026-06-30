@@ -1,5 +1,7 @@
 # YCSB Example
 
+> This is a **benchmark example**, not a beginner tutorial. If you are new to Mudu Procedures, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First Procedure tutorial](../../doc/en/your_first_procedure.md).
+
 This example provides a YCSB-style key/value benchmark on top of the Mudu key/value syscall API.
 
 It contains:
@@ -7,6 +9,15 @@ It contains:
 - synchronous procedure implementations for YCSB operations
 - async generated procedure implementations for wasm packaging
 - a native benchmark runner for local execution through `sys_interface` standalone adapter
+
+## Dependency checklist
+
+Before building, make sure you have:
+
+- [ ] `rustup` + `cargo` + `wasm32-wasip2` target
+- [ ] `cargo-make`
+- [ ] `python3` with `tomli-w` and `toml`
+- [ ] `mgen`, `mtp`, `mpk`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 ## Target Docs
 

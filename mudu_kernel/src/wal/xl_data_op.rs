@@ -89,3 +89,83 @@ impl XLWrite {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
+    use super::*;
+
+    fn sample_insert() -> XLInsert {
+        XLInsert {
+            table_id: 1,
+            partition_id: 2,
+            tuple_id: 3,
+            key: vec![4],
+            value: vec![5, 6],
+        }
+    }
+
+    fn sample_update() -> XLUpdate {
+        XLUpdate {
+            table_id: 11,
+            partition_id: 12,
+            tuple_id: 13,
+            key: vec![14],
+            delta: vec![15, 16],
+        }
+    }
+
+    fn sample_delete() -> XLDelete {
+        XLDelete {
+            table_id: 21,
+            partition_id: 22,
+            tuple_id: 23,
+            key: vec![24],
+        }
+    }
+
+    #[test]
+    fn xl_insert_serializes_and_deserializes() {
+        let orig = sample_insert();
+        let encoded = rmp_serde::to_vec(&orig).unwrap();
+        let decoded: XLInsert = rmp_serde::from_slice(&encoded).unwrap();
+        assert_eq!(orig, decoded);
+    }
+
+    #[test]
+    fn xl_update_serializes_and_deserializes() {
+        let orig = sample_update();
+        let encoded = rmp_serde::to_vec(&orig).unwrap();
+        let decoded: XLUpdate = rmp_serde::from_slice(&encoded).unwrap();
+        assert_eq!(orig, decoded);
+    }
+
+    #[test]
+    fn xl_delete_serializes_and_deserializes() {
+        let orig = sample_delete();
+        let encoded = rmp_serde::to_vec(&orig).unwrap();
+        let decoded: XLDelete = rmp_serde::from_slice(&encoded).unwrap();
+        assert_eq!(orig, decoded);
+    }
+
+    #[test]
+    fn xl_write_table_id_returns_embedded_table_id() {
+        assert_eq!(XLWrite::Insert(sample_insert()).table_id(), 1);
+        assert_eq!(XLWrite::Update(sample_update()).table_id(), 11);
+        assert_eq!(XLWrite::Delete(sample_delete()).table_id(), 21);
+    }
+
+    #[test]
+    fn xl_write_partition_id_returns_embedded_partition_id() {
+        assert_eq!(XLWrite::Insert(sample_insert()).partition_id(), 2);
+        assert_eq!(XLWrite::Update(sample_update()).partition_id(), 12);
+        assert_eq!(XLWrite::Delete(sample_delete()).partition_id(), 22);
+    }
+}

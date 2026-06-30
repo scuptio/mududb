@@ -1,11 +1,11 @@
 use mududb::common::result::RS;
-use mududb::error::ec::EC;
-use mududb::m_error;
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
 
 pub fn require_positive(name: &str, value: i32) -> RS<()> {
     if value <= 0 {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!("{name} must be positive, got {value}")
         ));
     }
@@ -37,14 +37,14 @@ pub fn validate_order_lines(
     quantities: &[i32],
 ) -> RS<()> {
     if item_ids.is_empty() {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             "new_order requires at least one item"
         ));
     }
     if item_ids.len() != supplier_warehouse_ids.len() {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!(
                 "item_ids and supplier_warehouse_ids length mismatch: {} != {}",
                 item_ids.len(),
@@ -53,8 +53,8 @@ pub fn validate_order_lines(
         ));
     }
     if item_ids.len() != quantities.len() {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!(
                 "item_ids and quantities length mismatch: {} != {}",
                 item_ids.len(),

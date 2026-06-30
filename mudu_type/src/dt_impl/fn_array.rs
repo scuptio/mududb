@@ -38,7 +38,7 @@ pub fn fn_array_in_json(json: &JsonValue, ty: &DatType) -> Result<DatValue, TyEr
     let arr_elem_ty_id = arr_elem_ty.dat_type_id();
     let mut value_array = Vec::with_capacity(array.len());
     for v in array.iter() {
-        let dat_value = arr_elem_ty_id.fn_input_json()(v, &arr_elem_ty)?;
+        let dat_value = arr_elem_ty_id.fn_input_json()(v, arr_elem_ty)?;
         value_array.push(dat_value);
     }
     Ok(DatValue::from_array(value_array))
@@ -51,7 +51,7 @@ pub fn fn_array_out_json(v: &DatValue, dt: &DatType) -> Result<DatJson, TyErr> {
     let arr_elem_ty_id = arr_elem_ty.dat_type_id();
     let mut vec_json_value = Vec::with_capacity(datum_array.len());
     for v in datum_array.iter() {
-        let dat_value = arr_elem_ty_id.fn_output_json()(v, &arr_elem_ty)?;
+        let dat_value = arr_elem_ty_id.fn_output_json()(v, arr_elem_ty)?;
         vec_json_value.push(dat_value.into_json_value());
     }
     Ok(DatJson::from(JsonValue::Array(vec_json_value)))
@@ -94,7 +94,7 @@ pub fn fn_array_out_msgpack(v: &DatValue, ty: &DatType) -> Result<MsgPackValue, 
     let mut vec = Vec::with_capacity(array.len());
     let ty_inner = param.dat_type();
     for v in array.iter() {
-        let msg_pack_value = ty_inner.dat_type_id().fn_output_msg_pack()(v, &ty_inner)?;
+        let msg_pack_value = ty_inner.dat_type_id().fn_output_msg_pack()(v, ty_inner)?;
         vec.push(msg_pack_value);
     }
     Ok(MsgPackValue::Array(vec))
@@ -130,7 +130,7 @@ fn handle_datum_array_recv(
     let mut offset = 0u32;
     for _i in 0..n {
         let (s, bytes) = dat_param.dat_type_id().fn_recv()(&binary[offset as usize..], dat_param)?;
-        vec.push(s.into());
+        vec.push(s);
         offset += bytes;
     }
     Ok(())
@@ -138,10 +138,7 @@ fn handle_datum_array_recv(
 
 pub fn fn_array_send(dat_value: &DatValue, dat_type: &DatType) -> Result<DatBinary, TyErr> {
     let len = fn_dat_output_len(dat_value, dat_type)?;
-    let mut vec = Vec::with_capacity(len as usize);
-    unsafe {
-        vec.set_len(len as usize);
-    }
+    let mut vec = vec![0; len as usize];
     let _ = fn_array_send_to(dat_value, dat_type, &mut vec)?;
     Ok(DatBinary::from(vec))
 }

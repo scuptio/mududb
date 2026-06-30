@@ -1,12 +1,12 @@
+use mudu_sys::sync::SMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::schema_table::SchemaTable;
@@ -29,16 +29,20 @@ impl TestMetaMgr {
 
 #[async_trait]
 impl MetaMgr for TestMetaMgr {
+    async fn initialize(&self) -> RS<()> {
+        Ok(())
+    }
+
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         self.tables
             .lock()
             .unwrap()
             .get(&oid)
             .cloned()
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such table {}", oid)))
+            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, format!("no such table {}", oid)))
     }
 
-    async fn get_table_by_name(&self, name: &String) -> RS<Option<Arc<TableDesc>>> {
+    async fn get_table_by_name(&self, name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(self
             .tables
             .lock()

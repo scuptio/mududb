@@ -1,4 +1,10 @@
+//! `database::test_command_in` module.
+#![allow(missing_docs)]
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use crate::tuple::datum_desc::DatumDesc;
     use mudu::common::serde_utils::{deserialize_sized_from, serialize_sized_to_vec};

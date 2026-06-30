@@ -1,15 +1,12 @@
-mod assemblyscript;
-mod mtp;
-mod procedure_shim;
-mod rust;
-mod test_mtp;
+//! Binary entry point for the `mtp` command-line tool.
 
-use crate::mtp::main_inner;
+use mudu_transpiler::mtp::main_inner;
 use std::error::Error;
 
-/// Mudu Transpiler (mtp) - A tool to transpile source code to Mudu procedure
-/// Supports: AssemblyScript, C#, Golang, Python, Rust
+/// Mudu Transpiler (`mtp`) - transpile source code to Mudu procedures.
+///
+/// Supports: AssemblyScript and Rust.
 fn main() -> Result<(), Box<dyn Error>> {
-    main_inner(std::env::args_os()).map_err(|e| Box::new(e))?;
+    main_inner(mudu_sys::env_var::args_os())?;
     Ok(())
 }

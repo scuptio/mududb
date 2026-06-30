@@ -9,21 +9,22 @@ procedures compile to WebAssembly (WASM) and execute natively within MuduDB.
 ## Supported Languages
 
 - AssemblyScript
-- C# (in progress)
-- Golang (in progress)
-- Python (in progress)
-- Rust (currently)
+- Rust
 
 ## AssemblyScript procedures
 
-AssemblyScript procedures are discovered with a `/**mudu-proc*/` marker and must use the common shim signature:
+AssemblyScript procedures are discovered with a `/**mudu-proc*/` marker. The first parameter must be `Oid`; subsequent parameters are scalar procedure arguments. The return type must be a scalar or `Result<T>`:
 
 ```ts
 /**mudu-proc*/
-export function transfer(id: Oid, values: ValueList): ValueList {
-  return values;
+export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
+  return Result.ok<i64>(0);
 }
 ```
+
+Supported scalar parameter and return types: `bool`, `i64`, `f64`, `string`, `Uint8Array`/`bytes`, and `Oid`. When the return type is `Result<T>`, errors are converted to a `MuduResult<ValueList>` by the generated adapter.
+
+> Implementation reference: `mudu_transpiler/src/assemblyscript/parser.rs`, `mudu_transpiler/src/assemblyscript/tests.rs`.
 
 `mtp --input procedure.ts --output procedure.gen.ts assembly-script` writes:
 
@@ -35,9 +36,9 @@ export function transfer(id: Oid, values: ValueList): ValueList {
 
 ### 1. Multi-Language Input
 
-- Write procedures in familiar languages
+- Write procedures in Rust or AssemblyScript
 
-- Consistent MuduDB API across all languages
+- Consistent MuduDB API across supported languages
 
 ### 2. Async Transformation (Rust)
 
@@ -60,9 +61,6 @@ Usage: mtp [OPTIONS] --input <INPUT> --output <OUTPUT> <COMMAND>
 
 Commands:
   rust             Transpile Rust source code
-  c-sharp          Transpile C# source code
-  python           Transpile Python source code
-  golang           Transpile Go source code
   assembly-script  Transpile AssemblyScript source code
   help             Print this message or the help of the given subcommand(s)
 

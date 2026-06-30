@@ -1,8 +1,8 @@
 use crate::dat_type::DatType;
 use crate::dat_type_id::DatTypeID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use serde::{Deserialize, Serialize};
 
 impl DTInfo {
@@ -18,7 +18,7 @@ impl DTInfo {
     }
     pub fn to_dat_type(&self) -> RS<DatType> {
         let ty = DatType::from_info(self)
-            .map_err(|_e| m_error!(EC::TypeErr, "parse parameter error"))?;
+            .map_err(|_e| mudu_error!(ErrorCode::TypeConversionFailed, "parse parameter error"))?;
         Ok(ty)
     }
 }

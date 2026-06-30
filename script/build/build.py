@@ -347,7 +347,7 @@ build.py --package --package-list cfg.json      # Build packages from a custom p
     )
     parser.add_argument(
         "-t", "--toolchain",
-        help="Rust toolchain to use [default: nightly]"
+        help="Rust toolchain to use [default: stable]"
     )
     parser.add_argument(
         "-c", "--clean",
@@ -405,7 +405,7 @@ class BuildScript:
         self.verbose = self.args.verbose
         self.build_features = ""
 
-        self.rust_toolchain = "nightly"
+        self.rust_toolchain = "stable"
         if len(sys.argv) == 1:
             self.toggle_build_project = True
             self.toggle_run_tests = True

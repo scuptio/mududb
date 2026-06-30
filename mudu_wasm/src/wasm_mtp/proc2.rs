@@ -1,5 +1,5 @@
-use mududb::common::result::RS;
 use mududb::common::id::OID;
+use mududb::common::result::RS;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 use mududb::types::datum::{Datum, DatumDyn};
@@ -47,8 +47,8 @@ INSERT INTO wallets
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
-        let value = row.to_value(Wallets::dat_type())?;
-        let s = value.to_textual(Wallets::dat_type())?;
+        let value = row.to_value(&Wallets::dat_type())?;
+        let s = value.to_textual(&Wallets::dat_type())?;
         result.push_str(&s);
         result.push('\n');
     }
@@ -103,12 +103,11 @@ pub mod object {
     #[allow(unused)]
     impl Wallets {
         pub fn new(user_id: Option<i32>, balance: Option<i32>, updated_at: Option<i32>) -> Self {
-            let s = Self {
+            Self {
                 user_id,
                 balance,
                 updated_at,
-            };
-            s
+            }
         }
 
         pub fn set_user_id(&mut self, user_id: i32) {
@@ -137,11 +136,11 @@ pub mod object {
     }
 
     impl Datum for Wallets {
-        fn dat_type() -> &'static DatType {
-            lazy_static! {
-                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Wallets>();
-            }
-            &DAT_TYPE
+        fn dat_type() -> DatType {
+            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+            ONCE_LOCK
+                .get_or_init(entity_utils::entity_dat_type::<Wallets>)
+                .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
@@ -181,12 +180,11 @@ pub mod object {
 
     impl Entity for Wallets {
         fn new_empty() -> Self {
-            let s = Self {
+            Self {
                 user_id: None,
                 balance: None,
                 updated_at: None,
-            };
-            s
+            }
         }
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
@@ -269,12 +267,12 @@ pub mod object {
     impl AttrValue<i32> for AttrUserId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -291,12 +289,12 @@ pub mod object {
     impl AttrValue<i32> for AttrBalance {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -313,12 +311,12 @@ pub mod object {
     impl AttrValue<i32> for AttrUpdatedAt {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {

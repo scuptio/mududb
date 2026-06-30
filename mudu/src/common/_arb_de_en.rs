@@ -18,9 +18,6 @@ pub fn _fuzz_decode_and_encode<'a, T: Arbitrary<'a> + Decode + Encode + Eq + Deb
         let mut b = Vec::new();
         t.encode(&mut b).unwrap();
         let _size = t.size().unwrap();
-        if _size != b.len() {
-            let _ = t.size().unwrap();
-        }
 
         assert_eq!(b.len(), _size);
         let _r = T::decode(&mut (b.clone(), 0));
@@ -34,7 +31,7 @@ pub fn _fuzz_decode_and_encode<'a, T: Arbitrary<'a> + Decode + Encode + Eq + Deb
 
         assert_eq!(t, _t);
 
-        if u.len() == 0 {
+        if u.is_empty() {
             break;
         }
     }

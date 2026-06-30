@@ -4,6 +4,8 @@
 //
 // sequence index in array of SEQ type
 
+//! Auto-generated tree-sitter sequence index constants.
+
 pub const _LET_CHAIN_PREC_LEFT_CHOICE_SEQ_STRING: usize = 1;
 pub const _LET_CHAIN_PREC_LEFT_CHOICE_SEQ_SYMBOL_0: usize = 0;
 pub const _LET_CHAIN_PREC_LEFT_CHOICE_SEQ_SYMBOL_2: usize = 2;

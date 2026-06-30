@@ -286,7 +286,7 @@ lang="rust"
 
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> &'static DatType;
+    fn dat_type() -> DatType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
@@ -472,7 +472,7 @@ Mudu 的强类型 API 提供了：
 fn prepare_training_data(oid: OID) -> RS<()> {
     mudu_command(oid,
         sql_stmt!("..."),
-        sql_param!(&[]))?;
+        sql_params!(&()))?;
     // Further processing...
 }
 ```
@@ -484,23 +484,20 @@ fn prepare_training_data(oid: OID) -> RS<()> {
 充分利用完整的编程语言生态。
 当前你可以使用任意 Rust crate，未来也可以扩展到其他语言生态。
 
-例如，你可以使用 `uuid` 和 `chrono` 这两个 crate：
+例如，可以使用 `mududb` 导出的系统随机数和时间辅助函数：
 
 ```rust
-use chrono::Utc;
-use uuid::Uuid;
-
 /**mudu-proc**/
 fn create_order(oid: OID, user_id: i32) -> RS<String> {
     // Do something ....
 
-    let order_id = Uuid::new_v4().to_string();
-    let created_at = Utc::now().naive_utc();
+    let order_id = mududb::sys::random::next_uuid_v4_string();
+    let created_at = mududb::sys::time::utc_now().timestamp();
     
     mudu_command(oid,
         sql_stmt!("INSERT INTO orders (id, user_id, created_at) 
                    VALUES (?, ?, ?)"),
-        sql_param!(&[&order_id, &user_id, &created_at]))?;
+        sql_params!(&(order_id.clone(), user_id, created_at)))?;
     
     // Do something ....
 

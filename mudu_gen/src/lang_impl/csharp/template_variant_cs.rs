@@ -5,15 +5,19 @@ use askama::Template;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_def::UniVariantDef;
 
+/// Askama template for a C# variant.
 #[derive(Template)]
 #[template(path = "csharp/variant.cs.jinja", escape = "none")]
 pub struct TemplateVariantCS {
     #[allow(unused)]
+    /// Generation configuration.
     pub cfg: CodegenCfg,
+    /// Normalized variant metadata.
     pub variant: VariantInfo,
 }
 
 impl TemplateVariantCS {
+    /// Build the template from a WIT variant definition.
     pub fn from(variant_def: UniVariantDef, cfg: CodegenCfg) -> RS<TemplateVariantCS> {
         Ok(TemplateVariantCS {
             cfg,

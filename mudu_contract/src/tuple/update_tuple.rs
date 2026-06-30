@@ -1,3 +1,6 @@
+//! `tuple::update_tuple` module.
+#![allow(missing_docs)]
+
 use crate::tuple::read_datum::{read_binary_data, read_data_capacity, read_slot};
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary::TupleSlice;
@@ -5,8 +8,8 @@ use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
 pub fn update_tuple(
     index: usize,
@@ -16,8 +19,8 @@ pub fn update_tuple(
     delta: &mut Vec<UpdateDelta>,
 ) -> RS<()> {
     if index >= tuple_desc.field_count() {
-        Err(m_error!(
-            EC::InternalErr,
+        Err(mudu_error!(
+            ErrorCode::Internal,
             format!(
                 "tuple_slice index {} out of bounds, the maximum size {}",
                 index,
@@ -52,18 +55,18 @@ pub fn update_tuple(
             let slot_start_off = field.slot().offset();
             let total_field_num = tuple_desc.field_count();
             let mut _offset = data_start_off;
-            let mut _written_field_num = total_field_num - index;
+            let mut _written_field_num = 0usize;
 
             let mut buf_slot = Buf::new();
             let mut buf_data = Buf::new();
             buf_slot.resize(Slot::size_of() * (total_field_num - index), 0);
             {
                 // write updated field
-                let mut new_data = value.clone();
+                let new_data = value.clone();
                 let new_slot = Slot::new(slot.offset() as u32, new_data.len() as u32);
                 new_slot.to_binary(&mut buf_slot[_written_field_num * Slot::size_of()..])?;
-                buf_data.append(&mut new_data);
-                _offset += buf_data.len();
+                buf_data.extend_from_slice(&new_data);
+                _offset += new_data.len();
                 _written_field_num += 1;
             }
             while _written_field_num < total_field_num - index {
@@ -73,7 +76,7 @@ pub fn update_tuple(
                 let new_slot = Slot::new(_offset as u32, binary.len() as u32);
                 new_slot.to_binary(&mut buf_slot[_written_field_num * Slot::size_of()..])?;
                 buf_data.extend_from_slice(binary);
-                _offset += slot.length();
+                _offset += binary.len();
                 _written_field_num += 1;
             }
 

@@ -1,3 +1,5 @@
+//! Terminal UI helpers for rendering query results as an interactive table.
+
 use crossterm::{
     ExecutableCommand,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -17,13 +19,19 @@ use std::io::{self, IsTerminal, Stdout};
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 
+/// A query result shaped for TUI table rendering.
 pub struct QueryTable {
+    /// Column names.
     pub columns: Vec<String>,
+    /// Rows as rendered cell strings.
     pub rows: Vec<Vec<String>>,
+    /// Number of affected rows reported by the server.
     pub affected_rows: u64,
+    /// Optional server-side error message.
     pub error: Option<String>,
 }
 
+/// Try to extract a [`QueryTable`] from a command JSON response.
 pub fn extract_query_table(value: &Value) -> Option<QueryTable> {
     let object = value.as_object()?;
 
@@ -76,6 +84,7 @@ pub fn extract_query_table(value: &Value) -> Option<QueryTable> {
     })
 }
 
+/// Run an interactive ratatui table for `table` and return when the user quits.
 pub fn run_query_table(table: QueryTable) -> Result<(), String> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(
@@ -92,6 +101,7 @@ pub fn run_query_table(table: QueryTable) -> Result<(), String> {
 }
 
 /// Render the query table to a string snapshot without touching the real terminal.
+///
 /// This is intended for integration tests to exercise the TUI rendering path.
 pub fn render_query_table_snapshot(
     table: QueryTable,
@@ -159,10 +169,11 @@ impl Tui {
 
             if event::poll(Duration::from_millis(150)).map_err(|e| e.to_string())? {
                 match event::read().map_err(|e| e.to_string())? {
-                    Event::Key(key) if key.kind == event::KeyEventKind::Press => {
-                        if handle_key(&mut state, &table, key) {
-                            break;
-                        }
+                    Event::Key(key)
+                        if key.kind == event::KeyEventKind::Press
+                            && handle_key(&mut state, &table, key) =>
+                    {
+                        break;
                     }
                     Event::Resize(_, _) => {
                         // The next loop iteration redraws with the new size.
@@ -213,15 +224,11 @@ fn handle_key(state: &mut QueryTableState, table: &QueryTable, key: KeyEvent) ->
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
-        KeyCode::Up => {
-            if state.selected_row > 0 {
-                state.selected_row -= 1;
-            }
+        KeyCode::Up if state.selected_row > 0 => {
+            state.selected_row -= 1;
         }
-        KeyCode::Down => {
-            if state.selected_row + 1 < table.rows.len() {
-                state.selected_row += 1;
-            }
+        KeyCode::Down if state.selected_row + 1 < table.rows.len() => {
+            state.selected_row += 1;
         }
         KeyCode::PageUp => {
             state.selected_row = state.selected_row.saturating_sub(20);
@@ -230,10 +237,8 @@ fn handle_key(state: &mut QueryTableState, table: &QueryTable, key: KeyEvent) ->
             state.selected_row = (state.selected_row + 20).min(table.rows.len().saturating_sub(1));
         }
         KeyCode::Home | KeyCode::Char('g') => state.selected_row = 0,
-        KeyCode::End | KeyCode::Char('G') => {
-            if !table.rows.is_empty() {
-                state.selected_row = table.rows.len() - 1;
-            }
+        KeyCode::End | KeyCode::Char('G') if !table.rows.is_empty() => {
+            state.selected_row = table.rows.len() - 1;
         }
         KeyCode::Left => state.selected_col = state.selected_col.saturating_sub(1),
         KeyCode::Right => {

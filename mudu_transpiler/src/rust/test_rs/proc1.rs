@@ -1,3 +1,5 @@
+//! Test fixture for the Rust parser integration test.
+
 use crate::wasm::proc2::object::Wallets;
 use mudu::common::result::RS;
 use mudu::common::id::OID;
@@ -41,8 +43,8 @@ INSERT INTO wallets
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
-        let value = row.to_value(Wallets::dat_type())?;
-        let s = value.to_textual(Wallets::dat_type())?;
+        let value = row.to_value(&Wallets::dat_type())?;
+        let s = value.to_textual(&Wallets::dat_type())?;
         result.push_str(&s);
         result.push('\n');
     };

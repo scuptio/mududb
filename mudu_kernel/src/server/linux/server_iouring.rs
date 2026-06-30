@@ -1,25 +1,30 @@
 use crate::server::server_launch::ServerLaunch;
-use crate::server::worker::WorkerRuntime;
+use crate::server::worker::{WorkerRuntime, WorkerRuntimeParams};
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
-use crate::server::worker_ring_loop::WorkerRingLoop;
+use crate::server::worker_ring_loop::{
+    drive_future_with_ring, WorkerRingLoop, WorkerRingLoopWithRingArgs,
+};
 use crossbeam_queue::SegQueue;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::io::worker_ring::{set_current_worker_ring, WorkerLocalRing};
+use mudu_sys::sync::{SCondvar, SMutex};
 use mudu_utils::notifier::{Notifier, Waiter};
 use mudu_utils::task_async::{build_current_thread_runtime, CurrentThreadTaskRuntime};
-use std::os::fd::{IntoRawFd, RawFd};
+use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
+use mudu_sys::SysIoContext;
 use tracing::{debug, trace};
 
 pub(crate) struct RecoveryCoordinator {
     total_workers: usize,
     ready_notifier: Option<Notifier>,
-    state: Mutex<RecoveryState>,
-    condvar: Condvar,
+    state: SMutex<RecoveryState>,
+    condvar: SCondvar,
 }
 
 #[derive(Default)]
@@ -34,9 +39,12 @@ pub(crate) fn sync_serve_iouring(
     ready: Option<Notifier>,
 ) -> RS<()> {
     if cfg.cfg().worker_count() == 0 {
-        return Err(m_error!(EC::ParseErr, "invalid io_uring worker count"));
+        return Err(mudu_error!(
+            ErrorCode::Parse,
+            "invalid io_uring worker count"
+        ));
     }
-    let prebound_listener = cfg.take_prebound_listener();
+    let sys = SysIoContext::iouring();
     let conn_id_alloc = Arc::new(AtomicU64::new(1));
     let mailboxes: Vec<_> = (0..cfg.cfg().worker_count())
         .map(|_| Arc::new(SegQueue::<WorkerMailboxMsg>::new()))
@@ -52,10 +60,10 @@ pub(crate) fn sync_serve_iouring(
     let shutdown_mailbox_fds = mailbox_fds.clone();
     let notifier_stop_flag = stop_flag.clone();
     let notifier =
-        mudu_sys::task_sync::spawn_thread_named("iouring-shutdown-notifier", move || {
+        mudu_sys::task::sync::spawn_thread_named("iouring-shutdown-notifier", move || {
             let runtime = build_current_thread_runtime().map_err(|e| {
-                m_error!(
-                    EC::TokioErr,
+                mudu_error!(
+                    ErrorCode::Tokio,
                     "create runtime for io_uring shutdown notifier error",
                     e
                 )
@@ -64,10 +72,7 @@ pub(crate) fn sync_serve_iouring(
             runtime.block_on(stop_for_notifier.wait());
             debug!("iouring shutdown notifier observed stop");
             notifier_stop_flag.store(true, Ordering::Relaxed);
-            for (mailbox, fd) in shutdown_mailboxes
-                .into_iter()
-                .zip(shutdown_mailbox_fds.into_iter())
-            {
+            for (mailbox, fd) in shutdown_mailboxes.into_iter().zip(shutdown_mailbox_fds) {
                 mailbox.push(WorkerMailboxMsg::Shutdown);
                 notify_mailbox_fd(fd)?;
             }
@@ -81,7 +86,11 @@ pub(crate) fn sync_serve_iouring(
             format!("{}:{}", cfg.cfg().listen_ip(), worker_port)
                 .parse()
                 .map_err(|e| {
-                    m_error!(EC::ParseErr, "parse io_uring tcp listen address error", e)
+                    mudu_error!(
+                        ErrorCode::Parse,
+                        "parse io_uring tcp listen address error",
+                        e
+                    )
                 })?;
         let conn_id_alloc = conn_id_alloc.clone();
         let mailbox = mailboxes[worker_id].clone();
@@ -94,8 +103,8 @@ pub(crate) fn sync_serve_iouring(
             .worker(worker_id)
             .cloned()
             .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
                     format!("missing worker identity {}", worker_id)
                 )
             })?;
@@ -106,55 +115,95 @@ pub(crate) fn sync_serve_iouring(
         let log_batching = cfg.deps().log_batching();
         let worker_count = cfg.cfg().worker_count();
         let server_instance_id = cfg.cfg().server_instance_id();
-        let listener = match &prebound_listener {
-            Some(_) if worker_id != 0 => None,
-            Some(listener) => Some(
-                listener
-                    .try_clone()
-                    .map_err(|e| m_error!(EC::NetErr, "clone tcp listener error", e))?,
-            ),
-            None => None,
-        };
+        let listener = cfg.take_prebound_listener(worker_id);
         let stop = stop_flag.clone();
         let recovery_coordinator = recovery_coordinator.clone();
         let mailbox_fd = mailbox_fds[worker_id];
-        let async_runtime = cfg.deps().async_runtime();
+        let async_runtime = Some(sys.provider_arc());
+        let sys = sys.clone();
         let recovery_coordinator_for_failure = recovery_coordinator.clone();
         let handle =
-            mudu_sys::task_sync::spawn_thread_named(format!("worker-{worker_id}"), move || {
+            mudu_sys::task::sync::spawn_thread_named(format!("worker-{worker_id}"), move || {
                 let result = (|| {
                     let runtime = CurrentThreadTaskRuntime::new().map_err(|e| {
-                        m_error!(EC::TokioErr, "create runtime for io_uring worker error", e)
+                        mudu_error!(
+                            ErrorCode::Tokio,
+                            "create runtime for io_uring worker error",
+                            e
+                        )
                     })?;
-                    let listener_fd = match listener {
-                        Some(listener) => listener.into_raw_fd(),
-                        None => create_listener_fd(listen_addr)?,
-                    };
                     runtime.block_on(async move {
-                        let worker = WorkerRuntime::new_with_log_batching_and_runtime(
-                            worker_identity,
+                        let listener_fd = match listener {
+                            Some(std_listener) => std_listener.into_raw_fd(),
+                            None => {
+                                let rt = sys.provider_arc();
+                                let l = rt.net().bind_tcp(listen_addr).await?;
+                                let fd = l.as_raw_fd().ok_or_else(|| {
+                                    mudu_error!(
+                                        ErrorCode::Internal,
+                                        "async listener does not expose raw fd"
+                                    )
+                                })?;
+                                let dup_fd = unsafe { libc::dup(fd) };
+                                if dup_fd < 0 {
+                                    return Err(mudu_error!(
+                                        ErrorCode::Network,
+                                        "dup listener fd error",
+                                        std::io::Error::last_os_error()
+                                    ));
+                                }
+                                dup_fd
+                            }
+                        };
+                        // Create the worker-local io_uring ring up front so
+                        // that worker initialization (meta catalog, WAL tail
+                        // scan) can use the io_uring AsyncFs. We drive the ring
+                        // while creating the worker, then hand both to the loop.
+                        let mut ring = WorkerRingLoop::new_ring()?;
+                        #[allow(clippy::arc_with_non_send_sync)]
+                        let worker_local_ring =
+                            Arc::new(WorkerLocalRing::new_with_task_wake_fd(Some(mailbox_fd)));
+                        set_current_worker_ring(worker_local_ring.clone());
+                        let worker_fut = WorkerRuntime::new(WorkerRuntimeParams {
+                            identity: worker_identity,
                             worker_count,
-                            log_dir.clone(),
-                            data_dir.clone(),
+                            log_dir: log_dir.clone(),
+                            data_dir: data_dir.clone(),
                             log_chunk_size,
                             log_batching,
                             procedure_runtime,
-                            worker_registry,
+                            registry: worker_registry,
                             async_runtime,
                             server_instance_id,
-                        ).await?;
-                        let mut loop_state = WorkerRingLoop::new(
-                            worker,
-                            listener_fd,
-                            mailbox_fd,
-                            mailbox,
-                            all_mailboxes,
-                            all_mailbox_fds,
-                            conn_id_alloc,
-                            recovery_coordinator,
-                            stop,
-                        )?;
-                        loop_state.run()
+                        });
+                        let worker = match drive_future_with_ring(
+                            &mut ring,
+                            &worker_local_ring,
+                            worker_fut,
+                            "worker creation",
+                        ) {
+                            Ok(worker) => worker,
+                            Err(e) => {
+                                mudu_sys::io::worker_ring::unset_current_worker_ring();
+                                return Err(e);
+                            }
+                        };
+                        let mut loop_state =
+                            WorkerRingLoop::new_with_ring(WorkerRingLoopWithRingArgs {
+                                worker,
+                                listener_fd,
+                                mailbox_fd,
+                                mailbox,
+                                mailboxes: all_mailboxes,
+                                mailbox_fds: all_mailbox_fds,
+                                conn_id_alloc,
+                                recovery_coordinator,
+                                stop,
+                                ring,
+                                worker_local_ring,
+                            })?;
+                        loop_state.initialize().await?;
+                        loop_state.run().await
                     })
                 })();
                 if result.is_err() {
@@ -166,11 +215,11 @@ pub(crate) fn sync_serve_iouring(
     }
     let mut worker_stats = Vec::<WorkerLoopStats>::with_capacity(cfg.cfg().worker_count());
 
-    let mut first_error: Option<mudu::error::err::MError> = None;
+    let mut first_error: Option<mudu::error::MuduError> = None;
     for handle in handles {
         let result = handle
             .join()
-            .map_err(|_| m_error!(EC::ThreadErr, "join io_uring worker error"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Thread, "join io_uring worker error"))?;
         match result {
             Ok(stats) => {
                 worker_stats.push(stats);
@@ -185,9 +234,9 @@ pub(crate) fn sync_serve_iouring(
     }
 
     if first_error.is_none() {
-        let notify_result = notifier
+        let notify_result: RS<()> = notifier
             .join()
-            .map_err(|_| m_error!(EC::ThreadErr, "join io_uring shutdown notifier error"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Thread, "join io_uring shutdown notifier error"))?;
         notify_result?;
         log_worker_stats(&worker_stats);
     }
@@ -198,8 +247,8 @@ pub(crate) fn sync_serve_iouring(
     }
 
     if let Some(err) = first_error {
-        return Err(m_error!(
-            EC::ThreadErr,
+        return Err(mudu_error!(
+            ErrorCode::Thread,
             "io_uring backend stopped due to worker error",
             err
         ));
@@ -212,8 +261,8 @@ impl RecoveryCoordinator {
         Self {
             total_workers,
             ready_notifier,
-            state: Mutex::new(RecoveryState::default()),
-            condvar: Condvar::new(),
+            state: SMutex::new(RecoveryState::default()),
+            condvar: SCondvar::new(),
         }
     }
 
@@ -221,10 +270,10 @@ impl RecoveryCoordinator {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| m_error!(EC::InternalErr, "recovery coordinator lock poisoned"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "recovery coordinator lock poisoned"))?;
         if state.failed {
-            return Err(m_error!(
-                EC::ThreadErr,
+            return Err(mudu_error!(
+                ErrorCode::Thread,
                 "worker recovery aborted because another worker failed"
             ));
         }
@@ -256,16 +305,17 @@ impl RecoveryCoordinator {
                 total_workers = self.total_workers,
                 "iouring recovery coordinator waiting for peers"
             );
-            state = self.condvar.wait(state).map_err(|_| {
-                m_error!(
-                    EC::InternalErr,
-                    "recovery coordinator condvar wait poisoned"
+            state = self.condvar.wait(state).map_err(|err| {
+                mudu_error!(
+                    ErrorCode::Internal,
+                    "recovery coordinator condvar wait poisoned",
+                    err
                 )
             })?;
         }
         if state.failed {
-            return Err(m_error!(
-                EC::ThreadErr,
+            return Err(mudu_error!(
+                ErrorCode::Thread,
                 "worker recovery aborted because another worker failed"
             ));
         }
@@ -280,20 +330,12 @@ impl RecoveryCoordinator {
     }
 }
 
-fn create_listener_fd(listen_addr: std::net::SocketAddr) -> RS<RawFd> {
-    mudu_sys::io::net::create_tcp_listener_fd(listen_addr, 1024)
-}
-
-pub fn set_connection_options(fd: RawFd) -> RS<()> {
-    mudu_sys::io::net::set_tcp_nodelay(fd)
-}
-
 fn create_mailbox_event_fd() -> RS<RawFd> {
     create_event_fd("create io_uring worker mailbox eventfd error")
 }
 
 fn create_event_fd(message: &str) -> RS<RawFd> {
-    mudu_sys::sync_sync::eventfd().map_err(|e| m_error!(EC::NetErr, message, e))
+    mudu_sys::sync::blocking::eventfd().map_err(|e| mudu_error!(ErrorCode::Network, message, e))
 }
 
 pub(super) fn notify_mailbox_fd(fd: RawFd) -> RS<()> {
@@ -302,7 +344,8 @@ pub(super) fn notify_mailbox_fd(fd: RawFd) -> RS<()> {
 }
 
 fn notify_event_fd(fd: RawFd, message: &str) -> RS<()> {
-    mudu_sys::sync_sync::notify_eventfd(fd).map_err(|e| m_error!(EC::NetErr, message, e))
+    mudu_sys::sync::blocking::notify_eventfd(fd)
+        .map_err(|e| mudu_error!(ErrorCode::Network, message, e))
 }
 
 fn log_worker_stats(stats: &[WorkerLoopStats]) {
@@ -338,8 +381,22 @@ fn log_worker_stats(stats: &[WorkerLoopStats]) {
     }
 }
 
+pub fn sockaddr_to_socket_addr(
+    storage: &mudu_sys::io::iouring::SockAddrBuf,
+) -> RS<std::net::SocketAddr> {
+    mudu_sys::io::net::sockaddr_to_socket_addr(storage)
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::*;
 
     #[test]
@@ -348,10 +405,10 @@ mod tests {
         notify_mailbox_fd(fd).unwrap();
         notify_mailbox_fd(fd).unwrap();
 
-        let value = mudu_sys::sync_sync::read_eventfd(fd).unwrap();
+        let value = mudu_sys::sync::blocking::read_eventfd(fd).unwrap();
         assert_eq!(value, 2);
 
-        mudu_sys::sync_sync::close_fd(fd).unwrap();
+        mudu_sys::sync::blocking::close_fd(fd).unwrap();
     }
 
     #[test]
@@ -361,8 +418,4 @@ mod tests {
         assert!(matches!(mailbox.pop(), Some(WorkerMailboxMsg::Shutdown)));
         assert!(mailbox.pop().is_none());
     }
-}
-
-pub fn sockaddr_to_socket_addr(storage: &mudu_sys::uring::SockAddrBuf) -> RS<std::net::SocketAddr> {
-    mudu_sys::io::net::sockaddr_to_socket_addr(storage)
 }

@@ -4,9 +4,9 @@ use crate::contract::version_tuple::VersionTuple;
 use mudu::common::id::{TupleID, OID};
 use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
-use std::sync::Arc;
 use mudu_sys::sync::SMutex;
 use mudu_utils::scoped_task_trace;
+use std::sync::Arc;
 
 const UNCOMPRESSED_VERSION_COUNT: usize = 4;
 
@@ -119,7 +119,7 @@ impl DataRow {
     }
 
     pub fn tuple_id_sync(&self) -> RS<Option<OID>> {
-        let guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock()?;
         Ok(Some(guard.tid as OID))
     }
 
@@ -128,7 +128,7 @@ impl DataRow {
     }
 
     pub fn read_sync(&self, snapshot: &Snapshot) -> RS<Option<VersionTuple>> {
-        let guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock()?;
         guard.read_version(snapshot)
     }
 
@@ -137,7 +137,7 @@ impl DataRow {
     }
 
     pub fn read_latest_sync(&self) -> RS<Option<VersionTuple>> {
-        let guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock()?;
         guard.read_latest()
     }
 
@@ -148,7 +148,7 @@ impl DataRow {
 
     pub fn write_sync(&self, version: VersionTuple, prev_version: Option<VersionDelta>) -> RS<()> {
         scoped_task_trace!();
-        let mut guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock()?;
         guard.write_version(version, prev_version)
     }
 }
@@ -182,6 +182,14 @@ fn apply_version_delta(version: &mut VersionTuple, delta: &VersionDelta) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::*;
     use crate::contract::snapshot::{RunningXList, Snapshot};
     use crate::contract::timestamp::Timestamp;

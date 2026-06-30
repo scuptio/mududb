@@ -2,6 +2,11 @@
 name = "mududb"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
 
 [dependencies]
 mudu = { workspace = true, optional = true }
@@ -19,8 +24,10 @@ app = [
     "dep:mudu_contract",
     "dep:mudu_binding",
     "dep:mudu_sys",
+    "mudu_sys/native",
     "component-model",
 ]
+
 interface = ["dep:sys_interface"]
 component-model = ["interface", "sys_interface/component-model"]
 wasip2 = ["interface", "sys_interface/wasip2"]

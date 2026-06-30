@@ -2,9 +2,17 @@
 name = "mudu_contract"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
 
 [dependencies]
 mudu = { workspace = true }
+mudu_compat_migrate = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_sys_contract = { workspace = true }
 mudu_type = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -12,7 +20,6 @@ rmp-serde = { workspace = true }
 scc = { workspace = true }
 byteorder = { workspace = true }
 lazy_static = { workspace = true }
-uuid = { workspace = true }
 fallible-iterator = { workspace = true }
 tracing = { workspace = true }
 paste = { workspace = true }
@@ -22,5 +29,7 @@ async-trait = { workspace = true }
 console-subscriber = { workspace = true }
 arbitrary = { workspace = true }
 test_utils = { workspace = true }
-thiserror = { version = "2.0.17" }
-uniffi = { workspace = true }
+
+[dev-dependencies]
+mudu_utils = { workspace = true }
+tokio = { workspace = true }

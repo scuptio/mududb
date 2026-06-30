@@ -1,64 +1,71 @@
+//! Synchronous TCP client for the MuduDB wire protocol.
+
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::protocol::{
     ClientRequest, Frame, FrameHeader, GetRequest, HEADER_LEN, KeyValue, MessageType,
-    ProcedureInvokeRequest, PutRequest, RangeScanRequest, ServerResponse, SessionCloseRequest,
-    SessionCreateRequest, decode_error_response, decode_get_response,
+    ProcedureInvokeRequest, PutRequest, RangeScanRequest, ServerPerfDigest, ServerResponse,
+    SessionCloseRequest, SessionCreateRequest, decode_error_response, decode_get_response,
     decode_procedure_invoke_response, decode_put_response, decode_range_scan_response,
     decode_server_response, decode_session_close_response, decode_session_create_response,
-    encode_batch_request, encode_client_request, encode_client_request_with_message_type,
-    encode_get_request, encode_procedure_invoke_request, encode_put_request,
-    encode_range_scan_request, encode_session_close_request, encode_session_create_request,
+    encode_batch_request, encode_client_request_with_message_type_and_trace, encode_get_request,
+    encode_procedure_invoke_request, encode_put_request, encode_range_scan_request,
+    encode_session_close_request, encode_session_create_request,
 };
+use mudu_sys::net::sync::{SStdTcpStream, connect_tcp};
+use mudu_sys::perf::{PerfSpan, TraceContext, TxnStage, next_trace_id, should_sample};
+use mudu_sys::time::instant_now;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::SocketAddr;
 
+/// Synchronous blocking TCP client for MuduDB.
 pub struct SyncClient {
-    stream: TcpStream,
+    stream: SStdTcpStream,
     next_request_id: u64,
 }
 
 impl SyncClient {
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> RS<Self> {
-        let stream = TcpStream::connect(addr)
-            .map_err(|e| m_error!(EC::NetErr, "connect io_uring tcp server error", e))?;
+    /// Connect to `addr` and return a new synchronous client.
+    pub fn connect(addr: SocketAddr) -> RS<Self> {
+        let stream = connect_tcp(addr)
+            .map_err(|e| mudu_error!(ErrorCode::Network, "connect io_uring tcp server error", e))?;
         stream
             .set_nodelay(true)
-            .map_err(|e| m_error!(EC::NetErr, "set tcp nodelay error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Network, "set tcp nodelay error", e))?;
         Ok(Self {
             stream,
             next_request_id: 1,
         })
     }
 
+    /// Execute a SQL query and return the server response.
     pub fn query(
         &mut self,
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        let request_id = self.take_request_id();
-        let request = ClientRequest::new(app_name, sql);
-        let payload = encode_client_request(request_id, &request)?;
-        let frame = self.send_and_receive(&payload)?;
-        self.ensure_success_frame(&frame)?;
-        decode_server_response(&frame)
+        self.send_request_with_perf(
+            MessageType::Query,
+            ClientRequest::new(app_name, sql),
+            TxnStage::QueryExec,
+        )
     }
 
+    /// Execute a SQL statement and return the server response.
     pub fn execute(
         &mut self,
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        let request_id = self.take_request_id();
-        let request = ClientRequest::new(app_name, sql);
-        let payload =
-            encode_client_request_with_message_type(MessageType::Execute, request_id, &request)?;
-        let frame = self.send_and_receive(&payload)?;
-        self.ensure_success_frame(&frame)?;
-        decode_server_response(&frame)
+        self.send_request_with_perf(
+            MessageType::Execute,
+            ClientRequest::new(app_name, sql),
+            TxnStage::CommandExec,
+        )
     }
 
+    /// Send a batched request.
     pub fn batch(
         &mut self,
         app_name: impl Into<String>,
@@ -72,6 +79,7 @@ impl SyncClient {
         decode_server_response(&frame)
     }
 
+    /// Get a value by key.
     pub fn get(&mut self, session_id: u128, key: impl Into<Vec<u8>>) -> RS<Option<Vec<u8>>> {
         let request_id = self.take_request_id();
         let payload = encode_get_request(request_id, &GetRequest::new(session_id, key.into()))?;
@@ -80,6 +88,7 @@ impl SyncClient {
         Ok(decode_get_response(&frame)?.into_value())
     }
 
+    /// Put a key-value pair.
     pub fn put(
         &mut self,
         session_id: u128,
@@ -96,13 +105,14 @@ impl SyncClient {
         if decode_put_response(&frame)?.ok() {
             Ok(())
         } else {
-            Err(m_error!(
-                EC::NetErr,
+            Err(mudu_error!(
+                ErrorCode::Network,
                 "remote put operation returned failure"
             ))
         }
     }
 
+    /// Scan a key range.
     pub fn range_scan(
         &mut self,
         session_id: u128,
@@ -119,6 +129,7 @@ impl SyncClient {
         Ok(decode_range_scan_response(&frame)?.into_items())
     }
 
+    /// Invoke a stored procedure.
     pub fn invoke_procedure(
         &mut self,
         session_id: u128,
@@ -135,6 +146,7 @@ impl SyncClient {
         Ok(decode_procedure_invoke_response(&frame)?.into_result())
     }
 
+    /// Create a new session and return its id.
     pub fn create_session(&mut self, config_json: Option<String>) -> RS<u128> {
         let request_id = self.take_request_id();
         let payload =
@@ -144,6 +156,7 @@ impl SyncClient {
         Ok(decode_session_create_response(&frame)?.session_id())
     }
 
+    /// Close a session and return whether it was closed successfully.
     pub fn close_session(&mut self, session_id: u128) -> RS<bool> {
         let request_id = self.take_request_id();
         let payload =
@@ -159,18 +172,102 @@ impl SyncClient {
         request_id
     }
 
+    fn send_request_with_perf(
+        &mut self,
+        message_type: MessageType,
+        request: ClientRequest,
+        server_exec_stage: TxnStage,
+    ) -> RS<ServerResponse> {
+        let trace_id = if should_sample() { next_trace_id() } else { 0 };
+        let _total = PerfSpan::new(TxnStage::Total, trace_id);
+        let request_id = self.take_request_id();
+        let trace_context = if trace_id != 0 {
+            TraceContext::new(trace_id)
+        } else {
+            TraceContext::empty()
+        };
+
+        let total_start = instant_now();
+
+        let payload = {
+            let _s = PerfSpan::new(TxnStage::ClientSerialize, trace_id);
+            let start = instant_now();
+            let payload = encode_client_request_with_message_type_and_trace(
+                message_type,
+                request_id,
+                trace_context,
+                &request,
+            )?;
+            (payload, start.elapsed().as_nanos() as u64)
+        };
+        let (payload, serialize_ns) = payload;
+
+        let frame = {
+            let _s = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
+            let _s = PerfSpan::new(TxnStage::ClientNetworkRecv, trace_id);
+            self.send_and_receive(&payload)?
+        };
+        self.ensure_success_frame(&frame)?;
+
+        let response = {
+            let _s = PerfSpan::new(TxnStage::ClientDeserialize, trace_id);
+            let start = instant_now();
+            let response = decode_server_response(&frame)?;
+            (response, start.elapsed().as_nanos() as u64)
+        };
+        let (response, deserialize_ns) = response;
+        let total_ns = total_start.elapsed().as_nanos() as u64;
+
+        if let Some(server_digest) = response.server_perf_digest() {
+            Self::log_end_to_end_perf(
+                trace_id,
+                total_ns,
+                serialize_ns,
+                deserialize_ns,
+                server_exec_stage,
+                server_digest,
+            );
+        }
+
+        Ok(response)
+    }
+
+    fn log_end_to_end_perf(
+        trace_id: u64,
+        total_ns: u64,
+        serialize_ns: u64,
+        deserialize_ns: u64,
+        server_exec_stage: TxnStage,
+        server_digest: &ServerPerfDigest,
+    ) {
+        let net_recv = server_digest.get(TxnStage::NetworkRecv).unwrap_or(0);
+        let server_exec = server_digest.get(server_exec_stage).unwrap_or(0);
+        let network_rtt = total_ns.saturating_sub(serialize_ns + server_exec + deserialize_ns);
+        tracing::info!(
+            trace_id,
+            total_us = total_ns / 1000,
+            serialize_us = serialize_ns / 1000,
+            network_rtt_us = network_rtt / 1000,
+            server_network_recv_us = net_recv / 1000,
+            server_exec_us = server_exec / 1000,
+            server_exec_stage = ?server_exec_stage,
+            deserialize_us = deserialize_ns / 1000,
+            "end-to-end perf",
+        );
+    }
+
     fn send_and_receive(&mut self, payload: &[u8]) -> RS<Frame> {
         self.stream
             .write_all(payload)
-            .map_err(|e| m_error!(EC::NetErr, "write request frame error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Network, "write request frame error", e))?;
         self.stream
             .flush()
-            .map_err(|e| m_error!(EC::NetErr, "flush request frame error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Network, "flush request frame error", e))?;
 
         let mut header = [0u8; HEADER_LEN];
         self.stream
             .read_exact(&mut header)
-            .map_err(|e| m_error!(EC::NetErr, "read response header error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Network, "read response header error", e))?;
         let payload_len = FrameHeader::decode_header_bytes(&header)?.payload_len() as usize;
         let mut frame_bytes = Vec::with_capacity(HEADER_LEN + payload_len);
         frame_bytes.extend_from_slice(&header);
@@ -178,7 +275,7 @@ impl SyncClient {
             let mut body = vec![0u8; payload_len];
             self.stream
                 .read_exact(&mut body)
-                .map_err(|e| m_error!(EC::NetErr, "read response payload error", e))?;
+                .map_err(|e| mudu_error!(ErrorCode::Network, "read response payload error", e))?;
             frame_bytes.extend_from_slice(&body);
         }
         Frame::decode(&frame_bytes)
@@ -187,13 +284,13 @@ impl SyncClient {
     fn ensure_success_frame(&self, frame: &Frame) -> RS<()> {
         if frame.header().message_type() == MessageType::Error {
             let error = decode_error_response(frame)?;
-            let ec = mudu::error::ec::EC::from_u32(error.code()).unwrap_or(EC::NetErr);
+            let ec = mudu::error::ErrorCode::from_u32(error.code()).unwrap_or(ErrorCode::Internal);
             let msg = if error.name().is_empty() {
                 error.message().to_string()
             } else {
                 format!("{}({}): {}", error.name(), error.code(), error.message())
             };
-            return Err(m_error!(ec, msg));
+            return Err(mudu_error!(ec, msg));
         }
         Ok(())
     }
@@ -208,11 +305,12 @@ mod tests {
         encode_put_response, encode_range_scan_response, encode_session_close_response,
         encode_session_create_response,
     };
-    use std::net::TcpListener;
-    use std::thread;
+    use mudu_sys::net::sync::StdTcpListener;
+    use mudu_sys::task::sync::spawn_thread;
 
-    fn bind_test_listener() -> Option<TcpListener> {
-        match TcpListener::bind("127.0.0.1:0") {
+    fn bind_test_listener() -> Option<StdTcpListener> {
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        match StdTcpListener::bind(addr) {
             Ok(listener) => Some(listener),
             Err(err) => {
                 eprintln!("skip tcp client test: {err}");
@@ -227,7 +325,7 @@ mod tests {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
             let mut header = [0u8; HEADER_LEN];
             socket.read_exact(&mut header).unwrap();
@@ -244,7 +342,8 @@ mod tests {
             let response =
                 encode_get_response(1, &GetResponse::new(Some(b"value-1".to_vec()))).unwrap();
             socket.write_all(&response).unwrap();
-        });
+        })
+        .unwrap();
 
         let mut client = SyncClient::connect(addr).unwrap();
         let response = client.get(7, b"key-1".to_vec()).unwrap();
@@ -258,7 +357,7 @@ mod tests {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
 
             let mut header = [0u8; HEADER_LEN];
@@ -294,7 +393,8 @@ mod tests {
             )
             .unwrap();
             socket.write_all(&response).unwrap();
-        });
+        })
+        .unwrap();
 
         let mut client = SyncClient::connect(addr).unwrap();
         client.put(7, b"k".to_vec(), b"v".to_vec()).unwrap();
@@ -315,7 +415,7 @@ mod tests {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
             let mut header = [0u8; HEADER_LEN];
             socket.read_exact(&mut header).unwrap();
@@ -333,7 +433,8 @@ mod tests {
             )
             .unwrap();
             socket.write_all(&response).unwrap();
-        });
+        })
+        .unwrap();
 
         let mut client = SyncClient::connect(addr).unwrap();
         let result = client
@@ -349,7 +450,7 @@ mod tests {
             return;
         };
         let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
+        let server = spawn_thread(move || {
             let (mut socket, _) = listener.accept().unwrap();
 
             let mut header = [0u8; HEADER_LEN];
@@ -385,7 +486,8 @@ mod tests {
             )
             .unwrap();
             socket.write_all(&response).unwrap();
-        });
+        })
+        .unwrap();
 
         let mut client = SyncClient::connect(addr).unwrap();
         let session_id = client

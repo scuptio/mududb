@@ -21,7 +21,7 @@ pub fn unsupported(message: impl Into<String>) -> types::Error {
     shim(4, message, "system")
 }
 
-pub fn from_mudu(error: mududb::mudu::error::err::MError) -> types::Error {
+pub fn from_mudu(error: mududb::mudu::error::MuduError) -> types::Error {
     types::Error {
         code: error.ec().to_u32(),
         message: error.message().to_string(),

@@ -4,10 +4,11 @@ mod tests {
     use crate::service::mudu_package::MuduPackage;
     use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
     use std::collections::HashMap;
-    use std::env::temp_dir;
-    use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
+
+    use mudu_sys::env_var::temp_dir;
+    use mudu_sys::fs::sync::SFile;
 
     fn package_file(name: &str) -> PathBuf {
         temp_dir().join(format!("{}_{}.mpk", name, mudu_sys::random::uuid_v4()))
@@ -21,7 +22,7 @@ mod tests {
         initdb_sql: Option<&[u8]>,
         modules: &[(&str, &[u8])],
     ) {
-        let file = fs::File::create(path).unwrap();
+        let file = SFile::create(path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default();
 
@@ -56,7 +57,12 @@ mod tests {
         serde_json::to_vec(&ModProcDesc::new(HashMap::new())).unwrap()
     }
 
+    // These tests write and read zip archives through flate2/zlib-rs, which
+    // triggers Miri stacked-borrows/UB warnings in the dependency and is not
+    // representative of application logic. They are ignored under Miri and run
+    // only on native builds.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn loads_valid_package() {
         let package_file = package_file("app_json_desc");
         write_package(
@@ -71,10 +77,11 @@ mod tests {
         let package = MuduPackage::load(&package_file).unwrap();
         assert_eq!(package.name(), "app-json");
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn single_module_package_aligns_desc_module_name() {
         let package_file = package_file("app_json_align");
         write_package(
@@ -90,10 +97,11 @@ mod tests {
         assert!(package.modules.contains_key("module"));
         assert!(!package.modules.contains_key("key_value"));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_requires_package_cfg() {
         let package_file = package_file("missing_cfg");
         write_package(
@@ -108,10 +116,11 @@ mod tests {
         let err = MuduPackage::load(&package_file).unwrap_err();
         assert!(err.to_string().contains(file_name::PACKAGE_CFG));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_requires_ddl_sql() {
         let package_file = package_file("missing_ddl");
         write_package(
@@ -126,10 +135,11 @@ mod tests {
         let err = MuduPackage::load(&package_file).unwrap_err();
         assert!(err.to_string().contains("ddl.sql"));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_requires_procedure_desc() {
         let package_file = package_file("missing_desc");
         write_package(
@@ -144,10 +154,11 @@ mod tests {
         let err = MuduPackage::load(&package_file).unwrap_err();
         assert!(err.to_string().contains(file_name::PROCEDURE_DESC));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_rejects_invalid_procedure_desc_json() {
         let package_file = package_file("invalid_desc");
         write_package(
@@ -165,10 +176,11 @@ mod tests {
                 .contains("parse app procedure description error")
         );
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_rejects_invalid_package_cfg_json() {
         let package_file = package_file("invalid_cfg");
         write_package(
@@ -183,21 +195,23 @@ mod tests {
         let err = MuduPackage::load(&package_file).unwrap_err();
         assert!(err.to_string().contains("parse app configuration error"));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn load_package_rejects_corrupt_zip_archive() {
         let package_file = package_file("corrupt_zip");
-        fs::write(&package_file, b"not-a-zip").unwrap();
+        mudu_sys::fs::sync::write(&package_file, b"not-a-zip").unwrap();
 
         let err = MuduPackage::load(&package_file).unwrap_err();
         assert!(err.to_string().contains("read achieve file failed"));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn multi_module_package_does_not_align_names() {
         let package_file = package_file("multi_mod");
         write_package(
@@ -218,6 +232,6 @@ mod tests {
         assert!(!package.modules.contains_key("module_a"));
         assert!(!package.modules.contains_key("module_b"));
 
-        fs::remove_file(package_file).unwrap();
+        mudu_sys::fs::sync::remove_file(package_file).unwrap();
     }
 }

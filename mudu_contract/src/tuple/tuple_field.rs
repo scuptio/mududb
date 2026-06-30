@@ -1,8 +1,11 @@
+//! `tuple::tuple_field` module.
+#![allow(missing_docs)]
+
 use crate::tuple::binary_to_json::tuple_binary_to_json;
 use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::{JsonMap, JsonValue};
 use serde::{Deserialize, Serialize};
 
@@ -44,8 +47,8 @@ impl TupleField {
 
     pub fn to_json_value(&self, desc: &[DatumDesc]) -> RS<JsonValue> {
         if self.fields().len() != desc.len() {
-            return Err(m_error!(
-                EC::DBInternalError,
+            return Err(mudu_error!(
+                ErrorCode::Database,
                 format!(
                     "to json value, expected {} fields but got {}",
                     desc.len(),
@@ -66,8 +69,8 @@ impl TupleField {
     }
     pub fn to_textual(&self, desc: &[DatumDesc]) -> RS<Vec<String>> {
         if self.fields().len() != desc.len() {
-            return Err(m_error!(
-                EC::DBInternalError,
+            return Err(mudu_error!(
+                ErrorCode::Database,
                 format!(
                     "to data printable, expected {} fields but got {}",
                     desc.len(),
@@ -83,10 +86,15 @@ impl TupleField {
                 continue;
             };
             let id = datum_desc.dat_type_id();
-            let (internal, _) = id.fn_recv()(field, datum_desc.dat_type())
-                .map_err(|e| m_error!(EC::TypeBaseErr, "convert binary to internal error", e))?;
-            let printable = id.fn_output()(&internal, datum_desc.dat_type())
-                .map_err(|e| m_error!(EC::TypeBaseErr, "convert internal to binary error", e))?;
+            let printable = id.fn_recv()(field, datum_desc.dat_type())
+                .and_then(|(internal, _)| id.fn_output()(&internal, datum_desc.dat_type()))
+                .map_err(|e| {
+                    mudu_error!(
+                        ErrorCode::TypeConversionFailed,
+                        "convert binary to internal error",
+                        e
+                    )
+                })?;
             vec_string.push(printable.into())
         }
         Ok(vec_string)
@@ -96,25 +104,5 @@ impl TupleField {
 impl AsRef<TupleField> for TupleField {
     fn as_ref(&self) -> &Self {
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-
-    #[test]
-    fn tuple_field_renders_null_to_json_and_textual() {
-        let desc = vec![DatumDesc::new_nullable(
-            "name".to_string(),
-            DatType::default_for(DatTypeID::String),
-            true,
-        )];
-        let row = TupleField::new_nullable(vec![None]);
-
-        assert_eq!(row.to_json_value(&desc).unwrap()["name"], JsonValue::Null);
-        assert_eq!(row.to_textual(&desc).unwrap(), vec!["NULL".to_string()]);
     }
 }

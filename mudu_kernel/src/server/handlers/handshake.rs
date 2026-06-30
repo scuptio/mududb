@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::protocol::{
     decode_handshake_request, encode_handshake_response, Frame, HandshakeResponse, MessageType,
 };
@@ -25,7 +25,9 @@ impl MessageHandler for HandshakeHandler {
             .into_iter()
             .max()
             .filter(|v| *v == 1u32)
-            .ok_or_else(|| m_error!(EC::ParseErr, "no mutually supported protocol version"))?;
+            .ok_or_else(|| {
+                mudu_error!(ErrorCode::Parse, "no mutually supported protocol version")
+            })?;
 
         let response = HandshakeResponse {
             selected_version: selected,

@@ -102,3 +102,46 @@ fn numeric_param_validation_rejects_out_of_range_values() {
     );
     assert!(DTPNumeric::new(4, 5).validate().is_err());
 }
+
+#[test]
+fn time_param_input_parses_and_roundtrips() {
+    assert_param_input_roundtrip(DatTypeID::Time, DatType::default_for(DatTypeID::Time));
+}
+
+#[test]
+fn time_param_input_rejects_invalid_json() {
+    let err = (DatTypeID::Time.opt_fn_param().as_ref().unwrap().input)("not-json");
+    assert!(err.is_err());
+}
+
+#[test]
+fn timestamp_param_input_parses_and_roundtrips() {
+    assert_param_input_roundtrip(
+        DatTypeID::Timestamp,
+        DatType::default_for(DatTypeID::Timestamp),
+    );
+}
+
+#[test]
+fn timestamp_param_input_rejects_invalid_json() {
+    let err = (DatTypeID::Timestamp.opt_fn_param().as_ref().unwrap().input)("not-json");
+    assert!(err.is_err());
+}
+
+#[test]
+fn timestamptz_param_input_parses_and_roundtrips() {
+    assert_param_input_roundtrip(
+        DatTypeID::TimestampTz,
+        DatType::default_for(DatTypeID::TimestampTz),
+    );
+}
+
+#[test]
+fn timestamptz_param_input_rejects_invalid_json() {
+    let err = (DatTypeID::TimestampTz
+        .opt_fn_param()
+        .as_ref()
+        .unwrap()
+        .input)("not-json");
+    assert!(err.is_err());
+}

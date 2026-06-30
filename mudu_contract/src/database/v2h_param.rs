@@ -1,3 +1,6 @@
+//! `database::v2h_param` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;

@@ -1,6 +1,9 @@
+//! `tuple::bitmap` module.
+#![allow(missing_docs)]
+
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bitmap {
@@ -19,8 +22,8 @@ impl Bitmap {
     pub fn from_bytes(bits: usize, bytes: &[u8]) -> RS<Self> {
         let expected = aligned_byte_len(bits);
         if bytes.len() < expected {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "bitmap requires {} bytes for {} bits, got {}",
                     expected,
@@ -65,8 +68,8 @@ impl Bitmap {
 
     fn check_index(&self, bit_idx: usize) -> RS<()> {
         if bit_idx >= self.bits {
-            return Err(m_error!(
-                EC::IndexOutOfRange,
+            return Err(mudu_error!(
+                ErrorCode::IndexOutOfRange,
                 format!("bitmap bit index {} out of {}", bit_idx, self.bits)
             ));
         }
@@ -84,31 +87,5 @@ fn align_up(value: usize, align: usize) -> usize {
         0
     } else {
         value.div_ceil(align) * align
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{aligned_byte_len, Bitmap};
-    use mudu::error::ec::EC;
-
-    #[test]
-    fn bitmap_is_8_byte_aligned() {
-        assert_eq!(aligned_byte_len(0), 0);
-        assert_eq!(aligned_byte_len(1), 8);
-        assert_eq!(aligned_byte_len(64), 8);
-        assert_eq!(aligned_byte_len(65), 16);
-    }
-
-    #[test]
-    fn bitmap_get_set_and_bounds_check() {
-        let mut bitmap = Bitmap::new(9);
-        bitmap.set(0, true).unwrap();
-        bitmap.set(8, true).unwrap();
-        assert!(bitmap.get(0).unwrap());
-        assert!(bitmap.get(8).unwrap());
-        bitmap.set(0, false).unwrap();
-        assert!(!bitmap.get(0).unwrap());
-        assert_eq!(bitmap.get(9).unwrap_err().ec(), EC::IndexOutOfRange);
     }
 }

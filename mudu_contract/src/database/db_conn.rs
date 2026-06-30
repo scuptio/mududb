@@ -1,16 +1,19 @@
+//! `database::db_conn` module.
+#![allow(missing_docs)]
+
 use crate::database::prepared_stmt::PreparedStmt;
 use crate::database::result_set::{ResultSet, ResultSetAsync};
 use crate::database::sql_params::SQLParams;
 use crate::database::sql_stmt::SQLStmt;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use async_trait::async_trait;
-use mudu::common::result::RS;
 use mudu::common::id::OID;
+use mudu::common::result::RS;
 use std::any::Any;
 use std::sync::Arc;
 
 pub trait DBConnSync: Sync + Send + Any {
-    fn exec_silent(&self, sql_text: &String) -> RS<()>;
+    fn exec_silent(&self, sql_text: &str) -> RS<()>;
 
     fn begin_tx(&self) -> RS<OID>;
 

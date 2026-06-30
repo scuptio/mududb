@@ -1,14 +1,13 @@
-#![allow(dead_code)]
-
 use crate::server::async_func_task::HandleResult;
 use crate::server::message_dispatcher::MessageDispatcher;
 use crate::server::request_ctx::RequestCtx;
 use crate::server::session_bound_worker_runtime::new_session_bound_worker_runtime;
 use crate::server::worker::WorkerRuntime;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::protocol::{Frame, FrameHeader, MessageType, HEADER_LEN};
+use mudu_sys::scoped_task_trace;
 
 pub fn try_decode_next_frame(buf: &[u8]) -> RS<Option<(Frame, usize)>> {
     if buf.len() < HEADER_LEN {
@@ -29,6 +28,7 @@ pub async fn dispatch_frame_async(
     conn_id: u64,
     frame: &Frame,
 ) -> RS<HandleResult> {
+    scoped_task_trace!();
     let ctx = RequestCtx::new(
         new_session_bound_worker_runtime(worker.clone(), 0),
         conn_id,
@@ -48,8 +48,8 @@ pub async fn dispatch_frame_async(
         | MessageType::SessionCreate
         | MessageType::SessionClose => unreachable!(),
         MessageType::Handshake | MessageType::Auth | MessageType::Response | MessageType::Error => {
-            Err(m_error!(
-                EC::ParseErr,
+            Err(mudu_error!(
+                ErrorCode::Parse,
                 format!(
                     "unsupported client message type {:?}",
                     frame.header().message_type()

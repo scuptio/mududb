@@ -1,3 +1,5 @@
+//! Shared language-agnostic types and rendering traits.
+
 pub(crate) mod abstract_template;
 pub(crate) mod enum_info;
 pub mod lang_data_type;

@@ -2,24 +2,30 @@
 name = "mudu_cli"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [[bin]]
 name = "mcli"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
 mudu_binding = { workspace = true }
 mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tracing = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 reqwest = { workspace = true }
-ratatui = "0.29.0"
-crossterm = "0.28.1"
-unicode-width = "0.2.0"
-rustyline = "16.0.0"
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+unicode-width = { workspace = true }
+rustyline = { workspace = true }

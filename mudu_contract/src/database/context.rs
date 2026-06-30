@@ -1,3 +1,6 @@
+//! `database::context` module.
+#![allow(missing_docs)]
+
 use crate::database::db_conn::DBConnSync;
 use crate::database::entity::Entity;
 use crate::database::entity_set::RecordSet;

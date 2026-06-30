@@ -1,3 +1,6 @@
+//! `tuple::tuple_binary` module.
+#![allow(missing_docs)]
+
 use mudu::common::buf::Buf;
 
 /// external binary format of a raw tuple

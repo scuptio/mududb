@@ -3,8 +3,8 @@ use crate::backend::session_ctx::SessionCtx;
 use mudu::common::result::RS;
 use mudu_utils::notifier::Waiter;
 
+use mudu_sys::sync::async_::async_task::{AsyncLocalTask, Task};
 use mudu_sys::tokio::sync::mpsc::Receiver;
-use mudu_sys::sync::async_task::{AsyncLocalTask, Task};
 use mudu_utils::task_async::spawn_local_task;
 use tracing::error;
 
@@ -51,7 +51,7 @@ async fn handle_one_receiver_connect(
             Some(p) => {
                 let c = waiter.clone();
                 let t = ss_ctx.clone();
-                let _ = spawn_local_task(c.into(), &name, async move {
+                let _ = spawn_local_task(c, &name, async move {
                     let r = p.session_handler_task(t).await;
                     match r {
                         Ok(_) => {}

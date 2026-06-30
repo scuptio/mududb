@@ -27,15 +27,15 @@ impl WasiContextComponent {
         }
     }
 
-    pub fn worker_local(&self) -> Option<&WorkerLocalRef> {
-        self.worker_local.as_ref()
+    pub fn worker_local(&self) -> Option<WorkerLocalRef> {
+        self.worker_local.clone()
     }
 }
 
 pub fn build_wasi_component_context(worker_local: Option<WorkerLocalRef>) -> WasiContextComponent {
     let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_args().build();
-    let context = WasiContextComponent::new(wasi, worker_local);
-    context
+
+    WasiContextComponent::new(wasi, worker_local)
 }
 
 pub mod sync_host {
@@ -97,55 +97,99 @@ pub mod async_host {
         async_host_fetch, async_host_get, async_host_open, async_host_put, async_host_query,
         async_host_range,
     };
-    use wasmtime::component::bindgen;
+    use wasmtime::component::{Accessor, HasData, HasSelf, bindgen};
 
     bindgen!({
             world: "async-api",
             path: "wit/async-api.wit",
             imports: {
-                "mududb:async-api/system":async,
-            }
-    });
+                "mududb:async-api/system":async
+            },
 
-    impl mududb::async_api::system::Host for WasiContextComponent {
-        async fn query(&mut self, query_in: Vec<u8>) -> Vec<u8> {
+    });
+    impl HasData for WasiContextComponent {
+        type Data<'a> = &'a mut WasiContextComponent;
+    }
+
+    impl mududb::async_api::system::Host for WasiContextComponent {}
+
+    impl mududb::async_api::system::HostWithStore<WasiContextComponent>
+        for HasSelf<WasiContextComponent>
+    {
+        async fn query(
+            _accessor: &Accessor<WasiContextComponent, Self>,
+            query_in: Vec<u8>,
+        ) -> Vec<u8> {
             async_host_query(query_in).await
         }
 
-        async fn fetch(&mut self, result_cursor: Vec<u8>) -> Vec<u8> {
+        async fn fetch(
+            _accessor: &Accessor<WasiContextComponent, Self>,
+            result_cursor: Vec<u8>,
+        ) -> Vec<u8> {
             async_host_fetch(result_cursor).await
         }
 
-        async fn command(&mut self, command_in: Vec<u8>) -> Vec<u8> {
+        async fn command(
+            _accessor: &Accessor<WasiContextComponent, Self>,
+            command_in: Vec<u8>,
+        ) -> Vec<u8> {
             async_host_command(command_in).await
         }
 
-        async fn batch(&mut self, batch_in: Vec<u8>) -> Vec<u8> {
+        async fn batch(
+            _accessor: &Accessor<WasiContextComponent, Self>,
+            batch_in: Vec<u8>,
+        ) -> Vec<u8> {
             async_host_batch(batch_in).await
         }
 
-        async fn open(&mut self, open_in: Vec<u8>) -> Vec<u8> {
-            async_host_open(open_in, self.worker_local()).await
+        async fn open(
+            accessor: &Accessor<WasiContextComponent, Self>,
+            open_in: Vec<u8>,
+        ) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_open(open_in, worker).await
         }
 
-        async fn close(&mut self, close_in: Vec<u8>) -> Vec<u8> {
-            async_host_close(close_in, self.worker_local()).await
+        async fn close(
+            accessor: &Accessor<WasiContextComponent, Self>,
+            close_in: Vec<u8>,
+        ) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_close(close_in, worker).await
         }
 
-        async fn get(&mut self, get_in: Vec<u8>) -> Vec<u8> {
-            async_host_get(get_in, self.worker_local()).await
+        async fn get(accessor: &Accessor<WasiContextComponent, Self>, get_in: Vec<u8>) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_get(get_in, worker).await
         }
 
-        async fn put(&mut self, put_in: Vec<u8>) -> Vec<u8> {
-            async_host_put(put_in, self.worker_local()).await
+        async fn put(accessor: &Accessor<WasiContextComponent, Self>, put_in: Vec<u8>) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_put(put_in, worker).await
         }
 
-        async fn delete(&mut self, delete_in: Vec<u8>) -> Vec<u8> {
-            async_host_delete(delete_in, self.worker_local()).await
+        async fn delete(
+            accessor: &Accessor<WasiContextComponent, Self>,
+            delete_in: Vec<u8>,
+        ) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_delete(delete_in, worker).await
         }
 
-        async fn range(&mut self, range_in: Vec<u8>) -> Vec<u8> {
-            async_host_range(range_in, self.worker_local()).await
+        async fn range(
+            accessor: &Accessor<WasiContextComponent, Self>,
+            range_in: Vec<u8>,
+        ) -> Vec<u8> {
+            let worker = accessor.with(|mut access| access.get().worker_local());
+
+            async_host_range(range_in, worker).await
         }
     }
 }

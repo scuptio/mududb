@@ -1,4 +1,10 @@
+//! `database::test_entity` module.
+#![allow(missing_docs)]
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use crate::database::entity::Entity;
     use crate::database::test_object::object::Item;
@@ -23,18 +29,18 @@ mod tests {
         item.set_i_data("data".to_string());
         item.set_i_price(40.0);
         let dt = Item::dat_type();
-        let value = item.to_value(dt).unwrap();
+        let value = item.to_value(&dt).unwrap();
         let tuple = item.to_tuple().unwrap();
         let item_from_tuple = Item::from_tuple(&tuple).unwrap();
         let item_from_value = Item::from_value(&value).unwrap();
         let id = dt.dat_type_id();
 
-        let printable = id.fn_output()(&value, dt).unwrap();
-        let value2 = id.fn_input()(&printable, dt).unwrap();
+        let printable = id.fn_output()(&value, &dt).unwrap();
+        let value2 = id.fn_input()(&printable, &dt).unwrap();
         let item_from_value2 = Item::from_value(&value2).unwrap();
 
-        let binary = id.fn_send()(&value, dt).unwrap();
-        let (value3, _) = id.fn_recv()(&binary, dt).unwrap();
+        let binary = id.fn_send()(&value, &dt).unwrap();
+        let (value3, _) = id.fn_recv()(&binary, &dt).unwrap();
         let item_from_value3 = Item::from_value(&value3).unwrap();
 
         for (i, s) in [

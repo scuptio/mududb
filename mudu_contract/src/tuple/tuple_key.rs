@@ -1,3 +1,6 @@
+//! `tuple::tuple_key` module.
+#![allow(missing_docs)]
+
 use crate::tuple::comparator::{tuple_compare, tuple_equal, tuple_hash};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::buf::Buf;

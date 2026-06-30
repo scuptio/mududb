@@ -1,15 +1,15 @@
 use libsql::Connection;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 
 /// Get schema information for a SQL query result set
 /// This function executes the query with LIMIT 0 to get only the structure without data
-pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<DatumDesc>, MError> {
+pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<DatumDesc>, MuduError> {
     // Use LIMIT 0 to get only structure without data
 
     let _query = query
@@ -23,14 +23,16 @@ pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<Datum
     let stmt = conn
         .prepare(&limited_query)
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "prepare limit sql error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "prepare limit sql error", e))?;
     let column_count = stmt.column_count();
 
     let mut schema = Vec::with_capacity(column_count);
     let columns = stmt.columns();
-    for i in 0..column_count {
-        let column = &columns[i];
-        let id = sqlite_decl_type_to_id(column.decl_type().unwrap())?;
+    for column in columns {
+        let decl_type = column
+            .decl_type()
+            .ok_or_else(|| mudu_error!(ErrorCode::InvalidType, "column has no declared type"))?;
+        let id = sqlite_decl_type_to_id(decl_type)?;
         let desc = DatumDesc::new(column.name().to_string(), DatType::default_for(id));
 
         schema.push(desc);
@@ -46,7 +48,7 @@ fn sqlite_decl_type_to_id(name: &str) -> RS<DatTypeID> {
         "BIGINT" => DatTypeID::I64,
         "REAL" => DatTypeID::F64,
         _ => {
-            return Err(m_error!(EC::TypeErr, format!("not supported type")));
+            return Err(mudu_error!(ErrorCode::InvalidType, "not supported type"));
         }
     };
     Ok(id)
@@ -56,10 +58,15 @@ fn sqlite_decl_type_to_id(name: &str) -> RS<DatTypeID> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_basic() -> Result<(), Box<dyn std::error::Error>> {
-        test_sql().await?;
-        Ok(())
+    // libsql calls SQLite C functions that Miri does not support, so this test
+    // is ignored under Miri and runs only on native builds.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_basic() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            test_sql().await.unwrap();
+        })
+        .unwrap();
     }
     async fn test_sql() -> RS<()> {
         let ddl_sql = [
@@ -107,7 +114,7 @@ CREATE TABLE vote_choices (
         for sql in ddl_sql.iter() {
             conn.execute(sql, ())
                 .await
-                .map_err(|e| m_error!(EC::DBInternalError, "run sql ddl error", e))?;
+                .map_err(|e| mudu_error!(ErrorCode::Database, "run sql ddl error", e))?;
         }
 
         let query = ["SELECT va.*, v.topic
@@ -122,3 +129,7 @@ CREATE TABLE vote_choices (
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "ls_desc_test.rs"]
+mod ls_desc_test;

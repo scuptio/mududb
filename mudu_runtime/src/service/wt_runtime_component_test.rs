@@ -34,7 +34,11 @@ mod tests {
         }
     }
 
+    // These tests build and instantiate a Wasmtime runtime component, which
+    // calls foreign functions that Miri does not support. They are ignored
+    // under Miri and run only on native builds.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn instantiate_rejects_p3_target() {
         let mut runtime = WTRuntimeComponent::build(&RuntimeOpt {
             component_target: ComponentTarget::P3,
@@ -49,6 +53,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn compile_modules_requires_declared_module_bytes() {
         let mut desc_map = HashMap::new();
         desc_map.insert("mod_0".to_string(), vec![test_proc_desc("mod_0", "proc")]);
@@ -63,6 +68,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn compile_modules_rejects_plain_wasm_module_for_component_runtime() {
         let mut desc_map = HashMap::new();
         desc_map.insert("mod_0".to_string(), vec![test_proc_desc("mod_0", "proc")]);

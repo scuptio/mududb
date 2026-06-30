@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::sync::SMutex;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
-use mudu_sys::sync::SMutex;
 
 pub type MessageId = u64;
 pub type SubscriptionId = u64;
@@ -218,7 +218,6 @@ pub(crate) fn unset_current_message_bus() {
     });
 }
 
-#[allow(dead_code)]
 pub(crate) fn current_message_bus() -> RS<MessageBusRef> {
     CURRENT_MESSAGE_BUS.with(|slot| {
         // Safety: shared reads are confined to the current thread-local slot.
@@ -226,7 +225,7 @@ pub(crate) fn current_message_bus() -> RS<MessageBusRef> {
         message_bus
             .as_ref()
             .cloned()
-            .ok_or_else(|| m_error!(EC::NoSuchElement, "current message bus is not set"))
+            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "current message bus is not set"))
     })
 }
 
@@ -237,7 +236,7 @@ pub(crate) fn register_worker_message_bus(
 ) -> RS<()> {
     let mut registry = message_bus_registry()
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus registry lock poisoned"))?;
     registry.insert((server_instance_id, worker_id), message_bus.clone());
     Ok(())
 }
@@ -248,7 +247,7 @@ pub(crate) fn unregister_worker_message_bus(
 ) -> RS<()> {
     let mut registry = message_bus_registry()
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus registry lock poisoned"))?;
     let Some(_bus) = registry.remove(&(server_instance_id, worker_id)) else {
         return Ok(());
     };
@@ -261,13 +260,13 @@ pub(crate) fn message_bus_for_worker(
 ) -> RS<MessageBusRef> {
     let registry = message_bus_registry()
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "message bus registry lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus registry lock poisoned"))?;
     registry
         .get(&(server_instance_id, worker_id))
         .cloned()
         .ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!(
                     "message bus for server {} worker {} is not registered",
                     server_instance_id, worker_id

@@ -1,21 +1,24 @@
 use crate::rust::procedures;
-use crate::rust::transactions::object::Transactions;
 use crate::rust::wallets::object::Wallets;
 use mududb::common::id::OID;
 use mududb::contract::database::entity_set::RecordSet;
 use mududb::contract::{sql_params, sql_stmt};
+use mududb::sys::sync::SMutex;
 use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
 
-static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+// These integration tests open a real SQLite-backed database via rusqlite,
+// which calls native SQLite FFI functions. Miri cannot execute those foreign
+// functions, so skip the whole suite under Miri.
+
+static TEST_MUTEX: OnceLock<SMutex<()>> = OnceLock::new();
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn create_update_and_delete_user() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -54,10 +57,9 @@ fn create_update_and_delete_user() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn delete_user_rejects_non_zero_balance() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -69,10 +71,9 @@ fn delete_user_rejects_non_zero_balance() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn transfer_funds_moves_balance_and_writes_transaction() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -90,10 +91,9 @@ fn transfer_funds_moves_balance_and_writes_transaction() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn transfer_rejects_self_transfer() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -102,10 +102,9 @@ fn transfer_rejects_self_transfer() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn deposit_withdraw_and_purchase_update_balance_and_transactions() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -138,10 +137,9 @@ fn deposit_withdraw_and_purchase_update_balance_and_transactions() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn withdraw_rejects_insufficient_funds() {
-    let _guard = test_mutex()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = test_mutex().lock().unwrap();
     let mut db = TestDb::new();
     let xid = db.open_session();
 
@@ -152,8 +150,8 @@ fn withdraw_rejects_insufficient_funds() {
     );
 }
 
-fn test_mutex() -> &'static Mutex<()> {
-    TEST_MUTEX.get_or_init(|| Mutex::new(()))
+fn test_mutex() -> &'static SMutex<()> {
+    TEST_MUTEX.get_or_init(|| SMutex::new(()))
 }
 
 struct TestDb {
@@ -165,9 +163,7 @@ impl TestDb {
     fn new() -> Self {
         let path = unique_db_path();
         let connection = format!("sqlite://{}", path.display());
-        unsafe {
-            std::env::set_var("MUDU_CONNECTION", connection);
-        }
+        mududb::sys::env_var::set_var("MUDU_CONNECTION", &connection);
         Self {
             path,
             session_ids: Vec::new(),
@@ -192,15 +188,6 @@ impl TestDb {
         let rs: RecordSet<Wallets> = self.query_records(
             "SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?",
             &(user_id,),
-        );
-        rs.next_record().unwrap()
-    }
-
-    #[allow(dead_code)]
-    fn query_transaction_by_type(&self, trans_type: &str) -> Option<Transactions> {
-        let rs: RecordSet<Transactions> = self.query_records(
-            "SELECT trans_id, trans_type, from_user, to_user, amount, created_at FROM transactions WHERE trans_type = ? LIMIT 1",
-            &(trans_type.to_string(),),
         );
         rs.next_record().unwrap()
     }
@@ -244,10 +231,8 @@ impl Drop for TestDb {
         for session_id in self.session_ids.drain(..) {
             let _ = mudu_close(session_id);
         }
-        unsafe {
-            std::env::remove_var("MUDU_CONNECTION");
-        }
-        let _ = std::fs::remove_file(&self.path);
+        mududb::sys::env_var::remove_var("MUDU_CONNECTION");
+        let _ = mududb::sys::fs::sync::remove_file(&self.path);
     }
 }
 
@@ -256,5 +241,5 @@ fn unique_db_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("wallet-procedure-test-{nanos}.db"))
+    mududb::sys::env_var::temp_dir().join(format!("wallet-procedure-test-{nanos}.db"))
 }

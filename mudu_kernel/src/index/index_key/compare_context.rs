@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::ops::Deref;
 
 thread_local! {
-    static COMPARE_CONTEXT: RefCell<Option<RefCell<CompareContext>>> = RefCell::new(None);
+    static COMPARE_CONTEXT: RefCell<Option<RefCell<CompareContext>>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
@@ -45,9 +45,7 @@ impl CompareContext {
         COMPARE_CONTEXT.with::<_, Option<R>>(|context| {
             let v = context.borrow();
             match v.deref() {
-                None => {
-                    todo!()
-                }
+                None => None,
                 Some(c) => Some(f(c)?),
             }
         })

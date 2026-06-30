@@ -4,9 +4,9 @@ use crate::service::runtime_opt::RuntimeOpt;
 use crate::service::runtime_simple::RuntimeSimple;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_utils::notifier::Notifier;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,16 +21,13 @@ impl RuntimeImpl {
         for ps in [package_path, db_path] {
             let path = PathBuf::from(ps);
             if !path.exists() {
-                std::fs::create_dir_all(&path).map_err(|e| {
-                    m_error!(
-                        EC::IOErr,
-                        format!("error creating database directory: {}", ps),
-                        e
-                    )
-                })?
+                mudu_sys::fs::sync::create_dir_all(&path)?
             } else {
                 if !path.is_dir() {
-                    return Err(m_error!(EC::IOErr, format!("{} is not a directory", ps)));
+                    return Err(mudu_error!(
+                        ErrorCode::NotADirectory,
+                        format!("{} is not a directory", ps)
+                    ));
                 }
             }
         }
@@ -57,7 +54,7 @@ impl Runtime for RuntimeImpl {
         self.inner.install(pkg_path).await
     }
 
-    fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.inner.async_runtime()
     }
 }
@@ -66,6 +63,7 @@ unsafe impl Sync for RuntimeImpl {}
 
 unsafe impl Send for RuntimeImpl {}
 
+/// Creates a runtime service from a package path and database path.
 pub async fn create_runtime_service(
     package_path: &String,
     db_path: &String,
@@ -73,11 +71,8 @@ pub async fn create_runtime_service(
     rt_opt: RuntimeOpt,
 ) -> RS<Arc<dyn Runtime>> {
     let runtime = RuntimeImpl::new(package_path, db_path, rt_opt).await?;
-    match opt_initialized_notifier {
-        Some(notifier) => {
-            notifier.notify_all();
-        }
-        None => {}
+    if let Some(notifier) = opt_initialized_notifier {
+        notifier.notify_all();
     }
     Ok(Arc::new(runtime))
 }

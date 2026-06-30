@@ -1,3 +1,6 @@
+//! `database::prepared_stmt` module.
+#![allow(missing_docs)]
+
 use crate::database::result_set::ResultSetAsync;
 use crate::database::sql_params::SQLParams;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;

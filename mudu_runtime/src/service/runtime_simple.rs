@@ -5,11 +5,11 @@ use crate::service::mudu_package::MuduPackage;
 use crate::service::runtime_opt::RuntimeOpt;
 use crate::service::wt_runtime::WTRuntime;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
-use mudu_sys::async_rt::contract::AsyncRuntime;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::fs;
 use scc::HashMap as SCCHashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,26 +27,25 @@ where
     F: AsyncFn(String) -> RS<()>,
 {
     let dir = package_dir_path.as_ref();
-    for entry in fs::read_dir(&dir)
-        .map_err(|e| m_error!(EC::MuduError, format!("read directory {:?} error", dir), e))?
-    {
-        let entry = entry.map_err(|e| m_error!(EC::MuduError, "entry  error", e))?;
+    for entry in fs::sync::sync_read_dir_entries(dir)? {
         let path = entry.path();
 
         // check file name
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-                    let path_str = path
-                        .as_path()
-                        .to_str()
-                        .ok_or_else(|| {
-                            m_error!(EC::IOErr, format!("path {:?} to str error", path))
-                        })?
-                        .to_string();
-                    handle_package_file(path_str).await?;
-                }
-            }
+        if path.is_file()
+            && let Some(ext) = path.extension()
+            && ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION
+        {
+            let path_str = path
+                .as_path()
+                .to_str()
+                .ok_or_else(|| {
+                    mudu_error!(
+                        ErrorCode::InvalidUtf8,
+                        format!("path {:?} to str error", path)
+                    )
+                })?
+                .to_string();
+            handle_package_file(path_str).await?;
         }
     }
 
@@ -56,9 +55,9 @@ where
 fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
     let path_buf = PathBuf::from(path_ref.as_ref());
     if !path_buf.is_file() {
-        return Err(m_error!(
-            EC::IOErr,
-            format!("path {} is not a file", path_ref.as_ref().to_str().unwrap())
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            format!("path {} is not a file", path_ref.as_ref().to_string_lossy())
         ));
     }
     if let Some(ext) = path_buf.extension() {
@@ -66,37 +65,33 @@ fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
             let app_package = MuduPackage::load(&path_buf)?;
             Ok(app_package)
         } else {
-            Err(m_error!(
-                EC::IOErr,
+            Err(mudu_error!(
+                ErrorCode::InvalidArgument,
                 format!(
                     "package {} must be with {} extension",
-                    path_ref.as_ref().to_str().unwrap(),
+                    path_ref.as_ref().to_string_lossy(),
                     file_name::APP_PACKAGE_EXTENSION
                 )
             ))
         }
     } else {
-        Err(m_error!(
-            EC::IOErr,
+        Err(mudu_error!(
+            ErrorCode::InvalidArgument,
             format!(
                 "package {} must be with {} extension",
-                path_ref.as_ref().to_str().unwrap(),
+                path_ref.as_ref().to_string_lossy(),
                 file_name::APP_PACKAGE_EXTENSION
             )
         ))
     }
 }
 impl RuntimeSimple {
-    pub async fn new(
-        package_path: &String,
-        db_path: &String,
-        rt_opt: RuntimeOpt,
-    ) -> RS<RuntimeSimple> {
+    pub async fn new(package_path: &str, db_path: &str, rt_opt: RuntimeOpt) -> RS<RuntimeSimple> {
         let wt_runtime = WTRuntime::build_component(&rt_opt)?;
         Ok(Self {
             rt_opt,
-            package_path: package_path.clone(),
-            db_path: db_path.clone(),
+            package_path: package_path.to_owned(),
+            db_path: db_path.to_owned(),
             wt_runtime,
             apps: Default::default(),
         })
@@ -104,22 +99,13 @@ impl RuntimeSimple {
 
     pub async fn initialize(&mut self) -> RS<()> {
         self.wt_runtime.instantiate()?;
-        if !fs::exists(&self.db_path)
-            .map_err(|e| m_error!(EC::IOErr, "test db directory exists error", e))?
-        {
-            fs::create_dir_all(&self.db_path).map_err(|e| {
-                m_error!(
-                    EC::IOErr,
-                    format!("create directory {} error", self.db_path),
-                    e
-                )
-            })?
-        } else if let metadata = fs::metadata(&self.db_path)
-            .map_err(|e| m_error!(EC::IOErr, "read db metadata error", e))?
+        if !fs::sync::sync_path_exists(&self.db_path) {
+            fs::sync::sync_create_dir_all(&self.db_path)?
+        } else if let metadata = fs::sync::sync_metadata(&self.db_path)?
             && metadata.is_file()
         {
-            return Err(m_error!(
-                EC::IOErr,
+            return Err(mudu_error!(
+                ErrorCode::NotADirectory,
                 format!("path {} is a not a directory", self.db_path)
             ));
         }
@@ -155,11 +141,17 @@ impl RuntimeSimple {
     async fn install_pkg<P: AsRef<Path>>(&self, path: P) -> RS<()> {
         let mpk_name = self.init_mpk(path.as_ref().to_path_buf()).await?;
         let pkg_path = PathBuf::from(self.package_path.clone());
-        if path.as_ref().parent().unwrap().eq(&pkg_path) {
+        let parent = path.as_ref().parent().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "package path has no parent directory"
+            )
+        })?;
+        if parent.eq(&pkg_path) {
             return Ok(());
         }
         let output = PathBuf::from(&self.package_path).join(format!("{}.mpk", mpk_name));
-        fs::copy(&path, &output).map_err(|e| m_error!(EC::IOErr, "package copy error", e))?;
+        fs::sync::sync_copy(&path, &output)?;
         Ok(())
     }
 
@@ -183,7 +175,7 @@ impl RuntimeSimple {
         Ok(())
     }
 
-    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncRuntime>> {
+    pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.rt_opt.async_runtime()
     }
 }

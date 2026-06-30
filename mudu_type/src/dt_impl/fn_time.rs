@@ -150,6 +150,10 @@ pub const FN_TIME_CONVERT: FnBase = FnBase {
 };
 
 #[cfg(test)]
+#[path = "fn_time_test.rs"]
+mod fn_time_test;
+
+#[cfg(test)]
 mod tests {
     use super::{
         fn_time_default, fn_time_in_json, fn_time_in_msgpack, fn_time_out_json,

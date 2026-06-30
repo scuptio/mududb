@@ -1,14 +1,18 @@
 use crate::rust::procedure_common::{decode_utf8, kv_data_key};
-use mududb::common::result::RS;
 use mududb::common::id::OID;
-use mududb::error::ec::EC;
-use mududb::m_error;
+use mududb::common::result::RS;
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_get, mudu_put, mudu_range};
 
 fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
-    let value = mudu_get(session_id, key.as_bytes())?
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("ycsb key not found: {user_key}")))?;
+    let value = mudu_get(session_id, key.as_bytes())?.ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("ycsb key not found: {user_key}")
+        )
+    })?;
     decode_utf8("value", value)
 }
 
@@ -26,8 +30,12 @@ pub fn ycsb_read(xid: OID, user_key: String) -> RS<String> {
 /**mudu-proc**/
 pub fn ycsb_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
-    let _ = mudu_get(xid, key.as_bytes())?
-        .ok_or_else(|| m_error!(EC::NoneErr, format!("ycsb key not found: {user_key}")))?;
+    let _ = mudu_get(xid, key.as_bytes())?.ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("ycsb key not found: {user_key}")
+        )
+    })?;
     mudu_put(xid, key.as_bytes(), value.as_bytes())
 }
 
@@ -57,25 +65,30 @@ pub fn ycsb_read_modify_write(xid: OID, user_key: String, append_value: String) 
     Ok(current)
 }
 
+// Miri cannot execute FFI calls into SQLite (via rusqlite), so skip
+// these tests under Miri. They are still exercised by normal `cargo test`.
 #[cfg(test)]
 mod tests {
     use super::{ycsb_insert, ycsb_read, ycsb_read_modify_write, ycsb_scan, ycsb_update};
     use crate::test_lock;
+    use mududb::sys::env_var::temp_dir;
+    use mududb::sys::time::system_time_now;
     use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     fn temp_db_path(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        let suffix = system_time_now()
             .duration_since(UNIX_EPOCH)
             .expect("system time before unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("ycsb_{name}_{suffix}.db"))
+        temp_dir().join(format!("ycsb_{name}_{suffix}.db"))
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn ycsb_sync_procedures_roundtrip_against_standalone_adapter() {
-        let _guard = test_lock().lock().unwrap_or_else(|err| err.into_inner());
+        let _guard = test_lock().lock().unwrap();
         let db_path = temp_db_path("sync");
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);

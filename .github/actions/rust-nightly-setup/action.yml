@@ -1,17 +1,11 @@
-name: Rust Nightly Setup
+name: Rust Nightly Tooling Setup
 
-description: Install Linux prerequisites and setup Rust nightly toolchain for local and GitHub runners
-
-inputs:
-  rust_target:
-    description: Rust target triple to add
-    required: false
-    default: ""
+description: Install the pinned nightly toolchain used only by udeps, fuzz, Miri, and sanitizers
 
 runs:
   using: composite
   steps:
-    - name: Installing Prerequisites (Linux)
+    - name: Install prerequisites (Linux)
       shell: bash
       run: |
         if command -v sudo >/dev/null 2>&1; then
@@ -26,31 +20,20 @@ runs:
       shell: bash
       run: |
         if ! command -v rustup >/dev/null 2>&1; then
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain nightly
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
         fi
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-    - name: Install Rust Nightly
+    - name: Install pinned nightly toolchain
       shell: bash
       run: |
-        if ! rustup toolchain list | grep -q '^nightly'; then
-          rustup toolchain install nightly --profile minimal
-        fi
-        rustup default nightly
-
-    - name: Install rustfmt
-      shell: bash
-      run: |
-        rustup component add rustfmt --toolchain nightly
-        HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
-        if [ -n "$HOST_TRIPLE" ]; then
-          rustup component add rustfmt --toolchain "nightly-${HOST_TRIPLE}"
-        fi
-
-    - name: Add Rust target
-      if: ${{ inputs.rust_target != '' }}
-      shell: bash
-      run: |
-        if ! rustup target list --installed --toolchain nightly | grep -q "^${{ inputs.rust_target }}$"; then
-          rustup target add "${{ inputs.rust_target }}"
-        fi
+        NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < .rust-nightly-version)"
+        case "$NIGHTLY_TOOLCHAIN" in
+          nightly-????-??-??) ;;
+          *) echo "invalid pinned nightly: $NIGHTLY_TOOLCHAIN" >&2; exit 1 ;;
+        esac
+        rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal
+        rustup component add rustfmt --toolchain "$NIGHTLY_TOOLCHAIN"
+        rustup target add x86_64-unknown-linux-gnu --toolchain "$NIGHTLY_TOOLCHAIN"
+        echo "NIGHTLY_TOOLCHAIN=$NIGHTLY_TOOLCHAIN" >> "$GITHUB_ENV"
+        cargo "+$NIGHTLY_TOOLCHAIN" --version

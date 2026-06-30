@@ -28,7 +28,7 @@ pub fn fn_f32_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         None => {
             return Err(TyErr::new(
                 TyEC::TypeConvertFailed,
-                format!("cannot convert json {} to f32", v.to_string()),
+                format!("cannot convert json {} to f32", v),
             ));
         }
     };
@@ -36,7 +36,7 @@ pub fn fn_f32_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         Some(num) => Ok(DatValue::from_f32(num as f32)),
         None => Err(TyErr::new(
             TyEC::TypeConvertFailed,
-            format!("cannot convert json {} to f32", v.to_string()),
+            format!("cannot convert json {} to f32", v),
         )),
     }
 }

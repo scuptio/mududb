@@ -1,9 +1,10 @@
-use mudu::common::id::{gen_oid, OID};
+use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_utils::oid::gen_oid;
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, OpenOptions};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -34,14 +35,19 @@ pub fn load_or_create_worker_registry<P: AsRef<Path>>(
     worker_count: usize,
 ) -> RS<Arc<WorkerRegistry>> {
     if worker_count == 0 {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             "worker count must be greater than zero"
         ));
     }
     let log_dir = log_dir.as_ref().to_path_buf();
-    fs::create_dir_all(&log_dir)
-        .map_err(|e| m_error!(EC::IOErr, "create worker registry log directory error", e))?;
+    mudu_sys::fs::sync::create_dir_all(&log_dir).map_err(|e| {
+        mudu_error!(
+            ErrorCode::Io,
+            "create worker registry log directory error",
+            e
+        )
+    })?;
 
     let mut loaded = scan_worker_identities(&log_dir)?;
     for worker_index in 0..worker_count {
@@ -67,8 +73,8 @@ impl WorkerRegistry {
                 .insert(worker.worker_id, worker.worker_index)
                 .is_some()
             {
-                return Err(m_error!(
-                    EC::ExistingSuchElement,
+                return Err(mudu_error!(
+                    ErrorCode::EntityAlreadyExists,
                     format!("duplicate worker id {}", worker.worker_id)
                 ));
             }
@@ -77,8 +83,8 @@ impl WorkerRegistry {
                     .insert(partition_id, worker.worker_index)
                     .is_some()
                 {
-                    return Err(m_error!(
-                        EC::ExistingSuchElement,
+                    return Err(mudu_error!(
+                        ErrorCode::EntityAlreadyExists,
                         format!("duplicate partition id {}", partition_id)
                     ));
                 }
@@ -125,19 +131,17 @@ impl WorkerRegistry {
 fn scan_worker_identities(log_dir: &Path) -> RS<Vec<WorkerIdentity>> {
     let mut worker_ids = HashMap::<usize, OID>::new();
     let mut partitions = HashMap::<OID, Vec<OID>>::new();
-    for entry in fs::read_dir(log_dir)
-        .map_err(|e| m_error!(EC::IOErr, "scan worker registry directory error", e))?
+    for entry in mudu_sys::fs::sync::read_dir_entries(log_dir)
+        .map_err(|e| mudu_error!(ErrorCode::Io, "scan worker registry directory error", e))?
     {
-        let entry = entry
-            .map_err(|e| m_error!(EC::IOErr, "read worker registry directory entry error", e))?;
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
         if let Some((worker_index, worker_id)) = parse_worker_marker(file_name) {
             if worker_ids.insert(worker_index, worker_id).is_some() {
-                return Err(m_error!(
-                    EC::ExistingSuchElement,
+                return Err(mudu_error!(
+                    ErrorCode::EntityAlreadyExists,
                     format!("duplicate worker marker for worker index {}", worker_index)
                 ));
             }
@@ -153,8 +157,8 @@ fn scan_worker_identities(log_dir: &Path) -> RS<Vec<WorkerIdentity>> {
         partition_ids.sort_unstable();
         partition_ids.dedup();
         if partition_ids.is_empty() {
-            return Err(m_error!(
-                EC::NoneErr,
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
                 format!("worker {} has no partition markers", worker_id)
             ));
         }
@@ -181,8 +185,8 @@ fn create_worker_identity(log_dir: &Path, worker_index: usize) -> RS<WorkerIdent
 
 fn validate_worker_identities(workers: &[WorkerIdentity], worker_count: usize) -> RS<()> {
     if workers.len() != worker_count {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             format!(
                 "worker registry count {} does not match expected {}",
                 workers.len(),
@@ -194,27 +198,27 @@ fn validate_worker_identities(workers: &[WorkerIdentity], worker_count: usize) -
     let mut partition_ids = HashSet::new();
     for worker in workers {
         if worker.worker_id == 0 {
-            return Err(m_error!(EC::ParseErr, "worker id cannot be zero"));
+            return Err(mudu_error!(ErrorCode::Parse, "worker id cannot be zero"));
         }
         if !worker_ids.insert(worker.worker_id) {
-            return Err(m_error!(
-                EC::ExistingSuchElement,
+            return Err(mudu_error!(
+                ErrorCode::EntityAlreadyExists,
                 format!("duplicate worker id {}", worker.worker_id)
             ));
         }
         if worker.partition_ids.is_empty() {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 format!("worker {} has no partitions", worker.worker_id)
             ));
         }
         for &partition_id in &worker.partition_ids {
             if partition_id == 0 {
-                return Err(m_error!(EC::ParseErr, "partition id cannot be zero"));
+                return Err(mudu_error!(ErrorCode::Parse, "partition id cannot be zero"));
             }
             if !partition_ids.insert(partition_id) {
-                return Err(m_error!(
-                    EC::ExistingSuchElement,
+                return Err(mudu_error!(
+                    ErrorCode::EntityAlreadyExists,
                     format!("duplicate partition id {}", partition_id)
                 ));
             }
@@ -224,12 +228,11 @@ fn validate_worker_identities(workers: &[WorkerIdentity], worker_count: usize) -
 }
 
 fn touch_marker(path: PathBuf) -> RS<()> {
-    OpenOptions::new()
+    mudu_sys::fs::sync::SOpenOptions::new()
         .create_new(true)
         .write(true)
         .open(path)
         .map(|_| ())
-        .map_err(|e| m_error!(EC::IOErr, "create worker registry marker error", e))
 }
 
 fn worker_marker_name(worker_index: usize, worker_id: OID) -> String {

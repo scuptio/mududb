@@ -3,13 +3,14 @@ use crate::mudu_conn::mudu_conn_core::MuduConnCore;
 use crate::x_engine::tx_mgr::TxMgr;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::common::xid::new_xid;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::sync::SMutex;
+use mudu_utils::oid::new_xid;
 use scc::HashMap as SccHashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
 pub(crate) struct WorkerSessionManager {
     session_owner: SccHashMap<OID, u64>,
@@ -17,6 +18,7 @@ pub(crate) struct WorkerSessionManager {
     session_contexts: SccHashMap<OID, Arc<SessionContext>>,
     active_sessions: Arc<AtomicUsize>,
     meta_mgr: Arc<dyn MetaMgr>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 pub(crate) struct SessionContext {
@@ -25,13 +27,18 @@ pub(crate) struct SessionContext {
 }
 
 impl WorkerSessionManager {
-    pub(crate) fn new(active_sessions: Arc<AtomicUsize>, meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    pub(crate) fn new(
+        active_sessions: Arc<AtomicUsize>,
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> Self {
         Self {
             session_owner: SccHashMap::new(),
             connection_sessions: SccHashMap::new(),
             session_contexts: SccHashMap::new(),
             active_sessions,
             meta_mgr,
+            async_runtime,
         }
     }
 
@@ -41,7 +48,10 @@ impl WorkerSessionManager {
             if self.session_owner.insert_sync(session_id, conn_id).is_err() {
                 continue;
             }
-            let session_context = Arc::new(SessionContext::new(self.meta_mgr.clone()));
+            let session_context = Arc::new(SessionContext::new(
+                self.meta_mgr.clone(),
+                self.async_runtime.clone(),
+            )?);
             if self
                 .session_contexts
                 .insert_sync(session_id, session_context)
@@ -76,8 +86,8 @@ impl WorkerSessionManager {
                 }
                 Ok(true)
             }
-            Some(_) => Err(m_error!(
-                EC::TxErr,
+            Some(_) => Err(mudu_error!(
+                ErrorCode::Transaction,
                 format!(
                     "session {} does not belong to connection {}",
                     session_id, conn_id
@@ -105,8 +115,8 @@ impl WorkerSessionManager {
             .get_sync(&session_id)
             .map(|entry| *entry.get())
             .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
                     format!("session {} does not exist", session_id)
                 )
             })
@@ -123,8 +133,8 @@ impl WorkerSessionManager {
         if closed {
             Ok(())
         } else {
-            Err(m_error!(
-                EC::NoSuchElement,
+            Err(mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} does not exist", session_id)
             ))
         }
@@ -135,8 +145,8 @@ impl WorkerSessionManager {
             .get_sync(&session_id)
             .map(|entry| entry.get().clone())
             .ok_or_else(|| {
-                m_error!(
-                    EC::NoSuchElement,
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
                     format!("session {} does not exist", session_id)
                 )
             })
@@ -153,15 +163,15 @@ impl WorkerSessionManager {
             .map(|entry| *entry.get())
         {
             Some(owner_conn_id) if owner_conn_id == conn_id => Ok(()),
-            Some(_) => Err(m_error!(
-                EC::TxErr,
+            Some(_) => Err(mudu_error!(
+                ErrorCode::Transaction,
                 format!(
                     "session {} does not belong to connection {}",
                     session_id, conn_id
                 )
             )),
-            None => Err(m_error!(
-                EC::NoSuchElement,
+            None => Err(mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} does not exist", session_id)
             )),
         }
@@ -170,27 +180,27 @@ impl WorkerSessionManager {
     pub(crate) fn has_session_tx(&self, session_id: OID) -> RS<bool> {
         Ok(self
             .session_context(session_id)?
-            .tx_manager_cloned()
+            .tx_manager_cloned()?
             .is_some())
     }
 
     pub(crate) fn begin_session_tx(&self, session_id: OID, tx_mgr: Arc<dyn TxMgr>) -> RS<()> {
         let session = self.session_context(session_id)?;
-        if session.tx_manager_cloned().is_some() {
-            return Err(m_error!(
-                EC::ExistingSuchElement,
+        if session.tx_manager_cloned()?.is_some() {
+            return Err(mudu_error!(
+                ErrorCode::EntityAlreadyExists,
                 format!("session {} already has an active transaction", session_id)
             ));
         }
-        session.set_tx_manager(Some(tx_mgr));
+        session.set_tx_manager(Some(tx_mgr))?;
         Ok(())
     }
 
     pub(crate) fn take_session_tx(&self, session_id: OID) -> RS<Arc<dyn TxMgr>> {
         let session = self.session_context(session_id)?;
-        session.take_tx_manager().ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+        session.take_tx_manager()?.ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} has no active transaction", session_id)
             )
         })
@@ -201,7 +211,7 @@ impl WorkerSessionManager {
         F: FnOnce(Option<Arc<dyn TxMgr>>) -> RS<R>,
     {
         let session = self.session_context(session_id)?;
-        f(session.tx_manager_cloned())
+        f(session.tx_manager_cloned()?)
     }
 
     fn connection_sessions(&self, conn_id: u64) -> Arc<SccHashMap<OID, ()>> {
@@ -226,32 +236,27 @@ impl WorkerSessionManager {
 }
 
 impl SessionContext {
-    fn new(meta_mgr: Arc<dyn MetaMgr>) -> Self {
-        Self {
+    fn new(
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> RS<Self> {
+        Ok(Self {
             tx_manager: SMutex::new(None),
-            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr)),
-        }
+            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr, async_runtime)?),
+        })
     }
 
-    pub(crate) fn tx_manager_cloned(&self) -> Option<Arc<dyn TxMgr>> {
-        self.tx_manager
-            .lock()
-            .expect("session tx manager lock poisoned")
-            .clone()
+    pub(crate) fn tx_manager_cloned(&self) -> RS<Option<Arc<dyn TxMgr>>> {
+        Ok(self.tx_manager.lock()?.clone())
     }
 
-    pub(crate) fn set_tx_manager(&self, tx_manager: Option<Arc<dyn TxMgr>>) {
-        *self
-            .tx_manager
-            .lock()
-            .expect("session tx manager lock poisoned") = tx_manager;
+    pub(crate) fn set_tx_manager(&self, tx_manager: Option<Arc<dyn TxMgr>>) -> RS<()> {
+        *self.tx_manager.lock()? = tx_manager;
+        Ok(())
     }
 
-    pub(crate) fn take_tx_manager(&self) -> Option<Arc<dyn TxMgr>> {
-        self.tx_manager
-            .lock()
-            .expect("session tx manager lock poisoned")
-            .take()
+    pub(crate) fn take_tx_manager(&self) -> RS<Option<Arc<dyn TxMgr>>> {
+        Ok(self.tx_manager.lock()?.take())
     }
 
     pub(crate) fn mudu_conn_core(&self) -> Arc<MuduConnCore> {

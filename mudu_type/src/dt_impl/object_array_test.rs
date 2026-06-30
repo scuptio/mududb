@@ -4,7 +4,7 @@ use crate::dat_value::DatValue;
 use crate::dt_impl::dt_create::{create_array_type, create_object_type, create_string_type};
 use arbitrary::Unstructured;
 
-fn seeded_unstructured(seed: u64) -> Unstructured<'static> {
+fn seeded_bytes(seed: u64) -> Vec<u8> {
     let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     let mut bytes = Vec::with_capacity(256);
     for _ in 0..256 {
@@ -13,7 +13,7 @@ fn seeded_unstructured(seed: u64) -> Unstructured<'static> {
         state ^= state << 17;
         bytes.push((state & 0xff) as u8);
     }
-    Unstructured::new(Box::leak(bytes.into_boxed_slice()))
+    bytes
 }
 
 fn assert_binary_roundtrip(id: DatTypeID, dt: &DatType, value: &DatValue) {
@@ -27,7 +27,8 @@ fn assert_binary_roundtrip(id: DatTypeID, dt: &DatType, value: &DatValue) {
 #[test]
 fn array_arb_param_produces_supported_inner_type() {
     for seed in 0..32 {
-        let mut u = seeded_unstructured(seed);
+        let bytes = seeded_bytes(seed);
+        let mut u = Unstructured::new(&bytes);
         let dt = DatTypeID::Array.fn_arb_param()(&mut u).unwrap();
         assert_eq!(dt.dat_type_id(), DatTypeID::Array);
         let inner = dt.expect_array_param().dat_type();
@@ -67,7 +68,8 @@ fn array_roundtrip_with_variable_width_inner_type() {
 #[test]
 fn object_arb_param_produces_named_fields() {
     for seed in 100..132 {
-        let mut u = seeded_unstructured(seed);
+        let bytes = seeded_bytes(seed);
+        let mut u = Unstructured::new(&bytes);
         let dt = DatTypeID::Record.fn_arb_param()(&mut u).unwrap();
         let record = dt.expect_record_param();
         assert_eq!(dt.dat_type_id(), DatTypeID::Record);
@@ -125,7 +127,8 @@ fn object_roundtrip_with_nested_array_field() {
 #[test]
 fn object_arbitrary_value_matches_generated_schema() {
     for seed in 200..216 {
-        let mut u = seeded_unstructured(seed);
+        let bytes = seeded_bytes(seed);
+        let mut u = Unstructured::new(&bytes);
         let dt = DatTypeID::Record.fn_arb_param()(&mut u).unwrap();
         let value = match DatTypeID::Record.fn_arb_internal()(&mut u, &dt) {
             Ok(value) => value,

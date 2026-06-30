@@ -1,4 +1,7 @@
-pub fn lang_handle_tuple(inner: &Vec<String>) -> String {
+//! Tuple type rendering helper.
+
+/// Render a tuple type from a list of inner type names.
+pub fn lang_handle_tuple(inner: &[String]) -> String {
     let mut s = String::from("(");
     for (i, ty_s) in inner.iter().enumerate() {
         s.push_str(ty_s);
@@ -6,6 +9,6 @@ pub fn lang_handle_tuple(inner: &Vec<String>) -> String {
             s.push_str(", ");
         }
     }
-    s.push_str(")");
+    s.push(')');
     s
 }

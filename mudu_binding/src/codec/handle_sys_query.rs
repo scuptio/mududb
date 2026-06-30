@@ -6,17 +6,22 @@ use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 
+/// Serializes a query parameter into its universal representation.
 pub fn query_param_serialize(oid: OID, stmt: &dyn SQLStmt, param: &dyn SQLParams) -> RS<Vec<u8>> {
     handle_sys_incoming::query_incoming_serialize(oid, stmt, param)
 }
 
-pub fn query_param_deserialize(param: &[u8]) -> RS<(OID, Box<dyn SQLStmt>, Box<dyn SQLParams>)> {
+/// Deserializes a query parameter from its universal representation.
+pub fn query_param_deserialize(param: &[u8]) -> RS<crate::codec::SqlParamPair> {
     handle_sys_incoming::query_incoming_deserialize(param)
 }
 
+/// Serializes a query result (or error) into its universal representation.
 pub fn query_result_serialize(result: RS<(ResultBatch, TupleFieldDesc)>) -> Vec<u8> {
     handle_sys_outcoming::query_outcoming_serialize(result)
 }
+
+/// Deserializes a query result from its universal representation.
 pub fn query_result_deserialize(param: &[u8]) -> RS<(ResultBatch, TupleFieldDesc)> {
     handle_sys_outcoming::query_outcoming_deserialize(param)
 }

@@ -3,9 +3,9 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::x_engine::x_param::PCreatePartitionRule;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
-use mudu_sys::sync::a_mutex::AMutex;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
+use mudu_sys::sync::async_::AMutex;
 use std::sync::Arc;
 
 pub struct CreatePartitionRule {
@@ -51,8 +51,8 @@ impl InnerCreatePartitionRule {
             .await?
             .is_some()
         {
-            return Err(m_error!(
-                ER::ExistingSuchElement,
+            return Err(mudu_error!(
+                ER::EntityAlreadyExists,
                 format!("partition rule {} already exists", self.param.rule.name)
             ));
         }

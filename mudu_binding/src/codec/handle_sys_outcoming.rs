@@ -9,22 +9,27 @@ use crate::universal::uni_result_set::UniResultSet;
 use crate::universal::uni_tuple_row::UniTupleRow;
 use mudu::common::result::RS;
 use mudu::common::serde_utils::{deserialize_from, serialize_to_vec};
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 
+/// Serializes a query result (or error) into its universal representation.
 pub fn query_outcoming_serialize(result: RS<(ResultBatch, TupleFieldDesc)>) -> Vec<u8> {
     let r = _handle_query_outcoming(result);
     let mu_r = UniResult::from(r);
-    let mu_r_bin = serialize_to_vec(&mu_r).unwrap_or_default();
-    mu_r_bin
+
+    serialize_to_vec(&mu_r).unwrap_or_default()
 }
+/// Deserializes a query result from its universal representation.
 pub fn query_outcoming_deserialize(param: &[u8]) -> RS<(ResultBatch, TupleFieldDesc)> {
     if param.is_empty() {
-        return Err(m_error!(EC::DecodeErr, "deserialize query result error"));
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            "deserialize query result error"
+        ));
     }
     _handle_query_outcoming_deserialize(param)
 }
@@ -99,20 +104,6 @@ fn tuple_value_to_mu(tuple_value: TupleValue) -> RS<UniTupleRow> {
 
 fn tuple_value_from_mu(mu_tuple_row: UniTupleRow) -> RS<TupleValue> {
     mu_tuple_row.uni_to()
-}
-
-#[allow(unused)]
-fn handle_fetch_outcoming(result: RS<ResultBatch>, desc: &TupleFieldDesc) -> Vec<u8> {
-    let r = _handle_fetch_outcoming(result);
-    let mu_r = UniResult::from(r);
-    let mu_r_bin = serialize_to_vec(&mu_r).unwrap_or_default();
-    mu_r_bin
-}
-
-fn _handle_fetch_outcoming(result: RS<ResultBatch>) -> Result<UniResultSet, UniError> {
-    let rs = result.map_err(error_to_mu)?;
-    let mu_rs = result_set_to_mu(rs).map_err(error_to_mu)?;
-    Ok(mu_rs)
 }
 
 fn tuple_desc_from_mu(desc: UniRecordType) -> RS<TupleFieldDesc> {

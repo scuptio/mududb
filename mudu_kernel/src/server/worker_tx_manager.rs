@@ -41,6 +41,10 @@ impl WorkerTxManager {
     }
 
     fn with_state<R>(&self, f: impl FnOnce(&WorkerTxState) -> R) -> R {
+        #[expect(
+            clippy::expect_used,
+            reason = "reentrant borrow is a programming error"
+        )]
         let state = self
             .state
             .try_borrow()
@@ -49,6 +53,10 @@ impl WorkerTxManager {
     }
 
     fn with_state_mut<R>(&self, f: impl FnOnce(&mut WorkerTxState) -> R) -> R {
+        #[expect(
+            clippy::expect_used,
+            reason = "reentrant borrow is a programming error"
+        )]
         let mut state = self
             .state
             .try_borrow_mut()
@@ -101,7 +109,6 @@ impl TxMgr for WorkerTxManager {
         });
         trace.watch("tx.state.op", "delete:done");
     }
-
 
     fn get(&self, key: &[u8]) -> Option<Option<Vec<u8>>> {
         let trace = task_trace!();

@@ -1,15 +1,18 @@
+//! `tuple::write_value` module.
+#![allow(missing_docs)]
+
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary::TupleSlice;
 use mudu::common::buf::Buf;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
 pub fn write_slot_to_buf(value_offset: usize, value_size: usize, buf: &mut [u8]) -> RS<()> {
     let slot = Slot::new(value_offset as u32, value_size as u32);
     if Slot::size_of() > buf.len() {
-        return Err(m_error!(EC::NotImplemented));
+        return Err(mudu_error!(ErrorCode::NotImplemented));
     }
     slot.to_binary(buf)?;
     Ok(())
@@ -24,8 +27,8 @@ pub fn write_slot_to_tuple(
     if !field.is_fixed_len() {
         let slot_offset = field.slot().offset();
         if slot_offset + Slot::size_of() > tuple.len() {
-            return Err(m_error!(
-                EC::IndexOutOfRange,
+            return Err(mudu_error!(
+                ErrorCode::IndexOutOfRange,
                 format!(
                     "slot offset {} with size {} exceeds tuple len {}",
                     slot_offset,

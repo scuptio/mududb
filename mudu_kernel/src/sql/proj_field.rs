@@ -1,18 +1,15 @@
-use mudu::common::id::OID;
 use mudu_type::dat_type::DatType;
 
 #[derive(Debug, Clone)]
 pub struct ProjField {
-    oid: OID,
     index: usize,
     name: String,
     type_desc: DatType,
 }
 
 impl ProjField {
-    pub fn new(index: usize, oid: OID, name: String, type_desc: DatType) -> Self {
+    pub fn new(index: usize, name: String, type_desc: DatType) -> Self {
         Self {
-            oid,
             index,
             name,
             type_desc,

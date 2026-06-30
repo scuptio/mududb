@@ -9,13 +9,14 @@ use crate::lang_impl::lang::template_kind::TemplateKind;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
 use mudu_binding::record::record_def::RecordDef;
 use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
 use std::sync::Arc;
 
+/// Create a C# renderer.
 pub fn create_render() -> Arc<dyn Render> {
     Arc::new(RenderCS::new())
 }
@@ -35,7 +36,7 @@ impl Render for RenderCS {
         };
         let s = template_file
             .render()
-            .map_err(|e| m_error!(EC::InternalErr, "render error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Internal, "render error", e))?;
         Ok(s)
     }
 }
@@ -62,9 +63,9 @@ impl RenderCS {
 
     fn render_record_cs(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateRecordCS::from(def, cfg)?;
-        let s = template
-            .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render csharp record template error", e))?;
+        let s = template.render().map_err(|e| {
+            mudu_error!(ErrorCode::Decode, "render csharp record template error", e)
+        })?;
         Ok(s)
     }
 
@@ -72,7 +73,7 @@ impl RenderCS {
         let template = TemplateTableCS::from(def, cfg)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render csharp table template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render csharp table template error", e))?;
         Ok(s)
     }
 
@@ -80,15 +81,15 @@ impl RenderCS {
         let template = TemplateEnumCS::from(def, cfg)?;
         let s = template
             .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render csharp enum template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render csharp enum template error", e))?;
         Ok(s)
     }
 
     fn render_variant_cs(def: UniVariantDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateVariantCS::from(def, cfg)?;
-        let s = template
-            .render()
-            .map_err(|e| m_error!(EC::DecodeErr, "render csharp variant template error", e))?;
+        let s = template.render().map_err(|e| {
+            mudu_error!(ErrorCode::Decode, "render csharp variant template error", e)
+        })?;
         Ok(s)
     }
 

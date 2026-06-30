@@ -1,0 +1,159 @@
+# Dependency graph enforcement:
+# mudu_sys_impl is the only crate allowed to use non-deterministic sources
+# (tokio, std::thread, std::sync, io_uring, etc.).
+# It must only be depended upon by mudu_sys.
+[bans]
+deny = [
+    { name = "mudu_sys_impl", wrappers = ["mudu_sys"] },
+]
+
+# Several large transitive dependencies pull in conflicting major versions of
+# common crates (tonic, axum, hyper, hashbrown, etc.). Since these duplicates
+# come from upstream dependency trees that cannot be unified without upgrading
+# or replacing those crates, suppress duplicate warnings within those subtrees.
+skip-tree = [
+    { name = "libsql", depth = 10 },
+    { name = "libsql_replication", depth = 10 },
+    { name = "console-subscriber", depth = 10 },
+    { name = "zip", depth = 10 },
+    { name = "wasmtime", depth = 10 },
+    { name = "reqwest", depth = 10 },
+    { name = "mysql", depth = 10 },
+    { name = "mysql_async", depth = 10 },
+    { name = "pgwire", depth = 10 },
+]
+
+# Remaining duplicates that are not covered by the skip-tree entries above.
+skip = [
+    { name = "base64", version = "0.21.7" },
+    { name = "base64", version = "0.22.1" },
+    { name = "bindgen", version = "0.66.1" },
+    { name = "bindgen", version = "0.70.1" },
+    { name = "bitflags", version = "1.3.2" },
+    { name = "bitflags", version = "2.13.0" },
+    { name = "foldhash", version = "0.1.5" },
+    { name = "foldhash", version = "0.2.0" },
+    { name = "getrandom", version = "0.2.17" },
+    { name = "getrandom", version = "0.3.4" },
+    { name = "getrandom", version = "0.4.2" },
+    { name = "hashbrown", version = "0.12.3" },
+    { name = "hashbrown", version = "0.14.5" },
+    { name = "hashbrown", version = "0.16.1" },
+    { name = "hashbrown", version = "0.17.1" },
+    { name = "hashlink", version = "0.8.4" },
+    { name = "hashlink", version = "0.12.0" },
+    { name = "indexmap", version = "1.9.3" },
+    { name = "indexmap", version = "2.14.0" },
+    { name = "itertools", version = "0.12.1" },
+    { name = "itertools", version = "0.13.0" },
+    { name = "itertools", version = "0.14.0" },
+    { name = "linux-raw-sys", version = "0.4.15" },
+    { name = "linux-raw-sys", version = "0.12.1" },
+    { name = "lru", version = "0.16.4" },
+    { name = "lru", version = "0.18.0" },
+    { name = "openssl-probe", version = "0.1.6" },
+    { name = "openssl-probe", version = "0.2.1" },
+    { name = "phf", version = "0.11.3" },
+    { name = "phf", version = "0.13.1" },
+    { name = "phf_shared", version = "0.11.3" },
+    { name = "phf_shared", version = "0.13.1" },
+    { name = "rand", version = "0.8.6" },
+    { name = "rand", version = "0.10.1" },
+    { name = "rand_core", version = "0.6.4" },
+    { name = "rand_core", version = "0.10.1" },
+    { name = "r-efi", version = "5.3.0" },
+    { name = "r-efi", version = "6.0.0" },
+    { name = "rustc-hash", version = "1.1.0" },
+    { name = "rustc-hash", version = "2.1.2" },
+    { name = "rustix", version = "0.38.44" },
+    { name = "rustix", version = "1.1.4" },
+    { name = "socket2", version = "0.5.10" },
+    { name = "socket2", version = "0.6.4" },
+    { name = "thiserror", version = "1.0.69" },
+    { name = "thiserror", version = "2.0.18" },
+    { name = "thiserror-impl", version = "1.0.69" },
+    { name = "thiserror-impl", version = "2.0.18" },
+    { name = "toml", version = "0.9.12+spec-1.1.0" },
+    { name = "toml", version = "1.1.2+spec-1.1.0" },
+    { name = "toml_datetime", version = "0.7.5+spec-1.1.0" },
+    { name = "toml_datetime", version = "1.1.1+spec-1.1.0" },
+    { name = "unicode-width", version = "0.1.14" },
+    { name = "unicode-width", version = "0.2.2" },
+    { name = "wasi", version = "0.11.1+wasi-snapshot-preview1" },
+    { name = "wasi", version = "0.14.7+wasi-0.2.4" },
+    { name = "wasm-encoder", version = "0.251.0" },
+    { name = "wasm-encoder", version = "0.252.0" },
+    { name = "wast", version = "35.0.2" },
+    { name = "wast", version = "252.0.0" },
+    { name = "winnow", version = "0.7.15" },
+    { name = "winnow", version = "1.0.3" },
+    { name = "wit-bindgen", version = "0.51.0" },
+    { name = "wit-bindgen", version = "0.57.1" },
+    { name = "wit-bindgen", version = "0.58.0" },
+    { name = "zerocopy", version = "0.7.35" },
+    { name = "zerocopy", version = "0.8.48" },
+    # Windows target crates pulled by multiple versions of windows-sys.
+    { name = "windows_aarch64_gnullvm", version = "0.48.5" },
+    { name = "windows_aarch64_gnullvm", version = "0.52.6" },
+    { name = "windows_aarch64_msvc", version = "0.48.5" },
+    { name = "windows_aarch64_msvc", version = "0.52.6" },
+    { name = "windows_i686_gnu", version = "0.48.5" },
+    { name = "windows_i686_gnu", version = "0.52.6" },
+    { name = "windows_i686_msvc", version = "0.48.5" },
+    { name = "windows_i686_msvc", version = "0.52.6" },
+    { name = "windows-sys", version = "0.52.0" },
+    { name = "windows-sys", version = "0.59.0" },
+    { name = "windows-sys", version = "0.61.2" },
+    { name = "windows-targets", version = "0.48.5" },
+    { name = "windows-targets", version = "0.52.6" },
+    { name = "windows_x86_64_gnu", version = "0.48.5" },
+    { name = "windows_x86_64_gnu", version = "0.52.6" },
+    { name = "windows_x86_64_gnullvm", version = "0.48.5" },
+    { name = "windows_x86_64_gnullvm", version = "0.52.6" },
+    { name = "windows_x86_64_msvc", version = "0.48.5" },
+    { name = "windows_x86_64_msvc", version = "0.52.6" },
+]
+
+[sources]
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/scuptio/rliburing.git"]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+    "bzip2-1.0.6",
+    "BSL-1.0",
+]
+
+[[licenses.clarify]]
+name = "rliburing"
+expression = "MIT"
+license-files = []
+
+[advisories]
+# Use the default RustSec advisory database.
+ignore = [
+    # rustls-webpki 0.102 is pulled in by libsql -> hyper-rustls; upgrading libsql is a larger task.
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki pinned via libsql, upgrade pending" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki pinned via libsql, upgrade pending" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki pinned via libsql, upgrade pending" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki pinned via libsql, upgrade pending" },
+    # Other transitive advisories that require upstream upgrades.
+    { id = "RUSTSEC-2024-0436", reason = "transitive dependency; upgrade pending" },
+    { id = "RUSTSEC-2025-0134", reason = "transitive dependency; upgrade pending" },
+    { id = "RUSTSEC-2025-0141", reason = "transitive dependency; upgrade pending" },
+]

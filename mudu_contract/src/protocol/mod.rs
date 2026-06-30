@@ -1,13 +1,18 @@
+//! `protocol::mod` module.
+#![allow(missing_docs)]
+
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use crate::tuple::tuple_value::TupleValue;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::error::err::MError;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::error::MuduError;
+use mudu::mudu_error;
+use mudu_sys_contract::perf::TraceContext;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub mod format;
+pub mod migrate;
 pub use format::latest::HEADER_LEN;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,16 +50,16 @@ pub struct HandshakeResponse {
     pub capabilities: Vec<String>,
 }
 
-impl From<MessageType> for u16 {
+impl From<MessageType> for u32 {
     fn from(value: MessageType) -> Self {
-        value as u16
+        value as u32
     }
 }
 
-impl TryFrom<u16> for MessageType {
-    type Error = mudu::error::err::MError;
+impl TryFrom<u32> for MessageType {
+    type Error = mudu::error::MuduError;
 
-    fn try_from(value: u16) -> RS<Self> {
+    fn try_from(value: u32) -> RS<Self> {
         match value {
             1 => Ok(MessageType::Handshake),
             2 => Ok(MessageType::Auth),
@@ -69,21 +74,22 @@ impl TryFrom<u16> for MessageType {
             11 => Ok(MessageType::ProcedureInvoke),
             12 => Ok(MessageType::SessionCreate),
             13 => Ok(MessageType::SessionClose),
-            _ => Err(m_error!(
-                EC::ParseErr,
+            _ => Err(mudu_error!(
+                ErrorCode::Parse,
                 format!("unknown message type {}", value)
             )),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FrameHeader {
     magic: u32,
     version: u32,
     message_type: MessageType,
-    flags: u16,
+    flags: u64,
     request_id: u64,
+    trace_context: TraceContext,
     payload_len: u32,
 }
 
@@ -100,6 +106,32 @@ pub struct ServerResponse {
     rows: Vec<TupleValue>,
     affected_rows: u64,
     error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server_perf_digest: Option<ServerPerfDigest>,
+}
+
+/// Server-side per-transaction performance digest returned to the client.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ServerPerfDigest {
+    pub trace_id: u64,
+    pub durations_ns: [Option<u64>; mudu_sys_contract::perf::TxnStage::Count as usize],
+}
+
+impl ServerPerfDigest {
+    pub fn new(trace_id: u64) -> Self {
+        Self {
+            trace_id,
+            ..Default::default()
+        }
+    }
+
+    pub fn set(&mut self, stage: mudu_sys_contract::perf::TxnStage, ns: u64) {
+        self.durations_ns[stage.as_index()] = Some(ns);
+    }
+
+    pub fn get(&self, stage: mudu_sys_contract::perf::TxnStage) -> Option<u64> {
+        self.durations_ns[stage.as_index()]
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +205,8 @@ pub struct RangeScanResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProcedureInvokeResponse {
     result: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server_perf_digest: Option<ServerPerfDigest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -188,7 +222,7 @@ pub struct ErrorResponse {
     location: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Frame {
     header: FrameHeader,
     payload: Vec<u8>,
@@ -196,16 +230,30 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(message_type: MessageType, request_id: u64, payload: Vec<u8>) -> Self {
+        Self::new_with_trace(message_type, request_id, TraceContext::empty(), payload)
+    }
+
+    pub fn new_with_trace(
+        message_type: MessageType,
+        request_id: u64,
+        trace_context: TraceContext,
+        payload: Vec<u8>,
+    ) -> Self {
         Self {
-            header: FrameHeader::new(message_type, request_id, payload.len() as u32),
+            header: FrameHeader::new_with_trace(
+                message_type,
+                request_id,
+                trace_context,
+                payload.len() as u32,
+            ),
             payload,
         }
     }
 
     pub fn from_parts(header: FrameHeader, payload: Vec<u8>) -> RS<Self> {
         if header.payload_len() as usize != payload.len() {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 format!(
                     "frame payload length mismatch: header {}, actual {}",
                     header.payload_len(),
@@ -239,12 +287,26 @@ impl Frame {
 
 impl FrameHeader {
     pub fn new(message_type: MessageType, request_id: u64, payload_len: u32) -> Self {
+        Self::new_with_trace(message_type, request_id, TraceContext::empty(), payload_len)
+    }
+
+    pub fn new_with_trace(
+        message_type: MessageType,
+        request_id: u64,
+        trace_context: TraceContext,
+        payload_len: u32,
+    ) -> Self {
         Self {
             magic: format::latest::MAGIC,
             version: format::latest::FRAME_VERSION,
             message_type,
-            flags: 0,
+            flags: if trace_context.sampled {
+                format::latest::FLAG_SAMPLED
+            } else {
+                0
+            },
             request_id,
+            trace_context,
             payload_len,
         }
     }
@@ -265,12 +327,20 @@ impl FrameHeader {
         self.message_type
     }
 
-    pub fn flags(&self) -> u16 {
+    pub fn flags(&self) -> u64 {
         self.flags
+    }
+
+    pub fn sampled(&self) -> bool {
+        self.trace_context.sampled
     }
 
     pub fn request_id(&self) -> u64 {
         self.request_id
+    }
+
+    pub fn trace_context(&self) -> TraceContext {
+        self.trace_context
     }
 
     pub fn payload_len(&self) -> u32 {
@@ -320,7 +390,17 @@ impl ServerResponse {
             rows,
             affected_rows,
             error,
+            server_perf_digest: None,
         }
+    }
+
+    pub fn with_server_perf_digest(mut self, digest: ServerPerfDigest) -> Self {
+        self.server_perf_digest = Some(digest);
+        self
+    }
+
+    pub fn server_perf_digest(&self) -> Option<&ServerPerfDigest> {
+        self.server_perf_digest.as_ref()
     }
 
     pub fn row_desc(&self) -> &TupleFieldDesc {
@@ -496,7 +576,10 @@ impl RangeScanResponse {
 
 impl ProcedureInvokeResponse {
     pub fn new(result: Vec<u8>) -> Self {
-        Self { result }
+        Self {
+            result,
+            server_perf_digest: None,
+        }
     }
 
     pub fn result(&self) -> &[u8] {
@@ -505,6 +588,15 @@ impl ProcedureInvokeResponse {
 
     pub fn into_result(self) -> Vec<u8> {
         self.result
+    }
+
+    pub fn with_server_perf_digest(mut self, digest: ServerPerfDigest) -> Self {
+        self.server_perf_digest = Some(digest);
+        self
+    }
+
+    pub fn server_perf_digest(&self) -> Option<&ServerPerfDigest> {
+        self.server_perf_digest.as_ref()
     }
 }
 
@@ -541,8 +633,8 @@ impl SessionCloseResponse {
 impl ErrorResponse {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            code: EC::InternalErr.to_u32(),
-            name: "InternalErr".to_string(),
+            code: ErrorCode::Internal.to_u32(),
+            name: "Internal".to_string(),
             message: message.into(),
             source: String::new(),
             location: String::new(),
@@ -569,7 +661,7 @@ impl ErrorResponse {
         &self.location
     }
 
-    pub fn from_merror(error: &MError) -> Self {
+    pub fn from_merror(error: &MuduError) -> Self {
         Self {
             code: error.ec().to_u32(),
             name: format!("{:?}", error.ec()),
@@ -603,8 +695,22 @@ pub fn encode_client_request_with_message_type(
     request_id: u64,
     request: &ClientRequest,
 ) -> RS<Vec<u8>> {
+    encode_client_request_with_message_type_and_trace(
+        message_type,
+        request_id,
+        TraceContext::empty(),
+        request,
+    )
+}
+
+pub fn encode_client_request_with_message_type_and_trace(
+    message_type: MessageType,
+    request_id: u64,
+    trace_context: TraceContext,
+    request: &ClientRequest,
+) -> RS<Vec<u8>> {
     let payload = encode_payload(request, "encode client request error")?;
-    Ok(Frame::new(message_type, request_id, payload).encode())
+    Ok(Frame::new_with_trace(message_type, request_id, trace_context, payload).encode())
 }
 
 pub fn encode_client_request(request_id: u64, request: &ClientRequest) -> RS<Vec<u8>> {
@@ -667,8 +773,22 @@ pub fn encode_procedure_invoke_request(
     request_id: u64,
     request: &ProcedureInvokeRequest,
 ) -> RS<Vec<u8>> {
+    encode_procedure_invoke_request_with_trace(request_id, TraceContext::empty(), request)
+}
+
+pub fn encode_procedure_invoke_request_with_trace(
+    request_id: u64,
+    trace_context: TraceContext,
+    request: &ProcedureInvokeRequest,
+) -> RS<Vec<u8>> {
     let payload = encode_payload(request, "encode procedure invoke request error")?;
-    Ok(Frame::new(MessageType::ProcedureInvoke, request_id, payload).encode())
+    Ok(Frame::new_with_trace(
+        MessageType::ProcedureInvoke,
+        request_id,
+        trace_context,
+        payload,
+    )
+    .encode())
 }
 
 pub fn encode_session_create_request(
@@ -759,11 +879,9 @@ pub fn encode_error_response(request_id: u64, message: impl Into<String>) -> RS<
     Ok(Frame::new(MessageType::Error, request_id, payload).encode())
 }
 
-pub fn encode_merror_response(request_id: u64, error: &MError) -> RS<Vec<u8>> {
-    let payload = encode_payload(
-        &ErrorResponse::from_merror(error),
-        "encode merror response error",
-    )?;
+#[rustfmt::skip]
+pub fn encode_merror_response(request_id: u64, error: &MuduError) -> RS<Vec<u8>> {
+    let payload = encode_payload(&ErrorResponse::from_merror(error), "encode merror response error")?;
     Ok(Frame::new(MessageType::Error, request_id, payload).encode())
 }
 
@@ -772,214 +890,12 @@ pub fn decode_error_response(frame: &Frame) -> RS<ErrorResponse> {
 }
 
 fn encode_payload<T: Serialize>(value: &T, err_msg: &'static str) -> RS<Vec<u8>> {
-    rmp_serde::to_vec(value).map_err(|e| m_error!(EC::EncodeErr, err_msg, e))
+    rmp_serde::to_vec(value).map_err(|e| mudu_error!(ErrorCode::Encode, err_msg, e))
 }
 
 fn decode_payload<T: DeserializeOwned>(payload: &[u8], err_msg: &'static str) -> RS<T> {
-    rmp_serde::from_slice(payload).map_err(|e| m_error!(EC::DecodeErr, err_msg, e))
+    rmp_serde::from_slice(payload).map_err(|e| mudu_error!(ErrorCode::Decode, err_msg, e))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frame_roundtrip_preserves_header_and_payload() {
-        let frame = Frame::new(MessageType::ProcedureInvoke, 42, b"payload".to_vec());
-        let encoded = frame.encode();
-        let decoded = Frame::decode(&encoded).unwrap();
-
-        assert_eq!(decoded.header().magic(), 0x4D53_464D);
-        assert_eq!(decoded.header().version(), 1);
-        assert_eq!(
-            decoded.header().message_type(),
-            MessageType::ProcedureInvoke
-        );
-        assert_eq!(decoded.header().request_id(), 42);
-        assert_eq!(decoded.payload(), b"payload");
-    }
-
-    #[test]
-    fn frame_decode_rejects_bad_magic_and_incomplete_payload() {
-        let mut encoded = Frame::new(MessageType::Get, 7, vec![1, 2, 3]).encode();
-        encoded[0] = 0;
-        let bad_magic = Frame::decode(&encoded).unwrap_err();
-        assert!(format!("{bad_magic}").contains("invalid frame magic"));
-
-        let encoded = Frame::new(MessageType::Put, 8, vec![1, 2, 3, 4]).encode();
-        let truncated = &encoded[..encoded.len() - 2];
-        let incomplete = Frame::decode(truncated).unwrap_err();
-        assert!(format!("{incomplete}").contains("frame payload is incomplete"));
-    }
-
-    #[test]
-    fn query_and_execute_requests_roundtrip() {
-        let request = ClientRequest::new("demo", "select 1");
-        let query = encode_client_request(1, &request).unwrap();
-        let query_frame = Frame::decode(&query).unwrap();
-        assert_eq!(query_frame.header().message_type(), MessageType::Query);
-        let query_decoded = decode_client_request(&query_frame).unwrap();
-        assert_eq!(query_decoded.app_name(), "demo");
-        assert_eq!(query_decoded.sql(), "select 1");
-
-        let execute =
-            encode_client_request_with_message_type(MessageType::Execute, 2, &request).unwrap();
-        let execute_frame = Frame::decode(&execute).unwrap();
-        assert_eq!(execute_frame.header().message_type(), MessageType::Execute);
-        let execute_decoded = decode_client_request(&execute_frame).unwrap();
-        assert_eq!(execute_decoded.app_name(), "demo");
-        assert_eq!(execute_decoded.sql(), "select 1");
-    }
-
-    #[test]
-    fn kv_and_session_messages_roundtrip() {
-        let get_frame =
-            Frame::decode(&encode_get_request(1, &GetRequest::new(9, b"key".to_vec())).unwrap())
-                .unwrap();
-        let get_request = decode_get_request(&get_frame).unwrap();
-        assert_eq!(get_request.session_id(), 9);
-        assert_eq!(get_request.key(), b"key");
-
-        let put_frame = Frame::decode(
-            &encode_put_request(2, &PutRequest::new(9, b"k".to_vec(), b"v".to_vec())).unwrap(),
-        )
-        .unwrap();
-        let put_request = decode_put_request(&put_frame).unwrap();
-        assert_eq!(put_request.session_id(), 9);
-        assert_eq!(put_request.key(), b"k");
-        assert_eq!(put_request.value(), b"v");
-        assert_eq!(put_request.into_parts(), (b"k".to_vec(), b"v".to_vec()));
-
-        let range_frame = Frame::decode(
-            &encode_range_scan_request(3, &RangeScanRequest::new(9, b"a".to_vec(), b"z".to_vec()))
-                .unwrap(),
-        )
-        .unwrap();
-        let range_request = decode_range_scan_request(&range_frame).unwrap();
-        assert_eq!(range_request.start_key(), b"a");
-        assert_eq!(range_request.end_key(), b"z");
-
-        let create_frame = Frame::decode(
-            &encode_session_create_request(
-                4,
-                &SessionCreateRequest::new(Some("{\"partition\":1}".to_string())),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let create_request = decode_session_create_request(&create_frame).unwrap();
-        assert_eq!(create_request.config_json(), Some("{\"partition\":1}"));
-
-        let empty_create_frame = Frame::new(MessageType::SessionCreate, 5, vec![]);
-        let empty_create_request = decode_session_create_request(&empty_create_frame).unwrap();
-        assert_eq!(empty_create_request.config_json(), None);
-
-        let close_frame =
-            Frame::decode(&encode_session_close_request(6, &SessionCloseRequest::new(9)).unwrap())
-                .unwrap();
-        let close_request = decode_session_close_request(&close_frame).unwrap();
-        assert_eq!(close_request.session_id(), 9);
-    }
-
-    #[test]
-    fn invoke_and_response_messages_roundtrip() {
-        let invoke_frame = Frame::decode(
-            &encode_procedure_invoke_request(
-                10,
-                &ProcedureInvokeRequest::new(11, "app/mod/proc", b"input".to_vec()),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let invoke_request = decode_procedure_invoke_request(&invoke_frame).unwrap();
-        assert_eq!(invoke_request.session_id(), 11);
-        assert_eq!(invoke_request.procedure_name(), "app/mod/proc");
-        assert_eq!(invoke_request.procedure_parameters(), b"input");
-        assert_eq!(
-            invoke_request.procedure_parameters_owned(),
-            b"input".to_vec()
-        );
-
-        use crate::tuple::datum_desc::DatumDesc;
-        use crate::tuple::tuple_field_desc::TupleFieldDesc;
-        use crate::tuple::tuple_value::TupleValue;
-        use mudu_type::dat_type::DatType;
-        use mudu_type::dat_type_id::DatTypeID;
-        use mudu_type::dat_value::DatValue;
-
-        let response = ServerResponse::new(
-            TupleFieldDesc::new(vec![DatumDesc::new(
-                "value".to_string(),
-                DatType::default_for(DatTypeID::String),
-            )]),
-            vec![TupleValue::from(vec![DatValue::from_string(
-                "1".to_string(),
-            )])],
-            0,
-            None,
-        );
-        let response_frame =
-            Frame::decode(&encode_server_response(12, &response).unwrap()).unwrap();
-        let decoded_response = decode_server_response(&response_frame).unwrap();
-        assert_eq!(decoded_response.row_desc().fields()[0].name(), "value");
-        assert_eq!(decoded_response.rows()[0].values()[0].expect_string(), "1");
-
-        let get_response_frame = Frame::decode(
-            &encode_get_response(13, &GetResponse::new(Some(b"v".to_vec()))).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            decode_get_response(&get_response_frame)
-                .unwrap()
-                .into_value(),
-            Some(b"v".to_vec())
-        );
-
-        let range_response_frame = Frame::decode(
-            &encode_range_scan_response(
-                14,
-                &RangeScanResponse::new(vec![KeyValue::new(b"k".to_vec(), b"v".to_vec())]),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            decode_range_scan_response(&range_response_frame)
-                .unwrap()
-                .into_items(),
-            vec![KeyValue::new(b"k".to_vec(), b"v".to_vec())]
-        );
-
-        let invoke_response_frame = Frame::decode(
-            &encode_procedure_invoke_response(15, &ProcedureInvokeResponse::new(b"ok".to_vec()))
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            decode_procedure_invoke_response(&invoke_response_frame)
-                .unwrap()
-                .into_result(),
-            b"ok".to_vec()
-        );
-    }
-
-    #[test]
-    fn error_response_roundtrip() {
-        let frame = Frame::decode(&encode_error_response(99, "boom").unwrap()).unwrap();
-        assert_eq!(frame.header().message_type(), MessageType::Error);
-        let error = decode_error_response(&frame).unwrap();
-        assert_eq!(error.message(), "boom");
-        assert_eq!(error.name(), "InternalErr");
-        assert_eq!(error.code(), EC::InternalErr.to_u32());
-    }
-
-    #[test]
-    fn merror_response_roundtrip() {
-        let err = m_error!(EC::ParseErr, "bad request");
-        let frame = Frame::decode(&encode_merror_response(42, &err).unwrap()).unwrap();
-        let error = decode_error_response(&frame).unwrap();
-        assert_eq!(error.message(), "bad request");
-        assert_eq!(error.name(), "ParseErr");
-        assert_eq!(error.code(), EC::ParseErr.to_u32());
-    }
-}
+mod mod_test;

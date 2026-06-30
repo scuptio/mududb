@@ -1,3 +1,8 @@
+//! HTTP management API helpers used by the `mcli` CLI.
+//!
+//! These functions talk to the MuduDB management HTTP endpoints for app
+//! lifecycle, server topology and partition routing.
+
 use base64::Engine;
 use mudu::common::id::OID;
 use mudu_binding::universal::uni_oid::UniOid;
@@ -5,12 +10,33 @@ use mudu_contract::procedure::proc_desc::ProcDesc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::LazyLock;
+use std::time::Duration;
 
 type AppResult<T> = Result<T, String>;
+
+const HTTP_TIMEOUT_DEFAULT_SECS: u64 = 10;
+const HTTP_RETRY_COUNT: usize = 5;
+const HTTP_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
+
+/// Returns the HTTP request timeout. Under heavy instrumentation such as
+/// AddressSanitizer the management server may be too slow for the default 10 s,
+/// so the value can be overridden with `MUDU_CLI_HTTP_TIMEOUT_SECS`.
+pub fn http_timeout() -> Duration {
+    mudu_sys::env_var::var("MUDU_CLI_HTTP_TIMEOUT_SECS")
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(HTTP_TIMEOUT_DEFAULT_SECS))
+}
 
 static HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
     reqwest::Client::builder()
         .no_proxy()
+        .timeout(http_timeout())
+        // Disable connection pooling. The management server may close idle
+        // connections (e.g. actix shutting down workers) and reusing a dead
+        // pooled connection produces transient "error sending request" failures
+        // that disappear on a fresh connection.
+        .pool_max_idle_per_host(0)
         .build()
         .map_err(|e| format!("build HTTP client failed: {}", e))
 });
@@ -47,16 +73,21 @@ where
         .collect())
 }
 
+/// Topology information for a single MuduDB worker.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerTopology {
+    /// Worker index in the server topology.
     pub worker_index: usize,
+    /// TCP listen port of this worker.
     #[serde(default)]
     pub tcp_listen_port: u16,
+    /// Worker id.
     #[serde(
         serialize_with = "serialize_oid_as_unioid",
         deserialize_with = "deserialize_oid_from_unioid"
     )]
     pub worker_id: OID,
+    /// Partition ids owned by this worker.
     #[serde(
         serialize_with = "serialize_oid_vec_as_unioid",
         deserialize_with = "deserialize_oid_vec_from_unioid"
@@ -64,17 +95,23 @@ pub struct WorkerTopology {
     pub partitions: Vec<OID>,
 }
 
+/// Full topology of a MuduDB server.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ServerTopology {
+    /// Total number of workers.
     pub worker_count: usize,
+    /// Whether workers listen on multiple ports.
     #[serde(default)]
     pub tcp_multi_port: bool,
+    /// Base TCP listen port when multi-port is enabled.
     #[serde(default)]
     pub tcp_base_listen_port: u16,
+    /// Per-worker topology entries.
     pub workers: Vec<WorkerTopology>,
 }
 
 impl ServerTopology {
+    /// Look up the TCP port for `worker_index`, if present.
     pub fn worker_port_by_index(&self, worker_index: usize) -> Option<u16> {
         self.workers
             .iter()
@@ -82,6 +119,7 @@ impl ServerTopology {
             .map(|w| w.tcp_listen_port)
     }
 
+    /// Look up the TCP port for `worker_id`, if present.
     pub fn worker_port_by_id(&self, worker_id: OID) -> Option<u16> {
         self.workers
             .iter()
@@ -89,24 +127,29 @@ impl ServerTopology {
             .map(|w| w.tcp_listen_port)
     }
 
+    /// Build a `host:port` address for `worker_index` using `listen_ip`.
     pub fn worker_addr_by_index(&self, listen_ip: &str, worker_index: usize) -> Option<String> {
         self.worker_port_by_index(worker_index)
             .map(|port| format!("{}:{}", listen_ip, port))
     }
 
+    /// Build a `host:port` address for `worker_id` using `listen_ip`.
     pub fn worker_addr_by_id(&self, listen_ip: &str, worker_id: OID) -> Option<String> {
         self.worker_port_by_id(worker_id)
             .map(|port| format!("{}:{}", listen_ip, port))
     }
 }
 
+/// A single partition-to-worker route entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PartitionRouteEntry {
+    /// Partition id.
     #[serde(
         serialize_with = "serialize_oid_as_unioid",
         deserialize_with = "deserialize_oid_from_unioid"
     )]
     pub partition_id: OID,
+    /// Worker id that owns the partition.
     #[serde(
         serialize_with = "serialize_oid_as_unioid",
         deserialize_with = "deserialize_oid_from_unioid"
@@ -114,22 +157,27 @@ pub struct PartitionRouteEntry {
     pub worker_id: OID,
 }
 
+/// Response from the partition route endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PartitionRouteResponse {
+    /// Resolved partition routes.
     pub routes: Vec<PartitionRouteEntry>,
 }
 
+/// Fetch the full server topology from the HTTP management API.
 pub async fn fetch_server_topology(http_addr: &str) -> AppResult<ServerTopology> {
     let response = get_http_json(http_addr, "/mudu/server/topology").await?;
     let data = extract_http_api_data(response)?;
     serde_json::from_value(data).map_err(|e| format!("decode server topology failed: {}", e))
 }
 
+/// List installed apps from the HTTP management API.
 pub async fn fetch_app_list(http_addr: &str) -> AppResult<Value> {
     let response = get_http_json(http_addr, "/mudu/app/list").await?;
     extract_http_api_data(response)
 }
 
+/// Fetch app, module or procedure detail from the HTTP management API.
 pub async fn fetch_app_detail(
     http_addr: &str,
     app: &str,
@@ -147,10 +195,12 @@ pub async fn fetch_app_detail(
     extract_http_api_data(response)
 }
 
+/// Return true if `err` indicates the topology API is not implemented.
 pub fn is_server_topology_unsupported(err: &str) -> bool {
     err.contains("server topology is not supported") || err.contains("\"code\":\"NotImplemented\"")
 }
 
+/// Install an app package from its raw `.mpk` bytes.
 pub async fn install_app_package(http_addr: &str, mpk_binary: Vec<u8>) -> AppResult<()> {
     let payload = json!({
         "mpk_base64": base64::engine::general_purpose::STANDARD.encode(mpk_binary),
@@ -160,6 +210,7 @@ pub async fn install_app_package(http_addr: &str, mpk_binary: Vec<u8>) -> AppRes
     Ok(())
 }
 
+/// Uninstall an app by name.
 pub async fn uninstall_app(http_addr: &str, app_name: &str) -> AppResult<()> {
     let response =
         delete_http_json(http_addr, &format!("/mudu/app/uninstall/{}", app_name)).await?;
@@ -167,6 +218,7 @@ pub async fn uninstall_app(http_addr: &str, app_name: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Fetch the descriptor for a single procedure.
 pub async fn fetch_proc_desc(
     http_addr: &str,
     app: &str,
@@ -181,6 +233,7 @@ pub async fn fetch_proc_desc(
     serde_json::from_value(proc_desc).map_err(|e| format!("decode proc_desc failed: {}", e))
 }
 
+/// Resolve partition routes for a rule and optional key/range.
 pub async fn route_partition(
     http_addr: &str,
     rule_name: &str,
@@ -202,44 +255,19 @@ pub async fn route_partition(
 async fn get_http_json(http_addr: &str, path: &str) -> AppResult<Value> {
     let url = format!("http://{}{}", http_addr, path);
     let client = http_client()?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("GET {} failed: {}", url, e))?;
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("decode HTTP response from {} failed: {}", url, e))
+    send_json_request("GET", &url, || client.get(&url).send()).await
 }
 
 async fn post_http_json(http_addr: &str, path: &str, payload: Value) -> AppResult<Value> {
     let url = format!("http://{}{}", http_addr, path);
     let client = http_client()?;
-    let response = client
-        .post(&url)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("POST {} failed: {}", url, e))?;
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("decode HTTP response from {} failed: {}", url, e))
+    send_json_request("POST", &url, || client.post(&url).json(&payload).send()).await
 }
 
 async fn delete_http_json(http_addr: &str, path: &str) -> AppResult<Value> {
     let url = format!("http://{}{}", http_addr, path);
     let client = http_client()?;
-    let response = client
-        .delete(&url)
-        .send()
-        .await
-        .map_err(|e| format!("DELETE {} failed: {}", url, e))?;
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("decode HTTP response from {} failed: {}", url, e))
+    send_json_request("DELETE", &url, || client.delete(&url).send()).await
 }
 
 fn http_client() -> AppResult<&'static reqwest::Client> {
@@ -247,6 +275,61 @@ fn http_client() -> AppResult<&'static reqwest::Client> {
         Ok(client) => Ok(client),
         Err(err) => Err(err.clone()),
     }
+}
+
+async fn send_json_request<F, Fut>(method: &str, url: &str, make_request: F) -> AppResult<Value>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = reqwest::Result<reqwest::Response>>,
+{
+    let mut last_err: Option<String> = None;
+    for attempt in 0..HTTP_RETRY_COUNT {
+        match decode_json_response(url, make_request().await).await {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                last_err = Some(format_error_chain(&*err));
+                if attempt + 1 < HTTP_RETRY_COUNT {
+                    // Exponential backoff: 100ms, 200ms, 400ms, 800ms, ...
+                    let delay = HTTP_RETRY_INITIAL_DELAY * (1u32 << attempt);
+                    let _ = mudu_sys::sleep(delay).await;
+                }
+            }
+        }
+    }
+    Err(format!(
+        "{} {} failed after {} attempts: {}",
+        method,
+        url,
+        HTTP_RETRY_COUNT,
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    ))
+}
+
+fn format_error_chain(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(s) = source {
+        msg.push_str(&format!(": {s}"));
+        source = s.source();
+    }
+    msg
+}
+
+async fn decode_json_response(
+    url: &str,
+    result: reqwest::Result<reqwest::Response>,
+) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    let response = result?;
+    let status = response.status();
+    let body_text = response.text().await?;
+    serde_json::from_str::<Value>(&body_text).map_err(|e| {
+        let preview: String = body_text.chars().take(512).collect();
+        format!(
+            "decode HTTP response from {} failed: status={}, body={:?}, error={}",
+            url, status, preview, e
+        )
+        .into()
+    })
 }
 
 fn extract_http_api_data(response: Value) -> AppResult<Value> {
@@ -301,11 +384,11 @@ mod tests {
             "ok": false,
             "status": 1001,
             "message": "fail",
-            "error": {"code": 10010, "name": "ParseErr", "message": "bad request"}
+            "error": {"code": 10010, "name": "Parse", "message": "bad request"}
         }))
         .unwrap_err();
         assert!(err.contains("bad request"));
-        assert!(err.contains("ParseErr"));
+        assert!(err.contains("Parse"));
     }
 
     #[test]
@@ -331,12 +414,18 @@ mod tests {
         assert_eq!(decoded, worker);
     }
 
-    #[tokio::test]
-    async fn install_app_package_rejects_http_failure() {
-        let err = install_app_package("127.0.0.1:1", vec![1, 2, 3])
-            .await
-            .unwrap_err();
-        assert!(err.contains("failed") || err.contains("error"));
+    // Miri cannot execute FFI calls into the TLS/crypto stack (reqwest ->
+    // rustls -> aws-lc-rs), so skip this test under Miri.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn install_app_package_rejects_http_failure() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let err = install_app_package("127.0.0.1:1", vec![1, 2, 3])
+                .await
+                .unwrap_err();
+            assert!(err.contains("failed") || err.contains("error"));
+        })
+        .unwrap();
     }
 
     #[test]
@@ -381,3 +470,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "management_test.rs"]
+mod management_test;

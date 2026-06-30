@@ -3,8 +3,8 @@ use crate::backend::mudu_app_mgr::MuduAppMgr;
 use crate::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use crate::service::runtime_opt::ComponentTarget;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_cli::client::client::SyncClient;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
@@ -15,20 +15,20 @@ use mudu_kernel::server::server::{TokioTcpBackend, WorkerTcpBackend};
 use mudu_kernel::server::server_cfg::ServerCfg;
 use mudu_kernel::server::server_launch::ServerLaunch;
 use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
+use mudu_sys::env_var::temp_dir;
+use mudu_sys::net::sync::StdTcpListener;
+use mudu_sys::process::Command;
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::notify_wait;
-use std::env::temp_dir;
-use std::net::TcpListener;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::thread;
 use std::time::Duration;
 use tracing::info;
 
 fn reserve_port() -> Option<u16> {
-    match TcpListener::bind("127.0.0.1:0") {
+    match StdTcpListener::bind("127.0.0.1:0".parse().unwrap()) {
         Ok(listener) => Some(listener.local_addr().ok()?.port()),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => None,
+        Err(e) if e.ec() == ErrorCode::PermissionDenied => None,
         Err(e) => panic!("reserve local tcp port error: {e}"),
     }
 }
@@ -36,10 +36,11 @@ fn reserve_port() -> Option<u16> {
 fn wait_until_server_ready(port: u16) {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        if mudu_sys::net::sync::connect_tcp(addr).is_ok() {
             return;
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
     panic!("io_uring backend did not become ready on port {}", port);
 }
@@ -75,20 +76,29 @@ fn ensure_kv_package_built() -> RS<PathBuf> {
 
     let venv_bin = example_dir.join(".venv").join("bin");
     if venv_bin.is_dir() {
-        let current_path = std::env::var_os("PATH").unwrap_or_default();
+        let current_path = mudu_sys::env_var::var_os("PATH").unwrap_or_default();
         let mut paths = vec![venv_bin];
         paths.extend(std::env::split_paths(&current_path));
-        let joined = std::env::join_paths(paths)
-            .map_err(|e| m_error!(EC::IOErr, "join PATH for key-value package build error", e))?;
+        let joined = std::env::join_paths(paths).map_err(|e| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "join PATH for key-value package build error",
+                e
+            )
+        })?;
         command.env("PATH", joined);
     }
 
-    let output = command
-        .output()
-        .map_err(|e| m_error!(EC::IOErr, "spawn cargo make for key-value package error", e))?;
+    let output = command.output().map_err(|e| {
+        mudu_error!(
+            ErrorCode::from(&e),
+            "spawn cargo make for key-value package error",
+            e
+        )
+    })?;
     if !output.status.success() {
-        return Err(m_error!(
-            EC::IOErr,
+        return Err(mudu_error!(
+            ErrorCode::External,
             format!(
                 "build key-value package error: status={}, stdout={}, stderr={}",
                 output.status,
@@ -98,8 +108,8 @@ fn ensure_kv_package_built() -> RS<PathBuf> {
         ));
     }
     if !package_path.is_file() {
-        return Err(m_error!(
-            EC::IOErr,
+        return Err(mudu_error!(
+            ErrorCode::NotFound,
             format!(
                 "key-value package missing after build: {}",
                 package_path.display()
@@ -114,28 +124,28 @@ fn temp_dir_with_prefix(prefix: &str) -> PathBuf {
 }
 
 fn build_cfg(port: u16, mpk_path: &Path, data_path: &Path, server_mode: ServerMode) -> MuduDBCfg {
-    let mut cfg = MuduDBCfg::default();
-    cfg.mpk_path = mpk_path.to_string_lossy().into_owned();
-    cfg.db_path = data_path.to_string_lossy().into_owned();
-    cfg.listen_ip = "127.0.0.1".to_string();
-    cfg.server_mode = server_mode;
-    cfg.tcp_listen_port = port;
-    cfg.worker_threads = 2;
-    cfg.component_target = Some(ComponentTarget::P2);
-    cfg.enable_async = true;
-    cfg.routing_mode = RoutingMode::ConnectionId;
-    cfg
+    MuduDBCfg {
+        mpk_path: mpk_path.to_string_lossy().into_owned(),
+        db_path: data_path.to_string_lossy().into_owned(),
+        listen_ip: "127.0.0.1".to_string(),
+        server_mode,
+        tcp_listen_port: port,
+        worker_threads: 2,
+        component_target: Some(ComponentTarget::P2),
+        enable_async: true,
+        routing_mode: RoutingMode::ConnectionId,
+        ..Default::default()
+    }
 }
 
 fn install_kv_package(app_mgr: &MuduAppMgr, package_path: &Path) -> RS<()> {
-    let pkg_binary = std::fs::read(package_path)
-        .map_err(|e| m_error!(EC::IOErr, "read key-value mpk for test install error", e))?;
+    let pkg_binary = mudu_sys::fs::sync::read(package_path)?;
     let runtime = mudu_sys::tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| {
-            m_error!(
-                EC::TokioErr,
+            mudu_error!(
+                ErrorCode::Tokio,
                 "create runtime for key-value package install error",
                 e
             )
@@ -151,8 +161,8 @@ fn create_procedure_runtimes(
         .enable_all()
         .build()
         .map_err(|e| {
-            m_error!(
-                EC::TokioErr,
+            mudu_error!(
+                ErrorCode::Tokio,
                 "create runtime for key-value procedure invokers error",
                 e
             )
@@ -183,22 +193,43 @@ fn invoke_and_decode<T: TupleDatum>(
     result.to(&T::tuple_desc_static(&[]))
 }
 
+/// Returns `true` if the MPK integration tests can be run in this environment.
+///
+/// The tests need a pre-built `example/key-value/key-value.mpk` package (or a
+/// `cargo make` invocation that can produce it). They are enabled when either
+/// `MUDU_RUN_MPK_TESTS` is set or the package artifact already exists, so CI
+/// can opt-in without forcing a build on every developer machine.
+fn mpk_tests_enabled() -> bool {
+    mudu_sys::env_var::var("MUDU_RUN_MPK_TESTS").is_some() || kv_package_path().is_file()
+}
+
 #[test]
-#[ignore = "requires Linux io_uring, cargo make, wasm32-wasip2 target, and example/key-value package build"]
 fn kv_mpk_can_be_used_by_iouring_backend() -> RS<()> {
     log_setup("info");
+    if !mpk_tests_enabled() {
+        info!(
+            "skip key-value io_uring test: set MUDU_RUN_MPK_TESTS or build example/key-value package"
+        );
+        return Ok(());
+    }
     if !supports_server_mode(ServerMode::IOUring) {
         info!("skip key-value io_uring test: io_uring unavailable");
         return Ok(());
     }
-    info!("enable key-value io_uring test: io_uring available");
+    info!("enable key-value io_uring test");
     run_kv_mpk_can_be_used_by_kernel_backend(ServerMode::IOUring)
 }
 
 #[test]
-#[ignore = "requires Linux cargo make, wasm32-wasip2 target, and example/key-value package build"]
 fn kv_mpk_can_be_used_by_tokio_backend() -> RS<()> {
     log_setup("info");
+    if !mpk_tests_enabled() {
+        info!(
+            "skip key-value tokio test: set MUDU_RUN_MPK_TESTS or build example/key-value package"
+        );
+        return Ok(());
+    }
+    info!("enable key-value tokio test");
     run_kv_mpk_can_be_used_by_kernel_backend(ServerMode::Tokio)
 }
 
@@ -206,10 +237,8 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     let package_path = ensure_kv_package_built()?;
     let mpk_dir = temp_dir_with_prefix("mududb_kv_mpk");
     let data_dir = temp_dir_with_prefix("mududb_kv_data");
-    std::fs::create_dir_all(&mpk_dir)
-        .map_err(|e| m_error!(EC::IOErr, "create key-value test mpk dir error", e))?;
-    std::fs::create_dir_all(&data_dir)
-        .map_err(|e| m_error!(EC::IOErr, "create key-value test data dir error", e))?;
+    mudu_sys::fs::sync::create_dir_all(&mpk_dir)?;
+    mudu_sys::fs::sync::create_dir_all(&data_dir)?;
 
     let Some(port) = reserve_port() else {
         eprintln!(
@@ -231,21 +260,22 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
         cfg.db_path.clone(),
         KernelRoutingMode::ConnectionId,
     )?
-    .with_log_chunk_size(cfg.io_uring_log_chunk_size);
+    .with_log_chunk_size(cfg.io_uring_log_chunk_size)
+    .with_page_size(cfg.page_size)?;
     let server_deps = ServerRuntimeDeps::from_cfg(&server_cfg)?
         .with_worker_procedure_runtimes(procedure_runtimes);
     let server_launch = ServerLaunch::new(server_cfg, server_deps);
 
-    let server_thread = thread::spawn(move || match server_mode {
+    let server_thread = mudu_sys::task::sync::spawn_thread(move || match server_mode {
         ServerMode::IOUring => WorkerTcpBackend::sync_serve_with_stop(server_launch, server_stop),
         ServerMode::Tokio => TokioTcpBackend::sync_serve_with_stop(server_launch, server_stop),
         ServerMode::Legacy => unreachable!("legacy mode is not a kernel backend"),
-    });
+    })?;
 
     wait_until_server_ready(port);
 
     let test_result = (|| -> RS<()> {
-        let mut client = SyncClient::connect(("127.0.0.1", port))?;
+        let mut client = SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port)))?;
         let session_id = client.create_session(None)?;
 
         let _: () = invoke_and_decode(
@@ -284,9 +314,12 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     })();
 
     stop_notifier.notify_all();
-    let join_result = server_thread
-        .join()
-        .map_err(|_| m_error!(EC::ThreadErr, "join key-value io_uring test server error"))?;
+    let join_result = server_thread.join().map_err(|_| {
+        mudu_error!(
+            ErrorCode::Thread,
+            "join key-value io_uring test server error"
+        )
+    })?;
 
     test_result?;
     join_result?;

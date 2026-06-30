@@ -85,4 +85,28 @@ mod tests {
         let value = TimestampValue::from_epoch_micros(i64::MAX);
         assert!(value.to_naive_datetime().is_err());
     }
+
+    #[test]
+    fn truncate_precision_covers_all_factors() {
+        let value = TimestampValue::parse("2026-05-20T14:30:45.123456").unwrap();
+        let expected = [
+            "2026-05-20 14:30:45",
+            "2026-05-20 14:30:45.1",
+            "2026-05-20 14:30:45.12",
+            "2026-05-20 14:30:45.123",
+            "2026-05-20 14:30:45.1234",
+            "2026-05-20 14:30:45.12345",
+            "2026-05-20 14:30:45.123456",
+        ];
+        for (precision, &formatted) in expected.iter().enumerate() {
+            let truncated = value.truncate_precision(precision as u8).unwrap();
+            assert_eq!(truncated.format(precision as u8).unwrap(), formatted);
+        }
+    }
+
+    #[test]
+    fn epoch_micros_accessor_roundtrips() {
+        let value = TimestampValue::from_epoch_micros(1234567890123456);
+        assert_eq!(value.epoch_micros(), 1234567890123456);
+    }
 }

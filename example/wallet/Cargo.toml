@@ -2,10 +2,15 @@
 name = "wallet"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]
 
+
+[lints]
+workspace = true
 
 [dependencies]
 lazy_static = { workspace = true }
@@ -16,3 +21,6 @@ mududb = { workspace = true, features = ["async"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # Enables standalone local adapter mode for integration-style native tests.
 mududb = { workspace = true, features = ["async", "standalone-adapter"] }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']

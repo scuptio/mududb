@@ -1,10 +1,13 @@
+//! `tuple::tuple_datum` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_convert::datum_from_value;
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::Datum;
@@ -23,10 +26,9 @@ For a tuple (i32, String)
     let decoded = <(i32, String)>::from_binary(&binary, desc.fields()).unwrap();
 ```
 **/
-
 pub trait TupleDatum: EnumerableDatum + Sized + 'static {
-    fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<Self>;
-    fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<Self>;
+    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self>;
+    fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<Self>;
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc;
 }
 
@@ -35,22 +37,17 @@ fn datum_from_binary<T: Datum>(slice: &[u8], _desc: &DatumDesc) -> RS<T> {
 }
 
 fn datum_to_binary<T: Datum>(t: &T, desc: &DatumDesc) -> RS<Vec<u8>> {
-    let binary = t.to_binary(desc.dat_type())?;
-    Ok(binary.into())
+    Ok(t.to_binary(desc.dat_type())?.into())
 }
 
 fn datum_to_value<T: Datum>(t: &T, desc: &DatumDesc) -> RS<DatValue> {
-    let value = t.to_value(desc.dat_type())?;
-    Ok(value)
+    t.to_value(desc.dat_type())
 }
 
 fn to_tuple_desc(fields: Vec<(String, DatType)>) -> TupleFieldDesc {
     let desc: Vec<_> = fields
         .into_iter()
-        .map(|(name, ty)| {
-            let desc = DatumDesc::new(name, ty);
-            desc
-        })
+        .map(|(name, ty)| DatumDesc::new(name, ty))
         .collect();
     TupleFieldDesc::new(desc)
 }
@@ -83,27 +80,22 @@ where
 {
     fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
         if datum_desc.len() != 1 {
-            return Err(m_error!(
-                EC::ParseErr,
-                format!(
-                    "single value expects 1 datum desc, got {}",
-                    datum_desc.len()
-                )
-            ));
+            let msg = format!("expected 1 desc, got {}", datum_desc.len());
+            Err(mudu_error!(ErrorCode::Parse, msg))
+        } else {
+            let value = datum_to_value(self, &datum_desc[0])?;
+            Ok(vec![value])
         }
-        let value = datum_to_value(self, &datum_desc[0])?;
-        Ok(vec![value])
     }
 
     fn to_binary(&self, desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
         if desc.len() != 1 {
-            return Err(m_error!(
-                EC::ParseErr,
-                format!("single value expects 1 datum desc, got {}", desc.len())
-            ));
+            let msg = format!("expected 1 desc, got {}", desc.len());
+            Err(mudu_error!(ErrorCode::Parse, msg))
+        } else {
+            let binary = datum_to_binary(self, &desc[0])?;
+            Ok(vec![binary])
         }
-        let binary = datum_to_binary(self, &desc[0])?;
-        Ok(vec![binary])
     }
 
     fn tuple_desc(&self, field_name: &[String]) -> RS<TupleFieldDesc> {
@@ -140,32 +132,24 @@ impl<T> TupleDatum for T
 where
     T: Datum + TupleDatumMarker,
 {
-    fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<Self> {
+    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self> {
         if vec_value.len() != 1 || desc.len() != 1 {
-            return Err(m_error!(
-                EC::ParseErr,
-                format!(
-                    "single value expects one value and one desc, got value={}, desc={}",
-                    vec_value.len(),
-                    desc.len()
-                )
-            ));
+            let (n, m) = (vec_value.len(), desc.len());
+            let msg = format!("expected 1 value and 1 desc, got {} and {}", n, m);
+            Err(mudu_error!(ErrorCode::Parse, msg))
+        } else {
+            datum_from_value::<T>(&vec_value[0])
         }
-        datum_from_value::<T>(&vec_value[0])
     }
 
-    fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<T> {
+    fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<T> {
         if vec_bin.len() != 1 || desc.len() != 1 {
-            return Err(m_error!(
-                EC::ParseErr,
-                format!(
-                    "single value expects one binary and one desc, got binary={}, desc={}",
-                    vec_bin.len(),
-                    desc.len()
-                )
-            ));
+            let (n, m) = (vec_bin.len(), desc.len());
+            let msg = format!("expected 1 binary and 1 desc, got {} and {}", n, m);
+            Err(mudu_error!(ErrorCode::Parse, msg))
+        } else {
+            datum_from_binary::<T>(&vec_bin[0], &desc[0])
         }
-        datum_from_binary::<T>(&vec_bin[0], &desc[0])
     }
 
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc {
@@ -197,12 +181,11 @@ macro_rules! impl_rs_tuple_datum {
         }
 
         impl TupleDatum for () {
-            fn from_value(_vec_value:&Vec<DatValue>, _desc:&[DatumDesc]) -> RS<Self> {
+            fn from_value(_vec_value: &[DatValue], _desc: &[DatumDesc]) -> RS<Self> {
                 Ok(())
             }
 
-
-            fn from_binary(_vec_bin: &Vec<Vec<u8>>, _desc: &[DatumDesc]) -> RS<()> {
+            fn from_binary(_vec_bin: &[Vec<u8>], _desc: &[DatumDesc]) -> RS<()> {
                 Ok(())
             }
 
@@ -220,24 +203,19 @@ macro_rules! impl_rs_tuple_datum {
             fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
                 let expected = count_types!($($T),*);
                 if datum_desc.len() != expected {
-                    return Err(m_error!(
-                        EC::ParseErr,
-                        format!(
-                            "tuple value expects {} datum desc, got {}",
-                            expected,
-                            datum_desc.len()
-                        )
-                    ));
+                    let msg = format!("expected {} desc, got {}", expected, datum_desc.len());
+                    Err(mudu_error!(ErrorCode::Parse, msg))
+                } else {
+                    let mut vec = Vec::new();
+                    let ($(ref $T,)*) = *self;
+                    let mut idx = 0;
+                    $(
+                        let value = datum_to_value($T, &datum_desc[idx])?;
+                        vec.push(value);
+                        idx += 1;
+                    )*
+                    Ok(vec)
                 }
-                let mut vec = Vec::new();
-                let ($(ref $T,)*) = *self;
-                let mut idx = 0;
-                $(
-                    let value = datum_to_value($T, &datum_desc[idx])?;
-                    vec.push(value);
-                    idx += 1;
-                )*
-                Ok(vec)
             }
 
             #[allow(non_snake_case)]
@@ -245,23 +223,18 @@ macro_rules! impl_rs_tuple_datum {
             fn to_binary(&self, desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
                 let expected = count_types!($($T),*);
                 if desc.len() != expected {
-                    return Err(m_error!(
-                        EC::ParseErr,
-                        format!(
-                            "tuple value expects {} datum desc, got {}",
-                            expected,
-                            desc.len()
-                        )
-                    ));
+                    let msg = format!("expected {} desc, got {}", expected, desc.len());
+                    Err(mudu_error!(ErrorCode::Parse, msg))
+                } else {
+                    let mut vec_binary = Vec::new();
+                    let ($(ref $T,)*) = *self;
+                    let mut idx = 0;
+                    $(
+                        vec_binary.push(datum_to_binary($T, &desc[idx])?);
+                        idx += 1;
+                    )*
+                    Ok(vec_binary)
                 }
-                let mut vec_binary = Vec::new();
-                let ($(ref $T,)*) = *self;
-                let mut idx = 0;
-                $(
-                    vec_binary.push(datum_to_binary($T, &desc[idx])?);
-                    idx += 1;
-                )*
-                Ok(vec_binary)
             }
 
             fn tuple_desc(&self, field_name:&[String]) -> RS<TupleFieldDesc> {
@@ -272,48 +245,36 @@ macro_rules! impl_rs_tuple_datum {
         impl<$($T: Datum + TupleDatumMarker),*> TupleDatum for ($($T,)*) {
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn from_value(vec_value: &Vec<DatValue>, desc: &[DatumDesc]) -> RS<($($T,)*)> {
+            fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<($($T,)*)> {
                 let expected = count_types!($($T),*);
                 if vec_value.len() != expected || desc.len() != expected {
-                    return Err(m_error!(
-                        EC::ParseErr,
-                        format!(
-                            "tuple value expects {} values and desc, got value={}, desc={}",
-                            expected,
-                            vec_value.len(),
-                            desc.len()
-                        )
-                    ));
+                    let msg = format!("expected {} values and desc, got value={}, desc={}", expected, vec_value.len(), desc.len());
+                    Err(mudu_error!(ErrorCode::Parse, msg))
+                } else {
+                    let mut idx = 0;
+                    $(
+                        let $T = datum_from_value::<$T>(&vec_value[idx])?;
+                        idx += 1;
+                    )*
+                    Ok(($($T,)*))
                 }
-                let mut idx = 0;
-                $(
-                    let $T = datum_from_value::<$T>(&vec_value[idx])?;
-                    idx += 1;
-                )*
-                Ok(($($T,)*))
             }
 
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn from_binary(vec_bin: &Vec<Vec<u8>>, desc: &[DatumDesc]) -> RS<($($T,)*)> {
+            fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<($($T,)*)> {
                 let expected = count_types!($($T),*);
                 if vec_bin.len() != expected || desc.len() != expected {
-                    return Err(m_error!(
-                        EC::ParseErr,
-                        format!(
-                            "tuple value expects {} binaries and desc, got binary={}, desc={}",
-                            expected,
-                            vec_bin.len(),
-                            desc.len()
-                        )
-                    ));
+                    let msg = format!("expected {} binaries and desc, got binary={}, desc={}", expected, vec_bin.len(), desc.len());
+                    Err(mudu_error!(ErrorCode::Parse, msg))
+                } else {
+                    let mut idx = 0;
+                    $(
+                        let $T = datum_from_binary::<$T>(&vec_bin[idx], &desc[idx])?;
+                        idx += 1;
+                    )*
+                    Ok(($($T,)*))
                 }
-                let mut idx = 0;
-                $(
-                    let $T = datum_from_binary::<$T>(&vec_bin[idx], &desc[idx])?;
-                    idx += 1;
-                )*
-                Ok(($($T,)*))
             }
 
             fn tuple_desc_static(field_name:&[String]) -> TupleFieldDesc {
@@ -347,12 +308,24 @@ impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
 impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
-impl_rs_tuple_datum!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
+);
+impl_rs_tuple_datum!(
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+);
 impl_rs_tuple_datum!(
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1
 );
@@ -373,27 +346,3 @@ impl_rs_tuple_datum!(
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, A1, B1, C1, D1,
     E1, F1
 );
-
-#[cfg(test)]
-mod tests {
-    use crate::tuple::tuple_datum;
-
-    #[test]
-    fn test_tuple_datum() {
-        println!(
-            "{:?}",
-            <i32 as tuple_datum::TupleDatum>::tuple_desc_static(&["test_field1".to_string()])
-        );
-        println!(
-            "{:?}",
-            <(i32,) as tuple_datum::TupleDatum>::tuple_desc_static(&[])
-        );
-        println!(
-            "{:?}",
-            <(i32, i64) as tuple_datum::TupleDatum>::tuple_desc_static(&[
-                "f1".to_string(),
-                "f2".to_string()
-            ])
-        );
-    }
-}

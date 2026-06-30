@@ -1,5 +1,5 @@
-use mududb::common::result::RS;
 use mududb::common::id::OID;
+use mududb::common::result::RS;
 
 /**mudu-proc**/
 pub fn proc_mtp(xid: OID, a: i32, b: i64, c: String) -> RS<(i32, String)> {

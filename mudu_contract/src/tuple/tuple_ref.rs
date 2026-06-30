@@ -1,3 +1,6 @@
+//! `tuple::tuple_ref` module.
+#![allow(missing_docs)]
+
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;

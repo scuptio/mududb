@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use std::cell::RefCell;
 
 use async_trait::async_trait;
@@ -12,11 +14,11 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::PortalStore;
-use pgwire::api::{ClientInfo, ClientPortalStore, METADATA_DATABASE, Type};
+use pgwire::api::{ClientInfo, ClientPortalStore, Type};
 
 use mudu::common::id::OID;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::data::DataRow;
@@ -66,12 +68,20 @@ impl AuthSource for DummyAuthSource {
         let salt = vec![0, 0, 0, 0];
         let password = "root";
         let user = info.user().as_ref().map_or_else(
-            || Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr)))),
+            || {
+                Err(PgWireError::ApiError(Box::new(mudu_error!(
+                    ErrorCode::Internal
+                ))))
+            },
             |e| Ok(e.to_string()),
         )?;
         let hash_password = hash_md5_password(&user, password, salt.as_ref());
         let db = info.database().map_or_else(
-            || Err(PgWireError::ApiError(Box::new(m_error!(EC::InternalErr)))),
+            || {
+                Err(PgWireError::ApiError(Box::new(mudu_error!(
+                    ErrorCode::Internal
+                ))))
+            },
             |e| Ok(e.to_string()),
         )?;
         self.context
@@ -227,7 +237,7 @@ unsafe impl Send for Session {}
 
 unsafe impl Sync for Session {}
 
-fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
+pub(super) fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal
@@ -330,7 +340,10 @@ fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
     Ok(results)
 }
 
-fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
+pub(super) fn row_desc_from_stmt(
+    stmt: &Statement,
+    format: &Format,
+) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
         .iter()
         .enumerate()
@@ -350,14 +363,13 @@ fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<Fie
         .collect()
 }
 
-fn name_to_type(name: &str) -> PgWireResult<Type> {
-    dbg!(name);
+pub(super) fn name_to_type(name: &str) -> PgWireResult<Type> {
     match name.to_uppercase().as_ref() {
-        "INT" => Ok(Type::INT8),
+        "INT" | "INTEGER" => Ok(Type::INT8),
         "VARCHAR" => Ok(Type::VARCHAR),
         "TEXT" => Ok(Type::TEXT),
-        "BINARY" => Ok(Type::BYTEA),
-        "FLOAT" => Ok(Type::FLOAT8),
+        "BINARY" | "BLOB" => Ok(Type::BYTEA),
+        "FLOAT" | "REAL" | "DOUBLE" => Ok(Type::FLOAT8),
         _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "42846".to_owned(),
@@ -366,7 +378,7 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
     }
 }
 
-fn encode_row_data(
+pub(super) fn encode_row_data(
     rows: Rows,
     schema: Arc<Vec<FieldInfo>>,
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
@@ -391,21 +403,4 @@ fn encode_row_data(
 
         Some((Ok(encoder.take_row()), (rows, schema)))
     })
-}
-
-#[allow(unused)]
-fn get_database<C>(client: &C) -> PgWireResult<String>
-where
-    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-{
-    let database = client.metadata().get(METADATA_DATABASE).map_or_else(
-        || {
-            Err(PgWireError::ApiError(Box::new(m_error!(
-                EC::InternalErr,
-                "Database not found"
-            ))))
-        },
-        |s| Ok(s.to_string()),
-    )?;
-    Ok(database)
 }

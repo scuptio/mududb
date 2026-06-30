@@ -1,6 +1,8 @@
+//! SQL parameter conversion and placeholder replacement helpers.
+
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
@@ -11,12 +13,13 @@ use mudu_type::dat_value::DatValue;
 use mudu_type::datum::DatumDyn;
 use rusqlite::types::{Value, ValueRef};
 
+/// Converts SQL parameters into SQLite [`Value`]s.
 pub fn to_sqlite_values(params: &dyn SQLParams) -> RS<Vec<Value>> {
     let mut values = Vec::with_capacity(params.size() as usize);
     for idx in 0..params.size() {
         let datum = params.get_idx(idx).ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("sql param index {} does not exist", idx)
             )
         })?;
@@ -25,6 +28,7 @@ pub fn to_sqlite_values(params: &dyn SQLParams) -> RS<Vec<Value>> {
     Ok(values)
 }
 
+/// Converts a single datum into a SQLite [`Value`].
 pub fn datum_to_sqlite_value(datum: &dyn DatumDyn) -> RS<Value> {
     let type_id = datum.dat_type_id()?;
     let dat_type = datum_type_for_id(type_id);
@@ -42,13 +46,14 @@ pub fn datum_to_sqlite_value(datum: &dyn DatumDyn) -> RS<Value> {
     } else if let Some(v) = value.as_binary() {
         Ok(Value::Blob(v.clone()))
     } else {
-        Err(m_error!(
-            EC::NotImplemented,
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
             format!("unsupported sqlite parameter type: {:?}", type_id)
         ))
     }
 }
 
+/// Builds a tuple field descriptor from a SQLite statement's columns.
 pub fn build_sqlite_desc(stmt: &rusqlite::Statement<'_>) -> TupleFieldDesc {
     let columns = stmt.columns();
     let fields = columns
@@ -63,6 +68,7 @@ pub fn build_sqlite_desc(stmt: &rusqlite::Statement<'_>) -> TupleFieldDesc {
     TupleFieldDesc::new(fields)
 }
 
+/// Maps a SQLite declared column type to a [`DatTypeID`].
 pub fn sqlite_decl_type_to_id(decl_type: Option<&str>, idx: usize) -> DatTypeID {
     let Some(name) = decl_type else {
         return if idx == 0 {
@@ -88,20 +94,25 @@ pub fn sqlite_decl_type_to_id(decl_type: Option<&str>, idx: usize) -> DatTypeID 
     }
 }
 
+/// Reads a single SQLite row into a [`TupleValue`].
 pub fn read_sqlite_row(row: &rusqlite::Row<'_>, desc: &TupleFieldDesc) -> RS<TupleValue> {
     let mut values = Vec::with_capacity(desc.fields().len());
     for (idx, field) in desc.fields().iter().enumerate() {
         let raw = row
             .get_ref(idx)
-            .map_err(|e| m_error!(EC::DBInternalError, "read sqlite column error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "read sqlite column error", e))?;
         values.push(sqlite_value_to_dat_value(raw, field.dat_type_id())?);
     }
     Ok(TupleValue::from(values))
 }
 
+/// Converts a SQLite [`ValueRef`] into a [`DatValue`].
 pub fn sqlite_value_to_dat_value(raw: ValueRef<'_>, preferred: DatTypeID) -> RS<DatValue> {
     match raw {
-        ValueRef::Null => Err(m_error!(EC::NotImplemented, "NULL value is not supported")),
+        ValueRef::Null => Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "NULL value is not supported"
+        )),
         ValueRef::Integer(v) => match preferred {
             DatTypeID::I32 if i32::try_from(v).is_ok() => Ok(DatValue::from_i32(v as i32)),
             _ => Ok(DatValue::from_i64(v)),
@@ -119,6 +130,7 @@ pub fn sqlite_value_to_dat_value(raw: ValueRef<'_>, preferred: DatTypeID) -> RS<
     }
 }
 
+/// Returns the default [`DatType`] for a given [`DatTypeID`].
 pub fn datum_type_for_id(id: DatTypeID) -> DatType {
     match id {
         DatTypeID::Binary => DatType::new_no_param(id),
@@ -129,6 +141,7 @@ pub fn datum_type_for_id(id: DatTypeID) -> DatType {
     }
 }
 
+/// Replaces `?` placeholders in `sql_text` with textual parameter values.
 pub fn replace_placeholders(sql_text: &str, params: &dyn SQLParams) -> RS<String> {
     if params.size() == 0 {
         return Ok(sql_text.to_string());
@@ -136,8 +149,8 @@ pub fn replace_placeholders(sql_text: &str, params: &dyn SQLParams) -> RS<String
 
     let pieces: Vec<_> = sql_text.match_indices('?').collect();
     if pieces.len() != params.size() as usize {
-        return Err(m_error!(
-            EC::ParseErr,
+        return Err(mudu_error!(
+            ErrorCode::Parse,
             "parameter and placeholder count mismatch"
         ));
     }
@@ -147,8 +160,8 @@ pub fn replace_placeholders(sql_text: &str, params: &dyn SQLParams) -> RS<String
     for (idx, (pos, _)) in pieces.iter().enumerate() {
         out.push_str(&sql_text[start..*pos]);
         let datum = params.get_idx(idx as u64).ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("sql param index {} does not exist", idx)
             )
         })?;

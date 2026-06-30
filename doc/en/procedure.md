@@ -299,7 +299,7 @@ lang="rust"
 
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> &'static DatType;
+    fn dat_type() -> DatType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
@@ -487,7 +487,7 @@ One example is preparing AI training datasets without export/import steps.
 fn prepare_training_data(oid: OID) -> RS<()> {
     mudu_command(oid,
         sql_stmt!("..."),
-        sql_param!(&[]))?;
+        sql_params!(&()))?;
     // Further processing...
 }
 ```
@@ -499,23 +499,20 @@ Benefit: Faster processing for large datasets by avoiding network transfer.
 Leverage full programming ecosystems.
 You can use any Rust crate today, and potentially other language ecosystems in the future.
 
-For example, you can use the `uuid` and `chrono` crates:
+For example, use the system random and time helpers exported by `mududb`:
 
 ```rust
-use chrono::Utc;
-use uuid::Uuid;
-
 /**mudu-proc**/
 fn create_order(oid: OID, user_id: i32) -> RS<String> {
     // Do something ....
 
-    let order_id = Uuid::new_v4().to_string();
-    let created_at = Utc::now().naive_utc();
+    let order_id = mududb::sys::random::next_uuid_v4_string();
+    let created_at = mududb::sys::time::utc_now().timestamp();
     
     mudu_command(oid,
         sql_stmt!("INSERT INTO orders (id, user_id, created_at) 
                    VALUES (?, ?, ?)"),
-        sql_param!(&[&order_id, &user_id, &created_at]))?;
+        sql_params!(&(order_id.clone(), user_id, created_at)))?;
     
     // Do something ....
 

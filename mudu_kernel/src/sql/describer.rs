@@ -2,13 +2,19 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::table_desc::TableDesc;
 use crate::executor::project_tuple_desc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::stmt_type::StmtType;
 use std::sync::Arc;
 
 pub struct Describer {}
+
+impl Default for Describer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Describer {
     pub fn new() -> Self {
@@ -48,13 +54,13 @@ impl Describer {
         let total = table_desc.fields().len();
         (0..total)
             .find(|attr| table_desc.get_attr(*attr).name() == name)
-            .ok_or_else(|| m_error!(ER::NoSuchElement, format!("cannot find column {}", name)))
+            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("cannot find column {}", name)))
     }
 
-    async fn get_table_by_name(meta_mgr: &dyn MetaMgr, name: &String) -> RS<Arc<TableDesc>> {
+    async fn get_table_by_name(meta_mgr: &dyn MetaMgr, name: &str) -> RS<Arc<TableDesc>> {
         meta_mgr
             .get_table_by_name(name)
             .await?
-            .ok_or_else(|| m_error!(ER::NoSuchElement, format!("no such table {}", name)))
+            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("no such table {}", name)))
     }
 }

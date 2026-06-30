@@ -16,7 +16,7 @@ wit_bindgen::generate!({
     world:"api"
 });
 
-#[allow(unused)]
+/// Forward a `query` call to the component-model host interface.
 pub fn inner_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
@@ -25,42 +25,42 @@ pub fn inner_query<R: Entity>(
     invoke_host_query(oid, sql, params, |param| Ok(system::query(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `command` call to the component-model host interface.
 pub fn inner_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     invoke_host_command(oid, sql, params, |param| Ok(system::command(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `batch` call to the component-model host interface.
 pub fn inner_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     invoke_host_batch(oid, sql, params, |param| Ok(system::batch(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `open` call to the component-model host interface.
 pub fn inner_open() -> RS<OID> {
     invoke_host_open(|param| Ok(system::open(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `open argv` call to the component-model host interface.
 pub fn inner_open_argv(argv: &UniSessionOpenArgv) -> RS<OID> {
     crate::host::invoke_host_open_argv(argv, |param| Ok(system::open(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `close` call to the component-model host interface.
 pub fn inner_close(session_id: OID) -> RS<()> {
     invoke_host_close(session_id, |param| Ok(system::close(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `get` call to the component-model host interface.
 pub fn inner_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     invoke_host_session_get(session_id, key, |param| Ok(system::get(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `put` call to the component-model host interface.
 pub fn inner_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     invoke_host_session_put(session_id, key, value, |param| Ok(system::put(&param)))
 }
 
-#[allow(unused)]
+/// Forward a `range` call to the component-model host interface.
 pub fn inner_range(
     session_id: OID,
     start_key: &[u8],

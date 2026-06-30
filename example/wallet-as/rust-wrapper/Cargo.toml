@@ -2,11 +2,15 @@
 name = "wallet-as-wrapper"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
 
 [workspace]
 
 [lib]
 crate-type = ["cdylib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 mududb = { path = "../../../mududb", default-features = false, features = ["app"] }

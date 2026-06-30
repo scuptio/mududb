@@ -1,27 +1,45 @@
+#![warn(missing_docs)]
+#![deny(clippy::dbg_macro)]
+#![warn(clippy::panic)]
+#![warn(clippy::todo)]
+#![warn(clippy::unimplemented)]
+
+//! Integration-test helpers for the MuduDB workspace.
+
 use mudu::common::result::RS;
 use mudu_cli::client::client::SyncClient;
-use std::net::{TcpListener, TcpStream};
+use mudu_sys::net::sync::StdTcpListener;
+use std::net::SocketAddr;
 use std::time::Duration;
 
+/// Common helpers used by integration tests.
+pub mod support;
+
+#[cfg(test)]
+mod lib_test;
+#[cfg(test)]
+mod support_test;
+
+/// Binds a temporary TCP listener on `127.0.0.1:0` and returns its port.
 pub fn reserve_port() -> RS<Option<u16>> {
-    match TcpListener::bind("127.0.0.1:0") {
+    match StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))) {
         Ok(listener) => Ok(Some(
             listener
                 .local_addr()
                 .map_err(|e| {
-                    mudu::m_error!(mudu::error::ec::EC::NetErr, "read local addr error", e)
+                    mudu::mudu_error!(mudu::error::ErrorCode::Network, "read local addr error", e)
                 })?
                 .port(),
         )),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(None),
-        Err(e) => Err(mudu::m_error!(
-            mudu::error::ec::EC::NetErr,
+        Err(e) => Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
             "reserve local tcp port error",
             e
         )),
     }
 }
 
+/// Reserves a contiguous block of `count` TCP ports.
 pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
     if count == 0 {
         return Ok(None);
@@ -37,7 +55,7 @@ pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
                 ok = false;
                 break;
             };
-            match TcpListener::bind(("127.0.0.1", port)) {
+            match StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))) {
                 Ok(listener) => listeners.push(listener),
                 Err(_) => {
                     ok = false;
@@ -52,16 +70,17 @@ pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
     Ok(None)
 }
 
+/// Waits until a service starts accepting TCP connections on `port`.
 pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], port))).is_ok() {
             return Ok(());
         }
-        mudu_sys::task_sync::sleep_blocking(Duration::from_millis(25));
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
     }
-    Err(mudu::m_error!(
-        mudu::error::ec::EC::NetErr,
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::Network,
         format!(
             "{} server did not become ready on port {}",
             service_name, port
@@ -69,22 +88,24 @@ pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     ))
 }
 
+/// Connects a synchronous client to `port`, retrying until timeout.
 pub fn connect_sync_client_with_retry(port: u16) -> RS<SyncClient> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(5);
     let mut last_err = None;
     while mudu_sys::time::instant_now() < deadline {
-        match SyncClient::connect(("127.0.0.1", port)) {
+        match SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port))) {
             Ok(client) => return Ok(client),
             Err(err) => {
                 last_err = Some(err);
-                mudu_sys::task_sync::sleep_blocking(Duration::from_millis(50));
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| {
-        mudu::m_error!(
-            mudu::error::ec::EC::NetErr,
+    match last_err {
+        Some(err) => Err(err),
+        None => Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
             format!("timed out connecting SyncClient to TCP port {}", port)
-        )
-    }))
+        )),
+    }
 }

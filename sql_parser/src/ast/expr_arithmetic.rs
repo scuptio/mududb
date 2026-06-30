@@ -3,6 +3,7 @@ use crate::ast::expr_operator::Arithmetic;
 use crate::ast::expression::ExprType;
 use std::fmt::{Debug, Formatter};
 
+/// Arithmetic expression (`+`, `-`, `*`, `/`) with left and right operands.
 #[derive(Clone)]
 pub struct ExprArithmetic {
     op: Arithmetic,
@@ -11,18 +12,22 @@ pub struct ExprArithmetic {
 }
 
 impl ExprArithmetic {
+    /// Create a new arithmetic expression.
     pub fn new(op: Arithmetic, left: ExprType, right: ExprType) -> Self {
         Self { op, left, right }
     }
 
+    /// Return the arithmetic operator.
     pub fn op(&self) -> &Arithmetic {
         &self.op
     }
 
+    /// Return the left operand.
     pub fn left(&self) -> &ExprType {
         &self.left
     }
 
+    /// Return the right operand.
     pub fn right(&self) -> &ExprType {
         &self.right
     }

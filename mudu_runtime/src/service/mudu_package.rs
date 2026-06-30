@@ -1,14 +1,14 @@
 use crate::service::file_name;
 use mudu::common::app_info::AppInfo;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
+use mudu::error::ErrorCode;
 use mudu::error::others::io_error;
-use mudu::m_error;
+use mudu::mudu_error;
 use mudu::utils::json::from_json_str;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
+use mudu_sys::fs;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
 use std::io::Read;
 use std::path::Path;
 
@@ -55,17 +55,11 @@ impl MuduPackage {
 
 fn load_and_extract_package<P: AsRef<Path>>(package_path: P) -> RS<MuduPackage> {
     // Open the archive file
-    let file = fs::File::open(package_path.as_ref()).map_err(|e| {
-        m_error!(
-            EC::IOErr,
-            format!("no such package file {:?}", package_path.as_ref()),
-            e
-        )
-    })?;
+    let file = fs::sync::SFile::open(package_path.as_ref())?;
 
     // Create a ZipArchive from the file
     let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| m_error!(EC::IOErr, "read achieve file failed", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "read achieve file failed", e))?;
     let mut ddl_sql = String::new();
     let mut initdb_sql = String::new();
     let mut app_cfg_text = String::new();
@@ -76,7 +70,7 @@ fn load_and_extract_package<P: AsRef<Path>>(package_path: P) -> RS<MuduPackage> 
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .map_err(|e| m_error!(EC::IOErr, "zip archive by_index error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "zip archive by_index error", e))?;
 
         // Get the file name
         let file_name = file.name().to_string();
@@ -97,37 +91,45 @@ fn load_and_extract_package<P: AsRef<Path>>(package_path: P) -> RS<MuduPackage> 
             let mut bytes = Vec::new();
             let read_bytes = file.read_to_end(&mut bytes).map_err(io_error)?;
             if bytes.len() != read_bytes {
-                return Err(m_error!(EC::InternalErr, "read byte code error"));
+                return Err(mudu_error!(ErrorCode::Internal, "read byte code error"));
             }
             modules.insert(mod_name.to_string(), bytes);
         }
     }
     if app_cfg_text.is_empty() {
-        return Err(m_error!(
-            EC::IOErr,
+        return Err(mudu_error!(
+            ErrorCode::NotFound,
             format!("no {} file in package", file_name::PACKAGE_CFG)
         ));
     }
     if ddl_sql.is_empty() {
-        return Err(m_error!(EC::IOErr, "no ddl.sql file in package"));
+        return Err(mudu_error!(
+            ErrorCode::NotFound,
+            "no ddl.sql file in package"
+        ));
     }
     if app_proc_desc_text.is_empty() {
-        return Err(m_error!(
-            EC::IOErr,
+        return Err(mudu_error!(
+            ErrorCode::NotFound,
             format!("no {} file in package", file_name::PROCEDURE_DESC)
         ));
     }
     let app_cfg: AppInfo = from_json_str(app_cfg_text.as_str())
-        .map_err(|e| m_error!(EC::DecodeErr, "parse app configuration error", e))?;
-    let app_proc_desc: ModProcDesc = from_json_str(app_proc_desc_text.as_str())
-        .map_err(|e| m_error!(EC::DecodeErr, "parse app procedure description error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Decode, "parse app configuration error", e))?;
+    let app_proc_desc: ModProcDesc = from_json_str(app_proc_desc_text.as_str()).map_err(|e| {
+        mudu_error!(
+            ErrorCode::Decode,
+            "parse app procedure description error",
+            e
+        )
+    })?;
 
     if !manifest_text.is_empty() {
         let manifest: PackageManifest = from_json_str(manifest_text.as_str())
-            .map_err(|e| m_error!(EC::DecodeErr, "parse package manifest error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "parse package manifest error", e))?;
         if manifest.format_version != 1 {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "unsupported package manifest format_version {}",
                     manifest.format_version
@@ -144,8 +146,8 @@ fn load_and_extract_package<P: AsRef<Path>>(package_path: P) -> RS<MuduPackage> 
         ];
         for req in required {
             if !manifest.files.iter().any(|f| f == req) {
-                return Err(m_error!(
-                    EC::DecodeErr,
+                return Err(mudu_error!(
+                    ErrorCode::Decode,
                     format!("package manifest missing required file {}", req)
                 ));
             }
@@ -179,6 +181,10 @@ fn align_single_module_name(
     }
 
     let mut only_module_iter = modules.into_iter();
+    #[expect(
+        clippy::unwrap_used,
+        reason = "modules has exactly one element due to the length check above"
+    )]
     let (_, byte_code) = only_module_iter.next().unwrap();
     let mut aligned_modules = HashMap::with_capacity(1);
     aligned_modules.insert(expected_module_name, byte_code);

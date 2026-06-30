@@ -1,4 +1,12 @@
 pub mod _fuzz {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use arbitrary::{Arbitrary, Unstructured};
     use mudu::common::buf::Buf;
     use mudu::common::update_delta::UpdateDelta;
@@ -59,6 +67,14 @@ pub mod _fuzz {
 
 #[cfg(test)]
 mod __test {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use crate::fuzz::_test_target::_test::_test_target;
     #[test]
     fn test_schema_table() {

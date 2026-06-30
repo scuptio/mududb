@@ -1,0 +1,23 @@
+[package]
+name = "mudu_build_common"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_sys = { workspace = true }
+toml = { workspace = true }
+serde_json = { workspace = true }
+md-5 = { workspace = true }
+base16ct = { workspace = true }
+tree-sitter = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tree_sitter_sql = { workspace = true }

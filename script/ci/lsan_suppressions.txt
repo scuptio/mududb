@@ -1,0 +1,18 @@
+# LeakSanitizer suppressions for known, benign leaks in third-party code.
+#
+# These are used with:
+#   LSAN_OPTIONS=suppressions=script/ci/lsan_suppressions.txt
+#
+# Only add leaks from dependencies that we do not control. Do not use this to
+# hide leaks in project code.
+
+# actix-router intentionally leaks route capture names via Box::leak so they can
+# be stored as &'static str. This is reported by Miri and LeakSanitizer.
+leak:actix_router::resource::ResourceDef
+
+# libsql does not close the partially-allocated SQLite handle when
+# sqlite3_open_v2 returns an error, so error-path connection attempts leak the
+# sqlite3 struct allocated by openDatabase.
+leak:libsql::local::connection::Connection>::connect
+leak:libsql::local::database::Database>::connect
+

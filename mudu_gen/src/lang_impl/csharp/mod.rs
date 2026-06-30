@@ -1,3 +1,5 @@
+//! C# language definition and Askama-based templates.
+
 pub mod lang_def;
 mod render_cs;
 mod template_enum_cs;

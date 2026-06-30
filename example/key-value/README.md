@@ -1,6 +1,17 @@
 # kv Example
 
+> This example demonstrates the key/value system-call API. If you are new to Mudu Procedures, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First Procedure tutorial](../../doc/en/your_first_procedure.md).
+
 This example implements a small synchronous kv-style workload on top of the key/value syscall API.
+
+## Dependency checklist
+
+Before building, make sure you have:
+
+- [ ] `rustup` + `cargo` + `wasm32-wasip2` target
+- [ ] `cargo-make`
+- [ ] `python3` with `tomli-w` and `toml`
+- [ ] `mgen`, `mtp`, `mpk`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 Procedures:
 
@@ -62,3 +73,26 @@ cargo make
 ```
 
 The package target is generated at `target/wasm32-wasip2/release/key-value.mpk`.
+
+## Install and invoke
+
+Start `mudud`, then install the package:
+
+```bash
+mcli --http-addr 127.0.0.1:8300 app-install \
+  --mpk ../../target/wasm32-wasip2/release/key-value.mpk
+```
+
+Insert and read a key:
+
+```bash
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
+  --app kv --module key_value --proc kv_insert \
+  --json '{"user_key": "hello", "value": "world"}'
+
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
+  --app kv --module key_value --proc kv_read \
+  --json '{"user_key": "hello"}'
+```
+
+Other procedures: `kv_update`, `kv_scan`, `kv_read_modify_write`.

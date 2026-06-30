@@ -1,3 +1,5 @@
+//! PostgreSQL backend implementation.
+
 use crate::config;
 use crate::result_set::LocalResultSet;
 use crate::sql::{datum_type_for_id, replace_placeholders};
@@ -5,8 +7,8 @@ use crate::state;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -14,16 +16,16 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
+use mudu_sys::sync::SMutex;
+use mudu_sys::sync::async_::rwlock::ARwLock;
+use mudu_sys::tokio::task::JoinHandle;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dat_value::DatValue;
-use mudu_sys::sync::a_rwlock::ARwLock;
 use postgres::types::Type;
 use postgres::{Client, NoTls, Row};
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
-use tokio::task::JoinHandle;
 use tokio_postgres::{Client as AsyncClient, NoTls as AsyncNoTls};
 
 type PgClientRef = Arc<SMutex<Client>>;
@@ -31,7 +33,7 @@ const SCHEMA_INIT_LOCK_ID: i64 = 0x4d55_4455_4b56;
 
 struct PgAsyncSession {
     client: AsyncClient,
-    connection_task: JoinHandle<()>,
+    connection_task: JoinHandle<Option<()>>,
 }
 
 lazy_static! {
@@ -42,22 +44,24 @@ lazy_static! {
 
 fn connect() -> RS<Client> {
     let url = config::postgres_url()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing postgres url env"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing postgres url env"))?;
     let mut client = Client::connect(&url, NoTls)
-        .map_err(|e| m_error!(EC::DBInternalError, "connect postgres error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "connect postgres error", e))?;
     initialize_schema(&mut client)?;
     Ok(client)
 }
 
 async fn connect_async() -> RS<PgAsyncSession> {
     let url = config::postgres_url()
-        .ok_or_else(|| m_error!(EC::DBInternalError, "missing postgres url env"))?;
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing postgres url env"))?;
     let (client, connection) = tokio_postgres::connect(&url, AsyncNoTls)
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "connect postgres error", e))?;
-    let connection_task = mudu_sys::task_async::spawn_tokio(async move {
-        let _ = connection.await;
-    });
+        .map_err(|e| mudu_error!(ErrorCode::Database, "connect postgres error", e))?;
+    let connection_task =
+        mudu_sys::task::async_::spawn_task_detached("postgres-connection", async move {
+            let _ = connection.await;
+        })?
+        .into_external();
     initialize_schema_async(&client).await?;
     Ok(PgAsyncSession {
         client,
@@ -67,14 +71,14 @@ async fn connect_async() -> RS<PgAsyncSession> {
 
 fn initialize_schema(client: &mut Client) -> RS<()> {
     let mut tx = client.transaction().map_err(|e| {
-        m_error!(
-            EC::DBInternalError,
+        mudu_error!(
+            ErrorCode::Database,
             "begin postgres schema init transaction error",
             e
         )
     })?;
     tx.query("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_INIT_LOCK_ID])
-        .map_err(|e| m_error!(EC::DBInternalError, "lock postgres schema init error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "lock postgres schema init error", e))?;
     tx.batch_execute(
         r#"
         CREATE TABLE IF NOT EXISTS mudu_kv (
@@ -83,16 +87,16 @@ fn initialize_schema(client: &mut Client) -> RS<()> {
         );
         "#,
     )
-    .map_err(|e| m_error!(EC::DBInternalError, "initialize postgres schema error", e))?;
+    .map_err(|e| mudu_error!(ErrorCode::Database, "initialize postgres schema error", e))?;
     tx.commit()
-        .map_err(|e| m_error!(EC::DBInternalError, "commit postgres schema init error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "commit postgres schema init error", e))?;
     Ok(())
 }
 
 async fn initialize_schema_async(client: &AsyncClient) -> RS<()> {
     client.batch_execute("BEGIN").await.map_err(|e| {
-        m_error!(
-            EC::DBInternalError,
+        mudu_error!(
+            ErrorCode::Database,
             "begin postgres async schema init transaction error",
             e
         )
@@ -100,7 +104,7 @@ async fn initialize_schema_async(client: &AsyncClient) -> RS<()> {
     client
         .query("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_INIT_LOCK_ID])
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "lock postgres schema init error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "lock postgres schema init error", e))?;
     let init_result = client
         .batch_execute(
             r#"
@@ -112,14 +116,13 @@ async fn initialize_schema_async(client: &AsyncClient) -> RS<()> {
         )
         .await;
     match init_result {
-        Ok(()) => client
-            .batch_execute("COMMIT")
-            .await
-            .map_err(|e| m_error!(EC::DBInternalError, "commit postgres schema init error", e))?,
+        Ok(()) => client.batch_execute("COMMIT").await.map_err(|e| {
+            mudu_error!(ErrorCode::Database, "commit postgres schema init error", e)
+        })?,
         Err(e) => {
             let _ = client.batch_execute("ROLLBACK").await;
-            return Err(m_error!(
-                EC::DBInternalError,
+            return Err(mudu_error!(
+                ErrorCode::Database,
                 "initialize postgres schema error",
                 e
             ));
@@ -128,6 +131,7 @@ async fn initialize_schema_async(client: &AsyncClient) -> RS<()> {
     Ok(())
 }
 
+/// Creates a new PostgreSQL-backed session.
 pub fn mudu_open() -> RS<OID> {
     let session_id = state::next_session_id();
     let client = Arc::new(SMutex::new(connect()?));
@@ -135,6 +139,7 @@ pub fn mudu_open() -> RS<OID> {
     Ok(session_id)
 }
 
+/// Asynchronous version of [`mudu_open`].
 pub async fn mudu_open_async() -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
     let session_id = state::next_session_id();
@@ -143,12 +148,14 @@ pub async fn mudu_open_async() -> RS<OID> {
     Ok(session_id)
 }
 
+/// Closes a PostgreSQL-backed session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     ensure_session_exists(session_id)?;
     let _ = SESSIONS.remove_sync(&session_id);
     Ok(())
 }
 
+/// Asynchronous version of [`mudu_close`].
 pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = {
@@ -156,8 +163,8 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
         sessions.remove(&session_id)
     }
     .ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -165,15 +172,17 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     Ok(())
 }
 
+/// Retrieves a value from a PostgreSQL session.
 pub fn mudu_get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     with_session(session_id, |client| {
         let rows = client
             .query("SELECT v FROM mudu_kv WHERE k = $1", &[&key])
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres kv get error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv get error", e))?;
         Ok(rows.first().map(|row| row.get::<usize, Vec<u8>>(0)))
     })
 }
 
+/// Asynchronous version of [`mudu_get`].
 pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
     let _trace = mudu_utils::task_trace!();
     let session = with_async_session(session_id).await?;
@@ -181,10 +190,11 @@ pub async fn mudu_get_async(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> 
         .client
         .query("SELECT v FROM mudu_kv WHERE k = $1", &[&key])
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "postgres kv get error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv get error", e))?;
     Ok(rows.first().map(|row| row.get::<usize, Vec<u8>>(0)))
 }
 
+/// Stores a value in a PostgreSQL session.
 pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     with_session(session_id, |client| {
         client
@@ -193,11 +203,12 @@ pub fn mudu_put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
                  ON CONFLICT(k) DO UPDATE SET v = EXCLUDED.v",
                 &[&key, &value],
             )
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres kv put error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv put error", e))?;
         Ok(())
     })
 }
 
+/// Asynchronous version of [`mudu_put`].
 pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
     let _trace = mudu_utils::task_trace!();
     let session = with_async_session(session_id).await?;
@@ -209,10 +220,11 @@ pub async fn mudu_put_async(session_id: OID, key: &[u8], value: &[u8]) -> RS<()>
             &[&key, &value],
         )
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "postgres kv put error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv put error", e))?;
     Ok(())
 }
 
+/// Scans a range of keys in a PostgreSQL session.
 pub fn mudu_range(
     session_id: OID,
     start_key: &[u8],
@@ -225,14 +237,14 @@ pub fn mudu_range(
                     "SELECT k, v FROM mudu_kv WHERE k >= $1 ORDER BY k ASC",
                     &[&start_key],
                 )
-                .map_err(|e| m_error!(EC::DBInternalError, "postgres kv range error", e))?
+                .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv range error", e))?
         } else {
             client
                 .query(
                     "SELECT k, v FROM mudu_kv WHERE k >= $1 AND k < $2 ORDER BY k ASC",
                     &[&start_key, &end_key],
                 )
-                .map_err(|e| m_error!(EC::DBInternalError, "postgres kv range error", e))?
+                .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv range error", e))?
         };
         Ok(rows
             .into_iter()
@@ -241,6 +253,7 @@ pub fn mudu_range(
     })
 }
 
+/// Asynchronous version of [`mudu_range`].
 pub async fn mudu_range_async(
     session_id: OID,
     start_key: &[u8],
@@ -256,7 +269,7 @@ pub async fn mudu_range_async(
                 &[&start_key],
             )
             .await
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres kv range error", e))?
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv range error", e))?
     } else {
         session
             .client
@@ -265,7 +278,7 @@ pub async fn mudu_range_async(
                 &[&start_key, &end_key],
             )
             .await
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres kv range error", e))?
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres kv range error", e))?
     };
     Ok(rows
         .into_iter()
@@ -273,6 +286,7 @@ pub async fn mudu_range_async(
         .collect())
 }
 
+/// Executes a query on a PostgreSQL session and returns the resulting record set.
 pub fn mudu_query<R: Entity>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -283,7 +297,7 @@ pub fn mudu_query<R: Entity>(
     with_session(oid, |client| {
         let rows = client
             .query(sql_text.as_str(), &[])
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres query error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres query error", e))?;
         let desc = build_desc(rows.first());
         let tuple_rows = rows
             .into_iter()
@@ -296,6 +310,7 @@ pub fn mudu_query<R: Entity>(
     })
 }
 
+/// Asynchronous version of [`mudu_query`].
 pub async fn mudu_query_async<R: Entity>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -307,7 +322,7 @@ pub async fn mudu_query_async<R: Entity>(
         .client
         .query(sql_text.as_str(), &[])
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "postgres query error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "postgres query error", e))?;
     let desc = build_desc(rows.first());
     let tuple_rows = rows
         .into_iter()
@@ -319,31 +334,34 @@ pub async fn mudu_query_async<R: Entity>(
     ))
 }
 
+/// Executes a parameterized SQL command on a PostgreSQL session.
 pub fn mudu_command(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
     with_session(oid, |client| {
         let rows = client
             .execute(sql_text.as_str(), &[])
-            .map_err(|e| m_error!(EC::DBInternalError, "postgres command error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "postgres command error", e))?;
         Ok(rows)
     })
 }
 
+/// Executes a batch SQL statement on a PostgreSQL session.
 pub fn mudu_batch(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
     with_session(oid, |client| {
         client
             .batch_execute(&sql_stmt.to_sql_string())
-            .map_err(|e| m_error!(EC::DBInternalError, "execute postgres batch error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "execute postgres batch error", e))?;
         Ok(0)
     })
 }
 
+/// Asynchronous version of [`mudu_command`].
 pub async fn mudu_command_async(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
@@ -356,13 +374,14 @@ pub async fn mudu_command_async(
         .client
         .execute(sql_text.as_str(), &[])
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "postgres command error", e))
+        .map_err(|e| mudu_error!(ErrorCode::Database, "postgres command error", e))
 }
 
+/// Asynchronous version of [`mudu_batch`].
 pub async fn mudu_batch_async(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
     if params.size() != 0 {
-        return Err(m_error!(
-            EC::NotImplemented,
+        return Err(mudu_error!(
+            ErrorCode::NotImplemented,
             "batch syscall does not support SQL parameters"
         ));
     }
@@ -371,7 +390,7 @@ pub async fn mudu_batch_async(oid: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQL
         .client
         .batch_execute(&sql_stmt.to_sql_string())
         .await
-        .map_err(|e| m_error!(EC::DBInternalError, "execute postgres batch error", e))?;
+        .map_err(|e| mudu_error!(ErrorCode::Database, "execute postgres batch error", e))?;
     Ok(0)
 }
 
@@ -379,8 +398,8 @@ fn ensure_session_exists(session_id: OID) -> RS<()> {
     if SESSIONS.contains_sync(&session_id) {
         Ok(())
     } else {
-        Err(m_error!(
-            EC::NoSuchElement,
+        Err(mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         ))
     }
@@ -391,15 +410,15 @@ where
     F: FnOnce(&mut Client) -> RS<R>,
 {
     let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
-        m_error!(
-            EC::NoSuchElement,
+        mudu_error!(
+            ErrorCode::EntityNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
     let client_ref = entry.get().clone();
     let mut client = client_ref
         .lock()
-        .map_err(|_| m_error!(EC::InternalErr, "postgres session lock poisoned"))?;
+        .map_err(|_| mudu_error!(ErrorCode::Internal, "postgres session lock poisoned"))?;
     f(&mut client)
 }
 
@@ -410,8 +429,8 @@ async fn with_async_session(session_id: OID) -> RS<Arc<PgAsyncSession>> {
         .get(&session_id)
         .cloned()
         .ok_or_else(|| {
-            m_error!(
-                EC::NoSuchElement,
+            mudu_error!(
+                ErrorCode::EntityNotFound,
                 format!("session {} does not exist", session_id)
             )
         })

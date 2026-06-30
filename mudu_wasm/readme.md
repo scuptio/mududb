@@ -1,25 +1,46 @@
-# Add wasm32 target
+# mudu_wasm
 
-    rustup target add wasm32-wasip2
+WebAssembly bindings for MuduDB. This crate builds as a `cdylib` and exposes
+MuduDB procedures through the WebAssembly component model: on `wasm32` targets
+it provides the generated guest bindings, while on `x86_64` it provides the
+transpilation helpers used to produce those bindings.
 
-## Notice
+> **Note on crate name:** although the directory and human-readable name are
+> `mudu_wasm`, the package is published under the Cargo crate name `mod_0` (see
+> `Cargo.toml`). Therefore public Rust paths begin with `mod_0::`, and the
+> component module name used by the runtime is also `mod_0`.
 
-Do not use wasm32-unknown-unknown.
-The wasm32-unknown-unknown target is not WASI capable.
+## Responsibility
 
-When compile with wasm32-unknown-unknown, wasm-time runtime would complain error:
+- Provide a `cdylib` WebAssembly target for MuduDB.
+- Expose generated component-model bindings for `wasm32` (behind the `transpile`
+  feature).
+- Provide x86_64 transpilation helpers that generate/maintain the WASM
+  component bindings.
+- Bridge MuduDB procedures (`proc`, `proc2`) and their descriptors to the WASM
+  component model.
 
-    unknown import: `__wbindgen_placeholder__::__wbindgen_describe
+## What does NOT belong here
 
-# Install cargo-make
+- Core MuduDB engine and component-model implementation live in `mududb`.
+- Procedure contract and descriptor definitions live in `mudu_contract` and
+  `mudu_sys_contract`.
+- Host-side system call implementation belongs in `mudu_sys_impl` and
+  `mudu_sys_wasm`.
+- Non-WebAssembly language bindings belong in `mudu_binding`.
+- Transpiler core logic belongs in `mudu_transpiler`.
+- CLI tooling belongs in `mudu_cli`.
+- WIT/tree-sitter parsing belongs in `tree-sitter-wit`.
 
-    cargo install cargo-make
+## Main public entry points
 
-# Build wasm32 target
+- `mod_0::generated` — generated WebAssembly component bindings, available
+  on `wasm32` with the `transpile` feature.
+  - `generated::proc` — `proc_mtp` and `mudu_*_desc_proc_mtp` descriptor helpers.
+  - `generated::proc2` — `proc2_mtp`, `proc_sys_call_mtp`, and related
+    descriptor helpers.
+- `mod_0::wasm_mtp` — x86_64 transpilation helpers.
+  - `wasm_mtp::proc` — host-side `proc_mtp` helper.
+  - `wasm_mtp::proc2` — host-side `proc2_mtp` and `proc_sys_call_mtp` helpers.
 
-    cargo build --target wasm32-wasip2
-
-If no wasm32 target, it would complain:
-
-    error[E0463]: can't find crate for `core`
-
+There are no binaries; the crate is consumed as a library / `cdylib`.

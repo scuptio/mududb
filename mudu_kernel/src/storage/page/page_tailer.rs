@@ -2,10 +2,10 @@ use crate::wal::lsn::LSN;
 use byteorder::{ByteOrder, LittleEndian};
 use mudu::common::crc::crc32;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 
-pub const PAGE_TAILER_SIZE: usize = 8;
+pub const PAGE_TAILER_SIZE: usize = 12;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PageTailer {
@@ -20,8 +20,8 @@ impl PageTailer {
 
     pub fn decode(input: &[u8]) -> RS<Self> {
         if input.len() < PAGE_TAILER_SIZE {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "page tailer requires {} bytes, got {}",
                     PAGE_TAILER_SIZE,
@@ -31,15 +31,15 @@ impl PageTailer {
         }
 
         Ok(Self {
-            lsn: LittleEndian::read_u32(&input[0..4]) as LSN,
-            checksum: LittleEndian::read_u32(&input[4..8]),
+            lsn: LittleEndian::read_u64(&input[0..8]).into(),
+            checksum: LittleEndian::read_u32(&input[8..12]),
         })
     }
 
     pub fn encode(&self, out: &mut [u8]) -> RS<()> {
         if out.len() < PAGE_TAILER_SIZE {
-            return Err(m_error!(
-                EC::EncodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Encode,
                 format!(
                     "page tailer encode requires {} bytes, got {}",
                     PAGE_TAILER_SIZE,
@@ -48,8 +48,8 @@ impl PageTailer {
             ));
         }
 
-        LittleEndian::write_u32(&mut out[0..4], self.lsn);
-        LittleEndian::write_u32(&mut out[4..8], self.checksum);
+        LittleEndian::write_u64(&mut out[0..8], self.lsn.into());
+        LittleEndian::write_u32(&mut out[8..12], self.checksum);
         Ok(())
     }
 
@@ -57,8 +57,8 @@ impl PageTailer {
     /// The covered range is `[0, page.len() - PAGE_TAILER_SIZE)`.
     pub fn checksum_for_page(page: &[u8]) -> RS<u32> {
         if page.len() < PAGE_TAILER_SIZE {
-            return Err(m_error!(
-                EC::EncodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Encode,
                 format!(
                     "page checksum requires at least {} bytes, got {}",
                     PAGE_TAILER_SIZE,
@@ -78,8 +78,8 @@ impl PageTailer {
     pub fn validate_checksum(&self, page: &[u8]) -> RS<()> {
         let actual = Self::checksum_for_page(page)?;
         if self.checksum != actual {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "page checksum mismatch: stored={}, actual={}",
                     self.checksum, actual
@@ -108,10 +108,19 @@ impl PageTailer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::{PageTailer, PAGE_TAILER_SIZE};
+    use crate::wal::lsn::LSN;
 
     #[test]
-    fn page_tailer_encodes_to_fixed_8_bytes() {
+    fn page_tailer_encodes_to_fixed_12_bytes() {
         let tailer = PageTailer::default();
         let mut encoded = [0u8; PAGE_TAILER_SIZE];
         tailer.encode(&mut encoded).unwrap();
@@ -120,7 +129,7 @@ mod tests {
 
     #[test]
     fn page_tailer_roundtrip() {
-        let tailer = PageTailer::new(17, 29);
+        let tailer = PageTailer::new(LSN::new(17), 29);
         let mut encoded = [0u8; PAGE_TAILER_SIZE];
         tailer.encode(&mut encoded).unwrap();
         let decoded = PageTailer::decode(&encoded).unwrap();
@@ -129,12 +138,12 @@ mod tests {
 
     #[test]
     fn page_tailer_checksum_covers_page_except_tailer() {
-        let mut page = [0u8; 32];
-        page[..24].copy_from_slice(&[1u8; 24]);
-        page[24..].copy_from_slice(&[9u8; 8]);
+        let mut page = [0u8; 36];
+        page[..28].copy_from_slice(&[1u8; 28]);
+        page[28..].copy_from_slice(&[9u8; 8]);
 
         let checksum = PageTailer::checksum_for_page(&page).unwrap();
-        page[24..].copy_from_slice(&[7u8; 8]);
+        page[28..].copy_from_slice(&[7u8; 8]);
         assert_eq!(checksum, PageTailer::checksum_for_page(&page).unwrap());
     }
 }

@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::sync::SMutex;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use mudu_sys::sync::SMutex;
 
 use crate::server::message_bus_api::{
     EndpointId, Envelope, MessageBus, MessageBusRef, MessageId, OnRecvCallback, OutgoingMessage,
@@ -18,7 +18,7 @@ use crate::server::server_iouring;
 use crate::server::task;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
 use crate::server::worker_registry::WorkerRegistry;
-use mudu_sys::server::worker_task::spawn_system_worker_task;
+
 use tracing::debug;
 
 pub(crate) struct WorkerMessageBus {
@@ -68,7 +68,7 @@ impl WorkerMessageBus {
             let mut state = self
                 .state
                 .lock()
-                .map_err(|_| m_error!(EC::InternalErr, "message bus state lock poisoned"))?;
+                .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus state lock poisoned"))?;
             state.handle_incoming(envelope)
         };
         if let Some((callback, envelope)) = maybe_callback {
@@ -81,10 +81,7 @@ impl WorkerMessageBus {
                 "message_bus dispatching callback task"
             );
             let future = (callback)(envelope);
-            task::spawn_system(
-                "iouring-message-bus-callback",
-                spawn_system_worker_task(future),
-            );
+            task::spawn_system("iouring-message-bus-callback", future);
         }
         Ok(())
     }
@@ -92,19 +89,24 @@ impl WorkerMessageBus {
     fn route_worker_index(&self, endpoint: EndpointId) -> RS<usize> {
         self.registry
             .worker_index_by_worker_id(endpoint)
-            .ok_or_else(|| m_error!(EC::NoSuchElement, format!("no such worker id {}", endpoint)))
+            .ok_or_else(|| {
+                mudu_error!(
+                    ErrorCode::EntityNotFound,
+                    format!("no such worker id {}", endpoint)
+                )
+            })
     }
 
     fn dispatch_mailbox_message(&self, target_worker: usize, msg: WorkerMailboxMsg) -> RS<()> {
         let Some(mailbox) = self.mailboxes.get(target_worker) else {
-            return Err(m_error!(
-                EC::InternalErr,
+            return Err(mudu_error!(
+                ErrorCode::Internal,
                 format!("mailbox target worker {} is out of range", target_worker)
             ));
         };
         let Some(&fd) = self.mailbox_fds.get(target_worker) else {
-            return Err(m_error!(
-                EC::InternalErr,
+            return Err(mudu_error!(
+                ErrorCode::Internal,
                 format!(
                     "mailbox eventfd target worker {} is out of range",
                     target_worker
@@ -136,7 +138,7 @@ impl MessageBus for WorkerMessageBus {
             msg_id,
             message.correlation_id(),
             self.local_endpoint(),
-            dst.clone(),
+            dst,
             message.kind(),
             message.payload_owned(),
             message.delivery(),
@@ -161,16 +163,18 @@ impl MessageBus for WorkerMessageBus {
             let mut state = self
                 .state
                 .lock()
-                .map_err(|_| m_error!(EC::InternalErr, "message bus state lock poisoned"))?;
+                .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus state lock poisoned"))?;
             if let Some(envelope) = state.try_take_message(&filter) {
                 return Ok(envelope);
             }
             state.register_waiter(filter)
         };
-        receiver
-            .wait()
-            .await?
-            .ok_or_else(|| m_error!(EC::ThreadErr, "message bus waiter dropped before delivery"))
+        receiver.wait().await?.ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::ChannelClosed,
+                "message bus waiter dropped before delivery"
+            )
+        })
     }
 
     fn on_recv_callback(&self, filter: RecvFilter, callback: OnRecvCallback) -> RS<SubscriptionId> {
@@ -178,15 +182,12 @@ impl MessageBus for WorkerMessageBus {
             let mut state = self
                 .state
                 .lock()
-                .map_err(|_| m_error!(EC::InternalErr, "message bus state lock poisoned"))?;
+                .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus state lock poisoned"))?;
             state.register_callback(filter, callback.clone())
         };
         if let Some(envelope) = maybe_envelope {
             let future = (callback)(envelope);
-            task::spawn_system(
-                "iouring-message-bus-on-recv",
-                spawn_system_worker_task(future),
-            );
+            task::spawn_system("iouring-message-bus-on-recv", future);
         }
         Ok(callback_id)
     }
@@ -195,13 +196,21 @@ impl MessageBus for WorkerMessageBus {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| m_error!(EC::InternalErr, "message bus state lock poisoned"))?;
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "message bus state lock poisoned"))?;
         Ok(state.cancel_callback(id))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::*;
     use crate::server::message_bus_api::{DeliveryMode, MessageKind, SystemMessageKind};
     use crate::server::worker_registry::WorkerRegistry;
@@ -233,57 +242,63 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn recv_consumes_buffered_message() {
-        let bus = test_bus(11);
-        bus.handle_incoming(Envelope::new(
-            1,
-            None,
-            12,
-            11,
-            MessageKind::User(7),
-            b"ping".to_vec(),
-            DeliveryMode::FireAndForget,
-        ))
-        .unwrap();
-
-        let message = bus
-            .recv(RecvFilter {
-                src: Some(12),
-                kind: Some(MessageKind::User(7)),
-                ..RecvFilter::default()
-            })
-            .await
+    #[test]
+    fn recv_consumes_buffered_message() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let bus = test_bus(11);
+            bus.handle_incoming(Envelope::new(
+                1,
+                None,
+                12,
+                11,
+                MessageKind::User(7),
+                b"ping".to_vec(),
+                DeliveryMode::FireAndForget,
+            ))
             .unwrap();
-        assert_eq!(message.payload(), b"ping");
+
+            let message = bus
+                .recv(RecvFilter {
+                    src: Some(12),
+                    kind: Some(MessageKind::User(7)),
+                    ..RecvFilter::default()
+                })
+                .await
+                .unwrap();
+            assert_eq!(message.payload(), b"ping");
+        })
+        .unwrap()
     }
 
-    #[tokio::test]
-    async fn recv_waiter_is_fulfilled_by_incoming_message() {
-        let bus = test_bus(11);
-        let mut recv = Box::pin(bus.recv(RecvFilter {
-            src: Some(12),
-            correlation_id: Some(9),
-            ..RecvFilter::default()
-        }));
+    #[test]
+    fn recv_waiter_is_fulfilled_by_incoming_message() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let bus = test_bus(11);
+            let mut recv = Box::pin(bus.recv(RecvFilter {
+                src: Some(12),
+                correlation_id: Some(9),
+                ..RecvFilter::default()
+            }));
 
-        assert!(matches!(
-            futures::poll!(recv.as_mut()),
-            std::task::Poll::Pending
-        ));
+            assert!(matches!(
+                futures::poll!(recv.as_mut()),
+                std::task::Poll::Pending
+            ));
 
-        bus.handle_incoming(Envelope::new(
-            2,
-            Some(9),
-            12,
-            11,
-            MessageKind::System(SystemMessageKind::Ack),
-            Vec::new(),
-            DeliveryMode::Response,
-        ))
-        .unwrap();
+            bus.handle_incoming(Envelope::new(
+                2,
+                Some(9),
+                12,
+                11,
+                MessageKind::System(SystemMessageKind::Ack),
+                Vec::new(),
+                DeliveryMode::Response,
+            ))
+            .unwrap();
 
-        let message = recv.await.unwrap();
-        assert_eq!(message.correlation_id(), Some(9));
+            let message = recv.await.unwrap();
+            assert_eq!(message.correlation_id(), Some(9));
+        })
+        .unwrap()
     }
 }

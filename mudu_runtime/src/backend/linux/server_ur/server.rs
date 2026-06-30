@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::management_thread::spawn_management_thread;
 use crate::backend::mudu_app_mgr::MuduAppMgr;
@@ -13,10 +15,10 @@ use mudu_kernel::server::server::WorkerTcpBackend as KernelWorkerTcpBackend;
 use mudu_kernel::server::server_cfg::ServerCfg;
 use mudu_kernel::server::server_launch::ServerLaunch;
 use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
-use mudu_sys::task_async;
+use mudu_sys::sync::SMutex;
+use mudu_sys::task::async_ as task_async;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use std::sync::{Arc, OnceLock};
-use mudu_sys::sync::SMutex;
 
 pub struct IoUringBackend;
 
@@ -41,8 +43,8 @@ impl IoUringBackend {
         ready: Option<Notifier>,
     ) -> RS<()> {
         let _default_remote_guard = default_remote_scope_lock().lock().map_err(|_| {
-            mudu::m_error!(
-                mudu::error::ec::EC::MutexError,
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Mutex,
                 "default remote scope lock poisoned"
             )
         })?;
@@ -69,7 +71,8 @@ impl IoUringBackend {
             routing_mode,
         )?
         .with_log_chunk_size(cfg.io_uring_log_chunk_size)
-        .with_multi_port(cfg.tcp_multi_port);
+        .with_multi_port(cfg.tcp_multi_port)
+        .with_page_size(cfg.page_size)?;
         let mut server_deps = ServerRuntimeDeps::from_cfg(&base_server_cfg)?
             .with_async_runtime(async_runtime.clone());
         let default_remote_addr = format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port);
@@ -85,7 +88,7 @@ impl IoUringBackend {
             for _ in 0..worker_count {
                 runtimes.push(procedure_app_mgr.create_invoker(&procedure_cfg).await?);
             }
-            Ok::<_, mudu::error::err::MError>(runtimes)
+            Ok::<_, mudu::error::MuduError>(runtimes)
         })??;
         server_deps = server_deps.with_worker_procedure_runtimes(procedure_runtimes);
         let server_launch = ServerLaunch::new(base_server_cfg, server_deps);

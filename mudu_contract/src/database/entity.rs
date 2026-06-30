@@ -1,10 +1,13 @@
+//! `database::entity` module.
+#![allow(missing_docs)]
+
 use crate::database::entity_utils;
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_value::DatValue;
 use mudu_type::datum::{Datum, DatumDyn};
 use paste::paste;
@@ -68,7 +71,7 @@ macro_rules! impl_entity_trait {
                     }
 
                     fn get_field_binary(&self, _: &str) -> RS<Option<Vec<u8>>> {
-                        let dat_binary = self.to_binary(Self::dat_type())?;
+                        let dat_binary = self.to_binary(&Self::dat_type())?;
                         Ok(Some(dat_binary.into()))
                     }
 
@@ -84,7 +87,7 @@ macro_rules! impl_entity_trait {
 
                     fn set_field_value<D: AsRef<DatValue>>(&mut self, _: &str, value: D) -> RS<()> {
                         let field_value = value.as_ref().[<as_$variant_lower>]()
-                            .map_or_else( ||{ Err(m_error!(EC::TypeErr, "")) }, |v|{Ok(v.clone())},)?;
+                            .map_or_else( ||{ Err(mudu_error!(ErrorCode::InvalidType, "")) }, |v|{Ok(v.clone())},)?;
                         *self = field_value;
                         Ok(())
                     }

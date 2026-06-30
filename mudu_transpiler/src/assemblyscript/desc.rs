@@ -1,9 +1,13 @@
+//! Generate procedure descriptors and shim inputs from parsed AssemblyScript
+//! procedures.
+
 use crate::assemblyscript::procedure::{AsProcedure, AsValueType};
 use crate::procedure_shim::{ProcedureShimField, ProcedureShimInput};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 
+/// Build a [`ProcDesc`] for every procedure in `procedures`.
 pub fn gen_procedure_desc_list(module_name: &str, procedures: &[AsProcedure]) -> Vec<ProcDesc> {
     procedures
         .iter()
@@ -11,6 +15,7 @@ pub fn gen_procedure_desc_list(module_name: &str, procedures: &[AsProcedure]) ->
         .collect()
 }
 
+/// Build [`ProcedureShimInput`] values for every procedure in `procedures`.
 pub fn gen_procedure_shim_inputs(procedures: &[AsProcedure]) -> Vec<ProcedureShimInput> {
     procedures
         .iter()
@@ -41,12 +46,12 @@ impl From<&AsProcedure> for ProcedureDescModel {
                 .skip(1)
                 .map(|param| ProcedureDescField {
                     name: param.name.clone(),
-                    value_type: param.value_type.clone(),
+                    value_type: param.value_type,
                 })
                 .collect(),
             result_fields: vec![ProcedureDescField {
                 name: "0".to_string(),
-                value_type: procedure.return_value_type.clone(),
+                value_type: procedure.return_value_type,
             }],
         }
     }

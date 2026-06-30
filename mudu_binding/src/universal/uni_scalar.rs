@@ -9,7 +9,9 @@
     serde_repr::Deserialize_repr,
 )]
 #[repr(u32)]
+#[derive(Default)]
 pub enum UniScalar {
+    #[default]
     Bool = 0,
 
     U8 = 1,
@@ -51,10 +53,4 @@ pub enum UniScalar {
     Timestamp = 19,
 
     TimestampTz = 20,
-}
-
-impl Default for UniScalar {
-    fn default() -> Self {
-        Self::Bool
-    }
 }

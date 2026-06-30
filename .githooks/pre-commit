@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+
+echo "Running cargo fmt --check..."
+
+if ! cargo fmt -- --check 2>&1; then
+    echo ""
+    echo "Formatting check failed. Run 'cargo fmt' and try again."
+    exit 1
+fi
+
+echo "Formatting check passed."
+echo ""
+echo "Running cargo clippy --workspace --all-targets..."
+
+if ! cargo clippy --workspace --all-targets -- -D warnings 2>&1; then
+    echo ""
+    echo "Clippy check failed. Commit aborted."
+    exit 1
+fi
+
+echo "Clippy check passed."
+echo ""
+echo "Running cargo deny check bans licenses advisories sources..."
+
+if ! cargo deny check bans licenses advisories sources 2>&1; then
+    echo ""
+    echo "Cargo deny check failed. Commit aborted."
+    exit 1
+fi
+
+echo "Cargo deny check passed."

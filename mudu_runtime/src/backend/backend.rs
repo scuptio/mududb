@@ -6,11 +6,11 @@ use crate::backend::tokio_backend::TokioBackend;
 use crate::backend::web_handle_task::WebHandleTask;
 use crate::service::service::Service;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::sync::async_::async_task::TaskWrapper;
 use mudu_sys::tokio::sync::mpsc;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
-use mudu_sys::sync::async_task::TaskWrapper;
 use mudu_utils::task_async::LocalTaskSet;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -20,15 +20,18 @@ use tracing::info;
 use crate::backend::server_ur::server::IoUringBackend;
 
 impl Backend {
+    /// Starts the backend and blocks until it shuts down.
     pub fn sync_serve(cfg: MuduDBCfg) -> RS<()> {
         let (_canceller_notifier, canceller_waiter) = notify_wait();
         Self::sync_serve_with_stop(cfg, canceller_waiter)
     }
 
+    /// Starts the backend with a stop signal and blocks until it shuts down.
     pub fn sync_serve_with_stop(cfg: MuduDBCfg, stop: Waiter) -> RS<()> {
         Self::sync_serve_with_stop_and_ready(cfg, stop, None)
     }
 
+    /// Starts the backend with stop/ready signals and blocks until it shuts down.
     pub fn sync_serve_with_stop_and_ready(
         cfg: MuduDBCfg,
         stop: Waiter,
@@ -53,8 +56,8 @@ impl Backend {
 
             #[cfg(not(target_os = "linux"))]
             {
-                return Err(m_error!(
-                    EC::NotImplemented,
+                return Err(mudu_error!(
+                    ErrorCode::NotImplemented,
                     "io_uring backend is only available on Linux"
                 ));
             }
@@ -82,6 +85,7 @@ impl Backend {
         Ok(())
     }
 
+    /// Registers the web service task with the given service registry.
     pub fn register_web_service(
         cfg: &MuduDBCfg,
         service: &Service,
@@ -95,7 +99,7 @@ impl Backend {
             canceller,
             Some(wait_init_db),
         );
-        service.register(TaskWrapper::new_async_local(ls, task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, task))?;
         Ok(())
     }
 
@@ -115,17 +119,18 @@ impl Backend {
         let ls = LocalTaskSet::new();
         let addr_str = format!("{}:{}", cfg.listen_ip, cfg.pg_listen_port);
         let socket_addr = SocketAddr::from_str(&addr_str)
-            .map_err(|e| m_error!(EC::ParseErr, "parse socket address error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Parse, "parse socket address error", e))?;
         let accept_task =
             AcceptHandleTask::new(canceller.clone(), socket_addr, senders, wait_notify);
-        service.register(TaskWrapper::new_async_local(ls, accept_task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, accept_task))?;
 
         let session_task =
             SessionHandleTask::new(cfg.db_path.clone(), receivers, canceller.clone());
         let ls = LocalTaskSet::new();
-        service.register(TaskWrapper::new_async_local(ls, session_task))?;
+        service.register(TaskWrapper::spawn_async_local(ls, session_task))?;
         Ok(())
     }
 }
 
+/// Backend server entry point.
 pub struct Backend {}

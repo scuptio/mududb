@@ -2,7 +2,7 @@ use super::HttpApi;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub(super) struct HttpApiContext {
+pub(crate) struct HttpApiContext {
     pub api: Arc<dyn HttpApi>,
 }
 

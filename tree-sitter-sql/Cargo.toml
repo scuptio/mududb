@@ -5,7 +5,8 @@ version = "0.0.1"
 keywords = ["incremental", "parsing", "dot"]
 categories = ["parsing", "text-editors"]
 edition = "2021"
-license = "MIT"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 build = "bindings/rust/build.rs"
 include = [
@@ -17,6 +18,9 @@ include = [
 
 [lib]
 path = "bindings/rust/lib.rs"
+
+[lints]
+workspace = true
 
 [dependencies]
 tree-sitter-language = { workspace = true }

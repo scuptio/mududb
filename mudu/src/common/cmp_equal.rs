@@ -1,7 +1,5 @@
-use crate::error::err::MError;
+use crate::common::result::RS;
 
 pub trait Equal {
-    type Error = MError;
-
-    fn cmp_eq(&self, other: &Self) -> Result<bool, Self::Error>;
+    fn cmp_eq(&self, other: &Self) -> RS<bool>;
 }

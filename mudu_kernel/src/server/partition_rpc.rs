@@ -2,14 +2,14 @@ use crate::wal::xl_data_op::XLWrite;
 use mudu::common::id::{AttrIndex, OID};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RpcBound {
     Included(Vec<u8>),
     Excluded(Vec<u8>),
     Unbounded,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum PartitionRpcRequest {
     ReadKey {
         table_id: OID,
@@ -50,7 +50,7 @@ pub enum PartitionRpcRequest {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum PartitionRpcResponse {
     ReadKey(Option<Vec<Option<Vec<u8>>>>),
     ReadRange(Vec<Vec<Option<Vec<u8>>>>),

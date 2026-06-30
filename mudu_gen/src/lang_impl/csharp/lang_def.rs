@@ -1,3 +1,5 @@
+//! C# scalar/non-scalar type mappings.
+
 use crate::lang_impl::csharp::render_cs::create_render;
 use crate::lang_impl::lang::lang_handle_tuple::lang_handle_tuple;
 use crate::lang_impl::lang::non_scalar::NonScalarType;
@@ -48,17 +50,18 @@ fn fn_handle_array(inner: &String) -> String {
     }
 }
 
-fn fn_handle_option(inner: &String) -> String {
-    inner.clone()
+fn fn_handle_option(inner: &str) -> String {
+    inner.to_owned()
 }
 
 fn fn_handle_box(inner: &String) -> String {
     inner.to_string()
 }
-fn fn_handle_tuple(inner: &Vec<String>) -> String {
+fn fn_handle_tuple(inner: &[String]) -> String {
     lang_handle_tuple(inner)
 }
 
+/// Create the C# rendering back-end.
 pub fn create_render_cs() -> Arc<dyn Render> {
     create_render()
 }

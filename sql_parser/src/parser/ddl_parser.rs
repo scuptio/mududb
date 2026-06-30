@@ -1,3 +1,5 @@
+//! DDL parser for extracting table definitions from `CREATE TABLE` statements.
+
 use crate::ast::parser::SQLParser;
 use crate::ast::stmt_create_table::StmtCreateTable;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
@@ -5,21 +7,26 @@ use mudu::common::result::RS;
 use mudu_binding::record::field_def::FieldDef;
 use mudu_binding::record::record_def::RecordDef;
 
-/// DDLParser
-/// parser DDL SQL statement, and convert the Create Table SQL statement to a TableDef object,
-/// other statement are ignored.
+/// Parser for DDL SQL statements.
+///
+/// Parses DDL SQL statements and converts `CREATE TABLE` statements into
+/// [`RecordDef`] objects. Other statements are ignored.
 pub struct DDLParser {
     parser: SQLParser,
 }
 
 impl DDLParser {
-    pub fn new() -> DDLParser {
-        Self {
-            parser: SQLParser::new(),
-        }
+    /// Create a new DDL parser.
+    ///
+    /// Returns an error if the underlying SQL parser cannot be initialized.
+    pub fn new() -> RS<DDLParser> {
+        Ok(Self {
+            parser: SQLParser::new()?,
+        })
     }
 
-    /// parse SQL text and return a vector of TableDef
+    /// Parse SQL text and return a vector of [`RecordDef`] for each
+    /// `CREATE TABLE` statement.
     pub fn parse(&self, text: &str) -> RS<Vec<RecordDef>> {
         let stmt_list = self.parser.parse(text)?;
         let mut vec = vec![];
@@ -37,13 +44,12 @@ impl DDLParser {
             .column_def()
             .iter()
             .map(|d| {
-                let column_def = FieldDef::new(
+                FieldDef::new(
                     d.column_name().clone(),
                     d.data_type().clone(),
                     d.data_type_param().clone(),
                     d.primary_key_index().is_some(),
-                );
-                column_def
+                )
             })
             .collect();
 

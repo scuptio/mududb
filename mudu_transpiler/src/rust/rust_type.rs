@@ -1,11 +1,14 @@
+//! Rust type representation used by the transpiler.
+
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use mudu_type::dat_type::DatType;
 use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::dtp_array::DTPArray;
 
+/// A Rust type encountered in a procedure signature.
 #[derive(Debug, Clone)]
 pub enum RustType {
     Primitive(String),
@@ -15,6 +18,7 @@ pub enum RustType {
 }
 
 impl RustType {
+    /// Return whether this type is `Vec<u8>`.
     pub fn is_vec_u8(&self) -> bool {
         match self {
             RustType::Generic(ident, vec) if ident == "Vec" && vec.len() == 1 => {
@@ -24,20 +28,26 @@ impl RustType {
         }
     }
 
-    pub fn as_ret_type(&self) -> Vec<RustType> {
+    /// Decompose a return type of the form `RS<(...)>` into its inner types.
+    pub fn as_ret_type(&self) -> RS<Vec<RustType>> {
         match self {
             RustType::Generic(_, vec) => {
                 if vec.len() != 1 {
-                    panic!("RustType::ret_type_str_inner, return type must be RS<(...)>");
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidType,
+                        "RustType::as_ret_type, return type must be RS<(...)>"
+                    ));
                 }
-                vec[0].as_ret_type_inner()
+                Ok(vec[0].as_ret_type_inner())
             }
-            _ => {
-                panic!("RustType::ret_type_str_inner, return type must be RS<(...)>");
-            }
+            _ => Err(mudu_error!(
+                ErrorCode::InvalidType,
+                "RustType::as_ret_type, return type must be RS<(...)>"
+            )),
         }
     }
 
+    /// Render the type as a Rust source string.
     pub fn to_type_str(&self) -> String {
         match self {
             RustType::Primitive(s) => s.clone(),
@@ -47,7 +57,7 @@ impl RustType {
                     s.push_str(t.to_type_str().as_str());
                     s.push_str(", ");
                 }
-                s.push_str(")");
+                s.push(')');
                 s
             }
             RustType::Custom(s) => s.clone(),
@@ -57,23 +67,28 @@ impl RustType {
                     s.push_str(t.to_type_str().as_str());
                     s.push_str(", ");
                 }
-                s.push_str(">");
+                s.push('>');
                 s
             }
         }
     }
 
-    pub fn to_ret_type_str(&self) -> Vec<String> {
+    /// Render the inner types of an `RS<(...)>` return type as strings.
+    pub fn to_ret_type_str(&self) -> RS<Vec<String>> {
         match self {
             RustType::Generic(_, vec) => {
                 if vec.len() != 1 {
-                    panic!("RustType::ret_type_str_inner, return type must be RS<(...)>");
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidType,
+                        "RustType::to_ret_type_str, return type must be RS<(...)>"
+                    ));
                 }
-                vec[0].to_ret_type_str_inner()
+                Ok(vec[0].to_ret_type_str_inner())
             }
-            _ => {
-                panic!("RustType::ret_type_str_inner, return type must be RS<(...)>");
-            }
+            _ => Err(mudu_error!(
+                ErrorCode::InvalidType,
+                "RustType::to_ret_type_str, return type must be RS<(...)>"
+            )),
         }
     }
 
@@ -101,6 +116,7 @@ impl RustType {
         }
     }
 
+    /// Convert this Rust type to a Mudu [`DatType`].
     pub fn to_dat_type(&self, custom_types: &UniTypeDesc) -> RS<DatType> {
         let dat_type = match self {
             RustType::Primitive(s) => match s.as_str() {
@@ -110,15 +126,25 @@ impl RustType {
                 "u128" => DatType::default_for(DatTypeID::U128),
                 "f32" => DatType::default_for(DatTypeID::F32),
                 "f64" => DatType::default_for(DatTypeID::F64),
-                _ => return Err(m_error!(EC::TypeErr, format!("not support type {}", s))),
+                _ => {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidType,
+                        format!("not support type {}", s)
+                    ));
+                }
             },
             RustType::Custom(s) => match s.as_str() {
                 "OID" => DatType::default_for(DatTypeID::U128),
                 "String" => DatType::default_for(DatTypeID::String),
                 _ => {
                     let ty = custom_types.types.get(s).map_or_else(
-                        || Err(m_error!(EC::NoneErr, format!("no such type name:{}", s))),
-                        |t| Ok(t),
+                        || {
+                            Err(mudu_error!(
+                                ErrorCode::EntityNotFound,
+                                format!("no such type name:{}", s)
+                            ))
+                        },
+                        Ok,
                     )?;
                     ty.clone().uni_to()?
                 }
@@ -130,15 +156,15 @@ impl RustType {
                     let array = DTPArray::new(vec[0].to_dat_type(custom_types)?);
                     DatType::from_array(array)
                 } else {
-                    return Err(m_error!(
-                        EC::TypeErr,
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidType,
                         format!("not support type {:?}", self)
                     ));
                 }
             }
             _ => {
-                return Err(m_error!(
-                    EC::TypeErr,
+                return Err(mudu_error!(
+                    ErrorCode::InvalidType,
                     format!("not support type {:?}", self)
                 ));
             }
@@ -146,3 +172,7 @@ impl RustType {
         Ok(dat_type)
     }
 }
+
+#[cfg(test)]
+#[path = "rust_type_test.rs"]
+mod rust_type_test;

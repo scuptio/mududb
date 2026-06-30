@@ -1,4 +1,10 @@
+//! `database::test_object` module.
+#![allow(missing_docs)]
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 pub mod object {
     use crate::database::attr_field_access;
     use crate::database::attr_value::AttrValue;
@@ -32,24 +38,6 @@ pub mod object {
     }
 
     impl Item {
-        #[allow(unused)]
-        pub fn new(
-            i_id: Option<i32>,
-            i_name: Option<String>,
-            i_price: Option<f64>,
-            i_data: Option<String>,
-            i_im_id: Option<i32>,
-        ) -> Self {
-            let s = Self {
-                i_id,
-                i_name,
-                i_price,
-                i_data,
-                i_im_id,
-            };
-            s
-        }
-
         pub fn set_i_id(&mut self, i_id: i32) {
             self.i_id = Some(i_id);
         }
@@ -92,11 +80,11 @@ pub mod object {
     }
 
     impl Datum for Item {
-        fn dat_type() -> &'static DatType {
-            lazy_static! {
-                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Item>();
-            }
-            &DAT_TYPE
+        fn dat_type() -> DatType {
+            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+            ONCE_LOCK
+                .get_or_init(entity_utils::entity_dat_type::<Item>)
+                .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
@@ -136,14 +124,13 @@ pub mod object {
 
     impl Entity for Item {
         fn new_empty() -> Self {
-            let s = Self {
+            Self {
                 i_id: None,
                 i_name: None,
                 i_price: None,
                 i_data: None,
                 i_im_id: None,
-            };
-            s
+            }
         }
         fn tuple_desc() -> &'static TupleFieldDesc {
             lazy_static! {
@@ -236,18 +223,19 @@ pub mod object {
         }
     }
 
-    #[allow(unused)]
+    // Marker type used only at the type level via AttrValue<T>; never constructed directly.
+    #[allow(dead_code)]
     pub struct AttrIId {}
 
     impl AttrValue<i32> for AttrIId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -259,18 +247,19 @@ pub mod object {
         }
     }
 
-    #[allow(unused)]
+    // Marker type used only at the type level via AttrValue<T>; never constructed directly.
+    #[allow(dead_code)]
     pub struct AttrIName {}
 
     impl AttrValue<String> for AttrIName {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -281,18 +270,19 @@ pub mod object {
             COLUMN_I_NAME
         }
     }
-    #[allow(unused)]
+    // Marker type used only at the type level via AttrValue<T>; never constructed directly.
+    #[allow(dead_code)]
     pub struct AttrIPrice {}
 
     impl AttrValue<f64> for AttrIPrice {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -304,18 +294,19 @@ pub mod object {
         }
     }
 
-    #[allow(unused)]
+    // Marker type used only at the type level via AttrValue<T>; never constructed directly.
+    #[allow(dead_code)]
     pub struct AttrIData {}
 
     impl AttrValue<String> for AttrIData {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {
@@ -327,18 +318,19 @@ pub mod object {
         }
     }
 
-    #[allow(unused)]
+    // Marker type used only at the type level via AttrValue<T>; never constructed directly.
+    #[allow(dead_code)]
     pub struct AttrIImId {}
 
     impl AttrValue<i32> for AttrIImId {
         fn dat_type() -> &'static DatType {
             static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+            ONCE_LOCK.get_or_init(Self::attr_dat_type)
         }
 
         fn datum_desc() -> &'static DatumDesc {
             static ONCE_LOCK: std::sync::OnceLock<DatumDesc> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_datum_desc())
+            ONCE_LOCK.get_or_init(Self::attr_datum_desc)
         }
 
         fn object_name() -> &'static str {

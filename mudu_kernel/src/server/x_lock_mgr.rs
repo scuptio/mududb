@@ -1,7 +1,8 @@
 use crate::x_engine::tx_mgr::PhysicalRelationId;
 use mudu::common::id::OID;
-use std::collections::HashMap;
+use mudu::common::result::RS;
 use mudu_sys::sync::SMutex;
+use std::collections::HashMap;
 
 pub struct XLockMgr {
     lock: SMutex<HashMap<PhysicalRelationId, HashMap<Vec<u8>, OID>>>,
@@ -14,9 +15,13 @@ impl XLockMgr {
         }
     }
 
-    pub fn try_lock_some(&self, oid: OID, table_keys: &Vec<(PhysicalRelationId, Vec<u8>)>) -> bool {
+    pub fn try_lock_some(
+        &self,
+        oid: OID,
+        table_keys: &[(PhysicalRelationId, Vec<u8>)],
+    ) -> RS<bool> {
         mudu_utils::scoped_task_trace!();
-        let mut lock = self.lock.lock().unwrap();
+        let mut lock = self.lock.lock()?;
         let mut acquired: Vec<(PhysicalRelationId, Vec<u8>)> = Vec::new();
         for (relation_id, key) in table_keys.iter() {
             let map = lock.entry(*relation_id).or_default();
@@ -31,18 +36,18 @@ impl XLockMgr {
                             }
                         }
                     }
-                    return false;
+                    return Ok(false);
                 }
             } else {
                 map.insert(key.clone(), oid);
                 acquired.push((*relation_id, key.clone()));
             }
         }
-        true
+        Ok(true)
     }
 
-    pub fn release(&self, oid: OID, table_keys: &Vec<(PhysicalRelationId, Vec<u8>)>) {
-        let mut lock = self.lock.lock().unwrap();
+    pub fn release(&self, oid: OID, table_keys: &[(PhysicalRelationId, Vec<u8>)]) -> RS<()> {
+        let mut lock = self.lock.lock()?;
         for (relation_id, key) in table_keys.iter() {
             let map = lock.entry(*relation_id).or_default();
             if let Some(tx) = map.get(key) {
@@ -51,11 +56,20 @@ impl XLockMgr {
                 }
             }
         }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
     use super::XLockMgr;
     use crate::x_engine::tx_mgr::PhysicalRelationId;
 
@@ -68,15 +82,15 @@ mod tests {
         };
 
         let owner_a_keys = vec![(r, b"k2".to_vec())];
-        assert!(mgr.try_lock_some(100, &owner_a_keys));
+        assert!(mgr.try_lock_some(100, &owner_a_keys).unwrap());
 
         let owner_b_keys = vec![(r, b"k1".to_vec()), (r, b"k2".to_vec())];
-        assert!(!mgr.try_lock_some(200, &owner_b_keys));
+        assert!(!mgr.try_lock_some(200, &owner_b_keys).unwrap());
 
         // If partial lock rollback works, k1 should not be leaked and owner C
         // can lock it.
         let owner_c_keys = vec![(r, b"k1".to_vec())];
-        assert!(mgr.try_lock_some(300, &owner_c_keys));
+        assert!(mgr.try_lock_some(300, &owner_c_keys).unwrap());
     }
 
     #[test]
@@ -87,6 +101,6 @@ mod tests {
             partition_id: 0,
         };
         let keys = vec![(r, b"k1".to_vec()), (r, b"k1".to_vec())];
-        assert!(mgr.try_lock_some(42, &keys));
+        assert!(mgr.try_lock_some(42, &keys).unwrap());
     }
 }

@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[derive(Clone, Copy, Debug)]
 pub struct HttpApiCapabilities {
     pub enable_invoke: bool,

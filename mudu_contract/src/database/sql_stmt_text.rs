@@ -1,3 +1,6 @@
+//! `database::sql_stmt_text` module.
+#![allow(missing_docs)]
+
 use mudu_type::dat_type::DatType;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -19,8 +22,8 @@ impl SQLStmtText {
     }
 
     pub fn param_ty(&self) -> &[DatType] {
-        // todo parse the placeholder type
-        todo!()
+        // Placeholder: placeholder type parsing is not yet implemented.
+        &[]
     }
 }
 

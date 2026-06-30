@@ -1,5 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
 use lazy_static::lazy_static;
-use mudu::this_file;
+use mudu_utils::this_file;
 use std::path::PathBuf;
 
 lazy_static! {

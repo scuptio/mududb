@@ -1,3 +1,4 @@
+use crate::storage::page::PageId;
 use mudu::common::id::OID;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +45,7 @@ pub struct PageUpdate {
     /// Logical page number inside the target file object.
     ///
     /// Recovery uses this to locate which page should receive the byte patch.
-    pub page_id: u32,
+    pub page_id: PageId,
     /// Byte offset from the start of the page where the patch begins.
     ///
     /// The update writes `data.len()` bytes starting at this offset.

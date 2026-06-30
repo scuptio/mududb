@@ -2,6 +2,8 @@
 name = "mudu_runtime"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 build = "build.rs"
 
 [package.metadata.wit-bindgen]
@@ -10,8 +12,10 @@ out-dir = "src/bindings"
 [features]
 debug_trace = ["mudu_kernel/debug_trace", "mudu_utils/debug_trace"]
 
+[lints]
+workspace = true
+
 [dependencies]
-async-backtrace = {workspace = true}
 mudu_type = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_contract = { workspace = true }
@@ -21,25 +25,22 @@ mudu_cli = { workspace = true }
 as-slice = { version = "0.2.1" }
 sql_parser = { workspace = true }
 mudu = { workspace = true }
-mudu_gen = { workspace = true }
-wasmtime = { version = "42.0.1", features = ["async"] }
-wasmtime-wasi = { version = "42.0.1", features = ["p2"] }
-anyhow = { workspace = true }
+wasmtime = { workspace = true, features = ["async"] }
+wasmtime-wasi = { workspace = true, features = ["p2"] }
 serde = { workspace = true }
 serde_repr = { workspace = true }
-uuid = { workspace = true }
 serde_json = { workspace = true }
-actix-web = "4.11.0"
-actix-cors = "0.7.1"
+actix-web = { workspace = true }
+actix-cors = { workspace = true }
 mudu_utils = { workspace = true }
 tracing = { workspace = true }
-strum = { version = "0.27.2" }
-strum_macros = { version = "0.27" }
-libsql = { version = "0.9.24" }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+libsql = { workspace = true }
 lazy_static = { workspace = true }
 toml = { workspace = true }
 zip = { workspace = true }
-scopeguard = "1.2.0"
+scopeguard = { workspace = true }
 base64 = { workspace = true }
 pgwire = { workspace = true }
 async-trait = { workspace = true }
@@ -52,4 +53,7 @@ futures = { workspace = true }
 scc = { workspace = true }
 
 [dev-dependencies]
+bytes = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
+rustls-pki-types = "1.10"

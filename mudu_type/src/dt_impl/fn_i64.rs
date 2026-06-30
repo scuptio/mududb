@@ -32,7 +32,7 @@ fn fn_i64_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         None => {
             return Err(TyErr::new(
                 TyEC::TypeConvertFailed,
-                format!("cannot convert json {} to i64", v.to_string()),
+                format!("cannot convert json {} to i64", v),
             ));
         }
     };
@@ -40,7 +40,7 @@ fn fn_i64_in_json(v: &JsonValue, _: &DatType) -> Result<DatValue, TyErr> {
         Some(num) => Ok(DatValue::from_i64(num)),
         None => Err(TyErr::new(
             TyEC::TypeConvertFailed,
-            format!("cannot convert json {} to i64", v.to_string()),
+            format!("cannot convert json {} to i64", v),
         )),
     }
 }

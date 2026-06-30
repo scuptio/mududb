@@ -3,11 +3,11 @@ use crate::contract::ssn_ctx::SsnCtx;
 use crate::sql::current_tx::get_tx;
 use crate::sql::proj_list::ProjList;
 use crate::sql::stmt_query::StmtQuery;
-use async_std::prelude::Stream;
 use futures::stream;
+use futures::Stream;
 use mudu::common::result::RS;
-use mudu::error::ec::EC as ER;
-use mudu::m_error;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
 use mudu_type::dat_type_id::{DatTypeID as TypeID, DatTypeID};
 use pgwire::api::portal::Format;
 use pgwire::api::results::{DataRowEncoder, FieldInfo};
@@ -85,8 +85,8 @@ fn dt_id_to_pg_type(dt: TypeID) -> RS<PGDataType> {
         TypeID::F32 => Ok(PGDataType::FLOAT4),
         TypeID::F64 => Ok(PGDataType::FLOAT8),
         TypeID::String => Ok(PGDataType::TEXT),
-        _ => Err(m_error!(
-            ER::TypeErr,
+        _ => Err(mudu_error!(
+            ER::InvalidType,
             format!("unsupported projection type for pgwire: {:?}", dt)
         )),
     }
@@ -102,8 +102,8 @@ async fn encode_pg_wire_row_data(
     let tuple_desc = rows.tuple_desc()?;
     while let Ok(Some(row)) = rows.next().await {
         if row.fields().len() != cols || tuple_desc.fields().len() != cols {
-            return Err(m_error!(
-                ER::FatalError,
+            return Err(mudu_error!(
+                ER::FatalInternal,
                 "fatal error: non consistent column number"
             ));
         }
@@ -119,7 +119,7 @@ async fn encode_pg_wire_row_data(
                 let field_desc = &tuple_desc.fields()[idx];
                 let dat_type_id = field_desc.dat_type_id();
                 let (internal, _) = dat_type_id.fn_recv()(&datum, field_desc.dat_type())
-                    .map_err(|e| m_error!(ER::TypeBaseErr, "recv error", e))?;
+                    .map_err(|e| mudu_error!(ER::TypeConversionFailed, "recv error", e))?;
 
                 let r = match dat_type_id {
                     DatTypeID::I32 => encoder.encode_field(&internal.to_i32()),
@@ -129,8 +129,8 @@ async fn encode_pg_wire_row_data(
                     DatTypeID::String => encoder.encode_field(internal.expect_string()),
                     _ => {
                         has_err = true;
-                        results.push(Err(PgWireError::ApiError(Box::new(m_error!(
-                            ER::TypeErr,
+                        results.push(Err(PgWireError::ApiError(Box::new(mudu_error!(
+                            ER::InvalidType,
                             format!("unsupported row type for pgwire encode: {:?}", dat_type_id)
                         )))));
                         break;
@@ -152,5 +152,5 @@ async fn encode_pg_wire_row_data(
         }
     }
 
-    Ok(stream::iter(results.into_iter()))
+    Ok(stream::iter(results))
 }

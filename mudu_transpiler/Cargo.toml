@@ -2,33 +2,39 @@
 name = "mudu_transpiler"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 build = "build.rs"
+
+[lints]
+workspace = true
 
 [dependencies]
 mudu = { workspace = true }
 mudu_binding = {workspace = true}
 clap = { workspace = true, features = ["derive"] }
 mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
 mudu_utils = { workspace = true }
 askama = {workspace = true}
-tree-sitter-rust = { version = "0.24.0" }
-tree-sitter-typescript = { version = "0.23.2" }
+tree-sitter-rust = { workspace = true }
+tree-sitter-typescript = { workspace = true }
 tree-sitter = {workspace = true}
 mudu_type = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-syn = { version = "2.0.111", features = ["full"] }
-wit-parser = "0.245.1"
+syn = { workspace = true }
+wit-parser = { workspace = true }
 
 [build-dependencies]
 askama = { workspace = true }
 mudu = {workspace = true}
-mudu_utils = { workspace = true }
-cargo_metadata = { version = "0.23.1" }
+mudu_build_common = { workspace = true }
+cargo_metadata = { workspace = true }
 anyhow = { workspace = true }
-tree-sitter-rust = { version = "0.24.0" }
+tree-sitter-rust = { workspace = true }
 tree-sitter = { workspace = true }
 
 [[bin]]

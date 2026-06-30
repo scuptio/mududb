@@ -1,5 +1,5 @@
-use mududb::common::result::RS;
 use mududb::common::id::OID;
+use mududb::common::result::RS;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 use mududb::types::datum::{Datum, DatumDyn};
@@ -50,8 +50,8 @@ INSERT INTO wallets
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
-        let value = row.to_value(Wallets::dat_type())?;
-        let s = value.to_textual(Wallets::dat_type())?;
+        let value = row.to_value(&Wallets::dat_type())?;
+        let s = value.to_textual(&Wallets::dat_type())?;
         result.push_str(&s);
         result.push('\n');
     }
@@ -140,11 +140,11 @@ pub mod object {
     }
 
     impl Datum for Wallets {
-        fn dat_type() -> &'static DatType {
-            lazy_static! {
-                static ref DAT_TYPE: DatType = entity_utils::entity_dat_type::<Wallets>();
-            }
-            &DAT_TYPE
+        fn dat_type() -> DatType {
+            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+            ONCE_LOCK
+                .get_or_init(entity_utils::entity_dat_type::<Wallets>)
+                .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {

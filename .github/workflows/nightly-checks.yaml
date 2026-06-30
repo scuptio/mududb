@@ -1,0 +1,264 @@
+name: Nightly Checks
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  cargo-udeps:
+    name: cargo-udeps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned nightly tooling Rust
+        uses: ./.github/actions/rust-nightly-setup
+
+      - name: Install cargo-udeps
+        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked
+
+      - name: Run cargo-udeps
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets 2>&1 | tee ${{ github.workspace }}/logs/nightly-udeps.log
+
+      - name: Local reproduction command
+        if: failure()
+        run: |
+          echo "To reproduce locally:"
+          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
+          echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets"
+
+  cargo-fuzz:
+    name: cargo-fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Free disk space
+        if: env.ACT != 'true'
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
+
+      - name: Setup pinned nightly tooling Rust
+        uses: ./.github/actions/rust-nightly-setup
+
+      - name: Install cargo-fuzz
+        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Run fuzz targets (smoke)
+        working-directory: mudu_kernel/fuzz
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          {
+            for target in _de_en_x_l_up_tuple _de_en_x_l_batch _schema_table _x_log_append _delta_apply _type_convert; do
+              echo "Running fuzz target: ${target}"
+              cargo +${NIGHTLY_TOOLCHAIN} fuzz run "${target}" -- -max_total_time=60 -runs=1000
+            done
+          } 2>&1 | tee ${{ github.workspace }}/logs/nightly-fuzz.log
+
+      - name: Local reproduction command
+        if: failure()
+        run: |
+          echo "To reproduce locally:"
+          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
+          echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked"
+          echo "  cd mudu_kernel/fuzz"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} fuzz run <target> -- -max_total_time=60"
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Free disk space
+        if: env.ACT != 'true'
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
+
+      - name: Setup pinned nightly tooling Rust
+        uses: ./.github/actions/rust-nightly-setup
+
+      - name: Install Miri
+        run: rustup component add miri --toolchain "${NIGHTLY_TOOLCHAIN}"
+
+      - name: Run Miri tests
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          cargo +${NIGHTLY_TOOLCHAIN} miri test --workspace 2>&1 | tee ${{ github.workspace }}/logs/nightly-miri.log
+        env:
+          MIRIFLAGS: "-Zmiri-disable-isolation"
+
+      - name: Local reproduction command
+        if: failure()
+        run: |
+          echo "To reproduce locally:"
+          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
+          echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
+          echo "  rustup component add miri --toolchain \${NIGHTLY_TOOLCHAIN}"
+          echo "  MIRIFLAGS=\"-Zmiri-disable-isolation\" cargo +\${NIGHTLY_TOOLCHAIN} miri test --workspace"
+
+  sanitizer-address:
+    name: Address Sanitizer
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      MUDU_CLI_HTTP_TIMEOUT_SECS: 120
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Free disk space
+        if: env.ACT != 'true'
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
+
+      - name: Setup pinned nightly tooling Rust
+        uses: ./.github/actions/rust-nightly-setup
+
+      - name: Run tests with AddressSanitizer
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          cargo +${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu 2>&1 | tee ${{ github.workspace }}/logs/nightly-asan.log
+        env:
+          RUSTFLAGS: "-Z sanitizer=address"
+          LSAN_OPTIONS: "suppressions=${{ github.workspace }}/script/ci/lsan_suppressions.txt"
+
+      - name: Local reproduction command
+        if: failure()
+        run: |
+          echo "To reproduce locally:"
+          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
+          echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
+          echo "  rustup target add x86_64-unknown-linux-gnu --toolchain \${NIGHTLY_TOOLCHAIN}"
+          echo "  RUSTFLAGS=\"-Z sanitizer=address\" LSAN_OPTIONS=\"suppressions=$(pwd)/script/ci/lsan_suppressions.txt\" MUDU_CLI_HTTP_TIMEOUT_SECS=120 cargo +\${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu"
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      MUDU_TEST_BACKEND_READY_TIMEOUT_SECS: 120
+      MUDU_CLI_HTTP_TIMEOUT_SECS: 120
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Free disk space
+        if: env.ACT != 'true'
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
+
+      - name: Setup pinned nightly tooling Rust
+        uses: ./.github/actions/rust-nightly-setup
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview --toolchain "${NIGHTLY_TOOLCHAIN}"
+
+      - name: Install cargo-llvm-cov
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-llvm-cov --version 0.8.7 --locked
+
+      - name: Run tests with coverage instrumentation
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
+            --package mudu \
+            --package mudu_type \
+            --package mudu_contract \
+            --package mudu_kernel \
+            --lib \
+            --tests \
+            --no-report \
+            -- \
+            --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
+
+      - name: Generate coverage reports
+        run: |
+          mkdir -p target/llvm-cov ${{ github.workspace }}/logs
+          set -o pipefail
+          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
+            --html --output-dir target/llvm-cov/html 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-html.log
+          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
+            --json --output-path target/llvm-cov/coverage.json 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-json.log
+          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
+            --lcov --output-path target/llvm-cov/coverage.lcov 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-lcov.log
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}-${{ github.sha }}
+          path: |
+            target/llvm-cov/html
+            target/llvm-cov/coverage.json
+            target/llvm-cov/coverage.lcov
+          retention-days: 30
+
+      - name: Summarize coverage in job summary
+        run: |
+          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          python3 .github/scripts/summarize_coverage.py target/llvm-cov/coverage.json >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Local reproduction command
+        if: failure()
+        run: |
+          echo "To reproduce locally:"
+          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
+          echo "  rustup component add llvm-tools-preview --toolchain \"\${NIGHTLY_TOOLCHAIN}\""
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-llvm-cov --version 0.8.7 --locked"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov --package mudu --package mudu_type --package mudu_contract --package mudu_kernel --lib --tests --no-report -- --test-threads=1"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --html --output-dir target/llvm-cov/html"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --json --output-path target/llvm-cov/coverage.json"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --lcov --output-path target/llvm-cov/coverage.lcov"

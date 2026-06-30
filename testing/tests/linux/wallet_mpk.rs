@@ -5,29 +5,41 @@ use mudu::common::result::RS;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
 use mudu_cli::client::client::SyncClient;
-use mudu_cli::management::{fetch_server_topology, install_app_package};
+use mudu_cli::management::{
+    fetch_app_list, fetch_server_topology, http_timeout, install_app_package,
+};
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
+use mudu_sys::fs::sync::{create_dir_all, read, remove_dir_all};
+use mudu_sys::sync::SMutex;
+use mudu_sys::task::sync::{SJoinHandle, spawn_thread};
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
+use mudu_utils::notifier::{Notifier, notify_wait};
 use serde_json::{Value, json};
-use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
-use std::thread::{self, JoinHandle};
+use std::sync::LazyLock;
+use std::time::Duration;
+use testing::support::*;
 use testing::{reserve_port, reserve_port_block, wait_until_port_ready};
 use tracing::info;
 
-static WALLET_MPK_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static WALLET_MPK_TEST_LOCK: LazyLock<SMutex<()>> = LazyLock::new(|| SMutex::new(()));
 
+// These integration tests start a full mudud backend server and exercise the
+// wallet MPK via HTTP/TCP, which performs foreign-function calls and network
+// I/O that Miri cannot emulate. They are ignored under Miri and run only on
+// native Linux builds.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn wallet_mpk_http_end_to_end() -> RS<()> {
     run_wallet_mpk_http_end_to_end(ServerMode::Legacy)
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn wallet_mpk_http_end_to_end_tokio() -> RS<()> {
     run_wallet_mpk_http_end_to_end(ServerMode::Tokio)
@@ -43,7 +55,7 @@ fn run_wallet_mpk_http_end_to_end(server_mode: ServerMode) -> RS<()> {
     };
     let server = ctx.start_server()?;
 
-    let mpk_binary = fs::read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
+    let mpk_binary = read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
     let install_response = ctx.post_json(
         "/mudu/app/install",
         json!({
@@ -117,6 +129,7 @@ fn run_wallet_mpk_http_end_to_end(server_mode: ServerMode) -> RS<()> {
     Ok(())
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
     log_setup("info");
@@ -128,6 +141,7 @@ fn wallet_mpk_via_mudu_cli_library() -> RS<()> {
     run_wallet_mpk_via_mudu_cli_library_for_mode(ServerMode::IOUring)
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn wallet_mpk_via_mudu_cli_library_tokio() -> RS<()> {
     log_setup("info");
@@ -149,7 +163,7 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         .build()
         .expect("build tokio runtime");
 
-    let mpk_binary = fs::read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
+    let mpk_binary = read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
     runtime
         .block_on(install_app_package(&ctx.http_addr(), mpk_binary))
         .map_err(to_mudu_error)?;
@@ -236,13 +250,6 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
 
     drop(server);
     Ok(())
-}
-
-fn supports_server_mode(server_mode: ServerMode) -> bool {
-    match server_mode {
-        ServerMode::IOUring => mudu_sys::io_uring_available(),
-        ServerMode::Legacy | ServerMode::Tokio => true,
-    }
 }
 
 fn invoke_void<T: TupleDatum>(
@@ -340,8 +347,8 @@ fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
     procedure_invoke::serialize_param(param)
 }
 
-fn to_mudu_error(message: String) -> mudu::error::err::MError {
-    mudu::m_error!(mudu::error::ec::EC::MuduError, message)
+fn to_mudu_error(message: String) -> mudu::error::MuduError {
+    mudu::mudu_error!(mudu::error::ErrorCode::DomainViolation, message)
 }
 
 fn row_i32(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize) -> Option<i32> {
@@ -372,7 +379,7 @@ fn row_string(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize)
 
 struct RunningServer {
     stop: Notifier,
-    handle: Option<JoinHandle<RS<()>>>,
+    handle: Option<SJoinHandle<RS<()>>>,
 }
 
 impl Drop for RunningServer {
@@ -412,16 +419,11 @@ impl TestContext {
         let Some(tcp_port) = reserve_port_block(tcp_port_count)? else {
             return Ok(None);
         };
-        let base_dir =
-            std::env::temp_dir().join(format!("mududb-testing-{}", mudu_sys::random::uuid_v4()));
+        let base_dir = temp_dir("mududb-testing");
         let mpk_dir = base_dir.join("mpk");
         let data_dir = base_dir.join("data");
-        fs::create_dir_all(&mpk_dir).map_err(|e| {
-            mudu::m_error!(mudu::error::ec::EC::IOErr, "create test mpk dir error", e)
-        })?;
-        fs::create_dir_all(&data_dir).map_err(|e| {
-            mudu::m_error!(mudu::error::ec::EC::IOErr, "create test data dir error", e)
-        })?;
+        create_dir_all(&mpk_dir)?;
+        create_dir_all(&data_dir)?;
         Ok(Some(Self {
             server_mode,
             http_port,
@@ -437,35 +439,66 @@ impl TestContext {
         let cfg = self.build_cfg();
         let (stop, waiter) = notify_wait();
         let (ready, ready_waiter) = notify_wait();
-        let handle = thread::spawn(move || {
+        let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        });
+        })?;
         wait_until_port_ready(self.http_port, "HTTP")?;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
-        wait_until_backend_ready(ready_waiter, "backend")?;
+        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        // The management thread binds its listener before actix is accepting,
+        // so the port-ready check above can race with the first request. Poll
+        // a lightweight HTTP endpoint until it responds to avoid transient
+        // "error sending request" failures.
+        self.wait_until_http_management_ready()?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),
         })
     }
 
+    fn wait_until_http_management_ready(&self) -> RS<()> {
+        let http_addr = self.http_addr();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+        let deadline = mudu_sys::time::instant_now() + http_timeout();
+        while mudu_sys::time::instant_now() < deadline {
+            match runtime.block_on(fetch_app_list(&http_addr)) {
+                Ok(_) => return Ok(()),
+                Err(err) => {
+                    info!(
+                        "HTTP management API not ready yet on {}: {}",
+                        http_addr, err
+                    );
+                    mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
+                }
+            }
+        }
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
+            format!("HTTP management API on {} did not become ready", http_addr)
+        ))
+    }
+
     fn build_cfg(&self) -> MuduDBCfg {
-        let mut cfg = MuduDBCfg::default();
-        cfg.listen_ip = "127.0.0.1".to_string();
-        cfg.http_listen_port = self.http_port;
-        cfg.pg_listen_port = self.pg_port;
-        cfg.tcp_listen_port = self.tcp_port;
-        cfg.http_worker_threads = 1;
-        cfg.worker_threads = 2;
-        cfg.server_mode = self.server_mode;
-        cfg.routing_mode = RoutingMode::ConnectionId;
-        cfg.enable_async = true;
-        cfg.component_target = Some(ComponentTarget::P2);
-        cfg.mpk_path = self.mpk_dir.to_string_lossy().into_owned();
-        cfg.db_path = self.data_dir.to_string_lossy().into_owned();
-        cfg
+        MuduDBCfg {
+            listen_ip: "127.0.0.1".to_string(),
+            http_listen_port: self.http_port,
+            pg_listen_port: self.pg_port,
+            tcp_listen_port: self.tcp_port,
+            http_worker_threads: 1,
+            worker_threads: 2,
+            server_mode: self.server_mode,
+            routing_mode: RoutingMode::ConnectionId,
+            enable_async: true,
+            component_target: Some(ComponentTarget::P2),
+            mpk_path: self.mpk_dir.to_string_lossy().into_owned(),
+            db_path: self.data_dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        }
     }
 
     fn wallet_mpk_path(&self) -> PathBuf {
@@ -504,8 +537,8 @@ impl TestContext {
             .find(|row| row_i32(row, 0) == Some(user_id))
             .and_then(|row| row_string(row, 1))
             .ok_or_else(|| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::NoSuchElement,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::EntityNotFound,
                     format!("user name not found for user_id={user_id}")
                 )
             })
@@ -519,8 +552,8 @@ impl TestContext {
             .find(|row| row_i32(row, 0) == Some(user_id))
             .and_then(|row| row_i64(row, 1))
             .ok_or_else(|| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::NoSuchElement,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::EntityNotFound,
                     format!("wallet balance not found for user_id={user_id}")
                 )
             })
@@ -569,7 +602,8 @@ impl TestContext {
         app_name: &str,
         sql: &str,
     ) -> RS<mudu_contract::protocol::ServerResponse> {
-        let mut client = SyncClient::connect(("127.0.0.1", self.client_port()))?;
+        let mut client =
+            SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], self.client_port())))?;
         client.query(app_name.to_string(), sql.to_string())
     }
 
@@ -580,16 +614,19 @@ impl TestContext {
             .expect("build tokio runtime");
         runtime.block_on(async {
             let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::NetErr, "build http client error", e)
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::Network,
+                    "build http client error",
+                    e
+                )
             })?;
             let url = format!("http://{}{}", self.http_addr(), path);
-            let response =
-                client.get(url).send().await.map_err(|e| {
-                    mudu::m_error!(mudu::error::ec::EC::NetErr, "GET request error", e)
-                })?;
+            let response = client.get(url).send().await.map_err(|e| {
+                mudu::mudu_error!(mudu::error::ErrorCode::Network, "GET request error", e)
+            })?;
             let value = response.json::<Value>().await.map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::DecodeErr,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::Decode,
                     "decode GET response error",
                     e
                 )
@@ -605,15 +642,19 @@ impl TestContext {
             .expect("build tokio runtime");
         runtime.block_on(async {
             let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::NetErr, "build http client error", e)
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::Network,
+                    "build http client error",
+                    e
+                )
             })?;
             let url = format!("http://{}{}", self.http_addr(), path);
             let response = client.post(url).json(&body).send().await.map_err(|e| {
-                mudu::m_error!(mudu::error::ec::EC::NetErr, "POST request error", e)
+                mudu::mudu_error!(mudu::error::ErrorCode::Network, "POST request error", e)
             })?;
             let value = response.json::<Value>().await.map_err(|e| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::DecodeErr,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::Decode,
                     "decode POST response error",
                     e
                 )
@@ -625,7 +666,7 @@ impl TestContext {
 
 impl Drop for TestContext {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base_dir);
+        let _ = remove_dir_all(&self.base_dir);
     }
 }
 
@@ -634,8 +675,8 @@ fn extract_http_data(response: Value) -> RS<Value> {
         .get("status")
         .and_then(Value::as_i64)
         .ok_or_else(|| {
-            mudu::m_error!(
-                mudu::error::ec::EC::DecodeErr,
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
                 "HTTP API response missing numeric status"
             )
         })?;
@@ -646,8 +687,8 @@ fn extract_http_data(response: Value) -> RS<Value> {
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("HTTP API request failed");
-    Err(mudu::m_error!(
-        mudu::error::ec::EC::MuduError,
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::DomainViolation,
         format!(
             "{}: {}",
             message,
@@ -661,27 +702,4 @@ fn workspace_root() -> PathBuf {
         .parent()
         .expect("testing crate has workspace root parent")
         .to_path_buf()
-}
-
-fn wait_until_backend_ready(waiter: Waiter, service_name: &str) -> RS<()> {
-    // Wallet end-to-end tests exercise the service immediately after startup,
-    // so they must wait for logical readiness instead of only for a bound
-    // socket.
-    let result = mudu_sys::task_async::block_on_tokio_current_thread(async move {
-        tokio::time::timeout(std::time::Duration::from_secs(10), waiter.wait()).await
-    })
-    .map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("wait for {} ready barrier runtime error", service_name),
-            e
-        )
-    })?;
-    result.map_err(|_| {
-        mudu::m_error!(
-            mudu::error::ec::EC::TokioErr,
-            format!("{} ready barrier timed out", service_name)
-        )
-    })?;
-    Ok(())
 }

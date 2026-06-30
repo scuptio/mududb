@@ -15,6 +15,13 @@ pub mod sync_wasm;
 
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn next_oid() -> OID {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    COUNTER.fetch_add(1, Ordering::SeqCst) as OID
+}
 use mudu::common::serde_utils::{deserialize_from, serialize_to_vec};
 use mudu_binding::universal::uni_error::UniError;
 use mudu_binding::universal::uni_oid::UniOid;
@@ -77,6 +84,7 @@ pub(crate) fn fetch_cursor_oid(cursor: &[u8]) -> RS<OID> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{fetch_cursor_oid, result_batch_to_uni, serialize_fetch_result};
     use mudu::common::serde_utils::{deserialize_from, serialize_to_vec};
@@ -113,9 +121,11 @@ mod tests {
             UniResult::Err(err) => panic!("unexpected error payload: {}", err.err_msg),
         }
 
-        let err =
-            serialize_fetch_result(Err(mudu::m_error!(mudu::error::ec::EC::ParseErr, "boom")))
-                .unwrap();
+        let err = serialize_fetch_result(Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Parse,
+            "boom"
+        )))
+        .unwrap();
         let payload: UniResult<UniResultSet, UniError> = deserialize_from(&err).unwrap().0;
         match payload {
             UniResult::Ok(_) => panic!("expected error payload"),

@@ -4,24 +4,76 @@ use crate::storage::page::page_header::{
     PAGE_HEADER_OFF_NEXT_PAGE, PAGE_HEADER_OFF_PAGE_ID, PAGE_HEADER_OFF_PREV_PAGE,
     PAGE_HEADER_OFF_RECORD_COUNT, PAGE_HEADER_OFF_TUPLE_FLAGS,
     PAGE_HEADER_OFF_TUPLE_FORMAT_VERSION, PAGE_HEADER_OFF_TUPLE_SCHEMA_HASH,
-    PAGE_HEADER_OFF_VERSION, PAGE_HEADER_SIZE, PAGE_HEADER_VERSION_LATEST,
+    PAGE_HEADER_OFF_VERSION, PAGE_HEADER_SIZE, VERSION as PAGE_VERSION,
 };
 use crate::storage::page::page_tailer::{PageTailer, PAGE_TAILER_SIZE};
 use crate::storage::page::record_slot::{RecordSlot, RECORD_SLOT_SIZE};
 use crate::storage::page::record_slot_ref::RecordSlotRef;
 use crate::storage::page::PageId;
+use crate::wal::lsn::LSN;
 use byteorder::{ByteOrder, LittleEndian};
 use mudu::common::crc::crc16;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::compat::{self, FormatKind, PAGE_CURRENT_VERSION};
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_compat_migrate::{global, NoopOptionProvider};
+use std::borrow::Cow;
 
-pub const PAGE_SIZE: usize = 4096;
+/// Default database page size in bytes.
+///
+/// This is the compile-time default used when no explicit page size is supplied
+/// and is kept as a constant because many internal helpers currently rely on
+/// `PAGE_SIZE` in const contexts (e.g. `[u8; PAGE_SIZE]`).
+///
+/// The page size is a runtime configuration exposed through
+/// `ServerCfg::page_size()` and `MuduDBCfg::page_size`. The value chosen at
+/// database creation time is persisted and must not be changed afterward unless
+/// an offline migration tool rewrites every page file.
+///
+/// Valid page sizes are powers of two and must be at least `DEFAULT_PAGE_SIZE`.
+pub const DEFAULT_PAGE_SIZE: usize = 4096;
+
+/// Backwards-compatible alias for code that has not yet been converted to use
+/// the runtime page size from `ServerCfg::page_size()`.
+///
+/// New code should prefer the runtime configuration when available. This alias
+/// remains for const contexts and for components that still assume the default
+/// page size.
+pub const PAGE_SIZE: usize = DEFAULT_PAGE_SIZE;
+
 pub const RECORD_ALIGN: usize = 8;
 
 pub(crate) fn align_up(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (value + (align - 1)) & !(align - 1)
+}
+
+/// Ensures a complete page binary is in the current page format version.
+///
+/// If `page` already matches [`PAGE_CURRENT_VERSION`] it is borrowed unchanged.
+/// Otherwise the global compatibility router is invoked to migrate the full page
+/// binary to the current version.
+fn ensure_latest_page(page: &[u8]) -> RS<Cow<'_, [u8]>> {
+    if page.len() < PAGE_HEADER_SIZE {
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            format!(
+                "page requires at least {} bytes for header, got {}",
+                PAGE_HEADER_SIZE,
+                page.len()
+            )
+        ));
+    }
+    let version =
+        LittleEndian::read_u32(&page[PAGE_HEADER_OFF_VERSION..PAGE_HEADER_OFF_VERSION + 4]);
+    compat::check_version(FormatKind::Page, version)?;
+    if version == PAGE_CURRENT_VERSION {
+        return Ok(Cow::Borrowed(page));
+    }
+    global::upgrade_to_current(FormatKind::Page, version, page, &NoopOptionProvider)
+        .map(Cow::Owned)
+        .map_err(|e| e.into_mudu_error())
 }
 
 /// `PageBlock` exposes a slotted-page view with the following physical layout:
@@ -36,16 +88,34 @@ pub(crate) fn align_up(value: usize, align: usize) -> usize {
 /// This means the physical slot array is descending when scanned from low to high
 /// addresses, while the logical view returned by this module is ascending.
 pub struct PageBlockRef<'a> {
-    page: &'a [u8],
+    page: Cow<'a, [u8]>,
 }
 
 impl<'a> PageBlockRef<'a> {
+    /// Creates a page view from an already-current page buffer.
+    ///
+    /// The caller is responsible for ensuring the page is in the latest format
+    /// version.  Use [`Self::try_new`] when reading pages from disk or any other
+    /// source that may contain an older format version.
     pub fn new(page: &'a [u8]) -> Self {
-        Self { page }
+        Self {
+            page: Cow::Borrowed(page),
+        }
+    }
+
+    /// Creates a page view, migrating an older-format page to the current version
+    /// if necessary.
+    ///
+    /// The input must be a complete page binary.  If its version matches
+    /// [`PAGE_CURRENT_VERSION`] the page is borrowed; otherwise the compatibility
+    /// router is invoked and an owned migrated page is stored.
+    pub fn try_new(page: &'a [u8]) -> RS<Self> {
+        let page = ensure_latest_page(page)?;
+        Ok(Self { page })
     }
 
     pub fn page(&self) -> &[u8] {
-        self.page
+        self.page.as_ref()
     }
 
     pub fn header(&self) -> RS<PageHeader> {
@@ -69,30 +139,33 @@ impl<'a> PageBlockRef<'a> {
 
     pub fn header_page_id(&self) -> RS<PageId> {
         self.ensure_header_layout()?;
-        Ok(LittleEndian::read_u32(
-            &self.page[PAGE_HEADER_OFF_PAGE_ID..PAGE_HEADER_OFF_PAGE_ID + 4],
-        ))
+        Ok(
+            LittleEndian::read_u64(
+                &self.page[PAGE_HEADER_OFF_PAGE_ID..PAGE_HEADER_OFF_PAGE_ID + 8],
+            )
+            .into(),
+        )
     }
 
     pub fn header_prev_page(&self) -> RS<PageId> {
         self.ensure_header_layout()?;
-        Ok(LittleEndian::read_u32(
-            &self.page[PAGE_HEADER_OFF_PREV_PAGE..PAGE_HEADER_OFF_PREV_PAGE + 4],
-        ))
+        Ok(LittleEndian::read_u64(
+            &self.page[PAGE_HEADER_OFF_PREV_PAGE..PAGE_HEADER_OFF_PREV_PAGE + 8],
+        )
+        .into())
     }
 
     pub fn header_next_page(&self) -> RS<PageId> {
         self.ensure_header_layout()?;
-        Ok(LittleEndian::read_u32(
-            &self.page[PAGE_HEADER_OFF_NEXT_PAGE..PAGE_HEADER_OFF_NEXT_PAGE + 4],
-        ))
+        Ok(LittleEndian::read_u64(
+            &self.page[PAGE_HEADER_OFF_NEXT_PAGE..PAGE_HEADER_OFF_NEXT_PAGE + 8],
+        )
+        .into())
     }
 
-    pub fn header_lsn(&self) -> RS<u32> {
+    pub fn header_lsn(&self) -> RS<LSN> {
         self.ensure_header_layout()?;
-        Ok(LittleEndian::read_u32(
-            &self.page[PAGE_HEADER_OFF_LSN..PAGE_HEADER_OFF_LSN + 4],
-        ))
+        Ok(LittleEndian::read_u64(&self.page[PAGE_HEADER_OFF_LSN..PAGE_HEADER_OFF_LSN + 8]).into())
     }
 
     pub fn header_record_count(&self) -> RS<u32> {
@@ -124,10 +197,10 @@ impl<'a> PageBlockRef<'a> {
         ))
     }
 
-    pub fn header_tuple_flags(&self) -> RS<u32> {
+    pub fn header_tuple_flags(&self) -> RS<u64> {
         self.ensure_header_layout()?;
-        Ok(LittleEndian::read_u32(
-            &self.page[PAGE_HEADER_OFF_TUPLE_FLAGS..PAGE_HEADER_OFF_TUPLE_FLAGS + 4],
+        Ok(LittleEndian::read_u64(
+            &self.page[PAGE_HEADER_OFF_TUPLE_FLAGS..PAGE_HEADER_OFF_TUPLE_FLAGS + 8],
         ))
     }
 
@@ -157,8 +230,8 @@ impl<'a> PageBlockRef<'a> {
         self.check_page_len()?;
         let count = self.slot_count()?;
         if sorted_index >= count {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!("slot index {} out of range {}", sorted_index, count)
             ));
         }
@@ -178,8 +251,8 @@ impl<'a> PageBlockRef<'a> {
         let size = slot.size() as usize;
         let slot_start = self.slot_array_low_bound()?;
         if offset < PAGE_HEADER_SIZE || offset + size > slot_start {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "record range [{}, {}) overlaps page metadata or slot array",
                     offset,
@@ -254,14 +327,14 @@ impl<'a> PageBlockRef<'a> {
     pub fn validate_layout(&self) -> RS<()> {
         let header = self.header()?;
         if header.magic() != PAGE_HEADER_MAGIC {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!("invalid page magic {:#x}", header.magic())
             ));
         }
-        if header.version() > PAGE_HEADER_VERSION_LATEST {
-            return Err(m_error!(
-                EC::DecodeErr,
+        if header.version() > PAGE_VERSION {
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!("unsupported page format version {}", header.version())
             ));
         }
@@ -270,8 +343,8 @@ impl<'a> PageBlockRef<'a> {
         let first_free = header.first_free_offset() as usize;
         let slot_start = self.slot_region_start_for_count(count);
         if first_free < PAGE_HEADER_SIZE || first_free > slot_start {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "invalid free region boundary: first_free_offset={}, slot_start={}",
                     first_free, slot_start
@@ -281,8 +354,8 @@ impl<'a> PageBlockRef<'a> {
 
         let expected_free = slot_start - first_free;
         if header.free_bytes() as usize != expected_free {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "free_bytes mismatch: header={}, expected={}",
                     header.free_bytes(),
@@ -296,8 +369,8 @@ impl<'a> PageBlockRef<'a> {
             let slot = self.slot(idx)?;
             if let Some(prev_slot) = prev {
                 if prev_slot.cmp_key(&slot).is_gt() {
-                    return Err(m_error!(
-                        EC::DecodeErr,
+                    return Err(mudu_error!(
+                        ErrorCode::Decode,
                         format!("slot order is not ascending at index {}", idx)
                     ));
                 }
@@ -305,9 +378,9 @@ impl<'a> PageBlockRef<'a> {
 
             let offset = slot.offset() as usize;
             let size = slot.size() as usize;
-            if offset % RECORD_ALIGN != 0 {
-                return Err(m_error!(
-                    EC::DecodeErr,
+            if !offset.is_multiple_of(RECORD_ALIGN) {
+                return Err(mudu_error!(
+                    ErrorCode::Decode,
                     format!(
                         "record offset {} is not {}-byte aligned",
                         offset, RECORD_ALIGN
@@ -315,16 +388,16 @@ impl<'a> PageBlockRef<'a> {
                 ));
             }
             if offset < PAGE_HEADER_SIZE || offset + size > slot_start {
-                return Err(m_error!(
-                    EC::DecodeErr,
+                return Err(mudu_error!(
+                    ErrorCode::Decode,
                     format!("slot {} points outside the data region", idx)
                 ));
             }
             let payload = &self.page[offset..offset + size];
             let checksum = crc16(payload);
             if slot.check_sum() != checksum {
-                return Err(m_error!(
-                    EC::DecodeErr,
+                return Err(mudu_error!(
+                    ErrorCode::Decode,
                     format!(
                         "slot {} payload checksum mismatch: stored={}, actual={}",
                         idx,
@@ -338,8 +411,8 @@ impl<'a> PageBlockRef<'a> {
 
         let tailer = self.tailer()?;
         if header.lsn() != tailer.lsn() {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "page lsn mismatch: header={}, tailer={}",
                     header.lsn(),
@@ -347,14 +420,14 @@ impl<'a> PageBlockRef<'a> {
                 )
             ));
         }
-        tailer.validate_checksum(self.page)?;
+        tailer.validate_checksum(self.page.as_ref())?;
         Ok(())
     }
 
     fn check_page_len(&self) -> RS<()> {
         if self.page.len() < PAGE_SIZE {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "page block requires {} bytes, got {}",
                     PAGE_SIZE,
@@ -369,18 +442,18 @@ impl<'a> PageBlockRef<'a> {
         self.check_page_len()?;
         let magic = self.header_magic()?;
         if magic != PAGE_HEADER_MAGIC {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!("invalid page magic {:#x}", magic)
             ));
         }
         let version = self.header_version()?;
-        if version != PAGE_HEADER_VERSION_LATEST {
-            return Err(m_error!(
-                EC::DecodeErr,
+        if version != PAGE_VERSION {
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!(
                     "unsupported page format version {}, expected {}",
-                    version, PAGE_HEADER_VERSION_LATEST
+                    version, PAGE_VERSION
                 )
             ));
         }
@@ -402,8 +475,8 @@ impl<'a> PageBlockRef<'a> {
     fn slot_offset(&self, sorted_index: usize) -> RS<usize> {
         let count = self.slot_count()?;
         if sorted_index >= count {
-            return Err(m_error!(
-                EC::DecodeErr,
+            return Err(mudu_error!(
+                ErrorCode::Decode,
                 format!("slot index {} out of range {}", sorted_index, count)
             ));
         }

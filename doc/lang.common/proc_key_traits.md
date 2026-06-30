@@ -58,7 +58,7 @@ lang="rust"
 -->
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> &'static DatType;
+    fn dat_type() -> DatType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 

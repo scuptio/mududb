@@ -1,6 +1,6 @@
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
@@ -22,25 +22,34 @@ use crate::sql::plan_ctx::PlanCtx;
 use crate::sql::planner::Planner;
 use crate::x_engine::api::XContract;
 use crate::x_engine::tx_mgr::TxMgr;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 pub struct MuduConnCore {
     meta_mgr: Arc<dyn MetaMgr>,
     parser: Arc<SQLParser>,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 }
 
 impl MuduConnCore {
-    pub fn new(meta_mgr: Arc<dyn MetaMgr>) -> Self {
-        Self {
+    pub fn new(
+        meta_mgr: Arc<dyn MetaMgr>,
+        async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    ) -> RS<Self> {
+        Ok(Self {
             meta_mgr,
-            parser: Arc::new(SQLParser::new()),
-        }
+            parser: Arc::new(SQLParser::new()?),
+            async_runtime,
+        })
     }
 
     pub fn parse_one(&self, sql: &dyn SQLStmt) -> RS<StmtType> {
         let stmt_list = self.parser.parse(&sql.to_sql_string())?;
         let mut stmts = stmt_list.into_stmts();
         if stmts.len() != 1 {
-            return Err(m_error!(EC::ParseErr, "expected exactly one statement"));
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "expected exactly one statement"
+            ));
         }
         Ok(stmts.remove(0))
     }
@@ -99,12 +108,16 @@ impl MuduConnCore {
             .bind(stmt, params.as_ref())
             .await?;
         let BoundStmt::Query(bound_query) = bound else {
-            return Err(m_error!(EC::TypeErr, "statement is not a query"));
+            return Err(mudu_error!(
+                ErrorCode::InvalidType,
+                "statement is not a query"
+            ));
         };
         let planner = Planner::new(PlanCtx {
             tx_mgr,
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
+            async_runtime: self.async_runtime.clone(),
         });
         trace.watch("query.stage", "plan");
         let exec = planner.plan_query(bound_query).await?;
@@ -126,12 +139,16 @@ impl MuduConnCore {
             .await?;
         trace.watch("procedure.core_execute.stage", "bind_done");
         let BoundStmt::Command(bound_command) = bound else {
-            return Err(m_error!(EC::TypeErr, "statement is not a command"));
+            return Err(mudu_error!(
+                ErrorCode::InvalidType,
+                "statement is not a command"
+            ));
         };
         let planner = Planner::new(PlanCtx {
             tx_mgr,
             meta_mgr: self.meta_mgr.clone(),
             x_contract,
+            async_runtime: self.async_runtime.clone(),
         });
         trace.watch("procedure.core_execute.stage", "plan_command_start");
         let cmd = planner.plan_command(bound_command).await?;

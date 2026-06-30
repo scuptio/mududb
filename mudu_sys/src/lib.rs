@@ -1,48 +1,6 @@
-pub mod api;
-pub mod async_rt;
-pub mod env;
-pub mod io;
-#[cfg(target_os = "linux")]
-pub mod linux;
-#[cfg(not(target_os = "linux"))]
-mod portable;
-pub mod sync;
+// mudu_sys is a target-selecting facade crate.
 #[cfg(not(target_arch = "wasm32"))]
-pub mod sync_async;
-pub mod sync_sync;
-#[deprecated(note = "use crate::task_async or crate::task_sync instead")]
-pub mod task;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod task_async;
-pub mod task_context;
-pub mod task_id;
-mod task_macros;
-pub mod task_sync;
-pub mod task_trace;
-#[cfg(target_os = "linux")]
-#[path = "linux/uring.rs"]
-pub mod uring;
+pub use mudu_sys_impl::*;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use tokio;
-
-pub mod server;
-
-pub mod random {
-    pub use crate::api::random::{next_uuid_v4_string, uuid_v4};
-}
-
-pub mod time {
-    pub use crate::api::time::{instant_now, system_time_now, utc_now};
-}
-
-pub fn io_uring_available() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        crate::uring::IoUring::new(8).is_ok()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        false
-    }
-}
+#[cfg(target_arch = "wasm32")]
+pub use mudu_sys_wasm::*;

@@ -1,3 +1,13 @@
+//! Parser tests for the `sql_parser` crate.
+//!
+//! Miri cannot execute FFI calls into the tree-sitter C parser, so tests that
+//! depend on the parser are skipped under Miri.
+
+#![allow(missing_docs)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 #[cfg(test)]
 mod tests {
     use crate::ast::expr_item::{ExprItem, ExprValue};
@@ -13,34 +23,35 @@ mod tests {
     use mudu_binding::universal::uni_scalar::UniScalar;
     use mudu_binding::universal::uni_scalar_value::UniScalarValue;
     use project_root::get_project_root;
-    use std::fs;
+
     use std::path::Path;
 
     fn parse_sql(sql: &str) -> RS<Vec<StmtType>> {
-        let parser = SQLParser::new();
+        let parser = SQLParser::new()?;
         Ok(parser.parse(sql)?.stmts().clone())
     }
 
     fn parse_create_table(sql: &str) -> RS<StmtCreateTable> {
         let stmts = parse_sql(sql)?;
         let stmt = stmts.first().ok_or_else(|| {
-            mudu::m_error!(mudu::error::ec::EC::ParseErr, "expected one statement")
+            mudu::mudu_error!(mudu::error::ErrorCode::Parse, "expected one statement")
         })?;
         match stmt {
             StmtType::Command(StmtCommand::CreateTable(stmt)) => Ok(stmt.clone()),
-            _ => Err(mudu::m_error!(
-                mudu::error::ec::EC::ParseErr,
+            _ => Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::Parse,
                 "expected create table statement"
             )),
         }
     }
 
     fn parse_file<P: AsRef<Path>>(path: P) -> RS<Vec<StmtType>> {
-        let sql = fs::read_to_string(path).unwrap();
+        let sql = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         parse_sql(&sql)
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_select_where_extracts_compare_predicates() {
         let stmts =
             parse_sql("select id, name from users where id = 1 AND name = 'alice';").unwrap();
@@ -62,6 +73,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_select_with_placeholder_keeps_value_placeholder() {
         let stmts = parse_sql("select id from users where id = ?;").unwrap();
 
@@ -76,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_select_reverts_literal_field_comparison_shape() {
         let stmts = parse_sql("select id from users where 7 > id;").unwrap();
 
@@ -87,13 +100,14 @@ mod tests {
             .expect("expected field-literal pair");
         assert_eq!(predicate.0.name(), "id");
         assert_eq!(
-            predicate.1.dat_type().dat_type().dat_type_id(),
+            predicate.1.dat_type().unwrap().dat_type().dat_type_id(),
             mudu_type::dat_type_id::DatTypeID::I64
         );
         assert!(matches!(predicate.2, ValueCompare::LE));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_decimal_literal_preserves_numeric_type() {
         let stmts = parse_sql("select id from users where amount = 12.34;").unwrap();
 
@@ -104,12 +118,13 @@ mod tests {
         match predicate.right() {
             ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) => {
                 assert_eq!(
-                    literal.dat_type().dat_type().dat_type_id(),
+                    literal.dat_type().unwrap().dat_type().dat_type_id(),
                     mudu_type::dat_type_id::DatTypeID::Numeric
                 );
                 assert_eq!(
                     literal
                         .dat_type()
+                        .unwrap()
                         .dat_internal()
                         .expect_numeric()
                         .to_plain_string(),
@@ -121,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_decimal_literal_preserves_trailing_fractional_zeros() {
         let stmts = parse_sql("select id from users where amount = 12.3400;").unwrap();
 
@@ -133,6 +149,7 @@ mod tests {
                 assert_eq!(
                     literal
                         .dat_type()
+                        .unwrap()
                         .dat_internal()
                         .expect_numeric()
                         .to_plain_string(),
@@ -144,6 +161,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_insert_without_column_list() {
         let stmts = parse_sql("insert into users values (1, 'alice');").unwrap();
 
@@ -157,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_multi_row_insert_keeps_each_row() {
         let stmts =
             parse_sql("insert into users (id, name) values (1, 'alice'), (2, 'bob');").unwrap();
@@ -169,6 +188,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_insert_null_literal() {
         let stmts = parse_sql("insert into users (id, name) values (1, null);").unwrap();
 
@@ -182,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_multiple_statements_with_trailing_semicolons() {
         let stmts =
             parse_sql("insert into users values (1); delete from users where id = 1;").unwrap();
@@ -197,6 +218,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_update_distinguishes_value_and_expression_assignments() {
         let stmts =
             parse_sql("update users set count = 1, total = count + 1 where id = 1;").unwrap();
@@ -219,6 +241,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_update_keeps_arithmetic_precedence_shape() {
         let stmts = parse_sql("update users set total = count + 1 * 2 where id = 1;").unwrap();
 
@@ -240,6 +263,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_delete_with_and_predicates() {
         let stmts = parse_sql("delete from users where id = 1 AND name = 'alice';").unwrap();
 
@@ -251,6 +275,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_drop_table_if_exists() {
         let stmts = parse_sql("drop table if exists users;").unwrap();
 
@@ -262,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_copy_from_statement() {
         let stmts = parse_sql("copy users from 'users.csv';").unwrap();
 
@@ -274,6 +300,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_invalid_sql_reports_syntax_context() {
         let err = parse_sql("select from users where").unwrap_err();
         let text = err.to_string();
@@ -283,15 +310,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_update_without_where_returns_error() {
         let err = parse_sql("update users set id = 1;").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("no where clause in update statement")
-        );
+        assert!(err
+            .to_string()
+            .contains("no where clause in update statement"));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_delete_without_where_returns_error() {
         let err = parse_sql("delete from users;").unwrap_err();
         let text = err.to_string();
@@ -301,18 +329,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_insert_without_values_returns_error() {
         let err = parse_sql("insert into users (id, name);").unwrap_err();
         assert!(err.to_string().contains("Syntax error"));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_with_unsupported_type_returns_error() {
         let err = parse_sql("create table users (id boolean primary key);").unwrap_err();
         assert!(err.to_string().contains("not yet implemented"));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_copy_to_statement() {
         let stmts = parse_sql("copy users to 'users.csv';").unwrap();
 
@@ -325,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_create_table() {
         let sql = "
     CREATE TABLE Persons (
@@ -352,6 +384,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_tracks_nullable_constraints() {
         let stmt = parse_create_table(
             "
@@ -371,6 +404,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_numeric_type_preserves_precision_and_scale() {
         let stmt = parse_create_table(
             "
@@ -407,6 +441,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_decimal_alias_maps_to_numeric_scalar() {
         let stmt = parse_create_table(
             "
@@ -428,6 +463,7 @@ mod tests {
             UniDatType::Scalar(UniScalar::Numeric)
         ));
         let params = amount.data_type_param().as_ref().expect("decimal params");
+        assert_eq!(params.len(), 2);
         assert!(matches!(
             params[0],
             UniDatValue::Scalar(UniScalarValue::I64(9))
@@ -439,6 +475,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_numeric_without_params_keeps_numeric_type_without_param_payload() {
         let stmt = parse_create_table(
             "
@@ -463,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_temporal_types_preserve_scalar_kinds_and_precision() {
         let stmt = parse_create_table(
             "
@@ -528,6 +566,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_temporal_types_without_precision_keep_no_param_payload() {
         let stmt = parse_create_table(
             "
@@ -548,6 +587,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_hugeint_maps_to_i128() {
         let stmt = parse_create_table(
             "
@@ -572,6 +612,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_create_table_ast_column_primary_key_index() {
         let stmt = parse_create_table(
             "
@@ -601,6 +642,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_create_table_ast_table_primary_key_index_and_idempotent() {
         let mut stmt = parse_create_table(
             "
@@ -633,6 +675,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_parse_ddl_file() {
         let path = get_project_root().unwrap();
         let path = if path.file_name().unwrap().to_str().unwrap().eq("sql_parser") {
@@ -646,6 +689,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_partition_rule_custom_statement() {
         let stmts = parse_sql(
             "
@@ -666,6 +710,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_table_with_partition_binding_clause() {
         let stmt = parse_create_table(
             "
@@ -689,6 +734,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse_create_partition_placement_custom_statement() {
         let stmts = parse_sql(
             "

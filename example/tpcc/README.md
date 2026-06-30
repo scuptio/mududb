@@ -1,5 +1,7 @@
 # TPC-C Example
 
+> This is a **benchmark example**, not a beginner tutorial. If you are new to Mudu Procedures, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First Procedure tutorial](../../doc/en/your_first_procedure.md).
+
 This example provides a portable TPC-C style benchmark package for the `mudu`
 toolchain. It stays intentionally smaller than a full audited specification
 implementation, but the SQL schema and `new_order` flow now track the canonical
@@ -10,6 +12,15 @@ TPC-C model more closely:
 - multi-line `new_order`
 - supplier warehouse per order line
 - `o_all_local`, `s_remote_cnt`, `o_entry_d`, `ol_delivery_d`
+
+## Dependency checklist
+
+Before building, make sure you have:
+
+- [ ] `rustup` + `cargo` + `wasm32-wasip2` target
+- [ ] `cargo-make`
+- [ ] `python3` with `tomli-w` and `toml`
+- [ ] `mgen`, `mtp`, `mpk`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 The SQL avoids SQLite-only constructs such as `INSERT OR REPLACE` / `INSERT OR IGNORE`
 so the example remains compatible with MuduDB, SQLite, and PostgreSQL. Where a

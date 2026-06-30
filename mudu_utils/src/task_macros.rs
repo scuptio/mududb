@@ -3,7 +3,7 @@ macro_rules! task_trace {
     () => {{
         #[cfg(feature = "debug_trace")]
         {
-            let s = async_backtrace::location!();
+            let s = $crate::async_backtrace::location!();
             $crate::task_trace::TaskTrace::new(s)
         }
         #[cfg(not(feature = "debug_trace"))]

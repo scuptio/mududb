@@ -23,5 +23,7 @@ pub async fn mudu_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> 
 - `params`: currently must be empty
 - host support:
   SQLite, PostgreSQL, and MySQL standalone adapters implement `batch`
-  `mudud` currently returns `NotImplemented`
+  `mudud` implements batch for empty parameters; batch with parameters currently returns `NotImplemented`
 - return value: affected row count delta reported by the underlying connection
+
+> Implementation reference: `mudu_kernel/src/server/worker.rs`, `mudu_kernel/src/server/handlers/batch.rs`, `mudu_contract/src/protocol/mod.rs`.

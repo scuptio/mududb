@@ -1,6 +1,8 @@
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::time::system_time_now;
 use std::ops::Bound;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use mudu::common::endian;
 use mudu::common::id::OID;
@@ -48,15 +50,32 @@ pub fn schema_catalog_desc() -> RS<Arc<TableDesc>> {
     TableInfo::new(schema_catalog_schema())?.table_desc()
 }
 
-pub async fn open_schema_catalog(path: &str) -> RS<Relation> {
+pub async fn open_schema_catalog(
+    path: &str,
+    async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+) -> RS<Relation> {
     let desc = schema_catalog_desc()?;
-    Relation::new(
-        SCHEMA_CATALOG_TABLE_ID,
-        SCHEMA_CATALOG_PARTITION_ID,
-        path.to_string(),
-        desc.as_ref(),
-    )
-    .await
+    match async_runtime {
+        Some(provider) => {
+            Relation::new_with_provider(
+                provider,
+                SCHEMA_CATALOG_TABLE_ID,
+                SCHEMA_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+        None => {
+            Relation::new(
+                SCHEMA_CATALOG_TABLE_ID,
+                SCHEMA_CATALOG_PARTITION_ID,
+                path.to_string(),
+                desc.as_ref(),
+            )
+            .await
+        }
+    }
 }
 
 pub fn encode_schema_catalog_key(oid: OID) -> RS<Vec<u8>> {
@@ -67,8 +86,8 @@ pub fn encode_schema_catalog_key(oid: OID) -> RS<Vec<u8>> {
 
 pub fn encode_schema_catalog_value(schema: &SchemaTable) -> RS<Vec<u8>> {
     rmp_serde::to_vec(schema).map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::EncodeErr,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Encode,
             "encode schema catalog schema error",
             e
         )
@@ -81,8 +100,8 @@ pub fn decode_schema_catalog_key(tuple: &[u8]) -> RS<OID> {
 
 pub fn decode_schema_catalog_value(tuple: &[u8]) -> RS<SchemaTable> {
     rmp_serde::from_slice(tuple).map_err(|e| {
-        mudu::m_error!(
-            mudu::error::ec::EC::DecodeErr,
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Decode,
             "decode schema catalog schema error",
             e
         )
@@ -90,17 +109,19 @@ pub fn decode_schema_catalog_value(tuple: &[u8]) -> RS<SchemaTable> {
 }
 
 pub async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<SchemaTable>> {
-    let rows = relation.visible_range(
-        (Bound::Unbounded, Bound::Unbounded),
-        &WorkerSnapshot::new(visible_snapshot_xid(), vec![]),
-    ).await?;
+    let rows = relation
+        .visible_range(
+            (Bound::Unbounded, Bound::Unbounded),
+            &WorkerSnapshot::new(visible_snapshot_xid(), vec![]),
+        )
+        .await?;
     let mut schemas = Vec::with_capacity(rows.len());
     for (key, value) in rows {
         let key_oid = decode_schema_catalog_key(&key)?;
         let schema = decode_schema_catalog_value(&value)?;
         if key_oid != schema.id() {
-            return Err(mudu::m_error!(
-                mudu::error::ec::EC::DecodeErr,
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
                 format!(
                     "schema catalog key oid {} does not match schema oid {}",
                     key_oid,
@@ -114,7 +135,7 @@ pub async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<SchemaTabl
 }
 
 fn visible_snapshot_xid() -> u64 {
-    let base = SystemTime::now()
+    let base = system_time_now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()

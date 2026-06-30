@@ -2,6 +2,8 @@
 name = "sql_parser"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
+license = "Apache-2.0"
 
 build = "build.rs"
 
@@ -14,15 +16,20 @@ project-root = { workspace = true }
 tree-sitter = { workspace = true }
 md-5 = { workspace = true }
 base16ct = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_build_common = { workspace = true }
+[lints]
+workspace = true
+
 [dependencies]
 mudu = { workspace = true }
-mudu_binding = {workspace = true}
+mudu_binding = {workspace = true }
 mudu_contract = {workspace = true}
+mudu_sys = { workspace = true }
 serde_json = { workspace = true }
-substring = { version = "1.4.5" }
+substring = { workspace = true }
 tree_sitter_sql = { workspace = true }
 tree-sitter = { workspace = true }
 project-root = { workspace = true }
-hex = { workspace = true }
 base16ct = { workspace = true }
-mudu_type = { workspace = true }
+mudu_type = { workspace = true, features = ["test"] }

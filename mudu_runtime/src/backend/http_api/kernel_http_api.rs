@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use super::{
     AsyncKernelInvokeClientFactory, HttpApi, KernelInvokeClientFactory, PartitionRouteEntry,
     PartitionRouteRequest, PartitionRouteResponse, ServerTopology, WorkerTopology, find_app,
@@ -7,8 +9,8 @@ use crate::backend::app_mgr::AppMgr;
 use crate::backend::mududb_cfg::MuduDBCfg;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::JsonValue;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_contract::procedure::proc_desc::ProcDesc;
@@ -44,7 +46,7 @@ impl KernelHttpApi {
     ) -> RS<Self> {
         let meta_mgr = MetaMgrFactory::create(cfg.db_path.clone())
             .await
-            .map_err(|e| m_error!(EC::DBInternalError, "create http meta manager failed", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Database, "create http meta manager failed", e))?;
         Ok(Self::with_client_factory(
             app_mgr,
             format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port),
@@ -91,14 +93,14 @@ impl KernelHttpApi {
                 .worker_registry
                 .default_global_worker_id()
                 .ok_or_else(|| {
-                    mudu::m_error!(
-                        mudu::error::ec::EC::NoSuchElement,
+                    mudu::mudu_error!(
+                        mudu::error::ErrorCode::EntityNotFound,
                         "worker registry has no default global worker"
                     )
                 });
         }
-        Err(mudu::m_error!(
-            mudu::error::ec::EC::NoSuchElement,
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
             format!("no worker placement for partition {}", partition_id)
         ))
     }
@@ -146,8 +148,8 @@ impl HttpApi for KernelHttpApi {
             })
             .cloned()
             .ok_or_else(|| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::NoneErr,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::EntityNotFound,
                     format!("no such procedure {}/{}/{}", app_name, mod_name, proc_name)
                 )
             })?;
@@ -194,16 +196,16 @@ impl HttpApi for KernelHttpApi {
             .get_partition_rule_by_name(&request.rule_name)
             .await?
             .ok_or_else(|| {
-                mudu::m_error!(
-                    mudu::error::ec::EC::NoSuchElement,
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::EntityNotFound,
                     format!("no such partition rule {}", request.rule_name)
                 )
             })?;
 
         let partition_ids = if let Some(key) = request.key {
             if request.start.is_some() || request.end.is_some() {
-                return Err(mudu::m_error!(
-                    mudu::error::ec::EC::ParseErr,
+                return Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Parse,
                     "partition route request cannot specify both key and range"
                 ));
             }

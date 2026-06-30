@@ -42,7 +42,7 @@ ulimit -l  # 建议 ≥ 65536 或 unlimited
 如果在 Docker 中运行，需要 `--privileged` 以访问宿主机内核的 io_uring：
 
 ```bash
-docker run --privileged -v /path/to/repo:/mududb_p:ro ubuntu:24.04 ...
+docker run --privileged -v /path/to/repo:/mududb:ro ubuntu:24.04 ...
 ```
 
 或使用更精细的权限：
@@ -59,9 +59,11 @@ docker run --cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1 ...
 | 类别 | 内容 |
 |------|------|
 | 系统包 | python3, pip, python-is-python3, build-essential, curl, liburing-dev, clang, libclang-dev, llvm-dev, pkgconf, iproute2 |
-| Rust | nightly 工具链 + rustfmt + wasm32-wasip2 target |
+| Rust | pinned stable 工具链（含 rustfmt、clippy、x86_64-unknown-linux-gnu 和 wasm32-wasip2 target）+ 辅助 nightly 工具链 |
 | Python | toml, tomli-w |
 | 工具 | cargo-make |
+
+> 实现参考：`script/shell/install_deps.sh`、`rust-toolchain.toml`。
 
 ### `script/shell/build_all.sh`
 

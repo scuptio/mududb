@@ -181,7 +181,7 @@ fn mudu_lang_build_procedure_result(
     for index in 0..values.len() {
         let value = values
             .value(index)
-            .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+            .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
         return_list.push(mudu_lang_dat_value_from_value(value));
     }
     Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
@@ -205,7 +205,7 @@ pub fn mudu_inner_p2_create_user(
         mudu_lang_oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     mudu_lang_build_procedure_result(return_values)
 }
 
@@ -303,7 +303,7 @@ pub fn mudu_inner_p2_deposit(
         mudu_lang_oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     mudu_lang_build_procedure_result(return_values)
 }
 
@@ -396,7 +396,7 @@ pub fn mudu_inner_p2_withdraw(
         mudu_lang_oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     mudu_lang_build_procedure_result(return_values)
 }
 
@@ -489,7 +489,7 @@ pub fn mudu_inner_p2_transfer_funds(
         mudu_lang_oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     mudu_lang_build_procedure_result(return_values)
 }
 
@@ -587,7 +587,7 @@ pub fn mudu_inner_p2_balance(
         mudu_lang_oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalErr, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     mudu_lang_build_procedure_result(return_values)
 }
 

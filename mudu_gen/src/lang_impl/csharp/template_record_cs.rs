@@ -5,15 +5,19 @@ use askama::Template;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_def::UniRecordDef;
 
+/// Askama template for a C# record.
 #[derive(Template)]
 #[template(path = "csharp/record.cs.jinja", escape = "none")]
 pub struct TemplateRecordCS {
     #[allow(unused)]
+    /// Generation configuration.
     pub cfg: CodegenCfg,
+    /// Normalized record metadata.
     pub record: RecordInfo,
 }
 
 impl TemplateRecordCS {
+    /// Build the template from a WIT record definition.
     pub fn from(record_def: UniRecordDef, cfg: CodegenCfg) -> RS<Self> {
         Ok(Self {
             record: RecordInfo::from(record_def, LangKind::CSharp)?,

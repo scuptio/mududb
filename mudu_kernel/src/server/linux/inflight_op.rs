@@ -1,19 +1,19 @@
 use mudu_sys::io::worker_ring::UserIoInflight;
 
 pub(in crate::server) struct AcceptOp {
-    addr: mudu_sys::uring::SockAddrBuf,
+    addr: mudu_sys::io::iouring::SockAddrBuf,
 }
 
 impl AcceptOp {
-    pub(in crate::server) fn new(addr: mudu_sys::uring::SockAddrBuf) -> Self {
+    pub(in crate::server) fn new(addr: mudu_sys::io::iouring::SockAddrBuf) -> Self {
         Self { addr }
     }
 
-    pub(in crate::server) fn addr(&self) -> &mudu_sys::uring::SockAddrBuf {
+    pub(in crate::server) fn addr(&self) -> &mudu_sys::io::iouring::SockAddrBuf {
         &self.addr
     }
 
-    pub(in crate::server) fn addr_mut(&mut self) -> &mut mudu_sys::uring::SockAddrBuf {
+    pub(in crate::server) fn addr_mut(&mut self) -> &mut mudu_sys::io::iouring::SockAddrBuf {
         &mut self.addr
     }
 }

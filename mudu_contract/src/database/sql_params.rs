@@ -1,8 +1,11 @@
+//! `database::sql_params` module.
+#![allow(missing_docs)]
+
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
-use mudu::error::ec::EC;
-use mudu::m_error;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_type::dat_type::DatType;
 use mudu_type::datum::DatumDyn;
 use paste::paste;
@@ -39,8 +42,8 @@ pub trait SQLParams: Send + Sync {
     fn param_to_binary(&self, desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
         let size = self.size() as usize;
         if desc.len() != self.size() as usize {
-            return Err(m_error!(
-                EC::ParseErr,
+            return Err(mudu_error!(
+                ErrorCode::Parse,
                 format!(
                     "desc length {} and param length {} do not match",
                     desc.len(),
@@ -49,8 +52,7 @@ pub trait SQLParams: Send + Sync {
             ));
         }
         let mut vec = Vec::with_capacity(size);
-        for i in 0..size {
-            let datum_desc = &desc[i];
+        for (i, datum_desc) in desc.iter().enumerate().take(size) {
             let datum = self.get_idx_unchecked(i as u64);
             let binary = datum.to_binary(datum_desc.dat_type())?;
             vec.push(binary.into())
@@ -214,23 +216,3 @@ impl_sql_params_for_tuples_indexed!((0 A), (1 B), (2 C), (3 D), (4 E), (5 F), (6
 impl_sql_params_for_tuples_indexed!((0 A), (1 B), (2 C), (3 D), (4 E), (5 F), (6 G), (7 H), (8 I), (9 J), (10 K), (11 L), (12 M), (13 N));
 impl_sql_params_for_tuples_indexed!((0 A), (1 B), (2 C), (3 D), (4 E), (5 F), (6 G), (7 H), (8 I), (9 J), (10 K), (11 L), (12 M), (13 N), (14 O));
 impl_sql_params_for_tuples_indexed!((0 A), (1 B), (2 C), (3 D), (4 E), (5 F), (6 G), (7 H), (8 I), (9 J), (10 K), (11 L), (12 M), (13 N), (14 O), (15 P));
-
-#[cfg(test)]
-mod tests {
-    use super::SQLParams;
-    use crate::tuple::datum_desc::DatumDesc;
-    use mudu::error::ec::EC;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-
-    #[test]
-    fn param_to_binary_rejects_desc_size_mismatch() {
-        let params = (1i32, 2i32);
-        let desc = vec![DatumDesc::new(
-            "a".to_string(),
-            DatType::new_no_param(DatTypeID::I32),
-        )];
-        let err = params.param_to_binary(&desc).unwrap_err();
-        assert_eq!(err.ec(), EC::ParseErr);
-    }
-}

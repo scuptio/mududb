@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //
 // When change grammar.js, re-run ``cargo build`` to generate this file
 // Caution, do not change this file manually!!!
