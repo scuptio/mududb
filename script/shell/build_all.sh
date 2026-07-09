@@ -18,7 +18,7 @@ cargo build --release
 echo "Workspace build complete."
 echo ""
 
-# 2. Install binaries (mudud, mcli, mpk, mgen, mtp)
+# 2. Install binaries (mudud, mcli, mpm-build, mgen, mtp)
 echo "[2/4] Installing binaries..."
 python3 script/build/install_binaries.py
 echo "Binaries installed to \$HOME/.cargo/bin/."
@@ -36,7 +36,7 @@ echo ""
 echo "[4/4] Build summary:"
 echo "  mudud : $(which mudud 2>/dev/null || echo 'not found')"
 echo "  mcli  : $(which mcli 2>/dev/null || echo 'not found')"
-echo "  mpk   : $(which mpk 2>/dev/null || echo 'not found')"
+echo "  mpm-build : $(which mpm-build 2>/dev/null || echo 'not found')"
 echo "  wallet.mpk : $(ls target/wasm32-wasip2/release/wallet.mpk 2>/dev/null || echo 'not found')"
 echo ""
 

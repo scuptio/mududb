@@ -6,7 +6,7 @@
 
 - Parse command-line arguments for the server (`--cfg`).
 - Initialize the logging/tracing subsystem.
-- Load the MuduDB runtime configuration (`mududb_cfg`).
+- Load the MuduDB runtime configuration (`mudud_cfg`).
 - Spawn a signal-listener thread for graceful shutdown.
 - Drive the runtime backend (`Backend::sync_serve_with_stop`).
 - Coordinate shutdown between the backend and the signal listener.

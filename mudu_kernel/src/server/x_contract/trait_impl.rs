@@ -59,7 +59,7 @@ impl XContract for WorkerXContract {
         pred_key: &VecDatum,
         select: &VecSelTerm,
         _opt_read: &OptRead,
-    ) -> RS<Option<Vec<Option<DatBin>>>> {
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
         self._read_key(desc, tx_mgr, table_id, pred_key, select)
             .await

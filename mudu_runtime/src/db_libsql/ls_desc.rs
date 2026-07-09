@@ -4,8 +4,8 @@ use mudu::error::ErrorCode;
 use mudu::error::MuduError;
 use mudu::mudu_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
 /// Get schema information for a SQL query result set
 /// This function executes the query with LIMIT 0 to get only the structure without data
@@ -33,7 +33,7 @@ pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<Datum
             .decl_type()
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidType, "column has no declared type"))?;
         let id = sqlite_decl_type_to_id(decl_type)?;
-        let desc = DatumDesc::new(column.name().to_string(), DatType::default_for(id));
+        let desc = DatumDesc::new(column.name().to_string(), DataType::default_for(id));
 
         schema.push(desc);
     }
@@ -41,12 +41,12 @@ pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<Datum
     Ok(schema)
 }
 
-fn sqlite_decl_type_to_id(name: &str) -> RS<DatTypeID> {
+fn sqlite_decl_type_to_id(name: &str) -> RS<TypeFamily> {
     let id = match name {
-        "TEXT" => DatTypeID::String,
-        "INT" | "INTEGER" => DatTypeID::I32,
-        "BIGINT" => DatTypeID::I64,
-        "REAL" => DatTypeID::F64,
+        "TEXT" => TypeFamily::String,
+        "INT" | "INTEGER" => TypeFamily::I32,
+        "BIGINT" => TypeFamily::I64,
+        "REAL" => TypeFamily::F64,
         _ => {
             return Err(mudu_error!(ErrorCode::InvalidType, "not supported type"));
         }

@@ -4,18 +4,18 @@
 #[allow(clippy::panic)]
 mod tests {
     use crate::tuple::datum_desc::DatumDesc;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
-    fn i32_type() -> DatType {
-        DatType::new_no_param(DatTypeID::I32)
+    fn i32_type() -> DataType {
+        DataType::new_no_param(TypeFamily::I32)
     }
 
     #[test]
     fn datum_desc_new_stores_name_type_and_not_nullable() {
         let desc = DatumDesc::new("id".to_string(), i32_type());
         assert_eq!(desc.name(), "id");
-        assert_eq!(desc.dat_type_id(), DatTypeID::I32);
+        assert_eq!(desc.type_family(), TypeFamily::I32);
         assert!(!desc.nullable());
     }
 
@@ -26,17 +26,17 @@ mod tests {
     }
 
     #[test]
-    fn datum_desc_dat_type_returns_reference() {
+    fn datum_desc_data_type_returns_reference() {
         let desc = DatumDesc::new("x".to_string(), i32_type());
-        assert_eq!(desc.dat_type().dat_type_id(), DatTypeID::I32);
+        assert_eq!(desc.data_type().type_family(), TypeFamily::I32);
     }
 
     #[test]
     fn datum_desc_into_extracts_name_and_type() {
         let desc = DatumDesc::new("x".to_string(), i32_type());
-        let (name, dat_type) = desc.into();
+        let (name, data_type) = desc.into();
         assert_eq!(name, "x");
-        assert_eq!(dat_type.dat_type_id(), DatTypeID::I32);
+        assert_eq!(data_type.type_family(), TypeFamily::I32);
     }
 
     #[test]
@@ -46,6 +46,6 @@ mod tests {
         let restored: DatumDesc = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.name(), "y");
         assert!(restored.nullable());
-        assert_eq!(restored.dat_type_id(), DatTypeID::I32);
+        assert_eq!(restored.type_family(), TypeFamily::I32);
     }
 }

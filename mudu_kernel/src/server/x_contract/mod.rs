@@ -46,7 +46,7 @@ pub(crate) use crate::x_engine::api::{
 pub(crate) use crate::x_engine::tx_mgr::TxMgr;
 pub(crate) use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
-pub(crate) type DatBin = Buf;
+pub(crate) type DataBin = Buf;
 
 pub(crate) const PARTITION_RPC_REQUEST_KIND: MessageKind = MessageKind::User(0x7101);
 pub(crate) const PARTITION_RPC_RESPONSE_KIND: MessageKind = MessageKind::User(0x7102);

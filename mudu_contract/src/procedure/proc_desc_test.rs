@@ -8,10 +8,10 @@ mod tests {
     use crate::tuple::tuple_datum::TupleDatum;
     use crate::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dtp_kind::DTPKind;
-    use mudu_type::dtp_numeric::DTPNumeric;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_param_kind::DataTypeParamKind;
+    use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
+    use mudu_type::type_family::TypeFamily;
 
     fn sample_desc() -> ProcDesc {
         let param_desc = <(i32, i32, i64)>::tuple_desc_static(&[]);
@@ -95,10 +95,12 @@ mod tests {
         assert!(s.contains("field_1"));
     }
 
-    fn numeric_zero_precision_dat_type() -> DatType {
-        DatType::from_id_param(
-            DatTypeID::Numeric,
-            Some(DTPKind::Numeric(Box::new(DTPNumeric::new(0, 0)))),
+    fn numeric_zero_precision_data_type() -> DataType {
+        DataType::from_id_param(
+            TypeFamily::Numeric,
+            Some(DataTypeParamKind::Numeric(Box::new(
+                DataTypeParamNumeric::new(0, 0),
+            ))),
         )
     }
 
@@ -106,7 +108,7 @@ mod tests {
     fn default_param_json_propagates_default_error() {
         let param_desc = TupleFieldDesc::new(vec![DatumDesc::new(
             "n".to_string(),
-            numeric_zero_precision_dat_type(),
+            numeric_zero_precision_data_type(),
         )]);
         let return_desc = <() as TupleDatum>::tuple_desc_static(&[]);
         let desc = ProcDesc::new(

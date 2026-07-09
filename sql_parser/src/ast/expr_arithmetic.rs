@@ -54,16 +54,16 @@ mod tests {
     use crate::ast::expr_literal::ExprLiteral;
     use crate::ast::expr_operator::Arithmetic;
     use crate::ast::expression::ExprType;
-    use mudu_type::dat_typed::DatTyped;
+    use mudu_type::data_typed::DataTyped;
     use std::sync::Arc;
 
     #[test]
     fn arithmetic_expression_preserves_operands_and_operator() {
         let left = ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValueLiteral(
-            ExprLiteral::DatumLiteral(DatTyped::from_i32(1)),
+            ExprLiteral::DatumLiteral(DataTyped::from_i32(1)),
         ))));
         let right = ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValueLiteral(
-            ExprLiteral::DatumLiteral(DatTyped::from_i32(2)),
+            ExprLiteral::DatumLiteral(DataTyped::from_i32(2)),
         ))));
         let expr = ExprArithmetic::new(Arithmetic::PLUS, left.clone(), right.clone());
 

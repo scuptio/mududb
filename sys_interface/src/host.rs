@@ -475,7 +475,7 @@ mod tests {
     use mudu_contract::database::sql_stmt_text::SQLStmtText;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use mudu_contract::tuple::tuple_value::TupleValue;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     #[test]
     fn kv_get_roundtrip() {
@@ -541,7 +541,7 @@ mod tests {
             Ok(query_invoke::serialize_query_result(Ok((
                 mudu_contract::database::result_batch::ResultBatch::from(
                     4,
-                    vec![TupleValue::from(vec![DatValue::from_i32(8)])],
+                    vec![TupleValue::from(vec![DataValue::from_i32(8)])],
                     true,
                 ),
                 <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
@@ -577,7 +577,7 @@ mod tests {
                     Ok(query_invoke::serialize_query_result(Ok((
                         mudu_contract::database::result_batch::ResultBatch::from(
                             8,
-                            vec![TupleValue::from(vec![DatValue::from_i32(13)])],
+                            vec![TupleValue::from(vec![DataValue::from_i32(13)])],
                             true,
                         ),
                         <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),

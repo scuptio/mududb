@@ -13,9 +13,14 @@ def run(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
 
 SUPPORTED_BINS: List[Dict[str, str]] = [
     {
-        "package": "mudu_package",
-        "bin": "mpk",
+        "package": "mpm_build",
+        "bin": "mpm-build",
         "description": "package builder",
+    },
+    {
+        "package": "mpm_install",
+        "bin": "mpm-install",
+        "description": "package installer",
     },
     {
         "package": "mudu_gen",
@@ -137,6 +142,7 @@ def install_bins(
             "cargo",
             "install",
             "--force",
+            "--locked",
             "--path",
             str(package_dir),
             "--bin",

@@ -3,20 +3,20 @@
 use crate::contract::schema_column::SchemaColumn;
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_info::TableInfo;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
-fn make_col(name: &str, ty: DatTypeID) -> SchemaColumn {
-    SchemaColumn::new(name.to_string(), ty, DatType::new_no_param(ty).to_info())
+fn make_col(name: &str, ty: TypeFamily) -> SchemaColumn {
+    SchemaColumn::new(name.to_string(), ty, DataType::new_no_param(ty).to_info())
 }
 
 fn sample_table() -> SchemaTable {
     SchemaTable::new(
         "desc_t".to_string(),
         vec![
-            make_col("k1", DatTypeID::I32),
-            make_col("k2", DatTypeID::I64),
-            make_col("v1", DatTypeID::F64),
+            make_col("k1", TypeFamily::I32),
+            make_col("k2", TypeFamily::I64),
+            make_col("v1", TypeFamily::F64),
         ],
         vec![0, 1],
         vec![2],

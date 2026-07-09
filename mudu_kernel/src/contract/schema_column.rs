@@ -1,8 +1,8 @@
 #[cfg(any(test, feature = "test", fuzzing))]
 use arbitrary::{Arbitrary, Unstructured};
 use mudu::common::id::{AttrIndex, OID};
-use mudu_type::dat_type_id::DatTypeID as TypeID;
-use mudu_type::dt_info::DTInfo;
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily as TypeID;
 use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ pub struct SchemaColumn {
     oid: OID,
     name: String,
     type_id: TypeID,
-    type_param: DTInfo,
+    type_param: DataTypeInfo,
     index: AttrIndex,
     is_primary: Option<AttrIndex>,
     #[serde(default = "default_nullable")]
@@ -19,7 +19,7 @@ pub struct SchemaColumn {
 }
 
 impl SchemaColumn {
-    pub fn new(name: String, data_type: TypeID, type_param: DTInfo) -> Self {
+    pub fn new(name: String, data_type: TypeID, type_param: DataTypeInfo) -> Self {
         Self {
             oid: gen_oid(),
             name,
@@ -32,7 +32,12 @@ impl SchemaColumn {
         }
     }
 
-    pub fn new_with_oid(oid: OID, name: String, data_type: TypeID, type_param: DTInfo) -> Self {
+    pub fn new_with_oid(
+        oid: OID,
+        name: String,
+        data_type: TypeID,
+        type_param: DataTypeInfo,
+    ) -> Self {
         Self {
             oid,
             name,
@@ -92,7 +97,7 @@ impl SchemaColumn {
         self.type_id().is_fixed_len()
     }
 
-    pub fn type_param(&self) -> &DTInfo {
+    pub fn type_param(&self) -> &DataTypeInfo {
         &self.type_param
     }
 }
@@ -108,7 +113,7 @@ impl<'a> Arbitrary<'a> for SchemaColumn {
         let data_type = TypeID::arbitrary(u)?;
         let fn_arbitrary = data_type.fn_arb_param();
         let param = fn_arbitrary(u)?;
-        let schema = Self::new(name, data_type, DTInfo::from_opt_object(&param));
+        let schema = Self::new(name, data_type, DataTypeInfo::from_opt_object(&param));
         Ok(schema)
     }
 }

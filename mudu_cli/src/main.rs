@@ -953,14 +953,14 @@ fn to_param(argv: &serde_json::Map<String, Value>, desc: &[DatumDesc]) -> RS<Pro
                 format!("missing parameter {}", datum_desc.name())
             )
         })?;
-        let dat_value = datum_desc.dat_type_id().fn_input_json()(&value, datum_desc.dat_type())
+        let data_value = datum_desc.type_family().fn_input_json()(&value, datum_desc.data_type())
             .map_err(|e| {
-                mudu_error!(
-                    ErrorCode::Decode,
-                    format!("convert parameter {} failed: {}", datum_desc.name(), e)
-                )
-            })?;
-        vec.push(dat_value);
+            mudu_error!(
+                ErrorCode::Decode,
+                format!("convert parameter {} failed: {}", datum_desc.name(), e)
+            )
+        })?;
+        vec.push(data_value);
     }
     Ok(ProcedureParam::new(0, 0, vec))
 }
@@ -1001,7 +1001,7 @@ mod tests {
                 "fields": [
                     {
                         "name": "user_key",
-                        "dat_type": {
+                        "data_type": {
                             "id": "String",
                             "param": {
                                 "String": {
@@ -1012,7 +1012,7 @@ mod tests {
                     },
                     {
                         "name": "value",
-                        "dat_type": {
+                        "data_type": {
                             "id": "String",
                             "param": {
                                 "String": {

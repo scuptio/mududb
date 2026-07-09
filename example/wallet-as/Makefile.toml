@@ -1,20 +1,23 @@
 [env]
 PACKAGE_NAME = "wallet-as"
 MODULE_NAME = "wallet_as"
-WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/wasm/${MODULE_NAME}.wasm"
-PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${PACKAGE_NAME}.mpk"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
 AS_CORE_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wasm"
 AS_EMBEDDED_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.embedded.wasm"
 AS_COMPONENT_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures-component.wasm"
 WRAPPER_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/rust-wrapper/target/wasm32-wasip2/release/wallet_as_wrapper.wasm"
+RS_SHIM_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/rs-shim/target/wasm32-wasip2/release/mududb-rs-shim.wasm"
+WRAPPER_PROCEDURES_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/wallet_as_procedures.wasm"
 
 [tasks.prepare]
 command = "mkdir"
 args = [
     "-p",
     "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
-    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as",
-    "${CARGO_MAKE_WORKING_DIRECTORY}/wasm"
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as"
 ]
 
 [tasks.transpile]
@@ -60,8 +63,15 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb/assemblyscript-binding.ts"
 ]
 
+[tasks.npm-install]
+command = "npm"
+args = [
+    "install",
+    "--prefix", "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript"
+]
+
 [tasks.asc-build]
-dependencies = ["patch-generated-imports", "link-binding-entry"]
+dependencies = ["patch-generated-imports", "link-binding-entry", "npm-install"]
 command = "../../bindings/assemblyscript/node_modules/.bin/asc"
 args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
@@ -87,7 +97,7 @@ args = [
     "--world", "procedure-api",
     "--dummy-names", "legacy",
     "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
-    "${AS_CORE_WASM}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.patched.wasm",
     "--output", "${AS_EMBEDDED_WASM}"
 ]
 
@@ -110,15 +120,30 @@ args = [
     "--release"
 ]
 
-[tasks.compose]
-dependencies = ["as-component", "rust-wrapper-build"]
-command = "wasm-tools"
+[tasks.rs-shim-build]
+command = "cargo"
 args = [
-    "compose",
-    "${WRAPPER_WASM}",
-    "-d", "${AS_COMPONENT_WASM}",
-    "--output", "${WASM_FILE}"
+    "build",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/rs-shim/Cargo.toml",
+    "--target", "wasm32-wasip2",
+    "--release"
 ]
+
+[tasks.rs-shim-copy]
+dependencies = ["rs-shim-build"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/rs-shim/target/wasm32-wasip2/release/mududb_rs_shim.wasm",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/rs-shim/target/wasm32-wasip2/release/mududb-rs-shim.wasm"
+]
+
+[tasks.compose]
+dependencies = ["as-component", "rust-wrapper-build", "rs-shim-copy"]
+script_runner = "@shell"
+script = '''
+wasm-tools compose "${WRAPPER_WASM}" -d "${AS_COMPONENT_WASM}" --output "${WRAPPER_PROCEDURES_WASM}"
+wasm-tools compose "${WRAPPER_PROCEDURES_WASM}" -d "${RS_SHIM_WASM}" --output "${WASM_FILE}"
+'''
 
 [tasks.validate-component]
 dependencies = ["compose"]
@@ -130,8 +155,8 @@ dependencies = ["validate-component"]
 command = "cargo"
 args = [
     "run", "--quiet",
-    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mudu_package/Cargo.toml",
-    "--bin", "mpk",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
     "--",
     "create",
     "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
@@ -147,8 +172,8 @@ dependencies = ["transpile"]
 command = "cargo"
 args = [
     "run", "--quiet",
-    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mudu_package/Cargo.toml",
-    "--bin", "mpk",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
     "--",
     "create",
     "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",

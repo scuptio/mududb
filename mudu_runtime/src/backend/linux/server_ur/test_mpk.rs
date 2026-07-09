@@ -1,6 +1,6 @@
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudu_app_mgr::MuduAppMgr;
-use crate::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
+use crate::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use crate::service::runtime_opt::ComponentTarget;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -260,7 +260,7 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
         cfg.db_path.clone(),
         KernelRoutingMode::ConnectionId,
     )?
-    .with_log_chunk_size(cfg.io_uring_log_chunk_size)
+    .with_log_chunk_size(cfg.log_chunk_size)
     .with_page_size(cfg.page_size)?;
     let server_deps = ServerRuntimeDeps::from_cfg(&server_cfg)?
         .with_worker_procedure_runtimes(procedure_runtimes);

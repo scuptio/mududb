@@ -1,0 +1,30 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+export class {{ record.record_name }} {
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    {{ field.rf_name }}: {{ field.rf_type }} = {{ field.rf_default_value }};
+    {% endfor %}
+
+    static encode(value: {{ record.record_name }}, writer: MpackWriter): void {
+        writer.writeArrayHeader({{ record.record_fields.len() }});
+        {% for field in record.record_fields %}
+        writer.write(value.{{ field.rf_name }});
+        {% endfor %}
+    }
+
+    static decode(reader: MpackReader): {{ record.record_name }} {
+        const count = reader.readArrayHeader();
+        if (count !== {{ record.record_fields.len() }}) {
+            throw new Error(`Expected array of length {{ record.record_fields.len() }}, got ${count}`);
+        }
+        const value = new {{ record.record_name }}();
+        {% for field in record.record_fields %}
+        value.{{ field.rf_name }} = reader.read<{{ field.rf_type }}>();
+        {% endfor %}
+        return value;
+    }
+}

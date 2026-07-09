@@ -16,8 +16,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dt_info::DTInfo;
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_compare::ExprCompare;
 use sql_parser::ast::expr_item::{ExprItem, ExprValue};
 use sql_parser::ast::expr_operator::ValueCompare;
@@ -203,7 +203,7 @@ impl Binder {
 
     fn infer_partition_rule_key_types(
         partitions: &[sql_parser::ast::stmt_create_partition_rule::StmtRangePartition],
-    ) -> RS<Vec<DatTypeID>> {
+    ) -> RS<Vec<TypeFamily>> {
         let mut width = None;
         let mut type_slots: Vec<InferredKeyType> = Vec::new();
 
@@ -235,7 +235,7 @@ impl Binder {
         match width {
             Some(_) => Ok(type_slots
                 .into_iter()
-                .map(|item| item.to_dat_type_id())
+                .map(|item| item.to_type_family())
                 .collect()),
             None => Err(mudu_error!(
                 ER::Parse,
@@ -634,8 +634,8 @@ impl Binder {
             .uni_to_with_params(column.data_type_param().clone())?;
         let mut schema_column = SchemaColumn::new(
             column.column_name().clone(),
-            ty.dat_type_id(),
-            DTInfo::from_opt_object(&ty),
+            ty.type_family(),
+            DataTypeInfo::from_opt_object(&ty),
         );
         schema_column.set_primary_index(column.primary_key_index());
         schema_column.set_nullable(column.nullable());
@@ -686,11 +686,11 @@ impl InferredKeyType {
         }
     }
 
-    fn to_dat_type_id(self) -> DatTypeID {
+    fn to_type_family(self) -> TypeFamily {
         match self {
-            InferredKeyType::I64 => DatTypeID::I64,
-            InferredKeyType::F64 => DatTypeID::F64,
-            InferredKeyType::String => DatTypeID::String,
+            InferredKeyType::I64 => TypeFamily::I64,
+            InferredKeyType::F64 => TypeFamily::F64,
+            InferredKeyType::String => TypeFamily::String,
         }
     }
 }

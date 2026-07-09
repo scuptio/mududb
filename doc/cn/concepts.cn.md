@@ -31,7 +31,7 @@ Mudu Procedure 是运行在 MuduDB 引擎内部、贴近数据执行的用户自
 - 过程描述符（procedure descriptors）。
 - 一个或多个编译后的 WebAssembly 组件模块。
 
-使用 `mpk create` 命令创建 MPK，再用 `mcli app-install` 将其安装到运行中的 `mudud` 服务器。
+使用 `mpm-build create` 命令创建 MPK，再用 `mcli app-install` 将其安装到运行中的 `mudud` 服务器。
 
 ## App、Module 与 Procedure
 
@@ -44,7 +44,7 @@ MPK 安装到 MuduDB 后，内容按以下层次组织：
 调用过程的命令示例：
 
 ```bash
-mcli --addr 127.0.0.1:9527 app-invoke \
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
   --app wallet \
   --module wallet \
   --proc transfer_funds \
@@ -59,8 +59,8 @@ mcli --addr 127.0.0.1:9527 app-invoke \
 | `mcli` | TCP 协议客户端与 HTTP 管理 CLI。 | 交互式执行 SQL、安装应用包、调用过程。 |
 | `mgen` | 源码生成器。根据 SQL DDL 生成 Rust 实体类型。 | 应用有 SQL 表且希望查询结果带类型时。 |
 | `mtp` | 转译器。将 Rust/AssemblyScript 源码转换为 Mudu Procedure 格式，并生成异步包装代码。 | 编写或修改 `/**mudu-proc**/` 函数时。 |
-| `mpk` | 包构建器。根据 DDL、描述符和 WASM 模块生成 `.mpk` 文件。 | 将应用部署到 `mudud` 之前。 |
-| `mudup` | 发布版安装器。下载并激活发布二进制。 | 日常使用或服务器部署，不想从源码构建时。 |
+| `mpm-build` | 包构建器。根据 DDL、描述符和 WASM 模块生成 `.mpk` 文件。 | 将应用部署到 `mudud` 之前。 |
+| `mudup` | 发布版安装器。下载并激活发布二进制。 | 日常使用或服务器部署，不想从源码构建时。**暂时 not stable；推荐源码构建。** |
 
 ## 系统调用接口
 

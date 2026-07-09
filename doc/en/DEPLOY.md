@@ -70,15 +70,17 @@ Installs all dependencies required to run MuduDB:
 
 Builds and installs all components:
 
-1. `cargo build --release` — builds 34 crates
-2. Installs binaries to `~/.cargo/bin/` (mudud, mcli, mpk, mgen, mtp)
-3. Builds the wallet example app and produces a `.mpk` package
+1. `cargo build --release` — builds the workspace crates
+2. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mudud, mcli, mpm-build, mgen, mtp)
+3. `cargo make` in `example/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
+
+The wallet `Makefile.toml` reinstalls the workspace CLI tools from source before generating code, so the package is always built with the current commit's toolchain.
 
 ### `script/shell/run_test.sh`
 
 Starts the MuduDB server and runs CRUD tests:
 
-- Creates temporary data directory and config file automatically
+- Creates a temporary data directory and writes a default config file
 - Starts the `mudud` server (HTTP 8300 / TCP 9527)
 - Installs the wallet example app
 - Tests CREATE / READ / UPDATE / INVOKE / DELETE
@@ -96,7 +98,6 @@ set -euo pipefail
 bash script/shell/install_deps.sh
 source "$HOME/.cargo/env"
 bash script/shell/build_all.sh
-mkdir -p "$HOME/.mududb"
 bash script/shell/run_test.sh
 bash script/shell/debug_test.sh
 echo "All tests passed."

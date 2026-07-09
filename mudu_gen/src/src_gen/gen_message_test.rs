@@ -79,6 +79,25 @@ fn gen_message_generates_csharp_output() -> RS<()> {
 
 #[test]
 #[cfg_attr(miri, ignore)]
+fn gen_message_generates_assemblyscript_output() -> RS<()> {
+    let output = mudu_sys::env_var::temp_dir().join("mudu_gen_message_as_test.ts");
+    let _ = mudu_sys::fs::sync::sync_remove_file(&output);
+
+    gen_message(
+        contract_wit_path(),
+        &output,
+        "AssemblyScript".to_string(),
+        None,
+    )?;
+
+    let source = mudu_sys::fs::sync::sync_read_to_string(&output)?;
+    assert!(source.contains("export class"));
+    let _ = mudu_sys::fs::sync::sync_remove_file(&output);
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
 fn gen_message_returns_error_when_output_has_no_parent() -> RS<()> {
     let err = match gen_message(
         contract_wit_path(),
@@ -142,7 +161,7 @@ fn gen_message_skips_non_wit_files_in_directory() -> RS<()> {
     gen_message(&input_dir, &output_dir, "Rust".to_string(), None)?;
 
     let entries = mudu_sys::fs::sync::sync_read_dir_entries(&output_dir)?;
-    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.len(), 2);
 
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(&input_dir);
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(&output_dir);
@@ -162,5 +181,36 @@ fn gen_message_creates_parent_directory_for_file_output() -> RS<()> {
 
     assert!(mudu_sys::fs::sync::sync_path_exists(&output));
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(parent);
+    Ok(())
+}
+#[test]
+#[cfg_attr(miri, ignore)]
+fn gen_message_matches_golden_fixtures() -> RS<()> {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/src_gen/fixtures");
+    let wit_path = fixture_dir.join("simple.wit");
+
+    let expected_rust = mudu_sys::fs::sync::sync_read_to_string(fixture_dir.join("simple.rs"))?;
+    let expected_cs = mudu_sys::fs::sync::sync_read_to_string(fixture_dir.join("simple.cs"))?;
+
+    let rust_output = mudu_sys::env_var::temp_dir().join("mudu_gen_golden_rust.rs");
+    let cs_output = mudu_sys::env_var::temp_dir().join("mudu_gen_golden_cs.cs");
+    let _ = mudu_sys::fs::sync::sync_remove_file(&rust_output);
+    let _ = mudu_sys::fs::sync::sync_remove_file(&cs_output);
+
+    gen_message(&wit_path, &rust_output, "Rust".to_string(), None)?;
+    gen_message(
+        &wit_path,
+        &cs_output,
+        "CSharp".to_string(),
+        Some("MuduDb".to_string()),
+    )?;
+
+    let rust_source = mudu_sys::fs::sync::sync_read_to_string(&rust_output)?;
+    let cs_source = mudu_sys::fs::sync::sync_read_to_string(&cs_output)?;
+    assert_eq!(rust_source, expected_rust);
+    assert_eq!(cs_source, expected_cs);
+
+    let _ = mudu_sys::fs::sync::sync_remove_file(&rust_output);
+    let _ = mudu_sys::fs::sync::sync_remove_file(&cs_output);
     Ok(())
 }

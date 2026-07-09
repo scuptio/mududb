@@ -9,8 +9,8 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_sys::sync::SMutex as StdMutex;
 use mudu_sys::sync::async_::AMutex;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -114,54 +114,54 @@ fn libsql_db_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleVal
         let n = i as i32;
         let raw = row.get_value(n).unwrap();
         debug!("col={}, name={:?}, raw={:?}", n, row.column_name(n), raw);
-        let internal = match desc.dat_type_id() {
-            DatTypeID::I32 => {
+        let internal = match desc.type_family() {
+            TypeFamily::I32 => {
                 let val = row.get::<i32>(n).map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error", e)
                 })?;
-                DatValue::from_i32(val)
+                DataValue::from_i32(val)
             }
-            DatTypeID::I64 => {
+            TypeFamily::I64 => {
                 let val = row.get::<i64>(n).map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error", e)
                 })?;
-                DatValue::from_i64(val)
+                DataValue::from_i64(val)
             }
-            DatTypeID::U128 => {
+            TypeFamily::U128 => {
                 let val = row.get::<String>(n).map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error", e)
                 })?;
                 let val = val.parse::<u128>().map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db oid parse error", e)
                 })?;
-                DatValue::from_u128(val)
+                DataValue::from_u128(val)
             }
-            DatTypeID::I128 => {
+            TypeFamily::I128 => {
                 let val = row.get::<String>(n).map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error", e)
                 })?;
                 let val = val.parse::<i128>().map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db i128 parse error", e)
                 })?;
-                DatValue::from_i128(val)
+                DataValue::from_i128(val)
             }
-            DatTypeID::F32 => {
+            TypeFamily::F32 => {
                 let val = row.get::<f64>(n).map_err(|e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error", e)
                 })?;
-                DatValue::from_f64(val)
+                DataValue::from_f64(val)
             }
-            DatTypeID::F64 => {
+            TypeFamily::F64 => {
                 let val = row.get::<f64>(n).map_err(|_e| {
                     mudu_error!(ErrorCode::Database, "libsql db get item of row error")
                 })?;
-                DatValue::from_f64(val)
+                DataValue::from_f64(val)
             }
-            DatTypeID::String => {
+            TypeFamily::String => {
                 let val = row
                     .get::<String>(n)
                     .map_err(|e| mudu_error!(ErrorCode::Database, "get item of row error", e))?;
-                DatValue::from_string(val)
+                DataValue::from_string(val)
             }
             _ => {
                 return Err(mudu_error!(
@@ -184,7 +184,7 @@ fn libsql_db_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleVal
 mod tests {
     use super::*;
     use mudu_contract::tuple::datum_desc::DatumDesc;
-    use mudu_type::dat_type::DatType;
+    use mudu_type::data_type::DataType;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::tempdir;
 
@@ -200,8 +200,8 @@ mod tests {
         Arc::new(TupleFieldDesc::new(fields))
     }
 
-    fn field(name: &str, id: DatTypeID) -> DatumDesc {
-        DatumDesc::new(name.to_string(), DatType::new_no_param(id))
+    fn field(name: &str, id: TypeFamily) -> DatumDesc {
+        DatumDesc::new(name.to_string(), DataType::new_no_param(id))
     }
 
     async fn open_conn() -> (libsql::Connection, tempfile::TempDir) {
@@ -232,13 +232,13 @@ mod tests {
 
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
         let desc = make_desc(vec![
-            field("i32_col", DatTypeID::I32),
-            field("i64_col", DatTypeID::I64),
-            field("u128_col", DatTypeID::U128),
-            field("i128_col", DatTypeID::I128),
-            field("f32_col", DatTypeID::F32),
-            field("f64_col", DatTypeID::F64),
-            field("string_col", DatTypeID::String),
+            field("i32_col", TypeFamily::I32),
+            field("i64_col", TypeFamily::I64),
+            field("u128_col", TypeFamily::U128),
+            field("i128_col", TypeFamily::I128),
+            field("f32_col", TypeFamily::F32),
+            field("f64_col", TypeFamily::F64),
+            field("string_col", TypeFamily::String),
         ]);
         let rs = LibSQLAsyncResultSet::new(rows, desc, None);
 
@@ -261,7 +261,7 @@ mod tests {
             .unwrap();
 
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-        let desc = make_desc(vec![field("a", DatTypeID::I32)]);
+        let desc = make_desc(vec![field("a", TypeFamily::I32)]);
         let released = Arc::new(AtomicBool::new(false));
         let lease = Box::new(FlagLease(released.clone()));
         let rs = LibSQLAsyncResultSet::new(rows, desc, Some(lease));
@@ -283,7 +283,7 @@ mod tests {
             .unwrap();
 
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-        let desc = make_desc(vec![field("a", DatTypeID::I32)]);
+        let desc = make_desc(vec![field("a", TypeFamily::I32)]);
         let released = Arc::new(AtomicBool::new(false));
         let lease = Box::new(FlagLease(released.clone()));
         let rs = LibSQLAsyncResultSet::new(rows, desc, Some(lease));
@@ -299,7 +299,7 @@ mod tests {
             .unwrap();
 
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-        let desc = make_desc(vec![field("a", DatTypeID::I32)]);
+        let desc = make_desc(vec![field("a", TypeFamily::I32)]);
         let rs = LibSQLAsyncResultSet::new(rows, desc, None);
 
         let err = rs.next().await.unwrap_err();
@@ -317,7 +317,7 @@ mod tests {
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
         let desc = make_desc(vec![DatumDesc::new(
             "a".to_string(),
-            DatType::new_no_param(DatTypeID::Binary),
+            DataType::new_no_param(TypeFamily::Binary),
         )]);
         let rs = LibSQLAsyncResultSet::new(rows, desc, None);
 
@@ -334,12 +334,12 @@ mod tests {
             .unwrap();
 
         let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-        let desc = make_desc(vec![field("a", DatTypeID::I32)]);
+        let desc = make_desc(vec![field("a", TypeFamily::I32)]);
         let rs = LibSQLAsyncResultSet::new(rows, desc.clone(), None);
 
         assert_eq!(rs.desc().fields().len(), 1);
         assert_eq!(rs.desc().fields()[0].name(), "a");
-        assert_eq!(rs.desc().fields()[0].dat_type_id(), DatTypeID::I32);
+        assert_eq!(rs.desc().fields()[0].type_family(), TypeFamily::I32);
     }
 
     #[tokio::test]
@@ -356,8 +356,8 @@ mod tests {
 
         let rows = conn.query("SELECT * FROM t ORDER BY a", ()).await.unwrap();
         let desc = make_desc(vec![
-            field("a", DatTypeID::I32),
-            field("b", DatTypeID::String),
+            field("a", TypeFamily::I32),
+            field("b", TypeFamily::String),
         ]);
         let rs = LibSQLAsyncResultSet::new(rows, desc, None);
 

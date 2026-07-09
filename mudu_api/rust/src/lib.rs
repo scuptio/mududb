@@ -11,8 +11,8 @@ pub use mudu::{CommandResponse, Mudu, QueryResponse};
 pub use types::{UniCommandResult, UniCommandReturn, UniQueryReturn};
 
 pub use universal::uni_command_argv::UniCommandArgv;
-pub use universal::uni_dat_type::UniDatType;
-pub use universal::uni_dat_value::UniDatValue;
+pub use universal::uni_data_type::UniDataType;
+pub use universal::uni_data_value::UniDataValue;
 pub use universal::uni_error::UniError;
 pub use universal::uni_oid::UniOid;
 pub use universal::uni_scalar::UniScalar;

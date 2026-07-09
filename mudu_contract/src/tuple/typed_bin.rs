@@ -4,56 +4,56 @@
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_binary::DatBinary;
-use mudu_type::dat_textual::DatTextual;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_binary::DataBinary;
+use mudu_type::data_textual::DataTextual;
+use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
-use mudu_type::dt_fn_param::DatType;
+use mudu_type::type_family::TypeFamily;
 use std::fmt::{Debug, Formatter};
 
 #[derive(Clone)]
 pub struct TypedBin {
-    dat_type_id: DatTypeID,
+    type_family: TypeFamily,
     bin: Vec<u8>,
 }
 
 impl TypedBin {
-    pub fn new(dat_type_id: DatTypeID, bin: Vec<u8>) -> Self {
-        Self { dat_type_id, bin }
+    pub fn new(type_family: TypeFamily, bin: Vec<u8>) -> Self {
+        Self { type_family, bin }
     }
 }
 
 impl Debug for TypedBin {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.dat_type_id.fmt(f)?;
+        self.type_family.fmt(f)?;
         self.bin.fmt(f)?;
         Ok(())
     }
 }
 
 impl DatumDyn for TypedBin {
-    fn dat_type_id(&self) -> RS<DatTypeID> {
-        Ok(self.dat_type_id)
+    fn type_family(&self) -> RS<TypeFamily> {
+        Ok(self.type_family)
     }
 
-    fn to_binary(&self, _: &DatType) -> RS<DatBinary> {
-        Ok(DatBinary::from(self.bin.clone()))
+    fn to_binary(&self, _: &DataType) -> RS<DataBinary> {
+        Ok(DataBinary::from(self.bin.clone()))
     }
 
-    fn to_textual(&self, tyep_obj: &DatType) -> RS<DatTextual> {
-        let fn_recv = self.dat_type_id.fn_recv();
+    fn to_textual(&self, tyep_obj: &DataType) -> RS<DataTextual> {
+        let fn_recv = self.type_family.fn_recv();
         let (internal, _) = fn_recv(&self.bin, tyep_obj)
             .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
 
-        let fn_output = self.dat_type_id.fn_output();
+        let fn_output = self.type_family.fn_output();
         let output = fn_output(&internal, tyep_obj)
             .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
         Ok(output)
     }
 
-    fn to_value(&self, type_obj: &DatType) -> RS<DatValue> {
-        let fn_recv = self.dat_type_id.fn_recv();
+    fn to_value(&self, type_obj: &DataType) -> RS<DataValue> {
+        let fn_recv = self.type_family.fn_recv();
         let (internal, _) = fn_recv(&self.bin, type_obj)
             .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "to_textual error", e))?;
         Ok(internal)

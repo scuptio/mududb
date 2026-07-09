@@ -1,6 +1,6 @@
 use super::{Args, BenchmarkMode, run_sync_async, run_tcp};
 use mudu_runtime::backend::backend::Backend;
-use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, ServerMode};
+use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, ServerMode};
 use mudu_sys::env_var::{remove_var, set_var, temp_dir as sys_temp_dir, var};
 use mudu_sys::fs::sync::create_dir_all;
 use mudu_sys::task::sync::{SJoinHandle, spawn_thread_named};

@@ -13,8 +13,8 @@ use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_sys::sync::async_::AMutex;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use std::sync::Arc;
 
 pub struct LSTrans {
@@ -144,36 +144,36 @@ fn libsql_row_to_tuple_item(row: Row, item_desc: &[DatumDesc]) -> RS<TupleValue>
     }
     for (i, desc) in item_desc.iter().enumerate() {
         let n = i as i32;
-        let internal = match desc.dat_type_id() {
-            DatTypeID::I32 => {
+        let internal = match desc.type_family() {
+            TypeFamily::I32 => {
                 let val = row
                     .get::<i32>(n)
                     .map_err(|e| mudu_error!(ErrorCode::Database, "get item of row error", e))?;
-                DatValue::from_i32(val)
+                DataValue::from_i32(val)
             }
-            DatTypeID::I64 => {
+            TypeFamily::I64 => {
                 let val = row
                     .get::<i64>(n)
                     .map_err(|e| mudu_error!(ErrorCode::Database, "get item of row error", e))?;
-                DatValue::from_i64(val)
+                DataValue::from_i64(val)
             }
-            DatTypeID::F32 => {
+            TypeFamily::F32 => {
                 let val = row
                     .get::<f64>(n)
                     .map_err(|e| mudu_error!(ErrorCode::Database, "get item of row error", e))?;
-                DatValue::from_f64(val)
+                DataValue::from_f64(val)
             }
-            DatTypeID::F64 => {
+            TypeFamily::F64 => {
                 let val = row
                     .get::<f64>(n)
                     .map_err(|_e| mudu_error!(ErrorCode::Database, "get item of row error"))?;
-                DatValue::from_f64(val)
+                DataValue::from_f64(val)
             }
-            DatTypeID::String => {
+            TypeFamily::String => {
                 let val = row
                     .get::<String>(n)
                     .map_err(|e| mudu_error!(ErrorCode::Database, "get item of row error", e))?;
-                DatValue::from_string(val)
+                DataValue::from_string(val)
             }
             _ => {
                 return Err(mudu_error!(

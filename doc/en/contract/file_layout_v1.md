@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document specifies the on-disk layout of MuduDB database files, directories, and package artifacts. It binds together the lower-level contracts for [page headers](page_header_v1.md), [tuple binary format](tuple_binary_v1.md), [log frames](log_frame_v1.md), [protocol frames](protocol_frame_v1.md), [MPK manifests](mpk_manifest_v1.md), and [server configuration](mududb_cfg_v1.md).
+This document specifies the on-disk layout of MuduDB database files, directories, and package artifacts. It binds together the lower-level contracts for [page headers](page_header_v1.md), [tuple binary format](tuple_binary_v1.md), [log frames](log_frame_v1.md), [protocol frames](protocol_frame_v1.md), [MPK manifests](mpk_manifest_v1.md), and [server configuration](mudud_cfg_v1.md).
 
 ## Version history
 
@@ -103,7 +103,7 @@ The manifest semantics are specified in [MPK Manifest Contract v1](mpk_manifest_
 
 ## Server configuration
 
-The server configuration is a TOML file. See [MuduDB Server Configuration Contract v1](mududb_cfg_v1.md).
+The server configuration is a TOML file. See [MuduDB Server Configuration Contract v1](mudud_cfg_v1.md).
 
 ## Directory conventions
 
@@ -145,7 +145,7 @@ Version `1` may be deprecated only after:
 - Log frame: [log_frame_v1.md](log_frame_v1.md)
 - Protocol frame: [protocol_frame_v1.md](protocol_frame_v1.md)
 - MPK manifest: [mpk_manifest_v1.md](mpk_manifest_v1.md)
-- Server config: [mududb_cfg_v1.md](mududb_cfg_v1.md)
+- Server config: [mudud_cfg_v1.md](mudud_cfg_v1.md)
 - Implementation:
   - [`mudu_kernel/src/storage/time_series/time_series_file.rs`](../../../mudu_kernel/src/storage/time_series/time_series_file.rs)
   - [`mudu_kernel/src/storage/relation/relation.rs`](../../../mudu_kernel/src/storage/relation/relation.rs)

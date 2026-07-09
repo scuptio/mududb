@@ -1,4 +1,4 @@
-use crate::universal::uni_dat_type::UniDatType;
+use crate::universal::uni_data_type::UniDataType;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
@@ -14,7 +14,7 @@ pub struct UniTableDef {
 pub struct RecordField {
     pub rf_comments: String,
     pub rf_name: String,
-    pub rf_type: UniDatType,
+    pub rf_type: UniDataType,
 }
 
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub struct UniRecordDef {
 pub struct VariantCase {
     pub vc_comments: String,
     pub vc_case_name: String,
-    pub vc_case_type: Option<UniDatType>,
+    pub vc_case_type: Option<UniDataType>,
 }
 
 #[derive(Debug, Clone)]

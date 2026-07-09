@@ -24,8 +24,8 @@ mod tests {
     use mudu_contract::tuple::tuple_field::TupleField;
     use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
     use pgwire::api::Type as PGDataType;
     use pgwire::error::PgWireError;
     use std::collections::VecDeque;
@@ -119,14 +119,14 @@ mod tests {
         ProjList::new(vec![ProjField::new(
             0,
             "id".to_string(),
-            DatType::default_for(DatTypeID::I32),
+            DataType::default_for(TypeFamily::I32),
         )])
     }
 
     fn int_tuple_desc() -> TupleFieldDesc {
         TupleFieldDesc::new(vec![DatumDesc::new(
             "id".to_string(),
-            DatType::default_for(DatTypeID::I32),
+            DataType::default_for(TypeFamily::I32),
         )])
     }
 
@@ -317,14 +317,14 @@ mod tests {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let ctx = TestSsnCtx::default();
             let tuple_desc = TupleFieldDesc::new(vec![
-                DatumDesc::new("a".to_string(), DatType::default_for(DatTypeID::I32)),
-                DatumDesc::new("b".to_string(), DatType::default_for(DatTypeID::I32)),
-                DatumDesc::new("c".to_string(), DatType::default_for(DatTypeID::I32)),
+                DatumDesc::new("a".to_string(), DataType::default_for(TypeFamily::I32)),
+                DatumDesc::new("b".to_string(), DataType::default_for(TypeFamily::I32)),
+                DatumDesc::new("c".to_string(), DataType::default_for(TypeFamily::I32)),
             ]);
             let proj_list = ProjList::new(vec![
-                ProjField::new(0, "a".to_string(), DatType::default_for(DatTypeID::I32)),
-                ProjField::new(1, "b".to_string(), DatType::default_for(DatTypeID::I32)),
-                ProjField::new(2, "c".to_string(), DatType::default_for(DatTypeID::I32)),
+                ProjField::new(0, "a".to_string(), DataType::default_for(TypeFamily::I32)),
+                ProjField::new(1, "b".to_string(), DataType::default_for(TypeFamily::I32)),
+                ProjField::new(2, "c".to_string(), DataType::default_for(TypeFamily::I32)),
             ]);
             let stmt = TestStmtQuery {
                 fail_realize: false,
@@ -356,7 +356,7 @@ mod tests {
             let proj_list = ProjList::new(vec![ProjField::new(
                 0,
                 "x".to_string(),
-                DatType::default_for(DatTypeID::I128),
+                DataType::default_for(TypeFamily::I128),
             )]);
             let stmt = TestStmtQuery {
                 fail_realize: false,
@@ -380,8 +380,8 @@ mod tests {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let ctx = TestSsnCtx::default();
             let tuple_desc = TupleFieldDesc::new(vec![
-                DatumDesc::new("a".to_string(), DatType::default_for(DatTypeID::I32)),
-                DatumDesc::new("b".to_string(), DatType::default_for(DatTypeID::I32)),
+                DatumDesc::new("a".to_string(), DataType::default_for(TypeFamily::I32)),
+                DatumDesc::new("b".to_string(), DataType::default_for(TypeFamily::I32)),
             ]);
             let stmt = TestStmtQuery {
                 fail_realize: false,
@@ -412,7 +412,7 @@ mod tests {
             let ctx = TestSsnCtx::default();
             let tuple_desc = TupleFieldDesc::new(vec![DatumDesc::new(
                 "x".to_string(),
-                DatType::default_for(DatTypeID::I128),
+                DataType::default_for(TypeFamily::I128),
             )]);
             let stmt = TestStmtQuery {
                 fail_realize: false,

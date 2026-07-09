@@ -2,38 +2,8 @@
 
 This guide covers two ways to get started:
 
-- **[Use MuduDB](#use-mududb-with-mudup)** – install released binaries with `mudup` (no source build).
-- **[Develop MuduDB](#develop-mududb-from-source)** – build from source with a reproducible, pinned toolchain.
-
----
-
-## Use MuduDB with `mudup`
-
-For server deployment or daily use, install the release artifacts through `mudup`.
-
-### 1. Install `mudup`
-
-```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
-mudup --help
-```
-
-### 2. Install MuduDB and its toolchain
-
-```bash
-mudup install
-```
-
-This installs and activates the latest release binaries: `mudud`, `mcli`, `mpk`, `mgen`, `mtp`.
-
-### 3. Verify installation
-
-```bash
-mudud --version
-mcli --version
-```
-
-`mudup install` also creates `${HOME}/.mududb/mududb_cfg.toml` with default values if it does not already exist.
+- **[Develop MuduDB from source](#develop-mududb-from-source)** – build from source with a reproducible, pinned toolchain (recommended).
+- **[Use MuduDB with `mudup`](#use-mududb-with-mudup)** – install released binaries with `mudup` (not stable yet).
 
 ---
 
@@ -145,7 +115,7 @@ python script/build/install_binaries.py
 
 Default installed tools:
 
-- `mpk`: package builder
+- `mpm-build`: package builder
 - `mgen`: source generator
 - `mtp`: transpiler
 - `mudud`: MuduDB server
@@ -156,6 +126,44 @@ To install every workspace binary target instead:
 ```bash
 python script/build/install_binaries.py --all-workspace-bins
 ```
+
+---
+
+## Use MuduDB with `mudup`
+
+> **Note:** The `mudup` install path is not stable yet. We recommend [developing from source](#develop-mududb-from-source) for now.
+
+For server deployment or daily use, install the release artifacts through `mudup`.
+
+### 1. Install `mudup`
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
+mudup --help
+```
+
+### 2. Install MuduDB and its toolchain
+
+```bash
+mudup install
+```
+
+This installs and activates the latest release binaries: `mudud`, `mcli`, `mpm-build`, `mgen`, `mtp`.
+
+### 3. Verify installation
+
+```bash
+mudud --version
+mcli --version
+```
+
+After installation, generate a default server configuration in the current directory:
+
+```bash
+mudud init-cfg
+```
+
+This writes `./mudud.cfg` with default values. The server does **not** create this file automatically on startup.
 
 ---
 
@@ -206,27 +214,37 @@ Both upgrades are explicit commits; no floating toolchain channels are used in C
 
 ## Configuration file
 
-By default, `mudud` reads `${HOME}/.mududb/mududb_cfg.toml`. Create its parent directory:
+`mudud` searches for the configuration file in the following order:
+
+1. The path given by `--cfg` / `-c` (if supplied). This path is used exactly as given.
+2. `./mudud.cfg` in the current working directory.
+3. `~/.mududb/mudud.cfg` in the user's home directory.
+
+The first file that exists is loaded. If none of them exist, `mudud` returns a `NotFound` error and does not start.
+
+Generate a default `./mudud.cfg` in the current directory without starting the server:
 
 ```bash
-mkdir -p ${HOME}/.mududb
+mudud init-cfg
 ```
 
-Do not create an empty `mududb_cfg.toml`: the server treats an existing file as user configuration and parses it. If the file does not exist, `mudud` creates it automatically on first start with default values.
+Do not create an empty `mudud.cfg`: the server treats an existing file as user configuration and parses it.
 
 Use a custom path:
 
 ```bash
-mudud --cfg /path/to/mududb_cfg.toml
+mudud serve --cfg /path/to/mudud.cfg
+# or short form
+mudud serve -c /path/to/mudud.cfg
 ```
 
 Use the example configuration:
 
 ```bash
-cp doc/cfg/mududb_cfg.toml ${HOME}/.mududb/mududb_cfg.toml
+cp doc/cfg/mudud.cfg ./mudud.cfg
 ```
 
-See also: [mududb_cfg.toml example](../cfg/mududb_cfg.toml).
+See also: [mudud.cfg example](../cfg/mudud.cfg).
 
 ---
 

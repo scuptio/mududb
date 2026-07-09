@@ -33,7 +33,7 @@ public struct UniProcedureParam {
     
     
     [Key(2)]
-    public required List<UniDatValue> ParamList { get; set; }
+    public required List<UniDataValue> ParamList { get; set; }
     
 }
 

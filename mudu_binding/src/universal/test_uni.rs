@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::universal::uni_command_argv::UniCommandArgv;
-    use crate::universal::uni_dat_type::UniDatType;
-    use crate::universal::uni_dat_value::UniDatValue;
+    use crate::universal::uni_data_type::UniDataType;
+    use crate::universal::uni_data_value::{UniDataValue, UniDataValueField};
     use crate::universal::uni_error::UniError;
     use crate::universal::uni_get_result::UniGetResult;
     use crate::universal::uni_key_value::UniKeyValue;
@@ -25,8 +25,8 @@ mod tests {
         deserialize_from, deserialize_from_json, serialize_to_json, serialize_to_vec,
     };
     use mudu::data_type::numeric::Numeric;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dtp_numeric::DTPNumeric;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
     use std::fmt::Debug;
@@ -59,59 +59,84 @@ mod tests {
             record_fields: vec![
                 UniRecordField {
                     field_name: "id".to_string(),
-                    field_type: UniDatType::Scalar(UniScalar::U128),
+                    field_type: UniDataType::Scalar(UniScalar::U128),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "name".to_string(),
-                    field_type: UniDatType::Scalar(UniScalar::String),
+                    field_type: UniDataType::Scalar(UniScalar::String),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "tags".to_string(),
-                    field_type: UniDatType::Array(Box::new(UniDatType::Scalar(UniScalar::String))),
+                    field_type: UniDataType::Array(Box::new(UniDataType::Scalar(
+                        UniScalar::String,
+                    ))),
+                    field_attrs: Vec::new(),
                 },
             ],
         }
     }
 
-    fn sample_dat_type() -> UniDatType {
-        UniDatType::Record(UniRecordType {
+    fn sample_data_type() -> UniDataType {
+        UniDataType::Record(UniRecordType {
             record_name: "envelope".to_string(),
             record_fields: vec![
                 UniRecordField {
                     field_name: "meta".to_string(),
-                    field_type: UniDatType::Tuple(vec![
-                        UniDatType::Scalar(UniScalar::U64),
-                        UniDatType::Option(Box::new(UniDatType::Scalar(UniScalar::String))),
+                    field_type: UniDataType::Tuple(vec![
+                        UniDataType::Scalar(UniScalar::U64),
+                        UniDataType::Option(Box::new(UniDataType::Scalar(UniScalar::String))),
                     ]),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "payload".to_string(),
-                    field_type: UniDatType::Result(UniResultType {
-                        ok: Some(Box::new(UniDatType::Array(Box::new(UniDatType::Scalar(
+                    field_type: UniDataType::Result(UniResultType {
+                        ok: Some(Box::new(UniDataType::Array(Box::new(UniDataType::Scalar(
                             UniScalar::I32,
                         ))))),
-                        err: Some(Box::new(UniDatType::Identifier("ErrCode".to_string()))),
+                        err: Some(Box::new(UniDataType::Identifier("ErrCode".to_string()))),
                     }),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "blob".to_string(),
-                    field_type: UniDatType::Binary,
+                    field_type: UniDataType::Binary,
+                    field_attrs: Vec::new(),
                 },
             ],
         })
     }
 
-    fn sample_dat_value() -> UniDatValue {
-        UniDatValue::Record(vec![
-            UniDatValue::Array(vec![
-                UniDatValue::Scalar(UniScalarValue::from_i32(10)),
-                UniDatValue::Scalar(UniScalarValue::from_i32(-4)),
-            ]),
-            UniDatValue::Record(vec![
-                UniDatValue::Scalar(UniScalarValue::from_bool(true)),
-                UniDatValue::Scalar(UniScalarValue::from_string("ok".to_string())),
-            ]),
-            UniDatValue::Binary(vec![1, 2, 3, 4, 200]),
+    fn sample_data_value() -> UniDataValue {
+        UniDataValue::Record(vec![
+            UniDataValueField {
+                field_name: "scores".to_string(),
+                field_value: UniDataValue::Array(vec![
+                    UniDataValue::Scalar(UniScalarValue::from_i32(10)),
+                    UniDataValue::Scalar(UniScalarValue::from_i32(-4)),
+                ]),
+            },
+            UniDataValueField {
+                field_name: "nested".to_string(),
+                field_value: UniDataValue::Record(vec![
+                    UniDataValueField {
+                        field_name: "ok".to_string(),
+                        field_value: UniDataValue::Scalar(UniScalarValue::from_bool(true)),
+                    },
+                    UniDataValueField {
+                        field_name: "msg".to_string(),
+                        field_value: UniDataValue::Scalar(UniScalarValue::from_string(
+                            "ok".to_string(),
+                        )),
+                    },
+                ]),
+            },
+            UniDataValueField {
+                field_name: "payload".to_string(),
+                field_value: UniDataValue::Scalar(UniScalarValue::from_blob(vec![1, 2, 3, 4, 200])),
+            },
         ])
     }
 
@@ -122,11 +147,11 @@ mod tests {
                 eof: false,
                 row_set: vec![UniTupleRow {
                     fields: vec![
-                        UniDatValue::Scalar(UniScalarValue::from_u128(99)),
-                        UniDatValue::Scalar(UniScalarValue::from_string("alice".to_string())),
-                        UniDatValue::Array(vec![
-                            UniDatValue::Scalar(UniScalarValue::from_string("x".to_string())),
-                            UniDatValue::Scalar(UniScalarValue::from_string("y".to_string())),
+                        UniDataValue::Scalar(UniScalarValue::from_u128(99)),
+                        UniDataValue::Scalar(UniScalarValue::from_string("alice".to_string())),
+                        UniDataValue::Array(vec![
+                            UniDataValue::Scalar(UniScalarValue::from_string("x".to_string())),
+                            UniDataValue::Scalar(UniScalarValue::from_string("y".to_string())),
                         ]),
                     ],
                 }],
@@ -136,12 +161,12 @@ mod tests {
     }
 
     #[test]
-    fn test_uni_dat_type() {
-        let uni_dat_ty = sample_dat_type();
+    fn test_uni_data_type() {
+        let uni_dat_ty = sample_data_type();
         assert_json_and_binary_roundtrip(&uni_dat_ty);
 
         let json = serialize_to_json(&uni_dat_ty).unwrap();
-        let uni_dat_ty2: UniDatType = deserialize_from_json(json.as_str()).unwrap();
+        let uni_dat_ty2: UniDataType = deserialize_from_json(json.as_str()).unwrap();
         let record = uni_dat_ty2.as_record().expect("record dat type");
         assert_eq!(record.record_name, "envelope");
         assert_eq!(record.record_fields.len(), 3);
@@ -166,6 +191,7 @@ mod tests {
             UniScalarValue::from_f64(-9.5),
             UniScalarValue::from_char('z'),
             UniScalarValue::from_string("hello".to_string()),
+            UniScalarValue::from_blob(vec![0, 1, 2, 255]),
             UniScalarValue::from_numeric("12.3400".to_string()),
         ];
 
@@ -175,15 +201,15 @@ mod tests {
     }
 
     #[test]
-    fn test_uni_dat_value_roundtrip_matrix() {
+    fn test_uni_data_value_roundtrip_matrix() {
         let cases = vec![
-            UniDatValue::Scalar(UniScalarValue::from_string("row".to_string())),
-            UniDatValue::Array(vec![
-                UniDatValue::Scalar(UniScalarValue::from_u64(1)),
-                UniDatValue::Scalar(UniScalarValue::from_u64(2)),
+            UniDataValue::Scalar(UniScalarValue::from_string("row".to_string())),
+            UniDataValue::Array(vec![
+                UniDataValue::Scalar(UniScalarValue::from_u64(1)),
+                UniDataValue::Scalar(UniScalarValue::from_u64(2)),
             ]),
-            sample_dat_value(),
-            UniDatValue::Binary(vec![0, 1, 2, 3, 255]),
+            sample_data_value(),
+            UniDataValue::Binary(vec![0, 1, 2, 3, 255]),
         ];
 
         for value in cases {
@@ -193,12 +219,13 @@ mod tests {
 
     #[test]
     fn test_uni_result_roundtrip_for_ok_and_err() {
-        let ok: UniResult<UniDatType, UniError> = UniResult::Ok(sample_dat_type());
-        let err: UniResult<UniDatType, UniError> = UniResult::Err(UniError {
+        let ok: UniResult<UniDataType, UniError> = UniResult::Ok(sample_data_type());
+        let err: UniResult<UniDataType, UniError> = UniResult::Err(UniError {
             err_code: 404,
             err_msg: "not found".to_string(),
             err_src: "unit-test".to_string(),
             err_loc: "test_uni".to_string(),
+            err_details: vec![1, 2, 3],
         });
 
         assert_json_and_binary_roundtrip(&ok);
@@ -211,7 +238,7 @@ mod tests {
             sql_string: "select id, name from users where id = ?".to_string(),
         };
         let sql_param = UniSqlParam {
-            params: vec![UniDatValue::Scalar(UniScalarValue::from_u128(7))],
+            params: vec![UniDataValue::Scalar(UniScalarValue::from_u128(7))],
         };
 
         let query_argv = UniQueryArgv {
@@ -227,20 +254,20 @@ mod tests {
         let procedure_param = UniProcedureParam {
             procedure: 88,
             session: sample_oid(),
-            param_list: vec![sample_dat_value()],
+            param_list: vec![sample_data_value()],
         };
         let procedure_result = UniProcedureResult {
-            return_list: vec![sample_dat_value()],
+            return_list: vec![sample_data_value()],
         };
         let get_result = UniGetResult {
-            value: Some(UniDatValue::Scalar(UniScalarValue::from_string(
+            value: Some(UniDataValue::Scalar(UniScalarValue::from_string(
                 "payload".to_string(),
             ))),
         };
         let range_result = UniRangeResult {
             items: vec![UniKeyValue {
-                key: UniDatValue::Scalar(UniScalarValue::from_u64(1)),
-                value: sample_dat_value(),
+                key: UniDataValue::Scalar(UniScalarValue::from_u64(1)),
+                value: sample_data_value(),
             }],
         };
         let query_result = sample_query_result();
@@ -255,47 +282,47 @@ mod tests {
     }
 
     #[test]
-    fn test_uni_dat_type_and_value_reject_invalid_tags() {
-        let invalid_dat_type_json = "[99,0]";
-        let invalid_dat_value_json = "[99,0]";
+    fn test_uni_data_type_and_value_reject_invalid_tags() {
+        let invalid_data_type_json = "[99,0]";
+        let invalid_data_value_json = "[99,0]";
         let invalid_scalar_json = "[99,0]";
 
-        assert!(deserialize_from_json::<UniDatType>(invalid_dat_type_json).is_err());
-        assert!(deserialize_from_json::<UniDatValue>(invalid_dat_value_json).is_err());
+        assert!(deserialize_from_json::<UniDataType>(invalid_data_type_json).is_err());
+        assert!(deserialize_from_json::<UniDataValue>(invalid_data_value_json).is_err());
         assert!(deserialize_from_json::<UniScalarValue>(invalid_scalar_json).is_err());
     }
 
     #[test]
     fn test_uni_result_rejects_invalid_payload_shape() {
-        assert!(deserialize_from_json::<UniResult<UniDatType, UniError>>("{}").is_err());
-        assert!(deserialize_from_json::<UniResult<UniDatType, UniError>>("{\"99\":{}}").is_err());
+        assert!(deserialize_from_json::<UniResult<UniDataType, UniError>>("{}").is_err());
+        assert!(deserialize_from_json::<UniResult<UniDataType, UniError>>("{\"99\":{}}").is_err());
     }
 
     #[test]
-    fn test_uni_dat_type_binary_rejects_truncated_payload() {
-        let binary = serialize_to_vec(&sample_dat_type()).unwrap();
+    fn test_uni_data_type_binary_rejects_truncated_payload() {
+        let binary = serialize_to_vec(&sample_data_type()).unwrap();
         let truncated = &binary[..binary.len() - 1];
-        assert!(deserialize_from::<UniDatType>(truncated).is_err());
+        assert!(deserialize_from::<UniDataType>(truncated).is_err());
     }
 
     #[test]
-    fn test_uni_numeric_type_params_roundtrip_through_dat_type() {
-        let uni_ty = UniDatType::Scalar(UniScalar::Numeric);
+    fn test_uni_numeric_type_params_roundtrip_through_data_type() {
+        let uni_ty = UniDataType::Scalar(UniScalar::Numeric);
         let params = vec![
-            UniDatValue::Scalar(UniScalarValue::from_i64(18)),
-            UniDatValue::Scalar(UniScalarValue::from_i64(4)),
+            UniDataValue::Scalar(UniScalarValue::from_i64(18)),
+            UniDataValue::Scalar(UniScalarValue::from_i64(4)),
         ];
 
-        let dat_type = uni_ty.clone().uni_to_with_params(Some(params)).unwrap();
+        let data_type = uni_ty.clone().uni_to_with_params(Some(params)).unwrap();
         assert_eq!(
-            dat_type.dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::Numeric
+            data_type.type_family(),
+            mudu_type::type_family::TypeFamily::Numeric
         );
-        let numeric = dat_type.expect_numeric_param();
+        let numeric = data_type.expect_numeric_param();
         assert_eq!(numeric.precision(), 18);
         assert_eq!(numeric.scale(), 4);
 
-        let uni_back = UniDatType::uni_from(dat_type).unwrap();
+        let uni_back = UniDataType::uni_from(data_type).unwrap();
         assert_eq!(
             serialize_to_json(&uni_back).unwrap(),
             serialize_to_json(&uni_ty).unwrap()
@@ -303,13 +330,13 @@ mod tests {
     }
 
     #[test]
-    fn test_uni_numeric_value_roundtrip_through_dat_value() {
-        let uni_value = UniDatValue::Scalar(UniScalarValue::from_numeric("12.3400".to_string()));
+    fn test_uni_numeric_value_roundtrip_through_data_value() {
+        let uni_value = UniDataValue::Scalar(UniScalarValue::from_numeric("12.3400".to_string()));
 
-        let dat_value = uni_value.clone().uni_to().unwrap();
-        assert_eq!(dat_value.expect_numeric().to_plain_string(), "12.3400");
+        let data_value = uni_value.clone().uni_to().unwrap();
+        assert_eq!(data_value.expect_numeric().to_plain_string(), "12.3400");
 
-        let uni_back = UniDatValue::uni_from(dat_value).unwrap();
+        let uni_back = UniDataValue::uni_from(data_value).unwrap();
         let scalar = uni_back.as_scalar().expect("scalar numeric");
         assert_eq!(scalar.expect_numeric(), "12.3400");
 
@@ -319,13 +346,13 @@ mod tests {
     #[test]
     fn test_uni_numeric_rejects_invalid_shapes() {
         let invalid_numeric_value =
-            UniDatValue::Scalar(UniScalarValue::from_numeric("not-a-number".to_string()));
+            UniDataValue::Scalar(UniScalarValue::from_numeric("not-a-number".to_string()));
         assert!(invalid_numeric_value.uni_to().is_err());
 
-        let invalid_numeric_type = UniDatType::Scalar(UniScalar::Numeric);
+        let invalid_numeric_type = UniDataType::Scalar(UniScalar::Numeric);
         let invalid_params = vec![
-            UniDatValue::Scalar(UniScalarValue::from_i64(4)),
-            UniDatValue::Scalar(UniScalarValue::from_i64(9)),
+            UniDataValue::Scalar(UniScalarValue::from_i64(4)),
+            UniDataValue::Scalar(UniScalarValue::from_i64(9)),
         ];
         assert!(
             invalid_numeric_type
@@ -333,56 +360,58 @@ mod tests {
                 .is_err()
         );
 
-        let dat_type = DatType::from_numeric(DTPNumeric::new(9, 2));
-        let uni_type = UniDatType::uni_from(dat_type).unwrap();
-        assert!(matches!(uni_type, UniDatType::Scalar(UniScalar::Numeric)));
+        let data_type = DataType::from_numeric(DataTypeParamNumeric::new(9, 2));
+        let uni_type = UniDataType::uni_from(data_type).unwrap();
+        assert!(matches!(uni_type, UniDataType::Scalar(UniScalar::Numeric)));
 
-        let dat_value =
-            mudu_type::dat_value::DatValue::from_numeric(Numeric::parse("7.50").unwrap());
-        let uni_value = UniDatValue::uni_from(dat_value).unwrap();
+        let data_value =
+            mudu_type::data_value::DataValue::from_numeric(Numeric::parse("7.50").unwrap());
+        let uni_value = UniDataValue::uni_from(data_value).unwrap();
         let scalar = uni_value.as_scalar().expect("numeric scalar");
         assert_eq!(scalar.expect_numeric(), "7.50");
     }
 
     #[test]
-    fn test_uni_temporal_type_params_roundtrip_through_dat_type() {
+    fn test_uni_temporal_type_params_roundtrip_through_data_type() {
         let cases = vec![
             (
-                UniDatType::Scalar(UniScalar::Time),
-                vec![UniDatValue::Scalar(UniScalarValue::from_i64(3))],
-                mudu_type::dat_type_id::DatTypeID::Time,
+                UniDataType::Scalar(UniScalar::Time),
+                vec![UniDataValue::Scalar(UniScalarValue::from_i64(3))],
+                mudu_type::type_family::TypeFamily::Time,
                 3u8,
             ),
             (
-                UniDatType::Scalar(UniScalar::Timestamp),
-                vec![UniDatValue::Scalar(UniScalarValue::from_i64(4))],
-                mudu_type::dat_type_id::DatTypeID::Timestamp,
+                UniDataType::Scalar(UniScalar::Timestamp),
+                vec![UniDataValue::Scalar(UniScalarValue::from_i64(4))],
+                mudu_type::type_family::TypeFamily::Timestamp,
                 4u8,
             ),
             (
-                UniDatType::Scalar(UniScalar::TimestampTz),
-                vec![UniDatValue::Scalar(UniScalarValue::from_i64(2))],
-                mudu_type::dat_type_id::DatTypeID::TimestampTz,
+                UniDataType::Scalar(UniScalar::TimestampTz),
+                vec![UniDataValue::Scalar(UniScalarValue::from_i64(2))],
+                mudu_type::type_family::TypeFamily::TimestampTz,
                 2u8,
             ),
         ];
 
         for (uni_ty, params, expected_id, expected_precision) in cases {
-            let dat_type = uni_ty.clone().uni_to_with_params(Some(params)).unwrap();
-            assert_eq!(dat_type.dat_type_id(), expected_id);
+            let data_type = uni_ty.clone().uni_to_with_params(Some(params)).unwrap();
+            assert_eq!(data_type.type_family(), expected_id);
             let actual_precision = match expected_id {
-                mudu_type::dat_type_id::DatTypeID::Time => dat_type.expect_time_param().precision(),
-                mudu_type::dat_type_id::DatTypeID::Timestamp => {
-                    dat_type.expect_timestamp_param().precision()
+                mudu_type::type_family::TypeFamily::Time => {
+                    data_type.expect_time_param().precision()
                 }
-                mudu_type::dat_type_id::DatTypeID::TimestampTz => {
-                    dat_type.expect_timestamptz_param().precision()
+                mudu_type::type_family::TypeFamily::Timestamp => {
+                    data_type.expect_timestamp_param().precision()
+                }
+                mudu_type::type_family::TypeFamily::TimestampTz => {
+                    data_type.expect_timestamptz_param().precision()
                 }
                 _ => unreachable!(),
             };
             assert_eq!(actual_precision, expected_precision);
 
-            let uni_back = UniDatType::uni_from(dat_type).unwrap();
+            let uni_back = UniDataType::uni_from(data_type).unwrap();
             assert_eq!(
                 serialize_to_json(&uni_back).unwrap(),
                 serialize_to_json(&uni_ty).unwrap()
@@ -391,24 +420,24 @@ mod tests {
     }
 
     #[test]
-    fn test_uni_temporal_values_roundtrip_through_dat_value() {
+    fn test_uni_temporal_values_roundtrip_through_data_value() {
         let cases = vec![
             (
-                UniDatValue::Scalar(UniScalarValue::from_date("2026-05-20".to_string())),
+                UniDataValue::Scalar(UniScalarValue::from_date("2026-05-20".to_string())),
                 "2026-05-20",
             ),
             (
-                UniDatValue::Scalar(UniScalarValue::from_time("12:34:56.123456".to_string())),
+                UniDataValue::Scalar(UniScalarValue::from_time("12:34:56.123456".to_string())),
                 "12:34:56.123456",
             ),
             (
-                UniDatValue::Scalar(UniScalarValue::from_timestamp(
+                UniDataValue::Scalar(UniScalarValue::from_timestamp(
                     "2026-05-20 14:30:45.123456".to_string(),
                 )),
                 "2026-05-20 14:30:45.123456",
             ),
             (
-                UniDatValue::Scalar(UniScalarValue::from_timestamptz(
+                UniDataValue::Scalar(UniScalarValue::from_timestamptz(
                     "2026-05-20T14:30:45.123456+08:00".to_string(),
                 )),
                 "2026-05-20 06:30:45.123456+00:00",
@@ -416,8 +445,8 @@ mod tests {
         ];
 
         for (uni_value, expected_text) in cases {
-            let dat_value = uni_value.clone().uni_to().unwrap();
-            let uni_back = UniDatValue::uni_from(dat_value).unwrap();
+            let data_value = uni_value.clone().uni_to().unwrap();
+            let uni_back = UniDataValue::uni_from(data_value).unwrap();
             let scalar = uni_back.as_scalar().expect("temporal scalar");
             let text = match scalar {
                 UniScalarValue::Date(v)
@@ -434,12 +463,12 @@ mod tests {
     #[test]
     fn test_uni_temporal_rejects_invalid_shapes() {
         let invalid_values = vec![
-            UniDatValue::Scalar(UniScalarValue::from_date("2026-02-30".to_string())),
-            UniDatValue::Scalar(UniScalarValue::from_time("25:00:00".to_string())),
-            UniDatValue::Scalar(UniScalarValue::from_timestamp(
+            UniDataValue::Scalar(UniScalarValue::from_date("2026-02-30".to_string())),
+            UniDataValue::Scalar(UniScalarValue::from_time("25:00:00".to_string())),
+            UniDataValue::Scalar(UniScalarValue::from_timestamp(
                 "not-a-timestamp".to_string(),
             )),
-            UniDatValue::Scalar(UniScalarValue::from_timestamptz(
+            UniDataValue::Scalar(UniScalarValue::from_timestamptz(
                 "2026-05-20 14:30:45".to_string(),
             )),
         ];

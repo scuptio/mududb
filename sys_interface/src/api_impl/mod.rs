@@ -59,6 +59,7 @@ pub(crate) fn serialize_fetch_result(result: RS<ResultBatch>) -> RS<Vec<u8>> {
             err_msg: err.message().to_string(),
             err_src: err.err_src().to_json_str(),
             err_loc: err.loc().to_string(),
+            err_details: Vec::new(),
         }),
     };
     serialize_to_vec(&payload)
@@ -94,13 +95,13 @@ mod tests {
     use mudu_binding::universal::uni_result_set::UniResultSet;
     use mudu_contract::database::result_batch::ResultBatch;
     use mudu_contract::tuple::tuple_value::TupleValue;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     #[test]
     fn result_batch_helpers_roundtrip_cursor_and_rows() {
         let batch = ResultBatch::from(
             7,
-            vec![TupleValue::from(vec![DatValue::from_i32(11)])],
+            vec![TupleValue::from(vec![DataValue::from_i32(11)])],
             true,
         );
         let uni = result_batch_to_uni(batch).unwrap();

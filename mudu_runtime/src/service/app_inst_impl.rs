@@ -1,11 +1,11 @@
 #![allow(missing_docs)]
 
-use crate::backend::mududb_cfg::ServerMode;
+use crate::backend::mudud_cfg::ServerMode;
 use crate::db_connector::DBConnector;
 use crate::procedure::procedure::Procedure;
 use crate::resolver::schema_mgr::SchemaMgr;
 use crate::service::app_inst::AppInst;
-use crate::service::mudu_package::MuduPackage;
+use crate::service::app_package::AppPackage;
 use crate::service::package_module::PackageModule;
 use crate::service::procedure_invoke_component::ProcedureInvokeComponent;
 use crate::service::runtime_opt::ComponentTarget;
@@ -48,7 +48,7 @@ struct AppInstImplInner {
 impl AppInstImpl {
     pub async fn build(
         db_path: &str,
-        package: &MuduPackage,
+        package: &AppPackage,
         vec_modules: Vec<(String, PackageModule)>,
         component_target: ComponentTarget,
         enable_async: bool,
@@ -103,7 +103,7 @@ impl AppInstImpl {
 impl AppInstImplInner {
     async fn build(
         db_path: &str,
-        package: &MuduPackage,
+        package: &AppPackage,
         vec_modules: Vec<(String, PackageModule)>,
         component_target: ComponentTarget,
         enable_async: bool,

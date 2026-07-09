@@ -7,14 +7,14 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 
 pub trait VecDynDatum: EnumerableDatum {}
 
 impl EnumerableDatum for [&dyn DatumDyn] {
-    fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
+    fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
         if datum_desc.len() != self.len() {
             return Err(mudu_error!(
                 ErrorCode::Parse,
@@ -28,7 +28,7 @@ impl EnumerableDatum for [&dyn DatumDyn] {
         let mut vec = Vec::with_capacity(self.len());
         for (i, t) in self.iter().enumerate() {
             let datum_desc = &datum_desc[i];
-            let value = t.to_value(datum_desc.dat_type())?;
+            let value = t.to_value(datum_desc.data_type())?;
             vec.push(value)
         }
         Ok(vec)
@@ -48,7 +48,7 @@ impl EnumerableDatum for [&dyn DatumDyn] {
         let mut vec = Vec::with_capacity(self.len());
         for (i, t) in self.iter().enumerate() {
             let datum_desc = &desc[i];
-            let binary = t.to_binary(datum_desc.dat_type())?;
+            let binary = t.to_binary(datum_desc.data_type())?;
             vec.push(binary.into())
         }
         Ok(vec)
@@ -57,14 +57,14 @@ impl EnumerableDatum for [&dyn DatumDyn] {
     fn tuple_desc(&self, field_name: &[String]) -> RS<TupleFieldDesc> {
         let mut vec = Vec::with_capacity(self.len());
         for (i, t) in self.iter().enumerate() {
-            let id = t.dat_type_id()?;
-            let dat_type = DatType::default_for(id);
+            let id = t.type_family()?;
+            let data_type = DataType::default_for(id);
             let name = if self.len() == field_name.len() {
                 field_name[i].clone()
             } else {
                 format!("v_{}", i)
             };
-            let datum_desc = DatumDesc::new(name, dat_type);
+            let datum_desc = DatumDesc::new(name, data_type);
             vec.push(datum_desc)
         }
         Ok(TupleFieldDesc::new(vec))

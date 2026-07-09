@@ -6,6 +6,12 @@ license = "Apache-2.0"
 
 [workspace]
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[workspace.lints.clippy]
+disallowed-types = "deny"
+
 [lib]
 crate-type = ["cdylib"]
 

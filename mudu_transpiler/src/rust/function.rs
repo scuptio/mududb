@@ -33,14 +33,14 @@ impl Function {
         }
         let mut params = Vec::with_capacity(self.arg_list.len() - 1);
         for (name, arg) in self.arg_list[1..].iter() {
-            let desc = DatumDesc::new(name.clone(), arg.to_dat_type(custom_types)?);
+            let desc = DatumDesc::new(name.clone(), arg.to_data_type(custom_types)?);
             params.push(desc);
         }
         let rets = if let Some(ty) = &self.return_type {
             let ret_ty = ty.as_ret_type()?;
             let mut rets = Vec::with_capacity(ret_ty.len());
             for (i, r) in ret_ty.iter().enumerate() {
-                let desc = DatumDesc::new(i.to_string(), r.to_dat_type(custom_types)?);
+                let desc = DatumDesc::new(i.to_string(), r.to_data_type(custom_types)?);
                 rets.push(desc);
             }
             rets

@@ -11,15 +11,15 @@ mod tests {
     use crate::tuple::slot::Slot;
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap()
     }
 
     fn string_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::default_for(DatTypeID::String)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::default_for(TypeFamily::String)]).unwrap()
     }
 
     #[test]
@@ -35,7 +35,7 @@ mod tests {
     fn read_slot_rejects_slot_out_of_tuple() {
         let field = FieldDesc::new(
             Slot::new(20, 8),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             false,
         );
         let tuple = vec![0u8; 8];
@@ -52,7 +52,7 @@ mod tests {
             .unwrap();
         let field = FieldDesc::new(
             Slot::new(0, 8),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             false,
         );
         let err = read_slot(&field, &tuple).unwrap_err();
@@ -89,8 +89,8 @@ mod tests {
     #[test]
     fn read_data_capacity_for_non_last_var_len_field() {
         let desc = TupleBinaryDesc::from(vec![
-            DatType::default_for(DatTypeID::String),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap();
         let tuple = build_tuple(&[b"hi".to_vec(), b"world".to_vec()], &desc).unwrap();
@@ -118,8 +118,8 @@ mod tests {
     #[test]
     fn read_data_capacity_rejects_invalid_next_slot() {
         let desc = TupleBinaryDesc::from(vec![
-            DatType::default_for(DatTypeID::String),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap();
         let mut tuple = build_tuple(&[b"hi".to_vec(), b"world".to_vec()], &desc).unwrap();
@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn read_data_capacity_rejects_too_small_gap_between_slots() {
         let desc = TupleBinaryDesc::from(vec![
-            DatType::default_for(DatTypeID::String),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap();
         let mut tuple = build_tuple(&[b"hi".to_vec(), b"world".to_vec()], &desc).unwrap();

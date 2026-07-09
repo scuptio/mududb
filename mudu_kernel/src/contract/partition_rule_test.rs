@@ -3,7 +3,7 @@
 use crate::contract::partition_rule::{
     PartitionBound, PartitionRuleDesc, PartitionRuleKind, RangePartitionDef,
 };
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::type_family::TypeFamily;
 
 #[test]
 fn range_partition_def_new() {
@@ -32,10 +32,10 @@ fn partition_rule_desc_new_range() {
             PartitionBound::Unbounded,
         ),
     ];
-    let rule = PartitionRuleDesc::new_range("rule1".to_string(), vec![DatTypeID::I32], partitions);
+    let rule = PartitionRuleDesc::new_range("rule1".to_string(), vec![TypeFamily::I32], partitions);
     assert_eq!(rule.name, "rule1");
     assert_eq!(rule.kind, PartitionRuleKind::Range);
-    assert_eq!(rule.key_types, vec![DatTypeID::I32]);
+    assert_eq!(rule.key_types, vec![TypeFamily::I32]);
     assert_eq!(rule.version, 1);
     assert_eq!(rule.partitions.len(), 2);
     assert_ne!(rule.oid, 0);
@@ -45,7 +45,7 @@ fn partition_rule_desc_new_range() {
 fn serde_roundtrip() {
     let rule = PartitionRuleDesc::new_range(
         "rule2".to_string(),
-        vec![DatTypeID::I64],
+        vec![TypeFamily::I64],
         vec![RangePartitionDef::new(
             "p0".to_string(),
             PartitionBound::Unbounded,

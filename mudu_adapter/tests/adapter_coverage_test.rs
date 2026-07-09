@@ -6,12 +6,12 @@ use mudu_adapter::{backend, config, kv, sqlite};
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
 use mudu_sys::time::system_time_now;
-use mudu_type::dat_binary::DatBinary;
-use mudu_type::dat_textual::DatTextual;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_binary::DataBinary;
+use mudu_type::data_textual::DataTextual;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
@@ -26,38 +26,38 @@ enum TestParam {
 }
 
 impl DatumDyn for TestParam {
-    fn dat_type_id(&self) -> RS<DatTypeID> {
+    fn type_family(&self) -> RS<TypeFamily> {
         match self {
-            TestParam::Null | TestParam::Blob(_) => Ok(DatTypeID::Binary),
-            TestParam::Bool(_) => Ok(DatTypeID::I32),
+            TestParam::Null | TestParam::Blob(_) => Ok(TypeFamily::Binary),
+            TestParam::Bool(_) => Ok(TypeFamily::I32),
         }
     }
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
         let value = match self {
-            TestParam::Null => return Ok(DatBinary::from(Vec::new())),
-            TestParam::Blob(b) => DatValue::from_binary(b.clone()),
-            TestParam::Bool(b) => DatValue::from_i32(if *b { 1 } else { 0 }),
+            TestParam::Null => return Ok(DataBinary::from(Vec::new())),
+            TestParam::Blob(b) => DataValue::from_binary(b.clone()),
+            TestParam::Bool(b) => DataValue::from_i32(if *b { 1 } else { 0 }),
         };
-        dat_type.dat_type_id().fn_send()(&value, dat_type).map_err(|e| e.to_m_err())
+        data_type.type_family().fn_send()(&value, data_type).map_err(|e| e.to_m_err())
     }
 
-    fn to_textual(&self, _dat_type: &DatType) -> RS<DatTextual> {
+    fn to_textual(&self, _data_type: &DataType) -> RS<DataTextual> {
         match self {
-            TestParam::Null => Ok(DatTextual::from("NULL".to_string())),
+            TestParam::Null => Ok(DataTextual::from("NULL".to_string())),
             TestParam::Blob(b) => {
                 let hex: String = b.iter().map(|byte| format!("{:02x}", byte)).collect();
-                Ok(DatTextual::from(format!("X'{hex}'")))
+                Ok(DataTextual::from(format!("X'{hex}'")))
             }
-            TestParam::Bool(b) => Ok(DatTextual::from(if *b { "1" } else { "0" }.to_string())),
+            TestParam::Bool(b) => Ok(DataTextual::from(if *b { "1" } else { "0" }.to_string())),
         }
     }
 
-    fn to_value(&self, _dat_type: &DatType) -> RS<DatValue> {
+    fn to_value(&self, _data_type: &DataType) -> RS<DataValue> {
         match self {
-            TestParam::Null => Ok(DatValue::null()),
-            TestParam::Blob(b) => Ok(DatValue::from_binary(b.clone())),
-            TestParam::Bool(b) => Ok(DatValue::from_i32(if *b { 1 } else { 0 })),
+            TestParam::Null => Ok(DataValue::null()),
+            TestParam::Blob(b) => Ok(DataValue::from_binary(b.clone())),
+            TestParam::Bool(b) => Ok(DataValue::from_i32(if *b { 1 } else { 0 })),
         }
     }
 

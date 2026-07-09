@@ -3,7 +3,7 @@
 use super::TemplateTableCS;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_def::{RecordField, UniTableDef};
 use mudu_binding::universal::uni_scalar::UniScalar;
 
@@ -14,18 +14,18 @@ fn sample_table_def() -> UniTableDef {
         table_key: vec![RecordField {
             rf_comments: "/// Primary key.".to_string(),
             rf_name: "id".to_string(),
-            rf_type: UniDatType::Scalar(UniScalar::I64),
+            rf_type: UniDataType::Scalar(UniScalar::I64),
         }],
         table_value: vec![
             RecordField {
                 rf_comments: "/// User name.".to_string(),
                 rf_name: "name".to_string(),
-                rf_type: UniDatType::Scalar(UniScalar::String),
+                rf_type: UniDataType::Scalar(UniScalar::String),
             },
             RecordField {
                 rf_comments: String::new(),
                 rf_name: "age".to_string(),
-                rf_type: UniDatType::Scalar(UniScalar::I32),
+                rf_type: UniDataType::Scalar(UniScalar::I32),
             },
         ],
     }

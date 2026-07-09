@@ -8,7 +8,7 @@ lang="rust"
 pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
-        return Err(m_error!(
+        return Err(mudu_error!(
             MuduError,
             "The transfer amount must be greater than 0"
         ));
@@ -16,7 +16,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Cannot transfer money to oneself
     if from_user_id == to_user_id {
-        return Err(m_error!(MuduError, "Cannot transfer money to oneself"));
+        return Err(mudu_error!(MuduError, "Cannot transfer money to oneself"));
     }
 
     // Check whether the transfer-out account exists and has sufficient balance
@@ -29,11 +29,11 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(MuduError, "no such user"));
     };
 
     if *from_wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "insufficient funds"));
+        return Err(mudu_error!(MuduError, "insufficient funds"));
     }
 
     // Check the user account existing
@@ -45,7 +45,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let _to_wallet = if let Some(row) = to_wallet.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(MuduError, "no such user"));
     };
 
     // Perform a transfer operation
@@ -56,7 +56,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(amount, from_user_id)),
     )?;
     if deduct_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = mudu_command(
@@ -65,7 +65,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(amount, to_user_id)),
     )?;
     if increase_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
 
     // 3. Entity the transaction
@@ -82,7 +82,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(id, from_user_id, to_user_id, amount)),
     )?;
     if insert_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
     Ok(())
 }

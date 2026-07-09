@@ -10,21 +10,21 @@ mod tests {
     use mudu::common::endian::Endian;
     use mudu::error::ErrorCode;
     use mudu::utils::json::JsonValue;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dtp_numeric::DTPNumeric;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_desc() -> Vec<DatumDesc> {
         vec![DatumDesc::new(
             "x".to_string(),
-            DatType::new_no_param(DatTypeID::I32),
+            DataType::new_no_param(TypeFamily::I32),
         )]
     }
 
     fn nullable_string_desc() -> Vec<DatumDesc> {
         vec![DatumDesc::new_nullable(
             "name".to_string(),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             true,
         )]
     }
@@ -32,7 +32,7 @@ mod tests {
     fn numeric_desc() -> Vec<DatumDesc> {
         vec![DatumDesc::new(
             "num".to_string(),
-            DatType::from_numeric(DTPNumeric::new(3, 0)),
+            DataType::from_numeric(DataTypeParamNumeric::new(3, 0)),
         )]
     }
 

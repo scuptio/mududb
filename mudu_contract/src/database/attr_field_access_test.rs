@@ -5,7 +5,7 @@ mod tests {
         attr_get_binary, attr_get_value, attr_set_binary, attr_set_value, datum_from_value,
         field_from_binary, field_to_binary, field_to_value,
     };
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     #[test]
     fn field_binary_roundtrip() {
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn datum_from_value_extracts_value() {
-        let value = DatValue::from_i32(7);
+        let value = DataValue::from_i32(7);
         let datum: i32 = datum_from_value(&value).unwrap();
         assert_eq!(datum, 7);
     }
@@ -65,11 +65,11 @@ mod tests {
     #[test]
     fn attr_set_value_replaces_some_and_creates_none() {
         let mut attr: Option<i32> = Some(0);
-        attr_set_value(&mut attr, DatValue::from_i32(42)).unwrap();
+        attr_set_value(&mut attr, DataValue::from_i32(42)).unwrap();
         assert_eq!(attr.unwrap(), 42);
 
         let mut attr: Option<i32> = None;
-        attr_set_value(&mut attr, DatValue::from_i32(7)).unwrap();
+        attr_set_value(&mut attr, DataValue::from_i32(7)).unwrap();
         assert_eq!(attr.unwrap(), 7);
     }
 }

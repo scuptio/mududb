@@ -13,9 +13,9 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dt_info::DTInfo;
+use mudu_type::data_type::DataType;
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -81,8 +81,8 @@ fn sample_schema(name: &str, oid: OID) -> SchemaTable {
     let column = SchemaColumn::new_with_oid(
         gen_oid(),
         "c1".to_string(),
-        DatTypeID::I64,
-        DTInfo::from_opt_object(&DatType::new_no_param(DatTypeID::I64)),
+        TypeFamily::I64,
+        DataTypeInfo::from_opt_object(&DataType::new_no_param(TypeFamily::I64)),
     );
     SchemaTable::new_with_oid(oid, name.to_string(), vec![column], vec![0], vec![])
 }

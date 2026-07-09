@@ -1,8 +1,8 @@
 use mudu::common::result::RS;
 use mudu_cli::client::json_client::JsonClient;
 use mudu_runtime::backend::backend::Backend;
-use mudu_runtime::backend::mududb_cfg::ServerMode;
-use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode};
+use mudu_runtime::backend::mudud_cfg::ServerMode;
+use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, read_to_string, remove_dir_all, remove_file, write};
 use mudu_sys::net::sync::{SStdTcpStream, StdTcpListener};

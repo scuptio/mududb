@@ -8,12 +8,12 @@ use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
 
 #[derive(Clone, Debug)]
 pub enum NullableValue {
     Null,
-    Value(DatValue),
+    Value(DataValue),
 }
 
 pub struct TupleBuilder<'a> {
@@ -58,7 +58,7 @@ impl<'a> TupleBuilder<'a> {
                         bitmap.set(bit_idx as usize, false)?;
                     }
                     let type_obj = field.type_obj();
-                    let binary: Vec<u8> = type_obj.dat_type_id().fn_send()(value, type_obj)
+                    let binary: Vec<u8> = type_obj.type_family().fn_send()(value, type_obj)
                         .map_err(|e| {
                             mudu_error!(ErrorCode::InvalidType, format!("fn_send failed: {e}"))
                         })?
@@ -129,7 +129,7 @@ pub fn read_value(
     };
 
     let type_obj = field.type_obj();
-    let (value, _) = type_obj.dat_type_id().fn_recv()(bytes, type_obj).map_err(|e| {
+    let (value, _) = type_obj.type_family().fn_recv()(bytes, type_obj).map_err(|e| {
         mudu_error!(
             ErrorCode::TypeConversionFailed,
             "convert binary to value error",

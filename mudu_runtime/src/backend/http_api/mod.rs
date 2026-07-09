@@ -18,7 +18,7 @@ mod kernel_invoke_client_factory;
 pub use kernel_http_api::KernelHttpApi;
 pub use kernel_invoke_client_factory::KernelInvokeClientFactory;
 
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::service::app_inst::AppInst;
 use crate::service::runtime::Runtime;
 use actix_cors::Cors;
@@ -481,15 +481,15 @@ pub(crate) fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<Proc
                 )
             })?
             .clone();
-        let id = datum_desc.dat_type_id();
-        let dat_value = id.fn_input_json()(&value, datum_desc.dat_type()).map_err(|e| {
+        let id = datum_desc.type_family();
+        let data_value = id.fn_input_json()(&value, datum_desc.data_type()).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "convert printable to internal error",
                 e
             )
         })?;
-        vec.push(dat_value)
+        vec.push(data_value)
     }
     Ok(ProcedureParam::new(0, 0, vec))
 }
@@ -596,7 +596,7 @@ mod test {
     use mudu_kernel::meta::meta_mgr_factory::MetaMgrFactory;
     use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::type_family::TypeFamily;
     use mudu_utils::oid::gen_oid;
 
     struct MockHttpApi;
@@ -830,7 +830,7 @@ mod test {
 
         let rule = PartitionRuleDesc::new_range(
             "global_rule".to_string(),
-            vec![DatTypeID::I32],
+            vec![TypeFamily::I32],
             vec![
                 RangePartitionDef::new(
                     "p0".to_string(),
@@ -1013,7 +1013,7 @@ mod test {
         meta_mgr.initialize().await.unwrap();
         let rule = PartitionRuleDesc::new_range(
             "shape_rule".to_string(),
-            vec![DatTypeID::I32],
+            vec![TypeFamily::I32],
             vec![RangePartitionDef::new(
                 "p0".to_string(),
                 PartitionBound::Unbounded,

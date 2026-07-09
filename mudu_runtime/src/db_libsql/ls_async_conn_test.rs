@@ -2,10 +2,10 @@
 
 use super::*;
 use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 
 fn temp_db() -> (tempfile::TempDir, String, String) {
     let dir = tempfile::TempDir::new().unwrap();
@@ -15,11 +15,11 @@ fn temp_db() -> (tempfile::TempDir, String, String) {
 }
 
 fn i32_desc(name: &str) -> DatumDesc {
-    DatumDesc::new(name.to_string(), DatType::default_for(DatTypeID::I32))
+    DatumDesc::new(name.to_string(), DataType::default_for(TypeFamily::I32))
 }
 
 fn boxed_i32(v: i32) -> Box<dyn DatumDyn> {
-    Box::new(DatValue::from_i32(v))
+    Box::new(DataValue::from_i32(v))
 }
 
 #[test]
@@ -283,7 +283,8 @@ fn sync_query_with_string_param_returns_row() {
     )
     .unwrap();
     conn.sync_begin_tx().unwrap();
-    let params: Vec<Box<dyn DatumDyn>> = vec![Box::new(DatValue::from_string("hello".to_string()))];
+    let params: Vec<Box<dyn DatumDyn>> =
+        vec![Box::new(DataValue::from_string("hello".to_string()))];
     let (rs, _desc) = conn
         .sync_query(&"SELECT a, b FROM t WHERE b = ?;", &params)
         .unwrap();

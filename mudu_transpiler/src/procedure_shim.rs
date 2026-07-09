@@ -75,8 +75,8 @@ pub struct ProcedureShimInput {
 pub struct ProcedureShimField {
     /// Field name.
     pub name: String,
-    /// Rust expression that yields the field's [`mudu_type::dat_type::DatType`].
-    pub dat_type_expr: String,
+    /// Rust expression that yields the field's [`mudu_type::data_type::DataType`].
+    pub data_type_expr: String,
 }
 
 #[derive(Template)]

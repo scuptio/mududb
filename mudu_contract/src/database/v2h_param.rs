@@ -5,13 +5,13 @@ use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::id::OID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
 use serde::{Deserialize, Serialize};
 
 pub struct QueryIn {
     xid: OID,
     sql: String,
-    param_list: Vec<DatValue>,
+    param_list: Vec<DataValue>,
     param_desc: TupleFieldDesc,
 }
 
@@ -45,7 +45,7 @@ pub struct CommandResult {
 }
 
 impl QueryIn {
-    pub fn new(xid: OID, sql: String, param: Vec<DatValue>, desc: TupleFieldDesc) -> Self {
+    pub fn new(xid: OID, sql: String, param: Vec<DataValue>, desc: TupleFieldDesc) -> Self {
         Self {
             xid,
             sql,
@@ -62,7 +62,7 @@ impl QueryIn {
         &self.sql
     }
 
-    pub fn param_list(&self) -> &Vec<DatValue> {
+    pub fn param_list(&self) -> &Vec<DataValue> {
         &self.param_list
     }
 

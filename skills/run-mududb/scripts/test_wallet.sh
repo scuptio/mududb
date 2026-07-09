@@ -6,17 +6,18 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 MPK="$ROOT/testing/mpk/wallet.mpk"
 HTTP=8300
+TCP=9527
 
 pass=0
 fail=0
 
 invoke() {
-    curl -s -X POST "http://127.0.0.1:$HTTP/mudu/app/invoke/wallet/wallet/$1" \
-        -H "Content-Type: application/json" -d "$2"
+    mcli --addr 127.0.0.1:$TCP --http-addr 127.0.0.1:$HTTP app-invoke \
+        --app wallet --module wallet --proc "$1" --json "$2"
 }
 
 query() {
-    mcli command --json "{\"app_name\":\"wallet\",\"sql\":\"$1\"}" --compact --no-table 2>&1
+    mcli --addr 127.0.0.1:$TCP command --json "{\"app_name\":\"wallet\",\"sql\":\"$1\"}" --compact --no-table 2>&1
 }
 
 check_json() {

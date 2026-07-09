@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
 use super::AppInstImpl;
-use crate::backend::mududb_cfg::ServerMode;
+use crate::backend::mudud_cfg::ServerMode;
 use crate::service::app_inst::AppInst;
-use crate::service::mudu_package::MuduPackage;
+use crate::service::app_package::AppPackage;
 use crate::service::runtime_opt::ComponentTarget;
 use mudu::common::app_info::AppInfo;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
@@ -23,8 +23,8 @@ fn test_proc_desc(module_name: &str, proc_name: &str) -> ProcDesc {
     )
 }
 
-fn test_package(desc: ModProcDesc) -> MuduPackage {
-    MuduPackage {
+fn test_package(desc: ModProcDesc) -> AppPackage {
+    AppPackage {
         package_cfg: AppInfo {
             name: "app".to_string(),
             lang: "rust".to_string(),

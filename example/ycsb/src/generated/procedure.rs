@@ -158,7 +158,7 @@ pub fn mudu_argv_desc_ycsb_read()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -173,7 +173,7 @@ pub fn mudu_result_desc_ycsb_read()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -253,11 +253,11 @@ pub fn mudu_argv_desc_ycsb_update()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "value".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -346,11 +346,11 @@ pub fn mudu_argv_desc_ycsb_insert()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "value".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -439,11 +439,11 @@ pub fn mudu_argv_desc_ycsb_read_modify_write()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "append_value".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -458,7 +458,7 @@ pub fn mudu_result_desc_ycsb_read_modify_write()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -544,11 +544,11 @@ pub fn mudu_argv_desc_ycsb_scan()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "start_user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "end_user_key".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -563,7 +563,7 @@ pub fn mudu_result_desc_ycsb_scan()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <Vec<String> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<String> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })

@@ -3,7 +3,7 @@
 use mududb::common::id::OID;
 use mududb::common::result::RS;
 use mududb::contract::procedure::procedure_param::ProcedureParam;
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_value::DataValue;
 
 #[test]
 fn generated_command_wrapper_roundtrip() -> RS<()> {
@@ -11,7 +11,7 @@ fn generated_command_wrapper_roundtrip() -> RS<()> {
 
     let xid: OID = 9;
     let msg = vec![10, 20, 30];
-    let param = ProcedureParam::new(xid, 0, vec![DatValue::from_binary(msg.clone())]);
+    let param = ProcedureParam::new(xid, 0, vec![DataValue::from_binary(msg.clone())]);
 
     let result = mudu_inner_p2_command(param)?;
     let values = result.into();
@@ -39,19 +39,22 @@ fn generated_command_describes_arguments_and_result() {
     use crate::generated::procedure::{
         mudu_argv_desc_command, mudu_proc_desc_command, mudu_result_desc_command,
     };
-    use mududb::types::dat_type_id::DatTypeID;
+    use mududb::types::type_family::TypeFamily;
 
     let argv = mudu_argv_desc_command();
     assert_eq!(argv.fields().len(), 1);
     assert_eq!(argv.fields()[0].name(), "message");
-    assert_eq!(argv.fields()[0].dat_type().dat_type_id(), DatTypeID::Binary);
+    assert_eq!(
+        argv.fields()[0].data_type().type_family(),
+        TypeFamily::Binary
+    );
 
     let result = mudu_result_desc_command();
     assert_eq!(result.fields().len(), 1);
     assert_eq!(result.fields()[0].name(), "0");
     assert_eq!(
-        result.fields()[0].dat_type().dat_type_id(),
-        DatTypeID::Binary
+        result.fields()[0].data_type().type_family(),
+        TypeFamily::Binary
     );
 
     let proc = mudu_proc_desc_command();
@@ -64,7 +67,7 @@ fn generated_event_describes_arguments_and_result() {
     use crate::generated::procedure::{
         mudu_argv_desc_event, mudu_proc_desc_event, mudu_result_desc_event,
     };
-    use mududb::types::dat_type_id::DatTypeID;
+    use mududb::types::type_family::TypeFamily;
 
     let argv = mudu_argv_desc_event();
     assert!(argv.fields().is_empty());
@@ -73,8 +76,8 @@ fn generated_event_describes_arguments_and_result() {
     assert_eq!(result.fields().len(), 1);
     assert_eq!(result.fields()[0].name(), "0");
     assert_eq!(
-        result.fields()[0].dat_type().dat_type_id(),
-        DatTypeID::Binary
+        result.fields()[0].data_type().type_family(),
+        TypeFamily::Binary
     );
 
     let proc = mudu_proc_desc_event();

@@ -17,9 +17,9 @@ mod tests {
     use crate::wal::xl_data_op::XLInsert;
     use crate::wal::xl_entry::TxOp;
     use mudu_sys::env_var::temp_dir;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dt_fn_param::DatType;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type_fn_param::DataType;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
     use mudu_utils::oid::gen_oid;
     use std::future::Future;
 
@@ -38,13 +38,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
                 SchemaColumn::new(
                     "v".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
             ],
             vec![0],
@@ -65,54 +65,56 @@ mod tests {
     }
 
     fn datum_string(v: &str) -> Vec<u8> {
-        mudu_type::dt_function::send_binary(
-            &mudu_type::dat_value::DatValue::from_string(v.to_string()),
-            &mudu_type::dat_type::DatType::default_for(mudu_type::dat_type_id::DatTypeID::String),
+        mudu_type::data_type_function::send_binary(
+            &mudu_type::data_value::DataValue::from_string(v.to_string()),
+            &mudu_type::data_type::DataType::default_for(
+                mudu_type::type_family::TypeFamily::String,
+            ),
         )
         .unwrap()
     }
 
     fn wallet_users_schema() -> SchemaTable {
         use crate::contract::schema_column::SchemaColumn;
-        use mudu_type::dt_info::DTInfo;
+        use mudu_type::data_type_info::DataTypeInfo;
 
         SchemaTable::new(
             "users".to_string(),
             vec![
                 SchemaColumn::new(
                     "user_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
                 SchemaColumn::new(
                     "phone".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
                 SchemaColumn::new(
                     "email".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
                 SchemaColumn::new(
                     "password".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
                 SchemaColumn::new(
                     "created_at".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "updated_at".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
             ],
             vec![0],

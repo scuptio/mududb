@@ -2,7 +2,7 @@
 
 ## 范围
 
-本文档规定 MuduDB 数据库文件、目录与制品包在磁盘上的布局。它将 [page header](page_header_v1.md)、[tuple binary format](tuple_binary_v1.md)、[log frame](log_frame_v1.md)、[protocol frame](protocol_frame_v1.md)、[MPK manifest](mpk_manifest_v1.md) 与 [server configuration](mududb_cfg_v1.md) 等 lower-level 契约整合为文件级视图。
+本文档规定 MuduDB 数据库文件、目录与制品包在磁盘上的布局。它将 [page header](page_header_v1.md)、[tuple binary format](tuple_binary_v1.md)、[log frame](log_frame_v1.md)、[protocol frame](protocol_frame_v1.md)、[MPK manifest](mpk_manifest_v1.md) 与 [server configuration](mudud_cfg_v1.md) 等 lower-level 契约整合为文件级视图。
 
 ## 版本历史
 
@@ -103,7 +103,7 @@ manifest 语义参见 [MPK Manifest Contract v1](mpk_manifest_v1.md)。包本身
 
 ## 服务端配置
 
-服务端配置为 TOML 文件。参见 [MuduDB Server Configuration Contract v1](mududb_cfg_v1.md)。
+服务端配置为 TOML 文件。参见 [MuduDB Server Configuration Contract v1](mudud_cfg_v1.md)。
 
 ## 目录约定
 
@@ -145,7 +145,7 @@ manifest 语义参见 [MPK Manifest Contract v1](mpk_manifest_v1.md)。包本身
 - Log frame：[log_frame_v1.md](log_frame_v1.md)
 - Protocol frame：[protocol_frame_v1.md](protocol_frame_v1.md)
 - MPK manifest：[mpk_manifest_v1.md](mpk_manifest_v1.md)
-- Server config：[mududb_cfg_v1.md](mududb_cfg_v1.md)
+- Server config：[mudud_cfg_v1.md](mudud_cfg_v1.md)
 - 实现：
   - [mudu_kernel/src/storage/time_series/time_series_file.rs](../../../mudu_kernel/src/storage/time_series/time_series_file.rs)
   - [mudu_kernel/src/storage/relation/relation.rs](../../../mudu_kernel/src/storage/relation/relation.rs)

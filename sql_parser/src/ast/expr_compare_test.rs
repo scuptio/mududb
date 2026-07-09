@@ -10,7 +10,7 @@ use crate::ast::expr_item::{ExprItem, ExprValue};
 use crate::ast::expr_literal::ExprLiteral;
 use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::ValueCompare;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 
 fn field(name: &str) -> ExprItem {
     let mut expr = ExprName::new();
@@ -20,7 +20,7 @@ fn field(name: &str) -> ExprItem {
 
 fn literal_i32(value: i32) -> ExprItem {
     ExprItem::ItemValue(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(value),
+        DataTyped::from_i32(value),
     )))
 }
 

@@ -48,7 +48,7 @@ impl ResultSet {
             .map(|row| {
                 row.values()
                     .iter()
-                    .map(value::from_dat_value)
+                    .map(value::from_data_value)
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();

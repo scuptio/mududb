@@ -19,7 +19,7 @@ mod management_thread;
 /// Mudu application manager implementation.
 pub mod mudu_app_mgr;
 /// MuduDB server configuration.
-pub mod mududb_cfg;
+pub mod mudud_cfg;
 mod session;
 mod session_ctx;
 #[cfg(test)]

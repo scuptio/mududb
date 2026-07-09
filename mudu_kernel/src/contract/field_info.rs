@@ -1,11 +1,11 @@
 use mudu::common::id::{AttrIndex, DatumIndex, OID};
-use mudu_type::dt_fn_param::DatType;
+use mudu_type::data_type_fn_param::DataType;
 
 #[derive(Clone, Debug, Default)]
 pub struct FieldInfo {
     name: String,
     id: OID,
-    type_desc: DatType,
+    type_desc: DataType,
     // index in key or value tuple
     datum_index: DatumIndex,
     // index in original create table column definition list
@@ -18,7 +18,7 @@ impl FieldInfo {
     pub fn new(
         name: String,
         id: OID,
-        type_desc: DatType,
+        type_desc: DataType,
         datum_index: DatumIndex,
         column_index: AttrIndex,
         primary_index: Option<AttrIndex>,
@@ -63,7 +63,7 @@ impl FieldInfo {
         self.datum_index = index;
     }
 
-    pub fn type_desc(&self) -> &DatType {
+    pub fn type_desc(&self) -> &DataType {
         &self.type_desc
     }
 

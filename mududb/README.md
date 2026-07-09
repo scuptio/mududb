@@ -16,7 +16,7 @@
 - Low-level syscall ABI definitions and host implementation: `sys_interface`, `mudu_sys`, `mudu_sys_impl`, `mudu_sys_wasm`, `mudu_adapter`.
 - Concrete domain implementations that are only re-exported here: `mudu_type`, `mudu_contract`, `mudu_binding`.
 - Code generation, SQL parsing, and grammar crates: `mudu_gen`, `mudu_transpiler`, `sql_parser`, `tree-sitter-sql`, `tree-sitter-wit`.
-- CLI, packaging, build tooling, and example applications: `mudu_cli`, `mudu_package`, `mudu_build_common`, `example/*`.
+- CLI, packaging, build tooling, and example applications: `mudu_cli`, `mpm_build`, `mudu_build_common`, `example/*`.
 
 ## Main public entry points
 

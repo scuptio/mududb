@@ -4,11 +4,11 @@ use mudu::common::result::RS;
 use mudu::common::result_from::ResultFrom;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
 impl UniScalar {
-    pub fn uni_to(self) -> RS<DatType> {
+    pub fn uni_to(self) -> RS<DataType> {
         let ty = match self {
             UniScalar::Bool => {
                 return Err(mudu_error!(
@@ -46,75 +46,75 @@ impl UniScalar {
                     "scalar u32 is not supported"
                 ));
             }
-            UniScalar::I32 => DatType::default_for(DatTypeID::I32),
+            UniScalar::I32 => DataType::default_for(TypeFamily::I32),
             UniScalar::U64 => {
                 return Err(mudu_error!(
                     ErrorCode::InvalidType,
                     "scalar u64 is not supported"
                 ));
             }
-            UniScalar::U128 => DatType::default_for(DatTypeID::U128),
-            UniScalar::I64 => DatType::default_for(DatTypeID::I64),
-            UniScalar::I128 => DatType::default_for(DatTypeID::I128),
-            UniScalar::F32 => DatType::default_for(DatTypeID::F32),
-            UniScalar::F64 => DatType::default_for(DatTypeID::F64),
+            UniScalar::U128 => DataType::default_for(TypeFamily::U128),
+            UniScalar::I64 => DataType::default_for(TypeFamily::I64),
+            UniScalar::I128 => DataType::default_for(TypeFamily::I128),
+            UniScalar::F32 => DataType::default_for(TypeFamily::F32),
+            UniScalar::F64 => DataType::default_for(TypeFamily::F64),
             UniScalar::Char => {
                 return Err(mudu_error!(
                     ErrorCode::InvalidType,
                     "scalar char is not supported"
                 ));
             }
-            UniScalar::String => DatType::default_for(DatTypeID::String),
-            UniScalar::Blob => DatType::new_no_param(DatTypeID::Binary),
-            UniScalar::Numeric => DatType::default_for(DatTypeID::Numeric),
-            UniScalar::Date => DatType::default_for(DatTypeID::Date),
-            UniScalar::Time => DatType::default_for(DatTypeID::Time),
-            UniScalar::Timestamp => DatType::default_for(DatTypeID::Timestamp),
-            UniScalar::TimestampTz => DatType::default_for(DatTypeID::TimestampTz),
+            UniScalar::String => DataType::default_for(TypeFamily::String),
+            UniScalar::Blob => DataType::new_no_param(TypeFamily::Binary),
+            UniScalar::Numeric => DataType::default_for(TypeFamily::Numeric),
+            UniScalar::Date => DataType::default_for(TypeFamily::Date),
+            UniScalar::Time => DataType::default_for(TypeFamily::Time),
+            UniScalar::Timestamp => DataType::default_for(TypeFamily::Timestamp),
+            UniScalar::TimestampTz => DataType::default_for(TypeFamily::TimestampTz),
         };
         Ok(ty)
     }
 
-    pub fn uni_from(ty: DatType) -> RS<Self> {
-        let uni_scalar = match ty.dat_type_id() {
-            DatTypeID::I32 => Self::I32,
-            DatTypeID::I64 => Self::I64,
-            DatTypeID::I128 => Self::I128,
-            DatTypeID::U128 => Self::U128,
-            DatTypeID::F32 => Self::F32,
-            DatTypeID::F64 => Self::F64,
-            DatTypeID::String => Self::String,
-            DatTypeID::Numeric => Self::Numeric,
-            DatTypeID::Date => Self::Date,
-            DatTypeID::Time => Self::Time,
-            DatTypeID::Timestamp => Self::Timestamp,
-            DatTypeID::TimestampTz => Self::TimestampTz,
-            DatTypeID::Array => {
+    pub fn uni_from(ty: DataType) -> RS<Self> {
+        let uni_scalar = match ty.type_family() {
+            TypeFamily::I32 => Self::I32,
+            TypeFamily::I64 => Self::I64,
+            TypeFamily::I128 => Self::I128,
+            TypeFamily::U128 => Self::U128,
+            TypeFamily::F32 => Self::F32,
+            TypeFamily::F64 => Self::F64,
+            TypeFamily::String => Self::String,
+            TypeFamily::Numeric => Self::Numeric,
+            TypeFamily::Date => Self::Date,
+            TypeFamily::Time => Self::Time,
+            TypeFamily::Timestamp => Self::Timestamp,
+            TypeFamily::TimestampTz => Self::TimestampTz,
+            TypeFamily::Array => {
                 return Err(mudu_error!(
                     ErrorCode::InvalidType,
                     "array type is not scalar"
                 ));
             }
-            DatTypeID::Record => {
+            TypeFamily::Record => {
                 return Err(mudu_error!(
                     ErrorCode::InvalidType,
                     "record type is not scalar"
                 ));
             }
-            DatTypeID::Binary => Self::Blob,
+            TypeFamily::Binary => Self::Blob,
         };
         Ok(uni_scalar)
     }
 }
 
-impl ToResult<DatType> for UniScalar {
-    fn to(self) -> RS<DatType> {
+impl ToResult<DataType> for UniScalar {
+    fn to(self) -> RS<DataType> {
         self.uni_to()
     }
 }
 
-impl ResultFrom<DatType> for UniScalar {
-    fn from(value: DatType) -> RS<Self> {
+impl ResultFrom<DataType> for UniScalar {
+    fn from(value: DataType) -> RS<Self> {
         Self::uni_from(value)
     }
 }
@@ -122,28 +122,28 @@ impl ResultFrom<DatType> for UniScalar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::type_family::TypeFamily;
 
     #[test]
     fn supported_uni_to_mudu_roundtrip() {
         let cases = [
-            (UniScalar::I32, DatTypeID::I32),
-            (UniScalar::I64, DatTypeID::I64),
-            (UniScalar::I128, DatTypeID::I128),
-            (UniScalar::U128, DatTypeID::U128),
-            (UniScalar::F32, DatTypeID::F32),
-            (UniScalar::F64, DatTypeID::F64),
-            (UniScalar::String, DatTypeID::String),
-            (UniScalar::Blob, DatTypeID::Binary),
-            (UniScalar::Numeric, DatTypeID::Numeric),
-            (UniScalar::Date, DatTypeID::Date),
-            (UniScalar::Time, DatTypeID::Time),
-            (UniScalar::Timestamp, DatTypeID::Timestamp),
-            (UniScalar::TimestampTz, DatTypeID::TimestampTz),
+            (UniScalar::I32, TypeFamily::I32),
+            (UniScalar::I64, TypeFamily::I64),
+            (UniScalar::I128, TypeFamily::I128),
+            (UniScalar::U128, TypeFamily::U128),
+            (UniScalar::F32, TypeFamily::F32),
+            (UniScalar::F64, TypeFamily::F64),
+            (UniScalar::String, TypeFamily::String),
+            (UniScalar::Blob, TypeFamily::Binary),
+            (UniScalar::Numeric, TypeFamily::Numeric),
+            (UniScalar::Date, TypeFamily::Date),
+            (UniScalar::Time, TypeFamily::Time),
+            (UniScalar::Timestamp, TypeFamily::Timestamp),
+            (UniScalar::TimestampTz, TypeFamily::TimestampTz),
         ];
         for (uni, expected_id) in cases {
             let dat = uni.uni_to().unwrap();
-            assert_eq!(dat.dat_type_id(), expected_id);
+            assert_eq!(dat.type_family(), expected_id);
             assert_eq!(UniScalar::uni_from(dat).unwrap(), uni);
         }
     }
@@ -168,18 +168,18 @@ mod tests {
 
     #[test]
     fn non_scalar_uni_from_rejected() {
-        for dat_id in [DatTypeID::Array, DatTypeID::Record] {
-            let err = UniScalar::uni_from(DatType::new_no_param(dat_id)).unwrap_err();
+        for dat_id in [TypeFamily::Array, TypeFamily::Record] {
+            let err = UniScalar::uni_from(DataType::new_no_param(dat_id)).unwrap_err();
             assert_eq!(err.ec(), ErrorCode::InvalidType);
         }
     }
 
     #[test]
     fn result_from_and_to_result_traits() {
-        let dat: DatType = UniScalar::I64.to().unwrap();
-        assert_eq!(dat.dat_type_id(), DatTypeID::I64);
+        let dat: DataType = UniScalar::I64.to().unwrap();
+        assert_eq!(dat.type_family(), TypeFamily::I64);
 
-        let back: UniScalar = ResultFrom::from(DatType::default_for(DatTypeID::String)).unwrap();
+        let back: UniScalar = ResultFrom::from(DataType::default_for(TypeFamily::String)).unwrap();
         assert_eq!(back, UniScalar::String);
     }
 }

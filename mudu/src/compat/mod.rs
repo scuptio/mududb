@@ -31,6 +31,9 @@ pub enum FormatKind {
     /// Tuple binary format used inside pages, log entries and frames
     /// (see `doc/en/contract/tuple_binary_v1.md`).
     TupleBinary,
+    /// Guest→host syscall request/response payload
+    /// (see `doc/en/contract/syscall_payload_v1.md`).
+    SyscallPayload,
 }
 
 impl fmt::Display for FormatKind {
@@ -43,6 +46,7 @@ impl fmt::Display for FormatKind {
             Self::ServerConfig => f.write_str("server config"),
             Self::FileLayout => f.write_str("file layout"),
             Self::TupleBinary => f.write_str("tuple binary"),
+            Self::SyscallPayload => f.write_str("syscall payload"),
         }
     }
 }
@@ -61,6 +65,8 @@ pub const SERVER_CONFIG_CURRENT_VERSION: u32 = 1;
 pub const FILE_LAYOUT_CURRENT_VERSION: u32 = 1;
 /// Current version for the tuple binary format.
 pub const TUPLE_BINARY_CURRENT_VERSION: u32 = 1;
+/// Current version for the guest→host syscall payload format.
+pub const SYSCALL_PAYLOAD_CURRENT_VERSION: u32 = 1;
 
 /// Supported version range for a format family, inclusive on both ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,13 +103,14 @@ impl CompatibilityMatrix {
     /// Registered magic value for `kind`.
     pub const fn magic(kind: FormatKind) -> u32 {
         match kind {
-            FormatKind::Page => 0x5041_4745,          // PAGE
-            FormatKind::LogFrame => 0x4C47_464D,      // LGFM
-            FormatKind::ProtocolFrame => 0x4D53_464D, // MSFM
-            FormatKind::MpkManifest => 0x4D50_4B4D,   // MPKM
-            FormatKind::ServerConfig => 0,            // text config, no magic
-            FormatKind::FileLayout => 0,              // composite format, no single magic
-            FormatKind::TupleBinary => 0,             // schema-driven format, no single magic
+            FormatKind::Page => 0x5041_4745,           // PAGE
+            FormatKind::LogFrame => 0x4C47_464D,       // LGFM
+            FormatKind::ProtocolFrame => 0x4D53_464D,  // MSFM
+            FormatKind::MpkManifest => 0x4D50_4B4D,    // MPKM
+            FormatKind::ServerConfig => 0,             // text config, no magic
+            FormatKind::FileLayout => 0,               // composite format, no single magic
+            FormatKind::TupleBinary => 0,              // schema-driven format, no single magic
+            FormatKind::SyscallPayload => 0x4D53_5350, // MSSP
         }
     }
 
@@ -117,6 +124,7 @@ impl CompatibilityMatrix {
             FormatKind::ServerConfig => VersionRange::new(1, SERVER_CONFIG_CURRENT_VERSION),
             FormatKind::FileLayout => VersionRange::new(1, FILE_LAYOUT_CURRENT_VERSION),
             FormatKind::TupleBinary => VersionRange::new(1, TUPLE_BINARY_CURRENT_VERSION),
+            FormatKind::SyscallPayload => VersionRange::new(1, SYSCALL_PAYLOAD_CURRENT_VERSION),
         }
     }
 
@@ -130,6 +138,7 @@ impl CompatibilityMatrix {
             FormatKind::ServerConfig => SERVER_CONFIG_CURRENT_VERSION,
             FormatKind::FileLayout => FILE_LAYOUT_CURRENT_VERSION,
             FormatKind::TupleBinary => TUPLE_BINARY_CURRENT_VERSION,
+            FormatKind::SyscallPayload => SYSCALL_PAYLOAD_CURRENT_VERSION,
         }
     }
 
@@ -352,6 +361,12 @@ mod tests {
             (FormatKind::ServerConfig, 0, 1, "server config"),
             (FormatKind::FileLayout, 0, 1, "file layout"),
             (FormatKind::TupleBinary, 0, 1, "tuple binary"),
+            (
+                FormatKind::SyscallPayload,
+                0x4D53_5350,
+                1,
+                "syscall payload",
+            ),
         ];
         for (kind, magic, latest, display) in cases {
             assert_eq!(CompatibilityMatrix::magic(kind), magic);

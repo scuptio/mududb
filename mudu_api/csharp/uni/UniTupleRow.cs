@@ -21,7 +21,7 @@ public struct UniTupleRow {
     
     
     [Key(0)]
-    public required List<UniDatValue> Fields { get; set; }
+    public required List<UniDataValue> Fields { get; set; }
     
 }
 

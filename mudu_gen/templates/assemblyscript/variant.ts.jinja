@@ -1,0 +1,66 @@
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+export enum {{ variant.variant_name }}Kind {
+{% for case in variant.variant_cases %}
+    {{ case.vc_case_name }} = {{ case.vc_number }},
+{% endfor %}
+}
+
+{% for case in variant.variant_cases %}
+export class {{ variant.variant_name }}{{ case.vc_case_name }} {
+    kind: {{ variant.variant_name }}Kind = {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    {% if case.vc_has_inner_type %}
+    inner: {{ case.vc_inner_type_name }} = {{ case.vc_inner_default_value }};
+    {% endif %}
+}
+{% endfor %}
+
+export type {{ variant.variant_name }} =
+{% for case in variant.variant_cases %}
+    {{ variant.variant_name }}{{ case.vc_case_name }}{% if !loop.last %} |{% endif %}
+{% endfor %};
+
+export class {{ variant.variant_name }}Codec {
+    static encode(value: {{ variant.variant_name }}, writer: MpackWriter): void {
+        writer.writeArrayHeader(2);
+        writer.writeU32(value.kind);
+        switch (value.kind) {
+            {% for case in variant.variant_cases %}
+            case {{ variant.variant_name }}Kind.{{ case.vc_case_name }}:
+                {% if case.vc_has_inner_type %}
+                writer.write((value as {{ variant.variant_name }}{{ case.vc_case_name }}).inner);
+                {% else %}
+                writer.writeNil();
+                {% endif %}
+                break;
+            {% endfor %}
+            default:
+                throw new Error(`Unknown kind: ${value.kind}`);
+        }
+    }
+
+    static decode(reader: MpackReader): {{ variant.variant_name }} {
+        const count = reader.readArrayHeader();
+        if (count !== 2) {
+            throw new Error(`Expected array of length 2, got ${count}`);
+        }
+        const tag = reader.readU32();
+        switch (tag) {
+            {% for case in variant.variant_cases %}
+            case {{ case.vc_number }}: {
+                {% if case.vc_has_inner_type %}
+                const value = new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                value.inner = reader.read<{{ case.vc_inner_type_name }}>();
+                return value;
+                {% else %}
+                reader.readNil();
+                return new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                {% endif %}
+            }
+            {% endfor %}
+            default:
+                throw new Error(`Unknown tag: ${tag}`);
+        }
+    }
+}

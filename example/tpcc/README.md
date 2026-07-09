@@ -1,6 +1,6 @@
 # TPC-C Example
 
-> This is a **benchmark example**, not a beginner tutorial. If you are new to Mudu Procedures, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First Procedure tutorial](../../doc/en/your_first_procedure.md).
+> This is a **benchmark example**, not a beginner tutorial. If you are new to MuduDB, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First MPK tutorial](../../doc/en/your_first_mpk.md).
 
 This example provides a portable TPC-C style benchmark package for the `mudu`
 toolchain. It stays intentionally smaller than a full audited specification
@@ -20,7 +20,7 @@ Before building, make sure you have:
 - [ ] `rustup` + `cargo` + `wasm32-wasip2` target
 - [ ] `cargo-make`
 - [ ] `python3` with `tomli-w` and `toml`
-- [ ] `mgen`, `mtp`, `mpk`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
+- [ ] `mgen`, `mtp`, `mpm-build`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 The SQL avoids SQLite-only constructs such as `INSERT OR REPLACE` / `INSERT OR IGNORE`
 so the example remains compatible with MuduDB, SQLite, and PostgreSQL. Where a
@@ -114,7 +114,7 @@ cargo run -p tpcc --features benchmark-runner --bin tpcc-benchmark -- \
 Notes:
 
 - `src/rust/` only contains synchronous source procedures.
-- async procedure code is expected to be produced by the `mpk` transpile stage into `src/generated/`.
+- async procedure code is expected to be produced by the `mpm-build` transpile stage into `src/generated/`.
 - in `--mode interactive`, the host benchmark binary exercises the synchronous Rust implementation.
 - in `--mode stored-procedure`, the benchmark invokes the transpiled `.mpk` procedures over mudud TCP.
 

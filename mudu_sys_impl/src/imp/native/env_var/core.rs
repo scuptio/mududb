@@ -31,6 +31,10 @@ impl EnvVar {
         })
     }
 
+    pub fn home_dir() -> Option<PathBuf> {
+        std::env::var("HOME").ok().map(PathBuf::from)
+    }
+
     pub fn args_os() -> Vec<OsString> {
         std::env::args_os().collect()
     }
@@ -102,6 +106,17 @@ mod tests {
         let current = EnvVar::current_dir();
         assert!(current.is_ok());
         assert!(current.unwrap().is_absolute());
+    }
+
+    #[test]
+    fn home_dir_returns_absolute_path_when_home_set() {
+        let home = EnvVar::home_dir();
+        if std::env::var("HOME").is_ok() {
+            assert!(home.is_some());
+            assert!(home.unwrap().is_absolute());
+        } else {
+            assert!(home.is_none());
+        }
     }
 
     #[test]

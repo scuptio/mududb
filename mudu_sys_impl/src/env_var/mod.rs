@@ -28,6 +28,10 @@ pub fn current_dir() -> RS<PathBuf> {
     crate::default_env().env_var().current_dir()
 }
 
+pub fn home_dir() -> Option<PathBuf> {
+    crate::default_env().env_var().home_dir()
+}
+
 pub fn args_os() -> Vec<OsString> {
     crate::default_env().env_var().args_os()
 }

@@ -10,9 +10,10 @@
 | Tuple Binary Format | [v1](tuple_binary_v1.md) | 稳定 | [mudu_contract/src/tuple/tuple_binary.rs](../../../mudu_contract/src/tuple/tuple_binary.rs) |
 | Log Frame（WAL/XL/PL） | [v1](log_frame_v1.md) | 稳定 | [mudu_kernel/src/wal/format/latest.rs](../../../mudu_kernel/src/wal/format/latest.rs) |
 | TCP 协议帧 | [v1](protocol_frame_v1.md) | 稳定 | [mudu_contract/src/protocol/format/latest.rs](../../../mudu_contract/src/protocol/format/latest.rs) |
-| MPK 包清单 | [v1](mpk_manifest_v1.md) | 稳定 | [mudu_runtime/src/service/mudu_package.rs](../../../mudu_runtime/src/service/mudu_package.rs) |
-| 服务端配置 | [v1](mududb_cfg_v1.md) | 稳定 | [mudu_runtime/src/backend/mududb_cfg.rs](../../../mudu_runtime/src/backend/mududb_cfg.rs) |
+| MPK 包清单 | [v1](mpk_manifest_v1.md) | 稳定 | [mudu_runtime/src/service/app_package.rs](../../../mudu_runtime/src/service/app_package.rs) |
+| 服务端配置 | [v1](mudud_cfg_v1.md) | 稳定 | [mudu_runtime/src/backend/mudud_cfg.rs](../../../mudu_runtime/src/backend/mudud_cfg.rs) |
 | 文件布局 | [v1](file_layout_v1.md) | 稳定 | [mudu_kernel/src/storage/time_series/time_series_file.rs](../../../mudu_kernel/src/storage/time_series/time_series_file.rs) |
+| Guest→Host 系统调用负载 | [v1](syscall_payload_v1.md) | 草案 | [mudu/src/compat/mod.rs](../../../mudu/src/compat/mod.rs)（注册表；编解码器待 Phase 2） |
 
 ## 新增或修改契约
 

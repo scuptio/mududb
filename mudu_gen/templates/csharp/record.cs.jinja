@@ -1,7 +1,7 @@
 {% if record.record_comments.len() > 0 %}
 {{ record.record_comments }}
 {% endif %}
-[MessagePackObject]
+[MessagePackFormatter(typeof({{ record.record_name }}Formatter))]
 public struct {{ record.record_name }} {
     {% if cfg.impl_default %}
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -16,7 +16,43 @@ public struct {{ record.record_name }} {
     {% if field.rf_comments.len() > 0 %}
     {{ field.rf_comments }}
     {% endif %}
-    [Key({{field.rf_index}})]
     public {% if field.rf_required %}required {% endif %}{{ field.rf_type }} {{ field.rf_name }} { get; set; }
     {% endfor %}
+}
+
+public class {{ record.record_name }}Formatter : IMessagePackFormatter<{{ record.record_name }}?>
+{
+    public void Serialize(ref MessagePackWriter writer, {{ record.record_name }}? value, MessagePackSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNil();
+            return;
+        }
+
+        writer.WriteArrayHeader({{ record.record_fields.len() }});
+        {% for field in record.record_fields %}
+        MessagePackSerializer.Serialize(ref writer, value.{{ field.rf_name }}, options);
+        {% endfor %}
+    }
+
+    public {{ record.record_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    {
+        if (reader.TryReadNil())
+        {
+            return null;
+        }
+
+        var count = reader.ReadArrayHeader();
+        if (count != {{ record.record_fields.len() }})
+        {
+            throw new global::System.InvalidOperationException($"Expected array of length {{ record.record_fields.len() }}, got {count}");
+        }
+
+        var value = new {{ record.record_name }}();
+        {% for field in record.record_fields %}
+        value.{{ field.rf_name }} = MessagePackSerializer.Deserialize<{{ field.rf_type }}>(ref reader, options){{ field.rf_deserialize_suffix }};
+        {% endfor %}
+        return value;
+    }
 }

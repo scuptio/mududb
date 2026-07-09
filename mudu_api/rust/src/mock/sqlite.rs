@@ -1,7 +1,7 @@
 use crate::error::ApiError;
 use crate::types::{UniCommandResult, UniCommandReturn, UniQueryReturn};
 use crate::{
-    UniCommandArgv, UniDatType, UniDatValue, UniError, UniScalar, UniScalarValue,
+    UniCommandArgv, UniDataType, UniDataValue, UniError, UniScalar, UniScalarValue,
     UniQueryArgv, UniQueryResult, UniRecordField, UniRecordType, UniResult, UniResultSet,
     UniTupleRow,
 };
@@ -140,12 +140,12 @@ impl MockSqliteMuduSysCall {
         Connection::open(path).map_err(|error| error.to_string())
     }
 
-    fn to_db_values(values: Vec<UniDatValue>) -> Result<Vec<Value>, String> {
+    fn to_db_values(values: Vec<UniDataValue>) -> Result<Vec<Value>, String> {
         values
             .into_iter()
             .map(|value| match value {
-                UniDatValue::Scalar(scalar) => Self::to_db_scalar(scalar),
-                UniDatValue::Binary(bytes) => Ok(Value::Blob(bytes)),
+                UniDataValue::Scalar(scalar) => Self::to_db_scalar(scalar),
+                UniDataValue::Binary(bytes) => Ok(Value::Blob(bytes)),
                 other => Err(format!("unsupported sqlite parameter type: {other:?}")),
             })
             .collect()
@@ -171,14 +171,14 @@ impl MockSqliteMuduSysCall {
 
     fn read_row(
         row: &rusqlite::Row<'_>,
-        inferred_types: &mut [Option<UniDatType>],
+        inferred_types: &mut [Option<UniDataType>],
     ) -> Result<UniTupleRow, String> {
         let mut fields = Vec::with_capacity(row.as_ref().column_count());
         for index in 0..row.as_ref().column_count() {
             let value = row.get_ref(index).map_err(|error| error.to_string())?;
-            let field = Self::to_uni_dat_value(value)?;
+            let field = Self::to_uni_data_value(value)?;
             if inferred_types[index].is_none() {
-                inferred_types[index] = Some(Self::infer_uni_dat_type(&field));
+                inferred_types[index] = Some(Self::infer_uni_data_type(&field));
             }
             fields.push(field);
         }
@@ -188,14 +188,14 @@ impl MockSqliteMuduSysCall {
 
     fn build_tuple_desc(
         column_names: Vec<String>,
-        inferred_types: Vec<Option<UniDatType>>,
+        inferred_types: Vec<Option<UniDataType>>,
     ) -> UniRecordType {
         let record_fields = column_names
             .into_iter()
             .zip(inferred_types)
             .map(|(field_name, field_type)| UniRecordField {
                 field_name,
-                field_type: field_type.unwrap_or(UniDatType::Scalar(UniScalar::String)),
+                field_type: field_type.unwrap_or(UniDataType::Scalar(UniScalar::String)),
             })
             .collect();
 
@@ -205,62 +205,62 @@ impl MockSqliteMuduSysCall {
         }
     }
 
-    fn to_uni_dat_value(value: ValueRef<'_>) -> Result<UniDatValue, String> {
+    fn to_uni_data_value(value: ValueRef<'_>) -> Result<UniDataValue, String> {
         match value {
             ValueRef::Null => Err("NULL value is not supported".to_string()),
-            ValueRef::Integer(v) => Ok(UniDatValue::Scalar(UniScalarValue::I64(v))),
-            ValueRef::Real(v) => Ok(UniDatValue::Scalar(UniScalarValue::F64(v))),
-            ValueRef::Text(v) => Ok(UniDatValue::Scalar(UniScalarValue::String(
+            ValueRef::Integer(v) => Ok(UniDataValue::Scalar(UniScalarValue::I64(v))),
+            ValueRef::Real(v) => Ok(UniDataValue::Scalar(UniScalarValue::F64(v))),
+            ValueRef::Text(v) => Ok(UniDataValue::Scalar(UniScalarValue::String(
                 String::from_utf8_lossy(v).into_owned(),
             ))),
-            ValueRef::Blob(v) => Ok(UniDatValue::Binary(v.to_vec())),
+            ValueRef::Blob(v) => Ok(UniDataValue::Binary(v.to_vec())),
         }
     }
 
-    fn infer_uni_dat_type(value: &UniDatValue) -> UniDatType {
+    fn infer_uni_data_type(value: &UniDataValue) -> UniDataType {
         match value {
-            UniDatValue::Scalar(UniScalarValue::Bool(_)) => {
-                UniDatType::Scalar(UniScalar::Bool)
+            UniDataValue::Scalar(UniScalarValue::Bool(_)) => {
+                UniDataType::Scalar(UniScalar::Bool)
             }
-            UniDatValue::Scalar(UniScalarValue::U8(_)) => {
-                UniDatType::Scalar(UniScalar::U8)
+            UniDataValue::Scalar(UniScalarValue::U8(_)) => {
+                UniDataType::Scalar(UniScalar::U8)
             }
-            UniDatValue::Scalar(UniScalarValue::I8(_)) => {
-                UniDatType::Scalar(UniScalar::I8)
+            UniDataValue::Scalar(UniScalarValue::I8(_)) => {
+                UniDataType::Scalar(UniScalar::I8)
             }
-            UniDatValue::Scalar(UniScalarValue::U16(_)) => {
-                UniDatType::Scalar(UniScalar::U16)
+            UniDataValue::Scalar(UniScalarValue::U16(_)) => {
+                UniDataType::Scalar(UniScalar::U16)
             }
-            UniDatValue::Scalar(UniScalarValue::I16(_)) => {
-                UniDatType::Scalar(UniScalar::I16)
+            UniDataValue::Scalar(UniScalarValue::I16(_)) => {
+                UniDataType::Scalar(UniScalar::I16)
             }
-            UniDatValue::Scalar(UniScalarValue::U32(_)) => {
-                UniDatType::Scalar(UniScalar::U32)
+            UniDataValue::Scalar(UniScalarValue::U32(_)) => {
+                UniDataType::Scalar(UniScalar::U32)
             }
-            UniDatValue::Scalar(UniScalarValue::I32(_)) => {
-                UniDatType::Scalar(UniScalar::I32)
+            UniDataValue::Scalar(UniScalarValue::I32(_)) => {
+                UniDataType::Scalar(UniScalar::I32)
             }
-            UniDatValue::Scalar(UniScalarValue::U64(_)) => {
-                UniDatType::Scalar(UniScalar::U64)
+            UniDataValue::Scalar(UniScalarValue::U64(_)) => {
+                UniDataType::Scalar(UniScalar::U64)
             }
-            UniDatValue::Scalar(UniScalarValue::I64(_)) => {
-                UniDatType::Scalar(UniScalar::I64)
+            UniDataValue::Scalar(UniScalarValue::I64(_)) => {
+                UniDataType::Scalar(UniScalar::I64)
             }
-            UniDatValue::Scalar(UniScalarValue::F32(_)) => {
-                UniDatType::Scalar(UniScalar::F32)
+            UniDataValue::Scalar(UniScalarValue::F32(_)) => {
+                UniDataType::Scalar(UniScalar::F32)
             }
-            UniDatValue::Scalar(UniScalarValue::F64(_)) => {
-                UniDatType::Scalar(UniScalar::F64)
+            UniDataValue::Scalar(UniScalarValue::F64(_)) => {
+                UniDataType::Scalar(UniScalar::F64)
             }
-            UniDatValue::Scalar(UniScalarValue::Char(_)) => {
-                UniDatType::Scalar(UniScalar::Char)
+            UniDataValue::Scalar(UniScalarValue::Char(_)) => {
+                UniDataType::Scalar(UniScalar::Char)
             }
-            UniDatValue::Scalar(UniScalarValue::String(_)) => {
-                UniDatType::Scalar(UniScalar::String)
+            UniDataValue::Scalar(UniScalarValue::String(_)) => {
+                UniDataType::Scalar(UniScalar::String)
             }
-            UniDatValue::Binary(_) => UniDatType::Scalar(UniScalar::Blob),
-            UniDatValue::Array(_) | UniDatValue::Record(_) => {
-                UniDatType::Scalar(UniScalar::String)
+            UniDataValue::Binary(_) => UniDataType::Scalar(UniScalar::Blob),
+            UniDataValue::Array(_) | UniDataValue::Record(_) => {
+                UniDataType::Scalar(UniScalar::String)
             }
         }
     }

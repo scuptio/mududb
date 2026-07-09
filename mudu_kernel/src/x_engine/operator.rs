@@ -1,13 +1,13 @@
-use crate::x_engine::dat_bin::DatBin;
+use crate::x_engine::data_bin::DataBin;
 use std::ops::Bound;
 
 #[derive(Clone, Debug)]
 pub enum Operator {
-    Equal(DatBin),
-    NonEqual(DatBin),
-    Greater(DatBin),
-    Less(DatBin),
-    LessEqual(DatBin),
-    GreaterEqual(DatBin),
-    Range(Bound<DatBin>, Bound<DatBin>),
+    Equal(DataBin),
+    NonEqual(DataBin),
+    Greater(DataBin),
+    Less(DataBin),
+    LessEqual(DataBin),
+    GreaterEqual(DataBin),
+    Range(Bound<DataBin>, Bound<DataBin>),
 }

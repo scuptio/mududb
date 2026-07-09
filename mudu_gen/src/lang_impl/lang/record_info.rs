@@ -19,6 +19,7 @@ pub struct RecordInfo {
 #[derive(Debug, Clone)]
 pub struct RecordFieldInfo {
     /// Field index.
+    #[allow(dead_code)]
     pub rf_index: u32,
     /// Field doc comments.
     pub rf_comments: String,
@@ -30,6 +31,8 @@ pub struct RecordFieldInfo {
     pub rf_required: bool,
     /// Default-value expression for the field.
     pub rf_default_value: String,
+    /// Suffix used when deserializing the field (C# null-forgiving operator).
+    pub rf_deserialize_suffix: String,
 }
 
 impl RecordInfo {
@@ -51,7 +54,7 @@ mod tests {
     use super::RecordInfo;
     use crate::lang_impl::lang::lang_kind::LangKind;
     use mudu::common::result::RS;
-    use mudu_binding::universal::uni_dat_type::UniDatType;
+    use mudu_binding::universal::uni_data_type::UniDataType;
     use mudu_binding::universal::uni_def::{RecordField, UniRecordDef};
     use mudu_binding::universal::uni_scalar::UniScalar;
 
@@ -64,12 +67,12 @@ mod tests {
                 RecordField {
                     rf_comments: "high bits".to_string(),
                     rf_name: "h".to_string(),
-                    rf_type: UniDatType::Scalar(UniScalar::U64),
+                    rf_type: UniDataType::Scalar(UniScalar::U64),
                 },
                 RecordField {
                     rf_comments: "low bits".to_string(),
                     rf_name: "l".to_string(),
-                    rf_type: UniDatType::Scalar(UniScalar::U64),
+                    rf_type: UniDataType::Scalar(UniScalar::U64),
                 },
             ],
         };
@@ -89,7 +92,7 @@ mod tests {
             record_fields: vec![RecordField {
                 rf_comments: String::new(),
                 rf_name: "err-msg".to_string(),
-                rf_type: UniDatType::Scalar(UniScalar::String),
+                rf_type: UniDataType::Scalar(UniScalar::String),
             }],
         };
         let info = RecordInfo::from(record_def, LangKind::CSharp)?;

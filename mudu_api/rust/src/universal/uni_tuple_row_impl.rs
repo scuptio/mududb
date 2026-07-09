@@ -1,4 +1,4 @@
-use crate::universal::uni_dat_value::UniDatValue;
+use crate::universal::uni_data_value::UniDataValue;
 use crate::universal::uni_tuple_row::UniTupleRow;
 use mudu::common::result::RS;
 use mudu_contract::tuple::tuple_value::TupleValue;
@@ -16,7 +16,7 @@ impl UniTupleRow {
     pub fn uni_from(tuple_value: TupleValue) -> RS<UniTupleRow> {
         let mut vec = Vec::with_capacity(tuple_value.values().len());
         for value in tuple_value.into() {
-            let value = UniDatValue::uni_from(value)?;
+            let value = UniDataValue::uni_from(value)?;
             vec.push(value);
         }
         Ok(UniTupleRow { fields: vec })

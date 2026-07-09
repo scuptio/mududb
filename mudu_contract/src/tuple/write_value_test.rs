@@ -11,17 +11,21 @@ mod tests {
     };
     use mudu::common::buf::Buf;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_field_desc() -> FieldDesc {
-        FieldDesc::new(Slot::new(0, 4), DatType::new_no_param(DatTypeID::I32), true)
+        FieldDesc::new(
+            Slot::new(0, 4),
+            DataType::new_no_param(TypeFamily::I32),
+            true,
+        )
     }
 
     fn string_field_desc() -> FieldDesc {
         FieldDesc::new(
             Slot::new(0, 8),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             false,
         )
     }
@@ -65,7 +69,7 @@ mod tests {
     fn write_slot_to_tuple_rejects_slot_out_of_bounds() {
         let field = FieldDesc::new(
             Slot::new(20, 8),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             false,
         );
         let mut tuple = vec![0u8; 16];

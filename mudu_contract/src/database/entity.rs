@@ -8,7 +8,7 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::{Datum, DatumDyn};
 use paste::paste;
 
@@ -23,9 +23,9 @@ pub trait Entity: private::Sealed + Datum {
 
     fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DatValue>>;
+    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
 
-    fn set_field_value<D: AsRef<DatValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
+    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
 
     fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
         entity_utils::entity_from_tuple_field(tuple_row)
@@ -56,7 +56,7 @@ macro_rules! impl_entity_trait {
                     fn tuple_desc() -> &'static TupleFieldDesc {
                         lazy_static::lazy_static! {
                             static ref TUPLE_DESC:TupleFieldDesc = TupleFieldDesc::new(vec![
-                                DatumDesc::new(format!("{}_{}", OBJECT_FIELD_PREFIX, stringify!($variant_lower)), $datum_type::dat_type().clone())]);
+                                DatumDesc::new(format!("{}_{}", OBJECT_FIELD_PREFIX, stringify!($variant_lower)), $datum_type::data_type().clone())]);
                         }
                         &TUPLE_DESC
                     }
@@ -71,8 +71,8 @@ macro_rules! impl_entity_trait {
                     }
 
                     fn get_field_binary(&self, _: &str) -> RS<Option<Vec<u8>>> {
-                        let dat_binary = self.to_binary(&Self::dat_type())?;
-                        Ok(Some(dat_binary.into()))
+                        let data_binary = self.to_binary(&Self::data_type())?;
+                        Ok(Some(data_binary.into()))
                     }
 
                     fn set_field_binary<B: AsRef<[u8]>>(&mut self, _: &str, binary: B) -> RS<()> {
@@ -81,11 +81,11 @@ macro_rules! impl_entity_trait {
                         Ok(())
                     }
 
-                    fn get_field_value(&self, _: &str) -> RS<Option<DatValue>> {
-                        Ok(Some(DatValue::[<from_$variant_lower>](self.clone())))
+                    fn get_field_value(&self, _: &str) -> RS<Option<DataValue>> {
+                        Ok(Some(DataValue::[<from_$variant_lower>](self.clone())))
                     }
 
-                    fn set_field_value<D: AsRef<DatValue>>(&mut self, _: &str, value: D) -> RS<()> {
+                    fn set_field_value<D: AsRef<DataValue>>(&mut self, _: &str, value: D) -> RS<()> {
                         let field_value = value.as_ref().[<as_$variant_lower>]()
                             .map_or_else( ||{ Err(mudu_error!(ErrorCode::InvalidType, "")) }, |v|{Ok(v.clone())},)?;
                         *self = field_value;

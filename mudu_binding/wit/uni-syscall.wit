@@ -1,0 +1,18 @@
+use crate:universal:uni-command-argv/uni-command-argv;
+use crate:universal:uni-command-result/uni-command-result;
+use crate:universal:uni-query-argv/uni-query-argv;
+use crate:universal:uni-query-result/uni-query-result;
+use crate:universal:uni-error/uni-error;
+use crate:universal:uni-oid/uni-oid;
+
+interface universal {
+    query: func(argv: uni-query-argv) -> result<uni-query-result, uni-error>;
+    command: func(argv: uni-command-argv) -> result<uni-command-result, uni-error>;
+    batch: func(argv: uni-command-argv) -> result<uni-command-result, uni-error>;
+    open-session: func(worker-id: uni-oid) -> result<uni-oid, uni-error>;
+    close-session: func(oid: uni-oid) -> result<_, uni-error>;
+    get: func(oid: uni-oid, key: list<u8>) -> result<option<list<u8>>, uni-error>;
+    put: func(oid: uni-oid, key: list<u8>, value: list<u8>) -> result<_, uni-error>;
+    delete: func(oid: uni-oid, key: list<u8>) -> result<_, uni-error>;
+    range: func(oid: uni-oid, start: list<u8>, end: list<u8>) -> result<list<tuple<list<u8>, list<u8>>>, uni-error>;
+}

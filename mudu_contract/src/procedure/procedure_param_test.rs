@@ -5,16 +5,16 @@ mod tests {
     use crate::tuple::tuple_datum::TupleDatum;
     use crate::tuple::typed_bin::TypedBin;
     use mudu::common::id::OID;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
     use mudu_type::datum::DatumDyn;
+    use mudu_type::type_family::TypeFamily;
 
     fn sample_oid() -> OID {
         42
     }
 
-    fn sample_values() -> Vec<DatValue> {
-        vec![DatValue::from_i32(1), DatValue::from_i64(2)]
+    fn sample_values() -> Vec<DataValue> {
+        vec![DataValue::from_i32(1), DataValue::from_i64(2)]
     }
 
     #[test]
@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn from_datum_vec() {
         let desc = <(i32, i64) as TupleDatum>::tuple_desc_static(&[]);
-        let bin_i32 = TypedBin::new(DatTypeID::I32, vec![0, 0, 0, 1]);
-        let bin_i64 = TypedBin::new(DatTypeID::I64, vec![0, 0, 0, 0, 0, 0, 0, 2]);
+        let bin_i32 = TypedBin::new(TypeFamily::I32, vec![0, 0, 0, 1]);
+        let bin_i64 = TypedBin::new(TypeFamily::I64, vec![0, 0, 0, 0, 0, 0, 0, 2]);
         let argv: Vec<&dyn DatumDyn> = vec![&bin_i32, &bin_i64];
         let p = ProcedureParam::from_datum_vec(sample_oid(), &argv, &desc).unwrap();
         assert_eq!(p.session_id(), sample_oid());

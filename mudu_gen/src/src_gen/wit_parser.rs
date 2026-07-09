@@ -1,11 +1,11 @@
 //! WIT interface parser built on tree-sitter.
 
-use crate::src_gen::wit_def::WitDef;
+use crate::src_gen::wit_def::{WitDef, WitFuncDef};
 use crate::ts_const;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_def::{
     EnumCase, RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef, VariantCase,
 };
@@ -311,6 +311,10 @@ impl WitParser {
                 let variant_def = self.visit_variant_item(context, node)?;
                 wit_dat.variants.push(variant_def);
             }
+            ts_const::ts_kind_name::S_FUNC_ITEM => {
+                let func_def = self.visit_func_item(context, node)?;
+                wit_dat.functions.push(func_def);
+            }
             _ => {}
         }
         let mut cursor = node.walk();
@@ -331,6 +335,105 @@ impl WitParser {
         let name = context.text_of_node(&name_node)?;
         Ok(name)
     }
+
+    fn visit_func_item(&self, context: &ParseContext, node: &Node) -> RS<WitFuncDef> {
+        let mut func_def = WitFuncDef {
+            func_comments: String::new(),
+            func_name: String::new(),
+            params: Vec::new(),
+            returns: Vec::new(),
+        };
+        if let Some(comment) = node.child_by_field_name(ts_const::ts_field_name::COMMENT) {
+            func_def.func_comments = context.text_of_node(&comment)?;
+        }
+        let name_node = expected_get_filed(node, ts_const::ts_field_name::NAME)?;
+        func_def.func_name = context.text_of_node(&name_node)?;
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == ts_const::ts_kind_name::S_FUNC_TYPE {
+                let (params, returns) = self.visit_func_type(context, &child)?;
+                func_def.params = params;
+                func_def.returns = returns;
+                break;
+            }
+        }
+        Ok(func_def)
+    }
+
+    fn visit_func_type(
+        &self,
+        context: &ParseContext,
+        node: &Node,
+    ) -> RS<(Vec<RecordField>, Vec<RecordField>)> {
+        let mut params = Vec::new();
+        let mut returns = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                ts_const::ts_kind_name::S_PARAM_LIST => {
+                    params = self.visit_param_list(context, &child)?;
+                }
+                ts_const::ts_kind_name::S_RESULT_LIST => {
+                    returns = self.visit_result_list(context, &child)?;
+                }
+                _ => {}
+            }
+        }
+        Ok((params, returns))
+    }
+
+    fn visit_param_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<RecordField>> {
+        let mut fields = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == ts_const::ts_kind_name::S_NAMED_TYPE {
+                fields.push(self.visit_named_type(context, &child)?);
+            }
+        }
+        Ok(fields)
+    }
+
+    fn visit_result_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<RecordField>> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                ts_const::ts_kind_name::S_TY => {
+                    let ty = self.visit_type(context, &child)?;
+                    return Ok(vec![RecordField {
+                        rf_comments: String::new(),
+                        rf_name: String::new(),
+                        rf_type: ty,
+                    }]);
+                }
+                ts_const::ts_kind_name::S__NAMED_TYPE_LIST => {
+                    let mut fields = Vec::new();
+                    let mut inner_cursor = child.walk();
+                    for nt in child.children(&mut inner_cursor) {
+                        if nt.kind() == ts_const::ts_kind_name::S_NAMED_TYPE {
+                            fields.push(self.visit_named_type(context, &nt)?);
+                        }
+                    }
+                    return Ok(fields);
+                }
+                _ => {}
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    fn visit_named_type(&self, context: &ParseContext, node: &Node) -> RS<RecordField> {
+        let name_node = expected_get_filed(node, ts_const::ts_field_name::NAME)?;
+        let name = context.text_of_node(&name_node)?;
+        let type_node = expected_get_filed(node, ts_const::ts_field_name::TYPE)?;
+        let ty = self.visit_type(context, &type_node)?;
+        Ok(RecordField {
+            rf_comments: String::new(),
+            rf_name: name,
+            rf_type: ty,
+        })
+    }
+
     fn visit_use_item_inner(
         &self,
         context: &ParseContext,
@@ -385,7 +488,7 @@ impl WitParser {
                     return Ok(vec![RecordField {
                         rf_comments: String::new(),
                         rf_name: String::new(),
-                        rf_type: UniDatType::Identifier(name),
+                        rf_type: UniDataType::Identifier(name),
                     }]);
                 }
                 ts_const::ts_kind_name::S_RECORD_BODY => {
@@ -579,7 +682,7 @@ impl WitParser {
         Ok(variant_case_def)
     }
 
-    fn visit_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn visit_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let child = node.child(0).map_or_else(
             || {
                 Err(mudu_error!(
@@ -593,7 +696,7 @@ impl WitParser {
         Ok(ty)
     }
 
-    fn parse_tuple_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_tuple_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let child = expected_get_filed(node, ts_const::ts_field_name::TUPLE_LIST)?;
         let mut cursor = child.walk();
         let mut vec = Vec::new();
@@ -603,22 +706,29 @@ impl WitParser {
                 vec.push(wit_ty);
             }
         }
-        Ok(UniDatType::Tuple(vec))
+        Ok(UniDataType::Tuple(vec))
     }
 
-    fn parse_list_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_list_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::LIST_INNER_TYPE)?;
         let ty_inner = self.visit_type(context, &ty_node)?;
-        Ok(UniDatType::Array(Box::new(ty_inner)))
+        if matches!(
+            &ty_inner,
+            UniDataType::Scalar(UniScalar::U8) | UniDataType::Scalar(UniScalar::I8)
+        ) {
+            Ok(UniDataType::Binary)
+        } else {
+            Ok(UniDataType::Array(Box::new(ty_inner)))
+        }
     }
 
-    fn parse_option_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_option_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::OPTION_INNER_TYPE)?;
         let ty_inner = self.visit_type(context, &ty_node)?;
-        Ok(UniDatType::Option(Box::new(ty_inner)))
+        Ok(UniDataType::Option(Box::new(ty_inner)))
     }
 
-    fn parse_result_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_result_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let ty_err = node.child_by_field_name(ts_const::ts_field_name::RESULT_ERR_TYPE);
         let opt_err = if let Some(n) = ty_err {
             let ty_err_inner = self.visit_type(context, &n)?;
@@ -635,40 +745,40 @@ impl WitParser {
             None
         };
 
-        Ok(UniDatType::Result(UniResultType {
+        Ok(UniDataType::Result(UniResultType {
             ok: opt_ok,
             err: opt_err,
         }))
     }
 
-    fn parse_custom_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_custom_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let type_name = context.text_of_node(node)?;
         if type_name == "blob" {
-            return Ok(UniDatType::Scalar(UniScalar::Blob));
+            return Ok(UniDataType::Scalar(UniScalar::Blob));
         }
-        Ok(UniDatType::Identifier(type_name))
+        Ok(UniDataType::Identifier(type_name))
     }
-    fn parse_box_type(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_box_type(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let ty_node = expected_get_filed(node, ts_const::ts_field_name::BOX_INNER)?;
-        let ty_inner = self.visit_type(context, &ty_node)?;
-        Ok(UniDatType::Box(Box::new(ty_inner)))
+        let inner = self.visit_type(context, &ty_node)?;
+        Ok(UniDataType::Box(Box::new(inner)))
     }
 
-    fn parse_type_node(&self, context: &ParseContext, node: &Node) -> RS<UniDatType> {
+    fn parse_type_node(&self, context: &ParseContext, node: &Node) -> RS<UniDataType> {
         let ty = match node.kind() {
-            ts_const::ts_kind_name::S_BOOL => UniDatType::Scalar(UniScalar::Bool),
-            ts_const::ts_kind_name::S_U8 => UniDatType::Scalar(UniScalar::U8),
-            ts_const::ts_kind_name::S_U16 => UniDatType::Scalar(UniScalar::U16),
-            ts_const::ts_kind_name::S_U32 => UniDatType::Scalar(UniScalar::U32),
-            ts_const::ts_kind_name::S_U64 => UniDatType::Scalar(UniScalar::U64),
-            ts_const::ts_kind_name::S_S8 => UniDatType::Scalar(UniScalar::U8),
-            ts_const::ts_kind_name::S_S16 => UniDatType::Scalar(UniScalar::I16),
-            ts_const::ts_kind_name::S_S32 => UniDatType::Scalar(UniScalar::I32),
-            ts_const::ts_kind_name::S_S64 => UniDatType::Scalar(UniScalar::I64),
-            ts_const::ts_kind_name::S_F32 => UniDatType::Scalar(UniScalar::F32),
-            ts_const::ts_kind_name::S_F64 => UniDatType::Scalar(UniScalar::F64),
-            ts_const::ts_kind_name::S_CHAR => UniDatType::Scalar(UniScalar::Char),
-            ts_const::ts_kind_name::S_STRING => UniDatType::Scalar(UniScalar::String),
+            ts_const::ts_kind_name::S_BOOL => UniDataType::Scalar(UniScalar::Bool),
+            ts_const::ts_kind_name::S_U8 => UniDataType::Scalar(UniScalar::U8),
+            ts_const::ts_kind_name::S_U16 => UniDataType::Scalar(UniScalar::U16),
+            ts_const::ts_kind_name::S_U32 => UniDataType::Scalar(UniScalar::U32),
+            ts_const::ts_kind_name::S_U64 => UniDataType::Scalar(UniScalar::U64),
+            ts_const::ts_kind_name::S_S8 => UniDataType::Scalar(UniScalar::U8),
+            ts_const::ts_kind_name::S_S16 => UniDataType::Scalar(UniScalar::I16),
+            ts_const::ts_kind_name::S_S32 => UniDataType::Scalar(UniScalar::I32),
+            ts_const::ts_kind_name::S_S64 => UniDataType::Scalar(UniScalar::I64),
+            ts_const::ts_kind_name::S_F32 => UniDataType::Scalar(UniScalar::F32),
+            ts_const::ts_kind_name::S_F64 => UniDataType::Scalar(UniScalar::F64),
+            ts_const::ts_kind_name::S_CHAR => UniDataType::Scalar(UniScalar::Char),
+            ts_const::ts_kind_name::S_STRING => UniDataType::Scalar(UniScalar::String),
             ts_const::ts_kind_name::S_TUPLE => self.parse_tuple_type(context, node)?,
             ts_const::ts_kind_name::S_LIST => self.parse_list_type(context, node)?,
             ts_const::ts_kind_name::S_OPTION => self.parse_option_type(context, node)?,

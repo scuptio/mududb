@@ -1,7 +1,7 @@
-use crate:universal:uni-dat-value/uni-dat-value;
+use crate:universal:uni-data-value/uni-data-value;
 
 interface universal {
     record uni-tuple-row {
-        fields:list<uni-dat-value>
+        fields:list<uni-data-value>
     }
 }

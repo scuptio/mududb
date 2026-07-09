@@ -4,7 +4,7 @@ description: >
   Build, configure, start, and test MuduDB (the io_uring database server).
   Use this skill whenever the user wants to run mudud, start the database server,
   test the wallet example, run CRUD operations, debug server crashes, or verify
-  that MuduDB is working. Also use for questions about mududb_cfg.toml configuration,
+  that MuduDB is working. Also use for questions about mudud.cfg configuration,
   mcli commands, or HTTP API invocation of procedures.
 ---
 
@@ -30,7 +30,7 @@ This script handles everything: config, server startup, wallet install, CRUD tes
 cargo build --release
 ```
 
-Binaries land in `target/release/`: `mudud` (server), `mcli` (client), `mpk`, `mgen`, `mtp`.
+Binaries land in `target/release/`: `mudud` (server), `mcli` (client), `mpm-build`, `mgen`, `mtp`.
 
 ### 2. Install Binaries
 
@@ -47,7 +47,15 @@ Or use the project script: `python script/build/install_binaries.py`
 
 ### 3. Configure
 
-MuduDB reads `~/.mududb/mududb_cfg.toml`. Key settings for io_uring mode:
+`mudud` searches for its configuration file in order:
+
+1. The path given by `--cfg /path/to/mudud.cfg` (or `-c ...`), if provided.
+2. `./mudud.cfg` in the current working directory.
+3. `~/.mududb/mudud.cfg` in the user's home directory.
+
+If none of these files exist, the server returns a `NotFound` error. Use `mudud init-cfg` to write a default `./mudud.cfg` in the current directory.
+
+Key settings for io_uring mode:
 
 ```toml
 mpk_path = "/tmp/mudu_test/mpk"       # directory with .mpk app packages
@@ -56,14 +64,14 @@ listen_ip = "127.0.0.1"
 http_listen_port = 8300                # management API (REST)
 tcp_listen_port = 9527                 # internal protocol (io_uring workers)
 pg_listen_port = 5432                  # PostgreSQL wire protocol
-server_mode = 1                        # 0=Legacy, 1=IOUring
-worker_threads = 2                     # 0=auto-detect CPU cores
-routing_mode = 2                       # 0=ConnectionId, 1=PlayerId, 2=RemoteHash
+server_mode = "IOUring"                # "Legacy", "IOUring", or "Tokio"
+worker_threads = 2                     # 0 means auto-detect CPU cores
+routing_mode = "RemoteHash"            # "ConnectionId", "PlayerId", or "RemoteHash"
 enable_async = true
 http_worker_threads = 1
 ```
 
-Always create the data and mpk directories before starting:
+Always create the data and mpm-build directories before starting:
 
 ```bash
 mkdir -p /tmp/mudu_test/data /tmp/mudu_test/mpk
@@ -72,7 +80,7 @@ mkdir -p /tmp/mudu_test/data /tmp/mudu_test/mpk
 ### 4. Start the Server
 
 ```bash
-RUST_LOG=mudu_runtime=info mudud > /tmp/mudu_test/server.log 2>&1 &
+RUST_LOG=mudu_runtime=info mudud serve > /tmp/mudu_test/server.log 2>&1 &
 ```
 
 Wait for both HTTP (8300) and TCP (9527) ports to be ready:
@@ -97,20 +105,22 @@ mcli --http-addr 127.0.0.1:8300 app-install --mpk testing/mpk/wallet.mpk
 **SQL queries** go through `mcli command` over TCP:
 
 ```bash
-mcli command --json '{"app_name":"wallet","sql":"SELECT user_id, name FROM users"}' --compact --no-table
+mcli --addr 127.0.0.1:9527 command --json '{"app_name":"wallet","sql":"SELECT user_id, name FROM users"}' --compact --no-table
 ```
 
-**Procedure invocations** go through the HTTP API:
+**Procedure invocations** are sent over TCP through `mcli app-invoke`; the HTTP endpoint is only used to fetch procedure metadata:
 
 ```bash
-curl -s -X POST "http://127.0.0.1:8300/mudu/app/invoke/wallet/wallet/create_user" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":3,"name":"Charlie","email":"charlie@test.com"}'
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
+  --app wallet --module wallet --proc create_user \
+  --json '{"user_id":3,"name":"Charlie","email":"charlie@test.com"}'
 ```
 
-The URL pattern is: `/mudu/app/invoke/{app_name}/{module_name}/{procedure_name}`
+The URL pattern for direct HTTP invocation is: `/mudu/app/invoke/{app_name}/{module_name}/{procedure_name}`.
 
 ### 7. Stop the Server
+
+Send `SIGINT` (`Ctrl+C`) or `SIGTERM` for a graceful shutdown. If the process is stuck and does not respond, use:
 
 ```bash
 pkill -9 mudud

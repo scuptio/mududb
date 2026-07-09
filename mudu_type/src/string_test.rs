@@ -1,19 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use crate::dat_type::DatType;
-    use crate::dat_type_id::DatTypeID;
-    use crate::dt_impl::dt_create;
-    use crate::dtp_string::DTPString;
+    use crate::data_type::DataType;
+    use crate::data_type_impl::data_type_create;
+    use crate::data_type_param_string::DataTypeParamString;
     use crate::string::new_array_type;
+    use crate::type_family::TypeFamily;
 
     #[test]
     fn new_array_type_creates_string_type_with_length() {
         let t = new_array_type(Some(10));
-        assert_eq!(t.dat_type_id(), DatTypeID::String);
+        assert_eq!(t.type_family(), TypeFamily::String);
         assert_eq!(t.as_string_param().unwrap().length(), 10);
 
-        let expected = dt_create::create_string_type(Some(10));
-        assert_eq!(t.dat_type_id(), expected.dat_type_id());
+        let expected = data_type_create::create_string_type(Some(10));
+        assert_eq!(t.type_family(), expected.type_family());
         assert_eq!(
             t.as_string_param().unwrap().length(),
             expected.as_string_param().unwrap().length()
@@ -23,11 +23,11 @@ mod tests {
     #[test]
     fn new_array_type_creates_unbounded_string_type() {
         let t = new_array_type(None);
-        assert_eq!(t.dat_type_id(), DatTypeID::String);
+        assert_eq!(t.type_family(), TypeFamily::String);
         assert_eq!(t.as_string_param().unwrap().length(), 0);
 
-        let expected = DatType::from_string(DTPString::new(0));
-        assert_eq!(t.dat_type_id(), expected.dat_type_id());
+        let expected = DataType::from_string(DataTypeParamString::new(0));
+        assert_eq!(t.type_family(), expected.type_family());
         assert_eq!(
             t.as_string_param().unwrap().length(),
             expected.as_string_param().unwrap().length()

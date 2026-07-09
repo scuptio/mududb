@@ -18,8 +18,8 @@ mod tests {
     use crate::ast::stmt_type::{StmtCommand, StmtType};
     use crate::ast::stmt_update::AssignedValue;
     use mudu::common::result::RS;
-    use mudu_binding::universal::uni_dat_type::UniDatType;
-    use mudu_binding::universal::uni_dat_value::UniDatValue;
+    use mudu_binding::universal::uni_data_type::UniDataType;
+    use mudu_binding::universal::uni_data_value::UniDataValue;
     use mudu_binding::universal::uni_scalar::UniScalar;
     use mudu_binding::universal::uni_scalar_value::UniScalarValue;
     use project_root::get_project_root;
@@ -100,8 +100,8 @@ mod tests {
             .expect("expected field-literal pair");
         assert_eq!(predicate.0.name(), "id");
         assert_eq!(
-            predicate.1.dat_type().unwrap().dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::I64
+            predicate.1.data_type().unwrap().data_type().type_family(),
+            mudu_type::type_family::TypeFamily::I64
         );
         assert!(matches!(predicate.2, ValueCompare::LE));
     }
@@ -118,14 +118,14 @@ mod tests {
         match predicate.right() {
             ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) => {
                 assert_eq!(
-                    literal.dat_type().unwrap().dat_type().dat_type_id(),
-                    mudu_type::dat_type_id::DatTypeID::Numeric
+                    literal.data_type().unwrap().data_type().type_family(),
+                    mudu_type::type_family::TypeFamily::Numeric
                 );
                 assert_eq!(
                     literal
-                        .dat_type()
+                        .data_type()
                         .unwrap()
-                        .dat_internal()
+                        .data_internal()
                         .expect_numeric()
                         .to_plain_string(),
                     "12.34"
@@ -148,9 +148,9 @@ mod tests {
             ExprItem::ItemValue(ExprValue::ValueLiteral(literal)) => {
                 assert_eq!(
                     literal
-                        .dat_type()
+                        .data_type()
                         .unwrap()
-                        .dat_internal()
+                        .data_internal()
                         .expect_numeric()
                         .to_plain_string(),
                     "12.3400"
@@ -423,7 +423,7 @@ mod tests {
             .expect("amount column");
         assert!(matches!(
             amount.data_type(),
-            UniDatType::Scalar(UniScalar::Numeric)
+            UniDataType::Scalar(UniScalar::Numeric)
         ));
         let params = amount
             .data_type_param()
@@ -432,11 +432,11 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert!(matches!(
             params[0],
-            UniDatValue::Scalar(UniScalarValue::I64(18))
+            UniDataValue::Scalar(UniScalarValue::I64(18))
         ));
         assert!(matches!(
             params[1],
-            UniDatValue::Scalar(UniScalarValue::I64(2))
+            UniDataValue::Scalar(UniScalarValue::I64(2))
         ));
     }
 
@@ -460,17 +460,17 @@ mod tests {
             .expect("amount column");
         assert!(matches!(
             amount.data_type(),
-            UniDatType::Scalar(UniScalar::Numeric)
+            UniDataType::Scalar(UniScalar::Numeric)
         ));
         let params = amount.data_type_param().as_ref().expect("decimal params");
         assert_eq!(params.len(), 2);
         assert!(matches!(
             params[0],
-            UniDatValue::Scalar(UniScalarValue::I64(9))
+            UniDataValue::Scalar(UniScalarValue::I64(9))
         ));
         assert!(matches!(
             params[1],
-            UniDatValue::Scalar(UniScalarValue::I64(4))
+            UniDataValue::Scalar(UniScalarValue::I64(4))
         ));
     }
 
@@ -494,7 +494,7 @@ mod tests {
             .expect("amount column");
         assert!(matches!(
             amount.data_type(),
-            UniDatType::Scalar(UniScalar::Numeric)
+            UniDataType::Scalar(UniScalar::Numeric)
         ));
         assert!(amount.data_type_param().is_none());
     }
@@ -518,13 +518,13 @@ mod tests {
         let columns = stmt.non_primary_columns();
         assert!(matches!(
             columns[0].data_type(),
-            UniDatType::Scalar(UniScalar::Date)
+            UniDataType::Scalar(UniScalar::Date)
         ));
         assert!(columns[0].data_type_param().is_none());
 
         assert!(matches!(
             columns[1].data_type(),
-            UniDatType::Scalar(UniScalar::Time)
+            UniDataType::Scalar(UniScalar::Time)
         ));
         let time_params = columns[1]
             .data_type_param()
@@ -533,12 +533,12 @@ mod tests {
         assert_eq!(time_params.len(), 1);
         assert!(matches!(
             time_params[0],
-            UniDatValue::Scalar(UniScalarValue::I64(3))
+            UniDataValue::Scalar(UniScalarValue::I64(3))
         ));
 
         assert!(matches!(
             columns[2].data_type(),
-            UniDatType::Scalar(UniScalar::Timestamp)
+            UniDataType::Scalar(UniScalar::Timestamp)
         ));
         let timestamp_params = columns[2]
             .data_type_param()
@@ -547,12 +547,12 @@ mod tests {
         assert_eq!(timestamp_params.len(), 1);
         assert!(matches!(
             timestamp_params[0],
-            UniDatValue::Scalar(UniScalarValue::I64(4))
+            UniDataValue::Scalar(UniScalarValue::I64(4))
         ));
 
         assert!(matches!(
             columns[3].data_type(),
-            UniDatType::Scalar(UniScalar::TimestampTz)
+            UniDataType::Scalar(UniScalar::TimestampTz)
         ));
         let timestamptz_params = columns[3]
             .data_type_param()
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(timestamptz_params.len(), 1);
         assert!(matches!(
             timestamptz_params[0],
-            UniDatValue::Scalar(UniScalarValue::I64(2))
+            UniDataValue::Scalar(UniScalarValue::I64(2))
         ));
     }
 
@@ -606,7 +606,7 @@ mod tests {
             .expect("amount column");
         assert!(matches!(
             amount.data_type(),
-            UniDatType::Scalar(UniScalar::I128)
+            UniDataType::Scalar(UniScalar::I128)
         ));
         assert!(amount.data_type_param().is_none());
     }

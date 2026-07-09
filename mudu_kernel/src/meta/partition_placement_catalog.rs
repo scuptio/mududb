@@ -7,8 +7,8 @@ use std::time::UNIX_EPOCH;
 use mudu::common::endian;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dt_info::DTInfo;
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily;
 
 use crate::contract::partition_rule_binding::PartitionPlacement;
 use crate::contract::schema_column::SchemaColumn;
@@ -32,14 +32,14 @@ pub fn partition_placement_catalog_schema() -> SchemaTable {
             SchemaColumn::new_with_oid(
                 PARTITION_PLACEMENT_CATALOG_PARTITION_OID_COLUMN_ID,
                 "partition_oid".to_string(),
-                DatTypeID::U128,
-                DTInfo::from_text(DatTypeID::U128, String::new()),
+                TypeFamily::U128,
+                DataTypeInfo::from_text(TypeFamily::U128, String::new()),
             ),
             SchemaColumn::new_with_oid(
                 PARTITION_PLACEMENT_CATALOG_PLACEMENT_COLUMN_ID,
                 "placement".to_string(),
-                DatTypeID::Binary,
-                DTInfo::from_text(DatTypeID::Binary, String::new()),
+                TypeFamily::Binary,
+                DataTypeInfo::from_text(TypeFamily::Binary, String::new()),
             ),
         ],
         vec![0],

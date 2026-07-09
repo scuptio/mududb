@@ -30,10 +30,11 @@ fn binary_rejects_unknown_flag() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn binary_logs_serve_error() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = mudu_sys::env_var::temp_dir().join("invalid_mudud_cfg.toml");
+    let cfg = mudu_sys::env_var::temp_dir().join("invalid_mudud_cfg.cfg");
     mudu_sys::fs::sync::sync_write(&cfg, "not valid toml")?;
 
     let output = Command::new(env!("CARGO_BIN_EXE_mudud"))
+        .arg("serve")
         .arg("--cfg")
         .arg(&cfg)
         .output()?;
@@ -45,9 +46,6 @@ fn binary_logs_serve_error() -> Result<(), Box<dyn std::error::Error>> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        combined.contains("mududb serve run error"),
-        "output: {combined}"
-    );
+    assert!(combined.contains("mududb run error"), "output: {combined}");
     Ok(())
 }

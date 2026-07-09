@@ -4,8 +4,8 @@
 use crate::tuple::{datum_desc::DatumDesc, tuple_binary_desc::TupleBinaryDesc};
 use mudu::common::result::RS;
 use mudu::common::serde_utils;
-use mudu_type::dat_type::DatType;
-use mudu_type::dtp_object::DTPRecord;
+use mudu_type::data_type::DataType;
+use mudu_type::data_type_param_record::DataTypeParamRecord;
 use serde::{Deserialize, Serialize};
 
 type FieldMappingInfo = (usize, bool, Option<u16>);
@@ -54,12 +54,12 @@ impl TupleFieldDesc {
             }
         }
 
-        let type_descs_with_indices: Vec<(DatType, FieldMappingInfo)> = self
+        let type_descs_with_indices: Vec<(DataType, FieldMappingInfo)> = self
             .fields
             .iter()
             .enumerate()
             .map(|(original_index, field_desc)| {
-                let type_desc = field_desc.dat_type();
+                let type_desc = field_desc.data_type();
                 (
                     type_desc.clone(),
                     (
@@ -97,12 +97,12 @@ impl TupleFieldDesc {
         Ok(d)
     }
 
-    pub fn to_record_type(&self, name: String) -> RS<DatType> {
+    pub fn to_record_type(&self, name: String) -> RS<DataType> {
         let mut vec = Vec::with_capacity(self.fields.len());
         for d in self.fields.iter() {
-            vec.push((d.name().to_string(), d.dat_type().clone()));
+            vec.push((d.name().to_string(), d.data_type().clone()));
         }
-        Ok(DatType::from_record(DTPRecord::new(name, vec)))
+        Ok(DataType::from_record(DataTypeParamRecord::new(name, vec)))
     }
 }
 

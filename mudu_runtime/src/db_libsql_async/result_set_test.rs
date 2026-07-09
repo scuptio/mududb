@@ -2,15 +2,15 @@
 
 use super::*;
 use mudu_contract::tuple::datum_desc::DatumDesc;
-use mudu_type::dat_type::DatType;
+use mudu_type::data_type::DataType;
 use std::sync::Arc;
 
 fn make_desc(fields: Vec<DatumDesc>) -> Arc<TupleFieldDesc> {
     Arc::new(TupleFieldDesc::new(fields))
 }
 
-fn field(name: &str, id: DatTypeID) -> DatumDesc {
-    DatumDesc::new(name.to_string(), DatType::new_no_param(id))
+fn field(name: &str, id: TypeFamily) -> DatumDesc {
+    DatumDesc::new(name.to_string(), DataType::new_no_param(id))
 }
 
 async fn open_conn() -> (libsql::Connection, tempfile::TempDir) {
@@ -29,7 +29,7 @@ async fn u128_parse_error_returns_database_error() {
         .await
         .unwrap();
     let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-    let rs = LibSQLAsyncResultSet::new(rows, make_desc(vec![field("a", DatTypeID::U128)]), None);
+    let rs = LibSQLAsyncResultSet::new(rows, make_desc(vec![field("a", TypeFamily::U128)]), None);
     let err = rs.next().await.unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Database);
     assert!(err.message().contains("oid parse error"));
@@ -43,7 +43,7 @@ async fn i128_parse_error_returns_database_error() {
         .await
         .unwrap();
     let rows = conn.query("SELECT * FROM t", ()).await.unwrap();
-    let rs = LibSQLAsyncResultSet::new(rows, make_desc(vec![field("a", DatTypeID::I128)]), None);
+    let rs = LibSQLAsyncResultSet::new(rows, make_desc(vec![field("a", TypeFamily::I128)]), None);
     let err = rs.next().await.unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Database);
     assert!(err.message().contains("i128 parse error"));

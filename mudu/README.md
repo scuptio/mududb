@@ -22,7 +22,7 @@ no I/O and has no dependency on `mudu_sys`.
 - Language bindings and adapters: live in `mudu_binding`, `mudu_adapter`.
 - Kernel, runtime and transaction orchestration: live in `mudu_kernel`,
   `mudu_runtime`.
-- CLI, package management and codegen: live in `mudu_cli`, `mudu_package`,
+- CLI, package management and codegen: live in `mudu_cli`, `mpm_build`,
   `mudu_gen`.
 
 ## Main public entry points

@@ -1,5 +1,5 @@
 use mudu::common::id::OID;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::type_family::TypeFamily;
 use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +27,7 @@ pub struct PartitionRuleDesc {
     pub oid: OID,
     pub name: String,
     pub kind: PartitionRuleKind,
-    pub key_types: Vec<DatTypeID>,
+    pub key_types: Vec<TypeFamily>,
     pub partitions: Vec<RangePartitionDef>,
     pub version: u64,
 }
@@ -46,7 +46,7 @@ impl RangePartitionDef {
 impl PartitionRuleDesc {
     pub fn new_range(
         name: String,
-        key_types: Vec<DatTypeID>,
+        key_types: Vec<TypeFamily>,
         partitions: Vec<RangePartitionDef>,
     ) -> Self {
         Self {

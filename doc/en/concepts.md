@@ -31,7 +31,7 @@ An **MPK** file (`.mpk`) is a MuduDB application package. It is a ZIP archive th
 - Procedure descriptors.
 - One or more compiled WebAssembly component modules.
 
-You create an MPK with the `mpk create` command and install it into a running `mudud` server with `mcli app-install`.
+You create an MPK with the `mpm-build create` command and install it into a running `mudud` server with `mcli app-install`.
 
 ## App, Module, and Procedure
 
@@ -44,7 +44,7 @@ When an MPK is installed, MuduDB organizes its contents as follows:
 To invoke a procedure:
 
 ```bash
-mcli --addr 127.0.0.1:9527 app-invoke \
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
   --app wallet \
   --module wallet \
   --proc transfer_funds \
@@ -59,8 +59,8 @@ mcli --addr 127.0.0.1:9527 app-invoke \
 | `mcli` | TCP protocol client and HTTP management CLI. | To run SQL interactively, install packages, and invoke procedures. |
 | `mgen` | Source generator. Creates Rust entity types from SQL DDL. | When your application has SQL tables and wants typed query results. |
 | `mtp` | Transpiler. Transforms Rust/AssemblyScript source into Mudu procedure format and generates async wrappers. | Whenever you write or change a `/**mudu-proc**/` function. |
-| `mpk` | Package builder. Produces `.mpk` files from DDL, descriptors, and WASM modules. | Before deploying an application to `mudud`. |
-| `mudup` | Release installer. Downloads and activates released binaries. | For daily use or server deployment without building from source. |
+| `mpm-build` | Package builder. Produces `.mpk` files from DDL, descriptors, and WASM modules. | Before deploying an application to `mudud`. |
+| `mudup` | Release installer. Downloads and activates released binaries. | For daily use or server deployment without building from source. **Not stable yet; source build recommended.** |
 
 ## System Call Interface
 

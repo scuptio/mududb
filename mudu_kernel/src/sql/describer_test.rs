@@ -23,9 +23,9 @@ mod tests {
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
     use sql_parser::ast::expr_name::ExprName;
     use sql_parser::ast::select_term::SelectTerm;
     use sql_parser::ast::stmt_insert::StmtInsert;
@@ -95,13 +95,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
             ],
             vec![0],
@@ -160,7 +160,7 @@ mod tests {
             let fields = desc.fields();
             assert_eq!(fields.len(), 1);
             assert_eq!(fields[0].name(), "id");
-            assert_eq!(fields[0].dat_type_id(), DatTypeID::I32);
+            assert_eq!(fields[0].type_family(), TypeFamily::I32);
             assert!(!fields[0].nullable());
         })
         .unwrap();
@@ -177,10 +177,10 @@ mod tests {
             let fields = desc.fields();
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].name(), "id");
-            assert_eq!(fields[0].dat_type_id(), DatTypeID::I32);
+            assert_eq!(fields[0].type_family(), TypeFamily::I32);
             assert!(!fields[0].nullable());
             assert_eq!(fields[1].name(), "name");
-            assert_eq!(fields[1].dat_type_id(), DatTypeID::String);
+            assert_eq!(fields[1].type_family(), TypeFamily::String);
             assert!(fields[1].nullable());
         })
         .unwrap();

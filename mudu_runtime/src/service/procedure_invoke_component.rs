@@ -174,22 +174,22 @@ fn component_proc_name(component_target: ComponentTarget, proc_name: &str) -> RS
 mod tests {
     use super::*;
     use crate::procedure::procedure::Procedure;
-    use crate::service::mudu_package::MuduPackage;
+    use crate::service::app_package::AppPackage;
     use crate::service::runtime_opt::{ComponentTarget, RuntimeOpt};
     use crate::service::test_wasm_mod_path::wasm_mod_path;
     use crate::service::wt_runtime_component::WTRuntimeComponent;
     use mudu_contract::procedure::proc_desc::ProcDesc;
     use mudu_contract::procedure::procedure_param::ProcedureParam;
     use mudu_contract::tuple::tuple_datum::TupleDatum;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
     use std::path::PathBuf;
 
     fn app1_path() -> PathBuf {
         PathBuf::from(wasm_mod_path()).join("app1.mpk")
     }
 
-    fn load_package() -> MuduPackage {
-        MuduPackage::load(app1_path()).unwrap()
+    fn load_package() -> AppPackage {
+        AppPackage::load(app1_path()).unwrap()
     }
 
     fn build_runtime(enable_async: bool) -> WTRuntimeComponent {
@@ -222,9 +222,9 @@ mod tests {
             0,
             0,
             vec![
-                DatValue::from_i32(2),
-                DatValue::from_i64(3),
-                DatValue::from_string("hello".to_string()),
+                DataValue::from_i32(2),
+                DataValue::from_i64(3),
+                DataValue::from_string("hello".to_string()),
             ],
         )
     }

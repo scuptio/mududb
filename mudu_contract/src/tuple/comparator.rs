@@ -10,9 +10,9 @@ use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 
 #[derive(Clone, Copy)]
 pub struct TupleComparator {
@@ -105,7 +105,7 @@ fn _tuple_hash(desc: &TupleBinaryDesc, tuple: &[u8], hasher: &mut dyn Hasher) ->
     Ok(())
 }
 
-fn _hash_binary(id: DatTypeID, p: &DatType, val: &[u8], hasher: &mut dyn Hasher) -> RS<()> {
+fn _hash_binary(id: TypeFamily, p: &DataType, val: &[u8], hasher: &mut dyn Hasher) -> RS<()> {
     let recv = id.fn_recv();
     let (v_internal, _size) = recv(val, p).map_err(|e| {
         mudu_error!(
@@ -123,11 +123,11 @@ fn _hash_binary(id: DatTypeID, p: &DatType, val: &[u8], hasher: &mut dyn Hasher)
 }
 
 fn _compare_binary<
-    F: Fn(&DatTypeID, &DatValue, &DatValue) -> RS<R> + 'static,
+    F: Fn(&TypeFamily, &DataValue, &DataValue) -> RS<R> + 'static,
     R: Debug + Copy + Clone + 'static,
 >(
-    id: DatTypeID,
-    param: &DatType,
+    id: TypeFamily,
+    param: &DataType,
     value1: &[u8],
     value2: &[u8],
     compare: &F,
@@ -141,7 +141,11 @@ fn _compare_binary<
     }
 }
 
-fn _compare_binary_equal(data_type: &DatTypeID, value1: &DatValue, value2: &DatValue) -> RS<bool> {
+fn _compare_binary_equal(
+    data_type: &TypeFamily,
+    value1: &DataValue,
+    value2: &DataValue,
+) -> RS<bool> {
     let opt_equal = data_type.fn_equal();
     let f = match opt_equal {
         None => return Err(mudu_error!(ErrorCode::UnsupportedOperation)),
@@ -157,9 +161,9 @@ fn _compare_binary_equal(data_type: &DatTypeID, value1: &DatValue, value2: &DatV
 }
 
 fn _compare_binary_ordering(
-    data_type: &DatTypeID,
-    value1: &DatValue,
-    value2: &DatValue,
+    data_type: &TypeFamily,
+    value1: &DataValue,
+    value2: &DataValue,
 ) -> RS<Ordering> {
     let opt_order = data_type.fn_order();
     let f = match opt_order {
@@ -184,11 +188,11 @@ fn _need_return_equal(equal: bool) -> bool {
 }
 
 fn _compare_opt_binary<
-    F: Fn(&DatTypeID, &DatValue, &DatValue) -> RS<R> + 'static,
+    F: Fn(&TypeFamily, &DataValue, &DataValue) -> RS<R> + 'static,
     R: Debug + Copy + Clone + 'static,
 >(
-    id: DatTypeID,
-    param: &DatType,
+    id: TypeFamily,
+    param: &DataType,
     value1: &[u8],
     value2: &[u8],
     compare: &F,
@@ -198,7 +202,7 @@ fn _compare_opt_binary<
 }
 
 fn _iter_value<
-    F: Fn(&DatTypeID, &DatValue, &DatValue) -> RS<R> + 'static,
+    F: Fn(&TypeFamily, &DataValue, &DataValue) -> RS<R> + 'static,
     R: Debug + Copy + Clone + 'static,
     T: Fn(R) -> bool + 'static,
 >(

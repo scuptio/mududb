@@ -9,10 +9,10 @@ mod tests {
     use crate::tuple::tuple_field::TupleField;
     use crate::tuple::tuple_value::TupleValue;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_value::DataValue;
     use mudu_type::datum::Datum;
+    use mudu_type::type_family::TypeFamily;
 
     fn sample_item() -> Item {
         let mut item = Item::new_empty();
@@ -31,7 +31,7 @@ mod tests {
         assert_eq!(value, 0);
 
         let mut e = i32::new_empty();
-        e.set_field_value("field_i32", DatValue::from_i32(42))
+        e.set_field_value("field_i32", DataValue::from_i32(42))
             .unwrap();
         let tuple = e.to_tuple().unwrap();
         let restored: i32 = entity_utils::entity_from_tuple_field(&tuple).unwrap();
@@ -54,57 +54,57 @@ mod tests {
 
     #[test]
     fn entity_from_tuple_value_roundtrip() {
-        let row = TupleValue::from(vec![DatValue::from_i32(42)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
         let value: i32 = entity_utils::entity_from_tuple_value(&row).unwrap();
         assert_eq!(value, 42);
     }
 
     #[test]
     fn entity_from_tuple_value_rejects_length_mismatch() {
-        let row = TupleValue::from(vec![DatValue::from_i32(1), DatValue::from_i32(2)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(1), DataValue::from_i32(2)]);
         let err = entity_utils::entity_from_tuple_value::<i32, _>(&row).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidType);
     }
 
     #[test]
     fn entity_from_value_roundtrip_scalar() {
-        let record = DatValue::from_record(vec![DatValue::from_i32(42)]);
+        let record = DataValue::from_record(vec![DataValue::from_i32(42)]);
         let entity: i32 = entity_utils::entity_from_value(&record).unwrap();
         assert_eq!(entity, 42);
     }
 
     #[test]
     fn entity_from_value_rejects_non_record() {
-        let value = DatValue::from_i32(42);
+        let value = DataValue::from_i32(42);
         let err = entity_utils::entity_from_value::<Item, _>(&value).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidType);
     }
 
     #[test]
     fn entity_from_value_rejects_wrong_field_length() {
-        let record = DatValue::from_record(vec![DatValue::from_i32(1)]);
+        let record = DataValue::from_record(vec![DataValue::from_i32(1)]);
         let err = entity_utils::entity_from_value::<Item, _>(&record).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidType);
     }
 
     #[test]
-    fn entity_dat_type_id_is_record() {
+    fn entity_type_family_is_record() {
         assert_eq!(
-            entity_utils::entity_dat_type_id().unwrap(),
-            DatTypeID::Record
+            entity_utils::entity_type_family().unwrap(),
+            TypeFamily::Record
         );
     }
 
     #[test]
-    fn entity_dat_type_for_scalar() {
-        let ty = entity_utils::entity_dat_type::<i32>();
-        assert_eq!(ty.dat_type_id(), DatTypeID::Record);
+    fn entity_data_type_for_scalar() {
+        let ty = entity_utils::entity_data_type::<i32>();
+        assert_eq!(ty.type_family(), TypeFamily::Record);
     }
 
     #[test]
-    fn entity_dat_type_for_item() {
-        let ty = entity_utils::entity_dat_type::<Item>();
-        assert_eq!(ty.dat_type_id(), DatTypeID::Record);
+    fn entity_data_type_for_item() {
+        let ty = entity_utils::entity_data_type::<Item>();
+        assert_eq!(ty.type_family(), TypeFamily::Record);
         let fields = ty.expect_record_param().fields();
         assert_eq!(fields.len(), 5);
     }
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn entity_to_value_roundtrip() {
         let entity = sample_item();
-        let ty = Item::dat_type();
+        let ty = Item::data_type();
         let value = entity_utils::entity_to_value(&entity, &ty).unwrap();
         let restored: Item = entity_utils::entity_from_value(&value).unwrap();
         assert_eq!(restored.get_i_id(), entity.get_i_id());
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn entity_to_value_rejects_non_record_type() {
         let entity = sample_item();
-        let ty = i32::dat_type();
+        let ty = i32::data_type();
         let err = entity_utils::entity_to_value(&entity, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
     }
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn entity_to_value_rejects_none_field() {
         let item = Item::new_empty();
-        let ty = Item::dat_type();
+        let ty = Item::data_type();
         let err = entity_utils::entity_to_value(&item, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidType);
     }
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn entity_to_binary_roundtrip() {
         let entity = sample_item();
-        let ty = Item::dat_type();
+        let ty = Item::data_type();
         let binary = entity_utils::entity_to_binary(&entity, &ty).unwrap();
         let restored: Item = entity_utils::entity_from_binary(binary.as_ref()).unwrap();
         assert_eq!(restored.get_i_id(), entity.get_i_id());
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn entity_to_textual_roundtrip() {
         let entity = sample_item();
-        let ty = Item::dat_type();
+        let ty = Item::data_type();
         let textual = entity_utils::entity_to_textual(&entity, &ty).unwrap();
         let restored: Item = entity_utils::entity_from_textual(textual.as_ref()).unwrap();
         assert_eq!(restored.get_i_id(), entity.get_i_id());
@@ -173,7 +173,7 @@ mod tests {
         let entity = sample_item();
         let boxed = entity_utils::entity_clone_boxed(&entity);
         let cloned = boxed.as_ref().clone_boxed();
-        let value = cloned.to_value(&Item::dat_type()).unwrap();
+        let value = cloned.to_value(&Item::data_type()).unwrap();
         let restored: Item = entity_utils::entity_from_value(&value).unwrap();
         assert_eq!(restored.get_i_id(), entity.get_i_id());
     }
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn entity_to_binary_rejects_non_record_type() {
         let entity = sample_item();
-        let ty = i32::dat_type();
+        let ty = i32::data_type();
         let err = entity_utils::entity_to_binary(&entity, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
     }
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn entity_to_textual_rejects_non_record_type() {
         let entity = sample_item();
-        let ty = i32::dat_type();
+        let ty = i32::data_type();
         let err = entity_utils::entity_to_textual(&entity, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
     }
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn entity_to_binary_propagates_send_error() {
         let entity = 42i32;
-        let ty = DatType::default_for(DatTypeID::Numeric);
+        let ty = DataType::default_for(TypeFamily::Numeric);
         let err = entity_utils::entity_to_binary(&entity, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
     }
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn entity_to_textual_propagates_output_error() {
         let entity = 42i32;
-        let ty = DatType::default_for(DatTypeID::Numeric);
+        let ty = DataType::default_for(TypeFamily::Numeric);
         let err = entity_utils::entity_to_textual(&entity, &ty).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
     }

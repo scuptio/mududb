@@ -137,8 +137,8 @@ fn fuzz_row_for_schema<'a>(
 fn arb_string<'a>(c: &SchemaColumn, u: &mut Unstructured<'a>) -> arbitrary::Result<String> {
     let dt = c.type_id();
     let f = dt.fn_arb_printable();
-    let dat_type = c.type_param().to_dat_type().unwrap();
-    let s = f(u, &dat_type)?;
+    let data_type = c.type_param().to_data_type().unwrap();
+    let s = f(u, &data_type)?;
     Ok(s)
 }
 
@@ -218,9 +218,9 @@ mod tests {
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::schema_table::SchemaTable;
     use mudu_sys::fs::sync::sync_remove_dir_all;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -236,8 +236,8 @@ mod tests {
     fn i32_column(name: &str) -> SchemaColumn {
         SchemaColumn::new(
             name.to_string(),
-            DatTypeID::I32,
-            DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+            TypeFamily::I32,
+            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
         )
     }
 

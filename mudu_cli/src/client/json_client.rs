@@ -8,15 +8,15 @@ use base64::Engine;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_binding::universal::uni_dat_value::UniDatValue;
+use mudu_binding::universal::uni_data_value::UniDataValue;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_scalar_value::UniScalarValue;
 use mudu_contract::protocol::{
     ClientRequest, GetRequest, KeyValue, ProcedureInvokeRequest, PutRequest, RangeScanRequest,
     ServerResponse,
 };
-use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
 use serde_json::{Value, json};
@@ -193,20 +193,20 @@ where
     }
 }
 
-fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
+fn json_value_to_uni_data_value(value: Value) -> RS<UniDataValue> {
     match value {
-        Value::Null => Ok(UniDatValue::from_binary(
+        Value::Null => Ok(UniDataValue::from_binary(
             serde_json::to_vec(&Value::Null)
                 .map_err(|e| mudu_error!(ErrorCode::Encode, "encode null payload error", e))?,
         )),
-        Value::Bool(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_bool(inner))),
+        Value::Bool(inner) => Ok(UniDataValue::from_scalar(UniScalarValue::from_bool(inner))),
         Value::Number(inner) => {
             if let Some(value) = inner.as_i64() {
-                Ok(UniDatValue::from_scalar(UniScalarValue::from_i64(value)))
+                Ok(UniDataValue::from_scalar(UniScalarValue::from_i64(value)))
             } else if let Some(value) = inner.as_u64() {
-                Ok(UniDatValue::from_scalar(UniScalarValue::from_u64(value)))
+                Ok(UniDataValue::from_scalar(UniScalarValue::from_u64(value)))
             } else if let Some(value) = inner.as_f64() {
-                Ok(UniDatValue::from_scalar(UniScalarValue::from_f64(value)))
+                Ok(UniDataValue::from_scalar(UniScalarValue::from_f64(value)))
             } else {
                 Err(mudu_error!(
                     ErrorCode::Decode,
@@ -214,12 +214,14 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
                 ))
             }
         }
-        Value::String(inner) => Ok(UniDatValue::from_scalar(UniScalarValue::from_string(inner))),
+        Value::String(inner) => Ok(UniDataValue::from_scalar(UniScalarValue::from_string(
+            inner,
+        ))),
         Value::Array(inner) => inner
             .into_iter()
-            .map(json_value_to_uni_dat_value)
+            .map(json_value_to_uni_data_value)
             .collect::<RS<Vec<_>>>()
-            .map(UniDatValue::from_array),
+            .map(UniDataValue::from_array),
         Value::Object(mut object) => {
             if object.len() == 1 && object.contains_key("base64") {
                 let encoded = object
@@ -230,61 +232,79 @@ fn json_value_to_uni_dat_value(value: Value) -> RS<UniDatValue> {
                     })?;
                 return base64::engine::general_purpose::STANDARD
                     .decode(encoded)
-                    .map(UniDatValue::from_binary)
+                    .map(UniDataValue::from_binary)
                     .map_err(|e| mudu_error!(ErrorCode::Decode, "decode base64 payload error", e));
             }
             serde_json::to_vec(&Value::Object(object))
-                .map(UniDatValue::from_binary)
+                .map(UniDataValue::from_binary)
                 .map_err(|e| mudu_error!(ErrorCode::Encode, "encode json object payload error", e))
         }
     }
 }
 
 fn json_value_to_universal_bytes(value: Value) -> RS<Vec<u8>> {
-    serde_json::to_vec(&json_value_to_uni_dat_value(value)?)
+    serde_json::to_vec(&json_value_to_uni_data_value(value)?)
         .map_err(|e| mudu_error!(ErrorCode::Encode, "encode universal kv value error", e))
 }
 
-fn decode_uni_dat_value(bytes: &[u8]) -> RS<UniDatValue> {
+fn decode_uni_data_value(bytes: &[u8]) -> RS<UniDataValue> {
     serde_json::from_slice(bytes)
         .map_err(|e| mudu_error!(ErrorCode::Decode, "decode universal kv value error", e))
 }
 
-fn uni_dat_value_to_json_value(value: UniDatValue) -> RS<Value> {
+fn uni_data_value_to_json_value(value: UniDataValue) -> RS<Value> {
     match value {
-        UniDatValue::Scalar(inner) => match inner {
-            UniScalarValue::Bool(v) => Ok(Value::Bool(v)),
-            UniScalarValue::U8(v) => Ok(json!(v)),
-            UniScalarValue::I8(v) => Ok(json!(v)),
-            UniScalarValue::U16(v) => Ok(json!(v)),
-            UniScalarValue::I16(v) => Ok(json!(v)),
-            UniScalarValue::U32(v) => Ok(json!(v)),
-            UniScalarValue::I32(v) => Ok(json!(v)),
-            UniScalarValue::U64(v) => Ok(json!(v)),
-            UniScalarValue::U128(v) => Ok(Value::String(v.to_string())),
-            UniScalarValue::I64(v) => Ok(json!(v)),
-            UniScalarValue::I128(v) => Ok(Value::String(v.to_string())),
-            UniScalarValue::F32(v) => Ok(json!(v)),
-            UniScalarValue::F64(v) => Ok(json!(v)),
-            UniScalarValue::Char(v) => Ok(json!(v.to_string())),
-            UniScalarValue::String(v) => Ok(Value::String(v)),
-            UniScalarValue::Numeric(v) => Ok(Value::String(v)),
-            UniScalarValue::Date(v) => Ok(Value::String(v)),
-            UniScalarValue::Time(v) => Ok(Value::String(v)),
-            UniScalarValue::Timestamp(v) => Ok(Value::String(v)),
-            UniScalarValue::TimestampTz(v) => Ok(Value::String(v)),
-        },
-        UniDatValue::Array(items) | UniDatValue::Record(items) => items
+        UniDataValue::Scalar(inner) => {
+            match inner {
+                UniScalarValue::Bool(v) => Ok(Value::Bool(v)),
+                UniScalarValue::U8(v) => Ok(json!(v)),
+                UniScalarValue::I8(v) => Ok(json!(v)),
+                UniScalarValue::U16(v) => Ok(json!(v)),
+                UniScalarValue::I16(v) => Ok(json!(v)),
+                UniScalarValue::U32(v) => Ok(json!(v)),
+                UniScalarValue::I32(v) => Ok(json!(v)),
+                UniScalarValue::U64(v) => Ok(json!(v)),
+                UniScalarValue::U128(v) => {
+                    let bytes: [u8; 16] = v.as_slice().try_into().map_err(|_| {
+                        mudu_error!(ErrorCode::Decode, "u128 payload must be 16 bytes")
+                    })?;
+                    Ok(Value::String(u128::from_be_bytes(bytes).to_string()))
+                }
+                UniScalarValue::I64(v) => Ok(json!(v)),
+                UniScalarValue::I128(v) => {
+                    let bytes: [u8; 16] = v.as_slice().try_into().map_err(|_| {
+                        mudu_error!(ErrorCode::Decode, "i128 payload must be 16 bytes")
+                    })?;
+                    Ok(Value::String(i128::from_be_bytes(bytes).to_string()))
+                }
+                UniScalarValue::F32(v) => Ok(json!(v)),
+                UniScalarValue::F64(v) => Ok(json!(v)),
+                UniScalarValue::Char(v) => Ok(json!(v.to_string())),
+                UniScalarValue::String(v) => Ok(Value::String(v)),
+                UniScalarValue::Blob(v) => encode_json_bytes(&v),
+                UniScalarValue::Numeric(v) => Ok(Value::String(v)),
+                UniScalarValue::Date(v) => Ok(Value::String(v)),
+                UniScalarValue::Time(v) => Ok(Value::String(v)),
+                UniScalarValue::Timestamp(v) => Ok(Value::String(v)),
+                UniScalarValue::TimestampTz(v) => Ok(Value::String(v)),
+            }
+        }
+        UniDataValue::Array(items) => items
             .into_iter()
-            .map(uni_dat_value_to_json_value)
+            .map(uni_data_value_to_json_value)
             .collect::<RS<Vec<_>>>()
             .map(Value::Array),
-        UniDatValue::Binary(bytes) => encode_json_bytes(&bytes),
+        UniDataValue::Record(fields) => fields
+            .into_iter()
+            .map(|f| uni_data_value_to_json_value(f.field_value))
+            .collect::<RS<Vec<_>>>()
+            .map(Value::Array),
+        UniDataValue::Binary(bytes) => encode_json_bytes(&bytes),
     }
 }
 
 fn universal_bytes_to_json_value(bytes: &[u8]) -> RS<Value> {
-    uni_dat_value_to_json_value(decode_uni_dat_value(bytes)?)
+    uni_data_value_to_json_value(decode_uni_data_value(bytes)?)
 }
 
 fn decode_json_bytes(value: Value) -> RS<Vec<u8>> {
@@ -340,11 +360,11 @@ fn server_response_to_json(response: &ServerResponse) -> RS<Value> {
                 .map(|(value, field_desc)| {
                     if value.is_null() {
                         Ok(Value::Null)
-                    } else if field_desc.dat_type().dat_type_id() == DatTypeID::String {
+                    } else if field_desc.data_type().type_family() == TypeFamily::String {
                         Ok(Value::String(value.expect_string().clone()))
                     } else {
                         value
-                            .to_textual(field_desc.dat_type())
+                            .to_textual(field_desc.data_type())
                             .map(|text| Value::String(text.into()))
                     }
                 })
@@ -374,9 +394,9 @@ mod tests {
     use mudu_contract::tuple::datum_desc::DatumDesc;
     use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu_contract::tuple::tuple_value::TupleValue;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_value::DataValue;
+    use mudu_type::type_family::TypeFamily;
 
     struct MockAsyncIoUringTcpClient {
         last_query: Option<ClientRequest>,
@@ -409,9 +429,9 @@ mod tests {
             Ok(ServerResponse::new(
                 TupleFieldDesc::new(vec![DatumDesc::new(
                     "value".to_string(),
-                    DatType::default_for(DatTypeID::String),
+                    DataType::default_for(TypeFamily::String),
                 )]),
-                vec![TupleValue::from(vec![DatValue::from_string(
+                vec![TupleValue::from(vec![DataValue::from_string(
                     "1".to_string(),
                 )])],
                 0,
@@ -523,10 +543,10 @@ mod tests {
         let response = ServerResponse::new(
             TupleFieldDesc::new(vec![DatumDesc::new_nullable(
                 "name".to_string(),
-                DatType::default_for(DatTypeID::String),
+                DataType::default_for(TypeFamily::String),
                 true,
             )]),
-            vec![TupleValue::from(vec![DatValue::null()])],
+            vec![TupleValue::from(vec![DataValue::null()])],
             0,
             None,
         );

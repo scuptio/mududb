@@ -13,9 +13,9 @@ procedure component flow:
 4. `wasm-tools component embed/new` componentizes the AssemblyScript wasm.
 5. Cargo builds the generated Rust P2 wrapper component.
 6. `wasm-tools compose` links the Rust wrapper imports to the AssemblyScript
-   adapter exports and writes `wasm/wallet_as.wasm`.
-7. `mpk create` packages the composed component, generated desc, and wallet SQL
-   into `target/wallet-as.mpk`.
+   adapter exports and writes `target/wasm32-wasip2/release/wallet_as.wasm`.
+7. `mpm-build create` packages the composed component, generated desc, and wallet SQL
+   into `target/wasm32-wasip2/release/wallet-as.mpk`.
 
 Build the full component pipeline:
 
@@ -32,7 +32,7 @@ Required tools:
 
 Current status: the full `cargo make package` pipeline builds the
 AssemblyScript core wasm, componentizes it, composes it with the Rust wrapper,
-validates the result, and writes `target/wallet-as.mpk`.
+validates the result, and writes `target/wasm32-wasip2/release/wallet-as.mpk`.
 
 For the older packaging-only path that uses the checked-in placeholder wasm:
 

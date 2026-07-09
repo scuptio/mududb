@@ -1,5 +1,5 @@
 use mudu::common::result::RS;
-use mudu_runtime::backend::mududb_cfg::ServerMode;
+use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::sync::SMutex;
 use mudu_sys::task::sync::spawn_thread;

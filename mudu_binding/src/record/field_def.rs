@@ -1,12 +1,12 @@
-use crate::universal::uni_dat_type::UniDatType;
-use crate::universal::uni_dat_value::UniDatValue;
+use crate::universal::uni_data_type::UniDataType;
+use crate::universal::uni_data_value::UniDataValue;
 
 /// Definition of a single record field (column).
 #[derive(Debug, Clone)]
 pub struct FieldDef {
     field_name: String,
-    data_type: UniDatType,
-    data_type_param: Option<Vec<UniDatValue>>,
+    data_type: UniDataType,
+    data_type_param: Option<Vec<UniDataValue>>,
     not_null: bool,
 }
 
@@ -14,8 +14,8 @@ impl FieldDef {
     /// Creates a new field definition.
     pub fn new(
         column_name: String,
-        data_type: UniDatType,
-        data_type_param: Option<Vec<UniDatValue>>,
+        data_type: UniDataType,
+        data_type_param: Option<Vec<UniDataValue>>,
         not_null: bool,
     ) -> Self {
         Self {
@@ -32,12 +32,12 @@ impl FieldDef {
     }
 
     /// Returns the data type.
-    pub fn dat_type(&self) -> &UniDatType {
+    pub fn data_type(&self) -> &UniDataType {
         &self.data_type
     }
 
     /// Returns the optional data type parameters.
-    pub fn data_type_param(&self) -> &Option<Vec<UniDatValue>> {
+    pub fn data_type_param(&self) -> &Option<Vec<UniDataValue>> {
         &self.data_type_param
     }
 
@@ -47,7 +47,7 @@ impl FieldDef {
     }
 
     /// Sets the column type.
-    pub fn set_column_type(&mut self, column_type: UniDatType) {
+    pub fn set_column_type(&mut self, column_type: UniDataType) {
         self.data_type = column_type;
     }
 }

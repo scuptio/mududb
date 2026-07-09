@@ -1,9 +1,9 @@
 use crate::array::new_array_type;
-use crate::dat_binary::DatBinary;
-use crate::dat_textual::DatTextual;
-use crate::dat_type::DatType;
-use crate::dat_type_id::DatTypeID;
-use crate::dat_value::DatValue;
+use crate::data_binary::DataBinary;
+use crate::data_textual::DataTextual;
+use crate::data_type::DataType;
+use crate::data_value::DataValue;
+use crate::type_family::TypeFamily;
 use mudu::common::result::RS;
 use mudu::data_type::date::DateValue;
 use mudu::data_type::numeric::Numeric;
@@ -18,23 +18,23 @@ use std::clone::Clone;
 use std::fmt;
 
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> DatType;
+    fn data_type() -> DataType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
-    fn from_value(value: &DatValue) -> RS<Self>;
+    fn from_value(value: &DataValue) -> RS<Self>;
 
     fn from_textual(textual: &str) -> RS<Self>;
 }
 
 pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
-    fn dat_type_id(&self) -> RS<DatTypeID>;
+    fn type_family(&self) -> RS<TypeFamily>;
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary>;
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary>;
 
-    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual>;
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual>;
 
-    fn to_value(&self, dat_type: &DatType) -> RS<DatValue>;
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue>;
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
@@ -43,43 +43,43 @@ pub trait AsDatumDynRef {
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn;
 }
 
-fn vec_to_dat_value<D: Datum>(vec: &Vec<D>) -> RS<DatValue> {
-    let dat_type = D::dat_type();
+fn vec_to_data_value<D: Datum>(vec: &Vec<D>) -> RS<DataValue> {
+    let data_type = D::data_type();
     let mut vec_dat_mem = Vec::new();
     for d in vec {
-        let internal = d.to_value(&dat_type)?;
+        let internal = d.to_value(&data_type)?;
         vec_dat_mem.push(internal);
     }
-    Ok(DatValue::from_array(vec_dat_mem))
+    Ok(DataValue::from_array(vec_dat_mem))
 }
 
 impl<D: Datum> DatumDyn for Vec<D> {
-    fn dat_type_id(&self) -> RS<DatTypeID> {
-        Ok(DatTypeID::Array)
+    fn type_family(&self) -> RS<TypeFamily> {
+        Ok(TypeFamily::Array)
     }
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
-        if dat_type.dat_type_id() != DatTypeID::Array {
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
+        if data_type.type_family() != TypeFamily::Array {
             return Err(mudu_error!(ErrorCode::InvalidType));
         }
-        let dat_mem = vec_to_dat_value(self)?;
-        dat_type.dat_type_id().fn_send()(&dat_mem, dat_type).map_err(|e| e.to_m_err())
+        let data_mem = vec_to_data_value(self)?;
+        data_type.type_family().fn_send()(&data_mem, data_type).map_err(|e| e.to_m_err())
     }
 
-    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
-        if dat_type.dat_type_id() != DatTypeID::Array {
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
+        if data_type.type_family() != TypeFamily::Array {
             return Err(mudu_error!(ErrorCode::InvalidType));
         }
-        let dat_mem = vec_to_dat_value(self)?;
-        dat_type.dat_type_id().fn_output()(&dat_mem, dat_type).map_err(|e| e.to_m_err())
+        let data_mem = vec_to_data_value(self)?;
+        data_type.type_family().fn_output()(&data_mem, data_type).map_err(|e| e.to_m_err())
     }
 
-    fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
-        if dat_type.dat_type_id() != DatTypeID::Array {
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
+        if data_type.type_family() != TypeFamily::Array {
             return Err(mudu_error!(ErrorCode::InvalidType));
         }
-        let dat_mem = vec_to_dat_value(self)?;
-        Ok(dat_mem)
+        let data_mem = vec_to_data_value(self)?;
+        Ok(data_mem)
     }
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn> {
@@ -131,39 +131,39 @@ pub fn binary_to_typed<T: Datum, S: AsRef<str>>(data: &[u8], _type_str: S) -> RS
 }
 
 pub fn binary_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<Vec<u8>> {
-    let dat_type = T::dat_type();
-    let dat_bin = t.to_binary(&dat_type)?;
-    Ok(dat_bin.into())
+    let data_type = T::data_type();
+    let data_bin = t.to_binary(&data_type)?;
+    Ok(data_bin.into())
 }
 
-pub fn value_to_typed<T: Datum, S: AsRef<str>>(data: &DatValue, _type_str: S) -> RS<T> {
+pub fn value_to_typed<T: Datum, S: AsRef<str>>(data: &DataValue, _type_str: S) -> RS<T> {
     T::from_value(data)
 }
 
-pub fn value_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<DatValue> {
-    let dat_type = T::dat_type();
-    let dat_bin = t.to_value(&dat_type)?;
-    Ok(dat_bin)
+pub fn value_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<DataValue> {
+    let data_type = T::data_type();
+    let data_bin = t.to_value(&data_type)?;
+    Ok(data_bin)
 }
 
 impl<D: Datum> Datum for Vec<D> {
-    fn dat_type() -> DatType {
-        new_array_type(D::dat_type())
+    fn data_type() -> DataType {
+        new_array_type(D::data_type())
     }
 
     fn from_binary(binary: &[u8]) -> RS<Self> {
-        let dat_type = Self::dat_type();
-        let (dat_mem, _) = dat_type.dat_type_id().fn_recv()(binary, &dat_type).map_err(|e| {
+        let data_type = Self::data_type();
+        let (data_mem, _) = data_type.type_family().fn_recv()(binary, &data_type).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "error when convert binary to array type",
                 e
             )
         })?;
-        Self::from_value(&dat_mem)
+        Self::from_value(&data_mem)
     }
 
-    fn from_value(mem: &DatValue) -> RS<Self> {
+    fn from_value(mem: &DataValue) -> RS<Self> {
         let array = mem.expect_array();
         let mut vec_d = Vec::with_capacity(array.len());
         for dat in array.iter() {
@@ -174,15 +174,15 @@ impl<D: Datum> Datum for Vec<D> {
     }
 
     fn from_textual(textual: &str) -> RS<Self> {
-        let dat_type = Self::dat_type();
-        let dat_value = dat_type.dat_type_id().fn_input()(textual, &dat_type).map_err(|e| {
+        let data_type = Self::data_type();
+        let data_value = data_type.type_family().fn_input()(textual, &data_type).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "error when convert textual to array type",
                 e
             )
         })?;
-        Self::from_value(&dat_value)
+        Self::from_value(&data_value)
     }
 }
 
@@ -191,33 +191,33 @@ macro_rules! impl_datum_trait {
         $(
             impl Datum for $datum_type {
                 paste! {
-                    fn dat_type() -> DatType {
-                        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+                    fn data_type() -> DataType {
+                        static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
                         ONCE_LOCK
-                            .get_or_init(|| DatType::default_for(DatTypeID::$variant_upper))
+                            .get_or_init(|| DataType::default_for(TypeFamily::$variant_upper))
                             .clone()
                     }
 
                     fn from_binary(binary: &[u8]) -> RS<Self> {
-                        let dat_type = Self::dat_type();
-                        let (dat_mem, _) = dat_type.dat_type_id().fn_recv()(&binary, &dat_type)
+                        let data_type = Self::data_type();
+                        let (data_mem, _) = data_type.type_family().fn_recv()(&binary, &data_type)
                             .map_err(|e|{
                                 e.to_m_err()
                             })?;
-                        let value = dat_mem.[<expect_ $variant_lower>]();
+                        let value = data_mem.[<expect_ $variant_lower>]();
                         Ok(value.clone())
                     }
 
-                    fn from_value(dat_mem: &DatValue) -> RS<Self> {
-                        let value = dat_mem.[<expect_ $variant_lower>]();
+                    fn from_value(data_mem: &DataValue) -> RS<Self> {
+                        let value = data_mem.[<expect_ $variant_lower>]();
                         Ok(value.clone())
                     }
 
                     fn from_textual(textual: &str) -> RS<Self> {
-                        let dat_type = Self::dat_type();
-                        let dat_value = dat_type.dat_type_id().fn_input()(textual, &dat_type)
+                        let data_type = Self::data_type();
+                        let data_value = data_type.type_family().fn_input()(textual, &data_type)
                             .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "error when convert textual to array type", e))?;
-                        Self::from_value(&dat_value)
+                        Self::from_value(&data_value)
                     }
                 }
             }
@@ -225,31 +225,31 @@ macro_rules! impl_datum_trait {
 
             impl DatumDyn for $datum_type {
                 paste! {
-                    fn dat_type_id(&self) -> RS<DatTypeID> {
-                        Ok(DatTypeID::$variant_upper)
+                    fn type_family(&self) -> RS<TypeFamily> {
+                        Ok(TypeFamily::$variant_upper)
                     }
 
-                    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
-                        if dat_type.dat_type_id() != DatTypeID::$variant_upper {
+                    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
+                        if data_type.type_family() != TypeFamily::$variant_upper {
                             return Err(mudu_error!(ErrorCode::InvalidType));
                         }
-                        dat_type.dat_type_id().fn_send()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
+                        data_type.type_family().fn_send()(&DataValue::[<from_ $variant_lower>](self.clone()), data_type)
                              .map_err(|e| e.to_m_err())
                     }
 
-                    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
-                        if dat_type.dat_type_id() != DatTypeID::$variant_upper {
+                    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
+                        if data_type.type_family() != TypeFamily::$variant_upper {
                             return Err(mudu_error!(ErrorCode::InvalidType));
                         }
-                        dat_type.dat_type_id().fn_output()(&DatValue::[<from_ $variant_lower>](self.clone()), dat_type)
+                        data_type.type_family().fn_output()(&DataValue::[<from_ $variant_lower>](self.clone()), data_type)
                              .map_err(|e| e.to_m_err())
                     }
 
-                    fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
-                        if dat_type.dat_type_id() != DatTypeID::$variant_upper {
+                    fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
+                        if data_type.type_family() != TypeFamily::$variant_upper {
                             return Err(mudu_error!(ErrorCode::InvalidType));
                         }
-                        Ok(DatValue::[<from_ $variant_lower>](self.clone()))
+                        Ok(DataValue::[<from_ $variant_lower>](self.clone()))
                     }
 
                     fn clone_boxed(&self) -> Box<dyn DatumDyn> {

@@ -171,11 +171,11 @@ def managed_mudud(project_root: Path, cfg_path: Path, args: argparse.Namespace):
     mudud_bin = _find_mudud_binary(project_root)
     if mudud_bin is not None:
         if _mudud_supports_cfg_flag(mudud_bin):
-            cmd = [str(mudud_bin), "--cfg", str(cfg_path)]
+            cmd = [str(mudud_bin), "serve", "--cfg", str(cfg_path)]
         else:
-            cmd = [str(mudud_bin), str(cfg_path)]
+            cmd = [str(mudud_bin), "serve", str(cfg_path)]
     else:
-        cmd = ["cargo", "run", "-p", "mudud", "--", "--cfg", str(cfg_path)]
+        cmd = ["cargo", "run", "-p", "mudud", "--", "serve", "--cfg", str(cfg_path)]
     print(f"[server] starting: {' '.join(cmd)}")
     log_path = cfg_path.parent / "mudud.log"
     log_file = open(log_path, "w")
@@ -356,7 +356,7 @@ def run_single_benchmark(
             args.http_port = get_free_port(args.listen_ip)
             args.tcp_port = get_free_port(args.listen_ip)
 
-    cfg_path = data_dir / "mududb_cfg.toml"
+    cfg_path = data_dir / "mudud.cfg"
     write_config(cfg_path, args, data_dir)
 
     try:

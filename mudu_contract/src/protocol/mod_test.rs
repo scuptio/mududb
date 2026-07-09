@@ -126,16 +126,16 @@ mod tests {
         use crate::tuple::datum_desc::DatumDesc;
         use crate::tuple::tuple_field_desc::TupleFieldDesc;
         use crate::tuple::tuple_value::TupleValue;
-        use mudu_type::dat_type::DatType;
-        use mudu_type::dat_type_id::DatTypeID;
-        use mudu_type::dat_value::DatValue;
+        use mudu_type::data_type::DataType;
+        use mudu_type::data_value::DataValue;
+        use mudu_type::type_family::TypeFamily;
 
         let response = ServerResponse::new(
             TupleFieldDesc::new(vec![DatumDesc::new(
                 "value".to_string(),
-                DatType::default_for(DatTypeID::String),
+                DataType::default_for(TypeFamily::String),
             )]),
-            vec![TupleValue::from(vec![DatValue::from_string(
+            vec![TupleValue::from(vec![DataValue::from_string(
                 "1".to_string(),
             )])],
             0,
@@ -302,15 +302,15 @@ mod tests {
         use crate::tuple::datum_desc::DatumDesc;
         use crate::tuple::tuple_field_desc::TupleFieldDesc;
         use crate::tuple::tuple_value::TupleValue;
-        use mudu_type::dat_type::DatType;
-        use mudu_type::dat_type_id::DatTypeID;
-        use mudu_type::dat_value::DatValue;
+        use mudu_type::data_type::DataType;
+        use mudu_type::data_value::DataValue;
+        use mudu_type::type_family::TypeFamily;
 
         let row_desc = TupleFieldDesc::new(vec![DatumDesc::new(
             "c".to_string(),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
         )]);
-        let rows = vec![TupleValue::from(vec![DatValue::from_string(
+        let rows = vec![TupleValue::from(vec![DataValue::from_string(
             "v".to_string(),
         )])];
         let response =

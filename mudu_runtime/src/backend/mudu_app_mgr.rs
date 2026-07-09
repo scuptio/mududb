@@ -1,7 +1,7 @@
 use crate::backend::app_mgr::AppMgr;
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::service::app_list::{AppList, AppListItem};
-use crate::service::mudu_package::MuduPackage;
+use crate::service::app_package::AppPackage;
 use crate::service::runtime::Runtime;
 use crate::service::runtime_impl::create_runtime_service;
 use crate::service::runtime_opt::RuntimeOpt;
@@ -267,13 +267,13 @@ fn write_package_to_disk(mpk_path: &str, mpk_binary: &[u8]) -> RS<PathBuf> {
     mudu_sys::fs::sync::create_dir_all(mpk_path)?;
     let temp_path = temp_package_path(&mudu_sys::env_var::temp_dir().to_string_lossy());
     mudu_sys::fs::sync::write(&temp_path, mpk_binary)?;
-    let package = MuduPackage::load(&temp_path)?;
+    let package = AppPackage::load(&temp_path)?;
     let final_path = PathBuf::from(mpk_path).join(format!("{}.mpk", package.package_cfg.name));
     mudu_sys::fs::sync::write(&final_path, mpk_binary)?;
     Ok(final_path)
 }
 
-fn load_packages<P: AsRef<Path>>(mpk_path: P) -> RS<Vec<MuduPackage>> {
+fn load_packages<P: AsRef<Path>>(mpk_path: P) -> RS<Vec<AppPackage>> {
     let mut packages = Vec::new();
     let path = mpk_path.as_ref();
     if !mudu_sys::fs::sync::path_exists(path) {
@@ -282,7 +282,7 @@ fn load_packages<P: AsRef<Path>>(mpk_path: P) -> RS<Vec<MuduPackage>> {
     for entry in mudu_sys::fs::sync::read_dir_entries(path)? {
         let path = entry.path();
         if is_mpk_file(&path) {
-            packages.push(MuduPackage::load(&path)?);
+            packages.push(AppPackage::load(&path)?);
         }
     }
     Ok(packages)
@@ -301,7 +301,7 @@ fn find_package_path_by_app_name<P: AsRef<Path>>(
         if !is_mpk_file(&path) {
             continue;
         }
-        let package = MuduPackage::load(&path)?;
+        let package = AppPackage::load(&path)?;
         if package.package_cfg.name == app_name {
             return Ok(Some(path));
         }

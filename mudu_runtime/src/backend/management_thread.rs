@@ -2,7 +2,7 @@ use crate::backend::app_mgr::AppMgr;
 use crate::backend::http_api::{
     HttpApiCapabilities, KernelHttpApi, serve_http_api_on_listener_with_stop,
 };
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

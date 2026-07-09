@@ -134,21 +134,21 @@ mod tests {
     use super::*;
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     fn sample_param() -> ProcedureParam {
         ProcedureParam::new(
             42u128,
             7u64,
             vec![
-                DatValue::from_i32(1),
-                DatValue::from_string("x".to_string()),
+                DataValue::from_i32(1),
+                DataValue::from_string("x".to_string()),
             ],
         )
     }
 
     fn sample_result() -> ProcedureResult {
-        ProcedureResult::new(vec![DatValue::from_i64(99)])
+        ProcedureResult::new(vec![DataValue::from_i64(99)])
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
         let param_bytes = serialize_param(param).unwrap();
 
         let output = invoke_procedure(param_bytes, |_p| {
-            Ok(ProcedureResult::new(vec![DatValue::from_i32(123)]))
+            Ok(ProcedureResult::new(vec![DataValue::from_i32(123)]))
         });
 
         let decoded = deserialize_result(&output).unwrap();
@@ -208,7 +208,7 @@ mod tests {
         let param_bytes = serialize_param(param).unwrap();
 
         let output = invoke_procedure_async(param_bytes, |_p| async {
-            Ok(ProcedureResult::new(vec![DatValue::from_i32(456)]))
+            Ok(ProcedureResult::new(vec![DataValue::from_i32(456)]))
         })
         .await;
 
@@ -221,7 +221,7 @@ mod tests {
         let param = sample_param();
         let input = serialize_param(param).unwrap();
         let proc = |_p: &ProcedureParam| -> RS<ProcedureResult> {
-            Ok(ProcedureResult::new(vec![DatValue::from_i32(777)]))
+            Ok(ProcedureResult::new(vec![DataValue::from_i32(777)]))
         };
 
         let mut output = vec![0u8; 256];
@@ -258,7 +258,7 @@ mod tests {
         let param = sample_param();
         let input = serialize_param(param).unwrap();
         let proc = |_p: &ProcedureParam| -> RS<ProcedureResult> {
-            Ok(ProcedureResult::new(vec![DatValue::from_string(
+            Ok(ProcedureResult::new(vec![DataValue::from_string(
                 "too long".to_string(),
             )]))
         };

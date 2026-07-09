@@ -79,7 +79,7 @@ impl From<&ProcedureDescField> for ProcedureShimField {
     fn from(field: &ProcedureDescField) -> Self {
         Self {
             name: field.name.clone(),
-            dat_type_expr: field.value_type.dat_type_expr().to_string(),
+            data_type_expr: field.value_type.data_type_expr().to_string(),
         }
     }
 }
@@ -107,5 +107,5 @@ fn gen_procedure_desc(module_name: &str, procedure: &ProcedureDescModel) -> Proc
 }
 
 fn field_to_datum_desc(field: &ProcedureDescField) -> DatumDesc {
-    DatumDesc::new(field.name.clone(), field.value_type.dat_type())
+    DatumDesc::new(field.name.clone(), field.value_type.data_type())
 }

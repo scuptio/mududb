@@ -111,13 +111,13 @@ mod tests {
     use mudu::mudu_error;
     use mudu_contract::tuple::comparator::TupleComparator;
     use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     use super::*;
 
     fn test_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap()
     }
 
     fn ok_compare(left: &[u8], right: &[u8], _desc: &TupleBinaryDesc) -> RS<Ordering> {

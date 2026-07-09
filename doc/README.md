@@ -6,8 +6,9 @@ This directory contains the MuduDB documentation. If you are new, follow the ord
 
 | Document | Purpose |
 |----------|---------|
-| [`../readme.md`](../readme.md) | Project overview, architecture, and 5-minute Quick Start. |
+| [`../README.md`](../README.md) | Project overview, architecture, and 5-minute Quick Start. |
 | [`en/how_to_start.md`](en/how_to_start.md) / [`cn/how_to_start.cn.md`](cn/how_to_start.cn.md) | Detailed setup: install with `mudup`, one-command source setup, Dev Container, or manual setup. |
+| [`en/running_mudud.md`](en/running_mudud.md) / [`cn/running_mudud.cn.md`](cn/running_mudud.cn.md) | Configure and start the `mudud` server. |
 | [`en/DEPLOY.md`](en/DEPLOY.md) / [`cn/DEPLOY.md`](cn/DEPLOY.md) | One-click deployment on Ubuntu 24.04. |
 | [`en/concepts.md`](en/concepts.md) / [`cn/concepts.cn.md`](cn/concepts.cn.md) | Core concepts: Mudu Procedure, OID, MPK, app/module/proc, and the toolchain. |
 
@@ -15,7 +16,7 @@ This directory contains the MuduDB documentation. If you are new, follow the ord
 
 | Document | Purpose |
 |----------|---------|
-| [`en/your_first_procedure.md`](en/your_first_procedure.md) / [`cn/your_first_procedure.cn.md`](cn/your_first_procedure.cn.md) | Build a minimal Mudu Procedure from scratch and invoke it. |
+| [`en/your_first_mpk.md`](en/your_first_mpk.md) / [`cn/your_first_mpk.cn.md`](cn/your_first_mpk.cn.md) | Build a minimal MPK package from the wallet example, install it, and invoke it. |
 | [`../example/wallet/readme.md`](../example/wallet/readme.md) | A complete Rust example: users, wallets, and transfers. |
 | [`../example/wallet-as/readme.md`](../example/wallet-as/readme.md) | The AssemblyScript version of the wallet example. |
 | [`../example/key-value/README.md`](../example/key-value/README.md) | Key/value API example. |

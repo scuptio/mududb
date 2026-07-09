@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -41,8 +41,8 @@ fn dummy_table_desc() -> Arc<TableDesc> {
         "t".to_string(),
         vec![SchemaColumn::new(
             "k".to_string(),
-            DatTypeID::I64,
-            DatType::new_no_param(DatTypeID::I64).to_info(),
+            TypeFamily::I64,
+            DataType::new_no_param(TypeFamily::I64).to_info(),
         )],
         vec![0],
         vec![],

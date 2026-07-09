@@ -10,7 +10,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Binary",
                 "param": null
               },
@@ -25,7 +25,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Binary",
                 "param": null
               },
@@ -36,7 +36,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Binary",
                 "param": null
               },

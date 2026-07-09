@@ -1,4 +1,4 @@
-use crate::service::mudu_package::MuduPackage;
+use crate::service::app_package::AppPackage;
 use crate::service::package_module::PackageModule;
 use crate::service::runtime_opt::RuntimeOpt;
 use crate::service::wt_runtime_component::WTRuntimeComponent;
@@ -19,7 +19,7 @@ impl WTRuntime {
         self.inner.instantiate()
     }
 
-    pub fn compile_modules(&self, package: &MuduPackage) -> RS<Vec<(String, PackageModule)>> {
+    pub fn compile_modules(&self, package: &AppPackage) -> RS<Vec<(String, PackageModule)>> {
         self.inner.compile_modules(package)
     }
 }

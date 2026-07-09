@@ -4,15 +4,15 @@
 use crate::tuple::tuple_datum::TupleDatum;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
 
 #[derive(Debug, Clone)]
 pub struct ProcedureResult {
-    return_list: Vec<DatValue>,
+    return_list: Vec<DataValue>,
 }
 
 impl ProcedureResult {
-    pub fn into(self) -> Vec<DatValue> {
+    pub fn into(self) -> Vec<DataValue> {
         self.return_list
     }
 
@@ -31,11 +31,11 @@ impl ProcedureResult {
         Ok(t)
     }
 
-    pub fn new(return_list: Vec<DatValue>) -> ProcedureResult {
+    pub fn new(return_list: Vec<DataValue>) -> ProcedureResult {
         Self { return_list }
     }
 
-    pub fn return_list(&self) -> &Vec<DatValue> {
+    pub fn return_list(&self) -> &Vec<DataValue> {
         &self.return_list
     }
 }

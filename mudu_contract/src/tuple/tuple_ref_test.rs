@@ -4,12 +4,12 @@ mod tests {
     use crate::tuple::build_tuple::build_tuple;
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
     use crate::tuple::tuple_ref::TupleRef;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     #[test]
     fn tuple_ref_reads_fixed_len_field() {
-        let desc = TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap();
+        let desc = TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap();
         let bytes: Vec<u8> = vec![0, 0, 0, 42];
         let tuple = build_tuple(std::slice::from_ref(&bytes), &desc).unwrap();
         let tuple_ref = TupleRef::new(&tuple, &desc);
@@ -22,8 +22,8 @@ mod tests {
     #[test]
     fn tuple_ref_new_and_columns() {
         let desc = TupleBinaryDesc::from(vec![
-            DatType::new_no_param(DatTypeID::I32),
-            DatType::new_no_param(DatTypeID::I64),
+            DataType::new_no_param(TypeFamily::I32),
+            DataType::new_no_param(TypeFamily::I64),
         ])
         .unwrap();
         let tuple = build_tuple(&[vec![0; 4], vec![0; 8]], &desc).unwrap();
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn tuple_ref_reads_var_len_field() {
-        let desc = TupleBinaryDesc::from(vec![DatType::default_for(DatTypeID::String)]).unwrap();
+        let desc = TupleBinaryDesc::from(vec![DataType::default_for(TypeFamily::String)]).unwrap();
         let bytes = b"hello".to_vec();
         let tuple = build_tuple(std::slice::from_ref(&bytes), &desc).unwrap();
         let tuple_ref = TupleRef::new(&tuple, &desc);

@@ -13,6 +13,11 @@ enum uni-scalar {
     %f64,
     %char,
     %string,
-    blob
+    blob,
+    numeric,
+    date,
+    time,
+    timestamp,
+    timestamptz
 }
 }

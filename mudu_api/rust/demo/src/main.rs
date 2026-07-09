@@ -1,5 +1,5 @@
 use mudu_api_rust::{
-    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDatValue, UniOid, UniScalarValue,
+    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDataValue, UniOid, UniScalarValue,
     UniQueryArgv, UniSqlParam, UniSqlStmt,
 };
 
@@ -31,7 +31,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .into(),
         },
         param_list: UniSqlParam {
-            params: vec![UniDatValue::Scalar(UniScalarValue::I32(10))],
+            params: vec![UniDataValue::Scalar(UniScalarValue::I32(10))],
         },
     };
 
@@ -45,15 +45,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     for row in result.result_set.row_set {
         let id = match &row.fields[0] {
-            UniDatValue::Scalar(UniScalarValue::I64(value)) => *value,
+            UniDataValue::Scalar(UniScalarValue::I64(value)) => *value,
             other => return Err(format!("unexpected id field: {other:?}").into()),
         };
         let name = match &row.fields[1] {
-            UniDatValue::Scalar(UniScalarValue::String(value)) => value.clone(),
+            UniDataValue::Scalar(UniScalarValue::String(value)) => value.clone(),
             other => return Err(format!("unexpected name field: {other:?}").into()),
         };
         let score = match &row.fields[2] {
-            UniDatValue::Scalar(UniScalarValue::I64(value)) => *value,
+            UniDataValue::Scalar(UniScalarValue::I64(value)) => *value,
             other => return Err(format!("unexpected score field: {other:?}").into()),
         };
 
@@ -71,8 +71,8 @@ async fn insert_user(name: &str, score: i32) -> Result<(), Box<dyn std::error::E
         },
         param_list: UniSqlParam {
             params: vec![
-                UniDatValue::Scalar(UniScalarValue::String(name.to_string())),
-                UniDatValue::Scalar(UniScalarValue::I32(score)),
+                UniDataValue::Scalar(UniScalarValue::String(name.to_string())),
+                UniDataValue::Scalar(UniScalarValue::I32(score)),
             ],
         },
     };

@@ -9,6 +9,6 @@
 pub mod api;
 pub mod operator;
 
-mod dat_bin;
+mod data_bin;
 pub mod tx_mgr;
 pub mod x_param;

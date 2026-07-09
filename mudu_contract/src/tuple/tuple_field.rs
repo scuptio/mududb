@@ -85,9 +85,9 @@ impl TupleField {
                 vec_string.push("NULL".to_string());
                 continue;
             };
-            let id = datum_desc.dat_type_id();
-            let printable = id.fn_recv()(field, datum_desc.dat_type())
-                .and_then(|(internal, _)| id.fn_output()(&internal, datum_desc.dat_type()))
+            let id = datum_desc.type_family();
+            let printable = id.fn_recv()(field, datum_desc.data_type())
+                .and_then(|(internal, _)| id.fn_output()(&internal, datum_desc.data_type()))
                 .map_err(|e| {
                     mudu_error!(
                         ErrorCode::TypeConversionFailed,

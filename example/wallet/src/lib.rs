@@ -1,9 +1,9 @@
 //! Wallet example for mududb.
 //!
 //! This crate demonstrates a simple wallet application with users, wallets,
-//! transactions, orders, and warehouse entities. It exposes stored procedures
-//! for operations such as creating users, depositing, withdrawing, transferring,
-//! and purchasing funds.
+//! transactions, and orders. It exposes stored procedures for operations such
+//! as creating users, depositing, withdrawing, transferring, and purchasing
+//! funds.
 
 #![warn(missing_docs)]
 #![allow(dead_code)]
@@ -32,7 +32,6 @@ pub mod generated {
     pub mod transactions;
     pub mod users;
     pub mod wallets;
-    pub mod warehouse;
 }
 
 #[cfg(test)]

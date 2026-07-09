@@ -27,7 +27,7 @@ impl ValueList {
                 if *index < 0 {
                     return Err(error::range("value-list index cannot be negative"));
                 }
-                Ok(Box::new(value::into_dat_value(value.clone())) as Box<dyn DatumDyn>)
+                Ok(Box::new(value::into_data_value(value.clone())) as Box<dyn DatumDyn>)
             })
             .collect()
     }

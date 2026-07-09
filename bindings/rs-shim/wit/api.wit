@@ -23,11 +23,6 @@ interface types {
         object-id(oid),
     }
 
-    record key-value {
-        key: list<value>,
-        value: list<value>,
-    }
-
     value-null: func() -> value;
     value-from-boolean: func(input: bool) -> value;
     value-from-int64: func(input: s64) -> value;
@@ -48,7 +43,6 @@ interface types {
 interface system {
     use types.{
         error,
-        key-value,
         oid,
         value,
     };

@@ -8,11 +8,18 @@ variant uni-scalar-value {
     %u32(u32),
     i32(s32),
     %u64(u64),
+    u128(list<u8>),
     i64(s64),
+    i128(list<u8>),
     %f32(f32),
     %f64(f64),
     %char(char),
     %string(string),
-    blob(blob)
+    blob(list<u8>),
+    numeric(string),
+    date(string),
+    time(string),
+    timestamp(string),
+    timestamptz(string)
 }
 }

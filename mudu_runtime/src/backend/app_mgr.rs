@@ -1,5 +1,5 @@
 use crate::backend::mudu_app_mgr::ListOption;
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::service::app_list::AppList;
 use async_trait::async_trait;
 use mudu::common::result::RS;

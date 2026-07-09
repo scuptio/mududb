@@ -14,17 +14,21 @@
 
 use clap::Parser;
 use mudu_utils::log::log_setup_ex;
-use mudud::{Args, serve};
+use mudud::{Args, Command, ServeArgs, init_config, serve};
 use tracing::error;
 
 fn main() {
     log_setup_ex("info", "", false);
     let args = Args::parse();
-    let r = serve(args);
+    let r = match args.command {
+        Some(Command::InitCfg) => init_config(),
+        Some(Command::Serve(serve_args)) => serve(serve_args),
+        None => serve(ServeArgs::default()),
+    };
     match r {
         Ok(_) => {}
         Err(e) => {
-            error!("mududb serve run error: {}", e);
+            error!("mududb run error: {}", e);
         }
     }
 }

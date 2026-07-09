@@ -1,6 +1,6 @@
-use crate::universal::uni_dat_value::UniDatValue;
+use crate::universal::uni_data_value::UniDataValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct UniProcedureResult {
-    pub return_list: Vec<UniDatValue>,
+    pub return_list: Vec<UniDataValue>,
 }

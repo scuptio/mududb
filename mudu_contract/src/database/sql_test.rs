@@ -19,7 +19,7 @@ mod tests {
     use mudu::common::id::OID;
     use mudu::common::result::RS;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn context_cache_result_and_query_next() {
         let oid = next_oid();
-        let row = TupleValue::from(vec![DatValue::from_i32(42)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
         let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(vec![row.clone()])));
         let ctx = Context::create(oid, conn).unwrap();
 
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn context_query_returns_record_set() {
         let oid = next_oid();
-        let row = TupleValue::from(vec![DatValue::from_i32(42)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
         let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(vec![row])));
         let ctx = Context::create(oid, conn).unwrap();
 
@@ -463,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn context_query_raw_async_returns_result_set() {
         let oid = next_oid();
-        let row = TupleValue::from(vec![DatValue::from_i32(42)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
         let conn = DBConn::Async(Arc::new(MockDBConnAsync::with_query(vec![row])));
         let ctx = Context::create(oid, conn).unwrap();
 
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn mudu_query_with_existing_context() {
         let oid = next_oid();
-        let row = TupleValue::from(vec![DatValue::from_i32(99)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(99)]);
         let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(vec![row])));
         let _ctx = Context::create(oid, conn).unwrap();
 

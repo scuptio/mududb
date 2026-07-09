@@ -8,7 +8,7 @@ mod tests {
     use crate::database::test_object::object::{
         AttrIData, AttrIId, AttrIImId, AttrIName, AttrIPrice, Item,
     };
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
     use mudu_type::datum::{Datum, DatumDyn};
 
     fn sample_item() -> Item {
@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn item_datum_binary_roundtrip() {
         let item = sample_item();
-        let binary = item.to_binary(&Item::dat_type()).unwrap();
+        let binary = item.to_binary(&Item::data_type()).unwrap();
         let restored = Item::from_binary(binary.as_ref()).unwrap();
         assert_eq!(restored.get_i_id(), item.get_i_id());
     }
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn item_datum_value_roundtrip() {
         let item = sample_item();
-        let value = item.to_value(&Item::dat_type()).unwrap();
+        let value = item.to_value(&Item::data_type()).unwrap();
         let restored = Item::from_value(&value).unwrap();
         assert_eq!(restored.get_i_id(), item.get_i_id());
     }
@@ -84,21 +84,21 @@ mod tests {
     #[test]
     fn item_datum_textual_roundtrip() {
         let item = sample_item();
-        let textual = item.to_textual(&Item::dat_type()).unwrap();
+        let textual = item.to_textual(&Item::data_type()).unwrap();
         let restored = Item::from_textual(textual.as_ref()).unwrap();
         assert_eq!(restored.get_i_id(), item.get_i_id());
     }
 
     #[test]
-    fn item_datum_dat_type_id_and_clone_boxed() {
+    fn item_datum_type_family_and_clone_boxed() {
         let item = sample_item();
         assert_eq!(
-            item.dat_type_id().unwrap(),
-            mudu_type::dat_type_id::DatTypeID::Record
+            item.type_family().unwrap(),
+            mudu_type::type_family::TypeFamily::Record
         );
 
         let boxed = item.clone_boxed();
-        let value = boxed.to_value(&Item::dat_type()).unwrap();
+        let value = boxed.to_value(&Item::data_type()).unwrap();
         let restored = Item::from_value(&value).unwrap();
         assert_eq!(restored.get_i_id(), item.get_i_id());
     }
@@ -108,36 +108,36 @@ mod tests {
         assert_eq!(AttrIId::object_name(), "item");
         assert_eq!(AttrIId::attr_name(), "i_id");
         assert_eq!(
-            AttrIId::dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::I32
+            AttrIId::data_type().type_family(),
+            mudu_type::type_family::TypeFamily::I32
         );
 
         assert_eq!(AttrIName::object_name(), "item");
         assert_eq!(AttrIName::attr_name(), "i_name");
         assert_eq!(
-            AttrIName::dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::String
+            AttrIName::data_type().type_family(),
+            mudu_type::type_family::TypeFamily::String
         );
 
         assert_eq!(AttrIPrice::object_name(), "item");
         assert_eq!(AttrIPrice::attr_name(), "i_price");
         assert_eq!(
-            AttrIPrice::dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::F64
+            AttrIPrice::data_type().type_family(),
+            mudu_type::type_family::TypeFamily::F64
         );
 
         assert_eq!(AttrIData::object_name(), "item");
         assert_eq!(AttrIData::attr_name(), "i_data");
         assert_eq!(
-            AttrIData::dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::String
+            AttrIData::data_type().type_family(),
+            mudu_type::type_family::TypeFamily::String
         );
 
         assert_eq!(AttrIImId::object_name(), "item");
         assert_eq!(AttrIImId::attr_name(), "i_im_id");
         assert_eq!(
-            AttrIImId::dat_type().dat_type_id(),
-            mudu_type::dat_type_id::DatTypeID::I32
+            AttrIImId::data_type().type_family(),
+            mudu_type::type_family::TypeFamily::I32
         );
     }
 
@@ -166,6 +166,6 @@ mod tests {
     #[should_panic(expected = "unknown name")]
     fn item_set_field_value_unknown_panics() {
         let mut item = Item::new_empty();
-        let _ = item.set_field_value("unknown", DatValue::from_i32(1));
+        let _ = item.set_field_value("unknown", DataValue::from_i32(1));
     }
 }

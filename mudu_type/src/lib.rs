@@ -1,77 +1,77 @@
 pub mod array;
-pub mod dat_binary;
+pub mod data_binary;
 #[cfg(test)]
-mod dat_binary_test;
-pub mod dat_textual;
-pub mod dat_type;
-pub mod dat_type_id;
-pub mod dat_typed;
+mod data_binary_test;
+pub mod data_textual;
+pub mod data_type;
+#[cfg(any(test, feature = "test"))]
+mod data_type_fn_arbitrary;
+pub mod data_type_fn_compare;
 #[cfg(test)]
-mod dat_typed_test;
+mod data_type_fn_compare_test;
+pub mod data_typed;
 #[cfg(test)]
-mod dat_val_array_test;
-pub mod dat_value;
+mod data_typed_test;
+pub mod data_value;
+#[cfg(test)]
+mod data_value_array_test;
 pub mod datum;
 #[cfg(test)]
 mod datum_test;
-#[cfg(any(test, feature = "test"))]
-mod dt_fn_arbitrary;
-pub mod dt_fn_compare;
-#[cfg(test)]
-mod dt_fn_compare_test;
+pub mod type_family;
 
-pub mod dt_fn_convert;
-pub mod dt_fn_param;
+pub mod data_type_fn_convert;
+pub mod data_type_fn_param;
 #[cfg(test)]
-mod dt_fn_param_test;
-mod dt_impl;
-pub mod dt_info;
-mod dt_kind;
-pub mod dt_param;
+mod data_type_fn_param_test;
+mod data_type_impl;
+pub mod data_type_info;
+pub mod data_type_param;
 pub mod len_kind;
 #[cfg(test)]
 mod len_kind_test;
+mod type_kind;
 
 pub mod param;
 
-mod dat_json;
-pub mod dat_msg_pack;
+mod data_json;
+pub mod data_msg_pack;
 #[cfg(test)]
-mod dat_msg_pack_test;
+mod data_msg_pack_test;
 
-pub mod dat_value_inner;
-pub mod dt_function;
+pub mod data_type_function;
 #[cfg(test)]
-mod dt_function_test;
+mod data_type_function_test;
+pub mod data_value_inner;
 
-pub mod dtp_array;
+pub mod data_type_param_array;
 #[cfg(test)]
-mod dtp_array_test;
+mod data_type_param_array_test;
 
-pub mod dtp_kind;
+pub mod data_type_param_kind;
 #[cfg(test)]
-mod dtp_kind_test;
+mod data_type_param_kind_test;
 
-pub mod dtp_numeric;
-pub mod dtp_object;
+pub mod data_type_param_numeric;
+pub mod data_type_param_record;
 #[cfg(test)]
-mod dtp_object_test;
+mod data_type_param_record_test;
 
-pub mod dtp_string;
+pub mod data_type_param_string;
 #[cfg(test)]
-mod dtp_string_test;
+mod data_type_param_string_test;
 
-pub mod dtp_time;
+pub mod data_type_param_time;
 #[cfg(test)]
-mod dtp_time_test;
+mod data_type_param_time_test;
 
-pub mod dtp_timestamp;
+pub mod data_type_param_timestamp;
 #[cfg(test)]
-mod dtp_timestamp_test;
+mod data_type_param_timestamp_test;
 
-pub mod dtp_timestamptz;
+pub mod data_type_param_timestamptz;
 #[cfg(test)]
-mod dtp_timestamptz_test;
+mod data_type_param_timestamptz_test;
 
 pub mod record;
 pub mod scalar_type;

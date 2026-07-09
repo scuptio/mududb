@@ -2,18 +2,21 @@
 
 use crate::contract::schema_column::SchemaColumn;
 use crate::contract::schema_table::{schema_columns_to_tuple_desc, SchemaTable};
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
-fn make_col(name: &str, ty: DatTypeID) -> SchemaColumn {
-    SchemaColumn::new(name.to_string(), ty, DatType::new_no_param(ty).to_info())
+fn make_col(name: &str, ty: TypeFamily) -> SchemaColumn {
+    SchemaColumn::new(name.to_string(), ty, DataType::new_no_param(ty).to_info())
 }
 
 #[test]
 fn new_normalizes_key_and_value_indices() {
     let schema = SchemaTable::new(
         "t".to_string(),
-        vec![make_col("k", DatTypeID::I32), make_col("v", DatTypeID::F64)],
+        vec![
+            make_col("k", TypeFamily::I32),
+            make_col("v", TypeFamily::F64),
+        ],
         vec![0],
         vec![1],
     );
@@ -31,9 +34,9 @@ fn key_and_value_column_views() {
     let schema = SchemaTable::new(
         "t2".to_string(),
         vec![
-            make_col("a", DatTypeID::I64),
-            make_col("b", DatTypeID::I32),
-            make_col("c", DatTypeID::F64),
+            make_col("a", TypeFamily::I64),
+            make_col("b", TypeFamily::I32),
+            make_col("c", TypeFamily::F64),
         ],
         vec![0, 1],
         vec![2],
@@ -52,8 +55,8 @@ fn tuple_descs_match_schema() {
     let schema = SchemaTable::new(
         "t3".to_string(),
         vec![
-            make_col("id", DatTypeID::I32),
-            make_col("score", DatTypeID::F64),
+            make_col("id", TypeFamily::I32),
+            make_col("score", TypeFamily::F64),
         ],
         vec![0],
         vec![1],
@@ -75,7 +78,10 @@ fn tuple_descs_match_schema() {
 fn schema_columns_to_tuple_desc_maps_fields() {
     let schema = SchemaTable::new(
         "t4".to_string(),
-        vec![make_col("x", DatTypeID::I32), make_col("y", DatTypeID::I32)],
+        vec![
+            make_col("x", TypeFamily::I32),
+            make_col("y", TypeFamily::I32),
+        ],
         vec![0],
         vec![1],
     );
@@ -95,7 +101,10 @@ fn schema_columns_to_tuple_desc_maps_fields() {
 fn serde_roundtrip_preserves_schema() {
     let schema = SchemaTable::new(
         "t5".to_string(),
-        vec![make_col("k", DatTypeID::I32), make_col("v", DatTypeID::F64)],
+        vec![
+            make_col("k", TypeFamily::I32),
+            make_col("v", TypeFamily::F64),
+        ],
         vec![0],
         vec![1],
     );

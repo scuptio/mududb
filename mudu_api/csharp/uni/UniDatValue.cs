@@ -18,7 +18,7 @@ using System.Collections.Generic;
 
 [Union(3, typeof(UniDatValueBinary))]
 
-public interface UniDatValue
+public interface UniDataValue
 {
     public UniDatValueKind Kind();
 }
@@ -38,7 +38,7 @@ public enum UniDatValueKind {
 
 
 [MessagePackFormatter(typeof(UniDatValueScalarFormatter))]
-public class UniDatValueScalar : UniDatValue
+public class UniDatValueScalar : UniDataValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -58,7 +58,7 @@ public class UniDatValueScalar : UniDatValue
         return UniDatValueKind.Scalar;
     }
 
-    public static UniDatValueScalar AsScalar(UniDatValue value)
+    public static UniDatValueScalar AsScalar(UniDataValue value)
     {
         switch (value)
         {
@@ -96,7 +96,7 @@ public class UniDatValueScalarFormatter : IMessagePackFormatter<UniDatValueScala
 }
 
 [MessagePackFormatter(typeof(UniDatValueArrayFormatter))]
-public class UniDatValueArray : UniDatValue
+public class UniDatValueArray : UniDataValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -106,7 +106,7 @@ public class UniDatValueArray : UniDatValue
     }
     
 
-    public required List<UniDatValue> Inner  { get; set; }
+    public required List<UniDataValue> Inner  { get; set; }
 
     public UniDatValueKind Kind() {
         return UniDatValueKind.Array;
@@ -116,7 +116,7 @@ public class UniDatValueArray : UniDatValue
         return UniDatValueKind.Array;
     }
 
-    public static UniDatValueArray AsArray(UniDatValue value)
+    public static UniDatValueArray AsArray(UniDataValue value)
     {
         switch (value)
         {
@@ -148,13 +148,13 @@ public class UniDatValueArrayFormatter : IMessagePackFormatter<UniDatValueArray?
             return null;
         }
 
-        List<UniDatValue> inner = MessagePackSerializer.Deserialize<List<UniDatValue>>(ref reader, options)!;
+        List<UniDataValue> inner = MessagePackSerializer.Deserialize<List<UniDataValue>>(ref reader, options)!;
         return new UniDatValueArray { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatValueRecordFormatter))]
-public class UniDatValueRecord : UniDatValue
+public class UniDatValueRecord : UniDataValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -164,7 +164,7 @@ public class UniDatValueRecord : UniDatValue
     }
     
 
-    public required List<UniDatValue> Inner  { get; set; }
+    public required List<UniDataValue> Inner  { get; set; }
 
     public UniDatValueKind Kind() {
         return UniDatValueKind.Record;
@@ -174,7 +174,7 @@ public class UniDatValueRecord : UniDatValue
         return UniDatValueKind.Record;
     }
 
-    public static UniDatValueRecord AsRecord(UniDatValue value)
+    public static UniDatValueRecord AsRecord(UniDataValue value)
     {
         switch (value)
         {
@@ -206,13 +206,13 @@ public class UniDatValueRecordFormatter : IMessagePackFormatter<UniDatValueRecor
             return null;
         }
 
-        List<UniDatValue> inner = MessagePackSerializer.Deserialize<List<UniDatValue>>(ref reader, options)!;
+        List<UniDataValue> inner = MessagePackSerializer.Deserialize<List<UniDataValue>>(ref reader, options)!;
         return new UniDatValueRecord { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatValueBinaryFormatter))]
-public class UniDatValueBinary : UniDatValue
+public class UniDatValueBinary : UniDataValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -232,7 +232,7 @@ public class UniDatValueBinary : UniDatValue
         return UniDatValueKind.Binary;
     }
 
-    public static UniDatValueBinary AsBinary(UniDatValue value)
+    public static UniDatValueBinary AsBinary(UniDataValue value)
     {
         switch (value)
         {

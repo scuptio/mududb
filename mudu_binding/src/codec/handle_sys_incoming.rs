@@ -47,7 +47,7 @@ pub fn incoming_serialize(
     let mut vec = Vec::with_capacity(desc.fields().len());
     for i in 0..param.size() {
         let dat = param.get_idx_unchecked(i);
-        let ty = desc.fields()[i as usize].dat_type();
+        let ty = desc.fields()[i as usize].data_type();
         let value = dat.to_value(ty)?;
         vec.push(value)
     }

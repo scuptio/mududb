@@ -3,8 +3,8 @@
 
 use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::Datum;
 
 pub fn datum_from_binary<T: Datum + 'static, B: AsRef<[u8]>>(datum: B, _: &DatumDesc) -> RS<T> {
@@ -12,16 +12,16 @@ pub fn datum_from_binary<T: Datum + 'static, B: AsRef<[u8]>>(datum: B, _: &Datum
 }
 
 pub fn datum_to_binary<T: Datum + 'static>(datum: &T, _: &DatumDesc) -> RS<Vec<u8>> {
-    let dat_binary = datum.to_binary(&T::dat_type())?;
-    Ok(dat_binary.into())
+    let data_binary = datum.to_binary(&T::data_type())?;
+    Ok(data_binary.into())
 }
 
-pub fn datum_to_value<T: Datum>(datum: &T, dat_type: &DatType) -> RS<DatValue> {
-    let internal = DatValue::from_datum(datum.clone(), dat_type)?;
+pub fn datum_to_value<T: Datum>(datum: &T, data_type: &DataType) -> RS<DataValue> {
+    let internal = DataValue::from_datum(datum.clone(), data_type)?;
     Ok(internal)
 }
 
-pub fn datum_from_value<T: Datum>(value: &DatValue) -> RS<T> {
+pub fn datum_from_value<T: Datum>(value: &DataValue) -> RS<T> {
     let internal = T::from_value(value)?;
     Ok(internal)
 }

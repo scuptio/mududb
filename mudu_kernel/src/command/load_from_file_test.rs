@@ -21,8 +21,8 @@ use mudu_sys::contract::async_mode::AsyncMode;
 use mudu_sys::contract::async_net::AsyncNet;
 use mudu_sys::contract::file_options::FileOptions;
 use mudu_sys::sync::SMutex;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -42,13 +42,13 @@ fn sample_schema() -> SchemaTable {
         vec![
             SchemaColumn::new(
                 "k".to_string(),
-                DatTypeID::I32,
-                DatType::default_for(DatTypeID::I32).to_info(),
+                TypeFamily::I32,
+                DataType::default_for(TypeFamily::I32).to_info(),
             ),
             SchemaColumn::new(
                 "v".to_string(),
-                DatTypeID::String,
-                DatType::default_for(DatTypeID::String).to_info(),
+                TypeFamily::String,
+                DataType::default_for(TypeFamily::String).to_info(),
             ),
         ],
         vec![0],

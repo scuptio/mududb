@@ -69,15 +69,17 @@ docker run --cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1 ...
 
 编译并安装全部组件：
 
-1. `cargo build --release` — 编译 34 个 crate
-2. 安装二进制文件到 `~/.cargo/bin/` (mudud, mcli, mpk, mgen, mtp)
-3. 编译 wallet 示例应用，生成 `.mpk` 包
+1. `cargo build --release` — 编译工作区 crate
+2. `python3 script/build/install_binaries.py` — 安装二进制文件到 `~/.cargo/bin/`（mudud、mcli、mpm-build、mgen、mtp）
+3. 在 `example/wallet` 中执行 `cargo make` — 重新生成实体代码、转译过程、编译 wallet 示例并生成 `.mpk` 包
+
+wallet 的 `Makefile.toml` 会在生成代码前从源码重新安装工作区 CLI 工具，因此包总是用当前 commit 的工具链构建。
 
 ### `script/shell/run_test.sh`
 
 启动 MuduDB 服务器并执行 CRUD 测试：
 
-- 自动创建临时数据目录和配置文件
+- 创建临时数据目录并写入默认配置文件
 - 启动 mudud 服务器 (HTTP 8300 / TCP 9527)
 - 安装 wallet 示例应用
 - 测试 CREATE / READ / UPDATE / INVOKE / DELETE
@@ -95,7 +97,6 @@ set -euo pipefail
 bash script/shell/install_deps.sh
 source "$HOME/.cargo/env"
 bash script/shell/build_all.sh
-mkdir -p "$HOME/.mududb"
 bash script/shell/run_test.sh
 bash script/shell/debug_test.sh
 echo "All tests passed."

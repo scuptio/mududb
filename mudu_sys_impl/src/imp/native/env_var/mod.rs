@@ -45,6 +45,10 @@ impl SysEnvVar {
         EnvVar::current_dir()
     }
 
+    pub fn home_dir(&self) -> Option<PathBuf> {
+        EnvVar::home_dir()
+    }
+
     pub fn args_os(&self) -> Vec<OsString> {
         EnvVar::args_os()
     }
