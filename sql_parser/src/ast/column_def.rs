@@ -1,15 +1,15 @@
 //! Column definition AST node.
 
 use mudu::common::id::AttrIndex;
-use mudu_binding::universal::uni_dat_type::UniDatType;
-use mudu_binding::universal::uni_dat_value::UniDatValue;
+use mudu_binding::universal::uni_data_type::UniDataType;
+use mudu_binding::universal::uni_data_value::UniDataValue;
 
 /// Column definition inside a `CREATE TABLE` statement.
 #[derive(Clone, Debug)]
 pub struct ColumnDef {
     column_name: String,
-    data_type_def: UniDatType,
-    data_type_param: Option<Vec<UniDatValue>>,
+    data_type_def: UniDataType,
+    data_type_param: Option<Vec<UniDataValue>>,
     opt_primary_key_index: Option<AttrIndex>,
     nullable: bool,
     index: AttrIndex,
@@ -19,8 +19,8 @@ impl ColumnDef {
     /// Create a new column definition.
     pub fn new(
         column_name: String,
-        data_type_def: UniDatType,
-        data_type_param: Option<Vec<UniDatValue>>,
+        data_type_def: UniDataType,
+        data_type_param: Option<Vec<UniDataValue>>,
     ) -> Self {
         Self {
             column_name,
@@ -33,12 +33,12 @@ impl ColumnDef {
     }
 
     /// Return the column data type.
-    pub fn data_type(&self) -> &UniDatType {
+    pub fn data_type(&self) -> &UniDataType {
         &self.data_type_def
     }
 
     /// Return optional data type parameters (e.g., precision/scale for `NUMERIC`).
-    pub fn data_type_param(&self) -> &Option<Vec<UniDatValue>> {
+    pub fn data_type_param(&self) -> &Option<Vec<UniDataValue>> {
         &self.data_type_param
     }
 

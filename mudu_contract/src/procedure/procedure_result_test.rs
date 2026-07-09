@@ -5,10 +5,10 @@ mod tests {
     use crate::tuple::tuple_datum::TupleDatum;
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
-    fn sample_values() -> Vec<DatValue> {
-        vec![DatValue::from_i32(1), DatValue::from_i64(2)]
+    fn sample_values() -> Vec<DataValue> {
+        vec![DataValue::from_i32(1), DataValue::from_i64(2)]
     }
 
     #[test]

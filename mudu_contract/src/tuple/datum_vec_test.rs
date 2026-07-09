@@ -7,20 +7,20 @@ mod tests {
     use mudu::common::result::RS;
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
-    use mudu_type::dat_binary::DatBinary;
-    use mudu_type::dat_textual::DatTextual;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_binary::DataBinary;
+    use mudu_type::data_textual::DataTextual;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_value::DataValue;
     use mudu_type::datum::DatumDyn;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_desc() -> DatumDesc {
-        DatumDesc::new("x".to_string(), DatType::new_no_param(DatTypeID::I32))
+        DatumDesc::new("x".to_string(), DataType::new_no_param(TypeFamily::I32))
     }
 
     #[test]
     fn datum_vec_to_bin_vec_roundtrip() {
-        let typed = TypedBin::new(DatTypeID::I32, vec![0, 0, 0, 42]);
+        let typed = TypedBin::new(TypeFamily::I32, vec![0, 0, 0, 42]);
         let datum: &dyn DatumDyn = &typed;
         let bins = datum_vec_to_bin_vec(&[datum], &[i32_desc()]).unwrap();
         assert_eq!(bins.len(), 1);
@@ -29,7 +29,7 @@ mod tests {
 
     #[test]
     fn datum_vec_to_value_vec_roundtrip() {
-        let typed = TypedBin::new(DatTypeID::I32, vec![0, 0, 0, 42]);
+        let typed = TypedBin::new(TypeFamily::I32, vec![0, 0, 0, 42]);
         let datum: &dyn DatumDyn = &typed;
         let values = datum_vec_to_value_vec(&[datum], &[i32_desc()]).unwrap();
         assert_eq!(values.len(), 1);
@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn datum_vec_rejects_mismatched_lengths() {
-        let typed = TypedBin::new(DatTypeID::I32, vec![0, 0, 0, 42]);
+        let typed = TypedBin::new(TypeFamily::I32, vec![0, 0, 0, 42]);
         let datum: &dyn DatumDyn = &typed;
         let err = datum_vec_to_bin_vec(&[datum], &[]).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::TypeConversionFailed);
@@ -51,25 +51,25 @@ mod tests {
     struct FailingDatum;
 
     impl DatumDyn for FailingDatum {
-        fn dat_type_id(&self) -> RS<DatTypeID> {
-            Ok(DatTypeID::I32)
+        fn type_family(&self) -> RS<TypeFamily> {
+            Ok(TypeFamily::I32)
         }
 
-        fn to_binary(&self, _: &DatType) -> RS<DatBinary> {
+        fn to_binary(&self, _: &DataType) -> RS<DataBinary> {
             Err(mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "to_binary fails"
             ))
         }
 
-        fn to_textual(&self, _: &DatType) -> RS<DatTextual> {
+        fn to_textual(&self, _: &DataType) -> RS<DataTextual> {
             Err(mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "to_textual fails"
             ))
         }
 
-        fn to_value(&self, _: &DatType) -> RS<DatValue> {
+        fn to_value(&self, _: &DataType) -> RS<DataValue> {
             Err(mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "to_value fails"

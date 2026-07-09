@@ -7,7 +7,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -15,7 +15,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -27,7 +27,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -43,7 +43,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -59,7 +59,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -67,7 +67,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -79,7 +79,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -95,7 +95,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -103,7 +103,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -115,7 +115,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -131,7 +131,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -139,7 +139,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -147,7 +147,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -159,7 +159,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -175,7 +175,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
@@ -187,7 +187,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },

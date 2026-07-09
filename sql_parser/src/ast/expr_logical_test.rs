@@ -10,12 +10,12 @@ use crate::ast::expr_literal::ExprLiteral;
 use crate::ast::expr_logical::ExprLogical;
 use crate::ast::expr_operator::LogicalConnective;
 use crate::ast::expression::ExprType;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 use std::sync::Arc;
 
 fn value_expr(value: i32) -> ExprType {
     ExprType::Value(Arc::new(ExprItem::ItemValue(ExprValue::ValueLiteral(
-        ExprLiteral::DatumLiteral(DatTyped::from_i32(value)),
+        ExprLiteral::DatumLiteral(DataTyped::from_i32(value)),
     ))))
 }
 

@@ -4,10 +4,10 @@ use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_typed::DataTyped;
 use mudu_type::datum::DatumDyn;
-use mudu_type::dt_fn_param::DatType;
+use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_item::ExprValue;
 use sql_parser::ast::expr_literal::ExprLiteral;
 
@@ -16,72 +16,72 @@ pub(crate) struct ValueCodec;
 impl ValueCodec {
     pub(crate) fn binary_from_expr(
         expr: &ExprValue,
-        dat_type: &DatType,
+        data_type: &DataType,
         params: &dyn SQLParams,
         param_index: &mut usize,
     ) -> RS<Option<Buf>> {
         match expr {
-            ExprValue::ValueLiteral(literal) => Self::binary_from_literal(literal, dat_type),
+            ExprValue::ValueLiteral(literal) => Self::binary_from_literal(literal, data_type),
             ExprValue::ValuePlaceholder => {
                 let index = *param_index as u64;
                 let datum = params.get_idx(index).ok_or_else(|| {
                     mudu_error!(ER::IndexOutOfRange, format!("missing parameter {}", index))
                 })?;
                 *param_index += 1;
-                datum.to_binary(dat_type).map(|binary| Some(binary.into()))
+                datum.to_binary(data_type).map(|binary| Some(binary.into()))
             }
         }
     }
 
     pub(crate) fn binary_from_literal(
         literal: &ExprLiteral,
-        dat_type: &DatType,
+        data_type: &DataType,
     ) -> RS<Option<Buf>> {
         match literal {
             ExprLiteral::Null => Ok(None),
-            ExprLiteral::DatumLiteral(typed) => Self::coerce_literal(typed, dat_type)?
-                .dat_internal()
-                .to_binary(dat_type)
+            ExprLiteral::DatumLiteral(typed) => Self::coerce_literal(typed, data_type)?
+                .data_internal()
+                .to_binary(data_type)
                 .map(|binary| Some(binary.into()))
                 .map_err(|e| mudu_error!(ER::TypeConversionFailed, "literal type mismatch", e)),
         }
     }
 
-    fn coerce_literal(literal: &DatTyped, dat_type: &DatType) -> RS<DatTyped> {
-        let source = literal.dat_type().dat_type_id();
-        let target = dat_type.dat_type_id();
+    fn coerce_literal(literal: &DataTyped, data_type: &DataType) -> RS<DataTyped> {
+        let source = literal.data_type().type_family();
+        let target = data_type.type_family();
         if source == target {
             return Ok(literal.clone());
         }
 
         let coerced = match (source, target) {
-            (DatTypeID::I64, DatTypeID::I32) => {
-                DatTyped::from_i32(literal.dat_internal().to_i64() as i32)
+            (TypeFamily::I64, TypeFamily::I32) => {
+                DataTyped::from_i32(literal.data_internal().to_i64() as i32)
             }
-            (DatTypeID::I32, DatTypeID::I64) => {
-                DatTyped::from_i64(literal.dat_internal().to_i32() as i64)
+            (TypeFamily::I32, TypeFamily::I64) => {
+                DataTyped::from_i64(literal.data_internal().to_i32() as i64)
             }
-            (DatTypeID::I64, DatTypeID::I128) => {
-                DatTyped::from_i128(literal.dat_internal().to_i64() as i128)
+            (TypeFamily::I64, TypeFamily::I128) => {
+                DataTyped::from_i128(literal.data_internal().to_i64() as i128)
             }
-            (DatTypeID::I64, DatTypeID::U128) => {
-                DatTyped::from_oid(literal.dat_internal().to_i64() as u128)
+            (TypeFamily::I64, TypeFamily::U128) => {
+                DataTyped::from_oid(literal.data_internal().to_i64() as u128)
             }
-            (DatTypeID::F64, DatTypeID::F32) => {
-                DatTyped::from_f32(literal.dat_internal().to_f64() as f32)
+            (TypeFamily::F64, TypeFamily::F32) => {
+                DataTyped::from_f32(literal.data_internal().to_f64() as f32)
             }
-            (DatTypeID::I32, DatTypeID::Numeric) => {
-                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i32()))
+            (TypeFamily::I32, TypeFamily::Numeric) => {
+                DataTyped::from_numeric(Numeric::from(literal.data_internal().to_i32()))
             }
-            (DatTypeID::I64, DatTypeID::Numeric) => {
-                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i64()))
+            (TypeFamily::I64, TypeFamily::Numeric) => {
+                DataTyped::from_numeric(Numeric::from(literal.data_internal().to_i64()))
             }
-            (DatTypeID::I128, DatTypeID::Numeric) => {
-                DatTyped::from_numeric(Numeric::from(literal.dat_internal().to_i128()))
+            (TypeFamily::I128, TypeFamily::Numeric) => {
+                DataTyped::from_numeric(Numeric::from(literal.data_internal().to_i128()))
             }
-            (DatTypeID::Numeric, DatTypeID::F64) => DatTyped::from_f64(
+            (TypeFamily::Numeric, TypeFamily::F64) => DataTyped::from_f64(
                 literal
-                    .dat_internal()
+                    .data_internal()
                     .expect_numeric()
                     .to_plain_string()
                     .parse::<f64>()
@@ -89,9 +89,9 @@ impl ValueCodec {
                         mudu_error!(ER::TypeConversionFailed, "numeric to f64 literal cast", e)
                     })?,
             ),
-            (DatTypeID::Numeric, DatTypeID::F32) => DatTyped::from_f32(
+            (TypeFamily::Numeric, TypeFamily::F32) => DataTyped::from_f32(
                 literal
-                    .dat_internal()
+                    .data_internal()
                     .expect_numeric()
                     .to_plain_string()
                     .parse::<f32>()

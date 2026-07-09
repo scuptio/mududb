@@ -27,17 +27,60 @@ mod {{ config.import_module_name }} {
                     binary(list<u8>),
                     object-id(oid),
                 }
+
+                value-null: func() -> value;
+                value-from-boolean: func(input: bool) -> value;
+                value-from-int64: func(input: s64) -> value;
+                value-from-float64: func(input: f64) -> value;
+                value-from-text: func(input: string) -> value;
+                value-from-binary: func(input: list<u8>) -> value;
+                value-from-oid: func(input: oid) -> value;
+
+                value-is-null: func(input: value) -> bool;
+                value-as-boolean: func(input: value) -> result<bool, error>;
+                value-as-int64: func(input: value) -> result<s64, error>;
+                value-as-float64: func(input: value) -> result<f64, error>;
+                value-as-text: func(input: value) -> result<string, error>;
+                value-as-binary: func(input: value) -> result<list<u8>, error>;
+                value-as-oid: func(input: value) -> result<oid, error>;
             }
 
             interface system {
-                use types.{error, value};
+                use types.{error, oid, value};
 
                 resource value-list {
                     constructor();
+                    bind-named-value: func(name: string, value: value);
                     bind-value: func(index: s32, value: value);
                     len: func() -> u32;
                     value: func(index: u32) -> result<value, error>;
                 }
+
+                resource sql-stmt {
+                    constructor(sql: string);
+                }
+
+                resource result-set {
+                    next: func() -> result<bool, error>;
+                    current-row: func() -> result<option<row>, error>;
+                    column-count: func() -> result<u32, error>;
+                    column-name: func(column: u32) -> result<string, error>;
+                    find-column: func(name: string) -> result<option<u32>, error>;
+                    eof: func() -> result<bool, error>;
+                }
+
+                resource row {
+                    is-null: func(column: u32) -> result<bool, error>;
+                    is-null-by-name: func(name: string) -> result<bool, error>;
+                    value: func(column: u32) -> result<value, error>;
+                    value-by-name: func(name: string) -> result<value, error>;
+                }
+
+                open: func(uri: string) -> result<oid, error>;
+                close: func(id: oid) -> result<_, error>;
+                query: func(id: oid, stmt: sql-stmt, values: value-list) -> result<result-set, error>;
+                command: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+                batch: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
             }
 
             {% for procedure in procedures %}
@@ -71,8 +114,8 @@ fn {{ config.helper_prefix }}xid_from_oid(oid: {{ config.import_module_name }}::
     ((oid.hi as u128) << 64) | oid.lo as u128
 }
 
-fn {{ config.helper_prefix }}value_from_dat_value(
-    value: &::mududb::types::dat_value::DatValue,
+fn {{ config.helper_prefix }}value_from_data_value(
+    value: &::mududb::types::data_value::DataValue,
 ) -> {{ config.import_module_name }}::mududb::component_shim::types::Value {
     use {{ config.import_module_name }}::mududb::component_shim::types::{Oid, Value};
 
@@ -100,30 +143,30 @@ fn {{ config.helper_prefix }}value_from_dat_value(
     }
 }
 
-fn {{ config.helper_prefix }}dat_value_from_value(
+fn {{ config.helper_prefix }}data_value_from_value(
     value: {{ config.import_module_name }}::mududb::component_shim::types::Value,
-) -> ::mududb::types::dat_value::DatValue {
+) -> ::mududb::types::data_value::DataValue {
     match value {
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Null => {
-            ::mududb::types::dat_value::DatValue::null()
+            ::mududb::types::data_value::DataValue::null()
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Boolean(value) => {
-            ::mududb::types::dat_value::DatValue::from_i32(i32::from(value))
+            ::mududb::types::data_value::DataValue::from_i32(i32::from(value))
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Int64(value) => {
-            ::mududb::types::dat_value::DatValue::from_i64(value)
+            ::mududb::types::data_value::DataValue::from_i64(value)
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Float64(value) => {
-            ::mududb::types::dat_value::DatValue::from_f64(value)
+            ::mududb::types::data_value::DataValue::from_f64(value)
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Text(value) => {
-            ::mududb::types::dat_value::DatValue::from_string(value)
+            ::mududb::types::data_value::DataValue::from_string(value)
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::Binary(value) => {
-            ::mududb::types::dat_value::DatValue::from_binary(value)
+            ::mududb::types::data_value::DataValue::from_binary(value)
         }
         {{ config.import_module_name }}::mududb::component_shim::types::Value::ObjectId(value) => {
-            ::mududb::types::dat_value::DatValue::from_u128({{ config.helper_prefix }}xid_from_oid(value))
+            ::mududb::types::data_value::DataValue::from_u128({{ config.helper_prefix }}xid_from_oid(value))
         }
     }
 }
@@ -133,7 +176,7 @@ fn {{ config.helper_prefix }}build_value_list_from_procedure_param(
 ) -> {{ config.import_module_name }}::mududb::component_shim::system::ValueList {
     let values = {{ config.import_module_name }}::mududb::component_shim::system::ValueList::new();
     for (index, value) in param.param_list().iter().enumerate() {
-        values.bind_value(index as i32, &{{ config.helper_prefix }}value_from_dat_value(value));
+        values.bind_value(index as i32, &{{ config.helper_prefix }}value_from_data_value(value));
     }
     values
 }
@@ -145,8 +188,8 @@ fn {{ config.helper_prefix }}build_procedure_result(
     for index in 0..values.len() {
         let value = values
             .value(index)
-            .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalError, err.message))?;
-        return_list.push({{ config.helper_prefix }}dat_value_from_value(value));
+            .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
+        return_list.push({{ config.helper_prefix }}data_value_from_value(value));
     }
     Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
 }
@@ -169,7 +212,7 @@ pub fn {{ procedure.fn_inner_name }}(
         {{ config.helper_prefix }}oid_from_xid(param.session_id()),
         &values,
     )
-    .map_err(|err| ::mududb::m_error!(::mududb::error::ec::EC::InternalError, err.message))?;
+    .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
     {{ config.helper_prefix }}build_procedure_result(return_values)
 }
 
@@ -181,7 +224,7 @@ pub fn {{ procedure.fn_argv_desc }}() -> &'static ::mududb::contract::tuple::tup
             {% for field in procedure.argv_fields %}
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "{{ field.name }}".to_string(),
-                {{ field.dat_type_expr }},
+                {{ field.data_type_expr }},
             ),
             {% endfor %}
         ])
@@ -196,7 +239,7 @@ pub fn {{ procedure.fn_result_desc }}() -> &'static ::mududb::contract::tuple::t
             {% for field in procedure.result_fields %}
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "{{ field.name }}".to_string(),
-                {{ field.dat_type_expr }},
+                {{ field.data_type_expr }},
             ),
             {% endfor %}
         ])
@@ -216,27 +259,208 @@ pub fn {{ procedure.fn_proc_desc }}() -> &'static ::mududb::contract::procedure:
         )
     })
 }
+{% endfor %}
 
-mod {{ procedure.export_mod_name }} {
+mod mudu_language_procedure_exports {
     wit_bindgen::generate!({
         inline:
-        r##"package mudu:{{ procedure.wit_fn_exported_name }};
-            world mudu-app-{{ procedure.wit_fn_exported_name }} {
-                export {{ procedure.wit_fn_exported_name }}: func(param:list<u8>) -> list<u8>;
+        r##"package mududb:component-shim;
+
+            interface types {
+                record oid {
+                    hi: u64,
+                    lo: u64,
+                }
+
+                record error {
+                    code: u32,
+                    message: string,
+                    source: string,
+                    location: string,
+                }
+
+                variant value {
+                    null,
+                    boolean(bool),
+                    int64(s64),
+                    float64(f64),
+                    text(string),
+                    binary(list<u8>),
+                    object-id(oid),
+                }
+
+                value-null: func() -> value;
+                value-from-boolean: func(input: bool) -> value;
+                value-from-int64: func(input: s64) -> value;
+                value-from-float64: func(input: f64) -> value;
+                value-from-text: func(input: string) -> value;
+                value-from-binary: func(input: list<u8>) -> value;
+                value-from-oid: func(input: oid) -> value;
+
+                value-is-null: func(input: value) -> bool;
+                value-as-boolean: func(input: value) -> result<bool, error>;
+                value-as-int64: func(input: value) -> result<s64, error>;
+                value-as-float64: func(input: value) -> result<f64, error>;
+                value-as-text: func(input: value) -> result<string, error>;
+                value-as-binary: func(input: value) -> result<list<u8>, error>;
+                value-as-oid: func(input: value) -> result<oid, error>;
+            }
+
+            interface system {
+                use types.{error, oid, value};
+
+                resource value-list {
+                    constructor();
+                    bind-named-value: func(name: string, value: value);
+                    bind-value: func(index: s32, value: value);
+                    len: func() -> u32;
+                    value: func(index: u32) -> result<value, error>;
+                }
+
+                resource sql-stmt {
+                    constructor(sql: string);
+                }
+
+                resource result-set {
+                    next: func() -> result<bool, error>;
+                    current-row: func() -> result<option<row>, error>;
+                    column-count: func() -> result<u32, error>;
+                    column-name: func(column: u32) -> result<string, error>;
+                    find-column: func(name: string) -> result<option<u32>, error>;
+                    eof: func() -> result<bool, error>;
+                }
+
+                resource row {
+                    is-null: func(column: u32) -> result<bool, error>;
+                    is-null-by-name: func(name: string) -> result<bool, error>;
+                    value: func(column: u32) -> result<value, error>;
+                    value-by-name: func(name: string) -> result<value, error>;
+                }
+
+                open: func(uri: string) -> result<oid, error>;
+                close: func(id: oid) -> result<_, error>;
+                query: func(id: oid, stmt: sql-stmt, values: value-list) -> result<result-set, error>;
+                command: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+                batch: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+            }
+
+            {% for procedure in procedures %}
+            interface {{ procedure.wit_interface_name }} {
+                use types.{error, oid};
+                use system.{value-list};
+
+                {{ procedure.wit_adapter_name }}: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            {% endfor %}
+
+            world mudu-language-procedure-exports {
+                import types;
+                import system;
+                {% for procedure in procedures %}
+                import {{ procedure.wit_interface_name }};
+                {% endfor %}
+
+                export mp2-balance: func(param:list<u8>) -> list<u8>;
+                export mp2-create-user: func(param:list<u8>) -> list<u8>;
+                export mp2-deposit: func(param:list<u8>) -> list<u8>;
+                export mp2-transfer-funds: func(param:list<u8>) -> list<u8>;
+                export mp2-withdraw: func(param:list<u8>) -> list<u8>;
+                export force-full-imports: func();
             }
         "##,
     });
 
+    // This export exists only to keep every `types` and `system` import alive in
+    // the generated component.  The Rust wrapper itself only needs a subset, but
+    // the prebuilt `rs-shim` component exports the full interface; composing the
+    // two requires the wrapper to declare the exact same interface shape.  The
+    // function is never called at runtime.
+
     #[allow(non_camel_case_types)]
     #[allow(unused)]
-    struct {{ procedure.guest_struct_name }} {}
+    struct MuduAppGuest {}
 
-    impl Guest for {{ procedure.guest_struct_name }} {
-        fn {{ procedure.fn_exported_name }}(param: Vec<u8>) -> Vec<u8> {
-            super::{{ procedure.fn_exported_name }}(param)
+    impl Guest for MuduAppGuest {
+        fn mp2_balance(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_balance(param)
+        }
+
+        fn mp2_create_user(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_create_user(param)
+        }
+
+        fn mp2_deposit(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_deposit(param)
+        }
+
+        fn mp2_transfer_funds(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_transfer_funds(param)
+        }
+
+        fn mp2_withdraw(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_withdraw(param)
+        }
+
+        fn force_full_imports() {
+            MuduAppGuest::force_full_system_imports();
         }
     }
 
-    export!({{ procedure.guest_struct_name }});
+    impl MuduAppGuest {
+        fn force_full_system_imports() {
+            use super::mudu_language_procedure_shim::mududb::component_shim::types::{Oid, Value};
+            use super::mudu_language_procedure_shim::mududb::component_shim::{system, types};
+
+            let v_null = types::value_null();
+            let _ = types::value_from_boolean(false);
+            let _ = types::value_from_int64(0);
+            let _ = types::value_from_float64(0.0);
+            let _ = types::value_from_text("");
+            let _ = types::value_from_binary(&[]);
+            let _ = types::value_from_oid(Oid { hi: 0, lo: 0 });
+
+            let _ = types::value_is_null(&v_null);
+            let _ = types::value_as_boolean(&v_null);
+            let _ = types::value_as_int64(&v_null);
+            let _ = types::value_as_float64(&v_null);
+            let _ = types::value_as_text(&v_null);
+            let _ = types::value_as_binary(&v_null);
+            let _ = types::value_as_oid(&v_null);
+
+            let values = system::ValueList::new();
+            values.bind_named_value("", &v_null);
+            values.bind_value(0, &v_null);
+            let _ = values.len();
+            let _ = values.value(0);
+
+            let oid = Oid { hi: 0, lo: 0 };
+            let _ = system::open("");
+            let _ = system::close(oid);
+
+            let stmt = system::SqlStmt::new("");
+            if let Ok(rs) = system::query(oid, stmt, values) {
+                let _ = rs.next();
+                let _ = rs.column_count();
+                let _ = rs.column_name(0);
+                let _ = rs.find_column("");
+                let _ = rs.eof();
+                if let Ok(Some(row)) = rs.current_row() {
+                    let _ = row.is_null(0);
+                    let _ = row.is_null_by_name("");
+                    let _ = row.value(0);
+                    let _ = row.value_by_name("");
+                }
+            }
+
+            let values_cmd = system::ValueList::new();
+            let stmt_cmd = system::SqlStmt::new("");
+            let _ = system::command(oid, stmt_cmd, values_cmd);
+
+            let values_batch = system::ValueList::new();
+            let stmt_batch = system::SqlStmt::new("");
+            let _ = system::batch(oid, stmt_batch, values_batch);
+        }
+    }
+
+    export!(MuduAppGuest);
 }
-{% endfor %}

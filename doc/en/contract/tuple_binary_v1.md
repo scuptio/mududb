@@ -81,7 +81,7 @@ A variable-length field value may be zero bytes long; in that case its slot has 
 
 `TupleBinaryDesc` is the external schema descriptor that drives encoding and decoding. It is not part of the tuple bytes but is required to interpret them. The descriptor contains:
 
-- `type_desc`: ordered list of field `DatType`s.
+- `type_desc`: ordered list of field `DataType`s.
 - `slot_all`: ordered list of `FieldDesc` records, each containing:
   - `is_fixed_len`: classification.
   - `slot`: offset and length for fixed fields; slot location for variable fields.

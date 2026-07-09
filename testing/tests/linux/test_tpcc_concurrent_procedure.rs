@@ -8,7 +8,7 @@ use mudu_cli::management::install_app_package;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_runtime::backend::backend::Backend;
-use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, RoutingMode, ServerMode};
+use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, read, remove_dir_all};
 use mudu_sys::sync::SMutex;

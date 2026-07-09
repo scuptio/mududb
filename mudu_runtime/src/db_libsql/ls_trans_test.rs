@@ -3,12 +3,12 @@
 use super::*;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 use std::sync::Arc;
 
-fn field(name: &str, id: DatTypeID) -> DatumDesc {
-    DatumDesc::new(name.to_string(), DatType::default_for(id))
+fn field(name: &str, id: TypeFamily) -> DatumDesc {
+    DatumDesc::new(name.to_string(), DataType::default_for(id))
 }
 
 async fn open_db() -> (libsql::Connection, tempfile::TempDir) {
@@ -83,8 +83,8 @@ fn query_returns_result_set() {
             .await
             .unwrap();
         let desc = Arc::new(TupleFieldDesc::new(vec![
-            field("a", DatTypeID::I32),
-            field("b", DatTypeID::String),
+            field("a", TypeFamily::I32),
+            field("b", TypeFamily::String),
         ]));
         let rs = trans
             .query("SELECT a, b FROM t", libsql::params!([]), desc)
@@ -115,7 +115,7 @@ fn rollback_discards_changes() {
         trans.rollback().await.unwrap();
 
         let trans = LSTrans::new(conn.transaction().await.unwrap());
-        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", DatTypeID::I32)]));
+        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", TypeFamily::I32)]));
         let rs = trans
             .query("SELECT a FROM t", libsql::params!([]), desc)
             .await
@@ -141,7 +141,7 @@ fn commit_persists_changes() {
         trans.commit().await.unwrap();
 
         let trans = LSTrans::new(conn.transaction().await.unwrap());
-        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", DatTypeID::I32)]));
+        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", TypeFamily::I32)]));
         let rs = trans
             .query("SELECT a FROM t", libsql::params!([]), desc)
             .await
@@ -178,7 +178,7 @@ fn query_reports_column_count_mismatch() {
             .await
             .unwrap();
         let trans = LSTrans::new(conn.transaction().await.unwrap());
-        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", DatTypeID::I32)]));
+        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", TypeFamily::I32)]));
         let rs = trans
             .query("SELECT * FROM t", libsql::params!([]), desc)
             .await
@@ -199,7 +199,7 @@ fn query_reports_unsupported_type() {
             .await
             .unwrap();
         let trans = LSTrans::new(conn.transaction().await.unwrap());
-        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", DatTypeID::Numeric)]));
+        let desc = Arc::new(TupleFieldDesc::new(vec![field("a", TypeFamily::Numeric)]));
         let rs = trans
             .query("SELECT * FROM t", libsql::params!([]), desc)
             .await

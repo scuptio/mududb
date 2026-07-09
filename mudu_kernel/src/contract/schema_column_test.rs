@@ -1,18 +1,18 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::contract::schema_column::SchemaColumn;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
 #[test]
 fn new_sets_fields_and_defaults() {
     let col = SchemaColumn::new(
         "id".to_string(),
-        DatTypeID::I32,
-        DatType::new_no_param(DatTypeID::I32).to_info(),
+        TypeFamily::I32,
+        DataType::new_no_param(TypeFamily::I32).to_info(),
     );
     assert_eq!(col.get_name(), "id");
-    assert_eq!(col.type_id(), DatTypeID::I32);
+    assert_eq!(col.type_id(), TypeFamily::I32);
     assert!(col.nullable());
     assert!(!col.is_primary());
     assert_eq!(col.get_index(), 0);
@@ -24,8 +24,8 @@ fn new_with_oid_preserves_oid() {
     let col = SchemaColumn::new_with_oid(
         42,
         "x".to_string(),
-        DatTypeID::F64,
-        DatType::new_no_param(DatTypeID::F64).to_info(),
+        TypeFamily::F64,
+        DataType::new_no_param(TypeFamily::F64).to_info(),
     );
     assert_eq!(col.get_oid(), 42);
 }
@@ -34,8 +34,8 @@ fn new_with_oid_preserves_oid() {
 fn primary_index_updates_state() {
     let mut col = SchemaColumn::new(
         "k".to_string(),
-        DatTypeID::I64,
-        DatType::new_no_param(DatTypeID::I64).to_info(),
+        TypeFamily::I64,
+        DataType::new_no_param(TypeFamily::I64).to_info(),
     );
     assert!(!col.is_primary());
     col.set_primary_index(Some(0));
@@ -50,8 +50,8 @@ fn primary_index_updates_state() {
 fn index_and_nullable_setters() {
     let mut col = SchemaColumn::new(
         "v".to_string(),
-        DatTypeID::F64,
-        DatType::new_no_param(DatTypeID::F64).to_info(),
+        TypeFamily::F64,
+        DataType::new_no_param(TypeFamily::F64).to_info(),
     );
     col.set_index(3);
     assert_eq!(col.get_index(), 3);
@@ -63,13 +63,13 @@ fn index_and_nullable_setters() {
 fn fixed_length_matches_type() {
     let col_i32 = SchemaColumn::new(
         "a".to_string(),
-        DatTypeID::I32,
-        DatType::new_no_param(DatTypeID::I32).to_info(),
+        TypeFamily::I32,
+        DataType::new_no_param(TypeFamily::I32).to_info(),
     );
     let col_f64 = SchemaColumn::new(
         "b".to_string(),
-        DatTypeID::F64,
-        DatType::new_no_param(DatTypeID::F64).to_info(),
+        TypeFamily::F64,
+        DataType::new_no_param(TypeFamily::F64).to_info(),
     );
     assert!(col_i32.is_fixed_length());
     assert!(col_f64.is_fixed_length());
@@ -79,8 +79,8 @@ fn fixed_length_matches_type() {
 fn serde_roundtrip_preserves_fields() {
     let col = SchemaColumn::new(
         "c".to_string(),
-        DatTypeID::I64,
-        DatType::new_no_param(DatTypeID::I64).to_info(),
+        TypeFamily::I64,
+        DataType::new_no_param(TypeFamily::I64).to_info(),
     );
     let json = serde_json::to_string(&col).unwrap();
     let decoded: SchemaColumn = serde_json::from_str(&json).unwrap();

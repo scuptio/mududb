@@ -1,7 +1,7 @@
 //! Unit tests for the `generated::customer::Customer` entity.
 
 use mududb::contract::database::entity::Entity;
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_value::DataValue;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::generated::customer::object::Customer;
@@ -52,8 +52,8 @@ fn customer_lifecycle() {
     assert_eq!(Customer::tuple_desc().fields().len(), 12);
 
     // Datum / DatumDyn metadata
-    let dat_type = Customer::dat_type();
-    assert_eq!(entity.dat_type_id().unwrap(), dat_type.dat_type_id());
+    let data_type = Customer::data_type();
+    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
     let tuple = entity.to_tuple().unwrap();
@@ -78,7 +78,7 @@ fn customer_lifecycle() {
     );
 
     // Value roundtrip
-    let value = entity.to_value(&dat_type).unwrap();
+    let value = entity.to_value(&data_type).unwrap();
     let from_value = Customer::from_value(&value).unwrap();
     assert_eq!(from_value.get_c_id(), &Some(c_id_sample));
     assert_eq!(from_value.get_c_d_id(), &Some(c_d_id_sample));
@@ -100,7 +100,7 @@ fn customer_lifecycle() {
     );
 
     // Binary roundtrip
-    let binary = entity.to_binary(&dat_type).unwrap();
+    let binary = entity.to_binary(&data_type).unwrap();
     let from_binary = Customer::from_binary(binary.as_ref()).unwrap();
     assert_eq!(from_binary.get_c_id(), &Some(c_id_sample));
     assert_eq!(from_binary.get_c_d_id(), &Some(c_d_id_sample));
@@ -122,7 +122,7 @@ fn customer_lifecycle() {
     );
 
     // Textual roundtrip
-    let textual = entity.to_textual(&dat_type).unwrap();
+    let textual = entity.to_textual(&data_type).unwrap();
     let from_textual = Customer::from_textual(textual.as_str()).unwrap();
     assert_eq!(from_textual.get_c_id(), &Some(c_id_sample));
     assert_eq!(from_textual.get_c_d_id(), &Some(c_d_id_sample));
@@ -151,7 +151,7 @@ fn customer_lifecycle() {
 
     // Clone through DatumDyn
     let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
-    let cloned_value = cloned.to_value(&dat_type).unwrap();
+    let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = Customer::from_value(&cloned_value).unwrap();
     assert_eq!(from_cloned.get_c_id(), &Some(c_id_sample));
     assert_eq!(from_cloned.get_c_d_id(), &Some(c_d_id_sample));
@@ -179,7 +179,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_id").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_id_sample);
         entity
-            .set_field_value("c_id", DatValue::from_i32(c_id_sample))
+            .set_field_value("c_id", DataValue::from_i32(c_id_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -197,7 +197,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_d_id").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_d_id_sample);
         entity
-            .set_field_value("c_d_id", DatValue::from_i32(c_d_id_sample))
+            .set_field_value("c_d_id", DataValue::from_i32(c_d_id_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -215,7 +215,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_w_id").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_w_id_sample);
         entity
-            .set_field_value("c_w_id", DatValue::from_i32(c_w_id_sample))
+            .set_field_value("c_w_id", DataValue::from_i32(c_w_id_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -233,7 +233,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_first").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &c_first_sample);
         entity
-            .set_field_value("c_first", DatValue::from_string(c_first_sample.clone()))
+            .set_field_value("c_first", DataValue::from_string(c_first_sample.clone()))
             .unwrap();
         assert_eq!(
             entity
@@ -251,7 +251,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_last").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &c_last_sample);
         entity
-            .set_field_value("c_last", DatValue::from_string(c_last_sample.clone()))
+            .set_field_value("c_last", DataValue::from_string(c_last_sample.clone()))
             .unwrap();
         assert_eq!(
             entity
@@ -269,7 +269,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_discount").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_discount_sample);
         entity
-            .set_field_value("c_discount", DatValue::from_i32(c_discount_sample))
+            .set_field_value("c_discount", DataValue::from_i32(c_discount_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -287,7 +287,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_credit").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &c_credit_sample);
         entity
-            .set_field_value("c_credit", DatValue::from_string(c_credit_sample.clone()))
+            .set_field_value("c_credit", DataValue::from_string(c_credit_sample.clone()))
             .unwrap();
         assert_eq!(
             entity
@@ -305,7 +305,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_balance").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_balance_sample);
         entity
-            .set_field_value("c_balance", DatValue::from_i32(c_balance_sample))
+            .set_field_value("c_balance", DataValue::from_i32(c_balance_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -323,7 +323,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_ytd_payment").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_ytd_payment_sample);
         entity
-            .set_field_value("c_ytd_payment", DatValue::from_i32(c_ytd_payment_sample))
+            .set_field_value("c_ytd_payment", DataValue::from_i32(c_ytd_payment_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -341,7 +341,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_payment_cnt").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_payment_cnt_sample);
         entity
-            .set_field_value("c_payment_cnt", DatValue::from_i32(c_payment_cnt_sample))
+            .set_field_value("c_payment_cnt", DataValue::from_i32(c_payment_cnt_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -359,7 +359,7 @@ fn customer_lifecycle() {
         let val = entity.get_field_value("c_delivery_cnt").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &c_delivery_cnt_sample);
         entity
-            .set_field_value("c_delivery_cnt", DatValue::from_i32(c_delivery_cnt_sample))
+            .set_field_value("c_delivery_cnt", DataValue::from_i32(c_delivery_cnt_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -379,7 +379,7 @@ fn customer_lifecycle() {
         entity
             .set_field_value(
                 "c_last_order_id",
-                DatValue::from_i32(c_last_order_id_sample),
+                DataValue::from_i32(c_last_order_id_sample),
             )
             .unwrap();
         assert_eq!(

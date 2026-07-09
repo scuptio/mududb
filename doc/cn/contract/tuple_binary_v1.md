@@ -80,7 +80,7 @@ Slot 按 schema 顺序为所有变长字段依次存储。
 
 `TupleBinaryDesc` 是驱动编解码的外部 schema 描述符。它不属于 tuple 字节，但解释 tuple 字节所必需。描述符包含：
 
-- `type_desc`：有序的字段 `DatType` 列表。
+- `type_desc`：有序的字段 `DataType` 列表。
 - `slot_all`：有序的 `FieldDesc` 记录列表，每条记录包含：
   - `is_fixed_len`：定长/变长分类。
   - `slot`：定长字段的偏移和长度；变长字段的 slot 存放位置。

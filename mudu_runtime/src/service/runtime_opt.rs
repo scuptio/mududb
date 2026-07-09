@@ -1,4 +1,4 @@
-use crate::backend::mududb_cfg::ServerMode;
+use crate::backend::mudud_cfg::ServerMode;
 use mudu_sys::common::provider_type::ProviderType;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::provider::create_io_provider;

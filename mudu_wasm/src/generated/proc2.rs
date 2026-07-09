@@ -50,8 +50,8 @@ INSERT INTO wallets
 
     let mut result = String::new();
     while let Some(row) = wallet_rs.next_record()? {
-        let value = row.to_value(&Wallets::dat_type())?;
-        let s = value.to_textual(&Wallets::dat_type())?;
+        let value = row.to_value(&Wallets::data_type())?;
+        let s = value.to_textual(&Wallets::data_type())?;
         result.push_str(&s);
         result.push('\n');
     }
@@ -81,12 +81,12 @@ pub mod object {
     use mududb::contract::tuple::datum_desc::DatumDesc;
     use mududb::contract::tuple::tuple_datum::TupleDatumMarker;
     use mududb::contract::tuple::tuple_field_desc::TupleFieldDesc;
-    use mududb::types::dat_binary::DatBinary;
-    use mududb::types::dat_textual::DatTextual;
-    use mududb::types::dat_type::DatType;
-    use mududb::types::dat_type_id::DatTypeID;
-    use mududb::types::dat_value::DatValue;
+    use mududb::types::data_binary::DataBinary;
+    use mududb::types::data_textual::DataTextual;
+    use mududb::types::data_type::DataType;
+    use mududb::types::data_value::DataValue;
     use mududb::types::datum::{Datum, DatumDyn};
+    use mududb::types::type_family::TypeFamily;
 
     const TABLE_WALLETS: &str = "wallets";
     const COLUMN_USER_ID: &str = "user_id";
@@ -140,10 +140,10 @@ pub mod object {
     }
 
     impl Datum for Wallets {
-        fn dat_type() -> DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+        fn data_type() -> DataType {
+            static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity_utils::entity_dat_type::<Wallets>)
+                .get_or_init(entity_utils::entity_data_type::<Wallets>)
                 .clone()
         }
 
@@ -151,7 +151,7 @@ pub mod object {
             entity_utils::entity_from_binary(binary)
         }
 
-        fn from_value(value: &DatValue) -> RS<Self> {
+        fn from_value(value: &DataValue) -> RS<Self> {
             entity_utils::entity_from_value(value)
         }
 
@@ -161,20 +161,20 @@ pub mod object {
     }
 
     impl DatumDyn for Wallets {
-        fn dat_type_id(&self) -> RS<DatTypeID> {
-            entity_utils::entity_dat_type_id()
+        fn type_family(&self) -> RS<TypeFamily> {
+            entity_utils::entity_type_family()
         }
 
-        fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
-            entity_utils::entity_to_binary(self, dat_type)
+        fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
+            entity_utils::entity_to_binary(self, data_type)
         }
 
-        fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
-            entity_utils::entity_to_textual(self, dat_type)
+        fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
+            entity_utils::entity_to_textual(self, data_type)
         }
 
-        fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
-            entity_utils::entity_to_value(self, dat_type)
+        fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
+            entity_utils::entity_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
@@ -237,7 +237,7 @@ pub mod object {
             }
             Ok(())
         }
-        fn get_field_value(&self, column: &str) -> RS<Option<DatValue>> {
+        fn get_field_value(&self, column: &str) -> RS<Option<DataValue>> {
             match column {
                 COLUMN_USER_ID => attr_field_access::attr_get_value::<_>(&self.user_id),
                 COLUMN_BALANCE => attr_field_access::attr_get_value::<_>(&self.balance),
@@ -248,7 +248,7 @@ pub mod object {
             }
         }
 
-        fn set_field_value<B: AsRef<DatValue>>(&mut self, column: &str, value: B) -> RS<()> {
+        fn set_field_value<B: AsRef<DataValue>>(&mut self, column: &str, value: B) -> RS<()> {
             match column {
                 COLUMN_USER_ID => {
                     attr_field_access::attr_set_value::<_, _>(&mut self.user_id, value)?;
@@ -270,9 +270,9 @@ pub mod object {
     pub struct AttrUserId {}
 
     impl AttrValue<i32> for AttrUserId {
-        fn dat_type() -> &'static DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        fn data_type() -> &'static DataType {
+            static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
+            ONCE_LOCK.get_or_init(|| Self::attr_data_type())
         }
 
         fn datum_desc() -> &'static DatumDesc {
@@ -292,9 +292,9 @@ pub mod object {
     pub struct AttrBalance {}
 
     impl AttrValue<i32> for AttrBalance {
-        fn dat_type() -> &'static DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        fn data_type() -> &'static DataType {
+            static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
+            ONCE_LOCK.get_or_init(|| Self::attr_data_type())
         }
 
         fn datum_desc() -> &'static DatumDesc {
@@ -314,9 +314,9 @@ pub mod object {
     pub struct AttrUpdatedAt {}
 
     impl AttrValue<i32> for AttrUpdatedAt {
-        fn dat_type() -> &'static DatType {
-            static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-            ONCE_LOCK.get_or_init(|| Self::attr_dat_type())
+        fn data_type() -> &'static DataType {
+            static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
+            ONCE_LOCK.get_or_init(|| Self::attr_data_type())
         }
 
         fn datum_desc() -> &'static DatumDesc {
@@ -376,15 +376,15 @@ pub fn mudu_argv_desc_proc_sys_call_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "a".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "b".to_string(),
-                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i64 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "c".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -399,11 +399,11 @@ pub fn mudu_result_desc_proc_sys_call_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "1".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -485,15 +485,15 @@ pub fn mudu_argv_desc_proc2_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "a".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "b".to_string(),
-                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i64 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "c".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -508,11 +508,11 @@ pub fn mudu_result_desc_proc2_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "1".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })

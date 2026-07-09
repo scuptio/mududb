@@ -1,7 +1,7 @@
 use crate::error;
 use crate::exports::mududb::component_shim::types;
 use crate::ids;
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_value::DataValue;
 
 pub fn null() -> types::Value {
     types::Value::Null
@@ -77,19 +77,19 @@ pub fn as_oid(input: types::Value) -> Result<types::Oid, types::Error> {
     }
 }
 
-pub fn into_dat_value(input: types::Value) -> DatValue {
+pub fn into_data_value(input: types::Value) -> DataValue {
     match input {
-        types::Value::Null => DatValue::null(),
-        types::Value::Boolean(value) => DatValue::from_i32(i32::from(value)),
-        types::Value::Int64(value) => DatValue::from_i64(value),
-        types::Value::Float64(value) => DatValue::from_f64(value),
-        types::Value::Text(value) => DatValue::from_string(value),
-        types::Value::Binary(value) => DatValue::from_binary(value),
-        types::Value::ObjectId(value) => DatValue::from_u128(ids::to_facade(value)),
+        types::Value::Null => DataValue::null(),
+        types::Value::Boolean(value) => DataValue::from_i32(i32::from(value)),
+        types::Value::Int64(value) => DataValue::from_i64(value),
+        types::Value::Float64(value) => DataValue::from_f64(value),
+        types::Value::Text(value) => DataValue::from_string(value),
+        types::Value::Binary(value) => DataValue::from_binary(value),
+        types::Value::ObjectId(value) => DataValue::from_u128(ids::to_facade(value)),
     }
 }
 
-pub fn from_dat_value(input: &DatValue) -> types::Value {
+pub fn from_data_value(input: &DataValue) -> types::Value {
     if input.is_null() {
         return types::Value::Null;
     }

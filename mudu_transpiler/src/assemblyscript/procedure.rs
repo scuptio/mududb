@@ -95,41 +95,41 @@ impl AsValueType {
         matches!(self, Self::ObjectId)
     }
 
-    /// Convert this value type to a Mudu [`DatType`].
-    pub fn dat_type(&self) -> mudu_type::dat_type::DatType {
-        use mudu_type::dat_type::DatType;
-        use mudu_type::dat_type_id::DatTypeID;
+    /// Convert this value type to a Mudu [`DataType`].
+    pub fn data_type(&self) -> mudu_type::data_type::DataType {
+        use mudu_type::data_type::DataType;
+        use mudu_type::type_family::TypeFamily;
 
         match self {
-            Self::Boolean => DatType::new_no_param(DatTypeID::I32),
-            Self::Int64 => DatType::new_no_param(DatTypeID::I64),
-            Self::Float64 => DatType::new_no_param(DatTypeID::F64),
-            Self::Text => DatType::default_for(DatTypeID::String),
-            Self::Binary => DatType::new_no_param(DatTypeID::Binary),
-            Self::ObjectId => DatType::new_no_param(DatTypeID::U128),
+            Self::Boolean => DataType::new_no_param(TypeFamily::I32),
+            Self::Int64 => DataType::new_no_param(TypeFamily::I64),
+            Self::Float64 => DataType::new_no_param(TypeFamily::F64),
+            Self::Text => DataType::default_for(TypeFamily::String),
+            Self::Binary => DataType::new_no_param(TypeFamily::Binary),
+            Self::ObjectId => DataType::new_no_param(TypeFamily::U128),
         }
     }
 
-    /// Rust expression that yields this value type's [`DatType`].
-    pub fn dat_type_expr(&self) -> &'static str {
+    /// Rust expression that yields this value type's [`DataType`].
+    pub fn data_type_expr(&self) -> &'static str {
         match self {
             Self::Boolean => {
-                "::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I32)"
+                "::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I32)"
             }
             Self::Int64 => {
-                "::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64)"
+                "::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64)"
             }
             Self::Float64 => {
-                "::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::F64)"
+                "::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::F64)"
             }
             Self::Text => {
-                "::mududb::types::dat_type::DatType::default_for(::mududb::types::dat_type_id::DatTypeID::String)"
+                "::mududb::types::data_type::DataType::default_for(::mududb::types::type_family::TypeFamily::String)"
             }
             Self::Binary => {
-                "::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::Binary)"
+                "::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::Binary)"
             }
             Self::ObjectId => {
-                "::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::U128)"
+                "::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::U128)"
             }
         }
     }

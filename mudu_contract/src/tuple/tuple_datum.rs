@@ -8,8 +8,8 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::Datum;
 use paste::paste;
 
@@ -27,7 +27,7 @@ For a tuple (i32, String)
 ```
 **/
 pub trait TupleDatum: EnumerableDatum + Sized + 'static {
-    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self>;
+    fn from_value(vec_value: &[DataValue], desc: &[DatumDesc]) -> RS<Self>;
     fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<Self>;
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc;
 }
@@ -37,14 +37,14 @@ fn datum_from_binary<T: Datum>(slice: &[u8], _desc: &DatumDesc) -> RS<T> {
 }
 
 fn datum_to_binary<T: Datum>(t: &T, desc: &DatumDesc) -> RS<Vec<u8>> {
-    Ok(t.to_binary(desc.dat_type())?.into())
+    Ok(t.to_binary(desc.data_type())?.into())
 }
 
-fn datum_to_value<T: Datum>(t: &T, desc: &DatumDesc) -> RS<DatValue> {
-    t.to_value(desc.dat_type())
+fn datum_to_value<T: Datum>(t: &T, desc: &DatumDesc) -> RS<DataValue> {
+    t.to_value(desc.data_type())
 }
 
-fn to_tuple_desc(fields: Vec<(String, DatType)>) -> TupleFieldDesc {
+fn to_tuple_desc(fields: Vec<(String, DataType)>) -> TupleFieldDesc {
     let desc: Vec<_> = fields
         .into_iter()
         .map(|(name, ty)| DatumDesc::new(name, ty))
@@ -52,8 +52,8 @@ fn to_tuple_desc(fields: Vec<(String, DatType)>) -> TupleFieldDesc {
     TupleFieldDesc::new(desc)
 }
 
-fn build_tuple_desc(field_name: &[String], field_ty: Vec<DatType>) -> TupleFieldDesc {
-    let fields: Vec<(String, DatType)> = if field_ty.len() == field_name.len() {
+fn build_tuple_desc(field_name: &[String], field_ty: Vec<DataType>) -> TupleFieldDesc {
+    let fields: Vec<(String, DataType)> = if field_ty.len() == field_name.len() {
         field_ty
             .into_iter()
             .enumerate()
@@ -78,7 +78,7 @@ impl<T> EnumerableDatum for T
 where
     T: Datum + TupleDatumMarker,
 {
-    fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
+    fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
         if datum_desc.len() != 1 {
             let msg = format!("expected 1 desc, got {}", datum_desc.len());
             Err(mudu_error!(ErrorCode::Parse, msg))
@@ -132,7 +132,7 @@ impl<T> TupleDatum for T
 where
     T: Datum + TupleDatumMarker,
 {
-    fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<Self> {
+    fn from_value(vec_value: &[DataValue], desc: &[DatumDesc]) -> RS<Self> {
         if vec_value.len() != 1 || desc.len() != 1 {
             let (n, m) = (vec_value.len(), desc.len());
             let msg = format!("expected 1 value and 1 desc, got {} and {}", n, m);
@@ -153,7 +153,7 @@ where
     }
 
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc {
-        let ty = T::dat_type().clone();
+        let ty = T::data_type().clone();
         let name = if field_name.len() == 1 {
             field_name[0].clone()
         } else {
@@ -167,7 +167,7 @@ macro_rules! impl_rs_tuple_datum {
     // basic: empty tuple
     () => {
         impl EnumerableDatum for () {
-            fn to_value(&self, _datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
+            fn to_value(&self, _datum_desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
                 Ok(vec![])
             }
 
@@ -181,7 +181,7 @@ macro_rules! impl_rs_tuple_datum {
         }
 
         impl TupleDatum for () {
-            fn from_value(_vec_value: &[DatValue], _desc: &[DatumDesc]) -> RS<Self> {
+            fn from_value(_vec_value: &[DataValue], _desc: &[DatumDesc]) -> RS<Self> {
                 Ok(())
             }
 
@@ -200,7 +200,7 @@ macro_rules! impl_rs_tuple_datum {
         impl<$($T: Datum + TupleDatumMarker),*> EnumerableDatum for ($($T,)*) {
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
+            fn to_value(&self, datum_desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
                 let expected = count_types!($($T),*);
                 if datum_desc.len() != expected {
                     let msg = format!("expected {} desc, got {}", expected, datum_desc.len());
@@ -245,7 +245,7 @@ macro_rules! impl_rs_tuple_datum {
         impl<$($T: Datum + TupleDatumMarker),*> TupleDatum for ($($T,)*) {
             #[allow(non_snake_case)]
             #[allow(unused_assignments)]
-            fn from_value(vec_value: &[DatValue], desc: &[DatumDesc]) -> RS<($($T,)*)> {
+            fn from_value(vec_value: &[DataValue], desc: &[DatumDesc]) -> RS<($($T,)*)> {
                 let expected = count_types!($($T),*);
                 if vec_value.len() != expected || desc.len() != expected {
                     let msg = format!("expected {} values and desc, got value={}, desc={}", expected, vec_value.len(), desc.len());
@@ -278,8 +278,8 @@ macro_rules! impl_rs_tuple_datum {
             }
 
             fn tuple_desc_static(field_name:&[String]) -> TupleFieldDesc {
-                let vec_ty:Vec<DatType> = vec![
-                    $(<$T>::dat_type().clone(),)*
+                let vec_ty:Vec<DataType> = vec![
+                    $(<$T>::data_type().clone(),)*
                 ];
                 build_tuple_desc(field_name, vec_ty)
             }

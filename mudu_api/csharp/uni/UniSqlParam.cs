@@ -21,7 +21,7 @@ public struct UniSqlParam {
     
     
     [Key(0)]
-    public required List<UniDatValue> Params { get; set; }
+    public required List<UniDataValue> Params { get; set; }
     
 }
 

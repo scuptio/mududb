@@ -8,22 +8,22 @@ provides the typed value abstractions used by the language and contract layers.
 
 ## Responsibility
 
-- Define the data type identifier enum and its per-type conversion/comparison
-  function dispatch (`DatTypeID`).
-- Represent parameterized type descriptors (`DatType`) and their serializable
-  metadata (`DTInfo`).
+- Define the type family enum and its per-type conversion/comparison
+  function dispatch (`TypeFamily`).
+- Represent parameterized type descriptors (`DataType`) and their serializable
+  metadata (`DataTypeInfo`).
 - Model type parameters for numeric, string, temporal, array and record types
-  (`DTPKind`, `DTPNumeric`, `DTPString`, `DTPTime`, `DTPTimestamp`, etc.).
-- Provide a unified in-memory value container (`DatValue`) and a value/type pair
-  (`DatTyped`).
+  (`DataTypeParamKind`, `DataTypeParamNumeric`, `DataTypeParamString`, `DataTypeParamTime`, `DataTypeParamTimestamp`, etc.).
+- Provide a unified in-memory value container (`DataValue`) and a value/type pair
+  (`DataTyped`).
 - Define the `Datum` / `DatumDyn` traits for typed Rust values and map Rust
-  types to their `DatType`.
+  types to their `DataType`.
 - Implement input/output, send/receive, default and length function signatures
   for every supported type.
-- Wrap external representations used for conversions (`DatBinary`, `DatTextual`,
-  `DatMsgPack`).
+- Wrap external representations used for conversions (`DataBinary`, `DataTextual`,
+  `DataMsgPack`).
 - Expose convenience helpers for common conversions and scalar value
-  constructors (`dt_function`, `ScalarType`, `array`, `record`).
+  constructors (`data_type_function`, `ScalarType`, `array`, `record`).
 
 ## What does NOT belong here
 
@@ -42,21 +42,21 @@ provides the typed value abstractions used by the language and contract layers.
 
 ## Main public entry points
 
-- `mudu_type::dat_type_id` — `DatTypeID` and per-type function dispatch.
-- `mudu_type::dat_type` — `DatType` descriptor with optional parameters.
-- `mudu_type::dat_value` — `DatValue`, the unified in-memory value container.
+- `mudu_type::type_family` — `TypeFamily` and per-type function dispatch.
+- `mudu_type::data_type` — `DataType` descriptor with optional parameters.
+- `mudu_type::data_value` — `DataValue`, the unified in-memory value container.
 - `mudu_type::datum` — `Datum` / `DatumDyn` traits for typed values.
-- `mudu_type::dat_typed` — `DatTyped`, a value paired with its `DatType`.
+- `mudu_type::data_typed` — `DataTyped`, a value paired with its `DataType`.
 - `mudu_type::scalar_type` — `ScalarType`, a restricted scalar-only wrapper.
-- `mudu_type::dt_info` — `DTInfo`, serializable type metadata.
+- `mudu_type::data_type_info` — `DataTypeInfo`, serializable type metadata.
 - `mudu_type::type_error` — `TyErr` / `TyEC`, type-system error types.
-- `mudu_type::dt_function` — convenience conversion helpers (textual, binary,
+- `mudu_type::data_type_function` — convenience conversion helpers (textual, binary,
   JSON, MessagePack).
-- `mudu_type::dt_fn_convert` / `dt_fn_compare` / `dt_fn_param` — function
+- `mudu_type::data_type_fn_convert` / `data_type_fn_compare` / `data_type_fn_param` — function
   signatures for conversion, comparison and parameter parsing.
 - `mudu_type::array` / `mudu_type::record` — constructors for array and record
   types.
-- `mudu_type::dtp_numeric` / `dtp_string` / `dtp_time` / `dtp_timestamp` /
-  `dtp_timestamptz` / `dtp_array` / `dtp_object` — concrete parameter types.
-- `mudu_type::dat_binary` / `dat_textual` / `dat_msg_pack` — representation
+- `mudu_type::data_type_param_numeric` / `data_type_param_string` / `data_type_param_time` / `data_type_param_timestamp` /
+  `data_type_param_timestamptz` / `data_type_param_array` / `data_type_param_record` — concrete parameter types.
+- `mudu_type::data_binary` / `data_textual` / `data_msg_pack` — representation
   wrappers used by conversion functions.

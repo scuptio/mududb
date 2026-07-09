@@ -1,4 +1,6 @@
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
+use mudu_binding::universal::uni_def::{
+    RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef,
+};
 
 /// Parsed contents of a WIT interface file.
 #[derive(Debug, Clone)]
@@ -15,6 +17,8 @@ pub struct WitDef {
     pub variants: Vec<UniVariantDef>,
     /// Enum definitions.
     pub enums: Vec<UniEnumDef>,
+    /// Function declarations inside interfaces.
+    pub functions: Vec<WitFuncDef>,
 }
 
 impl WitDef {
@@ -26,8 +30,22 @@ impl WitDef {
             records: vec![],
             variants: vec![],
             enums: vec![],
+            functions: vec![],
         }
     }
+}
+
+/// A WIT function declaration.
+#[derive(Debug, Clone)]
+pub struct WitFuncDef {
+    /// Doc comments attached to the function.
+    pub func_comments: String,
+    /// Function name as declared in WIT (kebab-case).
+    pub func_name: String,
+    /// Named parameters.
+    pub params: Vec<RecordField>,
+    /// Named return values. Empty means the function returns nothing.
+    pub returns: Vec<RecordField>,
 }
 
 impl Default for WitDef {

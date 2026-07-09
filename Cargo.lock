@@ -1688,9 +1688,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -3716,6 +3716,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpm_build"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_utils",
+ "serde",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
+name = "mpm_install"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mudu",
+ "mudu_cli",
+ "mudu_sys",
+ "mudu_utils",
+ "serde",
+]
+
+[[package]]
 name = "mudu"
 version = "0.1.0"
 dependencies = [
@@ -3901,21 +3929,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "mudu_package"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "mudu",
- "mudu_contract",
- "mudu_sys",
- "mudu_utils",
- "serde",
- "tempfile",
- "zip",
 ]
 
 [[package]]
@@ -5694,9 +5707,9 @@ checksum = "ece8e78b2f38ec51c51f5d475df0a7187ba5111b2a28bdc761ee05b075d40a71"
 
 [[package]]
 name = "scc"
-version = "3.7.1"
+version = "3.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bcd12b6caff5213cc3c03123cde8c3db5e413008a63b0c0ba35e6275825ea92"
+checksum = "7800bc2c7e91b26aeae70c2ab6eaa653efc133104b7756e674c99304adff3fdb"
 dependencies = [
  "saa",
  "sdd",

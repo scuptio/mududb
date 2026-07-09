@@ -1,0 +1,21 @@
+{% if enum_def.enum_comments.len() > 0 %}
+{{ enum_def.enum_comments }}
+{% endif %}
+export enum {{ enum_def.enum_name }} {
+    {% for case in enum_def.enum_cases %}
+    {% if case.ec_comments.len() > 0 %}
+    {{ case.ec_comments }}
+    {% endif %}
+    {{ case.ec_name }} = {{ case.ec_number }},
+    {% endfor %}
+}
+
+export class {{ enum_def.enum_name }}Codec {
+    static encode(value: {{ enum_def.enum_name }}, writer: MpackWriter): void {
+        writer.writeU32(value as u32);
+    }
+
+    static decode(reader: MpackReader): {{ enum_def.enum_name }} {
+        return reader.readU32() as {{ enum_def.enum_name }};
+    }
+}

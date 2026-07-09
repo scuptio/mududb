@@ -4,9 +4,9 @@ use super::{_to_libsql_value, LibSQLAsyncConnInner};
 use mudu::error::ErrorCode;
 use mudu_contract::database::sql_param_value::SQLParamValue;
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use std::time::UNIX_EPOCH;
 
 fn temp_db_path(label: &str) -> String {
@@ -66,7 +66,7 @@ fn batch_rejects_parameters() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let conn = open_conn("batch-params").await;
         let sql = Box::new(SQLStmtText::new("SELECT 1;".to_string()));
-        let params = Box::new(SQLParamValue::from_vec(vec![DatValue::from_i32(1)]));
+        let params = Box::new(SQLParamValue::from_vec(vec![DataValue::from_i32(1)]));
         let err = conn.batch(sql, params).await.unwrap_err();
         assert_eq!(err.ec(), ErrorCode::NotImplemented);
     })
@@ -123,76 +123,77 @@ fn to_libsql_value_converts_supported_types() {
 
     assert!(matches!(
         _to_libsql_value(
-            &DatValue::from_i32(42),
-            &DatType::default_for(DatTypeID::I32)
+            &DataValue::from_i32(42),
+            &DataType::default_for(TypeFamily::I32)
         )
         .unwrap(),
         libsql::Value::Integer(42)
     ));
     assert!(matches!(
         _to_libsql_value(
-            &DatValue::from_i64(99),
-            &DatType::default_for(DatTypeID::I64)
+            &DataValue::from_i64(99),
+            &DataType::default_for(TypeFamily::I64)
         )
         .unwrap(),
         libsql::Value::Integer(99)
     ));
     assert!(matches!(
-        _to_libsql_value(&DatValue::from_f32(1.5), &DatType::default_for(DatTypeID::F32)).unwrap(),
+        _to_libsql_value(&DataValue::from_f32(1.5), &DataType::default_for(TypeFamily::F32)).unwrap(),
         libsql::Value::Real(v) if (v - 1.5f64).abs() < 1e-6
     ));
     assert!(matches!(
-        _to_libsql_value(&DatValue::from_f64(2.5), &DatType::default_for(DatTypeID::F64)).unwrap(),
+        _to_libsql_value(&DataValue::from_f64(2.5), &DataType::default_for(TypeFamily::F64)).unwrap(),
         libsql::Value::Real(v) if (v - 2.5f64).abs() < 1e-6
     ));
     assert!(matches!(
-        _to_libsql_value(&DatValue::from_string("hi".to_string()), &DatType::default_for(DatTypeID::String)).unwrap(),
+        _to_libsql_value(&DataValue::from_string("hi".to_string()), &DataType::default_for(TypeFamily::String)).unwrap(),
         libsql::Value::Text(t) if t == "hi"
     ));
     assert!(matches!(
-        _to_libsql_value(&DatValue::from_u128(u128::MAX), &DatType::default_for(DatTypeID::U128)).unwrap(),
+        _to_libsql_value(&DataValue::from_u128(u128::MAX), &DataType::default_for(TypeFamily::U128)).unwrap(),
         libsql::Value::Text(t) if t == u128::MAX.to_string()
     ));
     assert!(matches!(
-        _to_libsql_value(&DatValue::from_i128(i128::MIN), &DatType::default_for(DatTypeID::I128)).unwrap(),
+        _to_libsql_value(&DataValue::from_i128(i128::MIN), &DataType::default_for(TypeFamily::I128)).unwrap(),
         libsql::Value::Text(t) if t == i128::MIN.to_string()
     ));
 
-    let numeric = DatValue::from_numeric(Numeric::parse("12.3400").unwrap());
+    let numeric = DataValue::from_numeric(Numeric::parse("12.3400").unwrap());
     assert!(matches!(
-        _to_libsql_value(&numeric, &DatType::default_for(DatTypeID::Numeric)).unwrap(),
+        _to_libsql_value(&numeric, &DataType::default_for(TypeFamily::Numeric)).unwrap(),
         libsql::Value::Text(t) if t == "12.3400"
     ));
 
-    let date = DatValue::from_date(DateValue::parse("2024-01-15").unwrap());
+    let date = DataValue::from_date(DateValue::parse("2024-01-15").unwrap());
     assert!(matches!(
-        _to_libsql_value(&date, &DatType::default_for(DatTypeID::Date)).unwrap(),
+        _to_libsql_value(&date, &DataType::default_for(TypeFamily::Date)).unwrap(),
         libsql::Value::Text(t) if t == "2024-01-15"
     ));
 
-    let time = DatValue::from_time(TimeValue::parse("12:34:56.123456").unwrap());
+    let time = DataValue::from_time(TimeValue::parse("12:34:56.123456").unwrap());
     assert!(matches!(
-        _to_libsql_value(&time, &DatType::default_for(DatTypeID::Time)).unwrap(),
+        _to_libsql_value(&time, &DataType::default_for(TypeFamily::Time)).unwrap(),
         libsql::Value::Text(t) if t.starts_with("12:34:56")
     ));
 
-    let ts = DatValue::from_timestamp(TimestampValue::parse("2024-01-15 12:34:56.123456").unwrap());
+    let ts =
+        DataValue::from_timestamp(TimestampValue::parse("2024-01-15 12:34:56.123456").unwrap());
     assert!(matches!(
-        _to_libsql_value(&ts, &DatType::default_for(DatTypeID::Timestamp)).unwrap(),
+        _to_libsql_value(&ts, &DataType::default_for(TypeFamily::Timestamp)).unwrap(),
         libsql::Value::Text(t) if t.starts_with("2024-01-15 12:34:56")
     ));
 
-    let tstz = DatValue::from_timestamptz(
+    let tstz = DataValue::from_timestamptz(
         TimestampTzValue::parse("2024-01-15T12:34:56.123456+00:00").unwrap(),
     );
     assert!(matches!(
-        _to_libsql_value(&tstz, &DatType::default_for(DatTypeID::TimestampTz)).unwrap(),
+        _to_libsql_value(&tstz, &DataType::default_for(TypeFamily::TimestampTz)).unwrap(),
         libsql::Value::Text(t) if t.contains("2024-01-15") && t.contains("12:34:56")
     ));
 
-    let binary = DatValue::from_binary(vec![0u8, 1, 2]);
+    let binary = DataValue::from_binary(vec![0u8, 1, 2]);
     assert!(matches!(
-        _to_libsql_value(&binary, &DatType::new_no_param(DatTypeID::Binary)).unwrap(),
+        _to_libsql_value(&binary, &DataType::new_no_param(TypeFamily::Binary)).unwrap(),
         libsql::Value::Blob(_)
     ));
 }

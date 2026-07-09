@@ -1,14 +1,14 @@
-use mudu_type::dat_type::DatType;
+use mudu_type::data_type::DataType;
 
 #[derive(Debug, Clone)]
 pub struct ProjField {
     index: usize,
     name: String,
-    type_desc: DatType,
+    type_desc: DataType,
 }
 
 impl ProjField {
-    pub fn new(index: usize, name: String, type_desc: DatType) -> Self {
+    pub fn new(index: usize, name: String, type_desc: DataType) -> Self {
         Self {
             index,
             name,
@@ -23,7 +23,7 @@ impl ProjField {
         &self.name
     }
 
-    pub fn type_desc(&self) -> &DatType {
+    pub fn type_desc(&self) -> &DataType {
         &self.type_desc
     }
 }

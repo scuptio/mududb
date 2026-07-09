@@ -6,7 +6,7 @@ use super::{
     parse_json_object_body, to_param,
 };
 use crate::backend::app_mgr::AppMgr;
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;

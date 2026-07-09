@@ -46,15 +46,15 @@ pub fn mudu_argv_desc_proc_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "a".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "b".to_string(),
-                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i64 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "c".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -69,11 +69,11 @@ pub fn mudu_result_desc_proc_mtp()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "1".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })

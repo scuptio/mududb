@@ -14,7 +14,7 @@ use crate::ast::expr_operator::{LogicalConnective, ValueCompare};
 use crate::ast::expr_visitor::ExprVisitor;
 use crate::ast::expression::ExprType;
 use mudu::error::ErrorCode;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 use std::sync::Arc;
 
 fn compare_expr() -> ExprType {
@@ -22,7 +22,7 @@ fn compare_expr() -> ExprType {
     name.set_name("id".to_string());
     let left = ExprItem::ItemName(name);
     let right = ExprItem::ItemValue(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(1),
+        DataTyped::from_i32(1),
     )));
     ExprType::Compare(Arc::new(ExprCompare::new(ValueCompare::EQ, left, right)))
 }

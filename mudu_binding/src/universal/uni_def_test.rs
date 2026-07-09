@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::universal::uni_dat_type::UniDatType;
+    use crate::universal::uni_data_type::UniDataType;
     use crate::universal::uni_def::{EnumCase, RecordField, UniRecordDef, UniTableDef};
     use crate::universal::uni_scalar::UniScalar;
 
@@ -8,7 +8,7 @@ mod tests {
         RecordField {
             rf_comments: "c".to_string(),
             rf_name: "f".to_string(),
-            rf_type: UniDatType::Scalar(UniScalar::I32),
+            rf_type: UniDataType::Scalar(UniScalar::I32),
         }
     }
 

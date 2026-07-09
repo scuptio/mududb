@@ -192,10 +192,10 @@ fn tuple_field_to_value(
         let datum_desc = &desc.fields()[index];
         match field {
             Some(field) => {
-                let typed = TypedBin::new(datum_desc.dat_type_id(), field.clone());
-                values.push(typed.to_value(datum_desc.dat_type())?);
+                let typed = TypedBin::new(datum_desc.type_family(), field.clone());
+                values.push(typed.to_value(datum_desc.data_type())?);
             }
-            None => values.push(mudu_type::dat_value::DatValue::null()),
+            None => values.push(mudu_type::data_value::DataValue::null()),
         }
     }
     Ok(TupleValue::from(values))

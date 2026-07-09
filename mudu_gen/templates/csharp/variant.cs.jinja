@@ -2,10 +2,7 @@
 {% if variant.variant_comments.len() > 0 %}
 {{ variant.variant_comments }}
 {% endif %}
-// Annotate inheritance types
-{% for case in variant.variant_cases %}
-[Union({{ case.vc_number }}, typeof({{ variant.variant_name }}{{ case.vc_case_name }}))]
-{% endfor %}
+[MessagePackFormatter(typeof({{ variant.variant_name }}Formatter))]
 public interface {{ variant.variant_name }}
 {
     public {{ variant.variant_name }}Kind Kind();
@@ -19,7 +16,6 @@ public enum {{ variant.variant_name }}Kind {
 
 
 {% for case in variant.variant_cases %}
-[MessagePackFormatter(typeof({{ variant.variant_name }}{{ case.vc_case_name }}Formatter))]
 public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.variant_name }}
 {
     {% if cfg.impl_default %}
@@ -51,10 +47,11 @@ public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.vari
         }
     }
 }
+{% endfor %}
 
-public class {{ variant.variant_name }}{{ case.vc_case_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}{{ case.vc_case_name }}?>
+public class {{ variant.variant_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}?>
 {
-    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}{{ case.vc_case_name }}? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -62,18 +59,52 @@ public class {{ variant.variant_name }}{{ case.vc_case_name }}Formatter : IMessa
             return;
         }
 
-        MessagePackSerializer.Serialize(ref writer, value.Inner, options);
+        writer.WriteArrayHeader(2);
+        writer.Write((uint)value.Kind());
+        switch (value.Kind())
+        {
+            {% for case in variant.variant_cases %}
+            case {{ variant.variant_name }}Kind.{{ case.vc_case_name }}:
+                {% if case.vc_has_inner_type %}
+                MessagePackSerializer.Serialize(ref writer, (({{ variant.variant_name }}{{ case.vc_case_name }})value).Inner, options);
+                {% else %}
+                writer.Write((byte)0);
+                {% endif %}
+                break;
+            {% endfor %}
+            default:
+                throw new global::System.InvalidOperationException($"Unknown kind: {value.Kind()}");
+        }
     }
 
-    public {{ variant.variant_name }}{{ case.vc_case_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public {{ variant.variant_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
             return null;
         }
 
-        {{ case.vc_inner_type_name }} inner = MessagePackSerializer.Deserialize<{{ case.vc_inner_type_name }}>(ref reader, options){{ case.vc_inner_deserialize_suffix }};
-        return new {{ variant.variant_name }}{{ case.vc_case_name }} { Inner= inner};
+        var count = reader.ReadArrayHeader();
+        if (count != 2)
+        {
+            throw new global::System.InvalidOperationException($"Expected array of length 2, got {count}");
+        }
+
+        var tag = reader.ReadUInt32();
+        switch (tag)
+        {
+            {% for case in variant.variant_cases %}
+            case {{ case.vc_number }}:
+                {% if case.vc_has_inner_type %}
+                var {{ case.vc_case_name_snake }}Inner = MessagePackSerializer.Deserialize<{{ case.vc_inner_type_name }}>(ref reader, options){{ case.vc_inner_deserialize_suffix }};
+                return new {{ variant.variant_name }}{{ case.vc_case_name }} { Inner = {{ case.vc_case_name_snake }}Inner };
+                {% else %}
+                var _ = reader.ReadByte();
+                return new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                {% endif %}
+            {% endfor %}
+            default:
+                throw new global::System.InvalidOperationException($"Unknown tag: {tag}");
+        }
     }
 }
-{% endfor %}

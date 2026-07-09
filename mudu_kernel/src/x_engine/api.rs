@@ -3,7 +3,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use crate::contract::schema_table::SchemaTable;
-use crate::x_engine::dat_bin::DatBin;
+use crate::x_engine::data_bin::DataBin;
 use crate::x_engine::operator::Operator;
 use crate::x_engine::tx_mgr::TxMgr;
 use mudu::common::id::{AttrIndex, OID};
@@ -27,7 +27,7 @@ pub type Filter = Operator;
 /// columns, and update payloads. Each pair is `(attribute_index, binary_value)`.
 #[derive(Clone, Default, Debug)]
 pub struct VecDatum {
-    data: Vec<(AttrIndex, DatBin)>,
+    data: Vec<(AttrIndex, DataBin)>,
 }
 
 /// Key-range bounds used by [`XContract::read_range`].
@@ -36,8 +36,8 @@ pub struct VecDatum {
 /// [`VecDatum`], but allow inclusive, exclusive, or unbounded range scans.
 #[derive(Clone)]
 pub struct RangeData {
-    start: Bound<Vec<(AttrIndex, DatBin)>>,
-    end: Bound<Vec<(AttrIndex, DatBin)>>,
+    start: Bound<Vec<(AttrIndex, DataBin)>>,
+    end: Bound<Vec<(AttrIndex, DataBin)>>,
 }
 
 /// Projection list for read operations.
@@ -54,7 +54,7 @@ pub enum Predicate {
     /// disjunctive normal form, it is a disjunction of conjunctions of literals
     DNF(Vec<Vec<(AttrIndex, Filter)>>),
     /// equality over a left prefix of the primary key, evaluated during range reads
-    KeyPrefixEq(Vec<(AttrIndex, DatBin)>),
+    KeyPrefixEq(Vec<(AttrIndex, DataBin)>),
 }
 
 /// alter table parameter
@@ -148,7 +148,7 @@ pub trait XContract: Send + Sync {
         pred_key: &VecDatum,
         select: &VecSelTerm,
         opt_read: &OptRead,
-    ) -> RS<Option<Vec<Option<DatBin>>>>;
+    ) -> RS<Option<Vec<Option<DataBin>>>>;
 
     /// Reads rows from a key range plus optional non-key predicates.
     ///
@@ -188,7 +188,7 @@ pub trait XContract: Send + Sync {
 }
 
 impl VecDatum {
-    pub fn new(data: Vec<(AttrIndex, DatBin)>) -> Self {
+    pub fn new(data: Vec<(AttrIndex, DataBin)>) -> Self {
         Self { data }
     }
 
@@ -196,28 +196,28 @@ impl VecDatum {
         std::mem::swap(&mut self.data, &mut other.data);
     }
 
-    pub fn data(&self) -> &Vec<(AttrIndex, DatBin)> {
+    pub fn data(&self) -> &Vec<(AttrIndex, DataBin)> {
         &self.data
     }
 
-    pub fn into_data(self) -> Vec<(AttrIndex, DatBin)> {
+    pub fn into_data(self) -> Vec<(AttrIndex, DataBin)> {
         self.data
     }
 }
 
 impl RangeData {
     pub fn new(
-        start: Bound<Vec<(AttrIndex, DatBin)>>,
-        end: Bound<Vec<(AttrIndex, DatBin)>>,
+        start: Bound<Vec<(AttrIndex, DataBin)>>,
+        end: Bound<Vec<(AttrIndex, DataBin)>>,
     ) -> Self {
         Self { start, end }
     }
 
-    pub fn start(&self) -> &Bound<Vec<(AttrIndex, DatBin)>> {
+    pub fn start(&self) -> &Bound<Vec<(AttrIndex, DataBin)>> {
         &self.start
     }
 
-    pub fn end(&self) -> &Bound<Vec<(AttrIndex, DatBin)>> {
+    pub fn end(&self) -> &Bound<Vec<(AttrIndex, DataBin)>> {
         &self.end
     }
 }

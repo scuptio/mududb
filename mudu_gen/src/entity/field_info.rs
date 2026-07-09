@@ -34,7 +34,7 @@ impl FieldInfo {
             field_name: column_schema.column_name().clone(),
             field_name_snake_case: to_snake_case(column_schema.column_name()),
             field_name_pascal_case: to_pascal_case(column_schema.column_name()),
-            data_type: uni_data_type_to_name(column_schema.dat_type(), lang)?,
+            data_type: uni_data_type_to_name(column_schema.data_type(), lang)?,
             attr_struct_name: to_pascal_case(table_name),
             field_name_const: to_snake_case_upper(column_schema.column_name()),
         })

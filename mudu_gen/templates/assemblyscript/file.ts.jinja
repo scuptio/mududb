@@ -1,0 +1,8 @@
+{% for using_stmt in file.using_stmts %}
+import { {{using_stmt}} } from "./{{using_stmt}}";
+{% endfor %}
+import { MpackWriter, MpackReader } from "./mpack";
+
+{% for block in file.blocks %}
+{{block}}
+{% endfor %}

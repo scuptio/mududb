@@ -1,6 +1,6 @@
 //! Generated WebAssembly implementation of the TPC-C entities and procedures.
 //!
-//! This module is produced by the `mpk` transpile stage and is compiled on
+//! This module is produced by the `mpm-build` transpile stage and is compiled on
 //! `wasm32` targets.
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 

@@ -8,7 +8,7 @@ use futures::Stream;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
-use mudu_type::dat_type_id::{DatTypeID as TypeID, DatTypeID};
+use mudu_type::type_family::{TypeFamily as TypeID, TypeFamily};
 use pgwire::api::portal::Format;
 use pgwire::api::results::{DataRowEncoder, FieldInfo};
 use pgwire::api::Type as PGDataType;
@@ -71,7 +71,7 @@ fn to_pg_field_info(rd: &ProjList, format: &Format) -> RS<Vec<FieldInfo>> {
                 desc.name().clone(),
                 None,
                 None,
-                dt_id_to_pg_type(desc.type_desc().dat_type_id())?,
+                dt_id_to_pg_type(desc.type_desc().type_family())?,
                 format.format_for(index),
             ))
         })
@@ -117,21 +117,21 @@ async fn encode_pg_wire_row_data(
                 }
             } else if let Some(datum) = row.get(idx) {
                 let field_desc = &tuple_desc.fields()[idx];
-                let dat_type_id = field_desc.dat_type_id();
-                let (internal, _) = dat_type_id.fn_recv()(&datum, field_desc.dat_type())
+                let type_family = field_desc.type_family();
+                let (internal, _) = type_family.fn_recv()(&datum, field_desc.data_type())
                     .map_err(|e| mudu_error!(ER::TypeConversionFailed, "recv error", e))?;
 
-                let r = match dat_type_id {
-                    DatTypeID::I32 => encoder.encode_field(&internal.to_i32()),
-                    DatTypeID::I64 => encoder.encode_field(&internal.to_i64()),
-                    DatTypeID::F32 => encoder.encode_field(&internal.to_f32()),
-                    DatTypeID::F64 => encoder.encode_field(&internal.to_f64()),
-                    DatTypeID::String => encoder.encode_field(internal.expect_string()),
+                let r = match type_family {
+                    TypeFamily::I32 => encoder.encode_field(&internal.to_i32()),
+                    TypeFamily::I64 => encoder.encode_field(&internal.to_i64()),
+                    TypeFamily::F32 => encoder.encode_field(&internal.to_f32()),
+                    TypeFamily::F64 => encoder.encode_field(&internal.to_f64()),
+                    TypeFamily::String => encoder.encode_field(internal.expect_string()),
                     _ => {
                         has_err = true;
                         results.push(Err(PgWireError::ApiError(Box::new(mudu_error!(
                             ER::InvalidType,
-                            format!("unsupported row type for pgwire encode: {:?}", dat_type_id)
+                            format!("unsupported row type for pgwire encode: {:?}", type_family)
                         )))));
                         break;
                     }

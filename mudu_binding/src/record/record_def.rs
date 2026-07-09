@@ -1,5 +1,5 @@
 use crate::record::field_def::FieldDef;
-use crate::universal::uni_dat_type::UniDatType;
+use crate::universal::uni_data_type::UniDataType;
 use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -18,8 +18,8 @@ pub struct RecordDef {
 
 impl RecordDef {
     /// Updates each field's type in-place to match the given universal record type.
-    pub fn update_field_inline(&mut self, ty: &UniDatType) -> RS<()> {
-        let record = if let UniDatType::Record(record) = ty {
+    pub fn update_field_inline(&mut self, ty: &UniDataType) -> RS<()> {
+        let record = if let UniDataType::Record(record) = ty {
             record
         } else {
             return Err(mudu_error!(
@@ -51,11 +51,12 @@ impl RecordDef {
     pub fn to_record_type(&self) -> RS<UniRecordType> {
         let mut record_fields = Vec::with_capacity(self.fields.len());
         for column in self.fields.iter() {
-            let field_type = column.dat_type().clone();
+            let field_type = column.data_type().clone();
             let field_name = column.column_name().clone();
             let record_field = UniRecordField {
                 field_name,
                 field_type,
+                field_attrs: Vec::new(),
             };
             record_fields.push(record_field)
         }
@@ -94,7 +95,7 @@ impl RecordDef {
         for c in &self.fields {
             let dd = DatumDesc::new(
                 c.column_name().clone(),
-                c.dat_type()
+                c.data_type()
                     .clone()
                     .uni_to_with_params(c.data_type_param().clone())?,
             );
@@ -122,9 +123,9 @@ mod tests {
     use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
     use crate::universal::uni_scalar::UniScalar;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::type_family::TypeFamily;
 
-    fn field(name: &str, ty: UniDatType) -> FieldDef {
+    fn field(name: &str, ty: UniDataType) -> FieldDef {
         FieldDef::new(name.to_string(), ty, None, false)
     }
 
@@ -132,9 +133,9 @@ mod tests {
         RecordDef::new(
             "user".to_string(),
             vec![
-                field("id", UniDatType::Scalar(UniScalar::I32)),
-                field("age", UniDatType::Scalar(UniScalar::I64)),
-                field("name", UniDatType::Scalar(UniScalar::String)),
+                field("id", UniDataType::Scalar(UniScalar::I32)),
+                field("age", UniDataType::Scalar(UniScalar::I64)),
+                field("name", UniDataType::Scalar(UniScalar::String)),
             ],
         )
     }
@@ -167,17 +168,17 @@ mod tests {
         assert_eq!(ty.record_fields[0].field_name, "id");
         assert!(matches!(
             ty.record_fields[0].field_type,
-            UniDatType::Scalar(UniScalar::I32)
+            UniDataType::Scalar(UniScalar::I32)
         ));
         assert_eq!(ty.record_fields[1].field_name, "age");
         assert!(matches!(
             ty.record_fields[1].field_type,
-            UniDatType::Scalar(UniScalar::I64)
+            UniDataType::Scalar(UniScalar::I64)
         ));
         assert_eq!(ty.record_fields[2].field_name, "name");
         assert!(matches!(
             ty.record_fields[2].field_type,
-            UniDatType::Scalar(UniScalar::String)
+            UniDataType::Scalar(UniScalar::String)
         ));
     }
 
@@ -185,19 +186,20 @@ mod tests {
     fn update_field_inline_changes_types() {
         let mut record = RecordDef::new(
             "user".to_string(),
-            vec![field("id", UniDatType::Scalar(UniScalar::I32))],
+            vec![field("id", UniDataType::Scalar(UniScalar::I32))],
         );
-        let new_type = UniDatType::Record(UniRecordType {
+        let new_type = UniDataType::Record(UniRecordType {
             record_name: "user".to_string(),
             record_fields: vec![UniRecordField {
                 field_name: "id".to_string(),
-                field_type: UniDatType::Scalar(UniScalar::I64),
+                field_type: UniDataType::Scalar(UniScalar::I64),
+                field_attrs: Vec::new(),
             }],
         });
         record.update_field_inline(&new_type).unwrap();
         assert!(matches!(
-            record.table_columns()[0].dat_type(),
-            UniDatType::Scalar(UniScalar::I64)
+            record.table_columns()[0].data_type(),
+            UniDataType::Scalar(UniScalar::I64)
         ));
     }
 
@@ -205,7 +207,7 @@ mod tests {
     fn update_field_inline_rejects_non_record() {
         let mut record = sample_record_def();
         let err = record
-            .update_field_inline(&UniDatType::Scalar(UniScalar::I32))
+            .update_field_inline(&UniDataType::Scalar(UniScalar::I32))
             .unwrap_err();
         assert_eq!(err.ec(), ErrorCode::FatalInternal);
     }
@@ -213,7 +215,7 @@ mod tests {
     #[test]
     fn update_field_inline_rejects_name_mismatch() {
         let mut record = sample_record_def();
-        let new_type = UniDatType::Record(UniRecordType {
+        let new_type = UniDataType::Record(UniRecordType {
             record_name: "other".to_string(),
             record_fields: record
                 .to_record_type()
@@ -223,6 +225,7 @@ mod tests {
                 .map(|f| UniRecordField {
                     field_name: f.field_name,
                     field_type: f.field_type,
+                    field_attrs: Vec::new(),
                 })
                 .collect(),
         });
@@ -233,11 +236,12 @@ mod tests {
     #[test]
     fn update_field_inline_rejects_field_count_mismatch() {
         let mut record = sample_record_def();
-        let new_type = UniDatType::Record(UniRecordType {
+        let new_type = UniDataType::Record(UniRecordType {
             record_name: "user".to_string(),
             record_fields: vec![UniRecordField {
                 field_name: "id".to_string(),
-                field_type: UniDatType::Scalar(UniScalar::I32),
+                field_type: UniDataType::Scalar(UniScalar::I32),
+                field_attrs: Vec::new(),
             }],
         });
         let err = record.update_field_inline(&new_type).unwrap_err();
@@ -247,20 +251,23 @@ mod tests {
     #[test]
     fn update_field_inline_rejects_column_name_mismatch() {
         let mut record = sample_record_def();
-        let new_type = UniDatType::Record(UniRecordType {
+        let new_type = UniDataType::Record(UniRecordType {
             record_name: "user".to_string(),
             record_fields: vec![
                 UniRecordField {
                     field_name: "id".to_string(),
-                    field_type: UniDatType::Scalar(UniScalar::I32),
+                    field_type: UniDataType::Scalar(UniScalar::I32),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "age".to_string(),
-                    field_type: UniDatType::Scalar(UniScalar::I64),
+                    field_type: UniDataType::Scalar(UniScalar::I64),
+                    field_attrs: Vec::new(),
                 },
                 UniRecordField {
                     field_name: "renamed".to_string(),
-                    field_type: UniDatType::Scalar(UniScalar::String),
+                    field_type: UniDataType::Scalar(UniScalar::String),
+                    field_attrs: Vec::new(),
                 },
             ],
         });
@@ -275,18 +282,18 @@ mod tests {
         let fields = desc.fields();
         assert_eq!(fields.len(), 3);
         assert_eq!(fields[0].name(), "id");
-        assert_eq!(fields[0].dat_type().dat_type_id(), DatTypeID::I32);
+        assert_eq!(fields[0].data_type().type_family(), TypeFamily::I32);
         assert_eq!(fields[1].name(), "age");
-        assert_eq!(fields[1].dat_type().dat_type_id(), DatTypeID::I64);
+        assert_eq!(fields[1].data_type().type_family(), TypeFamily::I64);
         assert_eq!(fields[2].name(), "name");
-        assert_eq!(fields[2].dat_type().dat_type_id(), DatTypeID::String);
+        assert_eq!(fields[2].data_type().type_family(), TypeFamily::String);
     }
 
     #[test]
     fn row_desc_propagates_unsupported_scalar() {
         let record = RecordDef::new(
             "bad".to_string(),
-            vec![field("flag", UniDatType::Scalar(UniScalar::Bool))],
+            vec![field("flag", UniDataType::Scalar(UniScalar::Bool))],
         );
         let err = record.row_desc().unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidType);

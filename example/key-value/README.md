@@ -1,6 +1,6 @@
 # kv Example
 
-> This example demonstrates the key/value system-call API. If you are new to Mudu Procedures, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First Procedure tutorial](../../doc/en/your_first_procedure.md).
+> This example demonstrates the key/value system-call API. If you are new to MuduDB, start with [`example/wallet/readme.md`](../wallet/readme.md) or the [Your First MPK tutorial](../../doc/en/your_first_mpk.md).
 
 This example implements a small synchronous kv-style workload on top of the key/value syscall API.
 
@@ -11,7 +11,7 @@ Before building, make sure you have:
 - [ ] `rustup` + `cargo` + `wasm32-wasip2` target
 - [ ] `cargo-make`
 - [ ] `python3` with `tomli-w` and `toml`
-- [ ] `mgen`, `mtp`, `mpk`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
+- [ ] `mgen`, `mtp`, `mpm-build`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 Procedures:
 
@@ -33,7 +33,7 @@ To build the `.mpk` package, make sure the following tools are installed:
 - `cargo-make`
 - `python3`
 - `mtp`
-- `mpk`
+- `mpm-build`
 
 Python packages required by `script/build/transpiler.py`:
 
@@ -63,7 +63,7 @@ python3 -m venv .venv
 pip install tomli-w toml
 ```
 
-`mtp` and `mpk` must also be available in `PATH`. In this workspace they are expected to come from the project build/install flow.
+`mtp` and `mpm-build` must also be available in `PATH`. In this workspace they are expected to come from the project build/install flow.
 
 ## Build `.mpk`
 

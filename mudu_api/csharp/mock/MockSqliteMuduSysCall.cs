@@ -128,7 +128,7 @@ public static class MockSqliteMuduSysCall
     private static SqliteCommand CreateCommand(
         SqliteConnection connection,
         string sql,
-        global::System.Collections.Generic.List<UniDatValue>? parameters)
+        global::System.Collections.Generic.List<UniDataValue>? parameters)
     {
         var rewrittenSql = RewritePositionalParameters(sql, parameters?.Count ?? 0);
         var command = connection.CreateCommand();
@@ -188,7 +188,7 @@ public static class MockSqliteMuduSysCall
         return builder.ToString();
     }
 
-    private static object ToDbValue(UniDatValue value)
+    private static object ToDbValue(UniDataValue value)
     {
         return value switch
         {
@@ -221,7 +221,7 @@ public static class MockSqliteMuduSysCall
 
     private static UniTupleRow ReadRow(SqliteDataReader reader)
     {
-        var fields = new global::System.Collections.Generic.List<UniDatValue>(reader.FieldCount);
+        var fields = new global::System.Collections.Generic.List<UniDataValue>(reader.FieldCount);
         for (var i = 0; i < reader.FieldCount; i++)
         {
             if (reader.IsDBNull(i))
@@ -262,7 +262,7 @@ public static class MockSqliteMuduSysCall
         };
     }
 
-    private static UniDatType ToUniDatType(string? sqliteTypeName)
+    private static UniDataType ToUniDatType(string? sqliteTypeName)
     {
         var normalized = (sqliteTypeName ?? string.Empty).ToUpperInvariant();
         return normalized switch
@@ -277,7 +277,7 @@ public static class MockSqliteMuduSysCall
         };
     }
 
-    private static UniDatValue ToUniDatValue(object value, string? sqliteTypeName)
+    private static UniDataValue ToUniDatValue(object value, string? sqliteTypeName)
     {
         return value switch
         {

@@ -7,10 +7,10 @@ use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 use rusqlite::types::{Value, ValueRef};
 
 /// Converts SQL parameters into SQLite [`Value`]s.
@@ -30,9 +30,9 @@ pub fn to_sqlite_values(params: &dyn SQLParams) -> RS<Vec<Value>> {
 
 /// Converts a single datum into a SQLite [`Value`].
 pub fn datum_to_sqlite_value(datum: &dyn DatumDyn) -> RS<Value> {
-    let type_id = datum.dat_type_id()?;
-    let dat_type = datum_type_for_id(type_id);
-    let value = datum.to_value(&dat_type)?;
+    let type_id = datum.type_family()?;
+    let data_type = datum_type_for_id(type_id);
+    let value = datum.to_value(&data_type)?;
     if let Some(v) = value.as_i32() {
         Ok(Value::Integer(*v as i64))
     } else if let Some(v) = value.as_i64() {
@@ -68,29 +68,29 @@ pub fn build_sqlite_desc(stmt: &rusqlite::Statement<'_>) -> TupleFieldDesc {
     TupleFieldDesc::new(fields)
 }
 
-/// Maps a SQLite declared column type to a [`DatTypeID`].
-pub fn sqlite_decl_type_to_id(decl_type: Option<&str>, idx: usize) -> DatTypeID {
+/// Maps a SQLite declared column type to a [`TypeFamily`].
+pub fn sqlite_decl_type_to_id(decl_type: Option<&str>, idx: usize) -> TypeFamily {
     let Some(name) = decl_type else {
         return if idx == 0 {
-            DatTypeID::I64
+            TypeFamily::I64
         } else {
-            DatTypeID::String
+            TypeFamily::String
         };
     };
     let normalized = name.to_ascii_uppercase();
     if normalized.contains("BIGINT") || normalized.contains("INT8") {
-        DatTypeID::I64
+        TypeFamily::I64
     } else if normalized.contains("INT") {
-        DatTypeID::I32
+        TypeFamily::I32
     } else if normalized.contains("REAL")
         || normalized.contains("FLOA")
         || normalized.contains("DOUB")
     {
-        DatTypeID::F64
+        TypeFamily::F64
     } else if normalized.contains("BLOB") {
-        DatTypeID::Binary
+        TypeFamily::Binary
     } else {
-        DatTypeID::String
+        TypeFamily::String
     }
 }
 
@@ -101,43 +101,45 @@ pub fn read_sqlite_row(row: &rusqlite::Row<'_>, desc: &TupleFieldDesc) -> RS<Tup
         let raw = row
             .get_ref(idx)
             .map_err(|e| mudu_error!(ErrorCode::Database, "read sqlite column error", e))?;
-        values.push(sqlite_value_to_dat_value(raw, field.dat_type_id())?);
+        values.push(sqlite_value_to_data_value(raw, field.type_family())?);
     }
     Ok(TupleValue::from(values))
 }
 
-/// Converts a SQLite [`ValueRef`] into a [`DatValue`].
-pub fn sqlite_value_to_dat_value(raw: ValueRef<'_>, preferred: DatTypeID) -> RS<DatValue> {
+/// Converts a SQLite [`ValueRef`] into a [`DataValue`].
+pub fn sqlite_value_to_data_value(raw: ValueRef<'_>, preferred: TypeFamily) -> RS<DataValue> {
     match raw {
         ValueRef::Null => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "NULL value is not supported"
         )),
         ValueRef::Integer(v) => match preferred {
-            DatTypeID::I32 if i32::try_from(v).is_ok() => Ok(DatValue::from_i32(v as i32)),
-            _ => Ok(DatValue::from_i64(v)),
+            TypeFamily::I32 if i32::try_from(v).is_ok() => Ok(DataValue::from_i32(v as i32)),
+            _ => Ok(DataValue::from_i64(v)),
         },
         ValueRef::Real(v) => match preferred {
-            DatTypeID::F32 if v >= f32::MIN as f64 && v <= f32::MAX as f64 => {
-                Ok(DatValue::from_f32(v as f32))
+            TypeFamily::F32 if v >= f32::MIN as f64 && v <= f32::MAX as f64 => {
+                Ok(DataValue::from_f32(v as f32))
             }
-            _ => Ok(DatValue::from_f64(v)),
+            _ => Ok(DataValue::from_f64(v)),
         },
-        ValueRef::Text(v) => Ok(DatValue::from_string(
+        ValueRef::Text(v) => Ok(DataValue::from_string(
             String::from_utf8_lossy(v).into_owned(),
         )),
-        ValueRef::Blob(v) => Ok(DatValue::from_binary(v.to_vec())),
+        ValueRef::Blob(v) => Ok(DataValue::from_binary(v.to_vec())),
     }
 }
 
-/// Returns the default [`DatType`] for a given [`DatTypeID`].
-pub fn datum_type_for_id(id: DatTypeID) -> DatType {
+/// Returns the default [`DataType`] for a given [`TypeFamily`].
+pub fn datum_type_for_id(id: TypeFamily) -> DataType {
     match id {
-        DatTypeID::Binary => DatType::new_no_param(id),
-        DatTypeID::I32 | DatTypeID::I64 | DatTypeID::F32 | DatTypeID::F64 | DatTypeID::String => {
-            DatType::default_for(id)
-        }
-        _ => DatType::new_no_param(id),
+        TypeFamily::Binary => DataType::new_no_param(id),
+        TypeFamily::I32
+        | TypeFamily::I64
+        | TypeFamily::F32
+        | TypeFamily::F64
+        | TypeFamily::String => DataType::default_for(id),
+        _ => DataType::new_no_param(id),
     }
 }
 
@@ -165,7 +167,7 @@ pub fn replace_placeholders(sql_text: &str, params: &dyn SQLParams) -> RS<String
                 format!("sql param index {} does not exist", idx)
             )
         })?;
-        let ty = datum_type_for_id(datum.dat_type_id()?);
+        let ty = datum_type_for_id(datum.type_family()?);
         let textual = datum.to_textual(&ty)?;
         out.push_str(textual.as_str());
         start = *pos + 1;

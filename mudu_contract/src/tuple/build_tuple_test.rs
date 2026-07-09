@@ -8,15 +8,15 @@ use crate::tuple::build_tuple::{build_tuple, build_tuple_into};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::buf::Buf;
 use mudu::error::ErrorCode;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
-fn i32_type() -> DatType {
-    DatType::new_no_param(DatTypeID::I32)
+fn i32_type() -> DataType {
+    DataType::new_no_param(TypeFamily::I32)
 }
 
-fn string_type() -> DatType {
-    DatType::default_for(DatTypeID::String)
+fn string_type() -> DataType {
+    DataType::default_for(TypeFamily::String)
 }
 
 #[test]

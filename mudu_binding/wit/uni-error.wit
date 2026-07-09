@@ -1,6 +1,9 @@
 interface universal {
     record uni-error {
         err-code: u32,
-        err-msg: string
+        err-msg: string,
+        err-src: string,
+        err-loc: string,
+        err-details: list<u8>
     }
 }

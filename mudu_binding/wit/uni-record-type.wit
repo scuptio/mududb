@@ -1,9 +1,15 @@
-use crate:universal:uni-dat-type/uni-dat-type;
+use crate:universal:uni-data-type/uni-data-type;
 
 interface universal {
+record uni-field-attr {
+    attr-name: string,
+    attr-value: string,
+}
+
 record uni-record-field {
     field-name: string,
-    field-type: uni-dat-type
+    field-type: uni-data-type,
+    field-attrs: list<uni-field-attr>
 }
 
 record uni-record-type {
@@ -11,4 +17,3 @@ record uni-record-type {
     record-fields:list<uni-record-field>
 }
 }
-

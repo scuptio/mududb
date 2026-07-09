@@ -15,7 +15,7 @@
 use clap::Parser;
 use mudu::common::result::RS;
 use mudu_runtime::backend::backend::Backend;
-use mudu_runtime::backend::mududb_cfg::{MuduDBCfg, load_mududb_cfg};
+use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, init_mudud_cfg, load_mudud_cfg};
 use mudu_sys::task::async_::wait_for_shutdown_signal;
 use mudu_sys::task::sync::{SJoinHandle, spawn_thread_named};
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
@@ -25,13 +25,30 @@ use tracing::info;
 #[derive(Debug, Parser)]
 #[command(name = "mudud", version, about = "MuduDB server")]
 pub struct Args {
+    #[command(subcommand)]
+    /// Subcommand to run. When `None`, the server is started by default.
+    pub command: Option<Command>,
+}
+
+/// Available `mudud` subcommands.
+#[derive(Debug, Parser)]
+pub enum Command {
+    /// Run the MuduDB server (default behavior).
+    Serve(ServeArgs),
+    /// Write a default configuration file to the current directory.
+    InitCfg,
+}
+
+/// Arguments for the `serve` subcommand.
+#[derive(Debug, Parser, Default)]
+pub struct ServeArgs {
     /// Path to mududb configuration TOML file.
-    #[arg(long = "cfg", value_name = "FILE")]
+    #[arg(short = 'c', long = "cfg", value_name = "FILE")]
     pub cfg_path: Option<String>,
 }
 
 /// Load configuration and run the backend until shutdown.
-pub fn serve(args: Args) -> RS<()> {
+pub fn serve(args: ServeArgs) -> RS<()> {
     let (stop_notifier, stop_waiter) = notify_wait();
     let signal_thread = spawn_signal_listener(stop_notifier.clone())?;
     let serve_result = serve_with_stop(args, stop_waiter);
@@ -45,7 +62,7 @@ pub fn serve(args: Args) -> RS<()> {
 ///
 /// This is useful for tests that want to drive shutdown without installing a
 /// signal listener.
-pub fn serve_with_stop(args: Args, stop_waiter: Waiter) -> RS<()> {
+pub fn serve_with_stop(args: ServeArgs, stop_waiter: Waiter) -> RS<()> {
     serve_with_stop_and_runner(args, stop_waiter, Backend::sync_serve_with_stop)
 }
 
@@ -54,11 +71,11 @@ pub fn serve_with_stop(args: Args, stop_waiter: Waiter) -> RS<()> {
 /// `runner` receives the loaded configuration and stop waiter and returns when
 /// the server shuts down. Tests can supply a closure to verify the serve/stop
 /// path without starting real network listeners.
-pub fn serve_with_stop_and_runner<F>(args: Args, stop_waiter: Waiter, runner: F) -> RS<()>
+pub fn serve_with_stop_and_runner<F>(args: ServeArgs, stop_waiter: Waiter, runner: F) -> RS<()>
 where
     F: FnOnce(MuduDBCfg, Waiter) -> RS<()>,
 {
-    let cfg = load_mududb_cfg(args.cfg_path)?;
+    let cfg = load_mudud_cfg(args.cfg_path)?;
     info!(
         server_mode = ?cfg.server_mode,
         component_target = ?cfg.component_target(),
@@ -74,6 +91,11 @@ where
         "mudud starting"
     );
     runner(cfg, stop_waiter)
+}
+
+/// Write a default configuration file to the current directory.
+pub fn init_config() -> RS<()> {
+    init_mudud_cfg()
 }
 
 /// Spawn a background thread that waits for a shutdown signal.

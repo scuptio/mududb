@@ -1,7 +1,7 @@
 //! `database::sql_stmt_text` module.
 #![allow(missing_docs)]
 
-use mudu_type::dat_type::DatType;
+use mudu_type::data_type::DataType;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::database::sql_stmt::SQLStmt;
@@ -21,7 +21,7 @@ impl SQLStmtText {
         Self { text }
     }
 
-    pub fn param_ty(&self) -> &[DatType] {
+    pub fn param_ty(&self) -> &[DataType] {
         // Placeholder: placeholder type parsing is not yet implemented.
         &[]
     }

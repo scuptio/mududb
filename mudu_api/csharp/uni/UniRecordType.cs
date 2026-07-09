@@ -27,7 +27,7 @@ public struct UniRecordField {
     
     
     [Key(1)]
-    public required UniDatType FieldType { get; set; }
+    public required UniDataType FieldType { get; set; }
     
 }
 

@@ -12,14 +12,14 @@ use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::ValueCompare;
 use crate::ast::select_term::SelectTerm;
 use crate::ast::stmt_select::StmtSelect;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 
 fn sample_predicate() -> ExprCompare {
     let mut name = ExprName::new();
     name.set_name("id".to_string());
     let left = ExprItem::ItemName(name);
     let right = ExprItem::ItemValue(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(1),
+        DataTyped::from_i32(1),
     )));
     ExprCompare::new(ValueCompare::EQ, left, right)
 }

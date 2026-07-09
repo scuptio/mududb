@@ -325,7 +325,7 @@ impl LSAsyncConnInner {
             let _s = &sql_string[start_pos..vec_indices[i].0];
             sql_after_replaced.push_str(_s);
             sql_after_replaced.push(' ');
-            let s = param[i].to_textual(desc[i].dat_type())?;
+            let s = param[i].to_textual(desc[i].data_type())?;
             sql_after_replaced.push_str(s.as_str());
             sql_after_replaced.push(' ');
             start_pos += _s.len() + placeholder_str_len;

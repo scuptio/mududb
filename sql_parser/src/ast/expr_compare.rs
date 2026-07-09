@@ -86,7 +86,7 @@ mod tests {
     use crate::ast::expr_literal::ExprLiteral;
     use crate::ast::expr_name::ExprName;
     use crate::ast::expr_operator::ValueCompare;
-    use mudu_type::dat_typed::DatTyped;
+    use mudu_type::data_typed::DataTyped;
 
     fn field(name: &str) -> ExprItem {
         let mut expr = ExprName::new();
@@ -96,7 +96,7 @@ mod tests {
 
     fn literal_i32(value: i32) -> ExprItem {
         ExprItem::ItemValue(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-            DatTyped::from_i32(value),
+            DataTyped::from_i32(value),
         )))
     }
 
@@ -106,7 +106,7 @@ mod tests {
         let (field, literal, op) = cmp.expr_field_op_literal().unwrap();
 
         assert_eq!(field.name(), "id");
-        assert_eq!(literal.dat_type().unwrap().dat_internal().to_i32(), 7);
+        assert_eq!(literal.data_type().unwrap().data_internal().to_i32(), 7);
         assert!(matches!(op, ValueCompare::LE));
     }
 

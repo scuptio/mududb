@@ -3,7 +3,7 @@
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::management_thread::spawn_management_thread;
 use crate::backend::mudu_app_mgr::MuduAppMgr;
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::service::runtime_opt::RuntimeOpt;
 use mudu::common::result::RS;
 use mudu_kernel::mudu_conn::mudu_conn_async::{
@@ -58,9 +58,9 @@ impl IoUringBackend {
             async_runtime.clone(),
         ));
         let routing_mode = match cfg.routing_mode {
-            crate::backend::mududb_cfg::RoutingMode::ConnectionId => RoutingMode::ConnectionId,
-            crate::backend::mududb_cfg::RoutingMode::PlayerId => RoutingMode::PlayerId,
-            crate::backend::mududb_cfg::RoutingMode::RemoteHash => RoutingMode::RemoteHash,
+            crate::backend::mudud_cfg::RoutingMode::ConnectionId => RoutingMode::ConnectionId,
+            crate::backend::mudud_cfg::RoutingMode::PlayerId => RoutingMode::PlayerId,
+            crate::backend::mudud_cfg::RoutingMode::RemoteHash => RoutingMode::RemoteHash,
         };
         let base_server_cfg = ServerCfg::new(
             worker_count,
@@ -70,7 +70,7 @@ impl IoUringBackend {
             cfg.db_path.clone(),
             routing_mode,
         )?
-        .with_log_chunk_size(cfg.io_uring_log_chunk_size)
+        .with_log_chunk_size(cfg.log_chunk_size)
         .with_multi_port(cfg.tcp_multi_port)
         .with_page_size(cfg.page_size)?;
         let mut server_deps = ServerRuntimeDeps::from_cfg(&base_server_cfg)?

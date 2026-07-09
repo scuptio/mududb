@@ -111,6 +111,8 @@ use mudu::error::err::MError;
 pub type RS<X> = Result<X, MError>;
 ```
 
+Inside a procedure, the runtime can call [system calls](syscall.md), such as SQL system calls (`mudu_query` / `mudu_command` / `mudu_batch`) or key/value system calls (`mudu_get` / `mudu_put` / `mudu_range`).
+
 ## CRUD (Create/Read/Update/Delete) Operations in Mudu Procedures
 
 There are two key APIs that a Mudu procedure can invoke.
@@ -240,7 +242,7 @@ content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L12-L34)"
+content="[Entity](../../mudu_contract/src/database/entity.rs#L15-L37)"
 lang="rust"
 -->
 
@@ -256,9 +258,9 @@ pub trait Entity: private::Sealed + Datum {
 
     fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DatValue>>;
+    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
 
-    fn set_field_value<D: AsRef<DatValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
+    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
 
     fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
         entity_utils::entity_from_tuple(tuple_row)
@@ -275,7 +277,7 @@ pub trait Entity: private::Sealed + Datum {
 
 <!--
 quote_begin
-content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L3-L8)"
+content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L6-L10)"
 lang="rust"
 -->
 
@@ -293,29 +295,29 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
 
 <!--
 quote_begin
-content="[DatumDyn](../../mudu_type/src/datum.rs#L17-L37)"
+content="[DatumDyn](../../mudu_type/src/datum.rs#L20-L40)"
 lang="rust"
 -->
 
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> DatType;
+    fn data_type() -> DataType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
-    fn from_value(value: &DatValue) -> RS<Self>;
+    fn from_value(value: &DataValue) -> RS<Self>;
 
     fn from_textual(textual: &str) -> RS<Self>;
 }
 
 pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
-    fn dat_type_id(&self) -> RS<DatTypeID>;
+    fn type_family(&self) -> RS<TypeFamily>;
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary>;
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary>;
 
-    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual>;
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual>;
 
-    fn to_value(&self, dat_type: &DatType) -> RS<DatValue>;
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue>;
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
@@ -340,7 +342,7 @@ lang="rust"
 pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32) -> RS<()> {
     // Check amount > 0
     if amount <= 0 {
-        return Err(m_error!(
+        return Err(mudu_error!(
             MuduError,
             "The transfer amount must be greater than 0"
         ));
@@ -348,7 +350,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
 
     // Cannot transfer money to oneself
     if from_user_id == to_user_id {
-        return Err(m_error!(MuduError, "Cannot transfer money to oneself"));
+        return Err(mudu_error!(MuduError, "Cannot transfer money to oneself"));
     }
 
     // Check whether the transfer-out account exists and has sufficient balance
@@ -361,11 +363,11 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let from_wallet = if let Some(row) = wallet_rs.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(MuduError, "no such user"));
     };
 
     if *from_wallet.get_balance().as_ref().unwrap() < amount {
-        return Err(m_error!(MuduError, "insufficient funds"));
+        return Err(mudu_error!(MuduError, "insufficient funds"));
     }
 
     // Check the user account existing
@@ -377,7 +379,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     let _to_wallet = if let Some(row) = to_wallet.next_record()? {
         row
     } else {
-        return Err(m_error!(MuduError, "no such user"));
+        return Err(mudu_error!(MuduError, "no such user"));
     };
 
     // Perform a transfer operation
@@ -388,7 +390,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(amount, from_user_id)),
     )?;
     if deduct_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
     // 2. Increase the balance of the transfer-in account
     let increase_updated_rows = mudu_command(
@@ -397,7 +399,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(amount, to_user_id)),
     )?;
     if increase_updated_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
 
     // 3. Entity the transaction
@@ -414,7 +416,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         sql_params!(&(id, from_user_id, to_user_id, amount)),
     )?;
     if insert_rows != 1 {
-        return Err(m_error!(MuduError, "transfer fund failed"));
+        return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
     Ok(())
 }

@@ -5,8 +5,8 @@ mod tests {
     use mududb::common::result::RS;
     use mududb::contract::database::entity::Entity;
     use mududb::error::ErrorCode;
-    use mududb::types::dat_type_id::DatTypeID;
     use mududb::types::datum::{Datum, DatumDyn};
+    use mududb::types::type_family::TypeFamily;
     use std::any::Any;
 
     #[test]
@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn wallets_entity_binary_roundtrip_and_field_access() -> RS<()> {
         let original = Wallets::new(Some(1), Some(100), Some(1_000_000));
-        let binary = original.to_binary(&Wallets::dat_type())?;
+        let binary = original.to_binary(&Wallets::data_type())?;
         let restored = Wallets::from_binary(binary.as_ref())?;
 
         assert_eq!(*restored.get_user_id(), Some(1));
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn wallets_entity_textual_roundtrip() -> RS<()> {
         let original = Wallets::new(Some(7), Some(77), Some(777));
-        let textual = original.to_textual(&Wallets::dat_type())?;
+        let textual = original.to_textual(&Wallets::data_type())?;
         let restored = Wallets::from_textual(&textual)?;
         assert_eq!(*restored.get_user_id(), Some(7));
         assert_eq!(*restored.get_balance(), Some(77));
@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(Wallets::tuple_desc().fields().len(), 3);
 
         let wallet = Wallets::new(Some(1), None, None);
-        assert!(matches!(wallet.dat_type_id()?, DatTypeID::Record));
+        assert!(matches!(wallet.type_family()?, TypeFamily::Record));
         Ok(())
     }
 
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn wallets_entity_value_roundtrip() -> RS<()> {
         let original = Wallets::new(Some(3), Some(30), Some(300));
-        let value = original.to_value(&Wallets::dat_type())?;
+        let value = original.to_value(&Wallets::data_type())?;
         let restored = Wallets::from_value(&value)?;
         assert_eq!(*restored.get_user_id(), Some(3));
         assert_eq!(*restored.get_balance(), Some(30));

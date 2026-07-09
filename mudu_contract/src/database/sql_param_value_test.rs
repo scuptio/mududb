@@ -3,7 +3,7 @@
 mod tests {
     use crate::database::sql_param_value::SQLParamValue;
     use crate::database::sql_params::SQLParams;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     #[test]
     fn sql_param_value_empty() {
@@ -17,22 +17,22 @@ mod tests {
     #[test]
     fn sql_param_value_access() {
         let params = SQLParamValue::from_vec(vec![
-            DatValue::from_i32(42),
-            DatValue::from_string("hello".to_string()),
+            DataValue::from_i32(42),
+            DataValue::from_string("hello".to_string()),
         ]);
         assert_eq!(params.size(), 2);
         assert_eq!(params.params().len(), 2);
 
         let first = params.get_idx(0).unwrap();
         assert_eq!(
-            first.dat_type_id().unwrap(),
-            mudu_type::dat_type_id::DatTypeID::I32
+            first.type_family().unwrap(),
+            mudu_type::type_family::TypeFamily::I32
         );
 
         let second = params.get_idx(1).unwrap();
         assert_eq!(
-            second.dat_type_id().unwrap(),
-            mudu_type::dat_type_id::DatTypeID::String
+            second.type_family().unwrap(),
+            mudu_type::type_family::TypeFamily::String
         );
 
         assert!(params.get_idx(2).is_none());

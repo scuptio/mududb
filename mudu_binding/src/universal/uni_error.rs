@@ -9,4 +9,7 @@ pub struct UniError {
 
     #[serde(default)]
     pub err_loc: String,
+
+    #[serde(default)]
+    pub err_details: Vec<u8>,
 }

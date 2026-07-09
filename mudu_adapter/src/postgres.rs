@@ -19,8 +19,8 @@ use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_sys::sync::SMutex;
 use mudu_sys::sync::async_::rwlock::ARwLock;
 use mudu_sys::tokio::task::JoinHandle;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use postgres::types::Type;
 use postgres::{Client, NoTls, Row};
 use scc::HashMap as SccHashMap;
@@ -445,12 +445,12 @@ fn build_desc(row: Option<&Row>) -> TupleFieldDesc {
         .iter()
         .map(|column| {
             let ty = match *column.type_() {
-                Type::INT4 => DatTypeID::I32,
-                Type::INT8 => DatTypeID::I64,
-                Type::FLOAT4 => DatTypeID::F32,
-                Type::FLOAT8 => DatTypeID::F64,
-                Type::BYTEA => DatTypeID::Binary,
-                _ => DatTypeID::String,
+                Type::INT4 => TypeFamily::I32,
+                Type::INT8 => TypeFamily::I64,
+                Type::FLOAT4 => TypeFamily::F32,
+                Type::FLOAT8 => TypeFamily::F64,
+                Type::BYTEA => TypeFamily::Binary,
+                _ => TypeFamily::String,
             };
             DatumDesc::new(column.name().to_string(), datum_type_for_id(ty))
         })
@@ -462,12 +462,12 @@ fn row_to_tuple_value(row: &Row) -> RS<TupleValue> {
     let mut values = Vec::with_capacity(row.len());
     for (idx, column) in row.columns().iter().enumerate() {
         let value = match *column.type_() {
-            Type::INT4 => DatValue::from_i32(row.get::<usize, i32>(idx)),
-            Type::INT8 => DatValue::from_i64(row.get::<usize, i64>(idx)),
-            Type::FLOAT4 => DatValue::from_f32(row.get::<usize, f32>(idx)),
-            Type::FLOAT8 => DatValue::from_f64(row.get::<usize, f64>(idx)),
-            Type::BYTEA => DatValue::from_binary(row.get::<usize, Vec<u8>>(idx)),
-            _ => DatValue::from_string(row.get::<usize, String>(idx)),
+            Type::INT4 => DataValue::from_i32(row.get::<usize, i32>(idx)),
+            Type::INT8 => DataValue::from_i64(row.get::<usize, i64>(idx)),
+            Type::FLOAT4 => DataValue::from_f32(row.get::<usize, f32>(idx)),
+            Type::FLOAT8 => DataValue::from_f64(row.get::<usize, f64>(idx)),
+            Type::BYTEA => DataValue::from_binary(row.get::<usize, Vec<u8>>(idx)),
+            _ => DataValue::from_string(row.get::<usize, String>(idx)),
         };
         values.push(value);
     }

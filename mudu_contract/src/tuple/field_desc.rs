@@ -5,8 +5,8 @@ use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 use serde::{Deserialize, Serialize};
 
 /// Metadata descriptor for a binary format tuple's field
@@ -16,7 +16,7 @@ pub struct FieldDesc {
     oid: OID,
     is_fixed_len: bool,
     slot: Slot,
-    type_obj: DatType,
+    type_obj: DataType,
     #[serde(default)]
     nullable: bool,
     #[serde(default)]
@@ -32,13 +32,13 @@ impl FieldDesc {
     /// * `is_fixed_len` - Whether the type has fixed-length storage
     /// # Panics
     /// If the data_type's inherent fixed-length property doesn't match is_fixed_len parameter
-    pub fn new(slot: Slot, data_type: DatType, is_fixed_len: bool) -> Self {
+    pub fn new(slot: Slot, data_type: DataType, is_fixed_len: bool) -> Self {
         Self::new_with_nullability(slot, data_type, is_fixed_len, false, None)
     }
 
     pub fn new_with_nullability(
         slot: Slot,
-        data_type: DatType,
+        data_type: DataType,
         is_fixed_len: bool,
         nullable: bool,
         null_bit_idx: Option<u16>,
@@ -80,12 +80,12 @@ impl FieldDesc {
     }
 
     /// Returns the data type identifier
-    pub fn data_type(&self) -> DatTypeID {
-        self.type_obj.dat_type_id()
+    pub fn data_type(&self) -> TypeFamily {
+        self.type_obj.type_family()
     }
 
     /// Returns reference to parameter object of the field's type
-    pub fn type_obj(&self) -> &DatType {
+    pub fn type_obj(&self) -> &DataType {
         &self.type_obj
     }
 

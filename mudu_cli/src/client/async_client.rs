@@ -329,9 +329,9 @@ mod tests {
     use mudu_contract::tuple::tuple_value::TupleValue;
     use mudu_sys::net::sync::StdTcpListener;
     use mudu_sys::task::sync::spawn_thread;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_value::DataValue;
+    use mudu_type::type_family::TypeFamily;
     use std::io::{Read, Write};
 
     fn bind_test_listener() -> Option<StdTcpListener> {
@@ -366,9 +366,9 @@ mod tests {
                             &ServerResponse::new(
                                 TupleFieldDesc::new(vec![DatumDesc::new(
                                     "value".to_string(),
-                                    DatType::default_for(DatTypeID::String),
+                                    DataType::default_for(TypeFamily::String),
                                 )]),
-                                vec![TupleValue::from(vec![DatValue::from_string(
+                                vec![TupleValue::from(vec![DataValue::from_string(
                                     "1".to_string(),
                                 )])],
                                 0,

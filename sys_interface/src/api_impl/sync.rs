@@ -331,7 +331,7 @@ mod tests {
     use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu_contract::tuple::tuple_value::TupleValue;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
     use std::sync::Arc;
 
     // Share the OID counter with the async tests so contexts created by the two
@@ -470,7 +470,7 @@ mod tests {
     #[test]
     fn mudu_query_bytes_roundtrips_result() {
         let oid = next_oid();
-        let row = TupleValue::from(vec![DatValue::from_i32(42)]);
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
         let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(vec![row])));
         let _ctx = Context::create(oid, conn).unwrap();
 
@@ -540,8 +540,8 @@ mod tests {
     fn mudu_fetch_bytes_drains_cached_rows() {
         let oid = next_oid();
         let rows = vec![
-            TupleValue::from(vec![DatValue::from_i32(10)]),
-            TupleValue::from(vec![DatValue::from_i32(20)]),
+            TupleValue::from(vec![DataValue::from_i32(10)]),
+            TupleValue::from(vec![DataValue::from_i32(20)]),
         ];
         let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(rows)));
         let ctx = Context::create(oid, conn).unwrap();

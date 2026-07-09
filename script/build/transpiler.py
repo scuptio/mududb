@@ -103,7 +103,7 @@ def run_merge_desc(
         output_desc_file: Path,
         verbose: bool
 ):
-    command = ["mpk", "merge-desc", "--input-folder", input_folder, "--output-desc-file", output_desc_file]
+    command = ["mpm-build", "merge-desc", "--input-folder", input_folder, "--output-desc-file", output_desc_file]
     ret = run_command(command, timeout=60, verbose=verbose)
     if not ret['success']:
         print(ret['error'])

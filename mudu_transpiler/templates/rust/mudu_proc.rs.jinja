@@ -32,7 +32,7 @@ pub {{procedure.opt_async }} fn {{ procedure.fn_inner_name }}(
                 {% elif procedure.return_len == 1 %}
                 vec![
                     {% if procedure.return_tuple[0].is_binary %}
-                    ::mududb::types::dat_value::DatValue::from_binary(tuple)
+                    ::mududb::types::data_value::DataValue::from_binary(tuple)
                     {% else %}
                     ::mududb::types::datum::value_from_typed(&tuple, "{{ procedure.return_tuple[0].ret_type }}")?
                     {% endif %}
@@ -46,7 +46,7 @@ pub {{procedure.opt_async }} fn {{ procedure.fn_inner_name }}(
                 vec![
                     {% for ret_info in procedure.return_tuple %}
                     {% if ret_info.is_binary %}
-                    ::mududb::types::dat_value::DatValue::from_binary(mudu_ret_{{ loop.index0 }})
+                    ::mududb::types::data_value::DataValue::from_binary(mudu_ret_{{ loop.index0 }})
                     {% else %}
                     ::mududb::types::datum::value_from_typed(&mudu_ret_{{ loop.index0 }}, "{{ ret_info.ret_type }}")?
                     {% endif %},
@@ -70,9 +70,9 @@ pub fn {{ procedure.fn_argv_desc }}()  -> &'static ::mududb::contract::tuple::tu
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                     "{{ arg_info.arg_name }}".to_string(),
                     {% if arg_info.is_binary %}
-                    ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::Binary)
+                    ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::Binary)
                     {% else %}
-                    <{{ arg_info.arg_type }} as ::mududb::types::datum::Datum>::dat_type().clone()
+                    <{{ arg_info.arg_type }} as ::mududb::types::datum::Datum>::data_type().clone()
                     {% endif %}
                 ),
                 {% endfor %}
@@ -91,9 +91,9 @@ pub fn {{ procedure.fn_result_desc }}() -> &'static ::mududb::contract::tuple::t
                 ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                     "{{ loop.index0 }}".to_string(),
                     {% if ret_info.is_binary %}
-                    ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::Binary)
+                    ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::Binary)
                     {% else %}
-                    <{{ ret_info.ret_type }} as ::mududb::types::datum::Datum>::dat_type().clone()
+                    <{{ ret_info.ret_type }} as ::mududb::types::datum::Datum>::data_type().clone()
                     {% endif %}
                 ),
                 {% endfor %}

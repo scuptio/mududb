@@ -59,7 +59,7 @@ mod tests {
     fn from_normalizes_enum_metadata() -> RS<()> {
         let enum_def = UniEnumDef {
             enum_comments: "comment".to_string(),
-            enum_name: "mu-dat-type-id".to_string(),
+            enum_name: "mu-type-family".to_string(),
             enum_cases: vec![
                 EnumCase {
                     ec_comments: "i32".to_string(),
@@ -74,7 +74,7 @@ mod tests {
             ],
         };
         let info = EnumInfo::from(enum_def, LangKind::Rust)?;
-        assert_eq!(info.enum_name, "MuDatTypeId");
+        assert_eq!(info.enum_name, "MuTypeFamily");
         assert_eq!(info.enum_cases.len(), 2);
         assert_eq!(info.enum_cases[0].ec_name, "I32");
         assert_eq!(info.enum_cases[1].ec_number, 1);

@@ -74,7 +74,7 @@ JSON 对象，字段如下：
 
 ## 参考
 
-- 包加载器：[mudu_runtime/src/service/mudu_package.rs](../../../mudu_runtime/src/service/mudu_package.rs)
-- 打包工具：[mudu_package/src/main.rs](../../../mudu_package/src/main.rs)
+- 包加载器：[mudu_runtime/src/service/app_package.rs](../../../mudu_runtime/src/service/app_package.rs)
+- 打包工具：[mpm_build/src/main.rs](../../../mpm_build/src/main.rs)
 - 文件名常量：[mudu_runtime/src/service/file_name.rs](../../../mudu_runtime/src/service/file_name.rs)
 - 应用元数据：[mudu/src/common/app_info.rs](../../../mudu/src/common/app_info.rs)

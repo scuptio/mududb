@@ -4,14 +4,14 @@
 #[cfg(test)]
 mod tests {
     use crate::backend::backend::Backend;
-    use crate::backend::mududb_cfg::{MuduDBCfg, ServerMode};
+    use crate::backend::mudud_cfg::{MuduDBCfg, ServerMode};
     use lazy_static::lazy_static;
     use mudu::common::result::RS;
     use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
     use mudu_contract::protocol::{ClientRequest, ServerResponse};
     use mudu_sys::tokio::sync::Mutex as AsyncMutex;
-    use mudu_type::dat_type_id::DatTypeID;
     use mudu_type::datum::DatumDyn;
+    use mudu_type::type_family::TypeFamily;
     use mudu_utils::notifier::{Notifier, notify_wait};
 
     use mudu_sys::net::sync::StdTcpListener;
@@ -212,11 +212,11 @@ mod tests {
                     .iter()
                     .zip(response.row_desc().fields().iter())
                     .map(
-                        |(value, field_desc)| match field_desc.dat_type().dat_type_id() {
-                            DatTypeID::String => value.expect_string().clone(),
-                            DatTypeID::Numeric => value.expect_numeric().to_plain_string(),
+                        |(value, field_desc)| match field_desc.data_type().type_family() {
+                            TypeFamily::String => value.expect_string().clone(),
+                            TypeFamily::Numeric => value.expect_numeric().to_plain_string(),
                             _ => value
-                                .to_textual(field_desc.dat_type())
+                                .to_textual(field_desc.data_type())
                                 .map(|text| text.to_string())
                                 .unwrap(),
                         },

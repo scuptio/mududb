@@ -274,9 +274,9 @@ mod tests {
     use mudu::common::result::RS;
     use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
     use std::collections::{BTreeMap, HashMap};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -509,18 +509,18 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "tenant_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "user_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
             ],
             vec![0, 1],

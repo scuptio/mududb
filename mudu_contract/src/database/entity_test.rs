@@ -2,7 +2,7 @@
 #[allow(clippy::unwrap_used)]
 mod tests {
     use crate::database::entity::Entity;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     #[test]
     fn i32_entity_lifecycle() {
@@ -18,7 +18,7 @@ mod tests {
             vec![0, 0, 0, 42]
         );
 
-        e.set_field_value("field_i32", DatValue::from_i32(7))
+        e.set_field_value("field_i32", DataValue::from_i32(7))
             .unwrap();
         assert_eq!(
             *e.get_field_value("field_i32")
@@ -41,7 +41,7 @@ mod tests {
 
         assert_eq!(<String as Entity>::object_name(), "object_string");
 
-        e.set_field_value("field_string", DatValue::from_string("hello".to_string()))
+        e.set_field_value("field_string", DataValue::from_string("hello".to_string()))
             .unwrap();
         assert_eq!(e, "hello");
 
@@ -57,7 +57,7 @@ mod tests {
 
         assert_eq!(<i64 as Entity>::object_name(), "object_i64");
 
-        e.set_field_value("field_i64", DatValue::from_i64(123))
+        e.set_field_value("field_i64", DataValue::from_i64(123))
             .unwrap();
         assert_eq!(e, 123);
 
@@ -73,7 +73,7 @@ mod tests {
 
         assert_eq!(<f32 as Entity>::object_name(), "object_f32");
 
-        e.set_field_value("field_f32", DatValue::from_f32(1.5))
+        e.set_field_value("field_f32", DataValue::from_f32(1.5))
             .unwrap();
         assert_eq!(e, 1.5);
 
@@ -89,7 +89,7 @@ mod tests {
 
         assert_eq!(<f64 as Entity>::object_name(), "object_f64");
 
-        e.set_field_value("field_f64", DatValue::from_f64(2.5))
+        e.set_field_value("field_f64", DataValue::from_f64(2.5))
             .unwrap();
         assert_eq!(e, 2.5);
 

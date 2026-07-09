@@ -5,8 +5,8 @@ use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_binary::DatBinary;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_binary::DataBinary;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 
 fn datum_vec_to<T, F: Fn(&dyn DatumDyn, &DatumDesc) -> RS<T>>(
@@ -35,7 +35,7 @@ fn datum_vec_to<T, F: Fn(&dyn DatumDyn, &DatumDesc) -> RS<T>>(
 
 pub fn datum_vec_to_bin_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
     let f = |datum: &dyn DatumDyn, datum_desc: &DatumDesc| {
-        let dat: DatBinary = datum.to_binary(datum_desc.dat_type()).map_err(|e| {
+        let dat: DataBinary = datum.to_binary(datum_desc.data_type()).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 format!("{:?} to binary error", datum),
@@ -47,9 +47,9 @@ pub fn datum_vec_to_bin_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<V
     datum_vec_to(param, desc, &f)
 }
 
-pub fn datum_vec_to_value_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<Vec<DatValue>> {
+pub fn datum_vec_to_value_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
     let f = |datum: &dyn DatumDyn, datum_desc: &DatumDesc| {
-        let dat: DatValue = datum.to_value(datum_desc.dat_type()).map_err(|e| {
+        let dat: DataValue = datum.to_value(datum_desc.data_type()).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 format!("{:?} to binary error", datum),

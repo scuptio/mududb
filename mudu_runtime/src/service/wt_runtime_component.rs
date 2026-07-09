@@ -1,4 +1,4 @@
-use crate::service::mudu_package::MuduPackage;
+use crate::service::app_package::AppPackage;
 use crate::service::package_module::PackageModule;
 use crate::service::runtime_opt::{ComponentTarget, RuntimeOpt};
 use crate::service::wasi_context_component;
@@ -80,7 +80,7 @@ impl WTRuntimeComponent {
         Ok(())
     }
 
-    pub fn compile_modules(&self, package: &MuduPackage) -> RS<Vec<(String, PackageModule)>> {
+    pub fn compile_modules(&self, package: &AppPackage) -> RS<Vec<(String, PackageModule)>> {
         let modules = instantiate_component_modules(&self.engine, &self.linker, package)?;
         Ok(modules)
     }
@@ -131,7 +131,7 @@ fn instantiate_component(
 pub fn instantiate_component_modules(
     engine: &Engine,
     linker: &Linker<WasiContextComponent>,
-    package: &MuduPackage,
+    package: &AppPackage,
 ) -> RS<Vec<(String, PackageModule)>> {
     let mut modules = Vec::new();
 

@@ -7,7 +7,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -22,11 +22,11 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Array",
                 "param": {
                   "Array": {
-                    "dat_type": {
+                    "data_type": {
                       "id": "Record",
                       "param": {
                         "Record": {
@@ -94,7 +94,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -105,7 +105,7 @@
               "name": "creator_id"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -116,7 +116,7 @@
               "name": "topic"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -127,21 +127,21 @@
               "name": "vote_type"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
               "name": "max_choices"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I64",
                 "param": null
               },
               "name": "end_time"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -156,7 +156,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -175,7 +175,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -190,7 +190,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -209,7 +209,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -220,7 +220,7 @@
               "name": "user_id"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -231,11 +231,11 @@
               "name": "vote_id"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Array",
                 "param": {
                   "Array": {
-                    "dat_type": {
+                    "data_type": {
                       "id": "String",
                       "param": {
                         "String": {
@@ -261,7 +261,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -272,7 +272,7 @@
               "name": "vote_id"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -287,7 +287,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -306,7 +306,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -317,7 +317,7 @@
               "name": "user_id"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -339,7 +339,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -354,7 +354,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Record",
                 "param": {
                   "Record": {

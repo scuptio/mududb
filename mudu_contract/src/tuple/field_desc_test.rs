@@ -5,17 +5,21 @@ mod tests {
     use crate::tuple::slot::Slot;
     use mudu::common::serde_utils::{deserialize_from_json, serialize_to_json};
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_field() -> FieldDesc {
-        FieldDesc::new(Slot::new(0, 4), DatType::new_no_param(DatTypeID::I32), true)
+        FieldDesc::new(
+            Slot::new(0, 4),
+            DataType::new_no_param(TypeFamily::I32),
+            true,
+        )
     }
 
     fn string_field() -> FieldDesc {
         FieldDesc::new_with_nullability(
             Slot::new(0, 8),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
             false,
             true,
             Some(0),
@@ -26,8 +30,8 @@ mod tests {
     fn field_desc_new_and_accessors() {
         let desc = i32_field();
         assert_eq!(desc.id(), 0);
-        assert_eq!(desc.data_type(), DatTypeID::I32);
-        assert_eq!(desc.type_obj().dat_type_id(), DatTypeID::I32);
+        assert_eq!(desc.data_type(), TypeFamily::I32);
+        assert_eq!(desc.type_obj().type_family(), TypeFamily::I32);
         assert!(desc.is_fixed_len());
         assert!(!desc.nullable());
         assert_eq!(desc.null_bit_idx(), None);

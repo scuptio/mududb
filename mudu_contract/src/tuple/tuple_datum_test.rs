@@ -8,16 +8,16 @@ use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;
 use crate::tuple::tuple_datum::TupleDatum;
 use mudu::error::ErrorCode;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 
 fn i32_desc(name: &str) -> DatumDesc {
-    DatumDesc::new(name.to_string(), DatType::new_no_param(DatTypeID::I32))
+    DatumDesc::new(name.to_string(), DataType::new_no_param(TypeFamily::I32))
 }
 
 fn i64_desc(name: &str) -> DatumDesc {
-    DatumDesc::new(name.to_string(), DatType::new_no_param(DatTypeID::I64))
+    DatumDesc::new(name.to_string(), DataType::new_no_param(TypeFamily::I64))
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn single_value_rejects_wrong_desc_count() {
     let err = <i32 as TupleDatum>::from_binary(&[vec![0, 0, 0, 42]], &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 
-    let err = <i32 as TupleDatum>::from_value(&[DatValue::from_i32(42)], &desc).unwrap_err();
+    let err = <i32 as TupleDatum>::from_value(&[DataValue::from_i32(42)], &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 }
 
@@ -151,7 +151,7 @@ fn tuple_rejects_wrong_desc_count() {
     let err = <(i32, i64) as TupleDatum>::from_binary(&binaries, &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 
-    let values = vec![DatValue::from_i32(1), DatValue::from_i64(2)];
+    let values = vec![DataValue::from_i32(1), DataValue::from_i64(2)];
     let err = <(i32, i64) as TupleDatum>::from_value(&values, &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 }
@@ -163,7 +163,7 @@ fn tuple_rejects_wrong_value_count() {
     let err = <(i32, i64) as TupleDatum>::from_binary(&binaries, &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 
-    let values = vec![DatValue::from_i32(1)];
+    let values = vec![DataValue::from_i32(1)];
     let err = <(i32, i64) as TupleDatum>::from_value(&values, &desc).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::Parse);
 }

@@ -30,7 +30,7 @@
 6. wasm-tools compose
    -> procedure.component.wasm
 7. mpk/package 阶段合并 desc
-   -> package.desc.json / mpk
+   -> package.desc.json / mpm-build
 ```
 
 ---
@@ -93,7 +93,7 @@ compose = "wasm-tools compose"
 
 - [ ] `script/build/transpiler.py` 根据 `lang = "assemblyscript"` 调用 `mtp assembly-script`。
 - [ ] 输出 `.gen.ts/.gen.rs/.gen.wit/.desc.json`。
-- [ ] 每个源文件生成独立 desc 后复用现有 `mpk merge-desc`。
+- [ ] 每个源文件生成独立 desc 后复用现有 `mpm-build merge-desc`。
 - [ ] 失败时输出源文件路径、procedure 名和 transpiler stderr。
 
 ### 4. 编译 AssemblyScript core wasm

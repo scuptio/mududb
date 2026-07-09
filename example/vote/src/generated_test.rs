@@ -1,7 +1,7 @@
 //! Unit tests for the `generated::votes::Votes` entity.
 
 use mududb::contract::database::entity::Entity;
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_value::DataValue;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::generated::votes::object::Votes;
@@ -40,8 +40,8 @@ fn votes_lifecycle() {
     assert_eq!(Votes::tuple_desc().fields().len(), 7);
 
     // Datum / DatumDyn metadata
-    let dat_type = Votes::dat_type();
-    assert_eq!(entity.dat_type_id().unwrap(), dat_type.dat_type_id());
+    let data_type = Votes::data_type();
+    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
     let tuple = entity.to_tuple().unwrap();
@@ -61,7 +61,7 @@ fn votes_lifecycle() {
     );
 
     // Value roundtrip
-    let value = entity.to_value(&dat_type).unwrap();
+    let value = entity.to_value(&data_type).unwrap();
     let from_value = Votes::from_value(&value).unwrap();
     assert_eq!(from_value.get_vote_id(), &Some(vote_id_sample.clone()));
     assert_eq!(
@@ -78,7 +78,7 @@ fn votes_lifecycle() {
     );
 
     // Binary roundtrip
-    let binary = entity.to_binary(&dat_type).unwrap();
+    let binary = entity.to_binary(&data_type).unwrap();
     let from_binary = Votes::from_binary(binary.as_ref()).unwrap();
     assert_eq!(from_binary.get_vote_id(), &Some(vote_id_sample.clone()));
     assert_eq!(
@@ -95,7 +95,7 @@ fn votes_lifecycle() {
     );
 
     // Textual roundtrip
-    let textual = entity.to_textual(&dat_type).unwrap();
+    let textual = entity.to_textual(&data_type).unwrap();
     let from_textual = Votes::from_textual(textual.as_str()).unwrap();
     assert_eq!(from_textual.get_vote_id(), &Some(vote_id_sample.clone()));
     assert_eq!(
@@ -116,7 +116,7 @@ fn votes_lifecycle() {
 
     // Clone through DatumDyn
     let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
-    let cloned_value = cloned.to_value(&dat_type).unwrap();
+    let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = Votes::from_value(&cloned_value).unwrap();
     assert_eq!(from_cloned.get_vote_id(), &Some(vote_id_sample.clone()));
     assert_eq!(
@@ -139,7 +139,7 @@ fn votes_lifecycle() {
         let val = entity.get_field_value("vote_id").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &vote_id_sample);
         entity
-            .set_field_value("vote_id", DatValue::from_string(vote_id_sample.clone()))
+            .set_field_value("vote_id", DataValue::from_string(vote_id_sample.clone()))
             .unwrap();
         assert_eq!(
             entity
@@ -159,7 +159,7 @@ fn votes_lifecycle() {
         entity
             .set_field_value(
                 "creator_id",
-                DatValue::from_string(creator_id_sample.clone()),
+                DataValue::from_string(creator_id_sample.clone()),
             )
             .unwrap();
         assert_eq!(
@@ -178,7 +178,7 @@ fn votes_lifecycle() {
         let val = entity.get_field_value("topic").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &topic_sample);
         entity
-            .set_field_value("topic", DatValue::from_string(topic_sample.clone()))
+            .set_field_value("topic", DataValue::from_string(topic_sample.clone()))
             .unwrap();
         assert_eq!(
             entity
@@ -196,7 +196,10 @@ fn votes_lifecycle() {
         let val = entity.get_field_value("vote_type").unwrap().unwrap();
         assert_eq!(val.as_string().unwrap(), &vote_type_sample);
         entity
-            .set_field_value("vote_type", DatValue::from_string(vote_type_sample.clone()))
+            .set_field_value(
+                "vote_type",
+                DataValue::from_string(vote_type_sample.clone()),
+            )
             .unwrap();
         assert_eq!(
             entity
@@ -214,7 +217,7 @@ fn votes_lifecycle() {
         let val = entity.get_field_value("max_choices").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &max_choices_sample);
         entity
-            .set_field_value("max_choices", DatValue::from_i32(max_choices_sample))
+            .set_field_value("max_choices", DataValue::from_i32(max_choices_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -232,7 +235,7 @@ fn votes_lifecycle() {
         let val = entity.get_field_value("end_time").unwrap().unwrap();
         assert_eq!(val.as_i32().unwrap(), &end_time_sample);
         entity
-            .set_field_value("end_time", DatValue::from_i32(end_time_sample))
+            .set_field_value("end_time", DataValue::from_i32(end_time_sample))
             .unwrap();
         assert_eq!(
             entity
@@ -252,7 +255,7 @@ fn votes_lifecycle() {
         entity
             .set_field_value(
                 "visibility_rule",
-                DatValue::from_string(visibility_rule_sample.clone()),
+                DataValue::from_string(visibility_rule_sample.clone()),
             )
             .unwrap();
         assert_eq!(

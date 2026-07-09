@@ -23,6 +23,7 @@ pub fn error_to_mu(error: MuduError) -> UniError {
         err_msg: error.message().to_string(),
         err_src: error.err_src().to_json_str(),
         err_loc: error.loc().to_string(),
+        err_details: Vec::new(),
     }
 }
 

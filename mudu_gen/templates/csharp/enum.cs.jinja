@@ -1,6 +1,7 @@
 {% if enum_def.enum_comments.len() > 0 %}
 {{ enum_def.enum_comments }}
 {% endif %}
+[MessagePackFormatter(typeof({{ enum_def.enum_name }}Formatter))]
 public enum {{ enum_def.enum_name }} {
     {% for case in enum_def.enum_cases %}
     {% if case.ec_comments.len() > 0 %}
@@ -10,4 +11,16 @@ public enum {{ enum_def.enum_name }} {
     {% endfor %}
 }
 
+public class {{ enum_def.enum_name }}Formatter : IMessagePackFormatter<{{ enum_def.enum_name }}>
+{
+    public void Serialize(ref MessagePackWriter writer, {{ enum_def.enum_name }} value, MessagePackSerializerOptions options)
+    {
+        writer.Write((uint)value);
+    }
+
+    public {{ enum_def.enum_name }} Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    {
+        return ({{ enum_def.enum_name }})reader.ReadUInt32();
+    }
+}
 

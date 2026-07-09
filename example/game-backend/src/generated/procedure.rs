@@ -21,7 +21,7 @@ pub fn mudu_inner_p2_event(
     let res = event(param.session_id());
     match res {
         Ok(tuple) => {
-            let return_list = { vec![::mududb::types::dat_value::DatValue::from_binary(tuple)] };
+            let return_list = { vec![::mududb::types::data_value::DataValue::from_binary(tuple)] };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
         }
         Err(e) => Err(e),
@@ -46,8 +46,8 @@ pub fn mudu_result_desc_event()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(
-                    ::mududb::types::dat_type_id::DatTypeID::Binary,
+                ::mududb::types::data_type::DataType::new_no_param(
+                    ::mududb::types::type_family::TypeFamily::Binary,
                 ),
             ),
         ])
@@ -105,7 +105,7 @@ pub fn mudu_inner_p2_command(
     );
     match res {
         Ok(tuple) => {
-            let return_list = { vec![::mududb::types::dat_value::DatValue::from_binary(tuple)] };
+            let return_list = { vec![::mududb::types::data_value::DataValue::from_binary(tuple)] };
             Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
         }
         Err(e) => Err(e),
@@ -121,8 +121,8 @@ pub fn mudu_argv_desc_command()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "message".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(
-                    ::mududb::types::dat_type_id::DatTypeID::Binary,
+                ::mududb::types::data_type::DataType::new_no_param(
+                    ::mududb::types::type_family::TypeFamily::Binary,
                 ),
             ),
         ])
@@ -138,8 +138,8 @@ pub fn mudu_result_desc_command()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(
-                    ::mududb::types::dat_type_id::DatTypeID::Binary,
+                ::mududb::types::data_type::DataType::new_no_param(
+                    ::mududb::types::type_family::TypeFamily::Binary,
                 ),
             ),
         ])

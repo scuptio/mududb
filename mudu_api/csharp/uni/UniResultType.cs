@@ -23,11 +23,11 @@ public struct UniResultType {
     
     
     [Key(0)]
-    public required UniDatType Ok { get; set; }
+    public required UniDataType Ok { get; set; }
     
     
     [Key(1)]
-    public required UniDatType Err { get; set; }
+    public required UniDataType Err { get; set; }
     
 }
 

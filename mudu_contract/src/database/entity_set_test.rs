@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn record_set_next_record_some_and_none() {
-        let value = TupleValue::from(vec![mudu_type::dat_value::DatValue::from_i32(7)]);
+        let value = TupleValue::from(vec![mudu_type::data_value::DataValue::from_i32(7)]);
         let rs = Arc::new(MockResultSet::new(vec![value]));
         let record_set = RecordSet::<i32>::new(rs, make_desc());
 
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn record_set_fallible_iterator_next() {
-        let value = TupleValue::from(vec![mudu_type::dat_value::DatValue::from_i32(9)]);
+        let value = TupleValue::from(vec![mudu_type::data_value::DataValue::from_i32(9)]);
         let rs = Arc::new(MockResultSet::new(vec![value]));
         let mut record_set = RecordSet::<i32>::new(rs, make_desc());
 

@@ -26,7 +26,7 @@ using System.Collections.Generic;
 
 [Union(7, typeof(UniDatTypeIdentifier))]
 
-public interface UniDatType
+public interface UniDataType
 {
     public UniDatTypeKind Kind();
 }
@@ -54,7 +54,7 @@ public enum UniDatTypeKind {
 
 
 [MessagePackFormatter(typeof(UniDatTypeScalarFormatter))]
-public class UniDatTypeScalar : UniDatType
+public class UniDatTypeScalar : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -74,7 +74,7 @@ public class UniDatTypeScalar : UniDatType
         return UniDatTypeKind.Scalar;
     }
 
-    public static UniDatTypeScalar AsScalar(UniDatType value)
+    public static UniDatTypeScalar AsScalar(UniDataType value)
     {
         switch (value)
         {
@@ -112,7 +112,7 @@ public class UniDatTypeScalarFormatter : IMessagePackFormatter<UniDatTypeScalar?
 }
 
 [MessagePackFormatter(typeof(UniDatTypeArrayFormatter))]
-public class UniDatTypeArray : UniDatType
+public class UniDatTypeArray : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -122,7 +122,7 @@ public class UniDatTypeArray : UniDatType
     }
     
 
-    public required UniDatType Inner  { get; set; }
+    public required UniDataType Inner  { get; set; }
 
     public UniDatTypeKind Kind() {
         return UniDatTypeKind.Array;
@@ -132,7 +132,7 @@ public class UniDatTypeArray : UniDatType
         return UniDatTypeKind.Array;
     }
 
-    public static UniDatTypeArray AsArray(UniDatType value)
+    public static UniDatTypeArray AsArray(UniDataType value)
     {
         switch (value)
         {
@@ -164,13 +164,13 @@ public class UniDatTypeArrayFormatter : IMessagePackFormatter<UniDatTypeArray?>
             return null;
         }
 
-        UniDatType inner = MessagePackSerializer.Deserialize<UniDatType>(ref reader, options)!;
+        UniDataType inner = MessagePackSerializer.Deserialize<UniDataType>(ref reader, options)!;
         return new UniDatTypeArray { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatTypeRecordFormatter))]
-public class UniDatTypeRecord : UniDatType
+public class UniDatTypeRecord : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -190,7 +190,7 @@ public class UniDatTypeRecord : UniDatType
         return UniDatTypeKind.Record;
     }
 
-    public static UniDatTypeRecord AsRecord(UniDatType value)
+    public static UniDatTypeRecord AsRecord(UniDataType value)
     {
         switch (value)
         {
@@ -228,7 +228,7 @@ public class UniDatTypeRecordFormatter : IMessagePackFormatter<UniDatTypeRecord?
 }
 
 [MessagePackFormatter(typeof(UniDatTypeOptionFormatter))]
-public class UniDatTypeOption : UniDatType
+public class UniDatTypeOption : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -238,7 +238,7 @@ public class UniDatTypeOption : UniDatType
     }
     
 
-    public required UniDatType Inner  { get; set; }
+    public required UniDataType Inner  { get; set; }
 
     public UniDatTypeKind Kind() {
         return UniDatTypeKind.Option;
@@ -248,7 +248,7 @@ public class UniDatTypeOption : UniDatType
         return UniDatTypeKind.Option;
     }
 
-    public static UniDatTypeOption AsOption(UniDatType value)
+    public static UniDatTypeOption AsOption(UniDataType value)
     {
         switch (value)
         {
@@ -280,13 +280,13 @@ public class UniDatTypeOptionFormatter : IMessagePackFormatter<UniDatTypeOption?
             return null;
         }
 
-        UniDatType inner = MessagePackSerializer.Deserialize<UniDatType>(ref reader, options)!;
+        UniDataType inner = MessagePackSerializer.Deserialize<UniDataType>(ref reader, options)!;
         return new UniDatTypeOption { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatTypeTupleFormatter))]
-public class UniDatTypeTuple : UniDatType
+public class UniDatTypeTuple : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -296,7 +296,7 @@ public class UniDatTypeTuple : UniDatType
     }
     
 
-    public required List<UniDatType> Inner  { get; set; }
+    public required List<UniDataType> Inner  { get; set; }
 
     public UniDatTypeKind Kind() {
         return UniDatTypeKind.Tuple;
@@ -306,7 +306,7 @@ public class UniDatTypeTuple : UniDatType
         return UniDatTypeKind.Tuple;
     }
 
-    public static UniDatTypeTuple AsTuple(UniDatType value)
+    public static UniDatTypeTuple AsTuple(UniDataType value)
     {
         switch (value)
         {
@@ -338,13 +338,13 @@ public class UniDatTypeTupleFormatter : IMessagePackFormatter<UniDatTypeTuple?>
             return null;
         }
 
-        List<UniDatType> inner = MessagePackSerializer.Deserialize<List<UniDatType>>(ref reader, options)!;
+        List<UniDataType> inner = MessagePackSerializer.Deserialize<List<UniDataType>>(ref reader, options)!;
         return new UniDatTypeTuple { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatTypeResultFormatter))]
-public class UniDatTypeResult : UniDatType
+public class UniDatTypeResult : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -364,7 +364,7 @@ public class UniDatTypeResult : UniDatType
         return UniDatTypeKind.Result;
     }
 
-    public static UniDatTypeResult AsResult(UniDatType value)
+    public static UniDatTypeResult AsResult(UniDataType value)
     {
         switch (value)
         {
@@ -402,7 +402,7 @@ public class UniDatTypeResultFormatter : IMessagePackFormatter<UniDatTypeResult?
 }
 
 [MessagePackFormatter(typeof(UniDatTypeBoxFormatter))]
-public class UniDatTypeBox : UniDatType
+public class UniDatTypeBox : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -412,7 +412,7 @@ public class UniDatTypeBox : UniDatType
     }
     
 
-    public required UniDatType Inner  { get; set; }
+    public required UniDataType Inner  { get; set; }
 
     public UniDatTypeKind Kind() {
         return UniDatTypeKind.Box;
@@ -422,7 +422,7 @@ public class UniDatTypeBox : UniDatType
         return UniDatTypeKind.Box;
     }
 
-    public static UniDatTypeBox AsBox(UniDatType value)
+    public static UniDatTypeBox AsBox(UniDataType value)
     {
         switch (value)
         {
@@ -454,13 +454,13 @@ public class UniDatTypeBoxFormatter : IMessagePackFormatter<UniDatTypeBox?>
             return null;
         }
 
-        UniDatType inner = MessagePackSerializer.Deserialize<UniDatType>(ref reader, options)!;
+        UniDataType inner = MessagePackSerializer.Deserialize<UniDataType>(ref reader, options)!;
         return new UniDatTypeBox { Inner= inner};
     }
 }
 
 [MessagePackFormatter(typeof(UniDatTypeIdentifierFormatter))]
-public class UniDatTypeIdentifier : UniDatType
+public class UniDatTypeIdentifier : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
@@ -480,7 +480,7 @@ public class UniDatTypeIdentifier : UniDatType
         return UniDatTypeKind.Identifier;
     }
 
-    public static UniDatTypeIdentifier AsIdentifier(UniDatType value)
+    public static UniDatTypeIdentifier AsIdentifier(UniDataType value)
     {
         switch (value)
         {

@@ -6,18 +6,18 @@ use crate::tuple::tuple_datum::TupleDatum;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 
 #[derive(Debug)]
 pub struct ProcedureParam {
     xid: OID,
     procedure_id: u64,
-    param_list: Vec<DatValue>,
+    param_list: Vec<DataValue>,
 }
 
 impl ProcedureParam {
-    pub fn into(self) -> (OID, u64, Vec<DatValue>) {
+    pub fn into(self) -> (OID, u64, Vec<DataValue>) {
         (self.xid, self.procedure_id, self.param_list)
     }
 
@@ -31,7 +31,7 @@ impl ProcedureParam {
         Ok(Self::new(xid, 0, vec))
     }
 
-    pub fn new(xid: OID, procedure_id: u64, param: Vec<DatValue>) -> ProcedureParam {
+    pub fn new(xid: OID, procedure_id: u64, param: Vec<DataValue>) -> ProcedureParam {
         Self {
             xid,
             procedure_id,
@@ -39,7 +39,7 @@ impl ProcedureParam {
         }
     }
 
-    pub fn param_list(&self) -> &Vec<DatValue> {
+    pub fn param_list(&self) -> &Vec<DataValue> {
         &self.param_list
     }
 

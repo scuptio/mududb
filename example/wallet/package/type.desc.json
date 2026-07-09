@@ -1,48 +1,5 @@
 {
   "types": {
-    "Orders": [
-      2,
-      {
-        "record_name": "orders",
-        "record_fields": [
-          {
-            "field_name": "order_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "user_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "merch_id",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "amount",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "created_at",
-            "field_type": [
-              0,
-              6
-            ]
-          }
-        ]
-      }
-    ],
     "Wallets": [
       2,
       {
@@ -53,71 +10,24 @@
             "field_type": [
               0,
               6
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "balance",
             "field_type": [
               0,
               6
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "updated_at",
             "field_type": [
               0,
               6
-            ]
-          }
-        ]
-      }
-    ],
-    "Transactions": [
-      2,
-      {
-        "record_name": "transactions",
-        "record_fields": [
-          {
-            "field_name": "trans_id",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "trans_type",
-            "field_type": [
-              0,
-              14
-            ]
-          },
-          {
-            "field_name": "from_user",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "to_user",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "amount",
-            "field_type": [
-              0,
-              6
-            ]
-          },
-          {
-            "field_name": "created_at",
-            "field_type": [
-              0,
-              6
-            ]
+            ],
+            "field_attrs": []
           }
         ]
       }
@@ -132,49 +42,160 @@
             "field_type": [
               0,
               6
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "name",
             "field_type": [
               0,
               14
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "phone",
             "field_type": [
               0,
               14
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "email",
             "field_type": [
               0,
               14
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "password",
             "field_type": [
               0,
               14
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "created_at",
             "field_type": [
               0,
               6
-            ]
+            ],
+            "field_attrs": []
           },
           {
             "field_name": "updated_at",
             "field_type": [
               0,
               6
-            ]
+            ],
+            "field_attrs": []
+          }
+        ]
+      }
+    ],
+    "Orders": [
+      2,
+      {
+        "record_name": "orders",
+        "record_fields": [
+          {
+            "field_name": "order_id",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "merch_id",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "amount",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "created_at",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          }
+        ]
+      }
+    ],
+    "Transactions": [
+      2,
+      {
+        "record_name": "transactions",
+        "record_fields": [
+          {
+            "field_name": "trans_id",
+            "field_type": [
+              0,
+              14
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "trans_type",
+            "field_type": [
+              0,
+              14
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "from_user",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "to_user",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "amount",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "created_at",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
           }
         ]
       }

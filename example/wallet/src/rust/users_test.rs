@@ -3,7 +3,7 @@
 use mududb::common::result::RS;
 use mududb::contract::database::entity::Entity;
 use mududb::error::{ErrorCode, mudu_error};
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_value::DataValue;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::users::object::Users;
@@ -39,8 +39,8 @@ fn users_lifecycle() -> RS<()> {
     assert_eq!(Users::tuple_desc().fields().len(), 7);
 
     // Datum / DatumDyn metadata
-    let dat_type = Users::dat_type();
-    assert_eq!(entity.dat_type_id()?, dat_type.dat_type_id());
+    let data_type = Users::data_type();
+    assert_eq!(entity.type_family()?, data_type.type_family());
 
     // Tuple roundtrip
     let tuple = entity.to_tuple()?;
@@ -54,7 +54,7 @@ fn users_lifecycle() -> RS<()> {
     assert_eq!(from_tuple.get_updated_at(), &Some(updated_at_sample));
 
     // Value roundtrip
-    let value = entity.to_value(&dat_type)?;
+    let value = entity.to_value(&data_type)?;
     let from_value = Users::from_value(&value)?;
     assert_eq!(from_value.get_user_id(), &Some(user_id_sample));
     assert_eq!(from_value.get_name(), &Some(name_sample.clone()));
@@ -65,7 +65,7 @@ fn users_lifecycle() -> RS<()> {
     assert_eq!(from_value.get_updated_at(), &Some(updated_at_sample));
 
     // Binary roundtrip
-    let binary = entity.to_binary(&dat_type)?;
+    let binary = entity.to_binary(&data_type)?;
     let from_binary = Users::from_binary(binary.as_ref())?;
     assert_eq!(from_binary.get_user_id(), &Some(user_id_sample));
     assert_eq!(from_binary.get_name(), &Some(name_sample.clone()));
@@ -76,7 +76,7 @@ fn users_lifecycle() -> RS<()> {
     assert_eq!(from_binary.get_updated_at(), &Some(updated_at_sample));
 
     // Textual roundtrip
-    let textual = entity.to_textual(&dat_type)?;
+    let textual = entity.to_textual(&data_type)?;
     let from_textual = Users::from_textual(textual.as_str())?;
     assert_eq!(from_textual.get_user_id(), &Some(user_id_sample));
     assert_eq!(from_textual.get_name(), &Some(name_sample.clone()));
@@ -88,7 +88,7 @@ fn users_lifecycle() -> RS<()> {
 
     // Clone through DatumDyn
     let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
-    let cloned_value = cloned.to_value(&dat_type)?;
+    let cloned_value = cloned.to_value(&data_type)?;
     let from_cloned = Users::from_value(&cloned_value)?;
     assert_eq!(from_cloned.get_user_id(), &Some(user_id_sample));
     assert_eq!(from_cloned.get_name(), &Some(name_sample.clone()));
@@ -108,7 +108,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("user_id")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_i32(), Some(&user_id_sample));
-        entity.set_field_value("user_id", DatValue::from_i32(user_id_sample))?;
+        entity.set_field_value("user_id", DataValue::from_i32(user_id_sample))?;
         assert_eq!(
             entity
                 .get_field_value("user_id")?
@@ -126,7 +126,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("name")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_string(), Some(&name_sample));
-        entity.set_field_value("name", DatValue::from_string(name_sample.clone()))?;
+        entity.set_field_value("name", DataValue::from_string(name_sample.clone()))?;
         assert_eq!(
             entity
                 .get_field_value("name")?
@@ -144,7 +144,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("phone")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_string(), Some(&phone_sample));
-        entity.set_field_value("phone", DatValue::from_string(phone_sample.clone()))?;
+        entity.set_field_value("phone", DataValue::from_string(phone_sample.clone()))?;
         assert_eq!(
             entity
                 .get_field_value("phone")?
@@ -162,7 +162,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("email")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_string(), Some(&email_sample));
-        entity.set_field_value("email", DatValue::from_string(email_sample.clone()))?;
+        entity.set_field_value("email", DataValue::from_string(email_sample.clone()))?;
         assert_eq!(
             entity
                 .get_field_value("email")?
@@ -180,7 +180,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("password")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_string(), Some(&password_sample));
-        entity.set_field_value("password", DatValue::from_string(password_sample.clone()))?;
+        entity.set_field_value("password", DataValue::from_string(password_sample.clone()))?;
         assert_eq!(
             entity
                 .get_field_value("password")?
@@ -198,7 +198,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("created_at")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_i32(), Some(&created_at_sample));
-        entity.set_field_value("created_at", DatValue::from_i32(created_at_sample))?;
+        entity.set_field_value("created_at", DataValue::from_i32(created_at_sample))?;
         assert_eq!(
             entity
                 .get_field_value("created_at")?
@@ -216,7 +216,7 @@ fn users_lifecycle() -> RS<()> {
             .get_field_value("updated_at")?
             .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "missing value"))?;
         assert_eq!(val.as_i32(), Some(&updated_at_sample));
-        entity.set_field_value("updated_at", DatValue::from_i32(updated_at_sample))?;
+        entity.set_field_value("updated_at", DataValue::from_i32(updated_at_sample))?;
         assert_eq!(
             entity
                 .get_field_value("updated_at")?

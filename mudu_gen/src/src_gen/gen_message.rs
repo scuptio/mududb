@@ -27,10 +27,13 @@ pub fn gen_message<I: AsRef<Path>, O: AsRef<Path>>(
         Ok,
     )?;
     if mudu_sys::fs::sync::sync_metadata(input_path.as_ref())?.is_dir() {
+        let mut stems: Vec<String> = Vec::new();
         for dir_entry in mudu_sys::fs::sync::sync_read_dir_entries(input_path.as_ref())? {
             if dir_entry.file_type()?.is_file()
                 && dir_entry.path().extension() == Some(OsStr::new("wit"))
             {
+                let stem = file_stem(&dir_entry.path())?;
+                stems.push(stem);
                 _gen_message(
                     dir_entry.path(),
                     output_path.as_ref(),
@@ -40,9 +43,56 @@ pub fn gen_message<I: AsRef<Path>, O: AsRef<Path>>(
                 )?
             }
         }
+        if !stems.is_empty() {
+            write_module_index(output_path.as_ref(), lang, &stems)?;
+        }
     } else {
         _gen_message(input_path, output_path, lang, namespace, false)?;
     }
+    Ok(())
+}
+
+fn file_stem(path: &Path) -> RS<String> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidUtf8, "get file stem error"))
+}
+
+fn write_module_index(output_dir: &Path, lang: LangKind, stems: &[String]) -> RS<()> {
+    if !mudu_sys::fs::sync::sync_path_exists(output_dir) {
+        mudu_sys::fs::sync::sync_create_dir_all(output_dir)?;
+    }
+    let index_content = match lang {
+        LangKind::Rust => {
+            let mut s = String::new();
+            for stem in stems {
+                s.push_str(&format!("pub mod {};\n", to_snake_case(stem)));
+            }
+            s
+        }
+        LangKind::CSharp => {
+            // C# files already share a namespace; no per-file index is required.
+            String::new()
+        }
+        LangKind::AssemblyScript => {
+            let mut s = String::new();
+            for stem in stems {
+                s.push_str(&format!("export * from \"./{}\";\n", to_pascal_case(stem)));
+            }
+            s
+        }
+    };
+    if index_content.is_empty() {
+        return Ok(());
+    }
+    let index_name = match lang {
+        LangKind::Rust => "mod.rs",
+        LangKind::CSharp => return Ok(()),
+        LangKind::AssemblyScript => "index.ts",
+    };
+    let index_path = output_dir.join(index_name);
+    mudu_sys::fs::sync::sync_write(index_path, index_content)?;
     Ok(())
 }
 
@@ -63,20 +113,7 @@ fn _gen_message<I: AsRef<Path>, O: AsRef<Path>>(
         if !mudu_sys::fs::sync::sync_path_exists(output_path.as_ref()) {
             mudu_sys::fs::sync::sync_create_dir_all(&output_path)?;
         }
-        let stem = input_path.as_ref().file_stem().map_or_else(
-            || {
-                Err(mudu_error!(
-                    ErrorCode::InvalidArgument,
-                    "get file stem error"
-                ))
-            },
-            |e| {
-                e.to_str().map_or_else(
-                    || Err(mudu_error!(ErrorCode::InvalidUtf8, "get file stem error")),
-                    |s| Ok(s.to_string()),
-                )
-            },
-        )?;
+        let stem = file_stem(input_path.as_ref())?;
         let stem = if lang_kind == LangKind::Rust {
             to_snake_case(&stem)
         } else {

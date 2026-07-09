@@ -5,8 +5,16 @@ PROFILE = "release"
 TARGET = "wasm32-wasip2"
 WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
 PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/../.."
+
+# Reinstall workspace CLI tools from source so the toolchain cannot drift
+# from the current commit.
+[tasks.build-tools]
+command = "python3"
+args = ["${WORKSPACE_ROOT}/script/build/install_binaries.py", "--profile", "release"]
 
 [tasks.generate]
+dependencies = ["build-tools"]
 command = "mgen"
 args = [
     "entity",
@@ -21,7 +29,7 @@ args = [
 ]
 
 [tasks.transpile]
-command = "python"
+command = "python3"
 args = [
     "../../script/build/transpiler.py",
     "--config",
@@ -40,18 +48,20 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json"
 ]
 
+# Format generated sources so the workspace always passes `cargo fmt --check`.
+[tasks.format-generated]
+dependencies = ["generate", "transpile"]
+command = "cargo"
+args = ["fmt"]
 
 [tasks.cargo-build]
-
-dependencies = ["generate", "transpile"]
-
+dependencies = ["format-generated"]
 command = "cargo"
 args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
 
-
 [tasks.package]
 dependencies = ["generate", "transpile", "cargo-build"]
-command = "mpk"
+command = "mpm-build"
 args = [
     "create",
     "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",

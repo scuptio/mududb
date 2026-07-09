@@ -104,10 +104,10 @@ impl ProcDesc {
     /// Generate default value for a specific DatumDesc
     fn generate_default_value(&self, desc: &DatumDesc) -> RS<(String, Value)> {
         // Get the datatype ID and corresponding FnArbitrary functions
-        let obj = desc.dat_type();
+        let obj = desc.data_type();
 
-        let tp_id = obj.dat_type_id();
-        let dat_internal = tp_id.fn_default()(obj).map_err(|e| {
+        let tp_id = obj.type_family();
+        let data_internal = tp_id.fn_default()(obj).map_err(|e| {
             mudu_error!(
                 ErrorCode::TypeConversionFailed,
                 "error when generating default value",
@@ -115,7 +115,7 @@ impl ProcDesc {
             )
         })?;
         #[allow(clippy::unwrap_used)]
-        let dat_printable = tp_id.fn_output_json()(&dat_internal, obj).unwrap();
+        let dat_printable = tp_id.fn_output_json()(&data_internal, obj).unwrap();
         let value = dat_printable.into_json_value();
         Ok((desc.name().to_string(), value))
     }

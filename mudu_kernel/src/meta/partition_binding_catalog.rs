@@ -7,8 +7,8 @@ use std::time::UNIX_EPOCH;
 use mudu::common::endian;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dt_info::DTInfo;
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily;
 
 use crate::contract::partition_rule_binding::TablePartitionBinding;
 use crate::contract::schema_column::SchemaColumn;
@@ -32,14 +32,14 @@ pub fn partition_binding_catalog_schema() -> SchemaTable {
             SchemaColumn::new_with_oid(
                 PARTITION_BINDING_CATALOG_TABLE_OID_COLUMN_ID,
                 "table_oid".to_string(),
-                DatTypeID::U128,
-                DTInfo::from_text(DatTypeID::U128, String::new()),
+                TypeFamily::U128,
+                DataTypeInfo::from_text(TypeFamily::U128, String::new()),
             ),
             SchemaColumn::new_with_oid(
                 PARTITION_BINDING_CATALOG_BINDING_COLUMN_ID,
                 "binding".to_string(),
-                DatTypeID::Binary,
-                DTInfo::from_text(DatTypeID::Binary, String::new()),
+                TypeFamily::Binary,
+                DataTypeInfo::from_text(TypeFamily::Binary, String::new()),
             ),
         ],
         vec![0],
@@ -161,7 +161,7 @@ mod tests {
 
     use mudu::error::ErrorCode;
     use mudu_sys::env_var::temp_dir;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::type_family::TypeFamily;
 
     use crate::contract::partition_rule_binding::TablePartitionBinding;
     use crate::meta::partition_binding_catalog::{
@@ -194,10 +194,10 @@ mod tests {
         assert_eq!(columns.len(), 2);
         assert_eq!(columns[0].get_oid(), 0x30001);
         assert_eq!(columns[0].get_name(), "table_oid");
-        assert_eq!(columns[0].type_id(), DatTypeID::U128);
+        assert_eq!(columns[0].type_id(), TypeFamily::U128);
         assert_eq!(columns[1].get_oid(), 0x30002);
         assert_eq!(columns[1].get_name(), "binding");
-        assert_eq!(columns[1].type_id(), DatTypeID::Binary);
+        assert_eq!(columns[1].type_id(), TypeFamily::Binary);
 
         assert_eq!(schema.key_indices(), &vec![0]);
         assert_eq!(schema.value_indices(), &vec![1]);

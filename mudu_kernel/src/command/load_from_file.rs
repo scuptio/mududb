@@ -11,7 +11,7 @@ use mudu::mudu_error;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::contract::file_options::FileOptions;
 use mudu_sys::sync::async_::AMutex;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::type_family::TypeFamily;
 use mudu_utils::scoped_task_trace;
 use std::io::Cursor;
 use std::path::Path;
@@ -193,12 +193,12 @@ impl _LoadFromFile {
                 .ok_or_else(|| mudu_error!(ER::IndexOutOfRange))?;
             let attr_index = attr_indices[position];
             let field = table_desc.get_attr(attr_index);
-            let dat_type = field.type_desc();
-            let dat_id = dat_type.dat_type_id();
-            let internal = match dat_id.fn_input()(textual, dat_type) {
+            let data_type = field.type_desc();
+            let dat_id = data_type.type_family();
+            let internal = match dat_id.fn_input()(textual, data_type) {
                 Ok(internal) => internal,
                 Err(first_err) => {
-                    if dat_id == DatTypeID::String {
+                    if dat_id == TypeFamily::String {
                         // COPY FROM accepts both JSON textual strings ("Alice")
                         // and plain CSV cells (Alice) for string columns.
                         let quoted = serde_json::to_string(textual).map_err(|e| {
@@ -208,7 +208,7 @@ impl _LoadFromFile {
                                 e
                             )
                         })?;
-                        dat_id.fn_input()(&quoted, dat_type).map_err(|_| {
+                        dat_id.fn_input()(&quoted, data_type).map_err(|_| {
                             mudu_error!(
                                 ER::TypeConversionFailed,
                                 "convert printable to internal error",
@@ -224,7 +224,7 @@ impl _LoadFromFile {
                     }
                 }
             };
-            let binary: Buf = dat_id.fn_send()(&internal, dat_type)
+            let binary: Buf = dat_id.fn_send()(&internal, data_type)
                 .map_err(|e| {
                     mudu_error!(
                         ER::TypeConversionFailed,

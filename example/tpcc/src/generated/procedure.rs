@@ -792,15 +792,15 @@ pub fn mudu_argv_desc_tpcc_stock_level_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "threshold".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -815,7 +815,7 @@ pub fn mudu_result_desc_tpcc_stock_level_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -898,23 +898,23 @@ pub fn mudu_argv_desc_tpcc_seed()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "item_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "initial_stock".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1004,19 +1004,19 @@ pub fn mudu_argv_desc_tpcc_payment()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "amount".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1031,7 +1031,7 @@ pub fn mudu_result_desc_tpcc_payment()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1113,19 +1113,19 @@ pub fn mudu_argv_desc_tpcc_payment_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "amount".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1140,7 +1140,7 @@ pub fn mudu_result_desc_tpcc_payment_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1221,15 +1221,15 @@ pub fn mudu_argv_desc_tpcc_delivery()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "carrier_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1244,7 +1244,7 @@ pub fn mudu_result_desc_tpcc_delivery()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1325,15 +1325,15 @@ pub fn mudu_argv_desc_tpcc_delivery_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "carrier_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1348,7 +1348,7 @@ pub fn mudu_result_desc_tpcc_delivery_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1431,23 +1431,23 @@ pub fn mudu_argv_desc_tpcc_seed_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "item_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "initial_stock".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1537,15 +1537,15 @@ pub fn mudu_argv_desc_tpcc_stock_level()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "threshold".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1560,7 +1560,7 @@ pub fn mudu_result_desc_tpcc_stock_level()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1641,15 +1641,15 @@ pub fn mudu_argv_desc_tpcc_order_status()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1664,7 +1664,7 @@ pub fn mudu_result_desc_tpcc_order_status()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1757,27 +1757,27 @@ pub fn mudu_argv_desc_tpcc_new_order()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "item_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "supplier_warehouse_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "quantities".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1792,7 +1792,7 @@ pub fn mudu_result_desc_tpcc_new_order()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1885,27 +1885,27 @@ pub fn mudu_argv_desc_tpcc_new_order_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "item_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "supplier_warehouse_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "quantities".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1920,7 +1920,7 @@ pub fn mudu_result_desc_tpcc_new_order_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -2001,15 +2001,15 @@ pub fn mudu_argv_desc_tpcc_order_status_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -2024,7 +2024,7 @@ pub fn mudu_result_desc_tpcc_order_status_partitioned()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })

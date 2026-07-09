@@ -100,7 +100,7 @@ jobs:
           # Define supported binaries and their descriptions
           declare -A BIN_MAP
           BIN_MAP=(
-            ["mudu_package"]="mpk"
+            ["mpm_build"]="mpm-build"
             ["mudu_gen"]="mgen"
             ["mudu_transpiler"]="mtp"
             ["mudud"]="mudud"

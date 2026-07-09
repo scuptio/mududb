@@ -3,7 +3,7 @@
 use crate::backend::http_api::{
     HttpApiCapabilities, LegacyHttpApi, serve_http_api_on_listener_with_stop,
 };
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::service::runtime_impl::create_runtime_service;
 use crate::service::runtime_opt::RuntimeOpt;
 use mudu::common::result::RS;

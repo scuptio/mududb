@@ -52,7 +52,7 @@ args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
 
 [tasks.package]
 dependencies = ["generate", "transpile", "cargo-build"]
-command = "mpk"
+command = "mpm-build"
 args = [
     "create",
     "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",

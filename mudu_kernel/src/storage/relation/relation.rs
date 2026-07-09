@@ -666,8 +666,8 @@ mod tests {
 
     use mudu_sys::env_var::temp_dir;
 
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
 
     use crate::contract::schema_column::SchemaColumn;
     use crate::contract::schema_table::SchemaTable;
@@ -682,13 +682,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
                 SchemaColumn::new(
                     "v".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
             ],
             vec![0],

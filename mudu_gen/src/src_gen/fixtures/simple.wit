@@ -1,0 +1,22 @@
+package mududb:fixtures;
+
+world fixtures {
+    import binding;
+}
+
+interface binding {
+    record mu-oid {
+        h: u64,
+        l: u64,
+    }
+
+    enum mu-status {
+        ok,
+        err,
+    }
+
+    variant mu-value {
+        integer(s64),
+        text(string),
+    }
+}

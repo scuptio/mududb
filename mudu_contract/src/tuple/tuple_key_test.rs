@@ -7,8 +7,8 @@ mod tests {
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
     use crate::tuple::tuple_key::{_Key, _KeyRef, TupleKey};
     use mudu::common::buf::Buf;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
     use scc::{Comparable, Equivalent};
     use std::borrow::Borrow;
     use std::cmp::Ordering;
@@ -16,7 +16,7 @@ mod tests {
     use std::hash::{Hash, Hasher};
 
     fn i32_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap()
     }
 
     fn make_key(desc: &TupleBinaryDesc, value: i32) -> TupleKey {

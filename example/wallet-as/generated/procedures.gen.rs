@@ -27,17 +27,60 @@ mod mudu_language_procedure_shim {
                     binary(list<u8>),
                     object-id(oid),
                 }
+
+                value-null: func() -> value;
+                value-from-boolean: func(input: bool) -> value;
+                value-from-int64: func(input: s64) -> value;
+                value-from-float64: func(input: f64) -> value;
+                value-from-text: func(input: string) -> value;
+                value-from-binary: func(input: list<u8>) -> value;
+                value-from-oid: func(input: oid) -> value;
+
+                value-is-null: func(input: value) -> bool;
+                value-as-boolean: func(input: value) -> result<bool, error>;
+                value-as-int64: func(input: value) -> result<s64, error>;
+                value-as-float64: func(input: value) -> result<f64, error>;
+                value-as-text: func(input: value) -> result<string, error>;
+                value-as-binary: func(input: value) -> result<list<u8>, error>;
+                value-as-oid: func(input: value) -> result<oid, error>;
             }
 
             interface system {
-                use types.{error, value};
+                use types.{error, oid, value};
 
                 resource value-list {
                     constructor();
+                    bind-named-value: func(name: string, value: value);
                     bind-value: func(index: s32, value: value);
                     len: func() -> u32;
                     value: func(index: u32) -> result<value, error>;
                 }
+
+                resource sql-stmt {
+                    constructor(sql: string);
+                }
+
+                resource result-set {
+                    next: func() -> result<bool, error>;
+                    current-row: func() -> result<option<row>, error>;
+                    column-count: func() -> result<u32, error>;
+                    column-name: func(column: u32) -> result<string, error>;
+                    find-column: func(name: string) -> result<option<u32>, error>;
+                    eof: func() -> result<bool, error>;
+                }
+
+                resource row {
+                    is-null: func(column: u32) -> result<bool, error>;
+                    is-null-by-name: func(name: string) -> result<bool, error>;
+                    value: func(column: u32) -> result<value, error>;
+                    value-by-name: func(name: string) -> result<value, error>;
+                }
+
+                open: func(uri: string) -> result<oid, error>;
+                close: func(id: oid) -> result<_, error>;
+                query: func(id: oid, stmt: sql-stmt, values: value-list) -> result<result-set, error>;
+                command: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+                batch: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
             }
 
             
@@ -107,8 +150,8 @@ fn mudu_lang_xid_from_oid(oid: mudu_language_procedure_shim::mududb::component_s
     ((oid.hi as u128) << 64) | oid.lo as u128
 }
 
-fn mudu_lang_value_from_dat_value(
-    value: &::mududb::types::dat_value::DatValue,
+fn mudu_lang_value_from_data_value(
+    value: &::mududb::types::data_value::DataValue,
 ) -> mudu_language_procedure_shim::mududb::component_shim::types::Value {
     use mudu_language_procedure_shim::mududb::component_shim::types::{Oid, Value};
 
@@ -136,30 +179,30 @@ fn mudu_lang_value_from_dat_value(
     }
 }
 
-fn mudu_lang_dat_value_from_value(
+fn mudu_lang_data_value_from_value(
     value: mudu_language_procedure_shim::mududb::component_shim::types::Value,
-) -> ::mududb::types::dat_value::DatValue {
+) -> ::mududb::types::data_value::DataValue {
     match value {
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Null => {
-            ::mududb::types::dat_value::DatValue::null()
+            ::mududb::types::data_value::DataValue::null()
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Boolean(value) => {
-            ::mududb::types::dat_value::DatValue::from_i32(i32::from(value))
+            ::mududb::types::data_value::DataValue::from_i32(i32::from(value))
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Int64(value) => {
-            ::mududb::types::dat_value::DatValue::from_i64(value)
+            ::mududb::types::data_value::DataValue::from_i64(value)
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Float64(value) => {
-            ::mududb::types::dat_value::DatValue::from_f64(value)
+            ::mududb::types::data_value::DataValue::from_f64(value)
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Text(value) => {
-            ::mududb::types::dat_value::DatValue::from_string(value)
+            ::mududb::types::data_value::DataValue::from_string(value)
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::Binary(value) => {
-            ::mududb::types::dat_value::DatValue::from_binary(value)
+            ::mududb::types::data_value::DataValue::from_binary(value)
         }
         mudu_language_procedure_shim::mududb::component_shim::types::Value::ObjectId(value) => {
-            ::mududb::types::dat_value::DatValue::from_u128(mudu_lang_xid_from_oid(value))
+            ::mududb::types::data_value::DataValue::from_u128(mudu_lang_xid_from_oid(value))
         }
     }
 }
@@ -169,7 +212,7 @@ fn mudu_lang_build_value_list_from_procedure_param(
 ) -> mudu_language_procedure_shim::mududb::component_shim::system::ValueList {
     let values = mudu_language_procedure_shim::mududb::component_shim::system::ValueList::new();
     for (index, value) in param.param_list().iter().enumerate() {
-        values.bind_value(index as i32, &mudu_lang_value_from_dat_value(value));
+        values.bind_value(index as i32, &mudu_lang_value_from_data_value(value));
     }
     values
 }
@@ -182,7 +225,7 @@ fn mudu_lang_build_procedure_result(
         let value = values
             .value(index)
             .map_err(|err| ::mududb::mudu_error!(::mududb::error::ErrorCode::Internal, err.message))?;
-        return_list.push(mudu_lang_dat_value_from_value(value));
+        return_list.push(mudu_lang_data_value_from_value(value));
     }
     Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
 }
@@ -217,17 +260,17 @@ pub fn mudu_argv_desc_create_user() -> &'static ::mududb::contract::tuple::tuple
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "name".to_string(),
-                ::mududb::types::dat_type::DatType::default_for(::mududb::types::dat_type_id::DatTypeID::String),
+                ::mududb::types::data_type::DataType::default_for(::mududb::types::type_family::TypeFamily::String),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "email".to_string(),
-                ::mududb::types::dat_type::DatType::default_for(::mududb::types::dat_type_id::DatTypeID::String),
+                ::mududb::types::data_type::DataType::default_for(::mududb::types::type_family::TypeFamily::String),
             ),
             
         ])
@@ -242,7 +285,7 @@ pub fn mudu_result_desc_create_user() -> &'static ::mududb::contract::tuple::tup
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -261,29 +304,6 @@ pub fn mudu_proc_desc_create_user() -> &'static ::mududb::contract::procedure::p
             false,
         )
     })
-}
-
-mod mod_create_user {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-create-user;
-            world mudu-app-mp2-create-user {
-                export mp2-create-user: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct Guestcreate_user {}
-
-    impl Guest for Guestcreate_user {
-        fn mp2_create_user(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_create_user(param)
-        }
-    }
-
-    export!(Guestcreate_user);
 }
 
 fn mp2_deposit(param: Vec<u8>) -> Vec<u8> {
@@ -315,12 +335,12 @@ pub fn mudu_argv_desc_deposit() -> &'static ::mududb::contract::tuple::tuple_fie
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "amount".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -335,7 +355,7 @@ pub fn mudu_result_desc_deposit() -> &'static ::mududb::contract::tuple::tuple_f
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -354,29 +374,6 @@ pub fn mudu_proc_desc_deposit() -> &'static ::mududb::contract::procedure::proc_
             false,
         )
     })
-}
-
-mod mod_deposit {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-deposit;
-            world mudu-app-mp2-deposit {
-                export mp2-deposit: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct Guestdeposit {}
-
-    impl Guest for Guestdeposit {
-        fn mp2_deposit(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_deposit(param)
-        }
-    }
-
-    export!(Guestdeposit);
 }
 
 fn mp2_withdraw(param: Vec<u8>) -> Vec<u8> {
@@ -408,12 +405,12 @@ pub fn mudu_argv_desc_withdraw() -> &'static ::mududb::contract::tuple::tuple_fi
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "amount".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -428,7 +425,7 @@ pub fn mudu_result_desc_withdraw() -> &'static ::mududb::contract::tuple::tuple_
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -447,29 +444,6 @@ pub fn mudu_proc_desc_withdraw() -> &'static ::mududb::contract::procedure::proc
             false,
         )
     })
-}
-
-mod mod_withdraw {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-withdraw;
-            world mudu-app-mp2-withdraw {
-                export mp2-withdraw: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct Guestwithdraw {}
-
-    impl Guest for Guestwithdraw {
-        fn mp2_withdraw(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_withdraw(param)
-        }
-    }
-
-    export!(Guestwithdraw);
 }
 
 fn mp2_transfer_funds(param: Vec<u8>) -> Vec<u8> {
@@ -501,17 +475,17 @@ pub fn mudu_argv_desc_transfer_funds() -> &'static ::mududb::contract::tuple::tu
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "from_user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "to_user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "amount".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -526,7 +500,7 @@ pub fn mudu_result_desc_transfer_funds() -> &'static ::mududb::contract::tuple::
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -545,29 +519,6 @@ pub fn mudu_proc_desc_transfer_funds() -> &'static ::mududb::contract::procedure
             false,
         )
     })
-}
-
-mod mod_transfer_funds {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-transfer-funds;
-            world mudu-app-mp2-transfer-funds {
-                export mp2-transfer-funds: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct Guesttransfer_funds {}
-
-    impl Guest for Guesttransfer_funds {
-        fn mp2_transfer_funds(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_transfer_funds(param)
-        }
-    }
-
-    export!(Guesttransfer_funds);
 }
 
 fn mp2_balance(param: Vec<u8>) -> Vec<u8> {
@@ -599,7 +550,7 @@ pub fn mudu_argv_desc_balance() -> &'static ::mududb::contract::tuple::tuple_fie
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -614,7 +565,7 @@ pub fn mudu_result_desc_balance() -> &'static ::mududb::contract::tuple::tuple_f
             
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                ::mududb::types::dat_type::DatType::new_no_param(::mududb::types::dat_type_id::DatTypeID::I64),
+                ::mududb::types::data_type::DataType::new_no_param(::mududb::types::type_family::TypeFamily::I64),
             ),
             
         ])
@@ -635,25 +586,243 @@ pub fn mudu_proc_desc_balance() -> &'static ::mududb::contract::procedure::proc_
     })
 }
 
-mod mod_balance {
+
+mod mudu_language_procedure_exports {
     wit_bindgen::generate!({
         inline:
-        r##"package mudu:mp2-balance;
-            world mudu-app-mp2-balance {
+        r##"package mududb:component-shim;
+
+            interface types {
+                record oid {
+                    hi: u64,
+                    lo: u64,
+                }
+
+                record error {
+                    code: u32,
+                    message: string,
+                    source: string,
+                    location: string,
+                }
+
+                variant value {
+                    null,
+                    boolean(bool),
+                    int64(s64),
+                    float64(f64),
+                    text(string),
+                    binary(list<u8>),
+                    object-id(oid),
+                }
+
+                value-null: func() -> value;
+                value-from-boolean: func(input: bool) -> value;
+                value-from-int64: func(input: s64) -> value;
+                value-from-float64: func(input: f64) -> value;
+                value-from-text: func(input: string) -> value;
+                value-from-binary: func(input: list<u8>) -> value;
+                value-from-oid: func(input: oid) -> value;
+
+                value-is-null: func(input: value) -> bool;
+                value-as-boolean: func(input: value) -> result<bool, error>;
+                value-as-int64: func(input: value) -> result<s64, error>;
+                value-as-float64: func(input: value) -> result<f64, error>;
+                value-as-text: func(input: value) -> result<string, error>;
+                value-as-binary: func(input: value) -> result<list<u8>, error>;
+                value-as-oid: func(input: value) -> result<oid, error>;
+            }
+
+            interface system {
+                use types.{error, oid, value};
+
+                resource value-list {
+                    constructor();
+                    bind-named-value: func(name: string, value: value);
+                    bind-value: func(index: s32, value: value);
+                    len: func() -> u32;
+                    value: func(index: u32) -> result<value, error>;
+                }
+
+                resource sql-stmt {
+                    constructor(sql: string);
+                }
+
+                resource result-set {
+                    next: func() -> result<bool, error>;
+                    current-row: func() -> result<option<row>, error>;
+                    column-count: func() -> result<u32, error>;
+                    column-name: func(column: u32) -> result<string, error>;
+                    find-column: func(name: string) -> result<option<u32>, error>;
+                    eof: func() -> result<bool, error>;
+                }
+
+                resource row {
+                    is-null: func(column: u32) -> result<bool, error>;
+                    is-null-by-name: func(name: string) -> result<bool, error>;
+                    value: func(column: u32) -> result<value, error>;
+                    value-by-name: func(name: string) -> result<value, error>;
+                }
+
+                open: func(uri: string) -> result<oid, error>;
+                close: func(id: oid) -> result<_, error>;
+                query: func(id: oid, stmt: sql-stmt, values: value-list) -> result<result-set, error>;
+                command: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+                batch: func(id: oid, stmt: sql-stmt, values: value-list) -> result<u64, error>;
+            }
+
+            
+            interface procedure-create-user {
+                use types.{error, oid};
+                use system.{value-list};
+
+                adapter-create-user: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            
+            interface procedure-deposit {
+                use types.{error, oid};
+                use system.{value-list};
+
+                adapter-deposit: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            
+            interface procedure-withdraw {
+                use types.{error, oid};
+                use system.{value-list};
+
+                adapter-withdraw: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            
+            interface procedure-transfer-funds {
+                use types.{error, oid};
+                use system.{value-list};
+
+                adapter-transfer-funds: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            
+            interface procedure-balance {
+                use types.{error, oid};
+                use system.{value-list};
+
+                adapter-balance: func(id: oid, values: borrow<value-list>) -> result<value-list, error>;
+            }
+            
+
+            world mudu-language-procedure-exports {
+                import types;
+                import system;
+                
+                import procedure-create-user;
+                
+                import procedure-deposit;
+                
+                import procedure-withdraw;
+                
+                import procedure-transfer-funds;
+                
+                import procedure-balance;
+                
+
                 export mp2-balance: func(param:list<u8>) -> list<u8>;
+                export mp2-create-user: func(param:list<u8>) -> list<u8>;
+                export mp2-deposit: func(param:list<u8>) -> list<u8>;
+                export mp2-transfer-funds: func(param:list<u8>) -> list<u8>;
+                export mp2-withdraw: func(param:list<u8>) -> list<u8>;
+                export force-full-imports: func();
             }
         "##,
     });
 
+    // This export exists only to keep every `types` and `system` import alive in
+    // the generated component.  The Rust wrapper itself only needs a subset, but
+    // the prebuilt `rs-shim` component exports the full interface; composing the
+    // two requires the wrapper to declare the exact same interface shape.  The
+    // function is never called at runtime.
+
     #[allow(non_camel_case_types)]
     #[allow(unused)]
-    struct Guestbalance {}
+    struct MuduAppGuest {}
 
-    impl Guest for Guestbalance {
+    impl Guest for MuduAppGuest {
         fn mp2_balance(param: Vec<u8>) -> Vec<u8> {
             super::mp2_balance(param)
         }
+
+        fn mp2_create_user(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_create_user(param)
+        }
+
+        fn mp2_deposit(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_deposit(param)
+        }
+
+        fn mp2_transfer_funds(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_transfer_funds(param)
+        }
+
+        fn mp2_withdraw(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_withdraw(param)
+        }
+
+        fn force_full_imports() {
+            MuduAppGuest::force_full_system_imports();
+        }
     }
 
-    export!(Guestbalance);
+    impl MuduAppGuest {
+        fn force_full_system_imports() {
+            use super::mudu_language_procedure_shim::mududb::component_shim::types::{Oid, Value};
+            use super::mudu_language_procedure_shim::mududb::component_shim::{system, types};
+
+            let v_null = types::value_null();
+            let _ = types::value_from_boolean(false);
+            let _ = types::value_from_int64(0);
+            let _ = types::value_from_float64(0.0);
+            let _ = types::value_from_text("");
+            let _ = types::value_from_binary(&[]);
+            let _ = types::value_from_oid(Oid { hi: 0, lo: 0 });
+
+            let _ = types::value_is_null(&v_null);
+            let _ = types::value_as_boolean(&v_null);
+            let _ = types::value_as_int64(&v_null);
+            let _ = types::value_as_float64(&v_null);
+            let _ = types::value_as_text(&v_null);
+            let _ = types::value_as_binary(&v_null);
+            let _ = types::value_as_oid(&v_null);
+
+            let values = system::ValueList::new();
+            values.bind_named_value("", &v_null);
+            values.bind_value(0, &v_null);
+            let _ = values.len();
+            let _ = values.value(0);
+
+            let oid = Oid { hi: 0, lo: 0 };
+            let _ = system::open("");
+            let _ = system::close(oid);
+
+            let stmt = system::SqlStmt::new("");
+            if let Ok(rs) = system::query(oid, stmt, values) {
+                let _ = rs.next();
+                let _ = rs.column_count();
+                let _ = rs.column_name(0);
+                let _ = rs.find_column("");
+                let _ = rs.eof();
+                if let Ok(Some(row)) = rs.current_row() {
+                    let _ = row.is_null(0);
+                    let _ = row.is_null_by_name("");
+                    let _ = row.value(0);
+                    let _ = row.value_by_name("");
+                }
+            }
+
+            let values_cmd = system::ValueList::new();
+            let stmt_cmd = system::SqlStmt::new("");
+            let _ = system::command(oid, stmt_cmd, values_cmd);
+
+            let values_batch = system::ValueList::new();
+            let stmt_batch = system::SqlStmt::new("");
+            let _ = system::batch(oid, stmt_batch, values_batch);
+        }
+    }
+
+    export!(MuduAppGuest);
 }

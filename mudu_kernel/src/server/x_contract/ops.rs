@@ -85,7 +85,7 @@ impl WorkerXContract {
         table_id: OID,
         pred_key: &VecDatum,
         select: &VecSelTerm,
-    ) -> RS<Option<Vec<Option<DatBin>>>> {
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
         let key = build_key_tuple(pred_key, &desc)?;
         let target_partition = self
             .partition_router

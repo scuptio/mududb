@@ -13,6 +13,12 @@ crate-type = ["cdylib", "rlib"]
 [lints]
 workspace = true
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[workspace.lints.clippy]
+disallowed-types = "deny"
+
 [dependencies]
 mududb = { path = "../../mududb", default-features = false, features = ["app"] }
 wit-bindgen = "0.54.0"

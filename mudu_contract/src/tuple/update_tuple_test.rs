@@ -10,27 +10,27 @@ mod tests {
     use mudu::common::buf::Buf;
     use mudu::common::update_delta::UpdateDelta;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn desc_i32_string() -> TupleBinaryDesc {
         TupleBinaryDesc::from(vec![
-            DatType::new_no_param(DatTypeID::I32),
-            DatType::default_for(DatTypeID::String),
+            DataType::new_no_param(TypeFamily::I32),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap()
     }
 
     fn desc_two_strings() -> TupleBinaryDesc {
         TupleBinaryDesc::from(vec![
-            DatType::default_for(DatTypeID::String),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap()
     }
 
     fn desc_i32() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap()
     }
 
     #[test]

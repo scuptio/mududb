@@ -11,7 +11,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
 use mudu_binding::record::record_def::RecordDef;
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use sql_parser::parser::ddl_parser::DDLParser;
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ pub struct CodeGen {}
 pub struct GenResult {
     /// User-defined record types produced during generation.
     ///
-    /// Key: record name; value: the corresponding [`UniDatType`].
+    /// Key: record name; value: the corresponding [`UniDataType`].
     pub used_defined_record_type: UniTypeDesc,
 
     /// Generated source files.
@@ -116,12 +116,12 @@ impl CodeGen {
         let mut vec = Vec::with_capacity(record_list.len());
         for table in record_list.iter() {
             let ty = table.to_record_type()?;
-            vec.push(UniDatType::Record(ty));
+            vec.push(UniDataType::Record(ty));
         }
-        let vec = UniDatType::rewrite_inline(vec)?;
+        let vec = UniDataType::rewrite_inline(vec)?;
         for ty in vec {
             match &ty {
-                UniDatType::Record(r) => {
+                UniDataType::Record(r) => {
                     ty_def.types.insert(to_pascal_case(&r.record_name), ty);
                 }
                 _ => {
@@ -243,6 +243,7 @@ mod test {
     fn extension_of_lang_returns_extension() {
         assert_eq!(CodeGen::extension_of_lang("rust").unwrap(), "rs");
         assert_eq!(CodeGen::extension_of_lang("csharp").unwrap(), "cs");
+        assert_eq!(CodeGen::extension_of_lang("assemblyscript").unwrap(), "ts");
     }
 
     #[test]
@@ -258,6 +259,16 @@ mod test {
             CodeGen::generate_message_code_from_wit(&contract_wit(), "csharp", None).unwrap();
         assert!(src_code.contains("namespace"));
         assert!(src_code.contains("class"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_message_code_from_wit_produces_assemblyscript() {
+        let src_code =
+            CodeGen::generate_message_code_from_wit(&contract_wit(), "assemblyscript", None)
+                .unwrap();
+        assert!(src_code.contains("export class"));
+        assert!(src_code.contains("MpackWriter"));
     }
 
     #[test]

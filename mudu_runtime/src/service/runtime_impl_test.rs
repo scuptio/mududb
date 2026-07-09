@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::backend::mududb_cfg::ServerMode;
+    use crate::backend::mudud_cfg::ServerMode;
     use crate::service::runtime_impl::create_runtime_service;
     use crate::service::runtime_opt::RuntimeOpt;
     use crate::service::test_wasm_mod_path::wasm_mod_path;

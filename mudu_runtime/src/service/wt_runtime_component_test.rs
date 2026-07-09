@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::service::mudu_package::MuduPackage;
+    use crate::service::app_package::AppPackage;
     use crate::service::runtime_opt::{ComponentTarget, RuntimeOpt};
     use crate::service::wt_runtime_component::WTRuntimeComponent;
     use mudu::common::app_info::AppInfo;
@@ -19,8 +19,8 @@ mod tests {
         )
     }
 
-    fn test_package(desc: ModProcDesc, modules: HashMap<String, Vec<u8>>) -> MuduPackage {
-        MuduPackage {
+    fn test_package(desc: ModProcDesc, modules: HashMap<String, Vec<u8>>) -> AppPackage {
+        AppPackage {
             package_cfg: AppInfo {
                 name: "app".to_string(),
                 lang: "rust".to_string(),

@@ -167,9 +167,9 @@ mod tests {
 
         let src = sync_read_to_string(output).unwrap();
         assert!(src.contains("[global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]"));
-        assert!(src.contains("public MuDatType()"));
+        assert!(src.contains("public MuDataType()"));
         assert!(src.contains("public required string Name { get; set; }"));
-        assert!(src.contains("IMessagePackFormatter<MuDatTypeParamArray?>"));
+        assert!(src.contains("IMessagePackFormatter<MuDataTypeParamArray?>"));
         assert!(src.contains("writer.WriteNil();"));
         assert!(src.contains("reader.TryReadNil()"));
     }

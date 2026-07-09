@@ -7,7 +7,7 @@ This document describes the crate layout, dependency direction, and key design d
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Apps / Examples / CLI / Tests                               │
-│  (mudud, mudu_cli, mudu_package, testing, example/*)        │
+│  (mudud, mudu_cli, mpm_build, npm_install, testing /*)       │
 ├─────────────────────────────────────────────────────────────┤
 │  Runtime & Kernel                                            │
 │  (mudu_runtime, mudu_kernel)                                │
@@ -30,7 +30,7 @@ This document describes the crate layout, dependency direction, and key design d
 ## Key Rules
 
 1. **`mudu` is a pure foundation crate.**
-   - It provides common types (`RS`), error codes (`EC`), the `m_error!` macro, and pure serialization helpers.
+   - It provides common types (`RS`), error codes (`EC`), the `mudu_error!` macro, and pure serialization helpers.
    - It must **not** perform I/O, read environment variables, or depend on `mudu_sys`.
    - File I/O helpers (e.g. `read_json`, `write_toml`) live in `mudu_utils`.
 
@@ -50,6 +50,6 @@ This document describes the crate layout, dependency direction, and key design d
 
 ## Dependency Notes
 
-- `mudu_sys_impl` depends on `mudu` for `RS`/`EC`/`m_error!`. 
+- `mudu_sys_impl` depends on `mudu` for `RS`/`EC`/`mudu_error!`. 
 - `mudu_utils` depends on both `mudu` and `mudu_sys`, making it the natural home for higher-level I/O utilities.
 - `mududb.ds` is a separate workspace that consumes the public crates from `mududb` for deterministic simulation / model checking.

@@ -1,54 +1,56 @@
-use crate::dat_type::DatType;
-use crate::dat_type_id::DatTypeID;
-use crate::dt_info::DTInfo;
+use crate::data_type::DataType;
+use crate::data_type_info::DataTypeInfo;
+use crate::type_family::TypeFamily;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug)]
 pub struct ScalarType {
-    dat_type: DatType,
+    data_type: DataType,
 }
 
 impl ScalarType {
-    pub fn new_without_param(id: DatTypeID) -> Self {
+    pub fn new_without_param(id: TypeFamily) -> Self {
         if !id.is_scalar_type() {
             panic!("ScalarType id must be scalar type, but got {}", id.name());
         }
         Self {
-            dat_type: DatType::new_no_param(id),
+            data_type: DataType::new_no_param(id),
         }
     }
 
-    pub fn new_default(id: DatTypeID) -> Self {
+    pub fn new_default(id: TypeFamily) -> Self {
         if !id.is_scalar_type() {
             panic!("ScalarType id must be scalar type, but got {}", id.name());
         }
-        Self::new(DatType::default_for(id))
+        Self::new(DataType::default_for(id))
     }
 
-    pub fn new(type_obj: DatType) -> Self {
-        if !type_obj.dat_type_id().is_scalar_type() {
+    pub fn new(type_obj: DataType) -> Self {
+        if !type_obj.type_family().is_scalar_type() {
             panic!(
                 "ScalarType id must be scalar type, but got {}",
-                type_obj.dat_type_id().name()
+                type_obj.type_family().name()
             );
         }
-        Self { dat_type: type_obj }
+        Self {
+            data_type: type_obj,
+        }
     }
 
-    pub fn id(&self) -> DatTypeID {
-        self.dat_type.dat_type_id()
+    pub fn id(&self) -> TypeFamily {
+        self.data_type.type_family()
     }
 
-    pub fn type_obj(&self) -> &DatType {
-        &self.dat_type
+    pub fn type_obj(&self) -> &DataType {
+        &self.data_type
     }
 
     pub fn has_param(&self) -> bool {
-        !self.dat_type.has_no_param()
+        !self.data_type.has_no_param()
     }
 
-    pub fn param_info(&self) -> DTInfo {
-        self.dat_type.to_info()
+    pub fn param_info(&self) -> DataTypeInfo {
+        self.data_type.to_info()
     }
 }
 
@@ -57,8 +59,8 @@ impl<'de> Deserialize<'de> for ScalarType {
     where
         D: Deserializer<'de>,
     {
-        let obj: DatType = Deserialize::deserialize(deserializer)?;
-        Ok(Self { dat_type: obj })
+        let obj: DataType = Deserialize::deserialize(deserializer)?;
+        Ok(Self { data_type: obj })
     }
 }
 
@@ -67,6 +69,6 @@ impl Serialize for ScalarType {
     where
         S: Serializer,
     {
-        serializer.serialize_some(&self.dat_type)
+        serializer.serialize_some(&self.data_type)
     }
 }

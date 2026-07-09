@@ -1,7 +1,7 @@
 use crate::service::app_inst::AppInst;
 use crate::service::app_inst_impl::AppInstImpl;
+use crate::service::app_package::AppPackage;
 use crate::service::file_name;
-use crate::service::mudu_package::MuduPackage;
 use crate::service::runtime_opt::RuntimeOpt;
 use crate::service::wt_runtime::WTRuntime;
 use mudu::common::result::RS;
@@ -52,7 +52,7 @@ where
     Ok(())
 }
 
-fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
+fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
     let path_buf = PathBuf::from(path_ref.as_ref());
     if !path_buf.is_file() {
         return Err(mudu_error!(
@@ -62,7 +62,7 @@ fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<MuduPackage> {
     }
     if let Some(ext) = path_buf.extension() {
         if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-            let app_package = MuduPackage::load(&path_buf)?;
+            let app_package = AppPackage::load(&path_buf)?;
             Ok(app_package)
         } else {
             Err(mudu_error!(

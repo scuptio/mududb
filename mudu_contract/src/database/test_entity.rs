@@ -9,7 +9,7 @@ mod tests {
     use crate::database::entity::Entity;
     use crate::database::test_object::object::Item;
     use mudu::utils::json;
-    use mudu_type::dat_type::DatType;
+    use mudu_type::data_type::DataType;
     use mudu_type::datum::{Datum, DatumDyn};
 
     #[test]
@@ -28,12 +28,12 @@ mod tests {
         item.set_i_im_id(30);
         item.set_i_data("data".to_string());
         item.set_i_price(40.0);
-        let dt = Item::dat_type();
+        let dt = Item::data_type();
         let value = item.to_value(&dt).unwrap();
         let tuple = item.to_tuple().unwrap();
         let item_from_tuple = Item::from_tuple(&tuple).unwrap();
         let item_from_value = Item::from_value(&value).unwrap();
-        let id = dt.dat_type_id();
+        let id = dt.type_family();
 
         let printable = id.fn_output()(&value, &dt).unwrap();
         let value2 = id.fn_input()(&printable, &dt).unwrap();
@@ -77,7 +77,7 @@ mod tests {
             item.set_i_price(40.0);
             items.push(item);
         }
-        let ty: DatType = <Vec<Item>>::dat_type().clone();
+        let ty: DataType = <Vec<Item>>::data_type().clone();
         let value = items.to_value(&ty).unwrap();
         let binary = items.to_binary(&ty).unwrap().into();
         let textual = items.to_textual(&ty).unwrap().into();

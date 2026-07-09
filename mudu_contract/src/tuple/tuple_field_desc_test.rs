@@ -7,17 +7,17 @@ mod tests {
     use crate::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu::common::serde_utils::{deserialize_from_json, serialize_to_json};
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_field(name: &str) -> DatumDesc {
-        DatumDesc::new(name.to_string(), DatType::new_no_param(DatTypeID::I32))
+        DatumDesc::new(name.to_string(), DataType::new_no_param(TypeFamily::I32))
     }
 
     fn nullable_i32_field(name: &str) -> DatumDesc {
         DatumDesc::new_nullable(
             name.to_string(),
-            DatType::new_no_param(DatTypeID::I32),
+            DataType::new_no_param(TypeFamily::I32),
             true,
         )
     }
@@ -81,8 +81,8 @@ mod tests {
     fn tuple_field_desc_serialize_deserialize_round_trip() {
         let fields = vec![
             i32_field("c1"),
-            DatumDesc::new("c2".to_string(), DatType::new_no_param(DatTypeID::I64)),
-            DatumDesc::new("c3".to_string(), DatType::new_no_param(DatTypeID::I32)),
+            DatumDesc::new("c2".to_string(), DataType::new_no_param(TypeFamily::I64)),
+            DatumDesc::new("c3".to_string(), DataType::new_no_param(TypeFamily::I32)),
         ];
 
         let original_desc = TupleFieldDesc::new(fields);
@@ -95,7 +95,7 @@ mod tests {
             .zip(restored_desc.fields().iter())
         {
             assert_eq!(original.name(), restored.name());
-            assert_eq!(original.dat_type_id(), restored.dat_type_id());
+            assert_eq!(original.type_family(), restored.type_family());
             assert_eq!(original.nullable(), restored.nullable());
         }
     }
@@ -119,7 +119,7 @@ mod tests {
     fn tuple_field_desc_to_record_type() {
         let desc = TupleFieldDesc::new(vec![i32_field("a"), i32_field("b")]);
         let record_type = desc.to_record_type("my_record".to_string()).unwrap();
-        assert_eq!(record_type.dat_type_id(), DatTypeID::Record);
+        assert_eq!(record_type.type_family(), TypeFamily::Record);
         let param = record_type.as_record_param().unwrap();
         assert_eq!(param.record_name(), "my_record");
         assert_eq!(param.fields().len(), 2);
@@ -140,14 +140,17 @@ mod tests {
     #[test]
     fn tuple_field_desc_to_tuple_binary_desc_normalizes_input() {
         let desc = TupleFieldDesc::new(vec![
-            DatumDesc::new("s".to_string(), DatType::default_for(DatTypeID::String)),
+            DatumDesc::new("s".to_string(), DataType::default_for(TypeFamily::String)),
             i32_field("i"),
         ]);
         let (binary_desc, mapping) = desc.to_tuple_binary_desc().unwrap();
         assert_eq!(binary_desc.field_count(), 2);
         // Normalized order places I32 before String.
-        assert_eq!(binary_desc.get_field_desc(0).data_type(), DatTypeID::I32);
-        assert_eq!(binary_desc.get_field_desc(1).data_type(), DatTypeID::String);
+        assert_eq!(binary_desc.get_field_desc(0).data_type(), TypeFamily::I32);
+        assert_eq!(
+            binary_desc.get_field_desc(1).data_type(),
+            TypeFamily::String
+        );
         // Mapping reflects original positions: original index 1 (i) became 0, original 0 (s) became 1.
         assert_eq!(mapping, vec![1, 0]);
     }

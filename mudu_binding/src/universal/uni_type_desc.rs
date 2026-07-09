@@ -1,4 +1,4 @@
-use crate::universal::uni_dat_type::UniDatType;
+use crate::universal::uni_data_type::UniDataType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// [/tool/test_data/types.desc.json](/tool/test_data/types.desc.json)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UniTypeDesc {
-    pub types: HashMap<String, UniDatType>,
+    pub types: HashMap<String, UniDataType>,
 }
 
 impl UniTypeDesc {

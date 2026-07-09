@@ -2,38 +2,8 @@
 
 本指南提供两种上手方式：
 
-- **[使用 `mudup` 安装 MuduDB](#使用-mudup-安装-mududb)** – 通过 `mudup` 安装发布产物，无需源码构建。
-- **[从源码开发 MuduDB](#从源码开发-mududb)** – 使用固定工具链从源码构建。
-
----
-
-## 使用 `mudup` 安装 MuduDB
-
-该路径用于服务器部署和日常使用。
-
-### 1. 安装 `mudup`
-
-```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
-mudup --help
-```
-
-### 2. 安装 MuduDB 及其工具链
-
-```bash
-mudup install
-```
-
-该命令会安装并激活最新版本：`mudud`、`mcli`、`mpk`、`mgen`、`mtp`。
-
-### 3. 验证安装
-
-```bash
-mudud --version
-mcli --version
-```
-
-如果 `${HOME}/.mududb/mududb_cfg.toml` 不存在，`mudup install` 会自动创建默认配置文件。
+- **[从源码开发 MuduDB](#从源码开发-mududb)** – 使用固定工具链从源码构建（推荐）。
+- **[使用 `mudup` 安装 MuduDB](#使用-mudup-安装-mududb)** – 通过 `mudup` 安装发布产物，无需源码构建（暂时不稳定）。
 
 ---
 
@@ -145,7 +115,7 @@ python script/build/install_binaries.py
 
 默认安装的工具有：
 
-- `mpk`：打包构建工具
+- `mpm-build`：打包构建工具
 - `mgen`：源码生成工具
 - `mtp`：转译器
 - `mudud`：MuduDB 服务器
@@ -156,6 +126,44 @@ python script/build/install_binaries.py
 ```bash
 python script/build/install_binaries.py --all-workspace-bins
 ```
+
+---
+
+## 使用 `mudup` 安装 MuduDB
+
+> **注意：** `mudup` 安装路径暂时 not stable，建议优先使用[从源码开发](#从源码开发-mududb)方式。
+
+该路径用于服务器部署和日常使用。
+
+### 1. 安装 `mudup`
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/scuptio/mudup/releases/download/latest/mudup-init.sh | sh
+mudup --help
+```
+
+### 2. 安装 MuduDB 及其工具链
+
+```bash
+mudup install
+```
+
+该命令会安装并激活最新版本：`mudud`、`mcli`、`mpm-build`、`mgen`、`mtp`。
+
+### 3. 验证安装
+
+```bash
+mudud --version
+mcli --version
+```
+
+安装完成后，在当前目录生成默认服务端配置文件：
+
+```bash
+mudud init-cfg
+```
+
+该命令会写入 `./mudud.cfg`。服务端启动时**不会**自动创建该文件。
 
 ---
 
@@ -206,27 +214,37 @@ stable 与 nightly 工具链升级必须分别提交独立的 Pull Request：
 
 ## 配置文件
 
-默认情况下，`mudud` 读取 `${HOME}/.mududb/mududb_cfg.toml`。先创建其父目录：
+`mudud` 按以下顺序查找配置文件：
+
+1. `--cfg` / `-c` 指定的路径（如果提供）。该路径会被直接使用。
+2. 当前工作目录下的 `./mudud.cfg`。
+3. 用户主目录下的 `~/.mududb/mudud.cfg`。
+
+第一个存在的文件会被加载。如果都不存在，`mudud` 返回 `NotFound` 错误并退出，不会自动创建文件。
+
+在不启动服务端的情况下，在当前目录生成默认的 `./mudud.cfg`：
 
 ```bash
-mkdir -p ${HOME}/.mududb
+mudud init-cfg
 ```
 
-不要创建空的 `mududb_cfg.toml`：服务端只要发现文件存在，就会把它当作用户配置解析。如果该文件不存在，`mudud` 首次启动时会按默认值自动创建它。
+不要创建空的 `mudud.cfg`：服务端只要发现文件存在，就会把它当作用户配置解析。
 
 使用其他位置的配置文件：
 
 ```bash
-mudud --cfg /path/to/mududb_cfg.toml
+mudud serve --cfg /path/to/mudud.cfg
+# 或简写
+mudud serve -c /path/to/mudud.cfg
 ```
 
 使用示例配置：
 
 ```bash
-cp doc/cfg/mududb_cfg.toml ${HOME}/.mududb/mududb_cfg.toml
+cp doc/cfg/mudud.cfg ./mudud.cfg
 ```
 
-另见：[mududb_cfg.toml 示例](../cfg/mududb_cfg.toml)。
+另见：[mudud.cfg 示例](../cfg/mudud.cfg)。
 
 ---
 

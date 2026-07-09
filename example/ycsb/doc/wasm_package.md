@@ -11,7 +11,7 @@ Tools:
 - `cargo-make`
 - `python3`
 - `mtp`
-- `mpk`
+- `mpm-build`
 
 Rust target:
 

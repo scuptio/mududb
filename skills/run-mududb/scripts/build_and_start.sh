@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 DATA="/tmp/mudu_manual_test/data"
 LOG="/tmp/mudu_manual_test/server.log"
 MPK_DIR="/tmp/mudu_manual_test/mpk"
+WORK_DIR="/tmp/mudu_manual_test"
 
 CLEAN=false
 [[ "${1:-}" == "--clean" ]] && CLEAN=true
@@ -27,8 +28,10 @@ if $CLEAN; then
     rm -rf "$DATA"/*
 fi
 
+cd "$WORK_DIR"
+
 # Write config
-cat > ~/.mudu/mududb_cfg.toml <<EOF
+cat > mudud.cfg <<EOF
 mpk_path = "$MPK_DIR"
 db_path = "$DATA"
 listen_ip = "127.0.0.1"
@@ -36,13 +39,13 @@ http_listen_port = 8300
 http_worker_threads = 1
 pg_listen_port = 5432
 enable_async = true
-server_mode = 1
+server_mode = "IOUring"
 tcp_listen_port = 9527
 worker_threads = 2
-routing_mode = 2
+routing_mode = "RemoteHash"
 EOF
 
-RUST_LOG=mudu_runtime=info mudud > "$LOG" 2>&1 &
+RUST_LOG=mudu_runtime=info mudud serve > "$LOG" 2>&1 &
 SERVER_PID=$!
 echo "mudud PID: $SERVER_PID, log: $LOG"
 

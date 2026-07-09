@@ -4,7 +4,7 @@ use mudu::common::result::RS;
 use mudu_sys::sync::async_::async_task::{AsyncLocalTask, Task};
 use mudu_utils::notifier::{Notifier, Waiter};
 
-use crate::backend::mududb_cfg::MuduDBCfg;
+use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::backend::web_serve;
 
 impl WebHandleTask {

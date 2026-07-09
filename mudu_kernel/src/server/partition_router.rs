@@ -9,8 +9,8 @@ use mudu::mudu_error;
 use mudu_contract::tuple::build_tuple::build_tuple;
 use mudu_contract::tuple::comparator::tuple_compare;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc;
-use mudu_type::dat_type_id::DatTypeID;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::partition_rule::{PartitionBound, PartitionRuleDesc};
@@ -159,10 +159,10 @@ impl PartitionRouter {
     }
 }
 
-fn build_rule_tuple_desc(key_types: &[DatTypeID]) -> RS<TupleBinaryDesc> {
+fn build_rule_tuple_desc(key_types: &[TypeFamily]) -> RS<TupleBinaryDesc> {
     let types = key_types
         .iter()
-        .map(|id| mudu_type::dat_type::DatType::default_for(*id))
+        .map(|id| mudu_type::data_type::DataType::default_for(*id))
         .collect();
     TupleBinaryDesc::from(types)
 }
@@ -228,7 +228,7 @@ fn build_route_tuple_desc(table_desc: &TableDesc, ref_attrs: &[usize]) -> RS<Tup
         })
         .collect::<Vec<_>>();
     fields.sort_by_key(|(_, datum_index)| *datum_index);
-    let types = fields.into_iter().map(|(dat_type, _)| dat_type).collect();
+    let types = fields.into_iter().map(|(data_type, _)| data_type).collect();
     TupleBinaryDesc::from(types)
 }
 
@@ -280,10 +280,10 @@ fn build_partition_bound_tuple(route_desc: &TupleBinaryDesc, values: &[Vec<u8>])
     let mut binaries = Vec::with_capacity(values.len());
     for (index, textual) in values.iter().enumerate() {
         let field_desc = route_desc.get_field_desc(index);
-        let dat_type = field_desc.type_obj();
+        let data_type = field_desc.type_obj();
         binaries.push(textual_to_binary(
-            dat_type.dat_type_id(),
-            dat_type,
+            data_type.type_family(),
+            data_type,
             textual,
         )?);
     }
@@ -291,25 +291,25 @@ fn build_partition_bound_tuple(route_desc: &TupleBinaryDesc, values: &[Vec<u8>])
 }
 
 fn textual_to_binary(
-    data_type_id: DatTypeID,
-    dat_type: &mudu_type::dat_type::DatType,
+    data_type_id: TypeFamily,
+    data_type: &mudu_type::data_type::DataType,
     raw: &[u8],
 ) -> RS<Vec<u8>> {
     let text = String::from_utf8(raw.to_vec())
         .map_err(|e| mudu_error!(ErrorCode::Decode, "partition bound text is not utf8", e))?;
     let normalized = strip_text_literal_quotes(text.trim());
     let datum: Box<dyn DatumDyn> = match data_type_id {
-        DatTypeID::I32 => Box::new(<i32 as mudu_type::datum::Datum>::from_textual(&normalized)?),
-        DatTypeID::I64 => Box::new(<i64 as mudu_type::datum::Datum>::from_textual(&normalized)?),
-        DatTypeID::I128 => Box::new(<i128 as mudu_type::datum::Datum>::from_textual(
+        TypeFamily::I32 => Box::new(<i32 as mudu_type::datum::Datum>::from_textual(&normalized)?),
+        TypeFamily::I64 => Box::new(<i64 as mudu_type::datum::Datum>::from_textual(&normalized)?),
+        TypeFamily::I128 => Box::new(<i128 as mudu_type::datum::Datum>::from_textual(
             &normalized,
         )?),
-        DatTypeID::U128 => Box::new(<u128 as mudu_type::datum::Datum>::from_textual(
+        TypeFamily::U128 => Box::new(<u128 as mudu_type::datum::Datum>::from_textual(
             &normalized,
         )?),
-        DatTypeID::F32 => Box::new(<f32 as mudu_type::datum::Datum>::from_textual(&normalized)?),
-        DatTypeID::F64 => Box::new(<f64 as mudu_type::datum::Datum>::from_textual(&normalized)?),
-        DatTypeID::String => Box::new(<String as mudu_type::datum::Datum>::from_textual(
+        TypeFamily::F32 => Box::new(<f32 as mudu_type::datum::Datum>::from_textual(&normalized)?),
+        TypeFamily::F64 => Box::new(<f64 as mudu_type::datum::Datum>::from_textual(&normalized)?),
+        TypeFamily::String => Box::new(<String as mudu_type::datum::Datum>::from_textual(
             &normalized,
         )?),
         _ => {
@@ -319,7 +319,7 @@ fn textual_to_binary(
             ));
         }
     };
-    datum.to_binary(dat_type).map(|binary| binary.into())
+    datum.to_binary(data_type).map(|binary| binary.into())
 }
 
 fn strip_text_literal_quotes(input: &str) -> String {
@@ -349,7 +349,7 @@ mod tests {
     use async_trait::async_trait;
     use mudu::common::id::AttrIndex;
     use mudu::error::ErrorCode;
-    use mudu_type::dt_info::DTInfo;
+    use mudu_type::data_type_info::DataTypeInfo;
 
     struct TestMetaMgr {
         table_desc: Arc<TableDesc>,
@@ -419,13 +419,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
                 SchemaColumn::new(
                     "v".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
             ],
             vec![0],
@@ -442,13 +442,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "a".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
                 SchemaColumn::new(
                     "b".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_text(DatTypeID::I32, String::new()),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
                 ),
             ],
             vec![0, 1],
@@ -470,7 +470,7 @@ mod tests {
     fn single_col_rule() -> PartitionRuleDesc {
         PartitionRuleDesc::new_range(
             "r".to_string(),
-            vec![DatTypeID::I32],
+            vec![TypeFamily::I32],
             vec![
                 RangePartitionDef::new(
                     "p1".to_string(),
@@ -494,7 +494,7 @@ mod tests {
     fn multi_col_rule() -> PartitionRuleDesc {
         PartitionRuleDesc::new_range(
             "r2".to_string(),
-            vec![DatTypeID::I32, DatTypeID::I32],
+            vec![TypeFamily::I32, TypeFamily::I32],
             vec![
                 RangePartitionDef::new(
                     "p1".to_string(),
@@ -733,7 +733,7 @@ mod tests {
     fn textual_to_binary_unsupported_type_returns_not_implemented() {
         let rule = PartitionRuleDesc::new_range(
             "date_rule".to_string(),
-            vec![DatTypeID::Date],
+            vec![TypeFamily::Date],
             vec![RangePartitionDef::new(
                 "p1".to_string(),
                 PartitionBound::Value(vec![v("2024-01-01")]),

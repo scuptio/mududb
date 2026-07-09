@@ -27,11 +27,11 @@ mod tests {
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
     use mudu_type::datum::DatumDyn;
-    use mudu_type::dt_info::DTInfo;
-    use mudu_type::dtp_numeric::DTPNumeric;
+    use mudu_type::type_family::TypeFamily;
     use sql_parser::ast::parser::SQLParser;
     use sql_parser::ast::stmt_type::StmtType;
     use std::collections::HashMap;
@@ -121,13 +121,13 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
             ],
             vec![0],
@@ -141,18 +141,18 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "tenant_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "user_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
                 ),
             ],
             vec![0, 1],
@@ -161,20 +161,20 @@ mod tests {
     }
 
     fn numeric_schema() -> SchemaTable {
-        let amount_type = DatType::from_numeric(DTPNumeric::new(9, 2));
-        let note_type = DatType::default_for(DatTypeID::String);
+        let amount_type = DataType::from_numeric(DataTypeParamNumeric::new(9, 2));
+        let note_type = DataType::default_for(TypeFamily::String);
         SchemaTable::new(
             "ledger".to_string(),
             vec![
                 SchemaColumn::new(
                     "amount".to_string(),
-                    DatTypeID::Numeric,
-                    DTInfo::from_opt_object(&amount_type),
+                    TypeFamily::Numeric,
+                    DataTypeInfo::from_opt_object(&amount_type),
                 ),
                 SchemaColumn::new(
                     "note".to_string(),
-                    DatTypeID::String,
-                    DTInfo::from_opt_object(&note_type),
+                    TypeFamily::String,
+                    DataTypeInfo::from_opt_object(&note_type),
                 ),
             ],
             vec![0],
@@ -201,13 +201,13 @@ mod tests {
     fn not_null_value_binder() -> Binder {
         let id = SchemaColumn::new(
             "id".to_string(),
-            DatTypeID::I32,
-            DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+            TypeFamily::I32,
+            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
         );
         let mut name = SchemaColumn::new(
             "name".to_string(),
-            DatTypeID::String,
-            DTInfo::from_opt_object(&DatType::default_for(DatTypeID::String)),
+            TypeFamily::String,
+            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
         );
         name.set_nullable(false);
         Binder::new(Arc::new(TestMetaMgr::new(SchemaTable::new(
@@ -526,8 +526,8 @@ mod tests {
             let BoundStmt::Command(BoundCommand::Insert(insert)) = bound else {
                 panic!("expected bound insert");
             };
-            let amount_type = DatType::from_numeric(DTPNumeric::new(9, 2));
-            let note_type = DatType::default_for(DatTypeID::String);
+            let amount_type = DataType::from_numeric(DataTypeParamNumeric::new(9, 2));
+            let note_type = DataType::default_for(TypeFamily::String);
 
             assert_eq!(insert.rows.len(), 1);
             assert_eq!(insert.rows[0].key.len(), 1);
@@ -567,7 +567,7 @@ mod tests {
             let BoundStmt::Query(BoundQuery::Select(select)) = bound else {
                 panic!("expected bound select");
             };
-            let amount_type = DatType::from_numeric(DTPNumeric::new(9, 2));
+            let amount_type = DataType::from_numeric(DataTypeParamNumeric::new(9, 2));
             let expected = Numeric::parse("12.3400")
                 .unwrap()
                 .to_binary(&amount_type)
@@ -688,7 +688,7 @@ mod tests {
     fn rule_with_bounds(name: &str) -> PartitionRuleDesc {
         PartitionRuleDesc::new_range(
             name.to_string(),
-            vec![DatTypeID::I32],
+            vec![TypeFamily::I32],
             vec![
                 RangePartitionDef::new(
                     "p0".to_string(),
@@ -710,18 +710,18 @@ mod tests {
             vec![
                 SchemaColumn::new(
                     "region_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "order_id".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
                 SchemaColumn::new(
                     "amount".to_string(),
-                    DatTypeID::I32,
-                    DTInfo::from_opt_object(&DatType::default_for(DatTypeID::I32)),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
                 ),
             ],
             vec![0, 1],
@@ -753,7 +753,7 @@ mod tests {
             let BoundStmt::Command(BoundCommand::CreatePartitionRule(rule)) = bound else {
                 panic!("expected create partition rule");
             };
-            assert_eq!(rule.rule.key_types, vec![DatTypeID::I64]);
+            assert_eq!(rule.rule.key_types, vec![TypeFamily::I64]);
             assert_eq!(rule.rule.partitions.len(), 2);
         })
         .unwrap()

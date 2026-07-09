@@ -9,11 +9,11 @@ use crate::ast::column_def::ColumnDef;
 use crate::ast::stmt_create_table::StmtCreateTable;
 use crate::ast::stmt_table_partition::StmtTablePartition;
 use mudu::common::id::AttrIndex;
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_scalar::UniScalar;
 
 fn int_column(name: &str) -> ColumnDef {
-    ColumnDef::new(name.to_string(), UniDatType::Scalar(UniScalar::I32), None)
+    ColumnDef::new(name.to_string(), UniDataType::Scalar(UniScalar::I32), None)
 }
 
 #[test]

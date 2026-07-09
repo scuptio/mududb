@@ -11,7 +11,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::procedure::procedure_invoke;
-use mudu_binding::universal::{uni_dat_value::UniDatValue, uni_scalar_value::UniScalarValue};
+use mudu_binding::universal::{uni_data_value::UniDataValue, uni_scalar_value::UniScalarValue};
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
 use mudu_cli::client::json_client::JsonClient;
 use mudu_contract::procedure::procedure_result::ProcedureResult;
@@ -24,9 +24,9 @@ use mudu_contract::protocol::{
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -186,9 +186,9 @@ fn select_1_response() -> ServerResponse {
     ServerResponse::new(
         TupleFieldDesc::new(vec![DatumDesc::new(
             "value".to_string(),
-            DatType::default_for(DatTypeID::String),
+            DataType::default_for(TypeFamily::String),
         )]),
-        vec![TupleValue::from(vec![DatValue::from_string(
+        vec![TupleValue::from(vec![DataValue::from_string(
             "1".to_string(),
         )])],
         0,
@@ -201,7 +201,7 @@ fn affected_rows_response(rows: u64) -> ServerResponse {
 }
 
 fn json_string_value_bytes(value: &str) -> Vec<u8> {
-    serde_json::to_vec(&UniDatValue::from_scalar(UniScalarValue::from_string(
+    serde_json::to_vec(&UniDataValue::from_scalar(UniScalarValue::from_string(
         value.to_string(),
     )))
     .unwrap()

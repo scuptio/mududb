@@ -7,7 +7,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -18,7 +18,7 @@
               "name": "user_key"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -40,7 +40,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -51,7 +51,7 @@
               "name": "user_key"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -73,7 +73,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -84,7 +84,7 @@
               "name": "start_user_key"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -99,11 +99,11 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "Array",
                 "param": {
                   "Array": {
-                    "dat_type": {
+                    "data_type": {
                       "id": "String",
                       "param": {
                         "String": {
@@ -126,7 +126,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -141,7 +141,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -160,7 +160,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -171,7 +171,7 @@
               "name": "user_key"
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -186,7 +186,7 @@
         "return_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {

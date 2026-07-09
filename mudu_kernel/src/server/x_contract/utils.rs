@@ -56,7 +56,7 @@ pub(crate) fn build_value_tuple(data: &VecDatum, desc: &TableDesc) -> RS<Vec<u8>
 }
 
 pub(crate) fn build_tuple_for<const IS_KEY: bool>(
-    data: &Vec<(AttrIndex, DatBin)>,
+    data: &Vec<(AttrIndex, DataBin)>,
     desc: &TableDesc,
 ) -> RS<Vec<u8>> {
     let mut vec_data = data.clone();
@@ -124,7 +124,7 @@ pub(crate) fn build_tuple_for<const IS_KEY: bool>(
             return Err(mudu_error!(ErrorCode::InvalidTuple));
         }
         completed[datum_index] = Some(NullableValue::Value(
-            field.type_desc().dat_type_id().fn_recv()(value, field.type_desc())
+            field.type_desc().type_family().fn_recv()(value, field.type_desc())
                 .map_err(|e| e.to_m_err())?
                 .0,
         ));
@@ -139,7 +139,7 @@ pub(crate) fn build_tuple_for<const IS_KEY: bool>(
             completed[datum_index] = Some(NullableValue::Null);
             continue;
         }
-        let default = field.type_desc().dat_type_id().fn_default()(field.type_desc())
+        let default = field.type_desc().type_family().fn_default()(field.type_desc())
             .map_err(|e| e.to_m_err())?;
         completed[datum_index] = Some(NullableValue::Value(default));
     }
@@ -151,7 +151,7 @@ pub(crate) fn build_tuple_for<const IS_KEY: bool>(
 }
 
 pub(crate) fn build_bound_key(
-    bound: &Bound<Vec<(AttrIndex, DatBin)>>,
+    bound: &Bound<Vec<(AttrIndex, DataBin)>>,
     desc: &TableDesc,
 ) -> RS<Bound<Vec<u8>>> {
     match bound {
@@ -176,7 +176,7 @@ pub(crate) fn bound_key_as_ref(bound: &Bound<Vec<u8>>) -> Bound<&[u8]> {
 }
 
 pub(crate) fn rpc_bound_from_key_bound(
-    bound: &Bound<Vec<(AttrIndex, DatBin)>>,
+    bound: &Bound<Vec<(AttrIndex, DataBin)>>,
     desc: &TableDesc,
 ) -> RS<RpcBound> {
     match bound {
@@ -205,7 +205,7 @@ pub(crate) fn project_selected_fields(
     key: &[u8],
     value: &[u8],
     select: &VecSelTerm,
-) -> RS<Vec<Option<DatBin>>> {
+) -> RS<Vec<Option<DataBin>>> {
     let mut tuple_ret = vec![];
     for i in select.vec() {
         let f = desc.get_attr(*i);

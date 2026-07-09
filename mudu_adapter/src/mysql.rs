@@ -19,8 +19,8 @@ use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_sys::sync::SMutex;
 use mudu_sys::sync::async_::mutex::AMutex;
 use mudu_sys::sync::async_::rwlock::ARwLock;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_value::DataValue;
+use mudu_type::type_family::TypeFamily;
 use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Opts, Pool, Row, Value};
@@ -418,16 +418,16 @@ fn build_desc(row: Option<&Row>) -> TupleFieldDesc {
                 ColumnType::MYSQL_TYPE_TINY
                 | ColumnType::MYSQL_TYPE_SHORT
                 | ColumnType::MYSQL_TYPE_LONG
-                | ColumnType::MYSQL_TYPE_INT24 => DatTypeID::I32,
-                ColumnType::MYSQL_TYPE_LONGLONG => DatTypeID::I64,
-                ColumnType::MYSQL_TYPE_FLOAT => DatTypeID::F32,
+                | ColumnType::MYSQL_TYPE_INT24 => TypeFamily::I32,
+                ColumnType::MYSQL_TYPE_LONGLONG => TypeFamily::I64,
+                ColumnType::MYSQL_TYPE_FLOAT => TypeFamily::F32,
                 ColumnType::MYSQL_TYPE_DOUBLE
                 | ColumnType::MYSQL_TYPE_DECIMAL
-                | ColumnType::MYSQL_TYPE_NEWDECIMAL => DatTypeID::F64,
+                | ColumnType::MYSQL_TYPE_NEWDECIMAL => TypeFamily::F64,
                 ColumnType::MYSQL_TYPE_BLOB
                 | ColumnType::MYSQL_TYPE_TINY_BLOB
                 | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
-                | ColumnType::MYSQL_TYPE_LONG_BLOB => DatTypeID::Binary,
+                | ColumnType::MYSQL_TYPE_LONG_BLOB => TypeFamily::Binary,
                 _ => infer_type_from_mysql_value(row.as_ref(idx).unwrap_or(&Value::NULL)),
             };
             DatumDesc::new(format!("field_{}", idx), datum_type_for_id(ty))
@@ -449,16 +449,16 @@ fn build_async_desc(row: Option<&AsyncRow>) -> TupleFieldDesc {
                 AsyncColumnType::MYSQL_TYPE_TINY
                 | AsyncColumnType::MYSQL_TYPE_SHORT
                 | AsyncColumnType::MYSQL_TYPE_LONG
-                | AsyncColumnType::MYSQL_TYPE_INT24 => DatTypeID::I32,
-                AsyncColumnType::MYSQL_TYPE_LONGLONG => DatTypeID::I64,
-                AsyncColumnType::MYSQL_TYPE_FLOAT => DatTypeID::F32,
+                | AsyncColumnType::MYSQL_TYPE_INT24 => TypeFamily::I32,
+                AsyncColumnType::MYSQL_TYPE_LONGLONG => TypeFamily::I64,
+                AsyncColumnType::MYSQL_TYPE_FLOAT => TypeFamily::F32,
                 AsyncColumnType::MYSQL_TYPE_DOUBLE
                 | AsyncColumnType::MYSQL_TYPE_DECIMAL
-                | AsyncColumnType::MYSQL_TYPE_NEWDECIMAL => DatTypeID::F64,
+                | AsyncColumnType::MYSQL_TYPE_NEWDECIMAL => TypeFamily::F64,
                 AsyncColumnType::MYSQL_TYPE_BLOB
                 | AsyncColumnType::MYSQL_TYPE_TINY_BLOB
                 | AsyncColumnType::MYSQL_TYPE_MEDIUM_BLOB
-                | AsyncColumnType::MYSQL_TYPE_LONG_BLOB => DatTypeID::Binary,
+                | AsyncColumnType::MYSQL_TYPE_LONG_BLOB => TypeFamily::Binary,
                 _ => {
                     infer_type_from_mysql_async_value(row.as_ref(idx).unwrap_or(&AsyncValue::NULL))
                 }
@@ -473,7 +473,7 @@ fn row_to_tuple_value(row: Row) -> RS<TupleValue> {
     let values = row
         .unwrap()
         .into_iter()
-        .map(mysql_value_to_dat_value)
+        .map(mysql_value_to_data_value)
         .collect::<RS<Vec<_>>>()?;
     Ok(TupleValue::from(values))
 }
@@ -482,50 +482,50 @@ fn async_row_to_tuple_value(row: AsyncRow) -> RS<TupleValue> {
     let values = row
         .unwrap()
         .into_iter()
-        .map(mysql_async_value_to_dat_value)
+        .map(mysql_async_value_to_data_value)
         .collect::<RS<Vec<_>>>()?;
     Ok(TupleValue::from(values))
 }
 
-fn infer_type_from_mysql_value(value: &Value) -> DatTypeID {
+fn infer_type_from_mysql_value(value: &Value) -> TypeFamily {
     match value {
-        Value::Int(_) | Value::UInt(_) => DatTypeID::I64,
-        Value::Float(_) => DatTypeID::F32,
-        Value::Double(_) => DatTypeID::F64,
-        Value::Bytes(_) => DatTypeID::String,
-        _ => DatTypeID::String,
+        Value::Int(_) | Value::UInt(_) => TypeFamily::I64,
+        Value::Float(_) => TypeFamily::F32,
+        Value::Double(_) => TypeFamily::F64,
+        Value::Bytes(_) => TypeFamily::String,
+        _ => TypeFamily::String,
     }
 }
 
-fn infer_type_from_mysql_async_value(value: &AsyncValue) -> DatTypeID {
+fn infer_type_from_mysql_async_value(value: &AsyncValue) -> TypeFamily {
     match value {
-        AsyncValue::Int(_) | AsyncValue::UInt(_) => DatTypeID::I64,
-        AsyncValue::Float(_) => DatTypeID::F32,
-        AsyncValue::Double(_) => DatTypeID::F64,
-        AsyncValue::Bytes(_) => DatTypeID::String,
-        _ => DatTypeID::String,
+        AsyncValue::Int(_) | AsyncValue::UInt(_) => TypeFamily::I64,
+        AsyncValue::Float(_) => TypeFamily::F32,
+        AsyncValue::Double(_) => TypeFamily::F64,
+        AsyncValue::Bytes(_) => TypeFamily::String,
+        _ => TypeFamily::String,
     }
 }
 
-fn mysql_value_to_dat_value(value: Value) -> RS<DatValue> {
+fn mysql_value_to_data_value(value: Value) -> RS<DataValue> {
     match value {
         Value::NULL => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "NULL value is not supported"
         )),
-        Value::Int(v) => Ok(DatValue::from_i64(v)),
-        Value::UInt(v) => Ok(DatValue::from_i64(v as i64)),
-        Value::Float(v) => Ok(DatValue::from_f32(v)),
-        Value::Double(v) => Ok(DatValue::from_f64(v)),
+        Value::Int(v) => Ok(DataValue::from_i64(v)),
+        Value::UInt(v) => Ok(DataValue::from_i64(v as i64)),
+        Value::Float(v) => Ok(DataValue::from_f32(v)),
+        Value::Double(v) => Ok(DataValue::from_f64(v)),
         Value::Bytes(v) => match String::from_utf8(v.clone()) {
-            Ok(s) => Ok(DatValue::from_string(s)),
-            Err(_) => Ok(DatValue::from_binary(v)),
+            Ok(s) => Ok(DataValue::from_string(s)),
+            Err(_) => Ok(DataValue::from_binary(v)),
         },
-        Value::Date(y, m, d, hh, mm, ss, micros) => Ok(DatValue::from_string(format!(
+        Value::Date(y, m, d, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
             y, m, d, hh, mm, ss, micros
         ))),
-        Value::Time(is_neg, days, hh, mm, ss, micros) => Ok(DatValue::from_string(format!(
+        Value::Time(is_neg, days, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{}{} {:02}:{:02}:{:02}.{:06}",
             if is_neg { "-" } else { "" },
             days,
@@ -537,25 +537,25 @@ fn mysql_value_to_dat_value(value: Value) -> RS<DatValue> {
     }
 }
 
-fn mysql_async_value_to_dat_value(value: AsyncValue) -> RS<DatValue> {
+fn mysql_async_value_to_data_value(value: AsyncValue) -> RS<DataValue> {
     match value {
         AsyncValue::NULL => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "NULL value is not supported"
         )),
-        AsyncValue::Int(v) => Ok(DatValue::from_i64(v)),
-        AsyncValue::UInt(v) => Ok(DatValue::from_i64(v as i64)),
-        AsyncValue::Float(v) => Ok(DatValue::from_f32(v)),
-        AsyncValue::Double(v) => Ok(DatValue::from_f64(v)),
+        AsyncValue::Int(v) => Ok(DataValue::from_i64(v)),
+        AsyncValue::UInt(v) => Ok(DataValue::from_i64(v as i64)),
+        AsyncValue::Float(v) => Ok(DataValue::from_f32(v)),
+        AsyncValue::Double(v) => Ok(DataValue::from_f64(v)),
         AsyncValue::Bytes(v) => match String::from_utf8(v.clone()) {
-            Ok(s) => Ok(DatValue::from_string(s)),
-            Err(_) => Ok(DatValue::from_binary(v)),
+            Ok(s) => Ok(DataValue::from_string(s)),
+            Err(_) => Ok(DataValue::from_binary(v)),
         },
-        AsyncValue::Date(y, m, d, hh, mm, ss, micros) => Ok(DatValue::from_string(format!(
+        AsyncValue::Date(y, m, d, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
             y, m, d, hh, mm, ss, micros
         ))),
-        AsyncValue::Time(is_neg, days, hh, mm, ss, micros) => Ok(DatValue::from_string(format!(
+        AsyncValue::Time(is_neg, days, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{}{} {:02}:{:02}:{:02}.{:06}",
             if is_neg { "-" } else { "" },
             days,

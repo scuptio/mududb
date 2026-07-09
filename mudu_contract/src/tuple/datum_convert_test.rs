@@ -7,15 +7,15 @@ mod tests {
         datum_from_binary, datum_from_value, datum_to_binary, datum_to_value,
     };
     use crate::tuple::datum_desc::DatumDesc;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_desc() -> DatumDesc {
-        DatumDesc::new("x".to_string(), DatType::new_no_param(DatTypeID::I32))
+        DatumDesc::new("x".to_string(), DataType::new_no_param(TypeFamily::I32))
     }
 
     fn string_desc() -> DatumDesc {
-        DatumDesc::new("s".to_string(), DatType::default_for(DatTypeID::String))
+        DatumDesc::new("s".to_string(), DataType::default_for(TypeFamily::String))
     }
 
     #[test]
@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn datum_to_value_and_from_value_roundtrip_i32() {
-        let ty = DatType::new_no_param(DatTypeID::I32);
+        let ty = DataType::new_no_param(TypeFamily::I32);
         let original = 42i32;
         let value = datum_to_value(&original, &ty).unwrap();
         let restored: i32 = datum_from_value(&value).unwrap();
@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn datum_to_value_and_from_value_roundtrip_string() {
-        let ty = DatType::default_for(DatTypeID::String);
+        let ty = DataType::default_for(TypeFamily::String);
         let original = "hello".to_string();
         let value = datum_to_value(&original, &ty).unwrap();
         let restored: String = datum_from_value(&value).unwrap();
@@ -55,15 +55,15 @@ mod tests {
     }
 
     #[test]
-    fn datum_to_value_i64_produces_expected_dat_value() {
-        let ty = DatType::new_no_param(DatTypeID::I64);
+    fn datum_to_value_i64_produces_expected_data_value() {
+        let ty = DataType::new_no_param(TypeFamily::I64);
         let value = datum_to_value(&123456789i64, &ty).unwrap();
         assert_eq!(*value.as_i64().unwrap(), 123456789i64);
     }
 
     #[test]
     fn datum_from_value_extracts_f64() {
-        let value = mudu_type::dat_value::DatValue::from_f64(2.5);
+        let value = mudu_type::data_value::DataValue::from_f64(2.5);
         let restored: f64 = datum_from_value(&value).unwrap();
         assert!((restored - 2.5).abs() < f64::EPSILON);
     }

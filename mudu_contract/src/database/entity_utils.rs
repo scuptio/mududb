@@ -9,12 +9,12 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_type as data_type;
-use mudu_type::dat_binary::DatBinary;
-use mudu_type::dat_textual::DatTextual;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_binary::DataBinary;
+use mudu_type::data_textual::DataTextual;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 
 fn _entity_from_tuple<R: Entity, T: AsRef<TupleField>, D: AsRef<TupleFieldDesc>>(
     row: T,
@@ -82,7 +82,7 @@ fn _entity_to_tuple<R: Entity, D: AsRef<TupleFieldDesc>>(record: &R, desc: D) ->
     Ok(TupleField::new(tuple))
 }
 
-fn _entity_from_value<R: Entity, V: AsRef<DatValue>, D: AsRef<TupleFieldDesc>>(
+fn _entity_from_value<R: Entity, V: AsRef<DataValue>, D: AsRef<TupleFieldDesc>>(
     value: V,
     desc: D,
 ) -> RS<R> {
@@ -110,10 +110,10 @@ fn _entity_from_value<R: Entity, V: AsRef<DatValue>, D: AsRef<TupleFieldDesc>>(
     Ok(record)
 }
 
-fn _entity_to_value<R: Entity>(record: &R, ty: &DatType) -> RS<DatValue> {
+fn _entity_to_value<R: Entity>(record: &R, ty: &DataType) -> RS<DataValue> {
     let mut value = vec![];
-    let object_param = match ty.dat_type_id() {
-        DatTypeID::Record => ty.expect_record_param(),
+    let object_param = match ty.type_family() {
+        TypeFamily::Record => ty.expect_record_param(),
         _ => {
             return Err(mudu_error!(
                 ErrorCode::TypeConversionFailed,
@@ -132,7 +132,7 @@ fn _entity_to_value<R: Entity>(record: &R, ty: &DatType) -> RS<DatValue> {
             ));
         }
     }
-    Ok(DatValue::from_record(value))
+    Ok(DataValue::from_record(value))
 }
 
 pub fn entity_from_tuple_field<E: Entity, T: AsRef<TupleField>>(tuple_row: T) -> RS<E> {
@@ -143,13 +143,13 @@ pub fn entity_from_tuple_value<E: Entity, T: AsRef<TupleValue>>(tuple_row: T) ->
     _entity_from_tuple_value(tuple_row, E::tuple_desc())
 }
 
-pub fn entity_from_value<E: Entity, V: AsRef<DatValue>>(value: V) -> RS<E> {
+pub fn entity_from_value<E: Entity, V: AsRef<DataValue>>(value: V) -> RS<E> {
     _entity_from_value(value, E::tuple_desc())
 }
 
 pub fn entity_from_textual<E: Entity>(textual: &str) -> RS<E> {
-    let ty = E::dat_type();
-    let value = ty.dat_type_id().fn_input()(textual, &ty).map_err(|e| {
+    let ty = E::data_type();
+    let value = ty.type_family().fn_input()(textual, &ty).map_err(|e| {
         mudu_error!(
             ErrorCode::TypeConversionFailed,
             "input from string error",
@@ -159,13 +159,13 @@ pub fn entity_from_textual<E: Entity>(textual: &str) -> RS<E> {
     entity_from_value(&value)
 }
 
-pub fn entity_dat_type_id() -> RS<DatTypeID> {
-    Ok(DatTypeID::Record)
+pub fn entity_type_family() -> RS<TypeFamily> {
+    Ok(TypeFamily::Record)
 }
 
 pub fn entity_from_binary<E: Entity>(binary: &[u8]) -> RS<E> {
-    let ty = E::dat_type();
-    let (value, _) = ty.dat_type_id().fn_recv()(binary, &ty).map_err(|e| {
+    let ty = E::data_type();
+    let (value, _) = ty.type_family().fn_recv()(binary, &ty).map_err(|e| {
         mudu_error!(
             ErrorCode::TypeConversionFailed,
             "convert binary to entity error",
@@ -176,13 +176,13 @@ pub fn entity_from_binary<E: Entity>(binary: &[u8]) -> RS<E> {
     Ok(entity)
 }
 
-pub fn entity_dat_type<E: Entity>() -> DatType {
+pub fn entity_data_type<E: Entity>() -> DataType {
     let object_name = E::object_name().to_string();
     let field_desc = E::tuple_desc();
     let mut vec = Vec::new();
     for field in field_desc.fields() {
-        let dat_type = field.dat_type();
-        vec.push((field.name().to_string(), dat_type.clone()));
+        let data_type = field.data_type();
+        vec.push((field.name().to_string(), data_type.clone()));
     }
     data_type::record::new_record_type(object_name, vec)
 }
@@ -191,9 +191,9 @@ pub fn entity_to_tuple<E: Entity>(entity: &E) -> RS<TupleField> {
     _entity_to_tuple(entity, E::tuple_desc())
 }
 
-pub fn entity_to_binary<E: Entity>(entity: &E, ty: &DatType) -> RS<DatBinary> {
+pub fn entity_to_binary<E: Entity>(entity: &E, ty: &DataType) -> RS<DataBinary> {
     let value = entity_to_value(entity, ty)?;
-    let id = ty.dat_type_id();
+    let id = ty.type_family();
     let binary = id.fn_send()(&value, ty).map_err(|e| {
         mudu_error!(
             ErrorCode::TypeConversionFailed,
@@ -204,9 +204,9 @@ pub fn entity_to_binary<E: Entity>(entity: &E, ty: &DatType) -> RS<DatBinary> {
     Ok(binary)
 }
 
-pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DatType) -> RS<DatTextual> {
+pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DataType) -> RS<DataTextual> {
     let value = entity_to_value(entity, ty)?;
-    let id = ty.dat_type_id();
+    let id = ty.type_family();
     let textual = id.fn_output()(&value, ty).map_err(|e| {
         mudu_error!(
             ErrorCode::TypeConversionFailed,
@@ -217,7 +217,7 @@ pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DatType) -> RS<DatTextual> 
     Ok(textual)
 }
 
-pub fn entity_to_value<E: Entity>(entity: &E, ty: &DatType) -> RS<DatValue> {
+pub fn entity_to_value<E: Entity>(entity: &E, ty: &DataType) -> RS<DataValue> {
     _entity_to_value(entity, ty)
 }
 

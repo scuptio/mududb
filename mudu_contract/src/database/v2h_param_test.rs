@@ -6,7 +6,7 @@ mod tests {
     };
     use crate::tuple::tuple_field::TupleField;
     use crate::tuple::tuple_field_desc::TupleFieldDesc;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_value::DataValue;
 
     fn empty_desc() -> TupleFieldDesc {
         TupleFieldDesc::new(vec![])
@@ -17,7 +17,7 @@ mod tests {
         let query = QueryIn::new(
             42,
             "SELECT 1".to_string(),
-            vec![DatValue::from_i32(1)],
+            vec![DataValue::from_i32(1)],
             empty_desc(),
         );
         assert_eq!(query.xid(), 42);

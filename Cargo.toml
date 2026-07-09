@@ -33,9 +33,10 @@ members = [
     "mudu_compat_migrate",
     "test_utils",
     "mudud",
-    "mudu_package",
+    "mpm_build",
     "mudu_transpiler",
-    "mudu_cli"]
+    "mudu_cli",
+    "mpm_install"]
 
 [workspace.package]
 rust-version = "1.96"
@@ -77,6 +78,7 @@ mudu_runtime = { path = "mudu_runtime" }
 mudu_kernel = { path = "mudu_kernel" }
 mudu_compat_migrate = { path = "mudu_compat_migrate" }
 mudu_cli = { path = "mudu_cli" }
+mpm_install = { path = "mpm_install" }
 mudu_utils = { path = "mudu_utils" }
 mudu_type = { path = "mudu_type" }
 mudu_contract = { path = "mudu_contract" }

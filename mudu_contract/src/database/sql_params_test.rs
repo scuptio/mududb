@@ -5,12 +5,12 @@ mod tests {
     use crate::tuple::datum_desc::DatumDesc;
     use crate::tuple::typed_bin::TypedBin;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
     use mudu_type::datum::DatumDyn;
+    use mudu_type::type_family::TypeFamily;
 
     fn i32_desc() -> DatumDesc {
-        DatumDesc::new("v".to_string(), DatType::new_no_param(DatTypeID::I32))
+        DatumDesc::new("v".to_string(), DataType::new_no_param(TypeFamily::I32))
     }
 
     #[test]
@@ -35,7 +35,7 @@ mod tests {
         let params = 42i32;
         assert_eq!(params.size(), 1);
         let datum = params.get_idx(0).unwrap();
-        assert_eq!(datum.dat_type_id().unwrap(), DatTypeID::I32);
+        assert_eq!(datum.type_family().unwrap(), TypeFamily::I32);
         // Single-value impl returns the same datum for any index.
         assert!(params.get_idx(100).is_some());
 
@@ -74,8 +74,8 @@ mod tests {
     #[test]
     fn vec_box_datum_params_roundtrip() {
         let params: Vec<Box<dyn DatumDyn>> = vec![
-            Box::new(TypedBin::new(DatTypeID::I32, vec![0, 0, 0, 1])),
-            Box::new(TypedBin::new(DatTypeID::I64, vec![0, 0, 0, 0, 0, 0, 0, 2])),
+            Box::new(TypedBin::new(TypeFamily::I32, vec![0, 0, 0, 1])),
+            Box::new(TypedBin::new(TypeFamily::I64, vec![0, 0, 0, 0, 0, 0, 0, 2])),
         ];
         assert_eq!(params.size(), 2);
         let desc = params.param_tuple_desc().unwrap();

@@ -6,7 +6,7 @@ use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
+use mudu_type::data_type::DataType;
 use mudu_type::datum::DatumDyn;
 use paste::paste;
 
@@ -32,8 +32,8 @@ pub trait SQLParams: Send + Sync {
         let mut vec = Vec::with_capacity(self.size() as usize);
         for i in 0..self.size() {
             let datum = self.get_idx_unchecked(i);
-            let dat_type = DatType::default_for(datum.dat_type_id()?);
-            let datum_desc = DatumDesc::new(format!("v_{}", i), dat_type);
+            let data_type = DataType::default_for(datum.type_family()?);
+            let datum_desc = DatumDesc::new(format!("v_{}", i), data_type);
             vec.push(datum_desc)
         }
         Ok(TupleFieldDesc::new(vec))
@@ -54,7 +54,7 @@ pub trait SQLParams: Send + Sync {
         let mut vec = Vec::with_capacity(size);
         for (i, datum_desc) in desc.iter().enumerate().take(size) {
             let datum = self.get_idx_unchecked(i as u64);
-            let binary = datum.to_binary(datum_desc.dat_type())?;
+            let binary = datum.to_binary(datum_desc.data_type())?;
             vec.push(binary.into())
         }
         Ok(vec)

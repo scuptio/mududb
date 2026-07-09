@@ -4,7 +4,7 @@
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L12-L34)"
+content="[Entity](../../mudu_contract/src/database/entity.rs#L15-L37)"
 lang="rust"
 -->
 ```rust
@@ -19,9 +19,9 @@ pub trait Entity: private::Sealed + Datum {
 
     fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DatValue>>;
+    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
 
-    fn set_field_value<D: AsRef<DatValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
+    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
 
     fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
         entity_utils::entity_from_tuple_field(tuple_row)
@@ -37,7 +37,7 @@ pub trait Entity: private::Sealed + Datum {
 
 <!--
 quote_begin
-content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L3-L7)"
+content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L6-L10)"
 lang="rust"
 -->
 ```rust
@@ -53,28 +53,28 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
 
 <!--
 quote_begin
-content="[DatumDyn](../../mudu_type/src/datum.rs#L17-L37)"
+content="[DatumDyn](../../mudu_type/src/datum.rs#L20-L40)"
 lang="rust"
 -->
 ```rust
 pub trait Datum: DatumDyn + Clone + 'static {
-    fn dat_type() -> DatType;
+    fn data_type() -> DataType;
 
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
-    fn from_value(value: &DatValue) -> RS<Self>;
+    fn from_value(value: &DataValue) -> RS<Self>;
 
     fn from_textual(textual: &str) -> RS<Self>;
 }
 
 pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
-    fn dat_type_id(&self) -> RS<DatTypeID>;
+    fn type_family(&self) -> RS<TypeFamily>;
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary>;
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary>;
 
-    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual>;
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual>;
 
-    fn to_value(&self, dat_type: &DatType) -> RS<DatValue>;
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue>;
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }

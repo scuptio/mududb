@@ -4,9 +4,9 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dtp_array::DTPArray;
+use mudu_type::data_type::DataType;
+use mudu_type::data_type_param_array::DataTypeParamArray;
+use mudu_type::type_family::TypeFamily;
 
 /// A Rust type encountered in a procedure signature.
 #[derive(Debug, Clone)]
@@ -116,16 +116,16 @@ impl RustType {
         }
     }
 
-    /// Convert this Rust type to a Mudu [`DatType`].
-    pub fn to_dat_type(&self, custom_types: &UniTypeDesc) -> RS<DatType> {
-        let dat_type = match self {
+    /// Convert this Rust type to a Mudu [`DataType`].
+    pub fn to_data_type(&self, custom_types: &UniTypeDesc) -> RS<DataType> {
+        let data_type = match self {
             RustType::Primitive(s) => match s.as_str() {
-                "i32" => DatType::default_for(DatTypeID::I32),
-                "i64" => DatType::default_for(DatTypeID::I64),
-                "i128" => DatType::default_for(DatTypeID::I128),
-                "u128" => DatType::default_for(DatTypeID::U128),
-                "f32" => DatType::default_for(DatTypeID::F32),
-                "f64" => DatType::default_for(DatTypeID::F64),
+                "i32" => DataType::default_for(TypeFamily::I32),
+                "i64" => DataType::default_for(TypeFamily::I64),
+                "i128" => DataType::default_for(TypeFamily::I128),
+                "u128" => DataType::default_for(TypeFamily::U128),
+                "f32" => DataType::default_for(TypeFamily::F32),
+                "f64" => DataType::default_for(TypeFamily::F64),
                 _ => {
                     return Err(mudu_error!(
                         ErrorCode::InvalidType,
@@ -134,8 +134,8 @@ impl RustType {
                 }
             },
             RustType::Custom(s) => match s.as_str() {
-                "OID" => DatType::default_for(DatTypeID::U128),
-                "String" => DatType::default_for(DatTypeID::String),
+                "OID" => DataType::default_for(TypeFamily::U128),
+                "String" => DataType::default_for(TypeFamily::String),
                 _ => {
                     let ty = custom_types.types.get(s).map_or_else(
                         || {
@@ -151,10 +151,10 @@ impl RustType {
             },
             RustType::Generic(ident, vec) => {
                 if self.is_vec_u8() {
-                    DatType::new_no_param(DatTypeID::Binary)
+                    DataType::new_no_param(TypeFamily::Binary)
                 } else if ident == "Vec" && vec.len() == 1 {
-                    let array = DTPArray::new(vec[0].to_dat_type(custom_types)?);
-                    DatType::from_array(array)
+                    let array = DataTypeParamArray::new(vec[0].to_data_type(custom_types)?);
+                    DataType::from_array(array)
                 } else {
                     return Err(mudu_error!(
                         ErrorCode::InvalidType,
@@ -169,7 +169,7 @@ impl RustType {
                 ));
             }
         };
-        Ok(dat_type)
+        Ok(data_type)
     }
 }
 

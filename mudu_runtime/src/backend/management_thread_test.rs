@@ -3,7 +3,7 @@
 use super::{MuduDBCfg, spawn_management_thread};
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudu_app_mgr::ListOption;
-use crate::backend::mududb_cfg::{RoutingMode, ServerMode};
+use crate::backend::mudud_cfg::{RoutingMode, ServerMode};
 use crate::service::app_list::AppList;
 use async_trait::async_trait;
 use mudu::common::id::OID;

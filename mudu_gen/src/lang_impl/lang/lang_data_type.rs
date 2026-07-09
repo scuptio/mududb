@@ -7,18 +7,18 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_scalar::UniScalar;
 
-/// Convert a [`UniDatType`] into a language-specific type name.
-pub fn uni_data_type_to_name(wit_ty: &UniDatType, lang: &LangKind) -> RS<String> {
+/// Convert a [`UniDataType`] into a language-specific type name.
+pub fn uni_data_type_to_name(wit_ty: &UniDataType, lang: &LangKind) -> RS<String> {
     _to_lang_type(wit_ty, lang)
 }
 
-/// Return the C# default-value expression for a [`UniDatType`].
-pub fn csharp_default_value_expr(wit_ty: &UniDatType) -> RS<String> {
+/// Return the C# default-value expression for a [`UniDataType`].
+pub fn csharp_default_value_expr(wit_ty: &UniDataType) -> RS<String> {
     match wit_ty {
-        UniDatType::Scalar(p_ty) => Ok(match p_ty {
+        UniDataType::Scalar(p_ty) => Ok(match p_ty {
             UniScalar::Bool => "false".to_string(),
             UniScalar::U8 => "0".to_string(),
             UniScalar::U16 => "0".to_string(),
@@ -41,30 +41,69 @@ pub fn csharp_default_value_expr(wit_ty: &UniDatType) -> RS<String> {
             UniScalar::Timestamp => "string.Empty".to_string(),
             UniScalar::TimestampTz => "string.Empty".to_string(),
         }),
-        UniDatType::Tuple(_) => Ok("default".to_string()),
-        UniDatType::Array(_) => Ok("[]".to_string()),
-        UniDatType::Option(inner_ty) => csharp_default_value_expr(inner_ty),
-        UniDatType::Identifier(ty_name) => Ok(format!("new {}()", to_pascal_case(ty_name))),
-        UniDatType::Box(inner_ty) => csharp_default_value_expr(inner_ty),
-        UniDatType::Result { .. } => Err(mudu_error!(
+        UniDataType::Tuple(_) => Ok("default".to_string()),
+        UniDataType::Array(_) => Ok("[]".to_string()),
+        UniDataType::Option(_) => Ok("default".to_string()),
+        UniDataType::Box(inner_ty) => csharp_default_value_expr(inner_ty),
+        UniDataType::Binary => Ok("[]".to_string()),
+        UniDataType::Identifier(ty_name) => Ok(format!("new {}()", to_pascal_case(ty_name))),
+        UniDataType::Result { .. } => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "C# default value for result type is not implemented"
         )),
-        UniDatType::Record { .. } => Err(mudu_error!(
+        UniDataType::Record { .. } => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "C# default value for record type is not implemented"
-        )),
-        UniDatType::Binary => Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "C# default value for binary type is not implemented"
         )),
     }
 }
 
-/// Return whether a [`UniDatType`] is a C# reference type.
-pub fn csharp_is_reference_type(wit_ty: &UniDatType) -> bool {
+/// Return the AssemblyScript default-value expression for a [`UniDataType`].
+pub fn assemblyscript_default_value_expr(wit_ty: &UniDataType) -> RS<String> {
     match wit_ty {
-        UniDatType::Scalar(p_ty) => {
+        UniDataType::Scalar(p_ty) => Ok(match p_ty {
+            UniScalar::Bool => "false".to_string(),
+            UniScalar::U8
+            | UniScalar::U16
+            | UniScalar::U32
+            | UniScalar::U64
+            | UniScalar::U128
+            | UniScalar::I8
+            | UniScalar::I16
+            | UniScalar::I32
+            | UniScalar::I64
+            | UniScalar::I128
+            | UniScalar::F32
+            | UniScalar::F64 => "0".to_string(),
+            UniScalar::Char | UniScalar::String => "\"\"".to_string(),
+            UniScalar::Blob => "new Uint8Array(0)".to_string(),
+            UniScalar::Numeric
+            | UniScalar::Date
+            | UniScalar::Time
+            | UniScalar::Timestamp
+            | UniScalar::TimestampTz => "\"\"".to_string(),
+        }),
+        UniDataType::Tuple(_) => Ok("[]".to_string()),
+        UniDataType::Array(_) => Ok("[]".to_string()),
+        UniDataType::Option(_) => Ok("null".to_string()),
+        UniDataType::Box(inner_ty) => assemblyscript_default_value_expr(inner_ty),
+        UniDataType::Binary => Ok("new Uint8Array(0)".to_string()),
+        UniDataType::Identifier(ty_name) => Ok(format!("new {}()", to_pascal_case(ty_name))),
+        UniDataType::Result { .. } => Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "AssemblyScript default value for result type is not implemented"
+        )),
+        UniDataType::Record { .. } => Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "AssemblyScript default value for record type is not implemented"
+        )),
+    }
+}
+
+/// Return whether a [`UniDataType`] is a C# reference type.
+pub fn csharp_is_reference_type(wit_ty: &UniDataType) -> bool {
+    match wit_ty {
+        UniDataType::Scalar(p_ty) => {
             matches!(
                 p_ty,
                 UniScalar::String
@@ -76,14 +115,14 @@ pub fn csharp_is_reference_type(wit_ty: &UniDatType) -> bool {
                     | UniScalar::TimestampTz
             )
         }
-        UniDatType::Tuple(_) => false,
-        UniDatType::Array(_) => true,
-        UniDatType::Option(inner_ty) => csharp_is_reference_type(inner_ty),
-        UniDatType::Identifier(_) => true,
-        UniDatType::Box(inner_ty) => csharp_is_reference_type(inner_ty),
-        UniDatType::Result { .. } => true,
-        UniDatType::Record { .. } => true,
-        UniDatType::Binary => true,
+        UniDataType::Tuple(_) => false,
+        UniDataType::Array(_) => true,
+        UniDataType::Option(inner_ty) => csharp_is_reference_type(inner_ty),
+        UniDataType::Box(inner_ty) => csharp_is_reference_type(inner_ty),
+        UniDataType::Binary => true,
+        UniDataType::Identifier(_) => true,
+        UniDataType::Result { .. } => true,
+        UniDataType::Record { .. } => true,
     }
 }
 
@@ -95,7 +134,7 @@ fn to_non_scalar_type(non_scalar: &NonScalarType, lang: &LangKind) -> RS<String>
     Ok(lang_impl::lang_non_scalar_name(lang, non_scalar))
 }
 
-fn handle_wit_tuple(vec_wit_ty: &[UniDatType], lang: &LangKind) -> RS<String> {
+fn handle_wit_tuple(vec_wit_ty: &[UniDataType], lang: &LangKind) -> RS<String> {
     let mut vec = Vec::new();
     for wit_ty in vec_wit_ty.iter() {
         let ty = uni_data_type_to_name(wit_ty, lang)?;
@@ -106,42 +145,41 @@ fn handle_wit_tuple(vec_wit_ty: &[UniDatType], lang: &LangKind) -> RS<String> {
     Ok(s)
 }
 
-fn _to_lang_type(wit_ty: &UniDatType, lang: &LangKind) -> RS<String> {
+fn _to_lang_type(wit_ty: &UniDataType, lang: &LangKind) -> RS<String> {
     let ty_str = match wit_ty {
-        UniDatType::Scalar(p_ty) => to_scalar_type(p_ty, lang)?,
-        UniDatType::Tuple(vec) => handle_wit_tuple(vec, lang)?,
-        UniDatType::Array(inner_ty) => {
+        UniDataType::Scalar(p_ty) => to_scalar_type(p_ty, lang)?,
+        UniDataType::Tuple(vec) => handle_wit_tuple(vec, lang)?,
+        UniDataType::Array(inner_ty) => {
             let inner = uni_data_type_to_name(inner_ty, lang)?;
             let non_scalar = NonScalarType::Array(inner);
             to_non_scalar_type(&non_scalar, lang)?
         }
-        UniDatType::Option(inner_ty) => {
+        UniDataType::Option(inner_ty) => {
             let inner = uni_data_type_to_name(inner_ty, lang)?;
-            let non_scalar = NonScalarType::Option(inner);
-            to_non_scalar_type(&non_scalar, lang)?
+            if *lang == LangKind::CSharp {
+                format!("{}?", inner)
+            } else {
+                let non_scalar = NonScalarType::Option(inner);
+                to_non_scalar_type(&non_scalar, lang)?
+            }
         }
-        UniDatType::Identifier(ty_name) => to_pascal_case(ty_name),
-        UniDatType::Box(inner_ty) => {
+        UniDataType::Identifier(ty_name) => to_pascal_case(ty_name),
+        UniDataType::Box(inner_ty) => {
             let inner = uni_data_type_to_name(inner_ty, lang)?;
             let non_scalar = NonScalarType::Box(inner);
             to_non_scalar_type(&non_scalar, lang)?
         }
-        UniDatType::Result { .. } => {
+        UniDataType::Binary => to_scalar_type(&UniScalar::Blob, lang)?,
+        UniDataType::Result { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 "result type is not implemented for language code generation"
             ));
         }
-        UniDatType::Record { .. } => {
+        UniDataType::Record { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 "record type is not implemented for language code generation"
-            ));
-        }
-        UniDatType::Binary => {
-            return Err(mudu_error!(
-                ErrorCode::NotImplemented,
-                "binary type is not implemented for language code generation"
             ));
         }
     };
@@ -155,7 +193,7 @@ mod tests {
     use mudu::common::result::RS;
     use mudu::error::ErrorCode;
     use mudu::mudu_error;
-    use mudu_binding::universal::uni_dat_type::UniDatType;
+    use mudu_binding::universal::uni_data_type::UniDataType;
     use mudu_binding::universal::uni_scalar::UniScalar;
 
     fn assert_not_implemented(result: RS<String>) -> RS<()> {
@@ -174,11 +212,11 @@ mod tests {
     #[test]
     fn scalar_types_map_to_language_names() -> RS<()> {
         assert_eq!(
-            uni_data_type_to_name(&UniDatType::Scalar(UniScalar::I32), &LangKind::Rust)?,
+            uni_data_type_to_name(&UniDataType::Scalar(UniScalar::I32), &LangKind::Rust)?,
             "i32"
         );
         assert_eq!(
-            uni_data_type_to_name(&UniDatType::Scalar(UniScalar::I32), &LangKind::CSharp)?,
+            uni_data_type_to_name(&UniDataType::Scalar(UniScalar::I32), &LangKind::CSharp)?,
             "int"
         );
         Ok(())
@@ -186,7 +224,7 @@ mod tests {
 
     #[test]
     fn composite_types_map_to_language_names() -> RS<()> {
-        let array = UniDatType::Array(Box::new(UniDatType::Scalar(UniScalar::String)));
+        let array = UniDataType::Array(Box::new(UniDataType::Scalar(UniScalar::String)));
         assert_eq!(
             uni_data_type_to_name(&array, &LangKind::Rust)?,
             "Vec<String>"
@@ -196,13 +234,13 @@ mod tests {
             "List<string>"
         );
 
-        let opt = UniDatType::Option(Box::new(UniDatType::Scalar(UniScalar::I64)));
+        let opt = UniDataType::Option(Box::new(UniDataType::Scalar(UniScalar::I64)));
         assert_eq!(uni_data_type_to_name(&opt, &LangKind::Rust)?, "Option<i64>");
-        assert_eq!(uni_data_type_to_name(&opt, &LangKind::CSharp)?, "long");
+        assert_eq!(uni_data_type_to_name(&opt, &LangKind::CSharp)?, "long?");
 
-        let tuple = UniDatType::Tuple(vec![
-            UniDatType::Scalar(UniScalar::I32),
-            UniDatType::Scalar(UniScalar::String),
+        let tuple = UniDataType::Tuple(vec![
+            UniDataType::Scalar(UniScalar::I32),
+            UniDataType::Scalar(UniScalar::String),
         ]);
         assert!(uni_data_type_to_name(&tuple, &LangKind::Rust)?.contains("i32"));
         Ok(())
@@ -210,33 +248,42 @@ mod tests {
 
     #[test]
     fn unsupported_types_return_not_implemented() -> RS<()> {
-        let result = UniDatType::Result(mudu_binding::universal::uni_result_type::UniResultType {
+        let result = UniDataType::Result(mudu_binding::universal::uni_result_type::UniResultType {
             ok: None,
             err: None,
         });
         assert_not_implemented(uni_data_type_to_name(&result, &LangKind::Rust))?;
+        Ok(())
+    }
 
-        let binary = UniDatType::Binary;
-        assert_not_implemented(uni_data_type_to_name(&binary, &LangKind::CSharp))?;
+    #[test]
+    fn binary_and_box_types_map_to_language_names() -> RS<()> {
+        let binary = UniDataType::Binary;
+        assert_eq!(uni_data_type_to_name(&binary, &LangKind::Rust)?, "Vec<u8>");
+        assert_eq!(uni_data_type_to_name(&binary, &LangKind::CSharp)?, "byte[]");
+
+        let boxed = UniDataType::Box(Box::new(UniDataType::Scalar(UniScalar::I32)));
+        assert_eq!(uni_data_type_to_name(&boxed, &LangKind::Rust)?, "Box<i32>");
+        assert_eq!(uni_data_type_to_name(&boxed, &LangKind::CSharp)?, "int");
         Ok(())
     }
 
     #[test]
     fn csharp_default_value_expr_scalars() -> RS<()> {
         assert_eq!(
-            csharp_default_value_expr(&UniDatType::Scalar(UniScalar::Bool))?,
+            csharp_default_value_expr(&UniDataType::Scalar(UniScalar::Bool))?,
             "false"
         );
         assert_eq!(
-            csharp_default_value_expr(&UniDatType::Scalar(UniScalar::I32))?,
+            csharp_default_value_expr(&UniDataType::Scalar(UniScalar::I32))?,
             "0"
         );
         assert_eq!(
-            csharp_default_value_expr(&UniDatType::Scalar(UniScalar::String))?,
+            csharp_default_value_expr(&UniDataType::Scalar(UniScalar::String))?,
             "string.Empty"
         );
         assert_eq!(
-            csharp_default_value_expr(&UniDatType::Scalar(UniScalar::Blob))?,
+            csharp_default_value_expr(&UniDataType::Scalar(UniScalar::Blob))?,
             "[]"
         );
         Ok(())
@@ -244,20 +291,20 @@ mod tests {
 
     #[test]
     fn csharp_default_value_expr_composites() -> RS<()> {
-        let arr = UniDatType::Array(Box::new(UniDatType::Scalar(UniScalar::I32)));
+        let arr = UniDataType::Array(Box::new(UniDataType::Scalar(UniScalar::I32)));
         assert_eq!(csharp_default_value_expr(&arr)?, "[]");
 
-        let id = UniDatType::Identifier("my_type".to_string());
+        let id = UniDataType::Identifier("my_type".to_string());
         assert_eq!(csharp_default_value_expr(&id)?, "new MyType()");
 
-        let opt = UniDatType::Option(Box::new(UniDatType::Scalar(UniScalar::String)));
-        assert_eq!(csharp_default_value_expr(&opt)?, "string.Empty");
+        let opt = UniDataType::Option(Box::new(UniDataType::Scalar(UniScalar::String)));
+        assert_eq!(csharp_default_value_expr(&opt)?, "default");
         Ok(())
     }
 
     #[test]
     fn csharp_default_value_expr_unsupported() -> RS<()> {
-        let result = UniDatType::Result(mudu_binding::universal::uni_result_type::UniResultType {
+        let result = UniDataType::Result(mudu_binding::universal::uni_result_type::UniResultType {
             ok: None,
             err: None,
         });
@@ -267,18 +314,18 @@ mod tests {
 
     #[test]
     fn csharp_is_reference_type_detects_reference_types() {
-        assert!(csharp_is_reference_type(&UniDatType::Scalar(
+        assert!(csharp_is_reference_type(&UniDataType::Scalar(
             UniScalar::String
         )));
-        assert!(csharp_is_reference_type(&UniDatType::Array(Box::new(
-            UniDatType::Scalar(UniScalar::I32)
+        assert!(csharp_is_reference_type(&UniDataType::Array(Box::new(
+            UniDataType::Scalar(UniScalar::I32)
         ))));
-        assert!(csharp_is_reference_type(&UniDatType::Identifier(
+        assert!(csharp_is_reference_type(&UniDataType::Identifier(
             "t".to_string()
         )));
-        assert!(!csharp_is_reference_type(&UniDatType::Scalar(
+        assert!(!csharp_is_reference_type(&UniDataType::Scalar(
             UniScalar::I32
         )));
-        assert!(!csharp_is_reference_type(&UniDatType::Tuple(vec![])));
+        assert!(!csharp_is_reference_type(&UniDataType::Tuple(vec![])));
     }
 }

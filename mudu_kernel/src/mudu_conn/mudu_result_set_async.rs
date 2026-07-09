@@ -68,15 +68,15 @@ mod tests {
     use mudu_contract::tuple::datum_desc::DatumDesc;
     use mudu_contract::tuple::tuple_field::TupleField;
     use mudu_sys::sync::SMutex;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
-    use mudu_type::dat_value::DatValue;
+    use mudu_type::data_type::DataType;
+    use mudu_type::data_value::DataValue;
+    use mudu_type::type_family::TypeFamily;
     use std::collections::VecDeque;
 
     fn test_desc() -> TupleFieldDesc {
         TupleFieldDesc::new(vec![DatumDesc::new(
             "id".to_string(),
-            DatType::default_for(DatTypeID::I32),
+            DataType::default_for(TypeFamily::I32),
         )])
     }
 
@@ -114,8 +114,8 @@ mod tests {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let rs = MuduResultSetAsync::from_rows(
                 vec![
-                    TupleValue::from(vec![DatValue::from_i32(1)]),
-                    TupleValue::from(vec![DatValue::from_i32(2)]),
+                    TupleValue::from(vec![DataValue::from_i32(1)]),
+                    TupleValue::from(vec![DataValue::from_i32(2)]),
                 ],
                 test_desc(),
             );
@@ -153,13 +153,13 @@ mod tests {
     fn from_rows_with_null_and_non_null_values() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let desc = TupleFieldDesc::new(vec![
-                DatumDesc::new("a".to_string(), DatType::default_for(DatTypeID::I32)),
-                DatumDesc::new("b".to_string(), DatType::default_for(DatTypeID::I32)),
+                DatumDesc::new("a".to_string(), DataType::default_for(TypeFamily::I32)),
+                DatumDesc::new("b".to_string(), DataType::default_for(TypeFamily::I32)),
             ]);
             let rs = MuduResultSetAsync::from_rows(
                 vec![TupleValue::from(vec![
-                    DatValue::from_i32(1),
-                    DatValue::null(),
+                    DataValue::from_i32(1),
+                    DataValue::null(),
                 ])],
                 desc,
             );

@@ -215,16 +215,16 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
     assert_eq!(transfer_desc["param_desc"]["fields"][0]["name"], "account1");
     assert_eq!(transfer_desc["param_desc"]["fields"][1]["name"], "account2");
     assert_eq!(
-        transfer_desc["param_desc"]["fields"][0]["dat_type"]["id"],
+        transfer_desc["param_desc"]["fields"][0]["data_type"]["id"],
         "I64"
     );
     assert_eq!(
-        transfer_desc["param_desc"]["fields"][1]["dat_type"]["id"],
+        transfer_desc["param_desc"]["fields"][1]["data_type"]["id"],
         "I64"
     );
     assert_eq!(transfer_desc["return_desc"]["fields"][0]["name"], "0");
     assert_eq!(
-        transfer_desc["return_desc"]["fields"][0]["dat_type"]["id"],
+        transfer_desc["return_desc"]["fields"][0]["data_type"]["id"],
         "I64"
     );
 
@@ -243,7 +243,7 @@ export function transfer(id: Oid, account1: i64, account2: i64): Result<i64> {
     assert!(rs.contains("pub fn mudu_inner_p2_transfer"));
     assert!(rs.contains("procedure_transfer::adapter_transfer"));
     assert!(rs.contains("DatumDesc::new(\n                \"account1\".to_string(),"));
-    assert!(rs.contains("DatTypeID::I64"));
+    assert!(rs.contains("TypeFamily::I64"));
     assert!(wit.contains("interface procedure-transfer"));
     assert!(wit.contains("adapter-transfer: func"));
     assert!(desc.contains("\"transfer\""));

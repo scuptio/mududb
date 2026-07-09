@@ -1,14 +1,14 @@
 //! `tuple::datum_desc` module.
 #![allow(missing_docs)]
 
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 use serde::{Deserialize, Serialize};
 
 /// Describes a data element with type information and name
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DatumDesc {
-    dat_type: DatType,
+    data_type: DataType,
     name: String,
     #[serde(default)]
     nullable: bool,
@@ -16,17 +16,17 @@ pub struct DatumDesc {
 
 impl DatumDesc {
     /// Creates a new DatumDesc with the given name and type declaration
-    pub fn new(name: String, dat_type: DatType) -> Self {
+    pub fn new(name: String, data_type: DataType) -> Self {
         Self {
-            dat_type,
+            data_type,
             name,
             nullable: false,
         }
     }
 
-    pub fn new_nullable(name: String, dat_type: DatType, nullable: bool) -> Self {
+    pub fn new_nullable(name: String, data_type: DataType, nullable: bool) -> Self {
         Self {
-            dat_type,
+            data_type,
             name,
             nullable,
         }
@@ -40,20 +40,20 @@ impl DatumDesc {
     }
 
     /// Returns the data type
-    pub fn dat_type(&self) -> &DatType {
-        &self.dat_type
+    pub fn data_type(&self) -> &DataType {
+        &self.data_type
     }
 
     /// Returns the specific type identifier
-    pub fn dat_type_id(&self) -> DatTypeID {
-        self.dat_type.dat_type_id()
+    pub fn type_family(&self) -> TypeFamily {
+        self.data_type.type_family()
     }
 
     pub fn nullable(&self) -> bool {
         self.nullable
     }
 
-    pub fn into(self) -> (String, DatType) {
-        (self.name, self.dat_type)
+    pub fn into(self) -> (String, DataType) {
+        (self.name, self.data_type)
     }
 }

@@ -1,4 +1,4 @@
-use crate::universal::uni_dat_value::UniDatValue;
+use crate::universal::uni_data_value::UniDataValue;
 use crate::universal::uni_sql_param::UniSqlParam;
 use mudu::common::result::RS;
 use mudu_contract::database::sql_param_value::SQLParamValue;
@@ -16,7 +16,7 @@ impl UniSqlParam {
     pub fn uni_from(p: SQLParamValue) -> RS<UniSqlParam> {
         let mut params = Vec::with_capacity(p.params().len());
         for v in p.into() {
-            let mu_value = UniDatValue::uni_from(v)?;
+            let mu_value = UniDataValue::uni_from(v)?;
             params.push(mu_value);
         }
         Ok(UniSqlParam { params })
@@ -26,16 +26,16 @@ impl UniSqlParam {
 #[cfg(test)]
 mod tests {
     use super::UniSqlParam;
-    use crate::universal::uni_dat_value::UniDatValue;
+    use crate::universal::uni_data_value::UniDataValue;
     use crate::universal::uni_scalar_value::UniScalarValue;
 
     #[test]
     fn uni_to_and_uni_from_roundtrip() {
         let original = UniSqlParam {
             params: vec![
-                UniDatValue::Scalar(UniScalarValue::from_i32(1)),
-                UniDatValue::Scalar(UniScalarValue::from_i64(2)),
-                UniDatValue::Scalar(UniScalarValue::from_string("three".to_string())),
+                UniDataValue::Scalar(UniScalarValue::from_i32(1)),
+                UniDataValue::Scalar(UniScalarValue::from_i64(2)),
+                UniDataValue::Scalar(UniScalarValue::from_string("three".to_string())),
             ],
         };
         let sql_value = original.uni_to().unwrap();

@@ -17,7 +17,7 @@ use mudu::common::result_of::rs_option;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 use std::str::FromStr;
 use std::sync::Arc;
 use tree_sitter::Node;
@@ -78,15 +78,15 @@ impl SQLParser {
             let s = self.visit_integer(context, n)?;
             let i = i64::from_str(s.as_str())
                 .map_err(|e| mudu_error!(ErrorCode::Parse, format!("parse integer error: {e}")))?;
-            DatTyped::from_i64(i)
+            DataTyped::from_i64(i)
         } else if let Some(n) = node.child_by_field_name("decimal") {
             let s = self.visit_decimal(context, n)?;
             let numeric = Numeric::parse(s.as_str())
                 .map_err(|e| mudu_error!(ErrorCode::Parse, format!("parse numeric error {}", e)))?;
-            DatTyped::from_numeric(numeric)
+            DataTyped::from_numeric(numeric)
         } else if let Some(n) = node.child_by_field_name("string") {
             let s = self.visit_string(context, n)?;
-            DatTyped::from_string(s)
+            DataTyped::from_string(s)
         } else if let Some(_n) = node.child_by_field_name("keyword_true") {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,

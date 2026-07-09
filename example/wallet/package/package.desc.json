@@ -3,54 +3,11 @@
     "wallet": [
       {
         "module_name": "wallet",
-        "proc_name": "update_user",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id",
-              "nullable": false
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "name",
-              "nullable": false
-            },
-            {
-              "dat_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "email",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
         "proc_name": "transfer",
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -58,7 +15,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -66,7 +23,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -81,11 +38,11 @@
       },
       {
         "module_name": "wallet",
-        "proc_name": "create_user",
+        "proc_name": "deposit",
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -93,7 +50,108 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "transfer_funds",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "from_user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "to_user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "purchase",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "description",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "wallet",
+        "proc_name": "update_user",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -105,7 +163,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -128,7 +186,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -143,11 +201,11 @@
       },
       {
         "module_name": "wallet",
-        "proc_name": "purchase",
+        "proc_name": "create_user",
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -155,15 +213,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount",
-              "nullable": false
-            },
-            {
-              "dat_type": {
+              "data_type": {
                 "id": "String",
                 "param": {
                   "String": {
@@ -171,7 +221,19 @@
                   }
                 }
               },
-              "name": "description",
+              "name": "name",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "email",
               "nullable": false
             }
           ]
@@ -186,7 +248,7 @@
         "param_desc": {
           "fields": [
             {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },
@@ -194,69 +256,7 @@
               "nullable": false
             },
             {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
-        "proc_name": "deposit",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "user_id",
-              "nullable": false
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "wallet",
-        "proc_name": "transfer_funds",
-        "param_desc": {
-          "fields": [
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "from_user_id",
-              "nullable": false
-            },
-            {
-              "dat_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "to_user_id",
-              "nullable": false
-            },
-            {
-              "dat_type": {
+              "data_type": {
                 "id": "I32",
                 "param": null
               },

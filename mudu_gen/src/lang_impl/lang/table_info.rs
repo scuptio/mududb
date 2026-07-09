@@ -39,7 +39,7 @@ mod tests {
     use super::TableInfo;
     use crate::lang_impl::lang::lang_kind::LangKind;
     use mudu::common::result::RS;
-    use mudu_binding::universal::uni_dat_type::UniDatType;
+    use mudu_binding::universal::uni_data_type::UniDataType;
     use mudu_binding::universal::uni_def::{RecordField, UniTableDef};
     use mudu_binding::universal::uni_scalar::UniScalar;
 
@@ -51,12 +51,12 @@ mod tests {
             table_key: vec![RecordField {
                 rf_comments: "id".to_string(),
                 rf_name: "id".to_string(),
-                rf_type: UniDatType::Scalar(UniScalar::I32),
+                rf_type: UniDataType::Scalar(UniScalar::I32),
             }],
             table_value: vec![RecordField {
                 rf_comments: "name".to_string(),
                 rf_name: "name".to_string(),
-                rf_type: UniDatType::Scalar(UniScalar::String),
+                rf_type: UniDataType::Scalar(UniScalar::String),
             }],
         };
         let info = TableInfo::from(table_def, LangKind::CSharp)?;

@@ -74,7 +74,7 @@ Version `1` may be deprecated only after:
 
 ## References
 
-- Package loader: [`mudu_runtime/src/service/mudu_package.rs`](../../../mudu_runtime/src/service/mudu_package.rs)
-- Packager: [`mudu_package/src/main.rs`](../../../mudu_package/src/main.rs)
+- Package loader: [`mudu_runtime/src/service/app_package.rs`](../../../mudu_runtime/src/service/app_package.rs)
+- Packager: [`mpm_build/src/main.rs`](../../../mpm_build/src/main.rs)
 - File name constants: [`mudu_runtime/src/service/file_name.rs`](../../../mudu_runtime/src/service/file_name.rs)
 - App metadata: [`mudu/src/common/app_info.rs`](../../../mudu/src/common/app_info.rs)

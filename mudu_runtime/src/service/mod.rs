@@ -5,10 +5,10 @@
 pub mod app_inst;
 /// Application instance implementation.
 pub mod app_inst_impl;
-mod file_name;
-pub(crate) mod mudu_package;
+pub(crate) mod app_package;
 #[cfg(test)]
-mod mudu_package_test;
+mod app_package_test;
+mod file_name;
 /// WebAssembly package module wrapper.
 pub mod package_module;
 /// Runtime trait definitions.

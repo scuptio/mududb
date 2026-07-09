@@ -1,10 +1,18 @@
 [env]
+WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/.."
 WALLET_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../example/wallet"
 WALLET_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../target/wasm32-wasip2/release/wallet.mpk"
 TESTING_MPK_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/mpk"
 TESTING_WALLET_MPK = "${TESTING_MPK_DIR}/wallet.mpk"
 
+# Reinstall workspace CLI tools from source so the toolchain cannot drift
+# from the current commit.
+[tasks.build-tools]
+command = "python3"
+args = ["${WORKSPACE_ROOT}/script/build/install_binaries.py", "--profile", "release"]
+
 [tasks.build-wallet-mpk]
+dependencies = ["build-tools"]
 command = "cargo"
 args = ["make", "package"]
 cwd = "${WALLET_DIR}"

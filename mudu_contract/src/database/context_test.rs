@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn context_query_returns_record_set() {
-        let value = TupleValue::from(vec![mudu_type::dat_value::DatValue::from_i32(42)]);
+        let value = TupleValue::from(vec![mudu_type::data_value::DataValue::from_i32(42)]);
         let conn = Arc::new(MockDBConn::with_query(vec![value]));
         let ctx = Context::new(conn);
         let record_set = ctx.query::<i32>(&"SELECT 1", &()).unwrap();

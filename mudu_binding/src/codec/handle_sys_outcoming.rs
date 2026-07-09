@@ -1,5 +1,5 @@
 use crate::codec::adapter::{error_from_mu, error_to_mu, oid_from_mu, oid_to_mu};
-use crate::universal::uni_dat_type::UniDatType;
+use crate::universal::uni_data_type::UniDataType;
 use crate::universal::uni_error::UniError;
 use crate::universal::uni_oid::UniOid;
 use crate::universal::uni_query_result::UniQueryResult;
@@ -119,7 +119,7 @@ fn tuple_desc_to_mu(desc: TupleFieldDesc) -> RS<UniRecordType> {
     let mut vec = Vec::with_capacity(desc.fields().len());
     for d in desc.into() {
         let (name, ty) = d.into();
-        let mu_ty = UniDatType::uni_from(ty)?;
+        let mu_ty = UniDataType::uni_from(ty)?;
         vec.push((name, mu_ty));
     }
     Ok(UniRecordType {

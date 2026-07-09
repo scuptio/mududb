@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::support::*;
-    use mudu_runtime::backend::mududb_cfg::ServerMode;
+    use mudu_runtime::backend::mudud_cfg::ServerMode;
     use mudu_utils::notifier::NotifyWait;
     use std::io;
     use std::time::Duration;

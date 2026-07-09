@@ -21,7 +21,7 @@ public struct UniProcedureResult {
     
     
     [Key(0)]
-    public required List<UniDatValue> ReturnList { get; set; }
+    public required List<UniDataValue> ReturnList { get; set; }
     
 }
 

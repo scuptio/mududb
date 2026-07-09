@@ -6,35 +6,35 @@
 
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::error::ErrorCode;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
+use mudu_type::data_type::DataType;
+use mudu_type::type_family::TypeFamily;
 
-fn i32_type() -> DatType {
-    DatType::new_no_param(DatTypeID::I32)
+fn i32_type() -> DataType {
+    DataType::new_no_param(TypeFamily::I32)
 }
 
-fn string_type() -> DatType {
-    DatType::default_for(DatTypeID::String)
+fn string_type() -> DataType {
+    DataType::default_for(TypeFamily::String)
 }
 
 #[test]
 fn test_tuple_desc() {
-    let dat_types = vec![
-        DatType::new_no_param(DatTypeID::F32),
-        DatType::new_no_param(DatTypeID::I32),
-        DatType::new_no_param(DatTypeID::F64),
-        DatType::default_for(DatTypeID::String),
-        DatType::new_no_param(DatTypeID::I64),
-        DatType::new_no_param(DatTypeID::I32),
-        DatType::new_no_param(DatTypeID::F32),
+    let data_types = vec![
+        DataType::new_no_param(TypeFamily::F32),
+        DataType::new_no_param(TypeFamily::I32),
+        DataType::new_no_param(TypeFamily::F64),
+        DataType::default_for(TypeFamily::String),
+        DataType::new_no_param(TypeFamily::I64),
+        DataType::new_no_param(TypeFamily::I32),
+        DataType::new_no_param(TypeFamily::F32),
     ];
-    let dat_type_and_index: Vec<(DatType, usize)> = dat_types
+    let data_type_and_index: Vec<(DataType, usize)> = data_types
         .into_iter()
         .enumerate()
         .map(|(i, ty)| (ty, i))
         .collect::<Vec<_>>();
     let (norm_types, _index) =
-        TupleBinaryDesc::normalized_type_desc_vec(dat_type_and_index).unwrap();
+        TupleBinaryDesc::normalized_type_desc_vec(data_type_and_index).unwrap();
 
     let _desc = TupleBinaryDesc::from(norm_types).unwrap();
 }
@@ -70,6 +70,6 @@ fn row_format_version_preserved() {
     assert_eq!(desc.row_format_version(), 42);
 }
 
-fn i64_type() -> DatType {
-    DatType::new_no_param(DatTypeID::I64)
+fn i64_type() -> DataType {
+    DataType::new_no_param(TypeFamily::I64)
 }

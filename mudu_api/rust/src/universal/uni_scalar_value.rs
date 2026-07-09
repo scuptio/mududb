@@ -17,11 +17,11 @@ pub enum UniScalarValue {
 
     U64(u64),
 
-    U128(u128),
+    U128(Vec<u8>),
 
     I64(i64),
 
-    I128(i128),
+    I128(Vec<u8>),
 
     F32(f32),
 
@@ -30,6 +30,8 @@ pub enum UniScalarValue {
     Char(char),
 
     String(String),
+
+    Blob(Vec<u8>),
 
     Numeric(String),
 
@@ -194,21 +196,19 @@ impl UniScalarValue {
     }
 
     pub fn from_u128(inner: u128) -> Self {
-        Self::U128(inner)
+        Self::U128(inner.to_be_bytes().to_vec())
     }
 
-    pub fn as_u128(&self) -> Option<&u128> {
+    pub fn as_u128(&self) -> Option<u128> {
         match self {
-            Self::U128(inner) => Some(inner),
+            Self::U128(bytes) => bytes.as_slice().try_into().ok().map(u128::from_be_bytes),
             _ => None,
         }
     }
 
-    pub fn expect_u128(&self) -> &u128 {
-        match self {
-            Self::U128(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
-        }
+    pub fn expect_u128(&self) -> u128 {
+        self.as_u128()
+            .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() })
     }
 
     pub fn from_i64(inner: i64) -> Self {
@@ -230,21 +230,19 @@ impl UniScalarValue {
     }
 
     pub fn from_i128(inner: i128) -> Self {
-        Self::I128(inner)
+        Self::I128(inner.to_be_bytes().to_vec())
     }
 
-    pub fn as_i128(&self) -> Option<&i128> {
+    pub fn as_i128(&self) -> Option<i128> {
         match self {
-            Self::I128(inner) => Some(inner),
+            Self::I128(bytes) => bytes.as_slice().try_into().ok().map(i128::from_be_bytes),
             _ => None,
         }
     }
 
-    pub fn expect_i128(&self) -> &i128 {
-        match self {
-            Self::I128(inner) => inner,
-            _ => unsafe { std::hint::unreachable_unchecked() },
-        }
+    pub fn expect_i128(&self) -> i128 {
+        self.as_i128()
+            .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() })
     }
 
     pub fn from_f32(inner: f32) -> Self {
@@ -315,6 +313,24 @@ impl UniScalarValue {
     pub fn expect_string(&self) -> &String {
         match self {
             Self::String(inner) => inner,
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        }
+    }
+
+    pub fn from_blob(inner: Vec<u8>) -> Self {
+        Self::Blob(inner)
+    }
+
+    pub fn as_blob(&self) -> Option<&Vec<u8>> {
+        match self {
+            Self::Blob(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
+    pub fn expect_blob(&self) -> &Vec<u8> {
+        match self {
+            Self::Blob(inner) => inner,
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
@@ -493,28 +509,33 @@ impl serde::Serialize for UniScalarValue {
                 serialize_seq.serialize_element(&inner)?;
             }
 
-            UniScalarValue::Numeric(inner) => {
+            UniScalarValue::Blob(inner) => {
                 serialize_seq.serialize_element(&15u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
 
-            UniScalarValue::Date(inner) => {
+            UniScalarValue::Numeric(inner) => {
                 serialize_seq.serialize_element(&16u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
 
-            UniScalarValue::Time(inner) => {
+            UniScalarValue::Date(inner) => {
                 serialize_seq.serialize_element(&17u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
 
-            UniScalarValue::Timestamp(inner) => {
+            UniScalarValue::Time(inner) => {
                 serialize_seq.serialize_element(&18u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
 
-            UniScalarValue::TimestampTz(inner) => {
+            UniScalarValue::Timestamp(inner) => {
                 serialize_seq.serialize_element(&19u32)?;
+                serialize_seq.serialize_element(&inner)?;
+            }
+
+            UniScalarValue::TimestampTz(inner) => {
+                serialize_seq.serialize_element(&20u32)?;
                 serialize_seq.serialize_element(&inner)?;
             }
         }
@@ -604,7 +625,7 @@ impl<'de> serde::de::Visitor<'de> for UniScalarValueVisitor {
 
             8 => {
                 let value = seq
-                    .next_element::<u128>()?
+                    .next_element::<Vec<u8>>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
                 Ok(Self::Value::U128(value))
             }
@@ -618,7 +639,7 @@ impl<'de> serde::de::Visitor<'de> for UniScalarValueVisitor {
 
             10 => {
                 let value = seq
-                    .next_element::<i128>()?
+                    .next_element::<Vec<u8>>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
                 Ok(Self::Value::I128(value))
             }
@@ -653,33 +674,40 @@ impl<'de> serde::de::Visitor<'de> for UniScalarValueVisitor {
 
             15 => {
                 let value = seq
-                    .next_element::<String>()?
+                    .next_element::<Vec<u8>>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Numeric(value))
+                Ok(Self::Value::Blob(value))
             }
 
             16 => {
                 let value = seq
                     .next_element::<String>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Date(value))
+                Ok(Self::Value::Numeric(value))
             }
 
             17 => {
                 let value = seq
                     .next_element::<String>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Time(value))
+                Ok(Self::Value::Date(value))
             }
 
             18 => {
                 let value = seq
                     .next_element::<String>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
-                Ok(Self::Value::Timestamp(value))
+                Ok(Self::Value::Time(value))
             }
 
             19 => {
+                let value = seq
+                    .next_element::<String>()?
+                    .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
+                Ok(Self::Value::Timestamp(value))
+            }
+
+            20 => {
                 let value = seq
                     .next_element::<String>()?
                     .map_or_else(|| Err(A::Error::invalid_length(1, &self)), Ok)?;
@@ -771,7 +799,7 @@ mod tests {
             ),
             (
                 UniScalarValue::from_u128(128),
-                Box::new(|v| v.as_u128() == Some(&128)),
+                Box::new(|v| v.as_u128() == Some(128)),
             ),
             (
                 UniScalarValue::from_i64(-64),
@@ -779,7 +807,7 @@ mod tests {
             ),
             (
                 UniScalarValue::from_i128(-128),
-                Box::new(|v| v.as_i128() == Some(&-128)),
+                Box::new(|v| v.as_i128() == Some(-128)),
             ),
             (
                 UniScalarValue::from_f32(3.25),
@@ -796,6 +824,10 @@ mod tests {
             (
                 UniScalarValue::from_string("hello".to_string()),
                 Box::new(|v| v.as_string() == Some(&"hello".to_string())),
+            ),
+            (
+                UniScalarValue::from_blob(vec![1, 2, 3]),
+                Box::new(|v| v.as_blob() == Some(&vec![1, 2, 3])),
             ),
             (
                 UniScalarValue::from_numeric("12.3400".to_string()),
@@ -844,18 +876,25 @@ mod tests {
         assert!(i32_value.as_f64().is_none());
         assert!(i32_value.as_char().is_none());
         assert!(i32_value.as_string().is_none());
+        assert!(i32_value.as_blob().is_none());
         assert!(i32_value.as_numeric().is_none());
         assert!(i32_value.as_date().is_none());
         assert!(i32_value.as_time().is_none());
         assert!(i32_value.as_timestamp().is_none());
         assert!(i32_value.as_timestamptz().is_none());
 
+        let blob_value = UniScalarValue::from_blob(vec![0, 1]);
+        assert!(blob_value.as_string().is_none());
+        assert!(blob_value.as_numeric().is_none());
+
         let string_value = UniScalarValue::from_string("x".to_string());
         assert!(string_value.as_i32().is_none());
+        assert!(string_value.as_blob().is_none());
         assert!(string_value.as_numeric().is_none());
 
         let numeric_value = UniScalarValue::from_numeric("1.5".to_string());
         assert!(numeric_value.as_string().is_none());
+        assert!(numeric_value.as_blob().is_none());
         assert!(numeric_value.as_date().is_none());
 
         let date_value = UniScalarValue::from_date("2026-01-01".to_string());
@@ -879,12 +918,16 @@ mod tests {
             UniScalarValue::from_i32(-32),
             UniScalarValue::from_u64(64),
             UniScalarValue::from_u128(128),
+            UniScalarValue::from_u128(u128::MAX),
             UniScalarValue::from_i64(-64),
             UniScalarValue::from_i128(-128),
+            UniScalarValue::from_i128(i128::MIN),
             UniScalarValue::from_f32(3.25),
             UniScalarValue::from_f64(-9.5),
             UniScalarValue::from_char('z'),
             UniScalarValue::from_string("hello".to_string()),
+            UniScalarValue::from_blob(vec![]),
+            UniScalarValue::from_blob(vec![0, 1, 2, 255]),
             UniScalarValue::from_numeric("12.3400".to_string()),
             UniScalarValue::from_numeric("-999999999999999999.999999999999".to_string()),
             UniScalarValue::from_date("2026-05-20".to_string()),

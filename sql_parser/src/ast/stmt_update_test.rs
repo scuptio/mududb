@@ -12,7 +12,7 @@ use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::ValueCompare;
 use crate::ast::expression::ExprType;
 use crate::ast::stmt_update::{AssignedValue, Assignment, StmtUpdate};
-use mudu_type::dat_typed::DatTyped;
+use mudu_type::data_typed::DataTyped;
 use std::sync::Arc;
 
 fn sample_predicate() -> ExprCompare {
@@ -20,7 +20,7 @@ fn sample_predicate() -> ExprCompare {
     name.set_name("id".to_string());
     let left = ExprItem::ItemName(name);
     let right = ExprItem::ItemValue(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(1),
+        DataTyped::from_i32(1),
     )));
     ExprCompare::new(ValueCompare::EQ, left, right)
 }
@@ -28,7 +28,7 @@ fn sample_predicate() -> ExprCompare {
 #[test]
 fn assignment_stores_column_and_value() {
     let value = AssignedValue::Value(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(42),
+        DataTyped::from_i32(42),
     )));
     let mut assignment = Assignment::new("balance".to_string(), value);
     assert_eq!(assignment.get_column_reference(), "balance");
@@ -38,7 +38,7 @@ fn assignment_stores_column_and_value() {
     ));
 
     let new_value = AssignedValue::Value(ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(
-        DatTyped::from_i32(99),
+        DataTyped::from_i32(99),
     )));
     assignment.set_set_value(new_value);
     assert!(matches!(
@@ -63,7 +63,7 @@ fn update_statement_accessors_and_mutators() {
     let assignment = Assignment::new(
         "balance".to_string(),
         AssignedValue::Expression(ExprType::Value(Arc::new(ExprItem::ItemValue(
-            ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(DatTyped::from_i32(100))),
+            ExprValue::ValueLiteral(ExprLiteral::DatumLiteral(DataTyped::from_i32(100))),
         )))),
     );
     stmt.set_set_values(vec![assignment]);

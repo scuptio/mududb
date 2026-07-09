@@ -9,13 +9,12 @@ MPK_FILE="$REPO_ROOT/testing/mpk/wallet.mpk"
 TEMP_DIR="/tmp/mudu_debug_$(date +%s)"
 DATA_DIR="$TEMP_DIR/data"
 MPK_DIR="$TEMP_DIR/mpk"
-CONFIG_FILE="$HOME/.mududb/mududb_cfg.toml"
-CONFIG_BACKUP="$HOME/.mududb/mududb_cfg.toml.bak"
+CONFIG_FILE="$TEMP_DIR/mudud.cfg"
 SERVER_LOG="$TEMP_DIR/server.log"
 HTTP_PORT=8300
 TCP_PORT=9527
 
-cd "$REPO_ROOT"
+cd "$TEMP_DIR"
 
 pass=0
 fail=0
@@ -56,7 +55,6 @@ cleanup() {
     echo ""
     echo "=== 清理 ==="
     [ -n "${SERVER_PID:-}" ] && { kill -9 "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; }
-    [ -f "$CONFIG_BACKUP" ] && { cp "$CONFIG_BACKUP" "$CONFIG_FILE"; rm -f "$CONFIG_BACKUP"; }
     echo "临时目录: $TEMP_DIR (保留用于分析)"
     echo ""
     echo "=== 结果: $pass passed, $fail failed ==="
@@ -69,8 +67,7 @@ echo "临时目录: $TEMP_DIR"
 echo ""
 
 # Setup
-mkdir -p "$DATA_DIR" "$MPK_DIR" "$(dirname "$CONFIG_FILE")"
-[ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "$CONFIG_BACKUP"
+mkdir -p "$DATA_DIR" "$MPK_DIR"
 
 # Step 1: Write config
 echo "[1] 写入配置"
@@ -82,10 +79,10 @@ http_listen_port = $HTTP_PORT
 http_worker_threads = 1
 pg_listen_port = 5432
 enable_async = true
-server_mode = 1
+server_mode = "IOUring"
 tcp_listen_port = $TCP_PORT
 worker_threads = 2
-routing_mode = 2
+routing_mode = "RemoteHash"
 CFGEOF
 echo "  配置文件: $CONFIG_FILE"
 echo "  db_path: $DATA_DIR"
@@ -94,7 +91,7 @@ echo ""
 
 # Step 2: Start server
 echo "[2] 启动 mudud 服务器"
-RUST_LOG=mudu_runtime=info,mudu_kernel=info mudud > "$SERVER_LOG" 2>&1 &
+RUST_LOG=mudu_runtime=info,mudu_kernel=info mudud serve > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 echo "  PID: $SERVER_PID"
 
@@ -162,14 +159,11 @@ fi
 echo ""
 
 # Step 9: HTTP invoke
-echo "[9] HTTP 调用测试 (create_user)"
-invoke_result=$(curl -s -w "\n%{http_code}" -X POST "http://127.0.0.1:$HTTP_PORT/mudu/app/invoke/wallet/wallet/create_user" \
-    -H "Content-Type: application/json" \
-    -d '{"user_id":3,"name":"Charlie","email":"charlie@test.com"}' 2>&1)
-http_code=$(echo "$invoke_result" | tail -1)
-body=$(echo "$invoke_result" | head -n -1)
-echo "  HTTP code: $http_code"
-echo "  Body: $body"
+echo "[9] 过程调用测试 (create_user)"
+invoke_result=$(mcli --addr 127.0.0.1:$TCP_PORT --http-addr 127.0.0.1:$HTTP_PORT app-invoke \
+    --app wallet --module wallet --proc create_user \
+    --json '{"user_id":3,"name":"Charlie","email":"charlie@test.com"}' 2>&1)
+echo "  Result: $invoke_result"
 
 # Check server alive after invoke
 if kill -0 "$SERVER_PID" 2>/dev/null; then

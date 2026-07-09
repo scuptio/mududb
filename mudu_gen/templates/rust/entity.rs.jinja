@@ -9,11 +9,11 @@ use mududb::contract::database::sql_params::SQLParamMarker;
 use mududb::contract::tuple::datum_desc::DatumDesc;
 use mududb::contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mududb::contract::tuple::tuple_datum::TupleDatumMarker;
-use mududb::types::dat_binary::DatBinary;
-use mududb::types::dat_textual::DatTextual;
-use mududb::types::dat_type::DatType;
-use mududb::types::dat_type_id::DatTypeID;
-use mududb::types::dat_value::DatValue;
+use mududb::types::data_binary::DataBinary;
+use mududb::types::data_textual::DataTextual;
+use mududb::types::data_type::DataType;
+use mududb::types::type_family::TypeFamily;
+use mududb::types::data_value::DataValue;
 use mududb::types::datum::{Datum, DatumDyn};
 
 // constant definition
@@ -68,10 +68,10 @@ impl {{ table.struct_obj_name }} {
 }
 
 impl Datum for {{ table.struct_obj_name }} {
-    fn dat_type() -> DatType {
-        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
+    fn data_type() -> DataType {
+        static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
         ONCE_LOCK
-            .get_or_init(|| entity_utils::entity_dat_type::<{{ table.struct_obj_name }}>())
+            .get_or_init(entity_utils::entity_data_type::<{{ table.struct_obj_name }}>)
             .clone()
     }
 
@@ -79,7 +79,7 @@ impl Datum for {{ table.struct_obj_name }} {
         entity_utils::entity_from_binary(binary)
     }
 
-    fn from_value(value: &DatValue) -> RS<Self> {
+    fn from_value(value: &DataValue) -> RS<Self> {
         entity_utils::entity_from_value(value)
     }
 
@@ -89,20 +89,20 @@ impl Datum for {{ table.struct_obj_name }} {
 }
 
 impl DatumDyn for {{ table.struct_obj_name }} {
-    fn dat_type_id(&self) -> RS<DatTypeID> {
-        entity_utils::entity_dat_type_id()
+    fn type_family(&self) -> RS<TypeFamily> {
+        entity_utils::entity_type_family()
     }
 
-    fn to_binary(&self, dat_type: &DatType) -> RS<DatBinary> {
-        entity_utils::entity_to_binary(self, dat_type)
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
+        entity_utils::entity_to_binary(self, data_type)
     }
 
-    fn to_textual(&self, dat_type: &DatType) -> RS<DatTextual> {
-        entity_utils::entity_to_textual(self, dat_type)
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
+        entity_utils::entity_to_textual(self, data_type)
     }
 
-    fn to_value(&self, dat_type: &DatType) -> RS<DatValue> {
-        entity_utils::entity_to_value(self, dat_type)
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
+        entity_utils::entity_to_value(self, data_type)
     }
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn> {
@@ -137,7 +137,7 @@ impl Entity for {{ table.struct_obj_name }} {
                 attr_field_access::attr_get_binary::<_>(self.{{ field.field_name_snake_case }}.get())
             }
             {% endfor %}
-            _ => { panic!("unknown name"); }
+            _ => { unreachable!("unknown field name"); }
         }
     }
 
@@ -148,30 +148,30 @@ impl Entity for {{ table.struct_obj_name }} {
                 attr_field_access::attr_set_binary::<_, _>(self.{{ field.field_name_snake_case }}.get_mut(), binary.as_ref())?;
             }
             {% endfor %}
-            _ => { panic!("unknown name"); }
+            _ => { unreachable!("unknown field name"); }
         }
         Ok(())
     }
 
-    fn get_field_value(&self, field: &str) -> RS<Option<DatValue>> {
+    fn get_field_value(&self, field: &str) -> RS<Option<DataValue>> {
         match field {
             {% for field in table.fields %}
             {{ field.field_name_const }} => {
                 attr_field_access::attr_get_value::<_>(self.{{ field.field_name_snake_case }}.get())
             }
             {% endfor %}
-            _ => { panic!("unknown name"); }
+            _ => { unreachable!("unknown field name"); }
         }
     }
 
-    fn set_field_value<B: AsRef<DatValue>>(&mut self, field: &str, value: B) -> RS<()> {
+    fn set_field_value<B: AsRef<DataValue>>(&mut self, field: &str, value: B) -> RS<()> {
         match field {
             {% for field in table.fields %}
             {{ field.field_name_const }} => {
                 attr_field_access::attr_set_value::<_, _>(self.{{ field.field_name_snake_case }}.get_mut(), value)?;
             }
             {% endfor %}
-            _ => { panic!("unknown name"); }
+            _ => { unreachable!("unknown field name"); }
         }
         Ok(())
     }
@@ -212,9 +212,9 @@ impl Attr{{ field.field_name_pascal_case }} {
 }
 
 impl AttrValue<{{ field.data_type }}> for Attr{{ field.field_name_pascal_case }} {
-    fn dat_type() -> &'static DatType {
-        static ONCE_LOCK: std::sync::OnceLock<DatType> = std::sync::OnceLock::new();
-        ONCE_LOCK.get_or_init(Self::attr_dat_type)
+    fn data_type() -> &'static DataType {
+        static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
+        ONCE_LOCK.get_or_init(Self::attr_data_type)
     }
 
     fn datum_desc() -> &'static DatumDesc {

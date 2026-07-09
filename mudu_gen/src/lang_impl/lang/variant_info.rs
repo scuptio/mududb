@@ -1,10 +1,11 @@
 use crate::lang_impl::lang::lang_data_type::{
-    csharp_default_value_expr, csharp_is_reference_type, uni_data_type_to_name,
+    assemblyscript_default_value_expr, csharp_default_value_expr, csharp_is_reference_type,
+    uni_data_type_to_name,
 };
 use crate::lang_impl::lang::lang_kind::LangKind;
 use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
-use mudu_binding::universal::uni_dat_type::UniDatType;
+use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_def::UniVariantDef;
 use mudu_binding::universal::uni_scalar::UniScalar;
 
@@ -51,28 +52,34 @@ impl VariantInfo {
             let case_ty = v
                 .vc_case_type
                 .clone()
-                .unwrap_or(UniDatType::Scalar(UniScalar::U8));
+                .unwrap_or(UniDataType::Scalar(UniScalar::U8));
             let (vc_has_inner_type, vc_inner_type_name) = match &v.vc_case_type {
                 Some(ty) => (true, uni_data_type_to_name(ty, &lang)?),
                 None => (
                     false,
-                    uni_data_type_to_name(&UniDatType::Scalar(UniScalar::U8), &lang)?,
+                    uni_data_type_to_name(&UniDataType::Scalar(UniScalar::U8), &lang)?,
                 ),
             };
             let (vc_inner_required, vc_inner_default_value, vc_inner_deserialize_suffix) =
-                if lang == LangKind::CSharp {
-                    let is_reference = csharp_is_reference_type(&case_ty);
-                    (
-                        is_reference,
-                        csharp_default_value_expr(&case_ty)?,
-                        if is_reference {
-                            "!".to_string()
-                        } else {
-                            String::new()
-                        },
-                    )
-                } else {
-                    (false, String::new(), String::new())
+                match lang {
+                    LangKind::CSharp => {
+                        let is_reference = csharp_is_reference_type(&case_ty);
+                        (
+                            is_reference,
+                            csharp_default_value_expr(&case_ty)?,
+                            if is_reference {
+                                "!".to_string()
+                            } else {
+                                String::new()
+                            },
+                        )
+                    }
+                    LangKind::AssemblyScript => (
+                        false,
+                        assemblyscript_default_value_expr(&case_ty)?,
+                        String::new(),
+                    ),
+                    LangKind::Rust => (false, String::new(), String::new()),
                 };
             let vc = VariantCaseInfo {
                 vc_number: i as _,
@@ -101,7 +108,7 @@ mod tests {
     use super::VariantInfo;
     use crate::lang_impl::lang::lang_kind::LangKind;
     use mudu::common::result::RS;
-    use mudu_binding::universal::uni_dat_type::UniDatType;
+    use mudu_binding::universal::uni_data_type::UniDataType;
     use mudu_binding::universal::uni_def::{UniVariantDef, VariantCase};
     use mudu_binding::universal::uni_scalar::UniScalar;
 
@@ -109,12 +116,12 @@ mod tests {
     fn from_normalizes_variant_for_rust() -> RS<()> {
         let variant_def = UniVariantDef {
             variant_comments: "comment".to_string(),
-            variant_name: "mu-dat-value".to_string(),
+            variant_name: "mu-data-value".to_string(),
             variant_cases: vec![
                 VariantCase {
                     vc_comments: "i32".to_string(),
                     vc_case_name: "i32".to_string(),
-                    vc_case_type: Some(UniDatType::Scalar(UniScalar::I32)),
+                    vc_case_type: Some(UniDataType::Scalar(UniScalar::I32)),
                 },
                 VariantCase {
                     vc_comments: "none".to_string(),
@@ -124,7 +131,7 @@ mod tests {
             ],
         };
         let info = VariantInfo::from(variant_def, LangKind::Rust)?;
-        assert_eq!(info.variant_name, "MuDatValue");
+        assert_eq!(info.variant_name, "MuDataValue");
         assert_eq!(info.variant_cases.len(), 2);
         assert_eq!(info.variant_cases[0].vc_case_name, "I32");
         assert_eq!(info.variant_cases[0].vc_inner_type_name, "i32");
@@ -141,7 +148,7 @@ mod tests {
             variant_cases: vec![VariantCase {
                 vc_comments: String::new(),
                 vc_case_name: "text".to_string(),
-                vc_case_type: Some(UniDatType::Scalar(UniScalar::String)),
+                vc_case_type: Some(UniDataType::Scalar(UniScalar::String)),
             }],
         };
         let info = VariantInfo::from(variant_def, LangKind::CSharp)?;

@@ -13,20 +13,20 @@ mod tests {
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
     use mudu::common::buf::Buf;
     use mudu::error::ErrorCode;
-    use mudu_type::dat_type::DatType;
-    use mudu_type::dat_type_id::DatTypeID;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
     use std::cmp::Ordering;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
 
     fn i32_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::I32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::I32)]).unwrap()
     }
 
     fn make_i32_tuple(value: i32) -> Buf {
         let binary = datum_to_binary(
             &value,
-            &DatumDesc::new("x".to_string(), DatType::new_no_param(DatTypeID::I32)),
+            &DatumDesc::new("x".to_string(), DataType::new_no_param(TypeFamily::I32)),
         )
         .unwrap();
         build_tuple(&[binary], &i32_desc()).unwrap()
@@ -35,8 +35,8 @@ mod tests {
     fn mixed_desc() -> TupleBinaryDesc {
         // Normalized order is fixed-length types before variable-length types.
         TupleBinaryDesc::from(vec![
-            DatType::new_no_param(DatTypeID::I32),
-            DatType::default_for(DatTypeID::String),
+            DataType::new_no_param(TypeFamily::I32),
+            DataType::default_for(TypeFamily::String),
         ])
         .unwrap()
     }
@@ -44,12 +44,12 @@ mod tests {
     fn make_mixed_tuple(i: i32, s: &str) -> Buf {
         let i_binary = datum_to_binary(
             &i,
-            &DatumDesc::new("i".to_string(), DatType::new_no_param(DatTypeID::I32)),
+            &DatumDesc::new("i".to_string(), DataType::new_no_param(TypeFamily::I32)),
         )
         .unwrap();
         let s_binary = datum_to_binary(
             &s.to_string(),
-            &DatumDesc::new("s".to_string(), DatType::default_for(DatTypeID::String)),
+            &DatumDesc::new("s".to_string(), DataType::default_for(TypeFamily::String)),
         )
         .unwrap();
         build_tuple(&[i_binary, s_binary], &mixed_desc()).unwrap()
@@ -242,13 +242,13 @@ mod tests {
     }
 
     fn f32_desc() -> TupleBinaryDesc {
-        TupleBinaryDesc::from(vec![DatType::new_no_param(DatTypeID::F32)]).unwrap()
+        TupleBinaryDesc::from(vec![DataType::new_no_param(TypeFamily::F32)]).unwrap()
     }
 
     fn make_f32_tuple(value: f32) -> Buf {
         let binary = datum_to_binary(
             &value,
-            &DatumDesc::new("x".to_string(), DatType::new_no_param(DatTypeID::F32)),
+            &DatumDesc::new("x".to_string(), DataType::new_no_param(TypeFamily::F32)),
         )
         .unwrap();
         build_tuple(&[binary], &f32_desc()).unwrap()

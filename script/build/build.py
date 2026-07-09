@@ -641,8 +641,8 @@ class BuildScript:
         for path in [
             "mudu_gen",
             "mudu_transpiler",
-            "mudu_package"]:
-            cmd = "cargo install --force --path {}".format(path)
+            "mpm_build"]:
+            cmd = "cargo install --force --locked --path {}".format(path)
             if not self.run_command(cmd, capture_output=True):
                 self.logger.error("{} Build failed".format(path))
                 return False
@@ -652,7 +652,7 @@ class BuildScript:
         return True
 
     def build_package(self):
-        """Build mpk package"""
+        """Build mpm-build package"""
         if not self.toggle_build_package:
             return True
 

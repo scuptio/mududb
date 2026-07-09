@@ -447,7 +447,7 @@ pub fn mudu_argv_desc_get_voting_history()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -462,7 +462,7 @@ pub fn mudu_result_desc_get_voting_history()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <Vec<VoteHistoryItem> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<VoteHistoryItem> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -547,27 +547,27 @@ pub fn mudu_argv_desc_create_vote()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "creator_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "topic".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "vote_type".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "max_choices".to_string(),
-                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i64 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "end_time".to_string(),
-                <i64 as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <i64 as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "visibility_rule".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -582,7 +582,7 @@ pub fn mudu_result_desc_create_vote()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -661,7 +661,7 @@ pub fn mudu_argv_desc_create_user()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "phone".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -676,7 +676,7 @@ pub fn mudu_result_desc_create_user()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -760,15 +760,15 @@ pub fn mudu_argv_desc_cast_vote()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "vote_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "option_ids".to_string(),
-                <Vec<String> as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <Vec<String> as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -857,11 +857,11 @@ pub fn mudu_argv_desc_add_option()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "vote_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "option_text".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -876,7 +876,7 @@ pub fn mudu_result_desc_add_option()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -956,11 +956,11 @@ pub fn mudu_argv_desc_withdraw_vote()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "user_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "vote_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1054,7 +1054,7 @@ pub fn mudu_argv_desc_get_vote_result()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "vote_id".to_string(),
-                <String as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })
@@ -1069,7 +1069,7 @@ pub fn mudu_result_desc_get_vote_result()
         ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
             ::mududb::contract::tuple::datum_desc::DatumDesc::new(
                 "0".to_string(),
-                <VoteResult as ::mududb::types::datum::Datum>::dat_type().clone(),
+                <VoteResult as ::mududb::types::datum::Datum>::data_type().clone(),
             ),
         ])
     })

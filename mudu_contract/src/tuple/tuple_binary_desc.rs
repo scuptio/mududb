@@ -8,7 +8,7 @@ use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_type::dat_type::DatType;
+use mudu_type::data_type::DataType;
 use serde::{Deserialize, Serialize};
 use std::mem;
 
@@ -20,7 +20,7 @@ pub struct TupleBinaryDesc {
     fixed_count: usize,
     var_count: usize,
     total_fixed_size: usize,
-    type_desc: Vec<DatType>,
+    type_desc: Vec<DataType>,
     #[serde(default)]
     nullable_count: usize,
     #[serde(default)]
@@ -28,7 +28,7 @@ pub struct TupleBinaryDesc {
 }
 
 impl TupleBinaryDesc {
-    pub fn from(type_desc: Vec<DatType>) -> RS<Self> {
+    pub fn from(type_desc: Vec<DataType>) -> RS<Self> {
         let fields = type_desc
             .into_iter()
             .map(|ty| (ty, false, None))
@@ -37,7 +37,7 @@ impl TupleBinaryDesc {
     }
 
     pub fn from_typed_fields(
-        typed_fields: Vec<(DatType, bool, Option<u16>)>,
+        typed_fields: Vec<(DataType, bool, Option<u16>)>,
         row_format_version: u32,
     ) -> RS<Self> {
         let type_desc = typed_fields
@@ -68,7 +68,7 @@ impl TupleBinaryDesc {
         let mut fixed_count: usize = 0;
         let mut var_count: usize = 0;
         for (td, _, _) in typed_fields.iter() {
-            let id = td.dat_type_id();
+            let id = td.type_family();
             match id.fn_send_type_len()(td).map_err(|e| {
                 mudu_error!(
                     ErrorCode::InvalidType,
@@ -92,7 +92,7 @@ impl TupleBinaryDesc {
         let mut offset_len_slot_var: Vec<FieldDesc> = vec![];
         let mut slot_all: Vec<FieldDesc> = vec![];
         for (ty, nullable, null_bit_idx) in typed_fields.iter() {
-            let id = ty.dat_type_id();
+            let id = ty.type_family();
             match id.fn_send_type_len()(ty).map_err(|e| {
                 mudu_error!(
                     ErrorCode::InvalidType,
@@ -151,8 +151,8 @@ impl TupleBinaryDesc {
     }
 
     pub fn normalized_type_desc_vec<T: Default + Clone + 'static>(
-        vec: Vec<(DatType, T)>,
-    ) -> RS<(Vec<DatType>, Vec<T>)> {
+        vec: Vec<(DataType, T)>,
+    ) -> RS<(Vec<DataType>, Vec<T>)> {
         _normalized(vec)
     }
 
@@ -209,8 +209,8 @@ impl TupleBinaryDesc {
 
 /// return the vector after normalized and the payload T of the element in the original vector
 fn _normalized<T: Default + Clone + 'static>(
-    vec_type_desc: Vec<(DatType, T)>,
-) -> RS<(Vec<DatType>, Vec<T>)> {
+    vec_type_desc: Vec<(DataType, T)>,
+) -> RS<(Vec<DataType>, Vec<T>)> {
     let mut vec = vec_type_desc;
 
     let mut indices: Vec<usize> = (0..vec.len()).collect();
@@ -237,7 +237,7 @@ fn _normalized<T: Default + Clone + 'static>(
     Ok((sorted_vec, payload_vec))
 }
 
-fn is_normalized(vec_type_desc: &[DatType]) -> RS<bool> {
+fn is_normalized(vec_type_desc: &[DataType]) -> RS<bool> {
     for i in 0..vec_type_desc.len() {
         if i + 1 < vec_type_desc.len() && vec_type_desc[i].cmp_ord(&vec_type_desc[i + 1])?.is_gt() {
             return Ok(false);

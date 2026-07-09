@@ -15,10 +15,10 @@ use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_sys::sync::SMutex;
-use mudu_type::dat_type::DatType;
-use mudu_type::dat_type_id::DatTypeID;
-use mudu_type::dat_value::DatValue;
+use mudu_type::data_type::DataType;
+use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
+use mudu_type::type_family::TypeFamily;
 use mudu_utils::oid::new_xid;
 use scc::HashMap as SCCHashMap;
 use std::collections::HashMap;
@@ -249,41 +249,41 @@ fn to_libsql_params(sql_param: &dyn SQLParams) -> RS<LibSQLParam> {
     for i in 0..n {
         let datum = sql_param.get_idx_unchecked(i);
         let desc = &desc.fields()[i as usize];
-        let value = datum.to_value(desc.dat_type())?;
-        let libsql_value = _to_libsql_value(&value, desc.dat_type())?;
+        let value = datum.to_value(desc.data_type())?;
+        let libsql_value = _to_libsql_value(&value, desc.data_type())?;
         vec.push(libsql_value);
     }
     Ok(LibSQLParam::new(vec))
 }
 
-fn _to_libsql_value(datum: &DatValue, ty: &DatType) -> RS<libsql::Value> {
-    let id = ty.dat_type_id();
+fn _to_libsql_value(datum: &DataValue, ty: &DataType) -> RS<libsql::Value> {
+    let id = ty.type_family();
     let v = match id {
-        DatTypeID::I32 => libsql::Value::Integer(*datum.expect_i32() as _),
-        DatTypeID::I64 => libsql::Value::Integer(*datum.expect_i64() as _),
-        DatTypeID::U128 => libsql::Value::Text(datum.expect_u128().to_string()),
-        DatTypeID::I128 => libsql::Value::Text(datum.expect_i128().to_string()),
-        DatTypeID::F32 => libsql::Value::Real(*datum.expect_f32() as _),
-        DatTypeID::F64 => libsql::Value::Real(*datum.expect_f64() as _),
-        DatTypeID::String => libsql::Value::Text(datum.expect_string().clone()),
-        DatTypeID::Numeric => libsql::Value::Text(datum.expect_numeric().to_plain_string()),
-        DatTypeID::Date => libsql::Value::Text(datum.expect_date().format()),
-        DatTypeID::Time => libsql::Value::Text(datum.expect_time().format(6)),
-        DatTypeID::Timestamp => libsql::Value::Text(
+        TypeFamily::I32 => libsql::Value::Integer(*datum.expect_i32() as _),
+        TypeFamily::I64 => libsql::Value::Integer(*datum.expect_i64() as _),
+        TypeFamily::U128 => libsql::Value::Text(datum.expect_u128().to_string()),
+        TypeFamily::I128 => libsql::Value::Text(datum.expect_i128().to_string()),
+        TypeFamily::F32 => libsql::Value::Real(*datum.expect_f32() as _),
+        TypeFamily::F64 => libsql::Value::Real(*datum.expect_f64() as _),
+        TypeFamily::String => libsql::Value::Text(datum.expect_string().clone()),
+        TypeFamily::Numeric => libsql::Value::Text(datum.expect_numeric().to_plain_string()),
+        TypeFamily::Date => libsql::Value::Text(datum.expect_date().format()),
+        TypeFamily::Time => libsql::Value::Text(datum.expect_time().format(6)),
+        TypeFamily::Timestamp => libsql::Value::Text(
             datum
                 .expect_timestamp()
                 .format(6)
                 .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, e))?,
         ),
-        DatTypeID::TimestampTz => libsql::Value::Text(
+        TypeFamily::TimestampTz => libsql::Value::Text(
             datum
                 .expect_timestamptz()
                 .format(6)
                 .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, e))?,
         ),
-        DatTypeID::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
-        DatTypeID::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
-        DatTypeID::Binary => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        TypeFamily::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        TypeFamily::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        TypeFamily::Binary => libsql::Value::Blob(datum.to_binary(ty)?.into()),
     };
     Ok(v)
 }
