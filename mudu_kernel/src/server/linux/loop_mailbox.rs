@@ -33,7 +33,14 @@ pub(in crate::server) fn drain_messages(
 }
 
 pub(in crate::server) fn submit_read_if_needed(ctx: &mut LoopMailboxSubmitCtx<'_>) -> RS<()> {
-    if *ctx.mailbox_read_submitted || ctx.shutting_down {
+    // The read must stay armed even while shutting down: the loop keeps
+    // polling registry tasks (page-flush rounds, fs GC) during the shutdown
+    // drain, and those tasks' wakers nudge the mailbox eventfd to wake the
+    // loop (e.g. cooperative yields inside a flush round). Without an armed
+    // read the nudge produces no CQE, wait_for_cqe blocks forever, and the
+    // drain never completes. Arming is harmless for mailbox traffic:
+    // messages are only drained while not shutting down.
+    if *ctx.mailbox_read_submitted {
         debug!(
             worker_id = ctx.worker_id,
             mailbox_fd = ctx.mailbox_fd,

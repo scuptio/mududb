@@ -7,8 +7,8 @@
 //! Shared build-script helpers for the MuduDB workspace.
 
 use md5::{Digest, Md5};
-use mudu_sys::env_var;
-use mudu_sys::fs::sync::{
+use mudu_sys_impl::env_var;
+use mudu_sys_impl::fs::sync::{
     SFile, sync_create_dir_all, sync_path_exists, sync_read_dir_entries, sync_read_to_string,
     sync_remove_file, sync_write,
 };

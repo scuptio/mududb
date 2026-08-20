@@ -1,4 +1,4 @@
-use super::{Args, BenchmarkMode, run_sync_async, run_tcp};
+use super::{Args, BenchmarkMode, Workload, run_sync_async, run_tcp};
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, ServerMode};
 use mudu_sys::env_var::{remove_var, set_var, temp_dir as sys_temp_dir, var};
@@ -8,7 +8,6 @@ use mudu_sys::time::system_time_now;
 use mudu_sys::tokio::sync::Mutex;
 use mudu_utils::notifier::{Notifier, notify_wait};
 use mududb::common::result::RS;
-use std::ffi::OsStr;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -69,6 +68,12 @@ impl RunningServer {
 }
 
 pub(super) fn start_backend() -> RS<Option<(u16, u16, RunningServer)>> {
+    start_backend_with_workers(1)
+}
+
+pub(super) fn start_backend_with_workers(
+    worker_threads: usize,
+) -> RS<Option<(u16, u16, RunningServer)>> {
     let Some(http_port) = reserve_port()? else {
         return Ok(None);
     };
@@ -89,7 +94,7 @@ pub(super) fn start_backend() -> RS<Option<(u16, u16, RunningServer)>> {
         pg_listen_port: 0,
         tcp_listen_port: tcp_port,
         server_mode: ServerMode::IOUring,
-        worker_threads: 1,
+        worker_threads,
         ..Default::default()
     };
     let (stop, waiter) = notify_wait();
@@ -101,8 +106,22 @@ pub(super) fn start_backend() -> RS<Option<(u16, u16, RunningServer)>> {
     Ok(Some((http_port, tcp_port, RunningServer { stop, handle })))
 }
 
-pub(super) fn tpcc_mpk_path() -> Option<PathBuf> {
+fn find_built_mpk(name: &str) -> Option<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mpk_path = manifest_dir.join("mpk").join("tpcc.mpk");
-    (mpk_path.extension() == Some(OsStr::new("mpk")) && mpk_path.exists()).then_some(mpk_path)
+    let in_crate = manifest_dir.join("mpk").join(name);
+    if in_crate.exists() {
+        return Some(in_crate);
+    }
+    let in_target = manifest_dir
+        .join("../../target/wasm32-wasip2/release")
+        .join(name);
+    in_target.exists().then_some(in_target)
+}
+
+pub(super) fn tpcc_mpk_path() -> Option<PathBuf> {
+    find_built_mpk("tpcc.mpk")
+}
+
+pub(super) fn tpcc_partitioned_mpk_path() -> Option<PathBuf> {
+    find_built_mpk("tpcc_partitioned.mpk")
 }

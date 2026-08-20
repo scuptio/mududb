@@ -2,17 +2,20 @@
 
 use crate::config;
 use crate::result_set::LocalResultSet;
-use crate::sql::replace_placeholders;
+use crate::sql::to_data_values;
 use crate::state;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use mudu_binding::universal::uni_fs_dirent::UniFsDirent;
+use mudu_binding::universal::uni_fs_stat::UniFsStat;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_cli::client::async_client::{AsyncClient, AsyncClientImpl};
 use mudu_cli::client::client::SyncClient;
+use mudu_cli::management::{ServerTopology, fetch_server_topology};
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -27,6 +30,7 @@ use mudu_sys::sync::SMutex;
 use mudu_sys::sync::async_::mutex::AMutex;
 use mudu_sys::sync::async_::rwlock::ARwLock;
 use mudu_sys::task::sync::spawn_thread_named;
+use mudu_type::data_value::DataValue;
 use mudu_utils::task_async::build_current_thread_runtime;
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
@@ -45,6 +49,7 @@ lazy_static! {
     static ref SESSIONS: SccHashMap<OID, SessionRef> = SccHashMap::new();
     static ref ASYNC_NATIVE_SESSIONS: ARwLock<HashMap<OID, Arc<AMutex<AsyncMududSession>>>> =
         ARwLock::new(HashMap::new());
+    static ref WORKER_TOPOLOGIES: SccHashMap<String, ServerTopology> = SccHashMap::new();
 }
 
 struct AsyncMududSession {
@@ -90,12 +95,14 @@ enum AsyncCommand {
         session_id: OID,
         app_name: String,
         sql_text: String,
+        params: Vec<DataValue>,
         response: SyncSender<RS<QueryRows>>,
     },
     Command {
         session_id: OID,
         app_name: String,
         sql_text: String,
+        params: Vec<DataValue>,
         response: SyncSender<RS<u64>>,
     },
     Batch {
@@ -125,14 +132,103 @@ fn async_manager() -> RS<&'static AsyncManager> {
         .ok_or_else(|| mudu_error!(ErrorCode::Internal, "async manager not initialized"))
 }
 
+fn mudud_base_addr() -> RS<String> {
+    let base_addr = config::mudud_addr()
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?;
+    // Validate the configured address before any topology lookup so a
+    // malformed address keeps reporting "invalid mudud tcp address".
+    let _: std::net::SocketAddr = base_addr
+        .parse()
+        .map_err(|e| mudu_error!(ErrorCode::Database, "invalid mudud tcp address", e))?;
+    Ok(base_addr)
+}
+
+fn mudud_http_addr() -> RS<String> {
+    config::mudud_http_addr()
+        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud http address"))
+}
+
+fn topology_for(http_addr: &str) -> RS<ServerTopology> {
+    if let Some(topology) = WORKER_TOPOLOGIES.read_sync(http_addr, |_, topology| topology.clone()) {
+        return Ok(topology);
+    }
+    let runtime = build_current_thread_runtime()
+        .map_err(|e| mudu_error!(ErrorCode::Thread, "build mudud topology runtime error", e))?;
+    let topology = runtime
+        .block_on(fetch_server_topology(http_addr))
+        .map_err(|e| mudu_error!(ErrorCode::Network, "fetch mudud server topology error", e))?;
+    let _ = WORKER_TOPOLOGIES.insert_sync(http_addr.to_string(), topology.clone());
+    Ok(topology)
+}
+
+async fn topology_for_async(http_addr: &str) -> RS<ServerTopology> {
+    if let Some(topology) = WORKER_TOPOLOGIES.read_sync(http_addr, |_, topology| topology.clone()) {
+        return Ok(topology);
+    }
+    let topology = fetch_server_topology(http_addr)
+        .await
+        .map_err(|e| mudu_error!(ErrorCode::Network, "fetch mudud server topology error", e))?;
+    let _ = WORKER_TOPOLOGIES.insert_sync(http_addr.to_string(), topology.clone());
+    Ok(topology)
+}
+
+fn worker_addr_from_topology(
+    topology: &ServerTopology,
+    base_addr: &str,
+    worker_id: OID,
+) -> RS<String> {
+    let listen_ip = base_addr
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(base_addr);
+    topology
+        .worker_addr_by_id(listen_ip, worker_id)
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("server topology has no tcp listener for worker id {worker_id}")
+            )
+        })
+}
+
+/// Resolves the TCP address of the server worker that should host sessions
+/// opened with `worker_id`. Worker id 0 keeps the configured base address.
+///
+/// The server rejects a session create request unless the connection lands
+/// on the target worker's own listener, so non-zero worker ids are resolved
+/// through the topology exposed by the HTTP management API (cached per HTTP
+/// address). This sync variant builds a temporary runtime for the fetch and
+/// must not be called from within an async runtime thread.
+fn resolve_worker_addr(worker_id: OID) -> RS<String> {
+    let base_addr = mudud_base_addr()?;
+    if worker_id == 0 {
+        return Ok(base_addr);
+    }
+    let topology = topology_for(&mudud_http_addr()?)?;
+    worker_addr_from_topology(&topology, &base_addr, worker_id)
+}
+
+/// Asynchronous version of [`resolve_worker_addr`].
+async fn resolve_worker_addr_async(worker_id: OID) -> RS<String> {
+    let base_addr = mudud_base_addr()?;
+    if worker_id == 0 {
+        return Ok(base_addr);
+    }
+    let topology = topology_for_async(&mudud_http_addr()?).await?;
+    worker_addr_from_topology(&topology, &base_addr, worker_id)
+}
+
 /// Creates a new remote Mudud session.
+///
+/// When `argv` carries a non-zero worker id, the session is pinned to that
+/// worker: the client connects to the worker's own listener resolved from
+/// the server topology instead of the configured base address.
 pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
     if config::mudud_async_session_loop() {
         return async_open(argv.worker_oid());
     }
 
-    let addr: std::net::SocketAddr = config::mudud_addr()
-        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?
+    let addr: std::net::SocketAddr = resolve_worker_addr(argv.worker_oid())?
         .parse()
         .map_err(|e| mudu_error!(ErrorCode::Database, "invalid mudud tcp address", e))?;
     let mut client = SyncClient::connect(addr)?;
@@ -149,8 +245,7 @@ pub fn mudu_open(argv: &UniSessionOpenArgv) -> RS<OID> {
 /// Asynchronous version of [`mudu_open`].
 pub async fn mudu_open_async(argv: &UniSessionOpenArgv) -> RS<OID> {
     let _trace = mudu_utils::task_trace!();
-    let addr = config::mudud_addr()
-        .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud tcp address"))?;
+    let addr = resolve_worker_addr_async(argv.worker_oid()).await?;
     let mut client = AsyncClientImpl::connect(addr.as_str()).await?;
     let remote_session_id = client
         .create_session(SessionCreateRequest::new(session_open_config_json(
@@ -329,16 +424,24 @@ pub fn mudu_query<R: Entity>(
     params: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
     let _trace = mudu_utils::task_trace!();
-    let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
+    // Send the template text (with `?` placeholders) plus the parameters so
+    // identical statements share one plan-cache entry on the server.
+    let sql_text = sql_stmt.to_sql_string();
+    let params = to_data_values(params)?;
     let app_name = config::mudud_app_name()
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
 
     if config::mudud_async_session_loop() {
-        return async_query(session_id, app_name, sql_text);
+        return async_query(session_id, app_name, sql_text, params);
     }
 
     with_session(session_id, |session| {
-        let response = session.client.query(app_name.clone(), sql_text.clone())?;
+        let response = session.client.query_with_oid_params(
+            session.remote_session_id,
+            app_name.clone(),
+            sql_text.clone(),
+            params,
+        )?;
         let desc = response.row_desc().clone();
         let rows = response.rows().to_vec();
         Ok(RecordSet::new(
@@ -354,14 +457,19 @@ pub async fn mudu_query_async<R: Entity>(
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
 ) -> RS<RecordSet<R>> {
-    let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
+    let sql_text = sql_stmt.to_sql_string();
+    let params = to_data_values(params)?;
     let app_name = config::mudud_app_name()
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let session = async_session(session_id).await?;
     let mut session = session.lock().await;
+    let remote_session_id = session.remote_session_id;
     let response = session
         .client
-        .query(ClientRequest::new(&app_name, &sql_text))
+        .query(
+            ClientRequest::new_with_oid(remote_session_id, &app_name, &sql_text)
+                .with_params(params),
+        )
         .await?;
     let desc = response.row_desc().clone();
     let rows = response.rows().to_vec();
@@ -373,16 +481,22 @@ pub async fn mudu_query_async<R: Entity>(
 
 /// Executes a parameterized SQL command on a remote Mudud session.
 pub fn mudu_command(session_id: OID, sql_stmt: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
-    let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
+    let sql_text = sql_stmt.to_sql_string();
+    let params = to_data_values(params)?;
     let app_name = config::mudud_app_name()
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
 
     if config::mudud_async_session_loop() {
-        return async_command(session_id, app_name, sql_text);
+        return async_command(session_id, app_name, sql_text, params);
     }
 
     with_session(session_id, |session| {
-        let response = session.client.execute(app_name.clone(), sql_text.clone())?;
+        let response = session.client.execute_with_oid_params(
+            session.remote_session_id,
+            app_name.clone(),
+            sql_text.clone(),
+            params,
+        )?;
         Ok(response.affected_rows())
     })
 }
@@ -416,14 +530,19 @@ pub async fn mudu_command_async(
     params: &dyn SQLParams,
 ) -> RS<u64> {
     let _trace = mudu_utils::task_trace!();
-    let sql_text = replace_placeholders(&sql_stmt.to_sql_string(), params)?;
+    let sql_text = sql_stmt.to_sql_string();
+    let params = to_data_values(params)?;
     let app_name = config::mudud_app_name()
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mudud app name"))?;
     let session = async_session(session_id).await?;
     let mut session = session.lock().await;
+    let remote_session_id = session.remote_session_id;
     let response = session
         .client
-        .execute(ClientRequest::new(&app_name, &sql_text))
+        .execute(
+            ClientRequest::new_with_oid(remote_session_id, &app_name, &sql_text)
+                .with_params(params),
+        )
         .await?;
     Ok(response.affected_rows())
 }
@@ -451,17 +570,160 @@ pub async fn mudu_batch_async(
     Ok(response.affected_rows())
 }
 
+// The fs syscall family is not yet wired into the mudud wire protocol;
+// extending the protocol with fs frames is a future work item.
+fn fs_not_supported<T>(name: &str) -> RS<T> {
+    Err(mudu_error!(ErrorCode::NotImplemented, name))
+}
+
+/// Opens an fs object (not supported by the mudud backend yet).
+pub fn mudu_fs_open(_session_id: OID, _oid: OID, _path: &str, _flags: u32) -> RS<u32> {
+    fs_not_supported("mudu_fs_open")
+}
+
+/// Asynchronous version of [`mudu_fs_open`].
+pub async fn mudu_fs_open_async(_session_id: OID, _oid: OID, _path: &str, _flags: u32) -> RS<u32> {
+    fs_not_supported("mudu_fs_open")
+}
+
+/// Closes an fs file descriptor (not supported by the mudud backend yet).
+pub fn mudu_fs_close(_session_id: OID, _fd: u32) -> RS<()> {
+    fs_not_supported("mudu_fs_close")
+}
+
+/// Asynchronous version of [`mudu_fs_close`].
+pub async fn mudu_fs_close_async(_session_id: OID, _fd: u32) -> RS<()> {
+    fs_not_supported("mudu_fs_close")
+}
+
+/// Reads at an fs fd cursor (not supported by the mudud backend yet).
+pub fn mudu_fs_read(_session_id: OID, _fd: u32, _len: u32) -> RS<Vec<u8>> {
+    fs_not_supported("mudu_fs_read")
+}
+
+/// Asynchronous version of [`mudu_fs_read`].
+pub async fn mudu_fs_read_async(_session_id: OID, _fd: u32, _len: u32) -> RS<Vec<u8>> {
+    fs_not_supported("mudu_fs_read")
+}
+
+/// Writes at an fs fd cursor (not supported by the mudud backend yet).
+pub fn mudu_fs_write(_session_id: OID, _fd: u32, _data: &[u8]) -> RS<u32> {
+    fs_not_supported("mudu_fs_write")
+}
+
+/// Asynchronous version of [`mudu_fs_write`].
+pub async fn mudu_fs_write_async(_session_id: OID, _fd: u32, _data: &[u8]) -> RS<u32> {
+    fs_not_supported("mudu_fs_write")
+}
+
+/// Positional read on an fs fd (not supported by the mudud backend yet).
+pub fn mudu_fs_pread(_session_id: OID, _fd: u32, _offset: u64, _len: u32) -> RS<Vec<u8>> {
+    fs_not_supported("mudu_fs_pread")
+}
+
+/// Asynchronous version of [`mudu_fs_pread`].
+pub async fn mudu_fs_pread_async(
+    _session_id: OID,
+    _fd: u32,
+    _offset: u64,
+    _len: u32,
+) -> RS<Vec<u8>> {
+    fs_not_supported("mudu_fs_pread")
+}
+
+/// Positional write on an fs fd (not supported by the mudud backend yet).
+pub fn mudu_fs_pwrite(_session_id: OID, _fd: u32, _offset: u64, _data: &[u8]) -> RS<()> {
+    fs_not_supported("mudu_fs_pwrite")
+}
+
+/// Asynchronous version of [`mudu_fs_pwrite`].
+pub async fn mudu_fs_pwrite_async(
+    _session_id: OID,
+    _fd: u32,
+    _offset: u64,
+    _data: &[u8],
+) -> RS<()> {
+    fs_not_supported("mudu_fs_pwrite")
+}
+
+/// Moves an fs fd cursor (not supported by the mudud backend yet).
+pub fn mudu_fs_lseek(_session_id: OID, _fd: u32, _offset: i64, _whence: u32) -> RS<u64> {
+    fs_not_supported("mudu_fs_lseek")
+}
+
+/// Asynchronous version of [`mudu_fs_lseek`].
+pub async fn mudu_fs_lseek_async(
+    _session_id: OID,
+    _fd: u32,
+    _offset: i64,
+    _whence: u32,
+) -> RS<u64> {
+    fs_not_supported("mudu_fs_lseek")
+}
+
+/// Stats an open fs fd (not supported by the mudud backend yet).
+pub fn mudu_fs_fstat(_session_id: OID, _fd: u32) -> RS<UniFsStat> {
+    fs_not_supported("mudu_fs_fstat")
+}
+
+/// Asynchronous version of [`mudu_fs_fstat`].
+pub async fn mudu_fs_fstat_async(_session_id: OID, _fd: u32) -> RS<UniFsStat> {
+    fs_not_supported("mudu_fs_fstat")
+}
+
+/// Stats an fs object or entry (not supported by the mudud backend yet).
+pub fn mudu_fs_stat(_session_id: OID, _oid: OID, _path: &str) -> RS<UniFsStat> {
+    fs_not_supported("mudu_fs_stat")
+}
+
+/// Asynchronous version of [`mudu_fs_stat`].
+pub async fn mudu_fs_stat_async(_session_id: OID, _oid: OID, _path: &str) -> RS<UniFsStat> {
+    fs_not_supported("mudu_fs_stat")
+}
+
+/// Flushes an fs write fd (not supported by the mudud backend yet).
+pub fn mudu_fs_fsync(_session_id: OID, _fd: u32) -> RS<()> {
+    fs_not_supported("mudu_fs_fsync")
+}
+
+/// Asynchronous version of [`mudu_fs_fsync`].
+pub async fn mudu_fs_fsync_async(_session_id: OID, _fd: u32) -> RS<()> {
+    fs_not_supported("mudu_fs_fsync")
+}
+
+/// Lists an fs object directory (not supported by the mudud backend yet).
+pub fn mudu_fs_readdir(_session_id: OID, _oid: OID, _path: &str) -> RS<Vec<UniFsDirent>> {
+    fs_not_supported("mudu_fs_readdir")
+}
+
+/// Asynchronous version of [`mudu_fs_readdir`].
+pub async fn mudu_fs_readdir_async(
+    _session_id: OID,
+    _oid: OID,
+    _path: &str,
+) -> RS<Vec<UniFsDirent>> {
+    fs_not_supported("mudu_fs_readdir")
+}
+
 fn with_session<R, F>(session_id: OID, f: F) -> RS<R>
 where
     F: FnOnce(&mut MududSession) -> RS<R>,
 {
-    let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
-        mudu_error!(
-            ErrorCode::EntityNotFound,
-            format!("session {} does not exist", session_id)
-        )
-    })?;
-    let session_ref = entry.get().clone();
+    // Clone the session reference out of the map and drop the scc entry
+    // immediately. An scc entry holds its bucket lock, so keeping it alive
+    // across `f` (a blocking network call) serializes every session hashing
+    // to the same bucket and can deadlock: one thread blocks in `f` waiting
+    // on a server-side lock held by another session, whose thread in turn
+    // blocks acquiring the same bucket lock.
+    let session_ref = {
+        let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("session {} does not exist", session_id)
+            )
+        })?;
+        entry.get().clone()
+    };
     let mut session = session_ref
         .lock()
         .map_err(|_| mudu_error!(ErrorCode::Internal, "mudud session lock poisoned"))?;
@@ -580,7 +842,12 @@ fn async_range(session_id: OID, start_key: &[u8], end_key: &[u8]) -> RS<Vec<(Vec
     recv_response(rx)
 }
 
-fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -> RS<RecordSet<R>> {
+fn async_query<R: Entity>(
+    session_id: OID,
+    app_name: String,
+    sql_text: String,
+    params: Vec<DataValue>,
+) -> RS<RecordSet<R>> {
     let (tx, rx) = mpsc::sync_channel(1);
     async_manager()?
         .sender
@@ -588,6 +855,7 @@ fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -
             session_id,
             app_name,
             sql_text,
+            params,
             response: tx,
         })
         .map_err(|e| {
@@ -606,7 +874,12 @@ fn async_query<R: Entity>(session_id: OID, app_name: String, sql_text: String) -
     ))
 }
 
-fn async_command(session_id: OID, app_name: String, sql_text: String) -> RS<u64> {
+fn async_command(
+    session_id: OID,
+    app_name: String,
+    sql_text: String,
+    params: Vec<DataValue>,
+) -> RS<u64> {
     let (tx, rx) = mpsc::sync_channel(1);
     async_manager()?
         .sender
@@ -614,6 +887,7 @@ fn async_command(session_id: OID, app_name: String, sql_text: String) -> RS<u64>
             session_id,
             app_name,
             sql_text,
+            params,
             response: tx,
         })
         .map_err(|e| {
@@ -829,6 +1103,7 @@ async fn handle_async_command(
             session_id,
             app_name,
             sql_text,
+            params,
             response,
         } => {
             let result = async {
@@ -840,7 +1115,10 @@ async fn handle_async_command(
                 })?;
                 let response_data = session
                     .client
-                    .query(ClientRequest::new(app_name, sql_text))
+                    .query(
+                        ClientRequest::new_with_oid(session.remote_session_id, app_name, sql_text)
+                            .with_params(params),
+                    )
                     .await?;
                 Ok(QueryRows {
                     row_desc: response_data.row_desc().clone(),
@@ -854,6 +1132,7 @@ async fn handle_async_command(
             session_id,
             app_name,
             sql_text,
+            params,
             response,
         } => {
             let result = async {
@@ -865,7 +1144,10 @@ async fn handle_async_command(
                 })?;
                 let response_data = session
                     .client
-                    .execute(ClientRequest::new(app_name, sql_text))
+                    .execute(
+                        ClientRequest::new_with_oid(session.remote_session_id, app_name, sql_text)
+                            .with_params(params),
+                    )
                     .await?;
                 Ok(response_data.affected_rows())
             }
@@ -1169,31 +1451,26 @@ mod tests {
     }
 
     #[test]
-    fn mudu_query_and_command_return_parse_error_on_placeholder_mismatch() -> RS<()> {
+    fn mudu_query_and_command_forward_params_without_local_validation() -> RS<()> {
         let _guard = config::test_lock().lock()?;
         config::reset_db_path_override_for_test();
         with_connection_env("mudud://127.0.0.1:9999/test", || {
+            // The driver sends the template text plus parameters as-is;
+            // placeholder/parameter count is validated by the server binder,
+            // so the request fails only because the session is unknown.
             let stmt = SQLStmtText::new("SELECT ?1, ?2".to_string());
 
             let err = match mudu_query::<i32>(9999, &stmt, &42i32) {
                 Ok(_) => panic!("expected mudu_query to fail"),
                 Err(err) => err,
             };
-            assert_eq!(err.ec(), ErrorCode::Parse);
-            assert!(
-                err.to_string()
-                    .contains("parameter and placeholder count mismatch")
-            );
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
 
             let err = match mudu_command(9999, &stmt, &42i32) {
                 Ok(_) => panic!("expected mudu_command to fail"),
                 Err(err) => err,
             };
-            assert_eq!(err.ec(), ErrorCode::Parse);
-            assert!(
-                err.to_string()
-                    .contains("parameter and placeholder count mismatch")
-            );
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
             Ok(())
         })
     }

@@ -1,0 +1,20 @@
+# Build parallelism cap for this workspace. The default (-j = all 24 cores)
+# spawns many rustc processes at 1-3 GB RSS each and, combined with
+# long-running IDE processes (~50 GB), gets cargo test killed by the OOM
+# killer. 4 parallel jobs keeps the peak within an ~8 GB budget while
+# staying reasonably fast. Do not raise without re-measuring.
+[build]
+jobs = 4
+
+# Link with the rust-lld bundled in the toolchain (via .cargo/cc-lld.sh)
+# instead of the system GNU ld: linking the wasmtime-scale test binaries of
+# this workspace with GNU ld takes several GB RSS per link, which is the
+# main driver of OOM kills in memory-constrained environments.
+[target.x86_64-unknown-linux-gnu]
+linker = ".cargo/cc-lld.sh"
+
+# Cap libtest parallelism (default is ncpu = 24): integration tests spawn
+# servers / wasm runtimes, and 24 of them in parallel blow the memory budget.
+# Override per-run with `cargo test -- --test-threads=N`.
+[env]
+RUST_TEST_THREADS = "4"

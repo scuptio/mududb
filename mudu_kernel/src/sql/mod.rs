@@ -18,6 +18,7 @@ pub mod stmt_cmd_run;
 
 pub mod binder;
 pub mod bound_stmt;
+pub mod bound_template;
 pub mod describer;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -25,10 +26,14 @@ mod describer_test;
 pub mod plan_ctx;
 pub mod planner;
 pub mod proj_list;
+mod select_projection;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod binder_test;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod bound_template_test;
 pub mod stmt_cmd;
 
 mod current_tx;

@@ -10,7 +10,7 @@ use crate::ast::expr_item::{ExprItem, ExprValue};
 use crate::ast::expr_literal::ExprLiteral;
 use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::ValueCompare;
-use crate::ast::select_term::SelectTerm;
+use crate::ast::select_term::{SelectField, SelectTerm};
 use crate::ast::stmt_select::StmtSelect;
 use mudu_type::data_typed::DataTyped;
 
@@ -44,7 +44,7 @@ fn add_select_term_and_predicate() {
     let mut term = SelectTerm::new();
     let mut field = ExprName::new();
     field.set_name("name".to_string());
-    term.set_field(field);
+    term.set_field(SelectField::Column(field));
     stmt.add_select_term(term);
     assert_eq!(stmt.get_select_term_list().len(), 1);
 

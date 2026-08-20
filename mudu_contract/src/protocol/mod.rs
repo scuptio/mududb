@@ -8,6 +8,7 @@ use mudu::error::ErrorCode;
 use mudu::error::MuduError;
 use mudu::mudu_error;
 use mudu_sys_contract::perf::TraceContext;
+use mudu_type::data_value::DataValue;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -98,6 +99,11 @@ pub struct ClientRequest {
     oid: u128,
     app_name: String,
     sql: String,
+    /// SQL parameters for the `?` placeholders in `sql`, in placeholder order.
+    /// NUMERIC values travel in their plain string form; the server coerces
+    /// them to the target NUMERIC type during bind.
+    #[serde(default)]
+    params: Vec<DataValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +360,7 @@ impl ClientRequest {
             oid: 0,
             app_name: app_name.into(),
             sql: sql.into(),
+            params: Vec::new(),
         }
     }
 
@@ -362,7 +369,13 @@ impl ClientRequest {
             oid,
             app_name: app_name.into(),
             sql: sql.into(),
+            params: Vec::new(),
         }
+    }
+
+    pub fn with_params(mut self, params: Vec<DataValue>) -> Self {
+        self.params = params;
+        self
     }
 
     pub fn oid(&self) -> u128 {
@@ -375,6 +388,10 @@ impl ClientRequest {
 
     pub fn sql(&self) -> &str {
         &self.sql
+    }
+
+    pub fn params(&self) -> &[DataValue] {
+        &self.params
     }
 }
 

@@ -44,6 +44,7 @@ pub const INCREMENT: &str = "increment";
 pub const INDEX_NAME: &str = "index_name";
 pub const INSERT_VALUES: &str = "insert_values";
 pub const INTEGER: &str = "integer";
+pub const INVOCATION: &str = "invocation";
 pub const KEY: &str = "key";
 pub const KEYWORD_FALSE: &str = "keyword_false";
 pub const KEYWORD_NULL: &str = "keyword_null";

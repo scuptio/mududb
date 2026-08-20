@@ -1,4 +1,5 @@
 use crate::contract::meta_mgr::MetaMgr;
+use crate::server::fs_service::FsService;
 use crate::server::message_bus_api::{message_bus_for_worker, MessageBusRef};
 use crate::server::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
 use crate::server::routing::SessionOpenConfig;
@@ -7,7 +8,7 @@ use crate::server::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
 use crate::server::worker_registry::WorkerRegistry;
 use crate::server::worker_snapshot::KvItem;
 use async_trait::async_trait;
-use mudu::common::id::OID;
+use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -17,7 +18,8 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
 use std::sync::Arc;
 
-use crate::x_engine::api::XContract;
+use crate::x_engine::api::{DeltaOp, XContract};
+use crate::x_engine::DataBin;
 
 struct SessionBoundWorkerRuntime {
     worker: Arc<WorkerRuntime>,
@@ -56,6 +58,14 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
         let bus = message_bus_for_worker(self.worker.server_instance_id(), self.worker.worker_id())
             .expect("message bus is not registered");
         bus
+    }
+
+    fn fs_service(&self) -> RS<Arc<FsService>> {
+        Ok(self.worker.fs_service())
+    }
+
+    fn current_session_id(&self) -> Option<OID> {
+        Some(self.current_session_id)
     }
 
     async fn open_async(&self) -> RS<OID> {
@@ -117,6 +127,43 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
         param: Box<dyn SQLParams>,
     ) -> RS<Arc<dyn ResultSetAsync>> {
         self.worker.query(oid, sql, param).await
+    }
+
+    async fn relation_get(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        select: Vec<AttrIndex>,
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
+        self.worker
+            .relation_get_in_session(session_id, table, key, select)
+            .await
+    }
+
+    async fn relation_update(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+        deltas: Vec<(AttrIndex, DeltaOp, DataBin)>,
+    ) -> RS<u64> {
+        self.worker
+            .relation_update_in_session(session_id, table, key, values, deltas)
+            .await
+    }
+
+    async fn relation_insert(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+    ) -> RS<()> {
+        self.worker
+            .relation_insert_in_session(session_id, table, key, values)
+            .await
     }
 
     async fn execute(&self, oid: OID, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64> {

@@ -161,6 +161,22 @@ All adapters currently implement a simple debug-oriented model:
 
 This is sufficient for local functional debugging of user code, but should not be treated as a faithful backend replacement.
 
+## Filesystem Syscall Emulation
+
+The 11 `mudu_fs_*` functions (open / close / read / write / pread / pwrite / lseek / fstat / stat / fsync / readdir) are also available in standalone mode.
+For the SQLite / PostgreSQL / MySQL drivers they are emulated on the local filesystem; for `mudud://...` connections they return `NotImplemented` (the wire-protocol extension is a future work item).
+
+Behavior:
+
+- content lives under `{db_path}.fs/` using the kernel flat layout, pinned to a single generation `1`:
+  - `{db_path}.fs/{oidhex}.1` is the FILE-style content of an object
+  - `{db_path}.fs/{oidhex}.1.{entry}` are DIRECTORY-style entries (entry `/` separators become real directories)
+- the object OID is caller-chosen (no DDL, catalog, or `_fs_object` table is emulated)
+- write opens create the content file (and parent directories); read opens require an existing file
+- stat frames always report `generation = 1` and `state = 1` (SEALED) — no MVCC or generation lifecycle
+- `O_CREAT` / `O_TRUNC` / `O_APPEND` / `O_EXCL` flags are rejected with `EINVAL`; read/write payloads are capped at 16 MiB
+- `session_id` is accepted but not validated; the fd table is process-global
+
 ## Limitations
 
 Current limitations of the standalone adapter path:

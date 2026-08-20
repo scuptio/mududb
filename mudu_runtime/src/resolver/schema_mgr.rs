@@ -63,8 +63,12 @@ impl SchemaMgr {
         for entry in fs::sync::sync_read_dir_entries(ddl_path)? {
             let path = entry.path();
 
-            // check if this is a file
-            if path.is_file()
+            // Check if this is a file via the `mudu_sys` metadata wrapper
+            // rather than `std::fs`: the deterministic-simulation backend
+            // keeps an in-memory filesystem that `Path::is_file` cannot see.
+            if fs::sync::sync_metadata(&path)
+                .map(|m| m.is_file())
+                .unwrap_or(false)
                 && let Some(ext) = path.extension()
                 && ext.to_ascii_lowercase() == DDL_SQL_EXTENSION
             {

@@ -39,8 +39,9 @@ fn binary_logs_serve_error() -> Result<(), Box<dyn std::error::Error>> {
         .arg(&cfg)
         .output()?;
 
-    // The binary exits successfully after logging the error.
-    assert!(output.status.success());
+    // The binary logs the error and exits non-zero so supervisors can detect
+    // the startup failure.
+    assert!(!output.status.success());
     let combined = format!(
         "{} {}",
         String::from_utf8_lossy(&output.stdout),

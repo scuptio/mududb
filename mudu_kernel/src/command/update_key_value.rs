@@ -1,3 +1,4 @@
+use crate::command::fs_hook;
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::x_engine::api::{OptUpdate, Predicate, XContract};
@@ -52,7 +53,7 @@ impl _UpdateKeyValue {
         if self.param.key.data().is_empty() {
             return Err(mudu_error!(ER::EntityNotFound, "update key is empty"));
         }
-        if self.param.value.data().is_empty() {
+        if self.param.value.data().is_empty() && self.param.delta_assignments.is_empty() {
             return Err(mudu_error!(ER::EntityNotFound, "update value is empty"));
         }
         Ok(())
@@ -60,6 +61,39 @@ impl _UpdateKeyValue {
 
     async fn run(&mut self) -> RS<()> {
         // The SQL binder only emits key-equality updates for now.
+        let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
+        let opt_update = OptUpdate {
+            delta_assignments: self.param.delta_assignments.clone(),
+        };
+        if fs_hook::update_touches_fs_columns(desc.as_ref(), &self.param.value) {
+            let mut value = self.param.value.clone();
+            let staged = fs_hook::rebind_fs_columns_on_update(
+                &self.meta_mgr,
+                &self.x_contract,
+                &self.param.tx_mgr,
+                self.param.table_id,
+                desc.as_ref(),
+                &self.param.key,
+                &mut value,
+            )
+            .await?;
+            let updated = self
+                .x_contract
+                .update(
+                    self.param.tx_mgr.clone(),
+                    self.param.table_id,
+                    &self.param.key,
+                    &Predicate::CNF(Vec::new()),
+                    &value,
+                    &opt_update,
+                )
+                .await?;
+            if updated > 0 {
+                fs_hook::stage_fs_ops(&self.param.tx_mgr, staged);
+            }
+            self.affected_rows = updated as u64;
+            return Ok(());
+        }
         let updated = self
             .x_contract
             .update(
@@ -68,7 +102,7 @@ impl _UpdateKeyValue {
                 &self.param.key,
                 &Predicate::CNF(Vec::new()),
                 &self.param.value,
-                &OptUpdate {},
+                &opt_update,
             )
             .await?;
         self.affected_rows = updated as u64;

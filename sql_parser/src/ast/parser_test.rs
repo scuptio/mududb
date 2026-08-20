@@ -613,6 +613,72 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn parse_create_table_unknown_identifier_type_maps_to_named_type() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE product (
+                id INT PRIMARY KEY,
+                photo photo_fs
+            );
+            ",
+        )
+        .unwrap();
+
+        let id = stmt
+            .primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "id")
+            .expect("id column");
+        assert!(matches!(
+            id.data_type(),
+            UniDataType::Scalar(UniScalar::I32)
+        ));
+
+        let photo = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "photo")
+            .expect("photo column");
+        assert_eq!(
+            photo.data_type().as_identifier(),
+            Some(&"photo_fs".to_string())
+        );
+        assert!(photo.data_type_param().is_none());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn parse_create_table_unknown_identifier_type_preserves_case() {
+        let stmt = parse_create_table(
+            "
+            CREATE TABLE product (
+                id INT PRIMARY KEY,
+                photo Photo_FS2
+            );
+            ",
+        )
+        .unwrap();
+
+        let photo = stmt
+            .non_primary_columns()
+            .into_iter()
+            .find(|column| column.column_name() == "photo")
+            .expect("photo column");
+        assert_eq!(
+            photo.data_type().as_identifier(),
+            Some(&"Photo_FS2".to_string())
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn parse_create_table_unknown_keyword_type_still_returns_not_implemented() {
+        let err = parse_sql("create table users (id boolean primary key);").unwrap_err();
+        assert!(err.to_string().contains("not yet implemented"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_create_table_ast_column_primary_key_index() {
         let stmt = parse_create_table(
             "

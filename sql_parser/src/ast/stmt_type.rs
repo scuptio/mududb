@@ -1,10 +1,12 @@
 use crate::ast::stmt_copy_from::StmtCopyFrom;
 use crate::ast::stmt_copy_to::StmtCopyTo;
+use crate::ast::stmt_create_fs_type::StmtCreateFsType;
 use crate::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
 use crate::ast::stmt_create_partition_rule::StmtCreatePartitionRule;
 use crate::ast::stmt_create_table::StmtCreateTable;
 use crate::ast::stmt_delete::StmtDelete;
 use crate::ast::stmt_drop_table::StmtDropTable;
+use crate::ast::stmt_drop_type::StmtDropType;
 use crate::ast::stmt_insert::StmtInsert;
 use crate::ast::stmt_select::StmtSelect;
 use crate::ast::stmt_update::StmtUpdate;
@@ -35,6 +37,10 @@ pub enum StmtCommand {
     CreateTable(StmtCreateTable),
     /// `DROP TABLE` statement.
     DropTable(StmtDropTable),
+    /// `CREATE TYPE FILESYSTEM FILE|DIRECTORY` statement.
+    CreateFsType(StmtCreateFsType),
+    /// `DROP TYPE` statement.
+    DropType(StmtDropType),
     /// `COPY ... TO` statement.
     CopyTo(StmtCopyTo),
     /// `COPY ... FROM` statement.

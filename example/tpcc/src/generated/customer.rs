@@ -76,7 +76,6 @@ pub mod object {
     impl SQLParamMarker for Customer {}
 
     impl Customer {
-        #[allow(clippy::too_many_arguments)]
         pub fn new(
             c_id: Option<i32>,
             c_d_id: Option<i32>,
@@ -85,8 +84,8 @@ pub mod object {
             c_last: Option<String>,
             c_discount: Option<i32>,
             c_credit: Option<String>,
-            c_balance: Option<i32>,
-            c_ytd_payment: Option<i32>,
+            c_balance: Option<mududb::mudu::data_type::numeric::Numeric>,
+            c_ytd_payment: Option<mududb::mudu::data_type::numeric::Numeric>,
             c_payment_cnt: Option<i32>,
             c_delivery_cnt: Option<i32>,
             c_last_order_id: Option<i32>,
@@ -178,19 +177,22 @@ pub mod object {
             self.c_credit.get()
         }
 
-        pub fn set_c_balance(&mut self, c_balance: i32) {
+        pub fn set_c_balance(&mut self, c_balance: mududb::mudu::data_type::numeric::Numeric) {
             self.c_balance.update(c_balance)
         }
 
-        pub fn get_c_balance(&self) -> &Option<i32> {
+        pub fn get_c_balance(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.c_balance.get()
         }
 
-        pub fn set_c_ytd_payment(&mut self, c_ytd_payment: i32) {
+        pub fn set_c_ytd_payment(
+            &mut self,
+            c_ytd_payment: mududb::mudu::data_type::numeric::Numeric,
+        ) {
             self.c_ytd_payment.update(c_ytd_payment)
         }
 
-        pub fn get_c_ytd_payment(&self) -> &Option<i32> {
+        pub fn get_c_ytd_payment(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.c_ytd_payment.get()
         }
 
@@ -322,7 +324,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -414,7 +416,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -449,7 +451,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -511,7 +513,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -893,36 +895,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrCBalance {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrCBalance {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrCBalance {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrCBalance {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(12, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)
@@ -946,36 +959,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrCYtdPayment {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrCYtdPayment {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrCYtdPayment {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrCYtdPayment {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(12, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)

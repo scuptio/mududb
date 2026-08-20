@@ -6,6 +6,28 @@ interface system {
   fetch: func(query-result: list<u8>) -> list<u8>;
 
   command: func(command-in: list<u8>) -> list<u8>;
+
+  fs-open: func(fs-open-in: list<u8>) -> list<u8>;
+
+  fs-close: func(fs-close-in: list<u8>) -> list<u8>;
+
+  fs-read: func(fs-read-in: list<u8>) -> list<u8>;
+
+  fs-write: func(fs-write-in: list<u8>) -> list<u8>;
+
+  fs-pread: func(fs-pread-in: list<u8>) -> list<u8>;
+
+  fs-pwrite: func(fs-pwrite-in: list<u8>) -> list<u8>;
+
+  fs-lseek: func(fs-lseek-in: list<u8>) -> list<u8>;
+
+  fs-fstat: func(fs-fstat-in: list<u8>) -> list<u8>;
+
+  fs-stat: func(fs-stat-in: list<u8>) -> list<u8>;
+
+  fs-fsync: func(fs-fsync-in: list<u8>) -> list<u8>;
+
+  fs-readdir: func(fs-readdir-in: list<u8>) -> list<u8>;
 }
 
 world api {

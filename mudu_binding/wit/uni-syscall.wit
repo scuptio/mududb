@@ -4,6 +4,9 @@ use crate:universal:uni-query-argv/uni-query-argv;
 use crate:universal:uni-query-result/uni-query-result;
 use crate:universal:uni-error/uni-error;
 use crate:universal:uni-oid/uni-oid;
+use crate:universal:uni-fs-open-argv/uni-fs-open-argv;
+use crate:universal:uni-fs-stat/uni-fs-stat;
+use crate:universal:uni-fs-dirent/uni-fs-dirent;
 
 interface universal {
     query: func(argv: uni-query-argv) -> result<uni-query-result, uni-error>;
@@ -15,4 +18,18 @@ interface universal {
     put: func(oid: uni-oid, key: list<u8>, value: list<u8>) -> result<_, uni-error>;
     delete: func(oid: uni-oid, key: list<u8>) -> result<_, uni-error>;
     range: func(oid: uni-oid, start: list<u8>, end: list<u8>) -> result<list<tuple<list<u8>, list<u8>>>, uni-error>;
+    relation-get: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, select: list<u64>) -> result<option<list<option<list<u8>>>>, uni-error>;
+    relation-update: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, values: list<tuple<u64, list<u8>>>, deltas: list<tuple<u64, u8, list<u8>>>) -> result<u64, uni-error>;
+    relation-insert: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, values: list<tuple<u64, list<u8>>>) -> result<_, uni-error>;
+    fs-open: func(argv: uni-fs-open-argv) -> result<u32, uni-error>;
+    fs-close: func(fd: u32) -> result<_, uni-error>;
+    fs-read: func(fd: u32, len: u32) -> result<list<u8>, uni-error>;
+    fs-write: func(fd: u32, data: list<u8>) -> result<u32, uni-error>;
+    fs-pread: func(fd: u32, offset: u64, len: u32) -> result<list<u8>, uni-error>;
+    fs-pwrite: func(fd: u32, offset: u64, data: list<u8>) -> result<_, uni-error>;
+    fs-lseek: func(fd: u32, offset: s64, whence: u32) -> result<u64, uni-error>;
+    fs-fstat: func(fd: u32) -> result<uni-fs-stat, uni-error>;
+    fs-stat: func(oid: uni-oid, path: string) -> result<uni-fs-stat, uni-error>;
+    fs-fsync: func(fd: u32) -> result<_, uni-error>;
+    fs-readdir: func(oid: uni-oid, path: string) -> result<list<uni-fs-dirent>, uni-error>;
 }

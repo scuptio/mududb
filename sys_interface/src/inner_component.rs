@@ -1,10 +1,16 @@
+use crate::fs::{FsDirEntry, FsStat};
 use crate::host::{
-    invoke_host_batch, invoke_host_close, invoke_host_command, invoke_host_open, invoke_host_query,
+    invoke_host_batch, invoke_host_close, invoke_host_command, invoke_host_fs_close,
+    invoke_host_fs_fstat, invoke_host_fs_fsync, invoke_host_fs_lseek, invoke_host_fs_open,
+    invoke_host_fs_pread, invoke_host_fs_pwrite, invoke_host_fs_read, invoke_host_fs_readdir,
+    invoke_host_fs_stat, invoke_host_fs_write, invoke_host_open, invoke_host_query,
+    invoke_host_relation_get, invoke_host_relation_insert, invoke_host_relation_update,
     invoke_host_session_get, invoke_host_session_put, invoke_host_session_range,
 };
 use crate::inner_component::mududb::api::system;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
@@ -68,5 +74,107 @@ pub fn inner_range(
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     invoke_host_session_range(session_id, start_key, end_key, |param| {
         Ok(system::range(&param))
+    })
+}
+
+/// Forward a `relation-get` call to the component-model host interface.
+pub fn inner_relation_get(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    invoke_host_relation_get(session_id, table, key, select, |param| {
+        Ok(system::relation_get(&param))
+    })
+}
+
+/// Forward a `relation-update` call to the component-model host interface.
+pub fn inner_relation_update(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+    deltas: &[UniRelationDelta],
+) -> RS<u64> {
+    invoke_host_relation_update(session_id, table, key, values, deltas, |param| {
+        Ok(system::relation_update(&param))
+    })
+}
+
+/// Forward a `relation-insert` call to the component-model host interface.
+pub fn inner_relation_insert(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    invoke_host_relation_insert(session_id, table, key, values, |param| {
+        Ok(system::relation_insert(&param))
+    })
+}
+
+/// Forward a `fs open` call to the component-model host interface.
+pub fn inner_fs_open(session_id: OID, oid: OID, path: &str, flags: u32) -> RS<u32> {
+    invoke_host_fs_open(session_id, oid, path, flags, |param| {
+        Ok(system::fs_open(&param))
+    })
+}
+
+/// Forward a `fs close` call to the component-model host interface.
+pub fn inner_fs_close(session_id: OID, fd: u32) -> RS<()> {
+    invoke_host_fs_close(session_id, fd, |param| Ok(system::fs_close(&param)))
+}
+
+/// Forward a `fs read` call to the component-model host interface.
+pub fn inner_fs_read(session_id: OID, fd: u32, len: u32) -> RS<Vec<u8>> {
+    invoke_host_fs_read(session_id, fd, len, |param| Ok(system::fs_read(&param)))
+}
+
+/// Forward a `fs write` call to the component-model host interface.
+pub fn inner_fs_write(session_id: OID, fd: u32, data: &[u8]) -> RS<u32> {
+    invoke_host_fs_write(session_id, fd, data, |param| Ok(system::fs_write(&param)))
+}
+
+/// Forward a `fs pread` call to the component-model host interface.
+pub fn inner_fs_pread(session_id: OID, fd: u32, offset: u64, len: u32) -> RS<Vec<u8>> {
+    invoke_host_fs_pread(session_id, fd, offset, len, |param| {
+        Ok(system::fs_pread(&param))
+    })
+}
+
+/// Forward a `fs pwrite` call to the component-model host interface.
+pub fn inner_fs_pwrite(session_id: OID, fd: u32, offset: u64, data: &[u8]) -> RS<()> {
+    invoke_host_fs_pwrite(session_id, fd, offset, data, |param| {
+        Ok(system::fs_pwrite(&param))
+    })
+}
+
+/// Forward a `fs lseek` call to the component-model host interface.
+pub fn inner_fs_lseek(session_id: OID, fd: u32, offset: i64, whence: u32) -> RS<u64> {
+    invoke_host_fs_lseek(session_id, fd, offset, whence, |param| {
+        Ok(system::fs_lseek(&param))
+    })
+}
+
+/// Forward a `fs fstat` call to the component-model host interface.
+pub fn inner_fs_fstat(session_id: OID, fd: u32) -> RS<FsStat> {
+    invoke_host_fs_fstat(session_id, fd, |param| Ok(system::fs_fstat(&param)))
+}
+
+/// Forward a `fs stat` call to the component-model host interface.
+pub fn inner_fs_stat(session_id: OID, oid: OID, path: &str) -> RS<FsStat> {
+    invoke_host_fs_stat(session_id, oid, path, |param| Ok(system::fs_stat(&param)))
+}
+
+/// Forward a `fs fsync` call to the component-model host interface.
+pub fn inner_fs_fsync(session_id: OID, fd: u32) -> RS<()> {
+    invoke_host_fs_fsync(session_id, fd, |param| Ok(system::fs_fsync(&param)))
+}
+
+/// Forward a `fs readdir` call to the component-model host interface.
+pub fn inner_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEntry>> {
+    invoke_host_fs_readdir(session_id, oid, path, |param| {
+        Ok(system::fs_readdir(&param))
     })
 }

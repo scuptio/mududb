@@ -1,8 +1,9 @@
 use crate::contract::meta_mgr::MetaMgr;
+use crate::server::fs_service::FsService;
 use crate::server::message_bus_api::MessageBusRef;
 use crate::server::worker_snapshot::KvItem;
 use async_trait::async_trait;
-use mudu::common::id::OID;
+use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
@@ -10,7 +11,8 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use std::cell::UnsafeCell;
 use std::sync::Arc;
 
-use crate::x_engine::api::XContract;
+use crate::x_engine::api::{DeltaOp, XContract};
+use crate::x_engine::DataBin;
 
 thread_local! {
     static CURRENT_WORKER_LOCAL: UnsafeCell<Option<WorkerLocalRef>> =
@@ -29,6 +31,27 @@ pub trait WorkerLocal: Send + Sync {
     fn x_contract(&self) -> Arc<dyn XContract>;
     fn meta_mgr(&self) -> Arc<dyn MetaMgr>;
     fn message_bus(&self) -> MessageBusRef;
+
+    /// Return the fs object IO service of this worker.
+    ///
+    /// The default reports fs syscalls as unavailable; the session-bound
+    /// worker runtime overrides this with the worker's service instance.
+    fn fs_service(&self) -> RS<Arc<FsService>> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "fs syscalls are not available on this worker"
+        ))
+    }
+
+    /// Return the session this worker-local view is bound to, if any.
+    ///
+    /// The SyscallPayload v1 fs frames carry no session id outside `fs-open`:
+    /// fd-based operations and `fs-stat`/`fs-readdir` resolve the session of
+    /// the calling procedure through this accessor. The default reports no
+    /// bound session; the session-bound worker runtime overrides it.
+    fn current_session_id(&self) -> Option<OID> {
+        None
+    }
 
     async fn open_async(&self) -> RS<OID>;
 
@@ -70,6 +93,61 @@ pub trait WorkerLocal: Send + Sync {
     async fn execute(&self, oid: OID, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64>;
 
     async fn batch(&self, oid: OID, sql: Box<dyn SQLStmt>, param: Box<dyn SQLParams>) -> RS<u64>;
+
+    /// Point-read one relation row by primary key inside the session
+    /// transaction, returning the projected columns in `select` order.
+    ///
+    /// The default reports the relation syscalls as unavailable; the
+    /// session-bound worker runtime overrides this with a direct
+    /// [`XContract::read_key`] call that bypasses SQL parsing and result-set
+    /// serialization.
+    async fn relation_get(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        select: Vec<AttrIndex>,
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
+        let _ = (session_id, table, key, select);
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "relation syscalls are not available on this worker"
+        ))
+    }
+
+    /// Read-modify-write one relation row by primary key inside the session
+    /// transaction; `deltas` are evaluated against the latest committed row
+    /// under the statement lock. Returns the affected row count.
+    async fn relation_update(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+        deltas: Vec<(AttrIndex, DeltaOp, DataBin)>,
+    ) -> RS<u64> {
+        let _ = (session_id, table, key, values, deltas);
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "relation syscalls are not available on this worker"
+        ))
+    }
+
+    /// Insert one relation row inside the session transaction; a duplicate
+    /// primary key fails with `EntityAlreadyExists`.
+    async fn relation_insert(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+    ) -> RS<()> {
+        let _ = (session_id, table, key, values);
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "relation syscalls are not available on this worker"
+        ))
+    }
 }
 
 pub type WorkerLocalRef = Arc<dyn WorkerLocal + Send + Sync>;

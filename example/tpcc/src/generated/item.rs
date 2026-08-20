@@ -40,8 +40,11 @@ pub mod object {
     impl SQLParamMarker for Item {}
 
     impl Item {
-        #[allow(clippy::too_many_arguments)]
-        pub fn new(i_id: Option<i32>, i_name: Option<String>, i_price: Option<i32>) -> Self {
+        pub fn new(
+            i_id: Option<i32>,
+            i_name: Option<String>,
+            i_price: Option<mududb::mudu::data_type::numeric::Numeric>,
+        ) -> Self {
             Self {
                 i_id: AttrIId::from(i_id),
 
@@ -71,11 +74,11 @@ pub mod object {
             self.i_name.get()
         }
 
-        pub fn set_i_price(&mut self, i_price: i32) {
+        pub fn set_i_price(&mut self, i_price: mududb::mudu::data_type::numeric::Numeric) {
             self.i_price.update(i_price)
         }
 
-        pub fn get_i_price(&self) -> &Option<i32> {
+        pub fn get_i_price(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.i_price.get()
         }
     }
@@ -152,7 +155,7 @@ pub mod object {
                 I_PRICE => attr_field_access::attr_get_binary::<_>(self.i_price.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -181,7 +184,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -196,7 +199,7 @@ pub mod object {
                 I_PRICE => attr_field_access::attr_get_value::<_>(self.i_price.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -216,7 +219,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -333,36 +336,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrIPrice {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrIPrice {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrIPrice {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrIPrice {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(6, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)

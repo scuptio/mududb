@@ -24,6 +24,7 @@ pub(crate) struct WorkerSessionManager {
 pub(crate) struct SessionContext {
     tx_manager: SMutex<Option<Arc<dyn TxMgr>>>,
     mudu_conn_core: Arc<MuduConnCore>,
+    is_admin: bool,
 }
 
 impl WorkerSessionManager {
@@ -43,6 +44,10 @@ impl WorkerSessionManager {
     }
 
     pub(crate) fn create_session(&self, conn_id: u64) -> RS<OID> {
+        self.create_session_with_admin(conn_id, false)
+    }
+
+    pub(crate) fn create_session_with_admin(&self, conn_id: u64, is_admin: bool) -> RS<OID> {
         loop {
             let session_id = new_xid();
             if self.session_owner.insert_sync(session_id, conn_id).is_err() {
@@ -51,6 +56,7 @@ impl WorkerSessionManager {
             let session_context = Arc::new(SessionContext::new(
                 self.meta_mgr.clone(),
                 self.async_runtime.clone(),
+                is_admin,
             )?);
             if self
                 .session_contexts
@@ -97,17 +103,19 @@ impl WorkerSessionManager {
         }
     }
 
-    pub(crate) fn close_connection_sessions(&self, conn_id: u64) -> RS<()> {
+    pub(crate) fn close_connection_sessions(&self, conn_id: u64) -> RS<Vec<OID>> {
+        let mut closed = Vec::new();
         if let Some((_conn_id, session_ids)) = self.connection_sessions.remove_sync(&conn_id) {
             session_ids.iter_sync(|session_id, _| {
                 if self.session_owner.remove_sync(session_id).is_some() {
                     self.active_sessions.fetch_sub(1, Ordering::Relaxed);
                 }
                 let _ = self.session_contexts.remove_sync(session_id);
+                closed.push(*session_id);
                 true
             });
         }
-        Ok(())
+        Ok(closed)
     }
 
     pub(crate) fn conn_id_for_session(&self, session_id: OID) -> RS<u64> {
@@ -150,6 +158,10 @@ impl WorkerSessionManager {
                     format!("session {} does not exist", session_id)
                 )
             })
+    }
+
+    pub(crate) fn is_session_admin(&self, session_id: OID) -> RS<bool> {
+        Ok(self.session_context(session_id)?.is_admin())
     }
 
     pub(crate) fn ensure_session_owned_by_connection(
@@ -239,10 +251,12 @@ impl SessionContext {
     fn new(
         meta_mgr: Arc<dyn MetaMgr>,
         async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+        is_admin: bool,
     ) -> RS<Self> {
         Ok(Self {
             tx_manager: SMutex::new(None),
-            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr, async_runtime)?),
+            mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr, async_runtime, is_admin)?),
+            is_admin,
         })
     }
 
@@ -261,5 +275,31 @@ impl SessionContext {
 
     pub(crate) fn mudu_conn_core(&self) -> Arc<MuduConnCore> {
         self.mudu_conn_core.clone()
+    }
+
+    pub(crate) fn is_admin(&self) -> bool {
+        self.is_admin
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use crate::server::test_meta_mgr::TestMetaMgr;
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn create_session_with_admin_sets_admin_flag() {
+        let manager = WorkerSessionManager::new(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(TestMetaMgr::new()),
+            None,
+        );
+        let plain = manager.create_session(1).unwrap();
+        assert!(!manager.session_context(plain).unwrap().is_admin());
+        let admin = manager.create_session_with_admin(1, true).unwrap();
+        assert!(manager.session_context(admin).unwrap().is_admin());
     }
 }

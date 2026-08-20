@@ -1,10 +1,9 @@
-use crate::codec::adapter::{error_from_mu, error_to_mu, oid_from_mu, oid_to_mu};
+use crate::codec::adapter::{oid_from_mu, oid_to_mu};
+use crate::codec::syscall_payload;
 use crate::universal::uni_data_type::UniDataType;
-use crate::universal::uni_error::UniError;
 use crate::universal::uni_oid::UniOid;
 use crate::universal::uni_query_result::UniQueryResult;
-use crate::universal::uni_record_type::UniRecordType;
-use crate::universal::uni_result::UniResult;
+use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 use crate::universal::uni_result_set::UniResultSet;
 use crate::universal::uni_tuple_row::UniTupleRow;
 use mudu::common::result::RS;
@@ -16,14 +15,12 @@ use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 
-/// Serializes a query result (or error) into its universal representation.
+/// Serializes a query result (or error) into a SyscallPayload v1 frame.
 pub fn query_outcoming_serialize(result: RS<(ResultBatch, TupleFieldDesc)>) -> Vec<u8> {
-    let r = _handle_query_outcoming(result);
-    let mu_r = UniResult::from(r);
-
-    serialize_to_vec(&mu_r).unwrap_or_default()
+    syscall_payload::encode_query_result(&query_result_to_mu(result))
 }
-/// Deserializes a query result from its universal representation.
+
+/// Deserializes a query result from a SyscallPayload v1 frame.
 pub fn query_outcoming_deserialize(param: &[u8]) -> RS<(ResultBatch, TupleFieldDesc)> {
     if param.is_empty() {
         return Err(mudu_error!(
@@ -31,7 +28,20 @@ pub fn query_outcoming_deserialize(param: &[u8]) -> RS<(ResultBatch, TupleFieldD
             "deserialize query result error"
         ));
     }
-    _handle_query_outcoming_deserialize(param)
+    let r = syscall_payload::decode_query_result(param)?;
+    let tuple_desc = tuple_desc_from_mu(r.tuple_desc)?;
+    let result_set = result_set_from_mu(r.result_set)?;
+    Ok((result_set, tuple_desc))
+}
+
+fn query_result_to_mu(result: RS<(ResultBatch, TupleFieldDesc)>) -> RS<UniQueryResult> {
+    let (rs, desc) = result?;
+    let tuple_desc = tuple_desc_to_mu(desc)?;
+    let result_set = result_set_to_mu(rs)?;
+    Ok(UniQueryResult {
+        tuple_desc,
+        result_set,
+    })
 }
 
 fn result_set_to_mu(rs: ResultBatch) -> RS<UniResultSet> {
@@ -54,30 +64,6 @@ fn result_set_from_mu(rs: UniResultSet) -> RS<ResultBatch> {
     let oid = oid_from_mu(mu_oid);
     let result_set = ResultBatch::from(oid, row_set, rs.eof);
     Ok(result_set)
-}
-
-fn _handle_query_outcoming(
-    result: RS<(ResultBatch, TupleFieldDesc)>,
-) -> Result<UniQueryResult, UniError> {
-    let (rs, desc) = result.map_err(error_to_mu)?;
-    let mu_tuple_desc = tuple_desc_to_mu(desc).map_err(error_to_mu)?;
-    let mu_result_set = result_set_to_mu(rs).map_err(error_to_mu)?;
-    Ok(UniQueryResult {
-        tuple_desc: mu_tuple_desc,
-        result_set: mu_result_set,
-    })
-}
-
-fn _handle_query_outcoming_deserialize(result_b: &[u8]) -> RS<(ResultBatch, TupleFieldDesc)> {
-    let (mu_result, _) = deserialize_from::<UniResult<UniQueryResult, UniError>>(result_b)?;
-    match mu_result {
-        UniResult::Ok(r) => {
-            let tuple_desc = tuple_desc_from_mu(r.tuple_desc)?;
-            let result_set = result_set_from_mu(r.result_set)?;
-            Ok((result_set, tuple_desc))
-        }
-        UniResult::Err(e) => Err(error_from_mu(e)),
-    }
 }
 
 fn tuple_row_set_to_mu(tuple_field: Vec<TupleValue>) -> RS<Vec<UniTupleRow>> {
@@ -116,14 +102,74 @@ fn tuple_desc_from_mu(desc: UniRecordType) -> RS<TupleFieldDesc> {
 }
 
 fn tuple_desc_to_mu(desc: TupleFieldDesc) -> RS<UniRecordType> {
-    let mut vec = Vec::with_capacity(desc.fields().len());
+    let mut fields = Vec::with_capacity(desc.fields().len());
     for d in desc.into() {
         let (name, ty) = d.into();
         let mu_ty = UniDataType::uni_from(ty)?;
-        vec.push((name, mu_ty));
+        fields.push(UniRecordField {
+            field_name: name,
+            field_type: mu_ty,
+            field_attrs: Vec::new(),
+        });
     }
     Ok(UniRecordType {
-        record_name: "".to_string(),
-        record_fields: vec![],
+        record_name: String::new(),
+        record_fields: fields,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::codec::syscall_payload::{MessageKind, decode_frame};
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
+
+    const TEST_OID: u128 = 0x0102_0304_0506_0708_1112_1314_1516_1718;
+
+    fn unwrap_ec<T>(result: RS<T>) -> ErrorCode {
+        result.err().map(|e| e.ec()).unwrap()
+    }
+
+    fn sample_desc() -> TupleFieldDesc {
+        TupleFieldDesc::new(vec![
+            DatumDesc::new("c1".to_string(), DataType::new_no_param(TypeFamily::I32)),
+            DatumDesc::new("c2".to_string(), DataType::new_no_param(TypeFamily::String)),
+        ])
+    }
+
+    #[test]
+    fn ok_roundtrip_preserves_tuple_desc_fields() {
+        let batch = ResultBatch::from(TEST_OID, vec![], true);
+        let frame = query_outcoming_serialize(Ok((batch, sample_desc())));
+        let (kind, _) = decode_frame(&frame).unwrap();
+        assert_eq!(kind, MessageKind::Query);
+
+        let (batch, desc) = query_outcoming_deserialize(&frame).unwrap();
+        assert_eq!(batch.oid(), TEST_OID);
+        assert!(batch.is_eof());
+        // Regression: tuple_desc_to_mu used to drop record_fields entirely.
+        assert_eq!(desc.fields().len(), 2);
+        assert_eq!(desc.fields()[0].name(), "c1");
+        assert_eq!(desc.fields()[1].name(), "c2");
+    }
+
+    #[test]
+    fn error_roundtrip_carries_error_code() {
+        let result: RS<(ResultBatch, TupleFieldDesc)> =
+            Err(mudu_error!(ErrorCode::Database, "db error"));
+        let frame = query_outcoming_serialize(result);
+        assert_eq!(
+            unwrap_ec(query_outcoming_deserialize(&frame)),
+            ErrorCode::Database
+        );
+    }
+
+    #[test]
+    fn deserialize_rejects_garbage() {
+        assert!(query_outcoming_deserialize(&[]).is_err());
+        let ec = unwrap_ec(query_outcoming_deserialize(&[0x4d, 0x53, 0x53, 0x50]));
+        assert_eq!(ec, ErrorCode::CorruptedData);
+    }
 }

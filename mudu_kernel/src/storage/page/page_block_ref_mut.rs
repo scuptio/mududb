@@ -20,8 +20,15 @@ use mudu::mudu_error;
 /// fragmented estimate.
 ///
 /// The page LSN is mirrored in both the header and the tailer. Initialization
-/// starts at LSN 1, and every logical page rewrite bumps the LSN before the
-/// tailer checksum is recomputed.
+/// starts at LSN 1, and every logical page rewrite bumps the header LSN.
+///
+/// The tailer checksum is NOT maintained by the mutation methods: recomputing
+/// the full-page CRC32 on every in-memory change dominates the batched write
+/// path. Callers must invoke [`Self::refresh_tailer_checksum`] once at the
+/// persistence point (before the image is appended to the WAL or written to
+/// the data file) so every page that reaches durable storage carries a valid
+/// checksum. In-memory images may therefore hold a stale tailer checksum;
+/// readers of in-memory pages must not validate it.
 pub struct PageBlockRefMut<'a> {
     page: &'a mut [u8],
 }
@@ -63,7 +70,6 @@ impl<'a> PageBlockRefMut<'a> {
         let tailer_offset = self.tailer_offset();
         let mut tailer = PageTailer::default();
         tailer.set_lsn(LSN::new(1));
-        tailer.refresh_checksum(self.page)?;
         tailer.encode(&mut self.page[tailer_offset..tailer_offset + PAGE_TAILER_SIZE])?;
         Ok(())
     }
@@ -118,7 +124,6 @@ impl<'a> PageBlockRefMut<'a> {
         header.set_prev_page(prev_page);
         header.set_next_page(next_page);
         header.encode(&mut self.page[..PAGE_HEADER_SIZE])?;
-        self.refresh_tailer_checksum()?;
         Ok(())
     }
 
@@ -280,7 +285,6 @@ impl<'a> PageBlockRefMut<'a> {
         header.set_last_record_offset(last_record_offset);
         header.set_free_bytes(free_bytes as u32);
         header.encode(&mut self.page[..PAGE_HEADER_SIZE])?;
-        self.refresh_tailer_checksum()?;
         Ok(())
     }
 
@@ -329,7 +333,13 @@ impl<'a> PageBlockRefMut<'a> {
         self.tailer_offset() - ((sorted_index + 1) * RECORD_SLOT_SIZE)
     }
 
-    fn refresh_tailer_checksum(&mut self) -> RS<()> {
+    /// Recomputes the tailer checksum over the whole page and mirrors the
+    /// current header LSN into the tailer.
+    ///
+    /// Mutation methods deliberately skip this full-page CRC32; call it once
+    /// at the persistence point, before the page image is appended to the WAL
+    /// or written to the data file.
+    pub fn refresh_tailer_checksum(&mut self) -> RS<()> {
         let tailer_offset = self.tailer_offset();
         let mut tailer =
             PageTailer::decode(&self.page[tailer_offset..tailer_offset + PAGE_TAILER_SIZE])?;
@@ -387,7 +397,6 @@ impl<'a> PageBlockRefMut<'a> {
             (self.slot_region_start_for_count(new_count) - first_free_offset as usize) as u32,
         );
         updated.encode(&mut self.page[..PAGE_HEADER_SIZE])?;
-        self.refresh_tailer_checksum()?;
         Ok(())
     }
 }
@@ -411,6 +420,7 @@ mod tests {
         let mut raw = [0u8; PAGE_SIZE];
         let mut page = PageBlockRefMut::new(&mut raw);
         page.init_empty(PageId::new(7)).unwrap();
+        page.refresh_tailer_checksum().unwrap();
 
         let ro = PageBlockRef::try_new(&raw).unwrap();
         let header = ro.header().unwrap();
@@ -431,6 +441,7 @@ mod tests {
         page.insert_record(30, 1, b"ccc").unwrap();
         page.insert_record(10, 2, b"aaa").unwrap();
         page.insert_record(20, 3, b"bbb").unwrap();
+        page.refresh_tailer_checksum().unwrap();
 
         let ro = PageBlockRef::try_new(&raw).unwrap();
         ro.validate_layout().unwrap();
@@ -458,6 +469,7 @@ mod tests {
         page.insert_record(30, 3, b"gamma").unwrap();
         page.delete_record(1).unwrap();
         page.update_record(1, 15, 3, b"delta").unwrap();
+        page.refresh_tailer_checksum().unwrap();
 
         let ro = PageBlockRef::try_new(&raw).unwrap();
         ro.validate_layout().unwrap();
@@ -475,6 +487,7 @@ mod tests {
         let mut raw = [0u8; PAGE_SIZE];
         let mut page = PageBlockRefMut::new(&mut raw);
         page.init_empty(PageId::new(9)).unwrap();
+        page.refresh_tailer_checksum().unwrap();
 
         let tailer_offset = PAGE_SIZE - crate::storage::page::page_tailer::PAGE_TAILER_SIZE;
         let mut tailer = PageBlockRef::try_new(&raw).unwrap().tailer().unwrap();
@@ -495,6 +508,7 @@ mod tests {
         let mut page = PageBlockRefMut::new(&mut raw);
         page.init_empty(PageId::new(5)).unwrap();
         page.insert_record(10, 1, b"abc").unwrap();
+        page.refresh_tailer_checksum().unwrap();
 
         let record_offset = PageBlockRef::try_new(&raw)
             .unwrap()
@@ -508,5 +522,35 @@ mod tests {
             .unwrap_err();
         let msg = format!("{err:?}");
         assert!(msg.contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn mutations_leave_tailer_checksum_stale_until_refresh() {
+        let mut raw = [0u8; PAGE_SIZE];
+        {
+            let mut page = PageBlockRefMut::new(&mut raw);
+            page.init_empty(PageId::new(2)).unwrap();
+            page.insert_record(10, 1, b"abc").unwrap();
+            page.insert_record(20, 2, b"def").unwrap();
+        }
+
+        // In-memory mutations do not maintain the tailer: neither the LSN
+        // mirror nor the checksum is refreshed until the persistence point.
+        {
+            let ro = PageBlockRef::try_new(&raw).unwrap();
+            let header = ro.header().unwrap();
+            let tailer = ro.tailer().unwrap();
+            assert_eq!(header.lsn(), 3);
+            assert_ne!(tailer.lsn(), header.lsn());
+            assert!(ro.validate_layout().is_err());
+        }
+
+        {
+            let mut page = PageBlockRefMut::new(&mut raw);
+            page.refresh_tailer_checksum().unwrap();
+        }
+        let ro = PageBlockRef::try_new(&raw).unwrap();
+        ro.validate_layout().unwrap();
+        assert_eq!(ro.tailer().unwrap().lsn(), ro.header().unwrap().lsn());
     }
 }

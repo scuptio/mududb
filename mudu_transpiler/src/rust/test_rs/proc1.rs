@@ -6,7 +6,8 @@ use mudu::common::id::OID;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_type::datum::{Datum, DatumDyn};
 use sys_interface::sync_api::{
-    mudu_close, mudu_command, mudu_get, mudu_open, mudu_put, mudu_query, mudu_range,
+    mudu_close, mudu_command, mudu_fs_close, mudu_fs_open, mudu_fs_write, mudu_get, mudu_open,
+    mudu_put, mudu_query, mudu_range,
 };
 
 /**mudu-proc**/
@@ -65,4 +66,14 @@ pub fn proc_kv(a: Vec<u8>, b: Vec<u8>) -> RS<usize> {
     let pairs = mudu_range(session_id, &a, &b)?;
     mudu_close(session_id)?;
     Ok(value.map(|v| v.len()).unwrap_or(0) + pairs.len())
+}
+
+/**mudu-proc**/
+pub fn proc_fs(oid: OID, data: Vec<u8>) -> RS<u32> {
+    let session_id = mudu_open()?;
+    let fd = mudu_fs_open(session_id, oid, "", 1)?;
+    let written = mudu_fs_write(session_id, fd, &data)?;
+    mudu_fs_close(session_id, fd)?;
+    mudu_close(session_id)?;
+    Ok(written)
 }

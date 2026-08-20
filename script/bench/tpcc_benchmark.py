@@ -51,6 +51,7 @@ class TpccResult:
     total_elapsed_sec: float
     throughput: float
     tps: float
+    committed_tps: float
     new_order_tps: float
     total_throughput: float
     op_count: int
@@ -260,11 +261,13 @@ def run_benchmark(
 
 
 def parse_benchmark_output(stdout: str, args: argparse.Namespace) -> TpccResult:
+    # The SpacetimeDB client omits committed_tps from its summary line; the
+    # group is optional and the value is derived below.
     pattern = re.compile(
         r"tpcc benchmark mode=(\S+) "
         r"connections=(\d+) warehouses=(\d+) districts=(\d+) customers=(\d+) items=(\d+) "
         r"operations=(\d+) load_elapsed=([\d.]+)s txn_elapsed=([\d.]+)s total_elapsed=([\d.]+)s "
-        r"throughput=([\d.]+) ops/s tps=([\d.]+) new_order_tps=([\d.]+) total_throughput=([\d.]+) ops/s "
+        r"throughput=([\d.]+) ops/s tps=([\d.]+) (?:committed_tps=([\d.]+) )?new_order_tps=([\d.]+) total_throughput=([\d.]+) ops/s "
         r"op_count=(\d+) abort_count=(\d+) abort_rate=([\d.]+)% "
         r"avg_latency=([\d.]+)ms min_latency=([\d.]+)ms max_latency=([\d.]+)ms "
         r"p50=([\d.]+)ms p90=([\d.]+)ms p99=([\d.]+)ms p999=([\d.]+)ms"
@@ -273,6 +276,18 @@ def parse_benchmark_output(stdout: str, args: argparse.Namespace) -> TpccResult:
     for line in stdout.splitlines():
         m = pattern.search(line)
         if m:
+            # The SpacetimeDB client does not print committed_tps; derive it
+            # with the same formula the main client uses,
+            # (op_count - abort_count)/txn_elapsed.
+            if m.group(13) is not None:
+                committed_tps = float(m.group(13))
+            else:
+                tps = float(m.group(12))
+                op_count = int(m.group(16))
+                abort_count = int(m.group(17))
+                committed_tps = (
+                    tps * (op_count - abort_count) / op_count if op_count > 0 else tps
+                )
             return TpccResult(
                 mode=m.group(1),
                 warehouses=int(m.group(3)),
@@ -286,18 +301,19 @@ def parse_benchmark_output(stdout: str, args: argparse.Namespace) -> TpccResult:
                 total_elapsed_sec=float(m.group(10)),
                 throughput=float(m.group(11)),
                 tps=float(m.group(12)),
-                new_order_tps=float(m.group(13)),
-                total_throughput=float(m.group(14)),
-                op_count=int(m.group(15)),
-                abort_count=int(m.group(16)),
-                abort_rate_pct=float(m.group(17)),
-                avg_latency_ms=float(m.group(18)),
-                min_latency_ms=float(m.group(19)),
-                max_latency_ms=float(m.group(20)),
-                p50_latency_ms=float(m.group(21)),
-                p90_latency_ms=float(m.group(22)),
-                p99_latency_ms=float(m.group(23)),
-                p999_latency_ms=float(m.group(24)),
+                committed_tps=committed_tps,
+                new_order_tps=float(m.group(14)),
+                total_throughput=float(m.group(15)),
+                op_count=int(m.group(16)),
+                abort_count=int(m.group(17)),
+                abort_rate_pct=float(m.group(18)),
+                avg_latency_ms=float(m.group(19)),
+                min_latency_ms=float(m.group(20)),
+                max_latency_ms=float(m.group(21)),
+                p50_latency_ms=float(m.group(22)),
+                p90_latency_ms=float(m.group(23)),
+                p99_latency_ms=float(m.group(24)),
+                p999_latency_ms=float(m.group(25)),
                 server_mode=getattr(args, "server_mode", ""),
             )
 
@@ -326,6 +342,7 @@ def print_result(result: TpccResult, fmt: str) -> None:
         print(f"  Total elapsed:     {result.total_elapsed_sec:.3f} s")
         print(f"  Throughput:        {result.throughput:.2f} ops/s")
         print(f"  TPS:               {result.tps:.2f}")
+        print(f"  Committed TPS:     {result.committed_tps:.2f}")
         print(f"  New-Order TPS:     {result.new_order_tps:.2f}")
         print(f"  Total throughput:  {result.total_throughput:.2f} ops/s")
         print(f"  Op count:          {result.op_count}")
@@ -396,6 +413,7 @@ def aggregate_results(results: List[TpccResult]) -> TpccResult:
         total_elapsed_sec=avg("total_elapsed_sec"),
         throughput=avg("throughput"),
         tps=avg("tps"),
+        committed_tps=avg("committed_tps"),
         new_order_tps=avg("new_order_tps"),
         total_throughput=avg("total_throughput"),
         op_count=base.op_count,

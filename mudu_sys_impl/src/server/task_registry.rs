@@ -86,8 +86,17 @@ impl WorkerTaskRegistry {
     pub fn drain_completions(&self) {
         while let Some(op_id) = self.completion_queue.pop() {
             let Some(task_id) = self.op_registry.lock().unwrap().remove(&op_id) else {
+                trace!(
+                    op_id,
+                    "worker_task_registry drain_completions unknown op_id"
+                );
                 continue;
             };
+            trace!(
+                op_id,
+                task_id,
+                "worker_task_registry drain_completions resolved"
+            );
             let should_queue = {
                 let tasks = self.tasks.lock().unwrap();
                 let Some(task) = tasks.get(&task_id) else {
@@ -105,13 +114,30 @@ impl WorkerTaskRegistry {
         }
     }
 
+    pub fn poll_ready(&self) -> Vec<CompletedWorkerTask> {
+        self.poll_ready_budget(usize::MAX).0
+    }
+
+    /// Polls at most `budget` ready tasks. The second return value reports
+    /// whether more tasks were still queued when the budget ran out, so the
+    /// caller (the worker ring loop) can interleave CQE harvesting with task
+    /// polling instead of letting one long poll round delay every pending
+    /// completion (e.g. WAL fsync) behind it.
     #[expect(
         clippy::unwrap_used,
         reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
     )]
-    pub fn poll_ready(&self) -> Vec<CompletedWorkerTask> {
+    pub fn poll_ready_budget(&self, budget: usize) -> (Vec<CompletedWorkerTask>, bool) {
         let mut completed = Vec::new();
-        while let Some(task_id) = self.ready_queue.pop() {
+        let mut polled = 0usize;
+        loop {
+            if polled >= budget {
+                break;
+            }
+            let Some(task_id) = self.ready_queue.pop() else {
+                break;
+            };
+            polled += 1;
             let Some(mut task) = self.tasks.lock().unwrap().remove(&task_id) else {
                 continue;
             };
@@ -179,7 +205,8 @@ impl WorkerTaskRegistry {
             }
             TaskContext::remove_context(trace_task_id);
         }
-        completed
+        let more_ready = !self.ready_queue.is_empty();
+        (completed, more_ready)
     }
 
     #[expect(

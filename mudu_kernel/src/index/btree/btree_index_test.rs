@@ -76,7 +76,7 @@ fn key(v: u8) -> super::KeyTuple {
 
 #[test]
 fn clear_and_is_empty() {
-    let mut index = make_index();
+    let index = make_index();
     assert!(index.is_empty().unwrap());
 
     index.insert(key(1), 10).unwrap();
@@ -89,7 +89,7 @@ fn clear_and_is_empty() {
 
 #[test]
 fn contains_key_get_key_value_and_extremes() {
-    let mut index = make_index();
+    let index = make_index();
     index.insert(key(1), 10).unwrap();
     index.insert(key(2), 20).unwrap();
     index.insert(key(3), 30).unwrap();
@@ -99,10 +99,10 @@ fn contains_key_get_key_value_and_extremes() {
 
     let (k, v) = index.get_key_value(&key(2)).unwrap().unwrap();
     assert_eq!(k.as_slice(), &[2]);
-    assert_eq!(*v, 20);
+    assert_eq!(v, 20);
 
-    assert_eq!(index.first_key_value().unwrap().unwrap().1, &10);
-    assert_eq!(index.last_key_value().unwrap().unwrap().1, &30);
+    assert_eq!(index.first_key_value().unwrap().unwrap().1, 10);
+    assert_eq!(index.last_key_value().unwrap().unwrap().1, 30);
 
     assert!(index.first_key_value().unwrap().is_some());
     let empty: BTreeIndex<i32> = make_index();
@@ -112,7 +112,7 @@ fn contains_key_get_key_value_and_extremes() {
 
 #[test]
 fn remove_and_pop_variants() {
-    let mut index = make_index();
+    let index = make_index();
     index.insert(key(1), 10).unwrap();
     index.insert(key(2), 20).unwrap();
     index.insert(key(3), 30).unwrap();
@@ -134,7 +134,7 @@ fn remove_and_pop_variants() {
 
 #[test]
 fn range_queries() {
-    let mut index = make_index();
+    let index = make_index();
     for v in 1..=5 {
         index.insert(key(v), v as i32 * 10).unwrap();
     }
@@ -160,14 +160,19 @@ fn range_queries() {
 
 #[test]
 fn failed_compare_does_not_commit_write() {
-    let mut index = make_index();
+    let index = make_index();
     index.insert(key(1), 10).unwrap();
 
+    // The read-lock probe intercepts the comparator failure before the map
+    // is touched, so both insert and remove leave the map unchanged.
     index.context.borrow_mut().comparator = comparator_err();
     let err = index.insert(key(2), 20).unwrap_err();
+    assert_eq!(err.ec(), ErrorCode::ComparisonFailed);
+    let err = index.remove(&key(1)).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::ComparisonFailed);
 
     index.context.borrow_mut().comparator = comparator_ok();
     assert_eq!(index.len().unwrap(), 1);
+    assert_eq!(index.get(&key(1)).unwrap(), Some(10));
     assert_eq!(index.get(&key(2)).unwrap(), None);
 }

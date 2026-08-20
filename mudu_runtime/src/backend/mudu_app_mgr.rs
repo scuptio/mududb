@@ -310,7 +310,12 @@ fn find_package_path_by_app_name<P: AsRef<Path>>(
 }
 
 fn is_mpk_file(path: &Path) -> bool {
-    path.is_file()
+    // Use the `mudu_sys` metadata wrapper rather than `std::fs`: the
+    // deterministic-simulation backend keeps an in-memory filesystem that
+    // `Path::is_file` cannot see.
+    mudu_sys::fs::sync::sync_metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false)
         && path
             .extension()
             .map(|ext| ext.to_ascii_lowercase() == MPK_EXTENSION)

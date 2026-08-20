@@ -40,6 +40,11 @@ impl VersionTuple {
         &self.buf
     }
 
+    /// Consumes the version and returns its payload bytes without copying.
+    pub fn tuple_into(self) -> Buf {
+        self.buf
+    }
+
     pub fn mut_tuple(&mut self) -> &mut Buf {
         &mut self.buf
     }

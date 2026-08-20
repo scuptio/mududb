@@ -414,7 +414,9 @@ impl ResultSetLease for PreparedSlotLease {
     }
 }
 
-#[cfg(test)]
+// Both tests in this module exercise libsql's real file IO (see their
+// comments); skip compiling the module under the deterministic backend.
+#[cfg(all(test, not(feature = "ds")))]
 mod tests {
     use libsql::{Builder, Value, params};
     use std::time::UNIX_EPOCH;
@@ -431,6 +433,10 @@ mod tests {
             .to_string()
     }
 
+    // libsql performs real SQLite file IO outside `mudu_sys`; the
+    // deterministic-simulation backend keeps fs writes in memory,
+    // so the database file cannot be created. Native backend only.
+    #[cfg(not(feature = "ds"))]
     // libsql calls SQLite C functions that Miri does not support, so this test
     // is ignored under Miri and runs only on native builds.
     #[test]
@@ -468,6 +474,10 @@ mod tests {
         .unwrap()
     }
 
+    // libsql performs real SQLite file IO outside `mudu_sys`; the
+    // deterministic-simulation backend keeps fs writes in memory,
+    // so the database file cannot be created. Native backend only.
+    #[cfg(not(feature = "ds"))]
     // libsql calls SQLite C functions that Miri does not support, so this test
     // is ignored under Miri and runs only on native builds.
     #[test]

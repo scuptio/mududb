@@ -6,6 +6,10 @@ mod imp {
 #[cfg(not(target_os = "linux"))]
 mod imp {
     use std::sync::Arc;
+    use std::task::Waker;
+
+    use crate::time::Instant;
+    use mudu::common::result::RS;
 
     pub struct WorkerLocalRing;
 
@@ -22,6 +26,36 @@ mod imp {
     #[allow(dead_code)]
     pub fn current_ring() -> &'static WorkerLocalRing {
         panic!("worker ring is only available on linux")
+    }
+
+    #[allow(dead_code)]
+    pub fn with_current_ring<F, R>(_f: F) -> RS<R>
+    where
+        F: FnOnce(&Arc<WorkerLocalRing>) -> RS<R>,
+    {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
+            "current worker ring is not set"
+        ))
+    }
+
+    #[allow(dead_code)]
+    impl WorkerLocalRing {
+        pub fn register_timeout(&self, _deadline: Instant, _waker: Waker) -> RS<u64> {
+            Ok(0)
+        }
+
+        pub fn remove_timeout(&self, _deadline: Instant, _id: u64) -> RS<()> {
+            Ok(())
+        }
+
+        pub fn take_expired_timeouts(&self, _now: Instant) -> RS<Vec<Waker>> {
+            Ok(Vec::new())
+        }
+
+        pub fn next_timeout_deadline(&self) -> RS<Option<Instant>> {
+            Ok(None)
+        }
     }
 }
 

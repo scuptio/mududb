@@ -27,7 +27,7 @@ mod tests {
     use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::type_family::TypeFamily;
     use sql_parser::ast::expr_name::ExprName;
-    use sql_parser::ast::select_term::SelectTerm;
+    use sql_parser::ast::select_term::{SelectField, SelectTerm};
     use sql_parser::ast::stmt_insert::StmtInsert;
     use sql_parser::ast::stmt_select::StmtSelect;
     use sql_parser::ast::stmt_type::StmtCommand;
@@ -117,7 +117,7 @@ mod tests {
         let mut field = ExprName::new();
         field.set_name(name.to_string());
         let mut term = SelectTerm::new();
-        term.set_field(field);
+        term.set_field(SelectField::Column(field));
         term
     }
 
@@ -142,7 +142,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn describe_command_returns_empty_descriptor() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-            let desc = Describer::describe(meta_mgr().as_ref(), command())
+            let desc = Describer::describe(meta_mgr().as_ref(), &command())
                 .await
                 .unwrap();
             assert!(desc.fields().is_empty());
@@ -154,7 +154,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn describe_select_explicit_columns_projects_table_descriptor() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-            let desc = Describer::describe(meta_mgr().as_ref(), select("users", vec!["id"]))
+            let desc = Describer::describe(meta_mgr().as_ref(), &select("users", vec!["id"]))
                 .await
                 .unwrap();
             let fields = desc.fields();
@@ -171,7 +171,7 @@ mod tests {
     fn describe_select_all_columns_returns_full_table_descriptor() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let desc =
-                Describer::describe(meta_mgr().as_ref(), select("users", vec!["id", "name"]))
+                Describer::describe(meta_mgr().as_ref(), &select("users", vec!["id", "name"]))
                     .await
                     .unwrap();
             let fields = desc.fields();
@@ -190,9 +190,10 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn describe_select_missing_table_returns_entity_not_found_with_table_name() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-            let err = Describer::describe(meta_mgr().as_ref(), select("missing_table", vec!["id"]))
-                .await
-                .unwrap_err();
+            let err =
+                Describer::describe(meta_mgr().as_ref(), &select("missing_table", vec!["id"]))
+                    .await
+                    .unwrap_err();
             assert_eq!(err.ec(), ErrorCode::EntityNotFound);
             assert!(err.message().contains("missing_table"));
         })
@@ -204,7 +205,7 @@ mod tests {
     fn describe_select_missing_column_returns_entity_not_found_with_column_name() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let err =
-                Describer::describe(meta_mgr().as_ref(), select("users", vec!["missing_col"]))
+                Describer::describe(meta_mgr().as_ref(), &select("users", vec!["missing_col"]))
                     .await
                     .unwrap_err();
             assert_eq!(err.ec(), ErrorCode::EntityNotFound);

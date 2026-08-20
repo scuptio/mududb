@@ -31,12 +31,46 @@ assembly/
   database.ts Database facade: open / close / query / command / batch.
   sql.ts       SqlStmt and ValueList wrappers.
   result.ts    ResultSet and Row wrappers.
+  fs.ts        FsStat / FsDirEntry types and the fsOpen ... fsReaddir wrappers.
   index.ts     Public exports.
 
 wit/
   api.wit
   async-api.wit
 ```
+
+## Filesystem (fs) API
+
+`assembly/fs.ts` wraps the 11 synchronous `fs-*` functions of
+`mududb:component-shim/system`:
+
+- `fsOpen(sessionHi, sessionLo, oidHi, oidLo, path, flags): Result<u32>`
+- `fsClose(sessionHi, sessionLo, fd): Result<bool>`
+- `fsRead(sessionHi, sessionLo, fd, len): Result<ArrayBuffer>`
+- `fsWrite(sessionHi, sessionLo, fd, data): Result<u32>`
+- `fsPread(sessionHi, sessionLo, fd, offset, len): Result<ArrayBuffer>`
+- `fsPwrite(sessionHi, sessionLo, fd, offset, data): Result<bool>`
+- `fsLseek(sessionHi, sessionLo, fd, offset, whence): Result<u64>`
+- `fsFstat(sessionHi, sessionLo, fd): Result<FsStat>`
+- `fsStat(sessionHi, sessionLo, oidHi, oidLo, path): Result<FsStat>`
+- `fsFsync(sessionHi, sessionLo, fd): Result<bool>`
+- `fsReaddir(sessionHi, sessionLo, oidHi, oidLo, path): Result<FsDirEntry[]>`
+
+The session id comes from `Database.open(...).id`. `flags` are the libc
+`O_*` access-mode bits (`FS_O_RDONLY` / `FS_O_WRONLY` / `FS_O_RDWR`) and
+`whence` is `FS_SEEK_SET` / `FS_SEEK_CUR` / `FS_SEEK_END`.
+
+```ts
+const db = Database.open("");
+const s = db.id;
+const fd = fsOpen(s.hi, s.lo, oidHi, oidLo, "hello.txt", FS_O_WRONLY).unwrap();
+fsWrite(s.hi, s.lo, fd, String.UTF8.encode("hello fs", false)).unwrap();
+fsClose(s.hi, s.lo, fd).unwrap();
+```
+
+The smoke example shows a full write->read roundtrip (`fsSmoke` in
+`example/assembly/index.ts`). Only the synchronous fs surface is bound;
+async fs awaits AssemblyScript component-model async ABI support.
 
 ## Build Core Wasm
 

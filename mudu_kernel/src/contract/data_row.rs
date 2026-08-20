@@ -1,9 +1,12 @@
 use crate::contract::snapshot::Snapshot;
+use crate::contract::timestamp::Timestamp;
 use crate::contract::version_delta::VersionDelta;
 use crate::contract::version_tuple::VersionTuple;
 use mudu::common::id::{TupleID, OID};
 use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
 use mudu_utils::scoped_task_trace;
 use std::sync::Arc;
@@ -59,11 +62,36 @@ impl DataRowInner {
             let delta = prev_version.unwrap_or_else(|| build_version_delta(&version, latest));
             self.delta.push(delta);
         }
+        self.push_version(version);
+        Ok(())
+    }
+
+    /// Appends `version` without cloning the previous version's payload into
+    /// the delta chain. The recorded delta keeps the previous version's
+    /// timestamp / deleted flag (so reconstructed versions stay
+    /// visibility-correct) but no payload bytes, so the append-only delta
+    /// chain does not pin every historical payload. Versions reconstructed
+    /// through such deltas therefore carry stale payload bytes; readers that
+    /// need the payload must treat delta-walk results as metadata-only (see
+    /// [`DataRowInner::read_version_detailed`]).
+    fn write_version_shallow(&mut self, version: VersionTuple) -> RS<()> {
+        if let Some(latest) = self.tuple.last() {
+            let delta = VersionDelta::new(
+                latest.timestamp().clone(),
+                latest.is_deleted(),
+                vec![UpdateDelta::new(0, 0, Vec::new())],
+            );
+            self.delta.push(delta);
+        }
+        self.push_version(version);
+        Ok(())
+    }
+
+    fn push_version(&mut self, version: VersionTuple) {
         self.tuple.push(version);
         if self.tuple.len() > UNCOMPRESSED_VERSION_COUNT {
             self.tuple.remove(0);
         }
-        Ok(())
     }
 
     fn read_latest(&self) -> RS<Option<VersionTuple>> {
@@ -71,6 +99,20 @@ impl DataRowInner {
     }
 
     fn read_version(&self, snapshot: &Snapshot) -> RS<Option<VersionTuple>> {
+        Ok(self
+            .read_version_detailed(snapshot)?
+            .map(|(version, _)| version))
+    }
+
+    /// Reads the visible version like [`DataRowInner::read_version`], and
+    /// additionally reports whether the returned payload bytes are the
+    /// version's own. The flag is true only when the visible version was
+    /// found inside the retained full-version window with a non-empty
+    /// payload; versions reconstructed through the delta chain always report
+    /// false, because shallow writes (see
+    /// [`DataRowInner::write_version_shallow`]) do not store payload bytes in
+    /// the delta chain.
+    fn read_version_detailed(&self, snapshot: &Snapshot) -> RS<Option<(VersionTuple, bool)>> {
         if let Some(version) = self
             .tuple
             .iter()
@@ -78,7 +120,8 @@ impl DataRowInner {
             .find(|v| snapshot.is_tuple_visible(v.timestamp()))
             .cloned()
         {
-            return Ok(Some(version));
+            let payload_authoritative = !version.tuple().is_empty();
+            return Ok(Some((version, payload_authoritative)));
         }
 
         let Some(mut version) = self.tuple.first().cloned() else {
@@ -98,7 +141,7 @@ impl DataRowInner {
         for index in (0..=start).rev() {
             apply_version_delta(&mut version, &self.delta[index]);
             if snapshot.is_tuple_visible(version.timestamp()) {
-                return Ok(Some(version));
+                return Ok(Some((version, false)));
             }
         }
 
@@ -132,6 +175,18 @@ impl DataRow {
         guard.read_version(snapshot)
     }
 
+    /// Reads the visible version and whether its payload bytes are the
+    /// version's own; see [`DataRowInner::read_version_detailed`].
+    pub async fn read_detailed(&self, snapshot: &Snapshot) -> RS<Option<(VersionTuple, bool)>> {
+        self.read_detailed_sync(snapshot)
+    }
+
+    /// Synchronous variant of [`DataRow::read_detailed`].
+    pub fn read_detailed_sync(&self, snapshot: &Snapshot) -> RS<Option<(VersionTuple, bool)>> {
+        let guard = self.inner.lock()?;
+        guard.read_version_detailed(snapshot)
+    }
+
     pub async fn read_latest(&self) -> RS<Option<VersionTuple>> {
         self.read_latest_sync()
     }
@@ -150,6 +205,48 @@ impl DataRow {
         scoped_task_trace!();
         let mut guard = self.inner.lock()?;
         guard.write_version(version, prev_version)
+    }
+
+    /// Appends a version whose payload is kept only in the retained
+    /// full-version window; the delta chain records only metadata (timestamp
+    /// and deleted flag), never payload bytes. See
+    /// [`DataRowInner::write_version_shallow`].
+    pub async fn write_shallow(&self, version: VersionTuple) -> RS<()> {
+        scoped_task_trace!();
+        self.write_shallow_sync(version)
+    }
+
+    /// Synchronous variant of [`DataRow::write_shallow`].
+    pub fn write_shallow_sync(&self, version: VersionTuple) -> RS<()> {
+        scoped_task_trace!();
+        let mut guard = self.inner.lock()?;
+        guard.write_version_shallow(version)
+    }
+
+    /// Atomically reads the latest committed version, computes a new payload
+    /// from it, and appends that payload as a new version — all under the row
+    /// lock. Used by the deferred (lock-free) delta apply: the read-compute-
+    /// append sequence is serialized per row by this lock, so concurrent
+    /// commutative updates never overwrite each other. Returns the computed
+    /// payload (also needed for the durable file record).
+    ///
+    /// The compute closure runs synchronously under the lock and must not
+    /// block.
+    pub fn apply_update_to_latest_sync(
+        &self,
+        timestamp: Timestamp,
+        compute: impl FnOnce(&Vec<u8>) -> RS<Vec<u8>>,
+    ) -> RS<Vec<u8>> {
+        let mut guard = self.inner.lock()?;
+        let latest = guard.read_latest()?.ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                "deferred delta update on a row with no committed version"
+            )
+        })?;
+        let computed = compute(latest.tuple())?;
+        guard.write_version_shallow(VersionTuple::new(timestamp, computed.clone()))?;
+        Ok(computed)
     }
 }
 

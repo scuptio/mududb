@@ -1,10 +1,19 @@
 use crate::server::message_bus_api::ServerInstanceId;
 use crate::server::routing::RoutingMode;
 use crate::storage::page::page_block_ref::DEFAULT_PAGE_SIZE;
+use crate::wal::worker_log::WalSyncPolicy;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use mudu_sys::net::sync::StdTcpListener;
 use mudu_utils::oid::gen_oid;
+use std::net::SocketAddr;
+use std::time::Duration;
+
+/// Default group-commit batching window: how long a queued commit batch may
+/// age before the flush driver flushes it, when byte/frame watermarks are
+/// not met first.
+pub const DEFAULT_LOG_BATCHING_MAX_WAIT: Duration = Duration::from_micros(200);
 
 /// Configuration shared by both execution paths of the `client` backend.
 ///
@@ -23,6 +32,8 @@ pub struct ServerCfg {
     log_chunk_size: u64,
     routing_mode: RoutingMode,
     page_size: usize,
+    log_batching_max_wait: Duration,
+    wal_sync_policy: WalSyncPolicy,
 }
 
 impl ServerCfg {
@@ -52,11 +63,30 @@ impl ServerCfg {
             log_chunk_size: 64 * 1024 * 1024,
             routing_mode,
             page_size: DEFAULT_PAGE_SIZE,
+            log_batching_max_wait: DEFAULT_LOG_BATCHING_MAX_WAIT,
+            wal_sync_policy: WalSyncPolicy::Commit,
         })
     }
 
     pub fn with_log_chunk_size(mut self, log_chunk_size: u64) -> Self {
         self.log_chunk_size = log_chunk_size;
+        self
+    }
+
+    /// Overrides the group-commit batching window (how long a queued commit
+    /// batch may age before the flush driver flushes it). Larger values
+    /// improve fsync sharing under concurrency; smaller values lower
+    /// lone-commit latency.
+    pub fn with_log_batching_max_wait(mut self, max_wait: Duration) -> Self {
+        self.log_batching_max_wait = max_wait;
+        self
+    }
+
+    /// Overrides the WAL durability policy. Defaults to
+    /// [`WalSyncPolicy::Commit`] (fsync every flush round); see
+    /// [`WalSyncPolicy::Periodic`] for the bounded-loss mode.
+    pub fn with_wal_sync_policy(mut self, wal_sync_policy: WalSyncPolicy) -> Self {
+        self.wal_sync_policy = wal_sync_policy;
         self
     }
 
@@ -94,6 +124,17 @@ impl ServerCfg {
         self.server_instance_id
     }
 
+    /// The group-commit batching window used to build the WAL batching
+    /// watermarks.
+    pub fn log_batching_max_wait(&self) -> Duration {
+        self.log_batching_max_wait
+    }
+
+    /// The WAL durability policy applied to every worker log.
+    pub fn wal_sync_policy(&self) -> WalSyncPolicy {
+        self.wal_sync_policy
+    }
+
     pub fn worker_count(&self) -> usize {
         self.worker_count
     }
@@ -129,6 +170,32 @@ impl ServerCfg {
                 )
             )
         })
+    }
+
+    /// Binds one TCP listener per worker on the calling thread.
+    ///
+    /// Both TCP backends accept pre-bound listeners via
+    /// `ServerLaunch::with_prebound_listeners`. Binding every worker port up
+    /// front (before any worker thread or management service starts) makes a
+    /// listen port conflict fail startup immediately, instead of leaving one
+    /// worker unbound while the rest of the server keeps answering
+    /// `server is not ready`.
+    pub fn prebind_worker_listeners(&self) -> RS<Vec<StdTcpListener>> {
+        let mut listeners = Vec::with_capacity(self.worker_count);
+        for worker_index in 0..self.worker_count {
+            let worker_port = self.listen_port_for_worker(worker_index)?;
+            let listen_addr: SocketAddr = format!("{}:{}", self.listen_ip, worker_port)
+                .parse()
+                .map_err(|e| {
+                    mudu_error!(
+                        ErrorCode::Parse,
+                        format!("parse tcp listen address error: {}", worker_port),
+                        e
+                    )
+                })?;
+            listeners.push(mudu_sys::net::sync::bind_tcp(listen_addr)?);
+        }
+        Ok(listeners)
     }
 
     pub fn log_dir(&self) -> &str {

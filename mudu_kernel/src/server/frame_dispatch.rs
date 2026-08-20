@@ -29,6 +29,8 @@ pub async fn dispatch_frame_async(
     frame: &Frame,
 ) -> RS<HandleResult> {
     scoped_task_trace!();
+    let _stage =
+        crate::server::stage_stats::StageGuard::new(crate::server::stage_stats::Stage::FrameHandle);
     let ctx = RequestCtx::new(
         new_session_bound_worker_runtime(worker.clone(), 0),
         conn_id,

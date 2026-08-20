@@ -32,10 +32,15 @@ impl AsyncFuncTaskWaker {
 impl ArcWake for AsyncFuncTaskWaker {
     fn wake_by_ref(arc_self: &Arc<Self>) {
         if arc_self.completed.load(Ordering::Acquire) {
+            trace!(
+                op_id = arc_self.op_id,
+                "worker task waker ignored: completed"
+            );
             return;
         }
 
         if !arc_self.notified.swap(true, Ordering::AcqRel) {
+            trace!(op_id = arc_self.op_id, "worker task waker queued");
             arc_self.completion_queue.push(arc_self.op_id);
             // External async completions can wake this task while the worker
             // thread is blocked in io_uring_wait_cqe. Queueing the task alone
@@ -46,6 +51,11 @@ impl ArcWake for AsyncFuncTaskWaker {
                     trace!(fd, error = %err, "worker task waker eventfd notify failed");
                 }
             }
+        } else {
+            trace!(
+                op_id = arc_self.op_id,
+                "worker task waker collapsed: already notified"
+            );
         }
     }
 }

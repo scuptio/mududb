@@ -1,5 +1,5 @@
-use crate::wal::log_frame::frame_len;
 use crate::wal::lsn::LSN;
+use crate::wal::worker_log::scan_valid_frame_prefix;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -8,10 +8,11 @@ use mudu_sys::contract::async_fs::AsyncFs;
 use mudu_sys::fs::async_ as fs;
 use short_uuid::ShortUuid;
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::batching::WorkerLogBatching;
+use super::sync_policy::WalSyncPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkerLogTail {
@@ -28,6 +29,7 @@ pub struct WorkerLogLayout {
     chunk_size: u64,
     pub(crate) short_oid: String,
     batching: WorkerLogBatching,
+    sync_policy: WalSyncPolicy,
 }
 
 impl Default for WorkerLogLayout {
@@ -44,6 +46,7 @@ impl WorkerLogLayout {
             chunk_size,
             short_oid: ShortUuid::from_uuid(&Uuid::from_u128(log_oid)).to_string(),
             batching: WorkerLogBatching::default(),
+            sync_policy: WalSyncPolicy::default(),
         }
     }
 
@@ -66,6 +69,13 @@ impl WorkerLogLayout {
         self
     }
 
+    /// Overrides the WAL durability policy (see [`WalSyncPolicy`]). Defaults
+    /// to [`WalSyncPolicy::Commit`].
+    pub fn with_sync_policy(mut self, sync_policy: WalSyncPolicy) -> Self {
+        self.sync_policy = sync_policy;
+        self
+    }
+
     pub fn log_oid(&self) -> OID {
         self.log_oid
     }
@@ -85,6 +95,10 @@ impl WorkerLogLayout {
 
     pub fn batching(&self) -> WorkerLogBatching {
         self.batching
+    }
+
+    pub fn sync_policy(&self) -> WalSyncPolicy {
+        self.sync_policy
     }
 
     pub async fn scan_tail(&self) -> RS<WorkerLogTail> {
@@ -159,14 +173,17 @@ impl WorkerLogLayout {
         let mut max_lsn: Option<LSN> = None;
         for path in self.chunk_paths_sorted().await? {
             let bytes = fs::read_all(&path).await?;
-            let mut offset = 0usize;
-            while offset < bytes.len() {
-                let remaining = &bytes[offset..];
-                let next_frame_len = frame_len(remaining)?;
-                let frame = &remaining[..next_frame_len];
-                let lsn = crate::wal::log_frame::frame_lsn(frame)?;
+            let prefix = scan_valid_frame_prefix(&bytes);
+            if let Some(reason) = &prefix.corrupt_reason {
+                warn!(
+                    path = %path.display(),
+                    truncated_bytes = bytes.len() - prefix.valid_len,
+                    reason = %reason,
+                    "worker log chunk has an un-persisted tail"
+                );
+            }
+            if let Some(lsn) = prefix.max_lsn {
                 max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
-                offset += next_frame_len;
             }
         }
         Ok(max_lsn.map_or(LSN::new(0), |lsn| lsn.saturating_add(1)))
@@ -185,13 +202,42 @@ impl WorkerLogLayout {
                 next_lsn: LSN::new(0),
             });
         };
-        let path = self.chunk_path(sequence);
-        let size = fs.metadata_len(&path).await?;
-        let next_lsn = self.scan_next_lsn_async(fs).await?;
-        if size < self.chunk_size {
+        // Walk every chunk once: derive the next LSN from the longest valid
+        // frame prefix of each chunk, and truncate any un-persisted or
+        // corrupt tail so appends resume at a valid frame boundary. A crash
+        // can leave such a tail behind (write() without a completed fsync,
+        // or a torn final frame); the frames carry CRCs, so everything up to
+        // the first invalid frame is trustworthy.
+        let mut max_lsn: Option<LSN> = None;
+        let mut tail_size = 0u64;
+        for chunk_sequence in &sequences {
+            let path = self.chunk_path(*chunk_sequence);
+            let bytes = fs.read_all(&path).await?;
+            let prefix = scan_valid_frame_prefix(&bytes);
+            let mut size = bytes.len() as u64;
+            if let Some(reason) = &prefix.corrupt_reason {
+                let truncated_bytes = bytes.len() - prefix.valid_len;
+                warn!(
+                    path = %path.display(),
+                    truncated_bytes,
+                    reason = %reason,
+                    "truncating un-persisted worker log chunk tail"
+                );
+                truncate_file_to(&path, prefix.valid_len as u64)?;
+                size = prefix.valid_len as u64;
+            }
+            if let Some(lsn) = prefix.max_lsn {
+                max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
+            }
+            if *chunk_sequence == sequence {
+                tail_size = size;
+            }
+        }
+        let next_lsn = max_lsn.map_or(LSN::new(0), |lsn| lsn.saturating_add(1));
+        if tail_size < self.chunk_size {
             Ok(WorkerLogTail {
                 current_sequence: Some(sequence),
-                current_size: size,
+                current_size: tail_size,
                 next_sequence: sequence + 1,
                 next_lsn,
             })
@@ -217,23 +263,6 @@ impl WorkerLogLayout {
         Ok(entries.into_iter().map(|(_, path)| path).collect())
     }
 
-    async fn scan_next_lsn_async(&self, fs: &dyn AsyncFs) -> RS<LSN> {
-        let mut max_lsn: Option<LSN> = None;
-        for path in self.chunk_paths_sorted_async(fs).await? {
-            let bytes = fs.read_all(&path).await?;
-            let mut offset = 0usize;
-            while offset < bytes.len() {
-                let remaining = &bytes[offset..];
-                let next_frame_len = frame_len(remaining)?;
-                let frame = &remaining[..next_frame_len];
-                let lsn = crate::wal::log_frame::frame_lsn(frame)?;
-                max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
-                offset += next_frame_len;
-            }
-        }
-        Ok(max_lsn.map_or(LSN::new(0), |lsn| lsn.saturating_add(1)))
-    }
-
     async fn chunk_sequences_async(&self, fs: &dyn AsyncFs) -> RS<Vec<u64>> {
         let trace = mudu_utils::task_trace!();
         trace.watch("wal.layout.stage", "chunk_sequences_start");
@@ -252,4 +281,15 @@ impl WorkerLogLayout {
         trace.watch("wal.layout.sequences", &sequences.len().to_string());
         Ok(sequences)
     }
+}
+
+/// Truncates `path` to `len` bytes and persists the size change, so a
+/// dropped un-persisted WAL tail cannot reappear after another crash.
+fn truncate_file_to(path: &Path, len: u64) -> RS<()> {
+    let mut options = mudu_sys::fs::sync::SOpenOptions::new();
+    options.read(true).write(true);
+    let file = options.open(path)?;
+    file.set_len(len)?;
+    file.sync_data()?;
+    Ok(())
 }

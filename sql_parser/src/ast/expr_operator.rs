@@ -28,7 +28,7 @@ pub enum Arithmetic {
 }
 
 /// Value comparison operators.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ValueCompare {
     /// Equal (`=`).
     EQ,
@@ -66,7 +66,8 @@ fn name2op(name: String) -> RS<Operator> {
         ("/", Operator::OArithmetic(Arithmetic::DIVIDE)),
     ];
     let map = HashMap::from(array);
-    let opt_op = map.get(name.as_str());
+    // SQL keywords and operators are case-insensitive (`and` == `AND`).
+    let opt_op = map.get(name.to_uppercase().as_str());
     let op = if let Some(op) = opt_op {
         *op
     } else {

@@ -199,7 +199,9 @@ impl AsyncClient for AsyncClientImpl {
         let (response, deserialize_ns) = response;
         let total_ns = total_start.elapsed().as_nanos() as u64;
 
-        if let Some(server_digest) = response.server_perf_digest() {
+        if trace_id != 0
+            && let Some(server_digest) = response.server_perf_digest()
+        {
             Self::log_end_to_end_perf(
                 trace_id,
                 total_ns,
@@ -286,7 +288,9 @@ impl AsyncClient for AsyncClientImpl {
         let (response, deserialize_ns) = response;
         let total_ns = total_start.elapsed().as_nanos() as u64;
 
-        if let Some(server_digest) = response.server_perf_digest() {
+        if trace_id != 0
+            && let Some(server_digest) = response.server_perf_digest()
+        {
             Self::log_end_to_end_perf(
                 trace_id,
                 total_ns,

@@ -1,8 +1,42 @@
 use super::TimeSeriesRecord;
-use crate::storage::page::page_block_ref::PAGE_SIZE;
+use crate::storage::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::storage::page::page_block_ref_mut::PageBlockRefMut;
+use crate::storage::page::page_header::PAGE_HEADER_SIZE;
 use crate::storage::page::PageId;
+use crate::wal::lsn::LSN;
 use mudu::common::result::RS;
+
+/// Computes the tailer checksum of a page image that is about to be
+/// persisted. `PageBlockRefMut` mutation methods skip the full-page CRC32,
+/// so every image must pass through here once before it is appended to the
+/// WAL or written to the data file.
+pub(super) fn finalize_page_image_checksum(image: &mut [u8]) -> RS<()> {
+    PageBlockRefMut::new(image).refresh_tailer_checksum()
+}
+
+/// Overwrites the page header LSN with the WAL LSN of the batch that
+/// produced this image.
+///
+/// Every page image that reaches the data file carries the LSN of its
+/// producing batch, so WAL replay can compare a delta's LSN against the
+/// stamped LSN and skip batches the page already reflects — replaying a
+/// record-level delta twice would resurrect records that later batches
+/// moved or deleted. Must run before [`finalize_page_image_checksum`] so
+/// the tailer mirrors the stamped LSN.
+pub(super) fn stamp_page_image_lsn(image: &mut [u8], lsn: LSN) -> RS<()> {
+    let mut header = PageBlockRef::new(image).header()?;
+    header.set_lsn(lsn);
+    header.encode(&mut image[..PAGE_HEADER_SIZE])?;
+    Ok(())
+}
+
+/// Whether the image's tailer already mirrors the header LSN and carries a
+/// valid checksum over the current page contents.
+pub(super) fn page_image_checksum_valid(image: &[u8]) -> RS<bool> {
+    let page = PageBlockRef::new(image);
+    let tailer = page.tailer()?;
+    Ok(tailer.lsn() == page.header_lsn()? && tailer.validate_checksum(image).is_ok())
+}
 
 pub(super) fn build_entries_page_image(
     page_id: PageId,
@@ -79,7 +113,7 @@ mod tests {
         let tuple_format_version = 3u32;
         let tuple_schema_hash = 42u64;
         let tuple_flags = 1u64;
-        let buf = empty_page_image(
+        let mut buf = empty_page_image(
             page_id,
             tuple_format_version,
             tuple_schema_hash,
@@ -88,6 +122,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(buf.len(), PAGE_SIZE);
+        // The checksum is deferred to the persistence point: a freshly built
+        // image is not yet checksummed, and becomes valid after finalizing.
+        assert!(!page_image_checksum_valid(&buf).unwrap());
+        finalize_page_image_checksum(&mut buf).unwrap();
+        assert!(page_image_checksum_valid(&buf).unwrap());
         let page = PageBlockRef::try_new(&buf).unwrap();
         assert_eq!(page.header_page_id().unwrap(), page_id);
         assert_eq!(
@@ -124,7 +163,7 @@ mod tests {
                 slot_index: 0,
             },
         ];
-        let buf = build_entries_page_image(
+        let mut buf = build_entries_page_image(
             PageId::new(1),
             PageId::new(0),
             PageId::new(2),
@@ -136,6 +175,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(buf.len(), PAGE_SIZE);
+        finalize_page_image_checksum(&mut buf).unwrap();
         let page = PageBlockRef::try_new(&buf).unwrap();
         page.validate_layout().unwrap();
         assert_eq!(page.header_page_id().unwrap(), PageId::new(1));
@@ -156,11 +196,12 @@ mod tests {
 
     #[test]
     fn build_entries_page_image_empty_entries_valid() {
-        let buf =
+        let mut buf =
             build_entries_page_image(PageId::new(5), PageId::new(4), PageId::new(6), &[], 1, 2, 3)
                 .unwrap();
 
         assert_eq!(buf.len(), PAGE_SIZE);
+        finalize_page_image_checksum(&mut buf).unwrap();
         let page = PageBlockRef::try_new(&buf).unwrap();
         page.validate_layout().unwrap();
         assert_eq!(page.header_record_count().unwrap(), 0);

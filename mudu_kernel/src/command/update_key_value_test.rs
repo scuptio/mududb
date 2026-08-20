@@ -60,6 +60,7 @@ fn make_param(key: VecDatum, value: VecDatum) -> PUpdateKeyValue {
         table_id: 1,
         key,
         value,
+        delta_assignments: Vec::new(),
     }
 }
 

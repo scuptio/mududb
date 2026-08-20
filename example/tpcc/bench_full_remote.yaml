@@ -1,0 +1,183 @@
+# 全量远程扫描：TPC-C 可扩展性 + Seckill + 思考时间扫描，远程双机模式。
+#
+# 本文件合并 bench_scalability_remote.yaml 与 bench_seckill_remote.yaml 的
+# 全部测试分组，并新增思考时间（think time）扫描：
+# - tpcc-cpu-scaling / tpcc-connection-scaling：原 TPC-C 核数与连接数曲线
+#   （80 warehouses，think_times_ms: [100]）。
+# - seckill-cpu-scaling / seckill-connection-scaling / seckill-hotspot-percent：
+#   秒杀写密集负载的核数、连接数与热点占比曲线（think_times_ms: [0]）。
+# - tpcc-think-time：思考时间扫描 [0, 100, 5000, 10000] ms（即 0 / 0.1s /
+#   5s / 10s；10s 接近 TPC-C 规范的 ~11s 均值）。think_times_ms 是扫描维度，
+#   全部档位在同一个输出目录（tpcc-think-time/）内，产出
+#   tps_vs_think_time.png / p99_vs_think_time.png 对比曲线。
+#
+# 结构：defaults 为全局默认（基础设施 + 基准参数回退）；tests 为命名分组，
+# 每组只列出覆盖 defaults 的基准参数，未列出的键从 defaults 继承。
+# defaults 中的数据集参数（80 warehouses）面向 TPC-C 测试；seckill 测试的
+# 数据集由 seckill_items 决定，这些 TPC-C 数据集键对其不生效。
+#
+# 规模：3 后端 × [(5+4) tpcc + (5+4+5) seckill + 4 思考时间档] × 3 repeats
+# = 243 轮，预计很久。如需压缩：优先把两个 connection-scaling 的
+# connections 减为 [64, 512]，或 repeats 减为 2。
+#
+# 运行（先同步远端再跑）：
+#   cd example/tpcc && python3 bench_cross_db.py --config bench_full_remote.yaml --setup-remote
+#   cd example/tpcc && python3 bench_cross_db.py --config bench_full_remote.yaml
+# 只看展开矩阵：--dry-run；只跑子集：--backends mududb-procedure-iouring
+
+defaults:
+  backends: [postgres, postgres-procedure, mysql, mududb-interactive-iouring, mududb-procedure-iouring, spacetimedb]
+  #backends: [postgres-procedure, mududb-procedure-iouring, spacetimedb]
+
+  repeats: 3
+  warmup_operations: 0
+
+  # TPC-C 数据集（与 bench_showcase.yaml 一致，保证结果可横向对比）。
+  # 对 seckill 测试不生效（seckill 由客户端按 seckill_items 自建表种子）。
+  warehouses: 80
+  districts: 10
+  customers: 400
+  items: 200
+  operations: 500
+
+  payment_percent: 50
+  new_order_percent: 35
+
+  benchmark_timeout_secs: 3600
+
+  postgres:
+    initdb: initdb
+    pg_ctl: pg_ctl
+    psql: psql
+    user: postgres
+    password: postgres
+    database: tpcc
+
+  mysql:
+    mysqld: mysqld
+    mysqladmin: mysqladmin
+    mysql: mysql
+    user: root
+    password: ""
+    database: tpcc
+
+  mudud:
+    # 远程模式必须为 0.0.0.0（监听客户端可达地址）。
+    listen_ip: 0.0.0.0
+    ring_entries: 1024
+    partition_count: 32
+    # WAL 周期 fsync：commit 只等写入 page cache，后台每 10ms fsync。
+    wal_sync_mode: periodic
+    wal_sync_interval_ms: 10
+    modes:
+      interactive-iouring:
+        server_mode: iouring
+        interactive_mode: interactive
+      procedure-iouring:
+        server_mode: iouring
+        interactive_mode: procedure
+
+  spacetimedb:
+    version: "1.12.0"
+    cli_path: ""
+    install_dir: ""
+    # 远程模式必须为 0.0.0.0（监听客户端可达地址）。
+    listen_ip: 0.0.0.0
+
+  # ---------------------------------------------------------------------------
+  # 远程（双机）模式：填 server_host 即启用。
+  # 首次或代码更新后先跑一次 --setup-remote 同步源码并在服务端编译 mudud。
+  # 服务端机器前置条件：Rust 工具链、pg/mysql 服务端二进制、python3+PyYAML、
+  # 客户端可免密 ssh。端口为服务端固定端口（客户端需预知）；
+  # mudud_tcp_port 是一个连续端口块的起点（tcp_multi_port 每 worker 一个端口，
+  # 块大小 = 当前核数档，最大 12，即 54000-54011 需未被占用）。
+  remote:
+    server_host: 192.168.100.225      # <-- 服务端机器 IP（必填，设置即启用远程模式）
+    ssh_user: ybbh                   # 默认当前用户
+    ssh_port: 22
+    ssh_key_filename: ""             # 默认 agent 与 ~/.ssh 密钥
+    ssh_password: ""                 # 可选，优先用密钥
+    server_project_root: /home/ybbh/mududb_bench   # 服务端上的目录，--setup-remote 会自动创建
+    postgres_port: 55432
+    mysql_port: 53306
+    mudud_tcp_port: 54000
+    mudud_http_port: 58080
+    spacetimedb_port: 53000
+
+  # 远程模式下客户端与服务端分属两台机器，推荐 client_cpu_cores: null
+  # （客户端用满整机，数字反映服务端真实容量）。注意远程+不绑核的数字与
+  # 本地历史数据方法论不可比（客户端预算不同且跨机有 RTT），报告中需
+  # 分开标注。
+  client_cpu_cores: null
+  client_cpu_offset: 20
+
+  # PG shared_buffers / MySQL innodb_buffer_pool_size = 80% RAM（公平）。
+  buffer_pool_ratio: 0.8
+
+  # 独立输出目录，不与 scalability / seckill 单独配置的结果混淆。
+  output_dir: ./bench_cross_db_results_full
+  keep_data: false
+
+tests:
+  # ---- TPC-C：原 bench_scalability_remote.yaml 的两条曲线 ----
+  # 可扩展性曲线：固定 64 连接，1 → 满物理核。
+  - name: tpcc-cpu-scaling
+    workload: tpcc
+    think_times_ms: [100]
+    cpu_cores: [1, 2, 4, 8, 12]
+    connections: [512]
+
+  # 低 / 中 / 高档负载：固定满核 12，扫连接数。
+  - name: tpcc-connection-scaling
+    workload: tpcc
+    think_times_ms: [100]
+    cpu_cores: [12]
+    connections: [64, 256, 512, 1024]
+
+  # ---- Seckill：原 bench_seckill_remote.yaml 的三条曲线 ----
+  # 固定 256 连接、20% 热点，1 → 满物理核。
+  - name: seckill-cpu-scaling
+    workload: seckill
+    think_times_ms: [0]
+    seckill_items: 320
+    seckill_payload_bytes: 2048
+    cpu_cores: [1, 2, 4, 8, 12]
+    connections: [256]
+    seckill_hotspot_percents: [20]
+
+  # 固定满核 12、20% 热点，扫连接数。
+  - name: seckill-connection-scaling
+    workload: seckill
+    think_times_ms: [0]
+    seckill_items: 320
+    seckill_payload_bytes: 2048
+    cpu_cores: [12]
+    connections: [64, 256, 512, 1024]
+    seckill_hotspot_percents: [20]
+
+  # 热点占比扫描：固定满核 12、256 连接，从完全均匀扫到 80% 热点。
+  - name: seckill-hotspot-percent
+    workload: seckill
+    think_times_ms: [0]
+    seckill_items: 320
+    seckill_payload_bytes: 2048
+    cpu_cores: [12]
+    connections: [256]
+    seckill_hotspot_percents: [0, 10, 20, 50, 80]
+
+  # ---- 思考时间扫描（TPC-C）----
+  # 固定满核 12、256 连接，扫 think_times_ms [0, 100, 5000, 10000]
+  # （0 / 0.1s / 5s / 10s）。10s 档的测量阶段至少
+  # operations/connections × 10s；pacing 后的 TPS 与未 pacing 的历史
+  # 数据不可比。
+  - name: tpcc-think-time-all-cores
+    workload: tpcc
+    cpu_cores: [12]
+    connections: [256]
+    think_times_ms: [0, 100, 5000, 10000]
+  
+  - name: tpcc-think-time-1-core
+    workload: tpcc
+    cpu_cores: [1]
+    connections: [256]
+    think_times_ms: [0, 100, 5000, 10000]

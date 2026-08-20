@@ -7,11 +7,16 @@ rust-version.workspace = true
 
 [features]
 default = ["native"]
-native = []
+native = ["dep:mudu_sys_impl"]
+# Internal-only deterministic simulation backend (closed source, not part of
+# this repository). Declared as an empty feature here so the cfg gates in this
+# workspace keep a valid feature reference; it only becomes functional when an
+# internal overlay wires in the simulator crate.
+ds = []
 debug_trace = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-mudu_sys_impl = { workspace = true }
+mudu_sys_impl = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 mudu_sys_wasm = { workspace = true }

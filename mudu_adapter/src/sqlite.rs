@@ -3,12 +3,19 @@
 use crate::config;
 use crate::kv;
 use crate::result_set::LocalResultSet;
-use crate::sql::{build_sqlite_desc, read_sqlite_row, to_sqlite_values};
+use crate::sql::{
+    build_sqlite_desc, datum_binary_to_sqlite_value, read_sqlite_row, sqlite_decl_data_type,
+    sqlite_value_to_datum_binary, to_sqlite_values,
+};
 use crate::state;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use mudu_binding::universal::uni_relation::{
+    RELATION_DELTA_OP_ADD, RELATION_DELTA_OP_ADD_DEFERRED, RELATION_DELTA_OP_SUB,
+    RELATION_DELTA_OP_SUB_DEFERRED, RELATION_DELTA_OP_SUB_WRAP_DEFERRED, UniRelationDelta,
+};
 use mudu_contract::database::entity::Entity;
 use mudu_contract::database::entity_set::RecordSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -16,6 +23,7 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_sys::time::system_time_now;
+use mudu_type::data_type::DataType;
 use rusqlite::Connection;
 use rusqlite::params_from_iter;
 use std::sync::Arc;
@@ -276,6 +284,423 @@ pub async fn mudu_batch_async(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParam
         conn.execute_batch(&sql_text)
             .map_err(|e| mudu_error!(ErrorCode::Database, "execute sqlite batch error", e))?;
         Ok(conn.changes() as u64)
+    })
+    .await?
+}
+
+// ---------------------------------------------------------------------------
+// Relation-level syscalls
+//
+// The standalone adapter emulates the relation syscalls (point read,
+// read-modify-write update, insert by primary key) with SQL statements
+// against the SQLite backend. Column metadata is introspected with
+// `PRAGMA table_info`. The kernel assigns relation attribute indices
+// primary-key first (key columns in key order, then value columns in
+// definition order); `PRAGMA table_info` reports plain definition order
+// (`cid`), so the introspected columns are re-sorted — key columns by their
+// `pk` ordinal, then value columns by `cid` — and the attribute index is the
+// position in that order.
+// ---------------------------------------------------------------------------
+
+/// One column of a relation, ordered by the kernel's attribute index layout.
+struct RelationColumn {
+    /// Attribute index (primary-key columns first, then value columns).
+    attr: u64,
+    name: String,
+    data_type: DataType,
+}
+
+/// Quotes a SQL identifier (table or column name).
+fn quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Introspects the columns of `table` in relation attribute order (see the
+/// section comment above for the primary-key-first re-sorting).
+fn relation_table_columns(conn: &Connection, table: &str) -> RS<Vec<RelationColumn>> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", quote_ident(table)))
+        .map_err(|e| mudu_error!(ErrorCode::Database, "introspect sqlite table error", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<usize, i64>(0)?,
+                row.get::<usize, String>(1)?,
+                row.get::<usize, Option<String>>(2)?,
+                row.get::<usize, i64>(5)?,
+            ))
+        })
+        .map_err(|e| mudu_error!(ErrorCode::Database, "introspect sqlite table error", e))?;
+    let mut introspected = Vec::new();
+    for row in rows {
+        let (cid, name, decl, pk) =
+            row.map_err(|e| mudu_error!(ErrorCode::Database, "read sqlite table info error", e))?;
+        if cid < 0 {
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                format!("negative column id {cid} on relation {table}")
+            ));
+        }
+        introspected.push((cid, pk, name, decl));
+    }
+    if introspected.is_empty() {
+        return Err(mudu_error!(
+            ErrorCode::EntityNotFound,
+            format!("no such relation: {table}")
+        ));
+    }
+    // Key columns (`pk` > 0) first in key order, then value columns in
+    // definition order (`cid`).
+    introspected.sort_by_key(|(cid, pk, _, _)| (*pk == 0, *pk, *cid));
+    let columns = introspected
+        .into_iter()
+        .enumerate()
+        .map(|(attr, (cid, _, name, decl))| RelationColumn {
+            attr: attr as u64,
+            data_type: sqlite_decl_data_type(decl.as_deref(), cid as usize),
+            name,
+        })
+        .collect();
+    Ok(columns)
+}
+
+/// Resolves the column metadata for `attr`, failing on unknown indices.
+fn relation_column<'a>(
+    columns: &'a [RelationColumn],
+    table: &str,
+    attr: u64,
+) -> RS<&'a RelationColumn> {
+    columns
+        .iter()
+        .find(|column| column.attr == attr)
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("no such attribute {attr} on relation {table}")
+            )
+        })
+}
+
+/// Builds the `WHERE attr1 = ? AND attr2 = ?` clause and bind values for a
+/// primary-key predicate.
+fn relation_key_predicate(
+    columns: &[RelationColumn],
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    first_index: usize,
+) -> RS<(String, Vec<rusqlite::types::Value>)> {
+    if key.is_empty() {
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            format!("relation {table} key predicate is empty")
+        ));
+    }
+    let mut conditions = Vec::with_capacity(key.len());
+    let mut values = Vec::with_capacity(key.len());
+    for (offset, (attr, datum)) in key.iter().enumerate() {
+        let column = relation_column(columns, table, *attr)?;
+        conditions.push(format!(
+            "{} = ?{}",
+            quote_ident(&column.name),
+            first_index + offset
+        ));
+        values.push(datum_binary_to_sqlite_value(datum, &column.data_type)?);
+    }
+    Ok((conditions.join(" AND "), values))
+}
+
+/// Executes the relation point-read as a `SELECT` by primary key.
+fn relation_get_blocking(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    kv::ensure_session_exists(session_id)?;
+    let conn = open_connection()?;
+    let columns = relation_table_columns(&conn, table)?;
+    let select_columns = select
+        .iter()
+        .map(|attr| relation_column(&columns, table, *attr))
+        .collect::<RS<Vec<_>>>()?;
+    let (predicate, params) = relation_key_predicate(&columns, table, key, 1)?;
+    let select_list = if select_columns.is_empty() {
+        "1".to_string()
+    } else {
+        select_columns
+            .iter()
+            .map(|column| quote_ident(&column.name))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let sql = format!(
+        "SELECT {} FROM {} WHERE {}",
+        select_list,
+        quote_ident(table),
+        predicate
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| mudu_error!(ErrorCode::Database, "prepare sqlite relation get error", e))?;
+    let mut rows = stmt
+        .query(params_from_iter(params.iter()))
+        .map_err(|e| mudu_error!(ErrorCode::Database, "execute sqlite relation get error", e))?;
+    let Some(row) = rows
+        .next()
+        .map_err(|e| mudu_error!(ErrorCode::Database, "iterate sqlite relation get error", e))?
+    else {
+        return Ok(None);
+    };
+    let mut projected = Vec::with_capacity(select_columns.len());
+    for (idx, column) in select_columns.iter().enumerate() {
+        let raw = row.get_ref(idx).map_err(|e| {
+            mudu_error!(ErrorCode::Database, "read sqlite relation column error", e)
+        })?;
+        projected.push(sqlite_value_to_datum_binary(raw, &column.data_type)?);
+    }
+    Ok(Some(projected))
+}
+
+/// Executes the relation read-modify-write as an `UPDATE` by primary key.
+fn relation_update_blocking(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+    deltas: &[UniRelationDelta],
+) -> RS<u64> {
+    kv::ensure_session_exists(session_id)?;
+    let conn = open_connection()?;
+    let columns = relation_table_columns(&conn, table)?;
+    let mut assignments = Vec::with_capacity(values.len() + deltas.len());
+    let mut params = Vec::with_capacity(values.len() + deltas.len() + key.len());
+    let mut index = 1;
+    for (attr, datum) in values {
+        let column = relation_column(&columns, table, *attr)?;
+        assignments.push(format!("{} = ?{}", quote_ident(&column.name), index));
+        params.push(datum_binary_to_sqlite_value(datum, &column.data_type)?);
+        index += 1;
+    }
+    for delta in deltas {
+        let column = relation_column(&columns, table, delta.attr)?;
+        match delta.op {
+            RELATION_DELTA_OP_ADD | RELATION_DELTA_OP_ADD_DEFERRED => {
+                assignments.push(format!(
+                    "{} = {} + ?{}",
+                    quote_ident(&column.name),
+                    quote_ident(&column.name),
+                    index
+                ));
+                params.push(datum_binary_to_sqlite_value(
+                    &delta.datum,
+                    &column.data_type,
+                )?);
+                index += 1;
+            }
+            RELATION_DELTA_OP_SUB | RELATION_DELTA_OP_SUB_DEFERRED => {
+                assignments.push(format!(
+                    "{} = {} - ?{}",
+                    quote_ident(&column.name),
+                    quote_ident(&column.name),
+                    index
+                ));
+                params.push(datum_binary_to_sqlite_value(
+                    &delta.datum,
+                    &column.data_type,
+                )?);
+                index += 1;
+            }
+            RELATION_DELTA_OP_SUB_WRAP_DEFERRED => {
+                // SQLite supports CASE, so the conditional restock stays one
+                // statement: `col = col - q; if col < floor { col + wrap }`.
+                let (quantity, floor, wrap) = decode_sub_wrap_datum(&delta.datum)?;
+                let quoted = quote_ident(&column.name);
+                assignments.push(format!(
+                    "{quoted} = CASE WHEN {quoted} - ?{iq1} < ?{ifloor} THEN {quoted} - ?{iq2} + ?{iwrap} ELSE {quoted} - ?{iq3} END",
+                    quoted = quoted,
+                    iq1 = index,
+                    ifloor = index + 1,
+                    iq2 = index + 2,
+                    iwrap = index + 3,
+                    iq3 = index + 4,
+                ));
+                for operand in [quantity, floor, quantity, wrap, quantity] {
+                    params.push(rusqlite::types::Value::Integer(operand));
+                }
+                index += 5;
+            }
+            other => {
+                return Err(mudu_error!(
+                    ErrorCode::Decode,
+                    format!("unknown relation delta op {other}")
+                ));
+            }
+        }
+    }
+    if assignments.is_empty() {
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            format!("relation {table} update has no assignments")
+        ));
+    }
+    let (predicate, key_params) = relation_key_predicate(&columns, table, key, index)?;
+    params.extend(key_params);
+    let sql = format!(
+        "UPDATE {} SET {} WHERE {}",
+        quote_ident(table),
+        assignments.join(", "),
+        predicate
+    );
+    let changed = conn
+        .execute(&sql, params_from_iter(params.iter()))
+        .map_err(|e| {
+            mudu_error!(
+                ErrorCode::Database,
+                "execute sqlite relation update error",
+                e
+            )
+        })?;
+    Ok(changed as u64)
+}
+
+/// Unpacks a conditional-restock delta datum (`[q, floor, wrap]`, three
+/// big-endian i64s, see `UniRelationDelta::sub_wrap`).
+fn decode_sub_wrap_datum(datum: &[u8]) -> RS<(i64, i64, i64)> {
+    if datum.len() != 24 {
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            format!(
+                "conditional restock delta expects a 24-byte [q, floor, wrap] datum, got {}",
+                datum.len()
+            )
+        ));
+    }
+    let read =
+        |offset: usize| i64::from_be_bytes(datum[offset..offset + 8].try_into().unwrap_or([0; 8]));
+    Ok((read(0), read(8), read(16)))
+}
+
+/// Executes the relation insert as an `INSERT` of the key and value columns.
+fn relation_insert_blocking(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    kv::ensure_session_exists(session_id)?;
+    let conn = open_connection()?;
+    let columns = relation_table_columns(&conn, table)?;
+    let mut names = Vec::with_capacity(key.len() + values.len());
+    let mut placeholders = Vec::with_capacity(key.len() + values.len());
+    let mut params = Vec::with_capacity(key.len() + values.len());
+    for (index, (attr, datum)) in key.iter().chain(values.iter()).enumerate() {
+        let column = relation_column(&columns, table, *attr)?;
+        names.push(quote_ident(&column.name));
+        placeholders.push(format!("?{}", index + 1));
+        params.push(datum_binary_to_sqlite_value(datum, &column.data_type)?);
+    }
+    let sql = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        quote_ident(table),
+        names.join(", "),
+        placeholders.join(", ")
+    );
+    conn.execute(&sql, params_from_iter(params.iter()))
+        .map(|_| ())
+        .map_err(|e| match e {
+            rusqlite::Error::SqliteFailure(err, _)
+                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                mudu_error!(ErrorCode::EntityAlreadyExists, "existing key")
+            }
+            other => mudu_error!(
+                ErrorCode::Database,
+                "execute sqlite relation insert error",
+                other
+            ),
+        })
+}
+
+/// Point-read one relation row by primary key on a SQLite session.
+pub fn mudu_relation_get(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    relation_get_blocking(session_id, table, key, select)
+}
+
+/// Asynchronous version of [`mudu_relation_get`].
+pub async fn mudu_relation_get_async(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    let _trace = mudu_utils::task_trace!();
+    let table = table.to_string();
+    let key = key.to_vec();
+    let select = select.to_vec();
+    mudu_sys::task::async_::spawn_blocking(move || {
+        relation_get_blocking(session_id, &table, &key, &select)
+    })
+    .await?
+}
+
+/// Read-modify-write one relation row by primary key on a SQLite session.
+pub fn mudu_relation_update(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+    deltas: &[UniRelationDelta],
+) -> RS<u64> {
+    relation_update_blocking(session_id, table, key, values, deltas)
+}
+
+/// Asynchronous version of [`mudu_relation_update`].
+pub async fn mudu_relation_update_async(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+    deltas: &[UniRelationDelta],
+) -> RS<u64> {
+    let _trace = mudu_utils::task_trace!();
+    let table = table.to_string();
+    let key = key.to_vec();
+    let values = values.to_vec();
+    let deltas = deltas.to_vec();
+    mudu_sys::task::async_::spawn_blocking(move || {
+        relation_update_blocking(session_id, &table, &key, &values, &deltas)
+    })
+    .await?
+}
+
+/// Insert one relation row on a SQLite session; duplicate keys fail.
+pub fn mudu_relation_insert(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    relation_insert_blocking(session_id, table, key, values)
+}
+
+/// Asynchronous version of [`mudu_relation_insert`].
+pub async fn mudu_relation_insert_async(
+    session_id: OID,
+    table: &str,
+    key: &[(u64, Vec<u8>)],
+    values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    let _trace = mudu_utils::task_trace!();
+    let table = table.to_string();
+    let key = key.to_vec();
+    let values = values.to_vec();
+    mudu_sys::task::async_::spawn_blocking(move || {
+        relation_insert_blocking(session_id, &table, &key, &values)
     })
     .await?
 }

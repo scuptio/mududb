@@ -3,34 +3,36 @@ use mudu::common::result::RS;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
-use mudu_contract::database::sql_params::SQLParams;
 use mudu_type::data_type_fn_param::DataType;
 use mudu_type::data_typed::DataTyped;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
-use sql_parser::ast::expr_item::ExprValue;
 use sql_parser::ast::expr_literal::ExprLiteral;
 
 pub(crate) struct ValueCodec;
 
 impl ValueCodec {
-    pub(crate) fn binary_from_expr(
-        expr: &ExprValue,
-        data_type: &DataType,
-        params: &dyn SQLParams,
-        param_index: &mut usize,
-    ) -> RS<Option<Buf>> {
-        match expr {
-            ExprValue::ValueLiteral(literal) => Self::binary_from_literal(literal, data_type),
-            ExprValue::ValuePlaceholder => {
-                let index = *param_index as u64;
-                let datum = params.get_idx(index).ok_or_else(|| {
-                    mudu_error!(ER::IndexOutOfRange, format!("missing parameter {}", index))
-                })?;
-                *param_index += 1;
-                datum.to_binary(data_type).map(|binary| Some(binary.into()))
-            }
+    /// Encodes one parameter datum into the binary layout of `data_type`.
+    ///
+    /// This is the single parameter-encoding path shared by immediate binding
+    /// (via template filling) and plan-template slot filling: when the
+    /// parameter's type family differs from the column's (e.g. an i32
+    /// parameter bound to a NUMERIC column, or a NUMERIC parameter arriving
+    /// as its msgpack string form), the value is coerced through
+    /// `coerce_literal` first; otherwise it would be encoded with the wrong
+    /// layout and fail to decode downstream.
+    pub(crate) fn binary_from_param(datum: &dyn DatumDyn, data_type: &DataType) -> RS<Buf> {
+        if datum.type_family()? == data_type.type_family() {
+            return datum.to_binary(data_type).map(|binary| binary.into());
         }
+        let source_type = DataType::default_for(datum.type_family()?);
+        let typed = DataTyped::new(source_type.clone(), datum.to_value(&source_type)?);
+        let coerced = Self::coerce_literal(&typed, data_type)?;
+        coerced
+            .data_internal()
+            .to_binary(data_type)
+            .map(|binary| binary.into())
+            .map_err(|e| mudu_error!(ER::TypeConversionFailed, "parameter type mismatch", e))
     }
 
     pub(crate) fn binary_from_literal(
@@ -78,6 +80,21 @@ impl ValueCodec {
             }
             (TypeFamily::I128, TypeFamily::Numeric) => {
                 DataTyped::from_numeric(Numeric::from(literal.data_internal().to_i128()))
+            }
+            // Params travel type-erased over the wire: a NUMERIC param arrives
+            // as its msgpack string form (e.g. "3.00"), so bind time must
+            // parse it back instead of emitting a string binary for the
+            // numeric column (which fails fn_recv at insert time).
+            (TypeFamily::String, TypeFamily::Numeric) => {
+                let text = literal.data_internal().expect_string();
+                let trimmed = text.trim_matches('"');
+                DataTyped::from_numeric(Numeric::parse(trimmed).map_err(|e| {
+                    mudu_error!(
+                        ER::TypeConversionFailed,
+                        format!("string to numeric literal cast: {text:?}"),
+                        e
+                    )
+                })?)
             }
             (TypeFamily::Numeric, TypeFamily::F64) => DataTyped::from_f64(
                 literal

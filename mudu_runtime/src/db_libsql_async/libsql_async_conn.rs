@@ -99,6 +99,8 @@ impl DBConnAsync for LibSQLAsyncConn {
     }
 }
 
-#[cfg(test)]
+// All tests in this module exercise libsql's real file IO (see the module
+// file's comments); skip compiling it under the deterministic backend.
+#[cfg(all(test, not(feature = "ds")))]
 #[path = "libsql_async_conn_test.rs"]
 mod libsql_async_conn_test;

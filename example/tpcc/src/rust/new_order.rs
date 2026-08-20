@@ -151,7 +151,7 @@ pub mod object {
                 NO_W_ID => attr_field_access::attr_get_binary::<_>(self.no_w_id.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -180,7 +180,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -195,7 +195,7 @@ pub mod object {
                 NO_W_ID => attr_field_access::attr_get_value::<_>(self.no_w_id.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -215,7 +215,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())

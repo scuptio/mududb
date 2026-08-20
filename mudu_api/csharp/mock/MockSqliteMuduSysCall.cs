@@ -1,8 +1,7 @@
 #nullable enable
 
-using System.Data;
-using MessagePack;
 using Microsoft.Data.Sqlite;
+using Mudu.Api.MuduSys;
 
 namespace Mudu.Api.Mock;
 
@@ -12,30 +11,32 @@ public static class MockSqliteMuduSysCall
         global::System.Environment.GetEnvironmentVariable("MUDU_MOCK_SQLITE_PATH")
         ?? global::System.IO.Path.Combine(global::System.AppContext.BaseDirectory, "mudu_mock.db");
 
-    public static byte[] QueryRaw(byte[] queryIn)
+    // All raw entry points below (except `FetchRaw`) receive and return
+    // complete SyscallPayload v1 (MSSP) frames: the layer above speaks MSSP
+    // for every message kind.
+
+    public static byte[] QueryRaw(byte[] frame)
     {
-        var argv = MessagePackSerializer.Deserialize<UniQueryArgv>(queryIn);
-        var result = SysQuery(argv);
-        return MessagePackSerializer.Serialize(result);
+        return RouteFrame(frame);
     }
 
-    public static byte[] QueryRaw(global::System.ReadOnlyMemory<byte> queryIn)
+    public static byte[] QueryRaw(global::System.ReadOnlyMemory<byte> frame)
     {
-        return QueryRaw(queryIn.ToArray());
+        return RouteFrame(frame.ToArray());
     }
 
-    public static byte[] CommandRaw(byte[] commandIn)
+    public static byte[] CommandRaw(byte[] frame)
     {
-        var argv = MessagePackSerializer.Deserialize<UniCommandArgv>(commandIn);
-        var result = SysCommand(argv);
-        return MessagePackSerializer.Serialize(result);
+        return RouteFrame(frame);
     }
 
-    public static byte[] CommandRaw(global::System.ReadOnlyMemory<byte> commandIn)
+    public static byte[] CommandRaw(global::System.ReadOnlyMemory<byte> frame)
     {
-        return CommandRaw(commandIn.ToArray());
+        return RouteFrame(frame.ToArray());
     }
 
+    // `fetch` has no MSSP route on the host yet; the mock keeps the legacy
+    // pass-through so the raw path stays byte-compatible.
     public static byte[] FetchRaw(byte[] queryResult)
     {
         return queryResult;
@@ -46,7 +47,112 @@ public static class MockSqliteMuduSysCall
         return queryResult.ToArray();
     }
 
-    public static UniCommandReturn SysCommand(UniCommandArgv argv, MessagePackSerializerOptions? _options = null)
+    public static byte[] FsOpenRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsCloseRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsReadRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsWriteRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsPreadRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsPwriteRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsLseekRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsFstatRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsStatRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsFsyncRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    public static byte[] FsReaddirRaw(byte[] frame)
+    {
+        return RouteFrame(frame);
+    }
+
+    /// <summary>
+    /// Validates the MSSP header and routes by message kind: query/command go
+    /// to the SQLite emulation, the fs kinds go to the in-memory fs emulation.
+    /// </summary>
+    private static byte[] RouteFrame(byte[] frame)
+    {
+        var (kind, body) = SyscallPayload.DecodeFrame(frame);
+        switch (kind)
+        {
+            case MessageKind.Query:
+            {
+                var argv = SyscallPayload.DecodeRequestBody<UniQueryArgv>(body);
+                return ToResultFrame(kind, ExecuteQuery(argv));
+            }
+
+            case MessageKind.Command:
+            {
+                var argv = SyscallPayload.DecodeRequestBody<UniCommandArgv>(body);
+                return ToResultFrame(kind, ExecuteCommand(argv));
+            }
+
+            case >= MessageKind.FsOpen and <= MessageKind.FsReaddir:
+                return SyscallPayload.EncodeFrame(kind, MockFsEmulation.Handle(kind, body));
+
+            default:
+                throw new global::System.NotSupportedException(
+                    $"mock does not emulate syscall message kind {(uint)kind} ({kind})");
+        }
+    }
+
+    private static byte[] ToResultFrame(MessageKind kind, UniQueryReturn result)
+    {
+        return result switch
+        {
+            UniQueryReturnOk ok => SyscallPayload.EncodeResultFrame(kind, ok.Inner),
+            UniQueryReturnErr err => SyscallPayload.EncodeResultErrorFrame(kind, err.Inner),
+            _ => throw new global::System.NotSupportedException($"Unknown query result kind: {result.GetType().Name}"),
+        };
+    }
+
+    private static byte[] ToResultFrame(MessageKind kind, UniCommandReturn result)
+    {
+        return result switch
+        {
+            UniCommandReturnOk ok => SyscallPayload.EncodeResultFrame(kind, ok.Inner),
+            UniCommandReturnErr err => SyscallPayload.EncodeResultErrorFrame(kind, err.Inner),
+            _ => throw new global::System.NotSupportedException($"Unknown command result kind: {result.GetType().Name}"),
+        };
+    }
+
+    private static UniCommandReturn ExecuteCommand(UniCommandArgv argv)
     {
         try
         {
@@ -70,7 +176,7 @@ public static class MockSqliteMuduSysCall
         }
     }
 
-    public static UniQueryReturn SysQuery(UniQueryArgv argv, MessagePackSerializerOptions? _options = null)
+    private static UniQueryReturn ExecuteQuery(UniQueryArgv argv)
     {
         try
         {
@@ -344,6 +450,9 @@ public static class MockSqliteMuduSysCall
         {
             ErrCode = 1,
             ErrMsg = ex.Message,
+            ErrSrc = string.Empty,
+            ErrLoc = string.Empty,
+            ErrDetails = [],
         };
     }
 }

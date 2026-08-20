@@ -7,6 +7,7 @@ use crate::state;
 use lazy_static::lazy_static;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::database::entity::Entity;
@@ -23,11 +24,12 @@ use mudu_type::data_value::DataValue;
 use mudu_type::type_family::TypeFamily;
 use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
-use mysql::{Opts, Pool, Row, Value};
+use mysql::{Opts, OptsBuilder, Pool, PoolConstraints, PoolOpts, Row, Value};
 use mysql_async::consts::ColumnType as AsyncColumnType;
 use mysql_async::prelude::Queryable as AsyncQueryable;
 use mysql_async::{
-    Conn as AsyncConn, Opts as AsyncOpts, Pool as AsyncPool, Row as AsyncRow, Value as AsyncValue,
+    Conn as AsyncConn, Opts as AsyncOpts, OptsBuilder as AsyncOptsBuilder, Pool as AsyncPool,
+    Row as AsyncRow, Value as AsyncValue,
 };
 use scc::HashMap as SccHashMap;
 use std::collections::HashMap;
@@ -50,6 +52,20 @@ fn connect() -> RS<mysql::PooledConn> {
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mysql url env"))?;
     let opts = Opts::from_url(&url)
         .map_err(|e| mudu_error!(ErrorCode::Database, "parse mysql url error", e))?;
+    // One session needs exactly one connection; the default pool constraints
+    // (min 10, max 100) would eagerly open 10 connections per session and
+    // exhaust the server's max_connections on high-connection benchmarks.
+    let constraints = PoolConstraints::new(0, 1)
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidState, "invalid pool constraints"))?;
+    // prefer_socket (default true) makes the client connect over TCP, issue
+    // `SELECT @@socket`, then reconnect over the unix socket: every session
+    // transiently holds two server connections during ramp-up, which tripped
+    // ERROR 1040 "Too many connections" at the 1024-connection benchmark
+    // tier. It also silently swaps the measured transport from TCP to a unix
+    // socket, skewing cross-database comparison. Keep plain TCP.
+    let opts = OptsBuilder::from_opts(opts)
+        .pool_opts(PoolOpts::default().with_constraints(constraints))
+        .prefer_socket(false);
     let pool = Pool::new(opts)
         .map_err(|e| mudu_error!(ErrorCode::Database, "create mysql pool error", e))?;
     let mut conn = pool
@@ -64,6 +80,9 @@ async fn connect_async() -> RS<MySqlAsyncSession> {
         .ok_or_else(|| mudu_error!(ErrorCode::Database, "missing mysql url env"))?;
     let opts = AsyncOpts::from_url(&url)
         .map_err(|e| mudu_error!(ErrorCode::Database, "parse mysql url error", e))?;
+    // See the sync connect(): prefer_socket would silently swap TCP for a
+    // unix-socket reconnect and double the transient connection count.
+    let opts = AsyncOptsBuilder::from_opts(opts).prefer_socket(false);
     let pool = AsyncPool::new(opts);
     let mut conn = pool
         .get_conn()
@@ -378,13 +397,21 @@ fn with_session<R, F>(session_id: OID, f: F) -> RS<R>
 where
     F: FnOnce(&mut mysql::PooledConn) -> RS<R>,
 {
-    let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
-        mudu_error!(
-            ErrorCode::EntityNotFound,
-            format!("session {} does not exist", session_id)
-        )
-    })?;
-    let conn_ref = entry.get().clone();
+    // Clone the connection reference out of the map and drop the scc entry
+    // immediately. An scc entry holds its bucket lock, so keeping it alive
+    // across `f` (a blocking network call) serializes every session hashing
+    // to the same bucket and can deadlock: one thread blocks in `f` waiting
+    // on a server-side lock held by another session, whose thread in turn
+    // blocks acquiring the same bucket lock.
+    let conn_ref = {
+        let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("session {} does not exist", session_id)
+            )
+        })?;
+        entry.get().clone()
+    };
     let mut conn = conn_ref
         .lock()
         .map_err(|_| mudu_error!(ErrorCode::Internal, "mysql session lock poisoned"))?;
@@ -421,9 +448,10 @@ fn build_desc(row: Option<&Row>) -> TupleFieldDesc {
                 | ColumnType::MYSQL_TYPE_INT24 => TypeFamily::I32,
                 ColumnType::MYSQL_TYPE_LONGLONG => TypeFamily::I64,
                 ColumnType::MYSQL_TYPE_FLOAT => TypeFamily::F32,
-                ColumnType::MYSQL_TYPE_DOUBLE
-                | ColumnType::MYSQL_TYPE_DECIMAL
-                | ColumnType::MYSQL_TYPE_NEWDECIMAL => TypeFamily::F64,
+                ColumnType::MYSQL_TYPE_DOUBLE => TypeFamily::F64,
+                ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                    TypeFamily::Numeric
+                }
                 ColumnType::MYSQL_TYPE_BLOB
                 | ColumnType::MYSQL_TYPE_TINY_BLOB
                 | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
@@ -440,49 +468,66 @@ fn build_async_desc(row: Option<&AsyncRow>) -> TupleFieldDesc {
     let Some(row) = row else {
         return TupleFieldDesc::new(Vec::new());
     };
-    let fields = row
-        .columns_ref()
-        .iter()
-        .enumerate()
-        .map(|(idx, column)| {
-            let ty = match column.column_type() {
-                AsyncColumnType::MYSQL_TYPE_TINY
-                | AsyncColumnType::MYSQL_TYPE_SHORT
-                | AsyncColumnType::MYSQL_TYPE_LONG
-                | AsyncColumnType::MYSQL_TYPE_INT24 => TypeFamily::I32,
-                AsyncColumnType::MYSQL_TYPE_LONGLONG => TypeFamily::I64,
-                AsyncColumnType::MYSQL_TYPE_FLOAT => TypeFamily::F32,
-                AsyncColumnType::MYSQL_TYPE_DOUBLE
-                | AsyncColumnType::MYSQL_TYPE_DECIMAL
-                | AsyncColumnType::MYSQL_TYPE_NEWDECIMAL => TypeFamily::F64,
-                AsyncColumnType::MYSQL_TYPE_BLOB
-                | AsyncColumnType::MYSQL_TYPE_TINY_BLOB
-                | AsyncColumnType::MYSQL_TYPE_MEDIUM_BLOB
-                | AsyncColumnType::MYSQL_TYPE_LONG_BLOB => TypeFamily::Binary,
-                _ => {
-                    infer_type_from_mysql_async_value(row.as_ref(idx).unwrap_or(&AsyncValue::NULL))
-                }
-            };
-            DatumDesc::new(format!("field_{}", idx), datum_type_for_id(ty))
-        })
-        .collect();
+    let fields =
+        row.columns_ref()
+            .iter()
+            .enumerate()
+            .map(|(idx, column)| {
+                let ty = match column.column_type() {
+                    AsyncColumnType::MYSQL_TYPE_TINY
+                    | AsyncColumnType::MYSQL_TYPE_SHORT
+                    | AsyncColumnType::MYSQL_TYPE_LONG
+                    | AsyncColumnType::MYSQL_TYPE_INT24 => TypeFamily::I32,
+                    AsyncColumnType::MYSQL_TYPE_LONGLONG => TypeFamily::I64,
+                    AsyncColumnType::MYSQL_TYPE_FLOAT => TypeFamily::F32,
+                    AsyncColumnType::MYSQL_TYPE_DOUBLE => TypeFamily::F64,
+                    AsyncColumnType::MYSQL_TYPE_DECIMAL
+                    | AsyncColumnType::MYSQL_TYPE_NEWDECIMAL => TypeFamily::Numeric,
+                    AsyncColumnType::MYSQL_TYPE_BLOB
+                    | AsyncColumnType::MYSQL_TYPE_TINY_BLOB
+                    | AsyncColumnType::MYSQL_TYPE_MEDIUM_BLOB
+                    | AsyncColumnType::MYSQL_TYPE_LONG_BLOB => TypeFamily::Binary,
+                    _ => infer_type_from_mysql_async_value(
+                        row.as_ref(idx).unwrap_or(&AsyncValue::NULL),
+                    ),
+                };
+                DatumDesc::new(format!("field_{}", idx), datum_type_for_id(ty))
+            })
+            .collect();
     TupleFieldDesc::new(fields)
 }
 
 fn row_to_tuple_value(row: Row) -> RS<TupleValue> {
+    let column_types: Vec<ColumnType> = row.columns_ref().iter().map(|c| c.column_type()).collect();
     let values = row
         .unwrap()
         .into_iter()
-        .map(mysql_value_to_data_value)
+        .enumerate()
+        .map(|(idx, value)| {
+            let column_type = column_types
+                .get(idx)
+                .copied()
+                .unwrap_or(ColumnType::MYSQL_TYPE_VAR_STRING);
+            mysql_value_to_data_value(value, column_type)
+        })
         .collect::<RS<Vec<_>>>()?;
     Ok(TupleValue::from(values))
 }
 
 fn async_row_to_tuple_value(row: AsyncRow) -> RS<TupleValue> {
+    let column_types: Vec<AsyncColumnType> =
+        row.columns_ref().iter().map(|c| c.column_type()).collect();
     let values = row
         .unwrap()
         .into_iter()
-        .map(mysql_async_value_to_data_value)
+        .enumerate()
+        .map(|(idx, value)| {
+            let column_type = column_types
+                .get(idx)
+                .copied()
+                .unwrap_or(AsyncColumnType::MYSQL_TYPE_VAR_STRING);
+            mysql_async_value_to_data_value(value, column_type)
+        })
         .collect::<RS<Vec<_>>>()?;
     Ok(TupleValue::from(values))
 }
@@ -507,19 +552,97 @@ fn infer_type_from_mysql_async_value(value: &AsyncValue) -> TypeFamily {
     }
 }
 
-fn mysql_value_to_data_value(value: Value) -> RS<DataValue> {
+fn parse_i32(s: &str) -> RS<i32> {
+    s.parse::<i32>()
+        .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "parse i32 error", e))
+}
+
+fn parse_i64(s: &str) -> RS<i64> {
+    s.parse::<i64>()
+        .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "parse i64 error", e))
+}
+
+fn parse_f32(s: &str) -> RS<f32> {
+    s.parse::<f32>()
+        .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "parse f32 error", e))
+}
+
+fn parse_f64(s: &str) -> RS<f64> {
+    s.parse::<f64>()
+        .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "parse f64 error", e))
+}
+
+fn parse_numeric(s: &str) -> RS<Numeric> {
+    Numeric::parse(s)
+        .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "parse numeric error", e))
+}
+
+fn mysql_value_to_data_value(value: Value, column_type: ColumnType) -> RS<DataValue> {
     match value {
         Value::NULL => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "NULL value is not supported"
         )),
-        Value::Int(v) => Ok(DataValue::from_i64(v)),
-        Value::UInt(v) => Ok(DataValue::from_i64(v as i64)),
+        Value::Int(v) => match column_type {
+            ColumnType::MYSQL_TYPE_TINY
+            | ColumnType::MYSQL_TYPE_SHORT
+            | ColumnType::MYSQL_TYPE_LONG
+            | ColumnType::MYSQL_TYPE_INT24 => Ok(DataValue::from_i32(v as i32)),
+            _ => Ok(DataValue::from_i64(v)),
+        },
+        Value::UInt(v) => match column_type {
+            ColumnType::MYSQL_TYPE_TINY
+            | ColumnType::MYSQL_TYPE_SHORT
+            | ColumnType::MYSQL_TYPE_LONG
+            | ColumnType::MYSQL_TYPE_INT24 => Ok(DataValue::from_i32(v as i32)),
+            _ => Ok(DataValue::from_i64(v as i64)),
+        },
         Value::Float(v) => Ok(DataValue::from_f32(v)),
         Value::Double(v) => Ok(DataValue::from_f64(v)),
-        Value::Bytes(v) => match String::from_utf8(v.clone()) {
-            Ok(s) => Ok(DataValue::from_string(s)),
-            Err(_) => Ok(DataValue::from_binary(v)),
+        Value::Bytes(v) => match column_type {
+            ColumnType::MYSQL_TYPE_TINY
+            | ColumnType::MYSQL_TYPE_SHORT
+            | ColumnType::MYSQL_TYPE_LONG
+            | ColumnType::MYSQL_TYPE_INT24 => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for i32", e)
+                })?;
+                Ok(DataValue::from_i32(parse_i32(&s)?))
+            }
+            ColumnType::MYSQL_TYPE_LONGLONG => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for i64", e)
+                })?;
+                Ok(DataValue::from_i64(parse_i64(&s)?))
+            }
+            ColumnType::MYSQL_TYPE_FLOAT => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for f32", e)
+                })?;
+                Ok(DataValue::from_f32(parse_f32(&s)?))
+            }
+            ColumnType::MYSQL_TYPE_DOUBLE => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for f64", e)
+                })?;
+                Ok(DataValue::from_f64(parse_f64(&s)?))
+            }
+            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                // Keep DECIMAL exact as text on the wire, then parse it into
+                // a `Numeric` without a lossy float round-trip.
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(
+                        ErrorCode::TypeConversionFailed,
+                        "invalid utf8 for decimal",
+                        e
+                    )
+                })?;
+                Ok(DataValue::from_numeric(parse_numeric(&s)?))
+            }
+            _ => match String::from_utf8(v.clone()) {
+                Ok(s) => Ok(DataValue::from_string(s)),
+                Err(_) => Ok(DataValue::from_binary(v)),
+            },
         },
         Value::Date(y, m, d, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
@@ -537,19 +660,75 @@ fn mysql_value_to_data_value(value: Value) -> RS<DataValue> {
     }
 }
 
-fn mysql_async_value_to_data_value(value: AsyncValue) -> RS<DataValue> {
+fn mysql_async_value_to_data_value(
+    value: AsyncValue,
+    column_type: AsyncColumnType,
+) -> RS<DataValue> {
     match value {
         AsyncValue::NULL => Err(mudu_error!(
             ErrorCode::NotImplemented,
             "NULL value is not supported"
         )),
-        AsyncValue::Int(v) => Ok(DataValue::from_i64(v)),
-        AsyncValue::UInt(v) => Ok(DataValue::from_i64(v as i64)),
+        AsyncValue::Int(v) => match column_type {
+            AsyncColumnType::MYSQL_TYPE_TINY
+            | AsyncColumnType::MYSQL_TYPE_SHORT
+            | AsyncColumnType::MYSQL_TYPE_LONG
+            | AsyncColumnType::MYSQL_TYPE_INT24 => Ok(DataValue::from_i32(v as i32)),
+            _ => Ok(DataValue::from_i64(v)),
+        },
+        AsyncValue::UInt(v) => match column_type {
+            AsyncColumnType::MYSQL_TYPE_TINY
+            | AsyncColumnType::MYSQL_TYPE_SHORT
+            | AsyncColumnType::MYSQL_TYPE_LONG
+            | AsyncColumnType::MYSQL_TYPE_INT24 => Ok(DataValue::from_i32(v as i32)),
+            _ => Ok(DataValue::from_i64(v as i64)),
+        },
         AsyncValue::Float(v) => Ok(DataValue::from_f32(v)),
         AsyncValue::Double(v) => Ok(DataValue::from_f64(v)),
-        AsyncValue::Bytes(v) => match String::from_utf8(v.clone()) {
-            Ok(s) => Ok(DataValue::from_string(s)),
-            Err(_) => Ok(DataValue::from_binary(v)),
+        AsyncValue::Bytes(v) => match column_type {
+            AsyncColumnType::MYSQL_TYPE_TINY
+            | AsyncColumnType::MYSQL_TYPE_SHORT
+            | AsyncColumnType::MYSQL_TYPE_LONG
+            | AsyncColumnType::MYSQL_TYPE_INT24 => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for i32", e)
+                })?;
+                Ok(DataValue::from_i32(parse_i32(&s)?))
+            }
+            AsyncColumnType::MYSQL_TYPE_LONGLONG => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for i64", e)
+                })?;
+                Ok(DataValue::from_i64(parse_i64(&s)?))
+            }
+            AsyncColumnType::MYSQL_TYPE_FLOAT => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for f32", e)
+                })?;
+                Ok(DataValue::from_f32(parse_f32(&s)?))
+            }
+            AsyncColumnType::MYSQL_TYPE_DOUBLE => {
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(ErrorCode::TypeConversionFailed, "invalid utf8 for f64", e)
+                })?;
+                Ok(DataValue::from_f64(parse_f64(&s)?))
+            }
+            AsyncColumnType::MYSQL_TYPE_DECIMAL | AsyncColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                // Keep DECIMAL exact as text on the wire, then parse it into
+                // a `Numeric` without a lossy float round-trip.
+                let s = String::from_utf8(v).map_err(|e| {
+                    mudu_error!(
+                        ErrorCode::TypeConversionFailed,
+                        "invalid utf8 for decimal",
+                        e
+                    )
+                })?;
+                Ok(DataValue::from_numeric(parse_numeric(&s)?))
+            }
+            _ => match String::from_utf8(v.clone()) {
+                Ok(s) => Ok(DataValue::from_string(s)),
+                Err(_) => Ok(DataValue::from_binary(v)),
+            },
         },
         AsyncValue::Date(y, m, d, hh, mm, ss, micros) => Ok(DataValue::from_string(format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",

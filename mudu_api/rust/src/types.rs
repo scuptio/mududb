@@ -1,11 +1,9 @@
-use crate::universal::uni_error::UniError;
-use crate::universal::uni_query_result::UniQueryResult;
-use crate::universal::uni_result::UniResult;
+//! Syscall result types exchanged with the host.
+//!
+//! The wire-level result variants are the generated universal mirrors:
+//! `UniCommandReturn` / `UniQueryReturn` encode as the MessagePack two-array
+//! `[tag, payload]` (`0` = ok, `1` = err) defined by
+//! `doc/cn/contract/syscall_payload_v1.md`.
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct UniCommandResult {
-    pub affected_rows: u64,
-}
-
-pub type UniCommandReturn = UniResult<UniCommandResult, UniError>;
-pub type UniQueryReturn = UniResult<UniQueryResult, UniError>;
+pub use crate::universal::uni_command_return::{UniCommandResult, UniCommandReturn};
+pub use crate::universal::uni_query_return::UniQueryReturn;

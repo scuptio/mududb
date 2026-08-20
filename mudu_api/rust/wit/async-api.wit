@@ -8,7 +8,7 @@ interface system {
     command: async func(command-in: list<u8>) -> list<u8>;
 
     batch: async func(batch-in:list<u8>) -> list<u8>;
-
+    
     open: async func(open-in: list<u8>) -> list<u8>;
 
     close: async func(close-in: list<u8>) -> list<u8>;
@@ -20,6 +20,34 @@ interface system {
     delete: async func(delete-in: list<u8>) -> list<u8>;
 
     range: async func(range-in: list<u8>) -> list<u8>;
+
+    relation-get: async func(relation-get-in: list<u8>) -> list<u8>;
+
+    relation-update: async func(relation-update-in: list<u8>) -> list<u8>;
+
+    relation-insert: async func(relation-insert-in: list<u8>) -> list<u8>;
+
+    fs-open: async func(fs-open-in: list<u8>) -> list<u8>;
+
+    fs-close: async func(fs-close-in: list<u8>) -> list<u8>;
+
+    fs-read: async func(fs-read-in: list<u8>) -> list<u8>;
+
+    fs-write: async func(fs-write-in: list<u8>) -> list<u8>;
+
+    fs-pread: async func(fs-pread-in: list<u8>) -> list<u8>;
+
+    fs-pwrite: async func(fs-pwrite-in: list<u8>) -> list<u8>;
+
+    fs-lseek: async func(fs-lseek-in: list<u8>) -> list<u8>;
+
+    fs-fstat: async func(fs-fstat-in: list<u8>) -> list<u8>;
+
+    fs-stat: async func(fs-stat-in: list<u8>) -> list<u8>;
+
+    fs-fsync: async func(fs-fsync-in: list<u8>) -> list<u8>;
+
+    fs-readdir: async func(fs-readdir-in: list<u8>) -> list<u8>;
 }
 
 world async-api {

@@ -64,7 +64,6 @@ pub mod object {
     impl SQLParamMarker for OrderLine {}
 
     impl OrderLine {
-        #[allow(clippy::too_many_arguments)]
         pub fn new(
             ol_o_id: Option<i32>,
             ol_d_id: Option<i32>,
@@ -74,7 +73,7 @@ pub mod object {
             ol_supply_w_id: Option<i32>,
             ol_delivery_d: Option<String>,
             ol_quantity: Option<i32>,
-            ol_amount: Option<i32>,
+            ol_amount: Option<mududb::mudu::data_type::numeric::Numeric>,
         ) -> Self {
             Self {
                 ol_o_id: AttrOlOId::from(ol_o_id),
@@ -165,11 +164,11 @@ pub mod object {
             self.ol_quantity.get()
         }
 
-        pub fn set_ol_amount(&mut self, ol_amount: i32) {
+        pub fn set_ol_amount(&mut self, ol_amount: mududb::mudu::data_type::numeric::Numeric) {
             self.ol_amount.update(ol_amount)
         }
 
-        pub fn get_ol_amount(&self) -> &Option<i32> {
+        pub fn get_ol_amount(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.ol_amount.get()
         }
     }
@@ -266,7 +265,7 @@ pub mod object {
                 OL_AMOUNT => attr_field_access::attr_get_binary::<_>(self.ol_amount.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -337,7 +336,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -364,7 +363,7 @@ pub mod object {
                 OL_AMOUNT => attr_field_access::attr_get_value::<_>(self.ol_amount.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -411,7 +410,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -846,36 +845,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrOlAmount {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrOlAmount {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrOlAmount {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrOlAmount {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(8, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)

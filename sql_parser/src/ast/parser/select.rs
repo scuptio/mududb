@@ -4,8 +4,9 @@ use super::context::ParseContext;
 use super::error::ts_node_context_string;
 use super::SQLParser;
 use crate::ast::expr_compare::ExprCompare;
+use crate::ast::expr_function::{ExprFunction, FunctionArg};
 use crate::ast::expr_visitor::ExprVisitor;
-use crate::ast::select_term::SelectTerm;
+use crate::ast::select_term::{SelectField, SelectTerm};
 use crate::ast::stmt_select::StmtSelect;
 use crate::ts_const::ts_field_name;
 use mudu::common::result::RS;
@@ -170,14 +171,102 @@ impl SQLParser {
         term: &mut SelectTerm,
     ) -> RS<()> {
         let opt_identifier = node.child_by_field_name(ts_field_name::QUALIFIED_FIELD);
-        match opt_identifier {
+        if let Some(n) = opt_identifier {
+            let field = self.visit_qualified_field(context, n)?;
+            term.set_field(SelectField::Column(field));
+            return Ok(());
+        }
+        let opt_invocation = node.child_by_field_name(ts_field_name::INVOCATION);
+        match opt_invocation {
             Some(n) => {
-                let field = self.visit_qualified_field(context, n)?;
-                term.set_field(field);
+                let function = self.visit_invocation(context, n)?;
+                term.set_field(SelectField::Function(function));
             }
             None => return Err(mudu_error!(ErrorCode::NotImplemented)),
         };
         Ok(())
+    }
+
+    /// Parse a function invocation (`name(arg)`) in a select list.
+    ///
+    /// Only a single parameter is supported: either `*` (all fields) or a
+    /// plain column reference. `DISTINCT`, multiple parameters, and in-call
+    /// `ORDER BY` are rejected as not implemented.
+    pub(crate) fn visit_invocation(&self, context: &ParseContext, node: Node) -> RS<ExprFunction> {
+        let mut name = None;
+        for i in 0..node.child_count() {
+            let Some(child) = node.child(i as _) else {
+                continue;
+            };
+            if child.kind().eq("object_reference") {
+                name = Some(self.visit_object_reference(context, child)?);
+                break;
+            }
+        }
+        let name = match name {
+            Some(name) => name,
+            None => {
+                return Err(mudu_error!(
+                    ErrorCode::Parse,
+                    format!(
+                        "no function name in {}",
+                        ts_node_context_string(context.parse_str(), &node)?
+                    )
+                ))
+            }
+        };
+
+        let mut cursor = node.walk();
+        let params: Vec<Node> = node
+            .children_by_field_name(ts_field_name::PARAMETER, &mut cursor)
+            .collect();
+        if params.len() != 1 {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                format!("function {} requires exactly one argument", name)
+            ));
+        }
+        // Reject the extended invocation forms (DISTINCT, in-call ORDER BY,
+        // FILTER, separator literals, LIMIT) instead of silently dropping
+        // them: only `name(arg)` with a single plain parameter is supported.
+        for i in 0..node.child_count() {
+            let Some(child) = node.child(i as _) else {
+                continue;
+            };
+            let kind = child.kind();
+            let allowed =
+                kind.eq("object_reference") || kind.eq("(") || kind.eq(")") || kind.eq("term");
+            if !allowed {
+                return Err(mudu_error!(
+                    ErrorCode::NotImplemented,
+                    format!("unsupported form in function {} invocation: {}", name, kind)
+                ));
+            }
+        }
+        let param = params[0];
+        let arg = if param
+            .child_by_field_name(ts_field_name::ALL_FIELDS)
+            .is_some()
+        {
+            FunctionArg::Star
+        } else {
+            let opt_expression = param.child_by_field_name(ts_field_name::EXPRESSION);
+            let expression = rs_option(opt_expression, "no expression in function argument")?;
+            let opt_field = expression.child_by_field_name(ts_field_name::QUALIFIED_FIELD);
+            match opt_field {
+                Some(n) => FunctionArg::Column(self.visit_qualified_field(context, n)?),
+                None => {
+                    return Err(mudu_error!(
+                        ErrorCode::NotImplemented,
+                        format!(
+                            "unsupported argument to function {}: only `*` or a column reference is supported",
+                            name
+                        )
+                    ))
+                }
+            }
+        };
+        Ok(ExprFunction::new(name, arg))
     }
 
     pub(crate) fn visit_alias_name(&self, context: &ParseContext, node: Node) -> RS<String> {

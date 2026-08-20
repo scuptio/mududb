@@ -16,6 +16,7 @@ pub mod backend;
 pub mod codec;
 pub mod config;
 pub mod kv;
+pub mod local_fs;
 pub mod mududb;
 pub mod mysql;
 #[cfg(all(test, not(miri)))]

@@ -3,20 +3,21 @@ use std::collections::BTreeMap;
 use std::ops::Bound;
 
 use mudu::common::result::RS;
+use mudu_sys::sync::SRwLock;
 
 use crate::index::index_key::compare_context::CompareContext;
 use crate::index::index_key::key_tuple::KeyTuple;
 
 pub struct BTreeIndex<V> {
     context: RefCell<CompareContext>,
-    inner_map: BTreeMap<KeyTuple, V>,
+    inner_map: SRwLock<BTreeMap<KeyTuple, V>>,
 }
 
 impl<V> BTreeIndex<V> {
     pub fn new(context: CompareContext) -> Self {
         Self {
             context: RefCell::new(context),
-            inner_map: BTreeMap::new(),
+            inner_map: SRwLock::new(BTreeMap::new()),
         }
     }
 
@@ -28,101 +29,64 @@ impl<V> BTreeIndex<V> {
         self.with_read_context(|map| map.is_empty())
     }
 
-    pub fn clear(&mut self) -> RS<()>
-    where
-        V: Clone,
-    {
-        self.clear_impl()
-    }
-
-    fn clear_impl(&mut self) -> RS<()>
-    where
-        V: Clone,
-    {
-        self.with_write_context(|map| {
-            map.clear();
-        })
+    pub fn clear(&self) -> RS<()> {
+        // clear performs no key comparisons, so no compare context is needed.
+        self.inner_map.write().map(|mut map| map.clear())
     }
 
     pub fn contains_key(&self, key: &KeyTuple) -> RS<bool> {
         self.with_read_context(|map| map.contains_key(key))
     }
 
-    pub fn get(&self, key: &KeyTuple) -> RS<Option<&V>> {
-        self.with_read_context(|map| map.get(key))
+    pub fn insert(&self, key: KeyTuple, value: V) -> RS<Option<V>> {
+        // Probe under a read lock first: a comparator failure is reported
+        // before the map is touched.
+        self.with_read_context(|map| map.contains_key(&key))?;
+        self.with_write_context(|map| map.insert(key, value))
     }
 
-    pub fn get_key_value(&self, key: &KeyTuple) -> RS<Option<(&KeyTuple, &V)>> {
-        self.with_read_context(|map| map.get_key_value(key))
-    }
-
-    pub fn first_key_value(&self) -> RS<Option<(&KeyTuple, &V)>> {
-        self.with_read_context(|map| map.first_key_value())
-    }
-
-    pub fn last_key_value(&self) -> RS<Option<(&KeyTuple, &V)>> {
-        self.with_read_context(|map| map.last_key_value())
-    }
-
-    pub fn insert(&mut self, key: KeyTuple, value: V) -> RS<Option<V>>
-    where
-        V: Clone,
-    {
-        self.with_write_context(move |map| map.insert(key, value))
-    }
-
-    pub fn remove(&mut self, key: &KeyTuple) -> RS<Option<V>>
-    where
-        V: Clone,
-    {
+    pub fn remove(&self, key: &KeyTuple) -> RS<Option<V>> {
+        // Same probe-then-write scheme as insert.
+        self.with_read_context(|map| map.contains_key(key))?;
         self.with_write_context(|map| map.remove(key))
     }
 
-    pub fn pop_first(&mut self) -> RS<Option<(KeyTuple, V)>>
-    where
-        V: Clone,
-    {
+    pub fn pop_first(&self) -> RS<Option<(KeyTuple, V)>> {
         self.with_write_context(|map| map.pop_first())
     }
 
-    pub fn pop_last(&mut self) -> RS<Option<(KeyTuple, V)>>
-    where
-        V: Clone,
-    {
+    pub fn pop_last(&self) -> RS<Option<(KeyTuple, V)>> {
         self.with_write_context(|map| map.pop_last())
     }
 
-    pub fn range(&self, bounds: (Bound<&KeyTuple>, Bound<&KeyTuple>)) -> RS<Vec<(&KeyTuple, &V)>> {
-        self.with_read_context(|map| map.range(bounds).collect())
-    }
-
-    fn with_read_context<'a, R, F>(&'a self, f: F) -> RS<R>
+    fn with_read_context<R, F>(&self, f: F) -> RS<R>
     where
-        F: FnOnce(&'a BTreeMap<KeyTuple, V>) -> R,
+        F: FnOnce(&BTreeMap<KeyTuple, V>) -> R,
     {
         let ctx = self.fresh_context();
         CompareContext::set(RefCell::new(ctx));
-        let result = f(&self.inner_map);
+        let result = self.inner_map.read().map(|map| f(&map));
         let status = Self::take_context_result();
         CompareContext::unset();
-        status.map(|()| result)
+        // A comparison failure takes priority over a lock failure, matching
+        // the previous behavior where the map operation always completed.
+        status?;
+        result
     }
 
-    fn with_write_context<R, F>(&mut self, f: F) -> RS<R>
+    fn with_write_context<R, F>(&self, f: F) -> RS<R>
     where
-        V: Clone,
         F: FnOnce(&mut BTreeMap<KeyTuple, V>) -> R,
     {
         let ctx = self.fresh_context();
         CompareContext::set(RefCell::new(ctx));
-        let mut staging = self.inner_map.clone();
-        let result = f(&mut staging);
+        let result = self.inner_map.write().map(|mut map| f(&mut map));
         let status = Self::take_context_result();
         CompareContext::unset();
-        status.map(|()| {
-            self.inner_map = staging;
-            result
-        })
+        // If the comparator still fails here, the in-place mutation is not
+        // rolled back; the comparator is assumed to be deterministic.
+        status?;
+        result
     }
 
     fn fresh_context(&self) -> CompareContext {
@@ -133,6 +97,41 @@ impl<V> BTreeIndex<V> {
 
     fn take_context_result() -> RS<()> {
         CompareContext::with_context(|c| Some(c.result.clone())).unwrap_or(Ok(()))
+    }
+}
+
+impl<V: Clone> BTreeIndex<V> {
+    pub fn get(&self, key: &KeyTuple) -> RS<Option<V>> {
+        self.with_read_context(|map| map.get(key).cloned())
+    }
+
+    pub fn get_key_value(&self, key: &KeyTuple) -> RS<Option<(KeyTuple, V)>> {
+        self.with_read_context(|map| {
+            map.get_key_value(key)
+                .map(|(key, value)| (key.clone(), value.clone()))
+        })
+    }
+
+    pub fn first_key_value(&self) -> RS<Option<(KeyTuple, V)>> {
+        self.with_read_context(|map| {
+            map.first_key_value()
+                .map(|(key, value)| (key.clone(), value.clone()))
+        })
+    }
+
+    pub fn last_key_value(&self) -> RS<Option<(KeyTuple, V)>> {
+        self.with_read_context(|map| {
+            map.last_key_value()
+                .map(|(key, value)| (key.clone(), value.clone()))
+        })
+    }
+
+    pub fn range(&self, bounds: (Bound<&KeyTuple>, Bound<&KeyTuple>)) -> RS<Vec<(KeyTuple, V)>> {
+        self.with_read_context(|map| {
+            map.range(bounds)
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
     }
 }
 
@@ -212,7 +211,7 @@ mod tests {
 
     #[test]
     fn insert_and_read_like_btreemap() {
-        let mut index = BTreeIndex::new(CompareContext {
+        let index = BTreeIndex::new(CompareContext {
             result: Ok(()),
             comparator: comparator_ok(),
             desc: test_desc(),
@@ -222,7 +221,7 @@ mod tests {
         assert_eq!(index.insert(KeyTuple::from(vec![1]), 10).unwrap(), None);
         assert_eq!(index.insert(KeyTuple::from(vec![2]), 20).unwrap(), None);
         assert_eq!(index.len().unwrap(), 2);
-        assert_eq!(index.get(&KeyTuple::from(vec![1])).unwrap(), Some(&10));
+        assert_eq!(index.get(&KeyTuple::from(vec![1])).unwrap(), Some(10));
         assert!(index.contains_key(&KeyTuple::from(vec![2])).unwrap());
         assert_eq!(
             index
@@ -235,20 +234,24 @@ mod tests {
 
     #[test]
     fn failed_compare_does_not_commit_insert() {
-        let mut index = BTreeIndex::new(CompareContext {
+        let index = BTreeIndex::new(CompareContext {
             result: Ok(()),
             comparator: comparator_ok(),
             desc: test_desc(),
         });
         index.insert(KeyTuple::from(vec![1]), 10).unwrap();
 
+        // The read-lock probe intercepts the comparator failure before the
+        // map is touched.
         index.context.borrow_mut().comparator = comparator_err();
         let err = index.insert(KeyTuple::from(vec![2]), 20).unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::ComparisonFailed);
+        let err = index.remove(&KeyTuple::from(vec![1])).unwrap_err();
         assert_eq!(err.ec(), ErrorCode::ComparisonFailed);
 
         index.context.borrow_mut().comparator = comparator_ok();
         assert_eq!(index.len().unwrap(), 1);
-        assert_eq!(index.get(&KeyTuple::from(vec![1])).unwrap(), Some(&10));
+        assert_eq!(index.get(&KeyTuple::from(vec![1])).unwrap(), Some(10));
         assert_eq!(index.get(&KeyTuple::from(vec![2])).unwrap(), None);
     }
 }

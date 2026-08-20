@@ -9,6 +9,14 @@ This file contains conventions and checklists for AI agents working on the `mudu
 3. Run `cargo clippy --workspace --all-targets -- -D warnings` before and after changes.
 4. Run `cargo test --no-run --workspace` to ensure all test targets compile.
 
+## Memory-Constrained Environments
+
+`.cargo/config.toml` caps build/test memory so `cargo test` survives an ~8 GB
+budget: `jobs = 4`, a rust-lld linker wrapper (`.cargo/cc-lld.sh`), and
+`RUST_TEST_THREADS = 4`. The workspace root `Cargo.toml` also sets
+`profile.dev.debug = 1` (line tables only) to shrink linker memory. Do not
+raise these limits without re-measuring peak memory.
+
 ## Formatting
 
 - The entire workspace is formatted with `cargo fmt` using the default Rust style.
@@ -61,9 +69,25 @@ The following checks run in CI (see `.github/workflows/ci-hardening.yaml`):
 - `cargo deny check bans licenses advisories sources`
 - `cargo udeps --workspace --all-targets`
 - `cargo hack check --workspace --each-feature --no-dev-deps` (non-blocking: pre-existing feature-interaction issues in external crates)
-- `cargo outdated --workspace --root-deps-only` (non-blocking: `mududb_ds` is outside the workspace root, so cargo-outdated's tmp-copy breaks the relative path)
+- `cargo outdated --workspace --root-deps-only` (non-blocking)
 
 When adding a new crate, always include a `license = "..."` field and prefer workspace dependencies.
+
+## Deterministic Simulation (internal)
+
+- `mudu_sys` declares an empty `ds` feature, and several crates pass it through
+  (`mudu_kernel/ds`, `mudu_runtime/ds`, `testing/ds`). In this repository
+  enabling `ds` is a **no-op**: it exists so the `#[cfg(feature = "ds")]`
+  gates in code and tests keep a valid feature reference.
+- The actual deterministic simulation backend is closed source and maintained
+  in a separate internal repository, which wires itself in via a manifest
+  overlay. Do not add dependencies on it here, and do not "fix" the empty
+  `ds` feature — it is intentionally inert.
+- The overlay is applied to an internal scratch copy only; this checkout is
+  never modified by internal test runs. Changing `Cargo.toml`,
+  `mudu_sys/Cargo.toml`, or `mudu_sys/src/lib.rs` will trip the internal
+  overlay's baseline hash check and fail those runs with a drift error until
+  the internal patch set is regenerated — this is expected.
 
 ## Documentation
 

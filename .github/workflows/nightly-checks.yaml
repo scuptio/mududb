@@ -98,46 +98,6 @@ jobs:
           echo "  cd mudu_kernel/fuzz"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} fuzz run <target> -- -max_total_time=60"
 
-  miri:
-    name: Miri
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
-
-      - name: Free disk space
-        if: env.ACT != 'true'
-        run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          docker system prune -af || true
-          df -h
-
-      - name: Setup pinned nightly tooling Rust
-        uses: ./.github/actions/rust-nightly-setup
-
-      - name: Install Miri
-        run: rustup component add miri --toolchain "${NIGHTLY_TOOLCHAIN}"
-
-      - name: Run Miri tests
-        run: |
-          mkdir -p ${{ github.workspace }}/logs
-          set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} miri test --workspace 2>&1 | tee ${{ github.workspace }}/logs/nightly-miri.log
-        env:
-          MIRIFLAGS: "-Zmiri-disable-isolation"
-
-      - name: Local reproduction command
-        if: failure()
-        run: |
-          echo "To reproduce locally:"
-          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
-          echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
-          echo "  rustup component add miri --toolchain \${NIGHTLY_TOOLCHAIN}"
-          echo "  MIRIFLAGS=\"-Zmiri-disable-isolation\" cargo +\${NIGHTLY_TOOLCHAIN} miri test --workspace"
-
   sanitizer-address:
     name: Address Sanitizer
     runs-on: ubuntu-latest

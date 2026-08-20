@@ -4,82 +4,84 @@ mod tests {
         host_batch, host_close, host_command, host_delete, host_fetch, host_get, host_open,
         host_put, host_query, host_range,
     };
-    use mudu::common::serde_utils::deserialize_from;
-    use mudu_binding::codec::handle_sys_session;
+    use mudu_binding::codec::syscall_payload::{
+        decode_close_result, decode_delete_result, decode_get_result, decode_open_result,
+        decode_put_result, decode_range_result, encode_close_request, encode_delete_request,
+        encode_get_request, encode_open_request, encode_put_request, encode_range_request,
+    };
     use mudu_binding::system::{command_invoke, query_invoke};
-    use mudu_binding::universal::uni_error::UniError;
+    use mudu_binding::universal::uni_oid::UniOid;
 
-    const MERR_MAGIC: &[u8] = b"MERR";
-
-    fn decode_merr_payload(bytes: &[u8]) -> UniError {
-        assert!(bytes.starts_with(MERR_MAGIC));
-        deserialize_from::<UniError>(&bytes[MERR_MAGIC.len()..])
-            .map(|(e, _)| e)
-            .expect("valid MERR payload")
-    }
-
-    fn assert_worker_local_error(bytes: &[u8]) {
-        let err = decode_merr_payload(bytes);
+    fn assert_worker_local_error(message: &str) {
         assert!(
-            err.err_msg
-                .contains("worker local interface is not configured"),
-            "unexpected error message: {}",
-            err.err_msg
+            message.contains("worker local interface is not configured"),
+            "unexpected error message: {message}"
         );
     }
 
     #[test]
     fn host_open_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_open_param();
+        let input = encode_open_request(UniOid::from_oid(0));
         let output = host_open(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_open_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn host_close_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_close_param(1);
+        let input = encode_close_request(UniOid::from_oid(1));
         let output = host_close(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_close_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn host_get_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_session_get_param(1, b"alpha");
+        let input = encode_get_request(UniOid::from_oid(1), b"alpha");
         let output = host_get(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_get_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn host_put_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_session_put_param(1, b"alpha", b"beta");
+        let input = encode_put_request(UniOid::from_oid(1), b"alpha", b"beta");
         let output = host_put(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_put_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn host_delete_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_session_delete_param(1, b"alpha");
+        let input = encode_delete_request(UniOid::from_oid(1), b"alpha");
         let output = host_delete(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_delete_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn host_range_without_worker_local_returns_decodable_error() {
-        let input = handle_sys_session::serialize_session_range_param(1, b"a", b"z");
+        let input = encode_range_request(UniOid::from_oid(1), b"a", b"z");
         let output = host_range(input, None);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_range_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     fn assert_no_session_error(bytes: &[u8]) {
+        // The output is a command-kind MSSP frame (the batch handler shares
+        // the command result serializer); decode it with the matching kind.
+        let err = command_invoke::deserialize_command_result(bytes)
+            .expect_err("result should be an error");
+        assert!(
+            err.to_string().contains("no such session id"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    fn assert_no_session_query_error(bytes: &[u8]) {
         let err = query_invoke::deserialize_query_result(bytes)
             .err()
-            .or_else(|| command_invoke::deserialize_command_result(bytes).err())
             .expect("result should be an error");
         assert!(
             err.to_string().contains("no such session id"),
@@ -94,7 +96,7 @@ mod tests {
             .expect("serialize query param");
         let output = host_query(input);
         assert!(!output.is_empty());
-        assert_no_session_error(&output);
+        assert_no_session_query_error(&output);
     }
 
     #[test]
@@ -129,8 +131,8 @@ mod tests {
             !output.is_empty(),
             "malformed input should yield an error payload"
         );
-        // The query serializer produces a UniResult, so it won't have the MERR prefix.
-        // Just ensure the payload is non-empty and decoding it fails gracefully.
+        // The malformed request fails to decode, so the handler returns an
+        // MSSP error frame; decoding the result reports the carried error.
         assert!(query_invoke::deserialize_query_result(&output).is_err());
     }
 }

@@ -26,6 +26,7 @@ The crate implements the component resources and value conversion surface:
 - `system.result-set`
 - `system.row`
 - `open / close / query / command / batch`
+- `fs-open / fs-close / fs-read / fs-write / fs-pread / fs-pwrite / fs-lseek / fs-fstat / fs-stat / fs-fsync / fs-readdir`
 
 `open` returns an object id represented internally through
 `mududb::common::id::OID`. Query, command, and batch are forwarded through the

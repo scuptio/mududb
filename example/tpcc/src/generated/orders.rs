@@ -64,7 +64,6 @@ pub mod object {
     impl SQLParamMarker for Orders {}
 
     impl Orders {
-        #[allow(clippy::too_many_arguments)]
         pub fn new(
             o_id: Option<i32>,
             o_d_id: Option<i32>,
@@ -264,7 +263,7 @@ pub mod object {
                 O_STATUS => attr_field_access::attr_get_binary::<_>(self.o_status.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -335,7 +334,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -362,7 +361,7 @@ pub mod object {
                 O_STATUS => attr_field_access::attr_get_value::<_>(self.o_status.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -406,7 +405,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())

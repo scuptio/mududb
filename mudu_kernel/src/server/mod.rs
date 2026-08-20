@@ -17,6 +17,15 @@ pub mod connection_state;
 #[path = "linux/connection_worker_task.rs"]
 mod connection_worker_task;
 mod frame_dispatch;
+#[cfg(all(test, not(miri)))]
+pub mod fs_e2e_test;
+mod fs_fd_table;
+pub(crate) mod fs_gc;
+#[cfg(all(test, not(miri)))]
+pub mod fs_gc_test;
+pub mod fs_service;
+#[cfg(all(test, not(miri)))]
+pub mod fs_service_test;
 mod handlers;
 #[cfg(target_os = "linux")]
 #[path = "linux/inflight_op.rs"]
@@ -24,6 +33,8 @@ mod inflight_op;
 #[cfg(target_os = "linux")]
 #[path = "linux/loop_mailbox.rs"]
 mod loop_mailbox;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod loop_stats;
 #[cfg(target_os = "linux")]
 #[path = "linux/loop_user_io.rs"]
 mod loop_user_io;
@@ -39,6 +50,8 @@ mod partition_rpc;
 #[path = "linux/perf_test.rs"]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod perf_test;
+#[cfg(all(test, not(miri)))]
+pub mod plan_cache_e2e_test;
 mod procedure_runtimes;
 #[cfg(target_os = "linux")]
 #[path = "linux/protocol_codec.rs"]
@@ -54,6 +67,9 @@ mod server_iouring;
 pub mod server_launch;
 pub mod server_runtime_deps;
 mod session_bound_worker_runtime;
+pub(crate) mod stage_stats;
+#[cfg(test)]
+mod stmt_path_bench;
 mod task;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

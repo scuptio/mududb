@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{create_ls_conn, db_conn_get_libsql_connection};
+use super::create_ls_conn;
+#[cfg(not(feature = "ds"))]
+use super::db_conn_get_libsql_connection;
+#[cfg(not(feature = "ds"))]
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
 use std::time::UNIX_EPOCH;
 
@@ -14,6 +17,10 @@ fn temp_db_folder(label: &str) -> String {
     path.to_str().unwrap().to_string()
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[test]
 #[cfg_attr(miri, ignore)]
 fn ls_conn_exec_query_command_batch_and_rollback() {

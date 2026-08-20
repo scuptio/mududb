@@ -31,11 +31,11 @@ export class Result<T> {
   }
 
   static err<T>(message: string): Result<T> {
-    return new Result<T>(false, changetype<T>(0), new MuduError(1, message, "assemblyscript", ""));
+    return new Result<T>(false, defaultResultValue<T>(), new MuduError(1, message, "assemblyscript", ""));
   }
 
   static error<T>(error: MuduError): Result<T> {
-    return new Result<T>(false, changetype<T>(0), error);
+    return new Result<T>(false, defaultResultValue<T>(), error);
   }
 
   get isOk(): bool {
@@ -56,6 +56,13 @@ export class Result<T> {
   unwrapErr(): MuduError {
     return this.error_;
   }
+}
+
+function defaultResultValue<T>(): T {
+  if (isReference<T>()) {
+    return changetype<T>(0);
+  }
+  return <T>0;
 }
 
 export function procedureResultOk(values: ValueList): Result<ValueList> {

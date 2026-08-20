@@ -1,16 +1,22 @@
 use super::io::{ensure_time_series_file_exists_async, page_offset};
+use super::page::{empty_page_image, finalize_page_image_checksum, stamp_page_image_lsn};
 use super::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::storage::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
+use crate::storage::page::page_block_ref_mut::PageBlockRefMut;
 use crate::wal::lsn::LSN;
 use crate::wal::pl_batch::{
     new_pl_batch_worker_log, new_pl_batch_writer, NoopPLBatchRecoveryHandler, PLBatch,
 };
-use crate::wal::pl_entry::{PLEntry, PLFileId, PLOp};
+use crate::wal::pl_entry::{PLEntry, PLFileId, PLOp, PageDelta};
 use crate::wal::typed_worker_log::AsyncWorkerLogRecoveryHandler;
 use crate::wal::worker_log::AsyncWorkerLogRecoverySource;
 use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout};
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::contract::async_file::AsyncFile;
 use mudu_sys::contract::async_fs::AsyncFs;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::contract::file_options::FileOptions;
@@ -92,22 +98,158 @@ pub(super) async fn recover_relation_file_async(
     log.recover_async_with_handler(&mut source, &handler).await
 }
 
-async fn apply_recovered_entry_async(fs: &dyn AsyncFs, path: &Path, entry: &PLEntry) -> RS<()> {
+async fn apply_recovered_entry_async(
+    fs: &dyn AsyncFs,
+    path: &Path,
+    entry: &PLEntry,
+    batch_lsn: LSN,
+) -> RS<()> {
+    // The data file is opened lazily on the first page delta and reused for
+    // the rest of the entry; a Delete drops the handle before unlinking.
+    let mut file: Option<Arc<dyn AsyncFile>> = None;
     for op in &entry.ops {
         match op {
             PLOp::Create => ensure_time_series_file_exists_async(fs, path).await?,
-            PLOp::Delete => fs.remove_file_if_exists(path).await?,
-            PLOp::PageUpdate(update) => {
-                ensure_time_series_file_exists_async(fs, path).await?;
-                let file = fs.open(path, FileOptions::read_write_create()).await?;
-                file.write_all_at(
-                    page_offset(update.page_id)? + update.offset as u64,
-                    &update.data,
-                )
-                .await?;
+            PLOp::Delete => {
+                file = None;
+                fs.remove_file_if_exists(path).await?;
+            }
+            PLOp::PageDelta(delta) => {
+                if file.is_none() {
+                    ensure_time_series_file_exists_async(fs, path).await?;
+                    file = Some(fs.open(path, FileOptions::read_write_create()).await?);
+                }
+                if let Some(file) = file.as_ref() {
+                    apply_recovered_page_delta(file.as_ref(), delta, batch_lsn).await?;
+                }
             }
         }
     }
+    Ok(())
+}
+
+/// Replays one record-level page delta with read-modify-write against the
+/// data file.
+///
+/// Every page image on disk carries the WAL LSN of the batch that produced
+/// it (stamped at persist time, see `stamp_page_image_lsn`). A delta is
+/// applied only when the page's stamped LSN is older than the delta's batch
+/// LSN; otherwise the page already reflects the batch (flushed before the
+/// crash, or a repeated replay) and re-applying the record-level delta
+/// would resurrect records that later batches moved or deleted.
+///
+/// When applied, the removes / upserts / link updates run with the same
+/// page primitives the write path uses, the page is stamped with the batch
+/// LSN, the tailer checksum is finalized, and the page is written back in
+/// place.
+async fn apply_recovered_page_delta(
+    file: &dyn AsyncFile,
+    delta: &PageDelta,
+    batch_lsn: LSN,
+) -> RS<()> {
+    let offset = page_offset(delta.page_id)?;
+    let page_present = file.file_len().await? >= offset + PAGE_SIZE as u64;
+    let disk_image = if page_present {
+        let image = file.read_exact_at(offset, PAGE_SIZE).await?;
+        // On-disk pages are always checksum-finalized; a validation failure
+        // here means a torn write or corruption, which must fail recovery
+        // loudly instead of producing a silently divergent page.
+        PageBlockRef::new(&image).validate_layout()?;
+        image
+    } else {
+        Vec::new()
+    };
+    if page_present && PageBlockRef::new(&disk_image).header()?.lsn() >= batch_lsn {
+        return Ok(());
+    }
+
+    let mut image = if let Some(init) = delta.init.as_ref() {
+        // The delta fully defines a page allocated by this batch, so it is
+        // rebuilt from scratch: the page is absent, or the on-disk image
+        // predates the batch (e.g. a mid-flush crash left an older image).
+        let mut image = empty_page_image(
+            delta.page_id,
+            init.tuple_format_version,
+            init.tuple_schema_hash,
+            init.tuple_flags,
+        )?;
+        PageBlockRefMut::new(&mut image).set_page_links(init.prev_page, init.next_page)?;
+        image
+    } else {
+        if !page_present {
+            return Err(mudu_error!(
+                ErrorCode::Decode,
+                format!(
+                    "wal replay delta for page {} without init, but the data file has no such page",
+                    delta.page_id
+                )
+            ));
+        }
+        let mut image = disk_image;
+        if let Some(links) = delta.links.as_ref() {
+            PageBlockRefMut::new(&mut image).set_page_links(links.prev_page, links.next_page)?;
+        }
+        for key in &delta.removes {
+            let slot_index = PageBlockRef::new(&image)
+                .find_slot_index(key.timestamp, key.tuple_id)?
+                .ok_or_else(|| {
+                    mudu_error!(
+                        ErrorCode::Decode,
+                        format!(
+                            "wal replay remove of ({}, {}) on page {} found no such record",
+                            key.timestamp, key.tuple_id, delta.page_id
+                        )
+                    )
+                })?;
+            PageBlockRefMut::new(&mut image).delete_record(slot_index)?;
+        }
+        image
+    };
+
+    for record in &delta.upserts {
+        let slot_index =
+            PageBlockRef::new(&image).find_slot_index(record.timestamp, record.tuple_id)?;
+        match slot_index {
+            Some(slot_index) => {
+                PageBlockRefMut::new(&mut image).update_record(
+                    slot_index,
+                    record.timestamp,
+                    record.tuple_id,
+                    &record.payload,
+                )?;
+            }
+            None => {
+                let insert = PageBlockRefMut::new(&mut image).insert_record(
+                    record.timestamp,
+                    record.tuple_id,
+                    &record.payload,
+                );
+                match insert {
+                    Ok(_) => {}
+                    Err(err) if err.ec() == ErrorCode::InsufficientBufferSpace => {
+                        // The replayed insert order can pack a page slightly
+                        // worse than the order the writer used (record
+                        // alignment padding is order-dependent); compacting
+                        // reclaims the fragmentation before one retry.
+                        PageBlockRefMut::new(&mut image).compact()?;
+                        PageBlockRefMut::new(&mut image).insert_record(
+                            record.timestamp,
+                            record.tuple_id,
+                            &record.payload,
+                        )?;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        }
+    }
+
+    // Stamp the batch's WAL LSN so a later replay recognizes this page as
+    // already reflecting the batch, then finalize the checksum before the
+    // image touches the data file.
+    stamp_page_image_lsn(&mut image, batch_lsn)?;
+    finalize_page_image_checksum(&mut image)?;
+    file.write_all_at(offset, &image).await?;
     Ok(())
 }
 
@@ -136,13 +278,13 @@ struct RelationWalRecoveryHandler {
 
 #[async_trait]
 impl AsyncWorkerLogRecoveryHandler<PLBatch> for Arc<RelationWalRecoveryHandler> {
-    async fn handle_entry(&self, entry: PLBatch, _start_lsn: LSN) -> RS<()> {
+    async fn handle_entry(&self, entry: PLBatch, start_lsn: LSN) -> RS<()> {
         scoped_task_trace!();
         for item in &entry.entries {
             if item.file != self.file_id {
                 continue;
             }
-            apply_recovered_entry_async(self.fs.as_ref(), &self.path, item).await?;
+            apply_recovered_entry_async(self.fs.as_ref(), &self.path, item, start_lsn).await?;
         }
         Ok(())
     }

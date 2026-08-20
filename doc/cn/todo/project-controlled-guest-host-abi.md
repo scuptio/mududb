@@ -286,6 +286,8 @@ Prevention rules for the reference implementation:
 | Unit tests + fixtures | `mudu_binding/src/codec/syscall_payload/tests.rs` | Round-trip every WIT type and syscall |
 | **Benchmark vs. `rmp_serde`** | `mudu_binding/benches/syscall_payload_bench.rs` | Acceptance criteria from Section 4 |
 
+> **实现状态（2026-07，已完成）**：路由器已落地于 `mudu_binding/src/codec/syscall_payload`（`mod.rs` 实现 16 字节 MSSP 头，`router.rs` 实现 20 个 `message_kind` 各自的请求/结果编解码对），20 个 uni-syscall 种类全部迁移完成（含 11 个 `fs-*`，超出上表最初列出的 9 个 SQL/KV 种类）。旧的手写 BE 帧路径（`handle_sys_session` / `handle_sys_fs`，含 `MERR` 错误帧魔数）已标记 `#[deprecated]` 退役，仅为兼容参考保留。`testing/mpk/wallet.mpk` 已按新 wire 重建。与上表的偏差：`mudu_binding/src/universal/` 类型仍为手写维护（未改由 `mgen` 生成）；§4 的性能基准尚未执行。**已知缺口**：`fetch` 是宿主 WIT 函数（`mudu_runtime/wit/api.wit`），但不属于 20 个 uni-syscall 种类，目前不经过 MSSP 路由、直接透传处理。
+
 ### Phase 4 — Rust Guest Codec
 
 | Task | File | Notes |
@@ -397,17 +399,19 @@ Prevention rules for the reference implementation:
 ### Phase 3 — Rust Reference Codec (Generated from WIT)
 - [ ] Generate Rust universal types from WIT into `mudu_binding/src/universal/`.
 - [ ] Keep minimal hand-written conversion glue in `*_impl.rs`.
-- [ ] Create `mudu_binding/src/codec/syscall_payload/mod.rs` for header encode/decode.
-- [ ] Wire WIT functions to internal header+body routing.
-- [ ] Update `mudu_binding/src/system/query_invoke.rs`.
-- [ ] Update `mudu_binding/src/system/command_invoke.rs`.
-- [ ] Update `mudu_binding/src/codec/handle_sys_incoming.rs`.
-- [ ] Update `mudu_binding/src/codec/handle_sys_outcoming.rs`.
+- [x] Create `mudu_binding/src/codec/syscall_payload/mod.rs` for header encode/decode.
+- [x] Wire WIT functions to internal header+body routing.
+- [x] Update `mudu_binding/src/system/query_invoke.rs`.
+- [x] Update `mudu_binding/src/system/command_invoke.rs`.
+- [x] Update `mudu_binding/src/codec/handle_sys_incoming.rs`.
+- [x] Update `mudu_binding/src/codec/handle_sys_outcoming.rs`.
 - [ ] Align or unify `mudu_binding/src/codec/handle_sys_session.rs` conventions.
-- [ ] Add unit tests for every WIT type and syscall.
-- [ ] Add golden fixtures for v1.
+- [x] Add unit tests for every WIT type and syscall.
+- [x] Add golden fixtures for v1.
 - [ ] Add `mudu_binding/benches/syscall_payload_bench.rs`.
 - [ ] Measure and document performance vs. `rmp_serde`.
+
+（实现状态见 §6 Phase 3 表后的「实现状态」注记：迁移已完成，未勾选项为与本计划的偏差——universal 类型未改由 mgen 生成、旧 BE 帧路径是退役而非对齐、性能基准未做。）
 
 ### Phase 4 — Rust Guest
 - [ ] Decide `mudu_binding` vs. new `mudu_syscall_codec` crate.

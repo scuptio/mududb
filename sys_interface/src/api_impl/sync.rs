@@ -59,6 +59,9 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 
 use crate::host;
 
+/// Re-export the fs data types so every cfg path exposes the same API surface.
+pub use crate::fs::{FsDirEntry, FsStat};
+
 #[cfg(not(any(
     all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
     all(
@@ -209,6 +212,204 @@ pub fn mudu_range(
     _end_key: &[u8],
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     not_implemented("mudu_range")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Point-read one relation row by primary key.
+pub fn mudu_relation_get(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    not_implemented("mudu_relation_get")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Read-modify-write one relation row by primary key.
+pub fn mudu_relation_update(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _values: &[(u64, Vec<u8>)],
+    _deltas: &[mudu_binding::universal::uni_relation::UniRelationDelta],
+) -> RS<u64> {
+    not_implemented("mudu_relation_update")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Insert one relation row; a duplicate primary key fails.
+pub fn mudu_relation_insert(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    not_implemented("mudu_relation_insert")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Open the fs object `oid` (or an entry of it) and return a file descriptor.
+pub fn mudu_fs_open(_session_id: OID, _oid: OID, _path: &str, _flags: u32) -> RS<u32> {
+    not_implemented("mudu_fs_open")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Close an open fs file descriptor.
+pub fn mudu_fs_close(_session_id: OID, _fd: u32) -> RS<()> {
+    not_implemented("mudu_fs_close")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Read up to `len` bytes at the fd cursor, advancing the cursor.
+pub fn mudu_fs_read(_session_id: OID, _fd: u32, _len: u32) -> RS<Vec<u8>> {
+    not_implemented("mudu_fs_read")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Write `data` at the fd cursor, advancing the cursor; returns bytes written.
+pub fn mudu_fs_write(_session_id: OID, _fd: u32, _data: &[u8]) -> RS<u32> {
+    not_implemented("mudu_fs_write")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Read up to `len` bytes at `offset` without moving the fd cursor.
+pub fn mudu_fs_pread(_session_id: OID, _fd: u32, _offset: u64, _len: u32) -> RS<Vec<u8>> {
+    not_implemented("mudu_fs_pread")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Write `data` at `offset` without moving the fd cursor.
+pub fn mudu_fs_pwrite(_session_id: OID, _fd: u32, _offset: u64, _data: &[u8]) -> RS<()> {
+    not_implemented("mudu_fs_pwrite")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Move the fd cursor (`whence` 0/1/2 = SET/CUR/END); returns the new cursor.
+pub fn mudu_fs_lseek(_session_id: OID, _fd: u32, _offset: i64, _whence: u32) -> RS<u64> {
+    not_implemented("mudu_fs_lseek")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Stat an open fs file descriptor.
+pub fn mudu_fs_fstat(_session_id: OID, _fd: u32) -> RS<FsStat> {
+    not_implemented("mudu_fs_fstat")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Stat the fs object `oid` (or an entry of it) without opening an fd.
+pub fn mudu_fs_stat(_session_id: OID, _oid: OID, _path: &str) -> RS<FsStat> {
+    not_implemented("mudu_fs_stat")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// Flush a write fd's content to durable storage.
+pub fn mudu_fs_fsync(_session_id: OID, _fd: u32) -> RS<()> {
+    not_implemented("mudu_fs_fsync")
+}
+
+#[cfg(not(any(
+    all(not(target_arch = "wasm32"), feature = "standalone-adapter"),
+    all(
+        target_arch = "wasm32",
+        feature = "component-model",
+        not(feature = "async")
+    )
+)))]
+/// List the entries of an fs object directory.
+pub fn mudu_fs_readdir(_session_id: OID, _oid: OID, _path: &str) -> RS<Vec<FsDirEntry>> {
+    not_implemented("mudu_fs_readdir")
 }
 
 /// Execute a query from a serialized byte payload.

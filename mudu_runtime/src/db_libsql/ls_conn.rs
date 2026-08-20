@@ -78,7 +78,10 @@ unsafe impl Sync for LSConn {}
 #[path = "ls_conn_test.rs"]
 mod ls_conn_test;
 
-#[cfg(test)]
+// The test in this module exercises libsql's real file IO, and all helpers
+// here exist only for it; skip compiling the module under the deterministic
+// backend.
+#[cfg(all(test, not(feature = "ds")))]
 mod test {
     use crate::db_libsql::ls_conn::create_ls_conn;
     use libsql::{Connection, params};
@@ -173,6 +176,10 @@ mod test {
         let sql_path = sql_file(&test_db_sql_folder());
         execute_sql_file(&conn, sql_path).await.unwrap();
     }
+    // libsql performs real SQLite file IO outside `mudu_sys`; the
+    // deterministic-simulation backend keeps fs writes in memory,
+    // so the database file cannot be created. Native backend only.
+    #[cfg(not(feature = "ds"))]
     // libsql calls SQLite C functions (e.g. `sqlite3_config`) that Miri does
     // not support, so this test is ignored under Miri and runs only on native
     // builds.

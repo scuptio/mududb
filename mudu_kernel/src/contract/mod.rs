@@ -26,6 +26,7 @@ pub mod data_row;
 mod field_info;
 #[cfg(test)]
 pub mod field_info_test;
+pub mod fs_type;
 pub mod query_exec;
 pub mod schema_column;
 #[cfg(test)]

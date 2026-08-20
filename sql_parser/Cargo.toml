@@ -16,7 +16,8 @@ project-root = { workspace = true }
 tree-sitter = { workspace = true }
 md-5 = { workspace = true }
 base16ct = { workspace = true }
-mudu_sys = { workspace = true }
+# Build scripts always run on the native backend (real env / real fs).
+mudu_sys_impl = { workspace = true }
 mudu_build_common = { workspace = true }
 [lints]
 workspace = true

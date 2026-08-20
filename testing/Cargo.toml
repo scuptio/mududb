@@ -8,6 +8,12 @@ license = "Apache-2.0"
 [lints]
 workspace = true
 
+[features]
+# Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
+# Integration tests that exercise real-OS semantics the simulator cannot
+# provide are gated with `#[cfg(not(feature = "ds"))]`.
+ds = ["mudu_sys/ds", "mudu_kernel/ds", "mudu_runtime/ds"]
+
 [dependencies]
 mudu_runtime = { workspace = true }
 mudu_utils = { workspace = true , features = ["debug_trace"]}

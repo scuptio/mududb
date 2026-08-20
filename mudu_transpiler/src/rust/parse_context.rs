@@ -65,6 +65,26 @@ impl ParseContext {
         sys_call.insert("mudu_get".to_string());
         sys_call.insert("mudu_put".to_string());
         sys_call.insert("mudu_range".to_string());
+        sys_call.insert("mudu_relation_get".to_string());
+        sys_call.insert("mudu_relation_update".to_string());
+        sys_call.insert("mudu_relation_insert".to_string());
+        // tpcc relation helpers (example/tpcc/src/rust/relation.rs) wrap the
+        // mudu_relation_* syscalls and therefore need the same async rewrite.
+        sys_call.insert("rel_get".to_string());
+        sys_call.insert("rel_get_one".to_string());
+        sys_call.insert("rel_update".to_string());
+        sys_call.insert("rel_insert".to_string());
+        sys_call.insert("mudu_fs_open".to_string());
+        sys_call.insert("mudu_fs_close".to_string());
+        sys_call.insert("mudu_fs_read".to_string());
+        sys_call.insert("mudu_fs_write".to_string());
+        sys_call.insert("mudu_fs_pread".to_string());
+        sys_call.insert("mudu_fs_pwrite".to_string());
+        sys_call.insert("mudu_fs_lseek".to_string());
+        sys_call.insert("mudu_fs_fstat".to_string());
+        sys_call.insert("mudu_fs_stat".to_string());
+        sys_call.insert("mudu_fs_fsync".to_string());
+        sys_call.insert("mudu_fs_readdir".to_string());
         let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect::<Vec<_>>();
         let refactor_src_dst_mod = if let Some(src) = src_mod
             && let Some(dst) = dst_mod

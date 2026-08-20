@@ -15,6 +15,7 @@ use std::time::Duration;
 type AppResult<T> = Result<T, String>;
 
 const HTTP_TIMEOUT_DEFAULT_SECS: u64 = 10;
+const HTTP_INSTALL_TIMEOUT_DEFAULT_SECS: u64 = 600;
 const HTTP_RETRY_COUNT: usize = 5;
 const HTTP_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
 
@@ -26,6 +27,18 @@ pub fn http_timeout() -> Duration {
         .and_then(|s| s.parse::<u64>().ok())
         .map(Duration::from_secs)
         .unwrap_or(Duration::from_secs(HTTP_TIMEOUT_DEFAULT_SECS))
+}
+
+/// Returns the HTTP request timeout for app installation. Install compiles wasm
+/// components with Cranelift, which is far slower than a regular management
+/// request — especially under instrumentation such as AddressSanitizer — so it
+/// gets its own, much larger timeout. Override with
+/// `MUDU_CLI_HTTP_INSTALL_TIMEOUT_SECS`.
+pub fn http_install_timeout() -> Duration {
+    mudu_sys::env_var::var("MUDU_CLI_HTTP_INSTALL_TIMEOUT_SECS")
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(HTTP_INSTALL_TIMEOUT_DEFAULT_SECS))
 }
 
 static HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
@@ -205,7 +218,18 @@ pub async fn install_app_package(http_addr: &str, mpk_binary: Vec<u8>) -> AppRes
     let payload = json!({
         "mpk_base64": base64::engine::general_purpose::STANDARD.encode(mpk_binary),
     });
-    let response = post_http_json(http_addr, "/mudu/app/install", payload).await?;
+    let url = format!("http://{}{}", http_addr, "/mudu/app/install");
+    let client = http_client()?;
+    // Install compiles wasm components server-side, so it uses its own, much
+    // larger per-request timeout instead of the shared default.
+    let response = send_json_request("POST", &url, || {
+        client
+            .post(&url)
+            .json(&payload)
+            .timeout(http_install_timeout())
+            .send()
+    })
+    .await?;
     let _ = extract_http_api_data(response)?;
     Ok(())
 }
@@ -282,12 +306,32 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = reqwest::Result<reqwest::Response>>,
 {
+    let mut first_err: Option<String> = None;
     let mut last_err: Option<String> = None;
     for attempt in 0..HTTP_RETRY_COUNT {
-        match decode_json_response(url, make_request().await).await {
+        let result = make_request().await;
+        if let Err(err) = &result
+            && err.is_timeout()
+        {
+            // A timeout means the server received the request and is still
+            // processing it (actix keeps the handler running after the
+            // client disconnects), so retrying would only queue duplicate
+            // work on the server. Fail immediately instead.
+            return Err(format!(
+                "{} {} timed out: {}",
+                method,
+                url,
+                format_error_chain(err)
+            ));
+        }
+        match decode_json_response(url, result).await {
             Ok(value) => return Ok(value),
             Err(err) => {
-                last_err = Some(format_error_chain(&*err));
+                let chain = format_error_chain(&*err);
+                if first_err.is_none() {
+                    first_err = Some(chain.clone());
+                }
+                last_err = Some(chain);
                 if attempt + 1 < HTTP_RETRY_COUNT {
                     // Exponential backoff: 100ms, 200ms, 400ms, 800ms, ...
                     let delay = HTTP_RETRY_INITIAL_DELAY * (1u32 << attempt);
@@ -296,12 +340,14 @@ where
             }
         }
     }
+    // Report the first error as well as the last: a transient first failure
+    // can cascade into identical follow-up errors (e.g. "connection refused"
+    // after the peer went away), and the first error is the real cause.
+    let first = first_err.unwrap_or_else(|| "unknown error".to_string());
+    let last = last_err.unwrap_or_else(|| "unknown error".to_string());
     Err(format!(
-        "{} {} failed after {} attempts: {}",
-        method,
-        url,
-        HTTP_RETRY_COUNT,
-        last_err.unwrap_or_else(|| "unknown error".to_string())
+        "{} {} failed after {} attempts: first failed with: {}; last failed with: {}",
+        method, url, HTTP_RETRY_COUNT, first, last
     ))
 }
 

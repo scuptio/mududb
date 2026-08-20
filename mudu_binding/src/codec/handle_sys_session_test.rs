@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(deprecated)]
 
 use super::*;
 use mudu::error::ErrorCode;

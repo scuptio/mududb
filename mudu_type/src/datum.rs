@@ -272,6 +272,80 @@ impl_datum_trait!(
     (Timestamp, timestamp, TimestampValue),
     (TimestampTz, timestamptz, TimestampTzValue),
     (F32, f32, f32),
-    (F64, f64, f64),
-    (String, string, String)
+    (F64, f64, f64)
 );
+
+// `String` is implemented manually (instead of via `impl_datum_trait!`) so
+// that `from_value` can also accept NUMERIC values: the universal binding
+// layer still carries NUMERIC values as strings (`UniScalarValue::Numeric`),
+// so a String datum must render a Numeric value as its plain decimal text
+// rather than panic on the type mismatch.
+impl Datum for String {
+    fn data_type() -> DataType {
+        static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
+        ONCE_LOCK
+            .get_or_init(|| DataType::default_for(TypeFamily::String))
+            .clone()
+    }
+
+    fn from_binary(binary: &[u8]) -> RS<Self> {
+        let data_type = Self::data_type();
+        let (data_mem, _) =
+            data_type.type_family().fn_recv()(binary, &data_type).map_err(|e| e.to_m_err())?;
+        let value = data_mem.expect_string();
+        Ok(value.clone())
+    }
+
+    fn from_value(data_mem: &DataValue) -> RS<Self> {
+        if let Some(numeric) = data_mem.as_numeric() {
+            return Ok(numeric.to_plain_string());
+        }
+        let value = data_mem.expect_string();
+        Ok(value.clone())
+    }
+
+    fn from_textual(textual: &str) -> RS<Self> {
+        let data_type = Self::data_type();
+        let data_value = data_type.type_family().fn_input()(textual, &data_type).map_err(|e| {
+            mudu_error!(
+                ErrorCode::TypeConversionFailed,
+                "error when convert textual to array type",
+                e
+            )
+        })?;
+        Self::from_value(&data_value)
+    }
+}
+
+impl DatumDyn for String {
+    fn type_family(&self) -> RS<TypeFamily> {
+        Ok(TypeFamily::String)
+    }
+
+    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
+        if data_type.type_family() != TypeFamily::String {
+            return Err(mudu_error!(ErrorCode::InvalidType));
+        }
+        data_type.type_family().fn_send()(&DataValue::from_string(self.clone()), data_type)
+            .map_err(|e| e.to_m_err())
+    }
+
+    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
+        if data_type.type_family() != TypeFamily::String {
+            return Err(mudu_error!(ErrorCode::InvalidType));
+        }
+        data_type.type_family().fn_output()(&DataValue::from_string(self.clone()), data_type)
+            .map_err(|e| e.to_m_err())
+    }
+
+    fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
+        if data_type.type_family() != TypeFamily::String {
+            return Err(mudu_error!(ErrorCode::InvalidType));
+        }
+        Ok(DataValue::from_string(self.clone()))
+    }
+
+    fn clone_boxed(&self) -> Box<dyn DatumDyn> {
+        Box::new(self.clone())
+    }
+}

@@ -48,7 +48,7 @@ pub mod object {
             w_id: Option<i32>,
             w_name: Option<String>,
             w_tax: Option<i32>,
-            w_ytd: Option<i32>,
+            w_ytd: Option<mududb::mudu::data_type::numeric::Numeric>,
         ) -> Self {
             Self {
                 w_id: AttrWId::from(w_id),
@@ -89,11 +89,11 @@ pub mod object {
             self.w_tax.get()
         }
 
-        pub fn set_w_ytd(&mut self, w_ytd: i32) {
+        pub fn set_w_ytd(&mut self, w_ytd: mududb::mudu::data_type::numeric::Numeric) {
             self.w_ytd.update(w_ytd)
         }
 
-        pub fn get_w_ytd(&self) -> &Option<i32> {
+        pub fn get_w_ytd(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.w_ytd.get()
         }
     }
@@ -173,7 +173,7 @@ pub mod object {
                 W_YTD => attr_field_access::attr_get_binary::<_>(self.w_ytd.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -209,7 +209,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -226,7 +226,7 @@ pub mod object {
                 W_YTD => attr_field_access::attr_get_value::<_>(self.w_ytd.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -250,7 +250,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -420,36 +420,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrWYtd {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrWYtd {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrWYtd {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrWYtd {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(12, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)

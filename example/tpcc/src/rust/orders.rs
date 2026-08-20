@@ -59,42 +59,40 @@ pub mod object {
         o_status: AttrOStatus,
     }
 
-    pub struct OrdersParams {
-        pub o_id: Option<i32>,
-        pub o_d_id: Option<i32>,
-        pub o_w_id: Option<i32>,
-        pub o_c_id: Option<i32>,
-        pub o_entry_d: Option<String>,
-        pub o_carrier_id: Option<i32>,
-        pub o_ol_cnt: Option<i32>,
-        pub o_all_local: Option<i32>,
-        pub o_status: Option<String>,
-    }
-
     impl TupleDatumMarker for Orders {}
 
     impl SQLParamMarker for Orders {}
 
     impl Orders {
-        pub fn new(params: OrdersParams) -> Self {
+        pub fn new(
+            o_id: Option<i32>,
+            o_d_id: Option<i32>,
+            o_w_id: Option<i32>,
+            o_c_id: Option<i32>,
+            o_entry_d: Option<String>,
+            o_carrier_id: Option<i32>,
+            o_ol_cnt: Option<i32>,
+            o_all_local: Option<i32>,
+            o_status: Option<String>,
+        ) -> Self {
             Self {
-                o_id: AttrOId::from(params.o_id),
+                o_id: AttrOId::from(o_id),
 
-                o_d_id: AttrODId::from(params.o_d_id),
+                o_d_id: AttrODId::from(o_d_id),
 
-                o_w_id: AttrOWId::from(params.o_w_id),
+                o_w_id: AttrOWId::from(o_w_id),
 
-                o_c_id: AttrOCId::from(params.o_c_id),
+                o_c_id: AttrOCId::from(o_c_id),
 
-                o_entry_d: AttrOEntryD::from(params.o_entry_d),
+                o_entry_d: AttrOEntryD::from(o_entry_d),
 
-                o_carrier_id: AttrOCarrierId::from(params.o_carrier_id),
+                o_carrier_id: AttrOCarrierId::from(o_carrier_id),
 
-                o_ol_cnt: AttrOOlCnt::from(params.o_ol_cnt),
+                o_ol_cnt: AttrOOlCnt::from(o_ol_cnt),
 
-                o_all_local: AttrOAllLocal::from(params.o_all_local),
+                o_all_local: AttrOAllLocal::from(o_all_local),
 
-                o_status: AttrOStatus::from(params.o_status),
+                o_status: AttrOStatus::from(o_status),
             }
         }
 
@@ -265,7 +263,7 @@ pub mod object {
                 O_STATUS => attr_field_access::attr_get_binary::<_>(self.o_status.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -336,7 +334,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -363,7 +361,7 @@ pub mod object {
                 O_STATUS => attr_field_access::attr_get_value::<_>(self.o_status.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -407,7 +405,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())

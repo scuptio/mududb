@@ -61,7 +61,13 @@ impl TokioFile {
             .map_err(|e| io_error_with_message(e, "seek tokio file for write error"))?;
         file.write_all(payload)
             .await
-            .map_err(|e| io_error_with_message(e, "write tokio file error"))
+            .map_err(|e| io_error_with_message(e, "write tokio file error"))?;
+        // tokio's fs::File buffers writes: poll_write returns Ready after
+        // queueing the write to the blocking pool, not after the write(2)
+        // completes. Flush so callers observe a completed write.
+        file.flush()
+            .await
+            .map_err(|e| io_error_with_message(e, "flush tokio file after write error"))
     }
 
     pub(crate) async fn fsync(&self) -> RS<()> {

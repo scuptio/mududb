@@ -6,10 +6,11 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_utils::scoped_task_trace;
+use std::sync::Arc;
 
 impl TimeSeriesFile {
     pub async fn get(&self, timestamp: u64, tuple_id: u64) -> RS<Option<TimeSeriesRecord>> {
-        let mut current = self.head_page_id;
+        let mut current = self.head_page_id();
         while let Some(page_id) = current {
             let page_buf = self.read_page(page_id).await?;
             let page = PageBlockRef::try_new(&page_buf)?;
@@ -41,7 +42,7 @@ impl TimeSeriesFile {
             return Ok(vec![]);
         }
 
-        let mut current = self.head_page_id;
+        let mut current = self.head_page_id();
         let mut rows = vec![];
         while let Some(page_id) = current {
             let page_buf = self.read_page(page_id).await?;
@@ -79,21 +80,34 @@ impl TimeSeriesFile {
         Ok(rows)
     }
 
-    pub(super) async fn read_page(&self, page_id: PageId) -> RS<Vec<u8>> {
+    pub(super) async fn read_page(&self, page_id: PageId) -> RS<Arc<Vec<u8>>> {
         scoped_task_trace!();
-        if page_id >= self.page_count {
-            return Err(mudu_error!(
-                ErrorCode::IndexOutOfRange,
-                format!("page {} out of range {}", page_id, self.page_count)
-            ));
-        }
+        // Cache first: writers publish every new or updated page image into
+        // the cache before the chain metadata atomics, so a cache hit is
+        // always authoritative — including a freshly allocated page whose
+        // page_count store is not visible to this reader yet.
         if let Some(entry) = self.page_cache.get_sync(&page_id) {
             return Ok(entry.get().clone());
         }
+        let page_count = self.page_count();
+        if page_id >= page_count {
+            return Err(mudu_error!(
+                ErrorCode::IndexOutOfRange,
+                format!("page {} out of range {}", page_id, page_count)
+            ));
+        }
 
-        let page = read_file_exact(self.file_ref()?, PAGE_SIZE, page_offset(page_id)?).await?;
-        let _ = self.page_cache.remove_sync(&page_id);
-        let _ = self.page_cache.insert_sync(page_id, page.clone());
-        Ok(page)
+        let page =
+            Arc::new(read_file_exact(&self.file_ref()?, PAGE_SIZE, page_offset(page_id)?).await?);
+        // A writer may have published a newer image while the disk read was
+        // in flight; never overwrite it with the older on-disk image (the
+        // newer image may be dirty — not yet flushed to the data file).
+        Ok(match self.page_cache.entry_sync(page_id) {
+            scc::hash_map::Entry::Occupied(entry) => entry.get().clone(),
+            scc::hash_map::Entry::Vacant(entry) => {
+                entry.insert_entry(page.clone());
+                page
+            }
+        })
     }
 }

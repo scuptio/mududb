@@ -2,6 +2,8 @@ use crate::error::ApiError;
 use crate::types::{UniCommandReturn, UniQueryReturn};
 use crate::{UniCommandArgv, UniCommandResult, UniQueryArgv, UniQueryResult};
 
+pub(crate) mod payload;
+
 #[cfg(all(target_arch = "wasm32", feature = "wasm-async"))]
 mod wasm_async;
 
@@ -71,20 +73,68 @@ pub async fn fetch_raw(query_result: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Serializes a `command` request into a complete MSSP frame: the 16-byte
+/// header (kind `Command`) plus the MessagePack body `[argv]`.
 pub fn serialize_command(argv: &UniCommandArgv) -> Result<Vec<u8>, ApiError> {
-    Ok(rmp_serde::to_vec(argv)?)
+    Ok(payload::encode_frame(
+        payload::KIND_COMMAND,
+        &rmp_serde::to_vec(&(argv,))?,
+    ))
 }
 
+/// Serializes a `query` request into a complete MSSP frame: the 16-byte
+/// header (kind `Query`) plus the MessagePack body `[argv]`.
 pub fn serialize_query(argv: &UniQueryArgv) -> Result<Vec<u8>, ApiError> {
-    Ok(rmp_serde::to_vec(argv)?)
+    Ok(payload::encode_frame(
+        payload::KIND_QUERY,
+        &rmp_serde::to_vec(&(argv,))?,
+    ))
 }
 
+/// Deserializes a `command` result MSSP frame: validates the header, then
+/// decodes the `[ok_tag, value]` body into a [`UniCommandReturn`].
 pub fn deserialize_command_result(bytes: &[u8]) -> Result<UniCommandReturn, ApiError> {
-    Ok(rmp_serde::from_slice(bytes)?)
+    payload::decode_body(payload::decode_frame(payload::KIND_COMMAND, bytes)?)
 }
 
+/// Deserializes a `query` result MSSP frame: validates the header, then
+/// decodes the `[ok_tag, value]` body into a [`UniQueryReturn`].
 pub fn deserialize_query_result(bytes: &[u8]) -> Result<UniQueryReturn, ApiError> {
-    Ok(rmp_serde::from_slice(bytes)?)
+    payload::decode_body(payload::decode_frame(payload::KIND_QUERY, bytes)?)
+}
+
+/// Decodes a `query` request MSSP frame into its argument record.
+#[cfg(any(feature = "mock-sqlite", test))]
+pub(crate) fn decode_query_request(frame: &[u8]) -> Result<UniQueryArgv, ApiError> {
+    let (argv,): (UniQueryArgv,) =
+        payload::decode_body(payload::decode_frame(payload::KIND_QUERY, frame)?)?;
+    Ok(argv)
+}
+
+/// Decodes a `command` request MSSP frame into its argument record.
+#[cfg(any(feature = "mock-sqlite", test))]
+pub(crate) fn decode_command_request(frame: &[u8]) -> Result<UniCommandArgv, ApiError> {
+    let (argv,): (UniCommandArgv,) =
+        payload::decode_body(payload::decode_frame(payload::KIND_COMMAND, frame)?)?;
+    Ok(argv)
+}
+
+/// Encodes a `query` result (or error) into a complete MSSP frame.
+#[cfg(any(feature = "mock-sqlite", test))]
+pub(crate) fn encode_query_response(result: &UniQueryReturn) -> Result<Vec<u8>, ApiError> {
+    Ok(payload::encode_frame(
+        payload::KIND_QUERY,
+        &rmp_serde::to_vec(result)?,
+    ))
+}
+
+/// Encodes a `command` result (or error) into a complete MSSP frame.
+#[cfg(any(feature = "mock-sqlite", test))]
+pub(crate) fn encode_command_response(result: &UniCommandReturn) -> Result<Vec<u8>, ApiError> {
+    Ok(payload::encode_frame(
+        payload::KIND_COMMAND,
+        &rmp_serde::to_vec(result)?,
+    ))
 }
 
 pub async fn sys_command(argv: &UniCommandArgv) -> Result<UniCommandReturn, ApiError> {
@@ -132,5 +182,101 @@ pub async fn sys_query_ok(argv: &UniQueryArgv) -> Result<UniQueryResult, ApiErro
     match sys_query(argv).await? {
         UniQueryReturn::Ok(result) => Ok(result),
         UniQueryReturn::Err(error) => Err(ApiError::Decode(error.err_msg)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::universal::uni_sql_param::UniSqlParam;
+    use crate::universal::uni_sql_stmt::UniSqlStmt;
+    use crate::{UniError, UniOid};
+
+    fn command_argv() -> UniCommandArgv {
+        UniCommandArgv {
+            oid: UniOid { h: 0, l: 7 },
+            command: UniSqlStmt {
+                sql_string: "update t set a = 1".to_string(),
+            },
+            param_list: UniSqlParam { params: Vec::new() },
+        }
+    }
+
+    #[test]
+    fn command_request_frame_roundtrips_header_and_argv() {
+        let frame = serialize_command(&command_argv()).unwrap();
+        assert_eq!(&frame[0..4], b"MSSP");
+        assert_eq!(
+            u32::from_be_bytes(frame[12..16].try_into().unwrap()),
+            payload::KIND_COMMAND
+        );
+
+        let decoded = decode_command_request(&frame).unwrap();
+        assert_eq!(decoded.oid.l, 7);
+        assert_eq!(decoded.command.sql_string, "update t set a = 1");
+
+        let query_frame = serialize_query(&UniQueryArgv {
+            oid: UniOid { h: 0, l: 7 },
+            query: UniSqlStmt {
+                sql_string: "select 1".to_string(),
+            },
+            param_list: UniSqlParam { params: Vec::new() },
+        })
+        .unwrap();
+        assert!(decode_command_request(&query_frame).is_err());
+    }
+
+    #[test]
+    fn command_result_frame_roundtrips_ok_and_err() {
+        let ok = UniCommandReturn::from_ok(UniCommandResult { affected_rows: 3 });
+        let frame = encode_command_response(&ok).unwrap();
+        match deserialize_command_result(&frame).unwrap() {
+            UniCommandReturn::Ok(result) => assert_eq!(result.affected_rows, 3),
+            UniCommandReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
+        }
+
+        let err = UniCommandReturn::from_err(UniError {
+            err_code: 2,
+            err_msg: "boom".to_string(),
+            ..Default::default()
+        });
+        let frame = encode_command_response(&err).unwrap();
+        match deserialize_command_result(&frame).unwrap() {
+            UniCommandReturn::Ok(_) => panic!("expected error variant"),
+            UniCommandReturn::Err(error) => assert_eq!(error.err_msg, "boom"),
+        }
+
+        // A bare MessagePack body without the MSSP header is rejected.
+        let bare = rmp_serde::to_vec(&ok).unwrap();
+        assert!(deserialize_command_result(&bare).is_err());
+    }
+
+    #[test]
+    fn query_request_frame_uses_query_kind() {
+        let argv = UniQueryArgv {
+            oid: UniOid { h: 1, l: 2 },
+            query: UniSqlStmt {
+                sql_string: "select 1".to_string(),
+            },
+            param_list: UniSqlParam { params: Vec::new() },
+        };
+        let frame = serialize_query(&argv).unwrap();
+        assert_eq!(
+            u32::from_be_bytes(frame[12..16].try_into().unwrap()),
+            payload::KIND_QUERY
+        );
+        let decoded = decode_query_request(&frame).unwrap();
+        assert_eq!(decoded.oid.h, 1);
+        assert_eq!(decoded.query.sql_string, "select 1");
+
+        let ok = UniQueryReturn::from_ok(crate::UniQueryResult {
+            tuple_desc: Default::default(),
+            result_set: Default::default(),
+        });
+        let frame = encode_query_response(&ok).unwrap();
+        assert!(matches!(
+            deserialize_query_result(&frame).unwrap(),
+            UniQueryReturn::Ok(_)
+        ));
     }
 }

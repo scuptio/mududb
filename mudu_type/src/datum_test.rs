@@ -298,6 +298,19 @@ mod tests {
     }
 
     #[test]
+    fn string_from_value_accepts_numeric_as_plain_text() {
+        // The binding layers map NUMERIC columns to String, so a String
+        // datum must accept a Numeric value instead of panicking.
+        let numeric = Numeric::parse("42.00").unwrap();
+        let value = crate::data_value::DataValue::from_numeric(numeric);
+        let s = String::from_value(&value).unwrap();
+        assert_eq!(s, "42.00");
+
+        let plain = crate::data_value::DataValue::from_string("abc".to_string());
+        assert_eq!(String::from_value(&plain).unwrap(), "abc");
+    }
+
+    #[test]
     fn scalar_numeric_rejects_wrong_type() {
         let numeric = Numeric::zero();
         let wrong_type = DataType::default_for(TypeFamily::I64);

@@ -55,39 +55,37 @@ pub mod object {
         h_data: AttrHData,
     }
 
-    pub struct HistoryParams {
-        pub h_id: Option<String>,
-        pub h_c_id: Option<i32>,
-        pub h_c_d_id: Option<i32>,
-        pub h_c_w_id: Option<i32>,
-        pub h_d_id: Option<i32>,
-        pub h_w_id: Option<i32>,
-        pub h_amount: Option<i32>,
-        pub h_data: Option<String>,
-    }
-
     impl TupleDatumMarker for History {}
 
     impl SQLParamMarker for History {}
 
     impl History {
-        pub fn new(params: HistoryParams) -> Self {
+        pub fn new(
+            h_id: Option<String>,
+            h_c_id: Option<i32>,
+            h_c_d_id: Option<i32>,
+            h_c_w_id: Option<i32>,
+            h_d_id: Option<i32>,
+            h_w_id: Option<i32>,
+            h_amount: Option<mududb::mudu::data_type::numeric::Numeric>,
+            h_data: Option<String>,
+        ) -> Self {
             Self {
-                h_id: AttrHId::from(params.h_id),
+                h_id: AttrHId::from(h_id),
 
-                h_c_id: AttrHCId::from(params.h_c_id),
+                h_c_id: AttrHCId::from(h_c_id),
 
-                h_c_d_id: AttrHCDId::from(params.h_c_d_id),
+                h_c_d_id: AttrHCDId::from(h_c_d_id),
 
-                h_c_w_id: AttrHCWId::from(params.h_c_w_id),
+                h_c_w_id: AttrHCWId::from(h_c_w_id),
 
-                h_d_id: AttrHDId::from(params.h_d_id),
+                h_d_id: AttrHDId::from(h_d_id),
 
-                h_w_id: AttrHWId::from(params.h_w_id),
+                h_w_id: AttrHWId::from(h_w_id),
 
-                h_amount: AttrHAmount::from(params.h_amount),
+                h_amount: AttrHAmount::from(h_amount),
 
-                h_data: AttrHData::from(params.h_data),
+                h_data: AttrHData::from(h_data),
             }
         }
 
@@ -143,11 +141,11 @@ pub mod object {
             self.h_w_id.get()
         }
 
-        pub fn set_h_amount(&mut self, h_amount: i32) {
+        pub fn set_h_amount(&mut self, h_amount: mududb::mudu::data_type::numeric::Numeric) {
             self.h_amount.update(h_amount)
         }
 
-        pub fn get_h_amount(&self) -> &Option<i32> {
+        pub fn get_h_amount(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.h_amount.get()
         }
 
@@ -247,7 +245,7 @@ pub mod object {
                 H_DATA => attr_field_access::attr_get_binary::<_>(self.h_data.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -311,7 +309,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -336,7 +334,7 @@ pub mod object {
                 H_DATA => attr_field_access::attr_get_value::<_>(self.h_data.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -376,7 +374,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -705,36 +703,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrHAmount {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrHAmount {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrHAmount {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrHAmount {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(6, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)

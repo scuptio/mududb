@@ -20,6 +20,7 @@ benchmark-runner = [
     "dep:mudu_sys",
     "dep:mudu_utils",
     "dep:tokio",
+    "dep:tracing-subscriber",
     "debug_trace",
     "mududb/standalone-adapter",
 ]
@@ -29,6 +30,7 @@ workspace = true
 
 [dependencies]
 mududb = { workspace = true, features = ["async"] }
+bigdecimal = { workspace = true }
 mudu_adapter = { workspace = true, optional = true }
 mudu_cli = { workspace = true, optional = true }
 mudu_sys = { workspace = true, optional = true }
@@ -37,6 +39,7 @@ wit-bindgen = { workspace = true }
 lazy_static = { workspace = true }
 clap = { workspace = true, optional = true, features = ["derive"] }
 tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
+tracing-subscriber = { workspace = true, optional = true }
 async-backtrace = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

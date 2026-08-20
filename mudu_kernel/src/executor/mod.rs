@@ -3,8 +3,11 @@ use crate::x_engine::api::VecSelTerm;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 
+pub mod aggregate;
+pub mod filter;
 pub mod index_access_key;
 pub mod index_access_range;
+pub(crate) mod value_compare;
 
 pub(crate) fn project_tuple_desc(table_desc: &TableDesc, select: &VecSelTerm) -> TupleFieldDesc {
     let fields = select

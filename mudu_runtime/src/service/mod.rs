@@ -21,6 +21,8 @@ mod runtime_simple;
 #[cfg(test)]
 mod test_wasm_mod_path;
 
+/// Pool of instantiated WASM component instances for procedure invocation.
+pub mod procedure_instance_pool;
 /// Component responsible for invoking procedures.
 pub mod procedure_invoke_component;
 #[cfg(test)]

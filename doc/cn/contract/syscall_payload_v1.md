@@ -293,5 +293,5 @@ KV 系统调用（`Open`..`Range`）在
 - `universal` 类型族（Rust）：[mudu_binding/src/universal/](../../../mudu_binding/src/universal/)
 - 现有手写 KV 编解码器：[mudu_binding/src/codec/handle_sys_session.rs](../../../mudu_binding/src/codec/handle_sys_session.rs)
 - SQL 请求/响应编解码器：[mudu_binding/src/codec/handle_sys_incoming.rs](../../../mudu_binding/src/codec/handle_sys_incoming.rs)、[handle_sys_outcoming.rs](../../../mudu_binding/src/codec/handle_sys_outcoming.rs)
-- 宿主系统调用入口：[mudu_runtime/src/interface/kernel.rs](../../../mudu_runtime/src/interface/kernel.rs)
+- 宿主系统调用入口：[mudu_runtime/src/interface/kernel_sync.rs](../../../mudu_runtime/src/interface/kernel_sync.rs)、[kernel_async.rs](../../../mudu_runtime/src/interface/kernel_async.rs)
 - 设计方案：[doc/cn/todo/project-controlled-guest-host-abi.md](../todo/project-controlled-guest-host-abi.md)

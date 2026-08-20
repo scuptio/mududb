@@ -3,50 +3,6 @@
     "tpcc": [
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_stock_level_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "threshold",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "0",
-              "nullable": false
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
         "proc_name": "tpcc_seed",
         "param_desc": {
           "fields": [
@@ -150,205 +106,6 @@
       },
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_payment_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "amount",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "0",
-              "nullable": false
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_delivery",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "carrier_id",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0",
-              "nullable": false
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_delivery_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "carrier_id",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0",
-              "nullable": false
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_seed_partitioned",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_count",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_count",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_count",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "item_count",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "initial_stock",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": []
-        }
-      },
-      {
-        "module_name": "tpcc",
         "proc_name": "tpcc_stock_level",
         "param_desc": {
           "fields": [
@@ -393,55 +150,7 @@
       },
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_order_status",
-        "param_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "warehouse_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "district_id",
-              "nullable": false
-            },
-            {
-              "data_type": {
-                "id": "I32",
-                "param": null
-              },
-              "name": "customer_id",
-              "nullable": false
-            }
-          ]
-        },
-        "return_desc": {
-          "fields": [
-            {
-              "data_type": {
-                "id": "String",
-                "param": {
-                  "String": {
-                    "length": 65536
-                  }
-                }
-              },
-              "name": "0",
-              "nullable": false
-            }
-          ]
-        }
-      },
-      {
-        "module_name": "tpcc",
-        "proc_name": "tpcc_new_order",
+        "proc_name": "tpcc_new_order_partitioned",
         "param_desc": {
           "fields": [
             {
@@ -537,7 +246,222 @@
       },
       {
         "module_name": "tpcc",
-        "proc_name": "tpcc_new_order_partitioned",
+        "proc_name": "tpcc_delivery_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "carrier_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_stock_level_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "threshold",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_seed_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "initial_stock",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_hotspot_hit",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "hot_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_hotspot_hit_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "hot_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_new_order",
         "param_desc": {
           "fields": [
             {
@@ -658,6 +582,344 @@
                 "param": null
               },
               "name": "customer_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_order_status",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_payment_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "customer_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "tpcc_delivery",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "warehouse_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "district_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "carrier_id",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "seckill_seed_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "initial_stock",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "seckill_buy_partitioned",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "order_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "payload",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "seckill_seed",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_count",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "initial_stock",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      },
+      {
+        "module_name": "tpcc",
+        "proc_name": "seckill_buy",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "item_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "order_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "user_id",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "amount",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "payload",
               "nullable": false
             }
           ]

@@ -1,19 +1,30 @@
 use crate::generated::customer::object::Customer;
-use crate::generated::district::object::District;
-use crate::generated::item::object::Item;
 use crate::generated::new_order::object::NewOrder;
 use crate::generated::orders::object::Orders;
 use crate::generated::procedure_common::{
     customer_name, district_name, item_name, order_status_text, require_positive,
     validate_order_lines, warehouse_name,
 };
-use crate::generated::stock::object::Stock;
-use crate::generated::warehouse::object::Warehouse;
+use crate::generated::relation::{
+    C_BALANCE, C_D_ID, C_ID, C_LAST_ORDER_ID, C_PAYMENT_CNT, C_W_ID, C_YTD_PAYMENT, D_ID,
+    D_NEXT_O_ID, D_TAX, D_W_ID, D_YTD, H_AMOUNT, H_C_D_ID, H_C_ID, H_C_W_ID, H_D_ID, H_DATA, H_ID,
+    H_W_ID, I_ID, I_PRICE, MONEY_6_2, MONEY_8_2, MONEY_12_2, NO_D_ID, NO_O_ID, NO_W_ID,
+    O_ALL_LOCAL, O_C_ID, O_CARRIER_ID, O_D_ID, O_ENTRY_D, O_ID, O_OL_CNT, O_STATUS, O_W_ID,
+    OL_AMOUNT, OL_D_ID, OL_DELIVERY_D, OL_I_ID, OL_NUMBER, OL_O_ID, OL_QUANTITY, OL_SUPPLY_W_ID,
+    OL_W_ID, PH_AMOUNT, PH_C_D_ID, PH_C_ID, PH_C_W_ID, PH_D_ID, PH_DATA, PH_ID, PH_W_ID, PI_ID,
+    PI_PRICE, PI_W_ID, S_I_ID, S_ORDER_CNT, S_QUANTITY, S_REMOTE_CNT, S_W_ID, S_YTD,
+    TABLE_CUSTOMER, TABLE_DISTRICT, TABLE_HISTORY, TABLE_ITEM, TABLE_NEW_ORDER, TABLE_ORDER_LINE,
+    TABLE_ORDERS, TABLE_STOCK, TABLE_WAREHOUSE, W_ID, W_YTD, datum_i32, datum_money, datum_text,
+    key_i32, read_i32, read_money, rel_get_one, rel_insert, rel_update,
+};
+use bigdecimal::ToPrimitive;
+use mududb::binding::universal::uni_relation::UniRelationDelta;
 use mududb::common::id::OID;
 use mududb::common::result::RS;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ErrorCode;
+use mududb::mudu::data_type::numeric::Numeric;
 use mududb::mudu_error;
 use mududb::sys_interface::async_api::{mudu_command, mudu_query};
 
@@ -63,11 +74,54 @@ async fn query_count_i32(
     Ok(value as i32)
 }
 
+async fn query_one_i32(
+    xid: OID,
+    sql: &str,
+    params: &dyn mududb::contract::database::sql_params::SQLParams,
+) -> RS<i32> {
+    mudu_query::<i32>(xid, sql_stmt!(&sql), params)
+        .await?
+        .next_record()?
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("query returned no rows: {sql}")
+            )
+        })
+}
+
 fn required_i32(value: &Option<i32>, field: &str) -> RS<i32> {
     value.as_ref().copied().ok_or_else(|| {
         mudu_error!(
             ErrorCode::InvalidState,
             format!("entity field is null: {field}")
+        )
+    })
+}
+
+/// Read a NUMERIC money column as a whole-number i32.
+///
+/// Money columns keep integer semantics in this workload; values may carry a
+/// fractional part depending on the column scale (e.g. `NUMERIC(12,2)` renders
+/// `42` as `42.00`), so the fractional part is truncated after validation.
+fn required_money_i32(value: &Option<Numeric>, field: &str) -> RS<i32> {
+    let numeric = value.as_ref().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidState,
+            format!("entity field is null: {field}")
+        )
+    })?;
+    let decimal = numeric.as_bigdecimal();
+    if !decimal.is_integer() {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            format!("money field {field} has a non-zero fraction: {numeric}")
+        ));
+    }
+    decimal.to_i32().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::Parse,
+            format!("money field {field} does not fit into i32: {numeric}")
         )
     })
 }
@@ -104,7 +158,13 @@ async fn tpcc_seed_inner(
                     sql_stmt!(
                         &"INSERT INTO item (i_w_id, i_id, i_name, i_price) VALUES (?, ?, ?, ?)"
                     ),
-                    sql_params!(&(warehouse_id, item_id, item_name(item_id), item_id * 10)),
+                    // Keep the generated i_price within the NUMERIC(6,2) column range.
+                    sql_params!(&(
+                        warehouse_id,
+                        item_id,
+                        item_name(item_id),
+                        ((item_id - 1) % 999 + 1) * 10
+                    )),
                 )
                 .await?;
             }
@@ -114,7 +174,8 @@ async fn tpcc_seed_inner(
             mudu_command(
                 xid,
                 sql_stmt!(&"INSERT INTO item (i_id, i_name, i_price) VALUES (?, ?, ?)"),
-                sql_params!(&(item_id, item_name(item_id), item_id * 10)),
+                // Keep the generated i_price within the NUMERIC(6,2) column range.
+                sql_params!(&(item_id, item_name(item_id), ((item_id - 1) % 999 + 1) * 10)),
             )
             .await?;
         }
@@ -173,7 +234,7 @@ async fn tpcc_seed_inner(
     Ok(())
 }
 
-async fn tpcc_new_order_inner(
+struct TpccNewOrderRequest {
     xid: OID,
     warehouse_id: i32,
     district_id: i32,
@@ -182,7 +243,19 @@ async fn tpcc_new_order_inner(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
     warehouse_partitioned: bool,
-) -> RS<String> {
+}
+
+async fn tpcc_new_order_inner(request: TpccNewOrderRequest) -> RS<String> {
+    let TpccNewOrderRequest {
+        xid,
+        warehouse_id,
+        district_id,
+        customer_id,
+        item_ids,
+        supplier_warehouse_ids,
+        quantities,
+        warehouse_partitioned,
+    } = request;
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
@@ -198,51 +271,69 @@ async fn tpcc_new_order_inner(
         ));
     }
 
-    let district = query_one_entity::<District>(
-        xid,
-        "SELECT d_id, d_w_id, d_name, d_tax, d_ytd, d_next_o_id, d_last_delivery_o_id FROM district WHERE d_w_id = ? AND d_id = ?",
-        sql_params!(&(warehouse_id, district_id)),
-    ).await?;
-    let next_order_id = required_i32(district.get_d_next_o_id(), "district.d_next_o_id")?;
-    let next_d_next_o_id = next_order_id + 1;
+    let district_key = key_i32(&[(D_W_ID, warehouse_id), (D_ID, district_id)])?;
+    // Plain point read of the district row (also validates the row exists).
+    rel_get_one(xid, TABLE_DISTRICT, &district_key, &[D_TAX]).await?;
 
-    query_one_entity::<Customer>(
-        xid,
-        "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
-        sql_params!(&(warehouse_id, district_id, customer_id)),
-    ).await?;
+    let customer_key = key_i32(&[
+        (C_W_ID, warehouse_id),
+        (C_D_ID, district_id),
+        (C_ID, customer_id),
+    ])?;
+    // Plain point read of the customer row (also validates the row exists).
+    rel_get_one(xid, TABLE_CUSTOMER, &customer_key, &[C_BALANCE]).await?;
 
-    mudu_command(
+    // Allocate the next order id with an atomic increment: the delta is
+    // evaluated on the latest committed d_next_o_id under the row lock, so
+    // concurrent new-order transactions can no longer read the same stale
+    // value and collide on the orders/new_order primary key.
+    rel_update(
         xid,
-        sql_stmt!(&"UPDATE district SET d_next_o_id = ? WHERE d_w_id = ? AND d_id = ?"),
-        sql_params!(&(next_d_next_o_id, warehouse_id, district_id)),
+        TABLE_DISTRICT,
+        &district_key,
+        &[],
+        &[UniRelationDelta::add(D_NEXT_O_ID, datum_i32(1)?)],
     )
     .await?;
+    // Read-your-writes: this observes the increment staged above, so the
+    // allocated order id is the pre-increment value.
+    let next_order_id = read_i32(
+        &rel_get_one(xid, TABLE_DISTRICT, &district_key, &[D_NEXT_O_ID]).await?,
+        0,
+        "district.d_next_o_id",
+    )? - 1;
     let all_local = supplier_warehouse_ids
         .iter()
         .all(|&supplier_warehouse_id| supplier_warehouse_id == warehouse_id);
     let entry_d = format!("xid-{xid}-o{next_order_id}");
 
-    mudu_command(
+    rel_insert(
         xid,
-        sql_stmt!(
-            &"INSERT INTO orders (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local, o_status) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)"
-        ),
-        sql_params!(&(
-            next_order_id,
-            district_id,
-            warehouse_id,
-            customer_id,
-            entry_d,
-            item_ids.len() as i32,
-            if all_local { 1 } else { 0 },
-            "NEW".to_string(),
-        )),
-    ).await?;
-    mudu_command(
+        TABLE_ORDERS,
+        &key_i32(&[
+            (O_W_ID, warehouse_id),
+            (O_D_ID, district_id),
+            (O_ID, next_order_id),
+        ])?,
+        &[
+            (O_C_ID, datum_i32(customer_id)?),
+            (O_ENTRY_D, datum_text(&entry_d)?),
+            (O_CARRIER_ID, datum_i32(0)?),
+            (O_OL_CNT, datum_i32(item_ids.len() as i32)?),
+            (O_ALL_LOCAL, datum_i32(if all_local { 1 } else { 0 })?),
+            (O_STATUS, datum_text("NEW")?),
+        ],
+    )
+    .await?;
+    rel_insert(
         xid,
-        sql_stmt!(&"INSERT INTO new_order (no_o_id, no_d_id, no_w_id) VALUES (?, ?, ?)"),
-        sql_params!(&(next_order_id, district_id, warehouse_id)),
+        TABLE_NEW_ORDER,
+        &key_i32(&[
+            (NO_W_ID, warehouse_id),
+            (NO_D_ID, district_id),
+            (NO_O_ID, next_order_id),
+        ])?,
+        &[],
     )
     .await?;
 
@@ -254,79 +345,66 @@ async fn tpcc_new_order_inner(
         .zip(quantities.iter())
         .enumerate()
     {
-        let item = if warehouse_partitioned {
-            query_one_entity::<Item>(
-                xid,
-                "SELECT i_id, i_name, i_price FROM item WHERE i_w_id = ? AND i_id = ?",
-                sql_params!(&(warehouse_id, item_id)),
+        let (item_key, item_price_attr) = if warehouse_partitioned {
+            (
+                key_i32(&[(PI_W_ID, warehouse_id), (PI_ID, item_id)])?,
+                PI_PRICE,
             )
-            .await?
         } else {
-            query_one_entity::<Item>(
-                xid,
-                "SELECT i_id, i_name, i_price FROM item WHERE i_id = ?",
-                sql_params!(&(item_id,)),
-            )
-            .await?
+            (key_i32(&[(I_ID, item_id)])?, I_PRICE)
         };
-        let item_price = required_i32(item.get_i_price(), "item.i_price")?;
-        let stock = query_one_entity::<Stock>(
-            xid,
-            "SELECT s_i_id, s_w_id, s_quantity, s_ytd, s_order_cnt, s_remote_cnt FROM stock WHERE s_w_id = ? AND s_i_id = ?",
-            sql_params!(&(supplier_warehouse_id, item_id)),
-        ).await?;
-        let stock_quantity = required_i32(stock.get_s_quantity(), "stock.s_quantity")?;
+        let item_row = rel_get_one(xid, TABLE_ITEM, &item_key, &[item_price_attr]).await?;
+        let item_price = required_money_i32(
+            &Some(read_money(&item_row, 0, MONEY_6_2, "item.i_price")?),
+            "item.i_price",
+        )?;
+        // s_quantity's conditional restock commutes with any other such
+        // update when written as `((current - 10 - q) mod 91) + 10`, so it
+        // is issued as a deferred conditional-restock delta evaluated
+        // atomically at commit apply time — no statement lock and no
+        // old-value read. s_ytd / s_order_cnt / s_remote_cnt are
+        // unconditional increments and commute as well, so they go through
+        // the same lock-free deferred path.
+        let stock_key = key_i32(&[(S_W_ID, supplier_warehouse_id), (S_I_ID, item_id)])?;
         let is_remote = supplier_warehouse_id != warehouse_id;
-        let next_stock_ytd = required_i32(stock.get_s_ytd(), "stock.s_ytd")? + quantity;
-        let next_stock_order_cnt = required_i32(stock.get_s_order_cnt(), "stock.s_order_cnt")? + 1;
-        let next_stock_remote_cnt = required_i32(stock.get_s_remote_cnt(), "stock.s_remote_cnt")?
-            + if is_remote { 1 } else { 0 };
-        let adjusted_quantity = if stock_quantity >= quantity + 10 {
-            stock_quantity - quantity
-        } else {
-            stock_quantity + 91 - quantity
-        };
         let amount = item_price * quantity;
 
-        mudu_command(
+        let mut deltas = vec![
+            UniRelationDelta::sub_wrap(S_QUANTITY, quantity as i64, 10, 91),
+            UniRelationDelta::add_deferred(S_YTD, datum_i32(quantity)?),
+            UniRelationDelta::add_deferred(S_ORDER_CNT, datum_i32(1)?),
+        ];
+        if is_remote {
+            deltas.push(UniRelationDelta::add_deferred(S_REMOTE_CNT, datum_i32(1)?));
+        }
+        rel_update(xid, TABLE_STOCK, &stock_key, &[], &deltas).await?;
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"UPDATE stock SET s_quantity = ?, s_ytd = ?, s_order_cnt = ?, s_remote_cnt = ? WHERE s_w_id = ? AND s_i_id = ?"
-            ),
-            sql_params!(&(
-                adjusted_quantity,
-                next_stock_ytd,
-                next_stock_order_cnt,
-                next_stock_remote_cnt,
-                supplier_warehouse_id,
-                item_id
-            )),
-        ).await?;
-        mudu_command(
-            xid,
-            sql_stmt!(
-                &"INSERT INTO order_line (ol_o_id, ol_d_id, ol_w_id, ol_number, ol_i_id, ol_supply_w_id, ol_delivery_d, ol_quantity, ol_amount) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)"
-            ),
-            sql_params!(&(
-                next_order_id,
-                district_id,
-                warehouse_id,
-                idx as i32 + 1,
-                item_id,
-                supplier_warehouse_id,
-                quantity,
-                amount
-            )),
-        ).await?;
+            TABLE_ORDER_LINE,
+            &key_i32(&[
+                (OL_W_ID, warehouse_id),
+                (OL_D_ID, district_id),
+                (OL_O_ID, next_order_id),
+                (OL_NUMBER, idx as i32 + 1),
+            ])?,
+            &[
+                (OL_I_ID, datum_i32(item_id)?),
+                (OL_SUPPLY_W_ID, datum_i32(supplier_warehouse_id)?),
+                (OL_DELIVERY_D, datum_text("")?),
+                (OL_QUANTITY, datum_i32(quantity)?),
+                (OL_AMOUNT, datum_money(amount, MONEY_8_2)?),
+            ],
+        )
+        .await?;
         total_quantity += quantity;
         total_amount += amount;
     }
-    mudu_command(
+    rel_update(
         xid,
-        sql_stmt!(
-            &"UPDATE customer SET c_last_order_id = ? WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?"
-        ),
-        sql_params!(&(next_order_id, warehouse_id, district_id, customer_id)),
+        TABLE_CUSTOMER,
+        &customer_key,
+        &[(C_LAST_ORDER_ID, datum_i32(next_order_id)?)],
+        &[],
     )
     .await?;
 
@@ -353,91 +431,102 @@ async fn tpcc_payment_inner(
     require_positive("customer_id", customer_id)?;
     require_positive("amount", amount)?;
 
-    let warehouse = query_one_entity::<Warehouse>(
-        xid,
-        "SELECT w_id, w_name, w_tax, w_ytd FROM warehouse WHERE w_id = ?",
-        sql_params!(&(warehouse_id,)),
-    )
-    .await?;
-    let district = query_one_entity::<District>(
-        xid,
-        "SELECT d_id, d_w_id, d_name, d_tax, d_ytd, d_next_o_id, d_last_delivery_o_id FROM district WHERE d_w_id = ? AND d_id = ?",
-        sql_params!(&(warehouse_id, district_id)),
-    ).await?;
-    let customer = query_one_entity::<Customer>(
-        xid,
-        "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
-        sql_params!(&(warehouse_id, district_id, customer_id)),
-    ).await?;
-    let next_w_ytd = required_i32(warehouse.get_w_ytd(), "warehouse.w_ytd")? + amount;
-    let next_d_ytd = required_i32(district.get_d_ytd(), "district.d_ytd")? + amount;
-    let next_c_balance = required_i32(customer.get_c_balance(), "customer.c_balance")? - amount;
-    let next_c_ytd_payment =
-        required_i32(customer.get_c_ytd_payment(), "customer.c_ytd_payment")? + amount;
-    let next_c_payment_cnt =
-        required_i32(customer.get_c_payment_cnt(), "customer.c_payment_cnt")? + 1;
+    // The customer balance is still read to report the post-payment balance.
+    // The write side below uses delta updates (`col = col +|- datum`), so the
+    // warehouse/district base-value reads are gone and no concurrent payment
+    // can be lost; the reported balance comes from this pre-update read and
+    // may lag a concurrent payment.
+    let customer_key = key_i32(&[
+        (C_W_ID, warehouse_id),
+        (C_D_ID, district_id),
+        (C_ID, customer_id),
+    ])?;
+    let customer_row = rel_get_one(xid, TABLE_CUSTOMER, &customer_key, &[C_BALANCE]).await?;
+    let next_c_balance = required_money_i32(
+        &Some(read_money(
+            &customer_row,
+            0,
+            MONEY_12_2,
+            "customer.c_balance",
+        )?),
+        "customer.c_balance",
+    )? - amount;
 
-    mudu_command(
-        xid,
-        sql_stmt!(&"UPDATE warehouse SET w_ytd = ? WHERE w_id = ?"),
-        sql_params!(&(next_w_ytd, warehouse_id)),
-    )
-    .await?;
-    mudu_command(
-        xid,
-        sql_stmt!(&"UPDATE district SET d_ytd = ? WHERE d_w_id = ? AND d_id = ?"),
-        sql_params!(&(next_d_ytd, warehouse_id, district_id)),
-    )
-    .await?;
-    mudu_command(
-        xid,
-        sql_stmt!(
-            &"UPDATE customer SET c_balance = ?, c_ytd_payment = ?, c_payment_cnt = ? WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?"
-        ),
-        sql_params!(&(
-            next_c_balance,
-            next_c_ytd_payment,
-            next_c_payment_cnt,
-            warehouse_id,
-            district_id,
-            customer_id
-        )),
-    ).await?;
+    let history_id = mududb::sys::random::next_uuid_v4_string();
+    let history_data = format!("payment warehouse={warehouse_id} district={district_id}");
     if warehouse_partitioned {
-        mudu_command(
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"INSERT INTO history (h_w_id, h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            ),
-            sql_params!(&(
-                warehouse_id,
-                mududb::sys::random::next_uuid_v4_string(),
-                customer_id,
-                district_id,
-                warehouse_id,
-                district_id,
-                amount,
-                format!("payment warehouse={warehouse_id} district={district_id}")
-            )),
-        ).await?;
+            TABLE_HISTORY,
+            &[
+                (PH_W_ID, datum_i32(warehouse_id)?),
+                (PH_ID, datum_text(&history_id)?),
+            ],
+            &[
+                (PH_C_ID, datum_i32(customer_id)?),
+                (PH_C_D_ID, datum_i32(district_id)?),
+                (PH_C_W_ID, datum_i32(warehouse_id)?),
+                (PH_D_ID, datum_i32(district_id)?),
+                (PH_AMOUNT, datum_money(amount, MONEY_6_2)?),
+                (PH_DATA, datum_text(&history_data)?),
+            ],
+        )
+        .await?;
     } else {
-        mudu_command(
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"INSERT INTO history (h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            ),
-            sql_params!(&(
-                mududb::sys::random::next_uuid_v4_string(),
-                customer_id,
-                district_id,
-                warehouse_id,
-                district_id,
-                warehouse_id,
-                amount,
-                format!("payment warehouse={warehouse_id} district={district_id}")
-            )),
-        ).await?;
+            TABLE_HISTORY,
+            &[(H_ID, datum_text(&history_id)?)],
+            &[
+                (H_C_ID, datum_i32(customer_id)?),
+                (H_C_D_ID, datum_i32(district_id)?),
+                (H_C_W_ID, datum_i32(warehouse_id)?),
+                (H_D_ID, datum_i32(district_id)?),
+                (H_W_ID, datum_i32(warehouse_id)?),
+                (H_AMOUNT, datum_money(amount, MONEY_6_2)?),
+                (H_DATA, datum_text(&history_data)?),
+            ],
+        )
+        .await?;
     }
+    // Delta updates evaluate on the latest tuple read under the statement
+    // lock, making concurrent payments atomic. The hottest row (warehouse,
+    // one row per warehouse for the whole table) is updated last so its lock
+    // escort tail covers only the commit critical section.
+    rel_update(
+        xid,
+        TABLE_CUSTOMER,
+        &customer_key,
+        &[],
+        &[
+            UniRelationDelta::sub(C_BALANCE, datum_money(amount, MONEY_12_2)?),
+            UniRelationDelta::add(C_YTD_PAYMENT, datum_money(amount, MONEY_12_2)?),
+            UniRelationDelta::add(C_PAYMENT_CNT, datum_i32(1)?),
+        ],
+    )
+    .await?;
+    rel_update(
+        xid,
+        TABLE_DISTRICT,
+        &key_i32(&[(D_W_ID, warehouse_id), (D_ID, district_id)])?,
+        &[],
+        &[UniRelationDelta::add(
+            D_YTD,
+            datum_money(amount, MONEY_12_2)?,
+        )],
+    )
+    .await?;
+    rel_update(
+        xid,
+        TABLE_WAREHOUSE,
+        &key_i32(&[(W_ID, warehouse_id)])?,
+        &[],
+        &[UniRelationDelta::add(
+            W_YTD,
+            datum_money(amount, MONEY_12_2)?,
+        )],
+    )
+    .await?;
     Ok(next_c_balance)
 }
 
@@ -493,7 +582,7 @@ pub async fn tpcc_new_order(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -501,8 +590,8 @@ pub async fn tpcc_new_order(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        false,
-    )
+        warehouse_partitioned: false,
+    })
     .await
 }
 
@@ -516,7 +605,7 @@ pub async fn tpcc_new_order_partitioned(
     supplier_warehouse_ids: Vec<i32>,
     quantities: Vec<i32>,
 ) -> RS<String> {
-    tpcc_new_order_inner(
+    tpcc_new_order_inner(TpccNewOrderRequest {
         xid,
         warehouse_id,
         district_id,
@@ -524,8 +613,8 @@ pub async fn tpcc_new_order_partitioned(
         item_ids,
         supplier_warehouse_ids,
         quantities,
-        true,
-    )
+        warehouse_partitioned: true,
+    })
     .await
 }
 
@@ -698,6 +787,38 @@ pub async fn tpcc_stock_level_partitioned(
     tpcc_stock_level(xid, warehouse_id, district_id, threshold).await
 }
 
+/// Hot-row contention injector: increments one of the K per-warehouse
+/// hotspot rows (`tpcc_hotspot`, created client-side by the benchmark).
+/// Runs as its own tiny transaction right after a TPC-C op.
+async fn tpcc_hotspot_hit_inner(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    require_positive("warehouse_id", warehouse_id)?;
+    require_positive("hot_id", hot_id)?;
+    mudu_command(
+        xid,
+        sql_stmt!(
+            &"UPDATE tpcc_hotspot SET h_counter = h_counter + 1 WHERE h_w_id = ? AND h_id = ?"
+        ),
+        sql_params!(&(warehouse_id, hot_id)),
+    )
+    .await?;
+    query_one_i32(
+        xid,
+        "SELECT h_counter FROM tpcc_hotspot WHERE h_w_id = ? AND h_id = ?",
+        sql_params!(&(warehouse_id, hot_id)),
+    )
+    .await
+}
+
+/**mudu-proc**/
+pub async fn tpcc_hotspot_hit(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    tpcc_hotspot_hit_inner(xid, warehouse_id, hot_id).await
+}
+
+/**mudu-proc**/
+pub async fn tpcc_hotspot_hit_partitioned(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    tpcc_hotspot_hit_inner(xid, warehouse_id, hot_id).await
+}
+
 // Miri cannot execute FFI calls into SQLite (via rusqlite), so skip
 // these tests under Miri. They are still exercised by normal `cargo test`.
 #[cfg(test)]
@@ -707,16 +828,18 @@ mod tests {
     };
     use crate::test_lock;
     use mududb::contract::{sql_params, sql_stmt};
+    use mududb::sys::env_var::temp_dir;
+    use mududb::sys::time::system_time_now;
     use mududb::sys_interface::async_api::{mudu_batch, mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     fn temp_db_path(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        let suffix = system_time_now()
             .duration_since(UNIX_EPOCH)
             .expect("system time before unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("tpcc_sql_{name}_{suffix}.db"))
+        temp_dir().join(format!("tpcc_sql_{name}_{suffix}.db"))
     }
 
     fn init_schema(xid: u128) {
@@ -726,11 +849,8 @@ mod tests {
         mudu_batch(xid, sql_stmt!(&init), sql_params!(&())).unwrap();
     }
 
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    async fn tpcc_sync_procedures_roundtrip_against_standalone_adapter() {
-        let _guard = test_lock().lock().unwrap_or_else(|err| err.into_inner());
-        let db_path = temp_db_path("sync");
+    async fn run_sync_roundtrip(db_name: &str) {
+        let db_path = temp_db_path(db_name);
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);
 
@@ -754,110 +874,25 @@ mod tests {
 
         mudu_close(xid).await.unwrap();
     }
-}
-async fn mp2_tpcc_stock_level_partitioned(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_stock_level_partitioned,
-    )
-    .await
-}
 
-pub async fn mudu_inner_p2_tpcc_stock_level_partitioned(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_stock_level_partitioned(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_stock_level_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "threshold".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_stock_level_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_stock_level_partitioned()
--> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_stock_level_partitioned".to_string(),
-            mudu_argv_desc_tpcc_stock_level_partitioned().clone(),
-            mudu_result_desc_tpcc_stock_level_partitioned().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_stock_level_partitioned {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-stock-level-partitioned;
-            world mudu-app-mp2-tpcc-stock-level-partitioned {
-                export mp2-tpcc-stock-level-partitioned: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccStockLevelPartitioned {}
-
-    impl Guest for GuestTpccStockLevelPartitioned {
-        async fn mp2_tpcc_stock_level_partitioned(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_stock_level_partitioned(param).await
-        }
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    async fn tpcc_sync_procedures_roundtrip_against_standalone_adapter() {
+        let _guard = test_lock().lock().unwrap();
+        crate::rust::relation::reset_relation_support_for_test();
+        run_sync_roundtrip("sync").await;
     }
 
-    export!(GuestTpccStockLevelPartitioned);
+    // Same roundtrip, but with the relation syscalls forced onto the SQL
+    // fallback path used by drivers without relation-syscall support.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    async fn tpcc_sync_procedures_roundtrip_through_relation_sql_fallback() {
+        let _guard = test_lock().lock().unwrap();
+        crate::rust::relation::force_relation_sql_fallback_for_test();
+        run_sync_roundtrip("sync_sql_fallback").await;
+        crate::rust::relation::reset_relation_support_for_test();
+    }
 }
 async fn mp2_tpcc_seed(param: Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
@@ -948,7 +983,7 @@ mod mod_tpcc_seed {
         inline:
         r##"package mudu:mp2-tpcc-seed;
             world mudu-app-mp2-tpcc-seed {
-                export mp2-tpcc-seed: func(param:list<u8>) -> list<u8>;
+                export mp2-tpcc-seed: async func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -1057,7 +1092,7 @@ mod mod_tpcc_payment {
         inline:
         r##"package mudu:mp2-tpcc-payment;
             world mudu-app-mp2-tpcc-payment {
-                export mp2-tpcc-payment: func(param:list<u8>) -> list<u8>;
+                export mp2-tpcc-payment: async func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -1074,431 +1109,6 @@ mod mod_tpcc_payment {
     }
 
     export!(GuestTpccPayment);
-}
-async fn mp2_tpcc_payment_partitioned(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_payment_partitioned,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_payment_partitioned(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_payment_partitioned(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[3], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_payment_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "amount".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_payment_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_payment_partitioned()
--> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_payment_partitioned".to_string(),
-            mudu_argv_desc_tpcc_payment_partitioned().clone(),
-            mudu_result_desc_tpcc_payment_partitioned().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_payment_partitioned {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-payment-partitioned;
-            world mudu-app-mp2-tpcc-payment-partitioned {
-                export mp2-tpcc-payment-partitioned: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccPaymentPartitioned {}
-
-    impl Guest for GuestTpccPaymentPartitioned {
-        async fn mp2_tpcc_payment_partitioned(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_payment_partitioned(param).await
-        }
-    }
-
-    export!(GuestTpccPaymentPartitioned);
-}
-async fn mp2_tpcc_delivery(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_delivery,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_delivery(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_delivery(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_delivery()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "carrier_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_delivery()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_delivery() -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc
-{
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_delivery".to_string(),
-            mudu_argv_desc_tpcc_delivery().clone(),
-            mudu_result_desc_tpcc_delivery().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_delivery {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-delivery;
-            world mudu-app-mp2-tpcc-delivery {
-                export mp2-tpcc-delivery: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccDelivery {}
-
-    impl Guest for GuestTpccDelivery {
-        async fn mp2_tpcc_delivery(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_delivery(param).await
-        }
-    }
-
-    export!(GuestTpccDelivery);
-}
-async fn mp2_tpcc_delivery_partitioned(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_delivery_partitioned,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_delivery_partitioned(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_delivery_partitioned(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_delivery_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "carrier_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_delivery_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_delivery_partitioned()
--> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_delivery_partitioned".to_string(),
-            mudu_argv_desc_tpcc_delivery_partitioned().clone(),
-            mudu_result_desc_tpcc_delivery_partitioned().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_delivery_partitioned {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-delivery-partitioned;
-            world mudu-app-mp2-tpcc-delivery-partitioned {
-                export mp2-tpcc-delivery-partitioned: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccDeliveryPartitioned {}
-
-    impl Guest for GuestTpccDeliveryPartitioned {
-        async fn mp2_tpcc_delivery_partitioned(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_delivery_partitioned(param).await
-        }
-    }
-
-    export!(GuestTpccDeliveryPartitioned);
-}
-async fn mp2_tpcc_seed_partitioned(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_seed_partitioned,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_seed_partitioned(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_seed_partitioned(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[3], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[4], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_seed_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "customer_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "item_count".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "initial_stock".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_seed_partitioned()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC
-        .get_or_init(|| ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![]))
-}
-
-pub fn mudu_proc_desc_tpcc_seed_partitioned()
--> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_seed_partitioned".to_string(),
-            mudu_argv_desc_tpcc_seed_partitioned().clone(),
-            mudu_result_desc_tpcc_seed_partitioned().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_seed_partitioned {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-seed-partitioned;
-            world mudu-app-mp2-tpcc-seed-partitioned {
-                export mp2-tpcc-seed-partitioned: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccSeedPartitioned {}
-
-    impl Guest for GuestTpccSeedPartitioned {
-        async fn mp2_tpcc_seed_partitioned(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_seed_partitioned(param).await
-        }
-    }
-
-    export!(GuestTpccSeedPartitioned);
 }
 async fn mp2_tpcc_stock_level(param: Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
@@ -1586,7 +1196,7 @@ mod mod_tpcc_stock_level {
         inline:
         r##"package mudu:mp2-tpcc-stock-level;
             world mudu-app-mp2-tpcc-stock-level {
-                export mp2-tpcc-stock-level: func(param:list<u8>) -> list<u8>;
+                export mp2-tpcc-stock-level: async func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -1603,238 +1213,6 @@ mod mod_tpcc_stock_level {
     }
 
     export!(GuestTpccStockLevel);
-}
-async fn mp2_tpcc_order_status(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_order_status,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_order_status(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_order_status(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_order_status()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_order_status()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_order_status()
--> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_order_status".to_string(),
-            mudu_argv_desc_tpcc_order_status().clone(),
-            mudu_result_desc_tpcc_order_status().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_order_status {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-order-status;
-            world mudu-app-mp2-tpcc-order-status {
-                export mp2-tpcc-order-status: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccOrderStatus {}
-
-    impl Guest for GuestTpccOrderStatus {
-        async fn mp2_tpcc_order_status(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_order_status(param).await
-        }
-    }
-
-    export!(GuestTpccOrderStatus);
-}
-async fn mp2_tpcc_new_order(param: Vec<u8>) -> Vec<u8> {
-    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
-        param,
-        mudu_inner_p2_tpcc_new_order,
-    )
-    .await
-}
-
-pub async fn mudu_inner_p2_tpcc_new_order(
-    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
-) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
-{
-    let res = tpcc_new_order(
-        param.session_id(),
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
-        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
-        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
-            &param.param_list()[3],
-            "Vec<i32, >",
-        )?,
-        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
-            &param.param_list()[4],
-            "Vec<i32, >",
-        )?,
-        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
-            &param.param_list()[5],
-            "Vec<i32, >",
-        )?,
-    )
-    .await;
-    match res {
-        Ok(tuple) => {
-            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
-            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
-        }
-        Err(e) => Err(e),
-    }
-}
-
-pub fn mudu_argv_desc_tpcc_new_order()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static ARGV_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    ARGV_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "warehouse_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "district_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "customer_id".to_string(),
-                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "item_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "supplier_warehouse_ids".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "quantities".to_string(),
-                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_result_desc_tpcc_new_order()
--> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
-    static RESULT_DESC: std::sync::OnceLock<
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
-    > = std::sync::OnceLock::new();
-    RESULT_DESC.get_or_init(|| {
-        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
-            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
-                "0".to_string(),
-                <String as ::mududb::types::datum::Datum>::data_type().clone(),
-            ),
-        ])
-    })
-}
-
-pub fn mudu_proc_desc_tpcc_new_order() -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc
-{
-    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
-        std::sync::OnceLock::new();
-    _PROC_DESC.get_or_init(|| {
-        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
-            "tpcc".to_string(),
-            "tpcc_new_order".to_string(),
-            mudu_argv_desc_tpcc_new_order().clone(),
-            mudu_result_desc_tpcc_new_order().clone(),
-            false,
-        )
-    })
-}
-
-mod mod_tpcc_new_order {
-    wit_bindgen::generate!({
-        inline:
-        r##"package mudu:mp2-tpcc-new-order;
-            world mudu-app-mp2-tpcc-new-order {
-                export mp2-tpcc-new-order: func(param:list<u8>) -> list<u8>;
-            }
-        "##,
-        async: true
-    });
-
-    #[allow(non_camel_case_types)]
-    #[allow(unused)]
-    struct GuestTpccNewOrder {}
-
-    impl Guest for GuestTpccNewOrder {
-        async fn mp2_tpcc_new_order(param: Vec<u8>) -> Vec<u8> {
-            super::mp2_tpcc_new_order(param).await
-        }
-    }
-
-    export!(GuestTpccNewOrder);
 }
 async fn mp2_tpcc_new_order_partitioned(param: Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
@@ -1946,7 +1324,7 @@ mod mod_tpcc_new_order_partitioned {
         inline:
         r##"package mudu:mp2-tpcc-new-order-partitioned;
             world mudu-app-mp2-tpcc-new-order-partitioned {
-                export mp2-tpcc-new-order-partitioned: func(param:list<u8>) -> list<u8>;
+                export mp2-tpcc-new-order-partitioned: async func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -1963,6 +1341,648 @@ mod mod_tpcc_new_order_partitioned {
     }
 
     export!(GuestTpccNewOrderPartitioned);
+}
+async fn mp2_tpcc_delivery_partitioned(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_delivery_partitioned,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_delivery_partitioned(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_delivery_partitioned(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_delivery_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "carrier_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_delivery_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_delivery_partitioned()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_delivery_partitioned".to_string(),
+            mudu_argv_desc_tpcc_delivery_partitioned().clone(),
+            mudu_result_desc_tpcc_delivery_partitioned().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_delivery_partitioned {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-delivery-partitioned;
+            world mudu-app-mp2-tpcc-delivery-partitioned {
+                export mp2-tpcc-delivery-partitioned: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccDeliveryPartitioned {}
+
+    impl Guest for GuestTpccDeliveryPartitioned {
+        async fn mp2_tpcc_delivery_partitioned(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_delivery_partitioned(param).await
+        }
+    }
+
+    export!(GuestTpccDeliveryPartitioned);
+}
+async fn mp2_tpcc_stock_level_partitioned(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_stock_level_partitioned,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_stock_level_partitioned(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_stock_level_partitioned(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_stock_level_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "threshold".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_stock_level_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_stock_level_partitioned()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_stock_level_partitioned".to_string(),
+            mudu_argv_desc_tpcc_stock_level_partitioned().clone(),
+            mudu_result_desc_tpcc_stock_level_partitioned().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_stock_level_partitioned {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-stock-level-partitioned;
+            world mudu-app-mp2-tpcc-stock-level-partitioned {
+                export mp2-tpcc-stock-level-partitioned: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccStockLevelPartitioned {}
+
+    impl Guest for GuestTpccStockLevelPartitioned {
+        async fn mp2_tpcc_stock_level_partitioned(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_stock_level_partitioned(param).await
+        }
+    }
+
+    export!(GuestTpccStockLevelPartitioned);
+}
+async fn mp2_tpcc_seed_partitioned(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_seed_partitioned,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_seed_partitioned(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_seed_partitioned(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[3], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[4], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_seed_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_count".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_count".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "customer_count".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "item_count".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "initial_stock".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_seed_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC
+        .get_or_init(|| ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![]))
+}
+
+pub fn mudu_proc_desc_tpcc_seed_partitioned()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_seed_partitioned".to_string(),
+            mudu_argv_desc_tpcc_seed_partitioned().clone(),
+            mudu_result_desc_tpcc_seed_partitioned().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_seed_partitioned {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-seed-partitioned;
+            world mudu-app-mp2-tpcc-seed-partitioned {
+                export mp2-tpcc-seed-partitioned: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccSeedPartitioned {}
+
+    impl Guest for GuestTpccSeedPartitioned {
+        async fn mp2_tpcc_seed_partitioned(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_seed_partitioned(param).await
+        }
+    }
+
+    export!(GuestTpccSeedPartitioned);
+}
+async fn mp2_tpcc_hotspot_hit(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_hotspot_hit,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_hotspot_hit(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_hotspot_hit(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_hotspot_hit()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "hot_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_hotspot_hit()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_hotspot_hit()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_hotspot_hit".to_string(),
+            mudu_argv_desc_tpcc_hotspot_hit().clone(),
+            mudu_result_desc_tpcc_hotspot_hit().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_hotspot_hit {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-hotspot-hit;
+            world mudu-app-mp2-tpcc-hotspot-hit {
+                export mp2-tpcc-hotspot-hit: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccHotspotHit {}
+
+    impl Guest for GuestTpccHotspotHit {
+        async fn mp2_tpcc_hotspot_hit(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_hotspot_hit(param).await
+        }
+    }
+
+    export!(GuestTpccHotspotHit);
+}
+async fn mp2_tpcc_hotspot_hit_partitioned(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_hotspot_hit_partitioned,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_hotspot_hit_partitioned(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_hotspot_hit_partitioned(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_hotspot_hit_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "hot_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_hotspot_hit_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_hotspot_hit_partitioned()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_hotspot_hit_partitioned".to_string(),
+            mudu_argv_desc_tpcc_hotspot_hit_partitioned().clone(),
+            mudu_result_desc_tpcc_hotspot_hit_partitioned().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_hotspot_hit_partitioned {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-hotspot-hit-partitioned;
+            world mudu-app-mp2-tpcc-hotspot-hit-partitioned {
+                export mp2-tpcc-hotspot-hit-partitioned: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccHotspotHitPartitioned {}
+
+    impl Guest for GuestTpccHotspotHitPartitioned {
+        async fn mp2_tpcc_hotspot_hit_partitioned(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_hotspot_hit_partitioned(param).await
+        }
+    }
+
+    export!(GuestTpccHotspotHitPartitioned);
+}
+async fn mp2_tpcc_new_order(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_new_order,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_new_order(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_new_order(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
+            &param.param_list()[3],
+            "Vec<i32, >",
+        )?,
+        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
+            &param.param_list()[4],
+            "Vec<i32, >",
+        )?,
+        ::mududb::types::datum::value_to_typed::<Vec<i32>, _>(
+            &param.param_list()[5],
+            "Vec<i32, >",
+        )?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_new_order()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "customer_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "item_ids".to_string(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "supplier_warehouse_ids".to_string(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "quantities".to_string(),
+                <Vec<i32> as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_new_order()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_new_order() -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc
+{
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_new_order".to_string(),
+            mudu_argv_desc_tpcc_new_order().clone(),
+            mudu_result_desc_tpcc_new_order().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_new_order {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-new-order;
+            world mudu-app-mp2-tpcc-new-order {
+                export mp2-tpcc-new-order: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccNewOrder {}
+
+    impl Guest for GuestTpccNewOrder {
+        async fn mp2_tpcc_new_order(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_new_order(param).await
+        }
+    }
+
+    export!(GuestTpccNewOrder);
 }
 async fn mp2_tpcc_order_status_partitioned(param: Vec<u8>) -> Vec<u8> {
     ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
@@ -2050,7 +2070,7 @@ mod mod_tpcc_order_status_partitioned {
         inline:
         r##"package mudu:mp2-tpcc-order-status-partitioned;
             world mudu-app-mp2-tpcc-order-status-partitioned {
-                export mp2-tpcc-order-status-partitioned: func(param:list<u8>) -> list<u8>;
+                export mp2-tpcc-order-status-partitioned: async func(param:list<u8>) -> list<u8>;
             }
         "##,
         async: true
@@ -2067,4 +2087,321 @@ mod mod_tpcc_order_status_partitioned {
     }
 
     export!(GuestTpccOrderStatusPartitioned);
+}
+async fn mp2_tpcc_order_status(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_order_status,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_order_status(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_order_status(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_order_status()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "customer_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_order_status()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_order_status()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_order_status".to_string(),
+            mudu_argv_desc_tpcc_order_status().clone(),
+            mudu_result_desc_tpcc_order_status().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_order_status {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-order-status;
+            world mudu-app-mp2-tpcc-order-status {
+                export mp2-tpcc-order-status: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccOrderStatus {}
+
+    impl Guest for GuestTpccOrderStatus {
+        async fn mp2_tpcc_order_status(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_order_status(param).await
+        }
+    }
+
+    export!(GuestTpccOrderStatus);
+}
+async fn mp2_tpcc_payment_partitioned(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_payment_partitioned,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_payment_partitioned(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_payment_partitioned(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[3], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "i32")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_payment_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "customer_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "amount".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_payment_partitioned()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_payment_partitioned()
+-> &'static ::mududb::contract::procedure::proc_desc::ProcDesc {
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_payment_partitioned".to_string(),
+            mudu_argv_desc_tpcc_payment_partitioned().clone(),
+            mudu_result_desc_tpcc_payment_partitioned().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_payment_partitioned {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-payment-partitioned;
+            world mudu-app-mp2-tpcc-payment-partitioned {
+                export mp2-tpcc-payment-partitioned: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccPaymentPartitioned {}
+
+    impl Guest for GuestTpccPaymentPartitioned {
+        async fn mp2_tpcc_payment_partitioned(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_payment_partitioned(param).await
+        }
+    }
+
+    export!(GuestTpccPaymentPartitioned);
+}
+async fn mp2_tpcc_delivery(param: Vec<u8>) -> Vec<u8> {
+    ::mududb::binding::procedure::procedure_invoke::invoke_procedure_async(
+        param,
+        mudu_inner_p2_tpcc_delivery,
+    )
+    .await
+}
+
+pub async fn mudu_inner_p2_tpcc_delivery(
+    param: ::mududb::contract::procedure::procedure_param::ProcedureParam,
+) -> ::mududb::common::result::RS<::mududb::contract::procedure::procedure_result::ProcedureResult>
+{
+    let res = tpcc_delivery(
+        param.session_id(),
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[0], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[1], "i32")?,
+        ::mududb::types::datum::value_to_typed::<i32, _>(&param.param_list()[2], "i32")?,
+    )
+    .await;
+    match res {
+        Ok(tuple) => {
+            let return_list = { vec![::mududb::types::datum::value_from_typed(&tuple, "String")?] };
+            Ok(::mududb::contract::procedure::procedure_result::ProcedureResult::new(return_list))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn mudu_argv_desc_tpcc_delivery()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static ARGV_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    ARGV_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "warehouse_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "district_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "carrier_id".to_string(),
+                <i32 as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_result_desc_tpcc_delivery()
+-> &'static ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc {
+    static RESULT_DESC: std::sync::OnceLock<
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc,
+    > = std::sync::OnceLock::new();
+    RESULT_DESC.get_or_init(|| {
+        ::mududb::contract::tuple::tuple_field_desc::TupleFieldDesc::new(vec![
+            ::mududb::contract::tuple::datum_desc::DatumDesc::new(
+                "0".to_string(),
+                <String as ::mududb::types::datum::Datum>::data_type().clone(),
+            ),
+        ])
+    })
+}
+
+pub fn mudu_proc_desc_tpcc_delivery() -> &'static ::mududb::contract::procedure::proc_desc::ProcDesc
+{
+    static _PROC_DESC: std::sync::OnceLock<::mududb::contract::procedure::proc_desc::ProcDesc> =
+        std::sync::OnceLock::new();
+    _PROC_DESC.get_or_init(|| {
+        ::mududb::contract::procedure::proc_desc::ProcDesc::new(
+            "tpcc".to_string(),
+            "tpcc_delivery".to_string(),
+            mudu_argv_desc_tpcc_delivery().clone(),
+            mudu_result_desc_tpcc_delivery().clone(),
+            false,
+        )
+    })
+}
+
+mod mod_tpcc_delivery {
+    wit_bindgen::generate!({
+        inline:
+        r##"package mudu:mp2-tpcc-delivery;
+            world mudu-app-mp2-tpcc-delivery {
+                export mp2-tpcc-delivery: async func(param:list<u8>) -> list<u8>;
+            }
+        "##,
+        async: true
+    });
+
+    #[allow(non_camel_case_types)]
+    #[allow(unused)]
+    struct GuestTpccDelivery {}
+
+    impl Guest for GuestTpccDelivery {
+        async fn mp2_tpcc_delivery(param: Vec<u8>) -> Vec<u8> {
+            super::mp2_tpcc_delivery(param).await
+        }
+    }
+
+    export!(GuestTpccDelivery);
 }

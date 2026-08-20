@@ -141,7 +141,10 @@ pub async fn write_partition_rule_to_catalog(
 ) -> RS<()> {
     let key = encode_partition_rule_catalog_key(rule.oid)?;
     let value = encode_partition_rule_catalog_value(rule)?;
-    relation.write_value(key, value, xid).await
+    relation.write_value(key, value, xid).await?;
+    // Catalog relations have no background flush driver: drain the queued
+    // PL frames so the DDL is durable when it returns.
+    relation.flush_wal_async().await
 }
 
 fn visible_snapshot_xid() -> u64 {

@@ -20,6 +20,21 @@ use mudu_utils::oid::gen_oid;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+/// Runs `f` with a thread-local subscriber capped at ERROR so tests that
+/// intentionally corrupt chunk tails don't spam WARN logs when another test
+/// in the same binary installed a global subscriber (e.g. perf tests calling
+/// `log_setup`).
+fn with_corruption_warnings_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::level_filters::LevelFilter::ERROR)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, f)
+}
+
 fn sample_batch() -> XLBatch {
     XLBatch::new(vec![XLEntry {
         xid: 1,
@@ -145,8 +160,14 @@ fn worker_log_rotates_chunks_by_size() {
         log.append_raw(&[1u8; 20]).await.unwrap();
         log.append_raw(&[2u8; 20]).await.unwrap();
         log.append_raw(&[3u8; 20]).await.unwrap();
-        assert!(dir.join(format!("{}.0.xl", prefix)).exists());
-        assert!(dir.join(format!("{}.1.xl", prefix)).exists());
+        // `sync_path_exists` instead of `Path::exists` so the deterministic
+        // backend's in-memory filesystem is honored (same assertion strength).
+        assert!(mudu_sys::fs::sync::sync_path_exists(
+            dir.join(format!("{}.0.xl", prefix))
+        ));
+        assert!(mudu_sys::fs::sync::sync_path_exists(
+            dir.join(format!("{}.1.xl", prefix))
+        ));
     });
 }
 
@@ -277,4 +298,109 @@ fn direct_worker_log_does_not_queue_inside_worker_ring() {
         }
     })
     .unwrap()
+}
+
+/// Writes two valid batches to a fresh log, fsyncs, and returns the chunk
+/// path plus the length of the valid frame prefix.
+async fn write_two_batches_and_measure(layout: WorkerLogLayout) -> (std::path::PathBuf, u64) {
+    let chunk_path = layout.chunk_path(0);
+    let log = WorkerWALBackend::new(layout).await.unwrap();
+    futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+    futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+    log.flush_async().await.unwrap();
+    let valid_len = mudu_sys::fs::sync::metadata(&chunk_path).unwrap().len();
+    (chunk_path, valid_len)
+}
+
+/// Appends raw bytes to the end of a chunk file, simulating a tail that
+/// never made it to durable storage cleanly.
+fn append_chunk_tail(chunk_path: &std::path::Path, tail: &[u8]) {
+    use std::io::Write as _;
+    let mut options = mudu_sys::fs::sync::SOpenOptions::new();
+    options.append(true);
+    let mut file = options.open(chunk_path).unwrap();
+    file.write_all(tail).unwrap();
+    file.sync_data().unwrap();
+}
+
+/// Reopens the log after a corrupt tail was appended: open must succeed,
+/// the file must be truncated back to the valid prefix, next_lsn must
+/// reflect only the valid frames, and new appends must continue correctly.
+async fn assert_reopen_truncates_and_appends(
+    layout: WorkerLogLayout,
+    chunk_path: std::path::PathBuf,
+    valid_len: u64,
+) {
+    let log = WorkerWALBackend::new(layout).await.unwrap();
+    assert_eq!(
+        mudu_sys::fs::sync::metadata(&chunk_path).unwrap().len(),
+        valid_len
+    );
+    // Two valid batches carry LSNs 0 and 1, so the next allocation is 2.
+    assert_eq!(log.last_allocated_lsn(), LSN::new(1));
+    futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+    log.flush_async().await.unwrap();
+    let bytes = mudu_sys::fs::sync::read(&chunk_path).unwrap();
+    let batches = decode_xl_batches(&decode_frames(&bytes).unwrap()).unwrap();
+    assert_eq!(batches.len(), 3);
+}
+
+#[test]
+fn worker_log_reopen_truncates_partial_frame_tail() {
+    with_corruption_warnings_suppressed(|| {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = temp_dir().join(format!("worker_log_trunc_partial_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
+            let (chunk_path, valid_len) = write_two_batches_and_measure(layout.clone()).await;
+
+            // A torn final frame of at least header+tailer size: the header is
+            // intact but the payload never made it to disk.
+            let next_lsn = AtomicU64::new(2);
+            let torn = serialize_batch(&sample_batch(), 4096, &next_lsn).unwrap();
+            append_chunk_tail(&chunk_path, &torn[0][..40]);
+
+            assert_reopen_truncates_and_appends(layout, chunk_path, valid_len).await;
+        })
+        .unwrap()
+    })
+}
+
+#[test]
+fn worker_log_reopen_truncates_zero_filled_tail() {
+    with_corruption_warnings_suppressed(|| {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = temp_dir().join(format!("worker_log_trunc_zeros_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
+            let (chunk_path, valid_len) = write_two_batches_and_measure(layout.clone()).await;
+
+            // A zero-filled region (e.g. ext4 delayed allocation exposed by a
+            // power loss) fails the frame magic check.
+            append_chunk_tail(&chunk_path, &[0u8; 128]);
+
+            assert_reopen_truncates_and_appends(layout, chunk_path, valid_len).await;
+        })
+        .unwrap()
+    })
+}
+
+#[test]
+fn worker_log_reopen_truncates_checksum_corrupted_tail() {
+    with_corruption_warnings_suppressed(|| {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = temp_dir().join(format!("worker_log_trunc_crc_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
+            let (chunk_path, valid_len) = write_two_batches_and_measure(layout.clone()).await;
+
+            // A full frame with a corrupted payload byte: the header scans fine
+            // but the CRC fails.
+            let next_lsn = AtomicU64::new(2);
+            let mut corrupted = serialize_batch(&sample_batch(), 4096, &next_lsn).unwrap();
+            corrupted[0][24] ^= 0x7f;
+            let tail: Vec<u8> = corrupted.into_iter().flatten().collect();
+            append_chunk_tail(&chunk_path, &tail);
+
+            assert_reopen_truncates_and_appends(layout, chunk_path, valid_len).await;
+        })
+        .unwrap()
+    })
 }

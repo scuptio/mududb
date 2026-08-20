@@ -56,13 +56,12 @@ pub mod object {
     impl SQLParamMarker for District {}
 
     impl District {
-        #[allow(clippy::too_many_arguments)]
         pub fn new(
             d_id: Option<i32>,
             d_w_id: Option<i32>,
             d_name: Option<String>,
             d_tax: Option<i32>,
-            d_ytd: Option<i32>,
+            d_ytd: Option<mududb::mudu::data_type::numeric::Numeric>,
             d_next_o_id: Option<i32>,
             d_last_delivery_o_id: Option<i32>,
         ) -> Self {
@@ -119,11 +118,11 @@ pub mod object {
             self.d_tax.get()
         }
 
-        pub fn set_d_ytd(&mut self, d_ytd: i32) {
+        pub fn set_d_ytd(&mut self, d_ytd: mududb::mudu::data_type::numeric::Numeric) {
             self.d_ytd.update(d_ytd)
         }
 
-        pub fn get_d_ytd(&self) -> &Option<i32> {
+        pub fn get_d_ytd(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             self.d_ytd.get()
         }
 
@@ -230,7 +229,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -287,7 +286,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -312,7 +311,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -351,7 +350,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -574,36 +573,47 @@ pub mod object {
     #[derive(Default, Clone, Debug)]
     pub struct AttrDYtd {
         is_dirty: bool,
-        value: Option<i32>,
+        value: Option<mududb::mudu::data_type::numeric::Numeric>,
     }
 
     impl AttrDYtd {
-        fn from(value: Option<i32>) -> Self {
+        fn from(value: Option<mududb::mudu::data_type::numeric::Numeric>) -> Self {
             Self {
                 is_dirty: false,
                 value,
             }
         }
 
-        fn get(&self) -> &Option<i32> {
+        fn get(&self) -> &Option<mududb::mudu::data_type::numeric::Numeric> {
             &self.value
         }
 
-        fn get_mut(&mut self) -> &mut Option<i32> {
+        fn get_mut(&mut self) -> &mut Option<mududb::mudu::data_type::numeric::Numeric> {
             &mut self.value
         }
 
-        fn set(&mut self, value: Option<i32>) {
+        fn set(&mut self, value: Option<mududb::mudu::data_type::numeric::Numeric>) {
             self.value = value
         }
 
-        fn update(&mut self, value: i32) {
+        fn update(&mut self, value: mududb::mudu::data_type::numeric::Numeric) {
             self.is_dirty = true;
             self.value = Some(value)
         }
     }
 
-    impl AttrValue<i32> for AttrDYtd {
+    impl AttrValue<mududb::mudu::data_type::numeric::Numeric> for AttrDYtd {
+        fn attr_data_type() -> DataType {
+            DataType::from_id_param(
+                TypeFamily::Numeric,
+                Some(
+                    mududb::types::data_type_param_kind::DataTypeParamKind::Numeric(Box::new(
+                        mududb::types::data_type_param_numeric::DataTypeParamNumeric::new(12, 2),
+                    )),
+                ),
+            )
+        }
+
         fn data_type() -> &'static DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(Self::attr_data_type)
