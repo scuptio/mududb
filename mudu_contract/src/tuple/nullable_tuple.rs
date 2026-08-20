@@ -138,3 +138,32 @@ pub fn read_value(
     })?;
     Ok(NullableValue::Value(value))
 }
+
+/// Null-bitmap-only test for `col_idx`: same bounds/nullability semantics as
+/// [`read_value`] but skips decoding the field payload. Use this when the
+/// caller re-extracts the raw field bytes itself (e.g. column projection) and
+/// a full datum decode would be wasted work.
+pub fn is_null(tuple: &[u8], schema: &TupleBinaryDesc, col_idx: usize) -> RS<bool> {
+    if col_idx >= schema.field_count() {
+        return Err(mudu_error!(
+            ErrorCode::IndexOutOfRange,
+            format!("field index {} out of {}", col_idx, schema.field_count())
+        ));
+    }
+    let field = schema.get_field_desc(col_idx);
+    if tuple.len() < schema.min_tuple_size() {
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            format!(
+                "tuple len {} is less than minimum tuple size {}",
+                tuple.len(),
+                schema.min_tuple_size()
+            )
+        ));
+    }
+    let Some(bit_idx) = field.null_bit_idx() else {
+        return Ok(false);
+    };
+    let bitmap = Bitmap::from_bytes(schema.nullable_count(), &tuple[..schema.null_bitmap_size()])?;
+    bitmap.get(bit_idx as usize)
+}

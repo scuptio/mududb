@@ -2,12 +2,12 @@ export type ResourceHandle = u32;
 
 const VALUE_RESULT_VALUE_OFFSET: usize = 8;
 const VALUE_PAYLOAD_OFFSET: usize = 8;
-const ERROR_RESULT_VALUE_OFFSET_4: usize = 4;
-const ERROR_RESULT_VALUE_OFFSET_8: usize = 8;
+export const ERROR_RESULT_VALUE_OFFSET_4: usize = 4;
+export const ERROR_RESULT_VALUE_OFFSET_8: usize = 8;
 const ERROR_SIZE: usize = 28;
 const VALUE_SIZE: usize = 24;
 const RESULT_VALUE_SIZE: usize = 40;
-const RESULT_ERROR_SIZE: usize = 36;
+export const RESULT_ERROR_SIZE: usize = 36;
 
 export class Oid {
   hi: u64;
@@ -389,11 +389,11 @@ declare function rawCommand(idHi: u64, idLo: u64, stmt: ResourceHandle, values: 
 @external("mududb:component-shim/system", "batch")
 declare function rawBatch(idHi: u64, idLo: u64, stmt: ResourceHandle, values: ResourceHandle, result: usize): void;
 
-function alloc(size: usize): usize {
+export function alloc(size: usize): usize {
   return __new(size, idof<ArrayBuffer>());
 }
 
-function utf8Bytes(input: string): ArrayBuffer {
+export function utf8Bytes(input: string): ArrayBuffer {
   return String.UTF8.encode(input, false);
 }
 
@@ -408,7 +408,7 @@ function lowerString(input: string, out: usize): void {
   store<u32>(out + 4, <u32>bytes.byteLength);
 }
 
-function liftString(ptr: usize, len: usize): string {
+export function liftString(ptr: usize, len: usize): string {
   return String.UTF8.decodeUnsafe(ptr, len, true);
 }
 
@@ -500,7 +500,7 @@ export function liftValue(ptr: usize): Value {
   return value;
 }
 
-function liftError(ptr: usize): MuduError {
+export function liftError(ptr: usize): MuduError {
   const messagePtr = load<u32>(ptr + 4);
   const messageLen = load<u32>(ptr + 8);
   const sourcePtr = load<u32>(ptr + 12);
@@ -522,7 +522,7 @@ export function lowerError(error: MuduError, out: usize): void {
   lowerString(error.location, out + 20);
 }
 
-function resultIsOk(ptr: usize): bool {
+export function resultIsOk(ptr: usize): bool {
   return load<u32>(ptr) == 0;
 }
 

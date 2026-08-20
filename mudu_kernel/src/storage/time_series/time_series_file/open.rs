@@ -3,7 +3,7 @@ use super::wal::{
     append_file_create_async, new_relation_wal_backend, new_relation_wal_backend_with_provider,
     recover_relation_file, recover_relation_file_async,
 };
-use super::{TimeSeriesFile, TimeSeriesFileIdentity};
+use super::{raw_page_id, TimeSeriesFile, TimeSeriesFileIdentity};
 use crate::storage::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::storage::page::page_header::NONE_PAGE_ID;
 use crate::storage::page::PageId;
@@ -16,10 +16,13 @@ use mudu_sys::contract::async_fs::AsyncFs;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::default_sys_io_context;
 use mudu_sys::fs::SysFile;
+use mudu_sys::sync::async_::AMutex;
+use mudu_sys::sync::SMutex;
 use mudu_sys::SysIoContext;
 use mudu_utils::scoped_task_trace;
-use scc::HashMap;
+use scc::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::{debug, trace};
 
@@ -245,12 +248,15 @@ impl TimeSeriesFile {
             fs: Some(fs),
             identity,
             path,
-            file: Some(file),
+            file: SMutex::new(Some(file)),
             wal_backend,
             page_cache: HashMap::new(),
-            page_count,
-            head_page_id,
-            tail_page_id,
+            dirty_pages: HashSet::new(),
+            dirty_flush_latch: AMutex::new(()),
+            write_latch: AMutex::new(()),
+            page_count: AtomicU64::new(page_count.as_u64()),
+            head_page_id: AtomicU64::new(raw_page_id(head_page_id)),
+            tail_page_id: AtomicU64::new(raw_page_id(tail_page_id)),
             tuple_format_version: if tuple_schema_hash != 0 { 1 } else { 0 },
             tuple_schema_hash,
             tuple_flags: 0,
@@ -293,12 +299,15 @@ impl TimeSeriesFile {
             fs: None,
             identity,
             path,
-            file: Some(file),
+            file: SMutex::new(Some(file)),
             wal_backend,
             page_cache: HashMap::new(),
-            page_count,
-            head_page_id,
-            tail_page_id,
+            dirty_pages: HashSet::new(),
+            dirty_flush_latch: AMutex::new(()),
+            write_latch: AMutex::new(()),
+            page_count: AtomicU64::new(page_count.as_u64()),
+            head_page_id: AtomicU64::new(raw_page_id(head_page_id)),
+            tail_page_id: AtomicU64::new(raw_page_id(tail_page_id)),
             tuple_format_version: if tuple_schema_hash != 0 { 1 } else { 0 },
             tuple_schema_hash,
             tuple_flags: 0,

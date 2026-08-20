@@ -113,6 +113,7 @@ pub(crate) fn sync_serve_iouring(
         let log_dir = cfg.cfg().log_dir().to_string();
         let log_chunk_size = cfg.cfg().log_chunk_size();
         let log_batching = cfg.deps().log_batching();
+        let wal_sync_policy = cfg.deps().wal_sync_policy();
         let worker_count = cfg.cfg().worker_count();
         let server_instance_id = cfg.cfg().server_instance_id();
         let listener = cfg.take_prebound_listener(worker_id);
@@ -132,7 +133,17 @@ pub(crate) fn sync_serve_iouring(
                             e
                         )
                     })?;
-                    runtime.block_on(async move {
+                    // The worker runs a synchronous service loop inside
+                    // `block_on`, and polls connection/system tasks manually
+                    // via the worker task registry. Tokio's coop budget is
+                    // established once for the root poll and is only
+                    // replenished by the tokio scheduler, which never runs
+                    // here — after ~128 budget-consuming ops (e.g. tokio
+                    // Mutex::lock inside notify_wait) `poll_proceed` defers
+                    // the task's waker to the never-driven runtime and the
+                    // task parks forever. Unconstrained opts the whole worker
+                    // out of cooperative scheduling.
+                    runtime.block_on(mudu_sys::tokio::task::unconstrained(async move {
                         let listener_fd = match listener {
                             Some(std_listener) => std_listener.into_raw_fd(),
                             None => {
@@ -159,7 +170,7 @@ pub(crate) fn sync_serve_iouring(
                         // that worker initialization (meta catalog, WAL tail
                         // scan) can use the io_uring AsyncFs. We drive the ring
                         // while creating the worker, then hand both to the loop.
-                        let mut ring = WorkerRingLoop::new_ring()?;
+                        let mut ring = WorkerRingLoop::new_ring_for_worker(worker_id)?;
                         #[allow(clippy::arc_with_non_send_sync)]
                         let worker_local_ring =
                             Arc::new(WorkerLocalRing::new_with_task_wake_fd(Some(mailbox_fd)));
@@ -171,6 +182,7 @@ pub(crate) fn sync_serve_iouring(
                             data_dir: data_dir.clone(),
                             log_chunk_size,
                             log_batching,
+                            wal_sync_policy,
                             procedure_runtime,
                             registry: worker_registry,
                             async_runtime,
@@ -204,7 +216,7 @@ pub(crate) fn sync_serve_iouring(
                             })?;
                         loop_state.initialize().await?;
                         loop_state.run().await
-                    })
+                    }))
                 })();
                 if result.is_err() {
                     recovery_coordinator_for_failure.worker_failed();

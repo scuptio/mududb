@@ -39,6 +39,16 @@ pub(crate) async fn remove_file_if_exists(path: impl AsRef<Path>) -> RS<()> {
     }
 }
 
+pub(crate) async fn remove_dir_all(path: impl AsRef<Path>) -> RS<()> {
+    debug!("tokio_remove_dir_all {}", path.as_ref().display());
+    scoped_task_trace!();
+    fs::remove_dir_all(path.as_ref())
+        .await
+        .map_err(|e| io_error_with_message(e, "remove tokio directory tree error"))?;
+    debug!("tokio_remove_dir_all end {}", path.as_ref().display());
+    Ok(())
+}
+
 pub(crate) async fn read_dir(path: impl AsRef<Path>) -> RS<Vec<PathBuf>> {
     let mut paths = Vec::new();
     let mut entries = fs::read_dir(path)

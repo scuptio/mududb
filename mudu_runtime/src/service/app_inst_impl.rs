@@ -442,6 +442,8 @@ impl AppInst for AppInstImpl {
     }
 }
 
-#[cfg(test)]
+// All tests in this module exercise libsql's real file IO (see the module
+// file's comments); skip compiling it under the deterministic backend.
+#[cfg(all(test, not(feature = "ds")))]
 #[path = "app_inst_impl_test.rs"]
 mod app_inst_impl_test;

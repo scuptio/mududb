@@ -971,6 +971,8 @@ dependencies = [
  "mudu",
  "mudu_contract",
  "mudu_type",
+ "num_enum",
+ "rmp-serde",
  "serde",
  "serde_repr",
  "tracing",

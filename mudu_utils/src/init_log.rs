@@ -37,27 +37,22 @@ fn init_level(level_filter: LevelFilter) {
         .init();
 }
 
-fn init_level_env_console(level_filter: LevelFilter, env_filter: EnvFilter) {
+fn init_level_env_console(_level_filter: LevelFilter, env_filter: EnvFilter) {
     let registry = tracing_subscriber::registry();
     let console_layer = console_subscriber::spawn();
     registry
         .with(console_layer)
-        .with(
-            my_tracing_subscriber!()
-                .with_filter(level_filter)
-                .with_filter(env_filter),
-        )
+        // The env filter already carries the base level as its default
+        // directive; stacking another LevelFilter on top would gate out
+        // everything below it (e.g. debug events enabled by the env filter).
+        .with(my_tracing_subscriber!().with_filter(env_filter))
         .init();
 }
 
-fn init_level_env(level_filter: LevelFilter, env_filter: EnvFilter) {
+fn init_level_env(_level_filter: LevelFilter, env_filter: EnvFilter) {
     let registry = tracing_subscriber::registry();
     registry
-        .with(
-            my_tracing_subscriber!()
-                .with_filter(level_filter)
-                .with_filter(env_filter),
-        )
+        .with(my_tracing_subscriber!().with_filter(env_filter))
         .init();
 }
 /// Internal implementation of [`setup_with_console`] exposed to tests so they

@@ -3133,6 +3133,16 @@
           }
         ]
       },
+      "invocation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "invocation",
+            "named": true
+          }
+        ]
+      },
       "literal": {
         "multiple": false,
         "required": false,

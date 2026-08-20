@@ -28,7 +28,7 @@ pub mod generated;
 /// Test-only subset of the generated module. The full generated procedure file
 /// contains pre-existing async `#[test]` functions that do not compile on
 /// native targets, so unit tests expose only the generated entity modules.
-#[allow(unused, missing_docs)]
+#[allow(unused, missing_docs, clippy::too_many_arguments)]
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod generated {
     pub mod customer;

@@ -1,4 +1,3 @@
-use super::utils::is_cross_partition_tx;
 use super::*;
 
 #[async_trait]
@@ -28,14 +27,11 @@ impl XContract for WorkerXContract {
     }
 
     async fn commit_tx(&self, tx_mgr: Arc<dyn TxMgr>) -> RS<()> {
-        if is_cross_partition_tx(tx_mgr.as_ref()) {
-            return self.worker_commit_cross_partition_tx_async(tx_mgr).await;
-        }
-        self.worker_commit_tx_async(tx_mgr).await
+        self.worker_commit_routed_tx_async(tx_mgr).await
     }
 
     async fn abort_tx(&self, tx_mgr: Arc<dyn TxMgr>) -> RS<()> {
-        self.worker_rollback_tx(tx_mgr)
+        self.worker_abort_tx_async(tx_mgr).await
     }
 
     async fn update(
@@ -45,11 +41,19 @@ impl XContract for WorkerXContract {
         pred_key: &VecDatum,
         pred_non_key: &Predicate,
         values: &VecDatum,
-        _opt_update: &OptUpdate,
+        opt_update: &OptUpdate,
     ) -> RS<usize> {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        self._update(desc, tx_mgr, table_id, pred_key, pred_non_key, values)
-            .await
+        self._update(
+            desc,
+            tx_mgr,
+            table_id,
+            pred_key,
+            pred_non_key,
+            values,
+            &opt_update.delta_assignments,
+        )
+        .await
     }
 
     async fn read_key(
@@ -104,5 +108,9 @@ impl XContract for WorkerXContract {
         let desc = self.meta_mgr.get_table_by_id(table_id).await?;
         self._insert(desc, tx_mgr, table_id, keys, values, opt_insert)
             .await
+    }
+
+    fn local_worker_id(&self) -> OID {
+        self.worker_id()
     }
 }

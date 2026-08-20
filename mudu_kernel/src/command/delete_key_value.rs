@@ -1,3 +1,4 @@
+use crate::command::fs_hook;
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::x_engine::api::{OptDelete, Predicate, XContract};
@@ -57,6 +58,33 @@ impl _DeleteKeyValue {
 
     async fn run(&mut self) -> RS<()> {
         // Delete currently stays on the exact-key path to keep semantics explicit.
+        let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
+        if fs_hook::has_fs_bound_columns(desc.as_ref()) {
+            let staged = fs_hook::unbind_fs_columns_on_delete(
+                &self.meta_mgr,
+                &self.x_contract,
+                &self.param.tx_mgr,
+                self.param.table_id,
+                desc.as_ref(),
+                &self.param.key,
+            )
+            .await?;
+            let deleted = self
+                .x_contract
+                .delete(
+                    self.param.tx_mgr.clone(),
+                    self.param.table_id,
+                    &self.param.key,
+                    &Predicate::CNF(Vec::new()),
+                    &OptDelete::default(),
+                )
+                .await?;
+            if deleted > 0 {
+                fs_hook::stage_fs_ops(&self.param.tx_mgr, staged);
+            }
+            self.affected_rows = deleted as u64;
+            return Ok(());
+        }
         let deleted = self
             .x_contract
             .delete(

@@ -212,6 +212,12 @@ impl Attr{{ field.field_name_pascal_case }} {
 }
 
 impl AttrValue<{{ field.data_type }}> for Attr{{ field.field_name_pascal_case }} {
+{% if let Some(override_expr) = field.attr_data_type_override %}
+    fn attr_data_type() -> DataType {
+        {{ override_expr }}
+    }
+
+{% endif %}
     fn data_type() -> &'static DataType {
         static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
         ONCE_LOCK.get_or_init(Self::attr_data_type)

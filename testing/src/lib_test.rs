@@ -1,24 +1,39 @@
 #[cfg(test)]
 mod tests {
+    use crate::support::test_runtime_domain_lock;
     use crate::{
         connect_sync_client_with_retry, reserve_port, reserve_port_block, wait_until_port_ready,
     };
     use mudu_sys::net::sync::SStdTcpStream;
+    use mudu_sys::sync::SMutexGuard;
     use std::net::SocketAddr;
+
+    // Tests in this module bind listeners and probe "this port is free"
+    // properties against one process-wide port space (on the simulation
+    // backend the whole process shares a single simulated port table), so
+    // they must not run concurrently with each other.
+    fn port_space_guard() -> SMutexGuard<'static, ()> {
+        test_runtime_domain_lock()
+            .lock()
+            .expect("test runtime domain lock poisoned")
+    }
 
     #[test]
     fn reserve_port_returns_some_ephemeral_port() {
+        let _guard = port_space_guard();
         let port = reserve_port().unwrap().expect("reserve_port returned None");
         assert!(port > 0);
     }
 
     #[test]
     fn reserve_port_block_zero_returns_none() {
+        let _guard = port_space_guard();
         assert_eq!(reserve_port_block(0).unwrap(), None);
     }
 
     #[test]
     fn reserve_port_block_one_returns_some_port() {
+        let _guard = port_space_guard();
         let base = reserve_port_block(1)
             .unwrap()
             .expect("reserve_port_block(1) returned None");
@@ -27,6 +42,7 @@ mod tests {
 
     #[test]
     fn reserve_port_block_returns_contiguous_free_ports() {
+        let _guard = port_space_guard();
         let count = 5;
         let base = reserve_port_block(count)
             .unwrap()
@@ -48,6 +64,7 @@ mod tests {
 
     #[test]
     fn wait_until_port_ready_succeeds_when_listening() {
+        let _guard = port_space_guard();
         let listener =
             mudu_sys::net::sync::StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
                 .expect("bind listener");
@@ -68,6 +85,7 @@ mod tests {
 
     #[test]
     fn wait_until_port_ready_errors_when_port_unused() {
+        let _guard = port_space_guard();
         // Reserve a port and release it so we know it is not currently listened on.
         let port = reserve_port().unwrap().expect("reserve failed");
         let result = wait_until_port_ready(port, "test-no-listener");
@@ -76,6 +94,7 @@ mod tests {
 
     #[test]
     fn connect_sync_client_with_retry_errors_when_no_server() {
+        let _guard = port_space_guard();
         let port = reserve_port().unwrap().expect("reserve failed");
         let result = connect_sync_client_with_retry(port);
         assert!(result.is_err());

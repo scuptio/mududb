@@ -1,6 +1,6 @@
 use mudu_api_rust::{
-    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDataValue, UniOid, UniScalarValue,
-    UniQueryArgv, UniSqlParam, UniSqlStmt,
+    MockSqliteMuduSysCall, Mudu, UniCommandArgv, UniDataValue, UniOid, UniQueryArgv,
+    UniScalarValue, UniSqlParam, UniSqlStmt,
 };
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -100,9 +100,10 @@ async fn run_command(sql: &str) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|error| format!("command failed: {} {}", error.err_code, error.err_msg).into())
 }
 
-fn main() {
-    if let Err(e) = mudu_sys::task::async_::block_on_async_current(run()) {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    if let Err(e) = run().await {
         eprintln!("Error: {}", e);
-        mudu_sys::process::exit(1);
+        std::process::exit(1);
     }
 }

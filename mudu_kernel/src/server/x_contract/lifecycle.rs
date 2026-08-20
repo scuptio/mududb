@@ -237,4 +237,19 @@ impl WorkerXContract {
     pub fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.meta_mgr.clone()
     }
+
+    pub(crate) fn storage(&self) -> &Arc<WorkerStorage> {
+        &self.storage
+    }
+
+    /// Return the oldest xid still running on this worker, if any.
+    pub(crate) fn oldest_running_xid(&self) -> RS<Option<u64>> {
+        self.snapshot_mgr.oldest_running_xid()
+    }
+
+    /// Return the newest xid allocated by the snapshot manager (begin or
+    /// commit timestamp); `0` when nothing was allocated yet.
+    pub(crate) fn latest_xid(&self) -> u64 {
+        self.snapshot_mgr.latest_xid()
+    }
 }

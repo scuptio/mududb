@@ -1,6 +1,7 @@
 //! Unit tests for the `generated::customer::Customer` entity.
 
 use mududb::contract::database::entity::Entity;
+use mududb::mudu::data_type::numeric::Numeric;
 use mududb::types::data_value::DataValue;
 use mududb::types::datum::{Datum, DatumDyn};
 
@@ -15,8 +16,8 @@ fn customer_lifecycle() {
     let c_last_sample = "c_last_val".to_string();
     let c_discount_sample = 1i32;
     let c_credit_sample = "c_credit_val".to_string();
-    let c_balance_sample = 1i32;
-    let c_ytd_payment_sample = 1i32;
+    let c_balance_sample = Numeric::from(1i32);
+    let c_ytd_payment_sample = Numeric::from(1i32);
     let c_payment_cnt_sample = 1i32;
     let c_delivery_cnt_sample = 1i32;
     let c_last_order_id_sample = 1i32;
@@ -28,8 +29,8 @@ fn customer_lifecycle() {
         Some(c_last_sample.clone()),
         Some(c_discount_sample),
         Some(c_credit_sample.clone()),
-        Some(c_balance_sample),
-        Some(c_ytd_payment_sample),
+        Some(c_balance_sample.clone()),
+        Some(c_ytd_payment_sample.clone()),
         Some(c_payment_cnt_sample),
         Some(c_delivery_cnt_sample),
         Some(c_last_order_id_sample),
@@ -41,8 +42,11 @@ fn customer_lifecycle() {
     assert_eq!(entity.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(entity.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(entity.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(entity.get_c_balance(), &Some(c_balance_sample));
-    assert_eq!(entity.get_c_ytd_payment(), &Some(c_ytd_payment_sample));
+    assert_eq!(entity.get_c_balance(), &Some(c_balance_sample.clone()));
+    assert_eq!(
+        entity.get_c_ytd_payment(),
+        &Some(c_ytd_payment_sample.clone())
+    );
     assert_eq!(entity.get_c_payment_cnt(), &Some(c_payment_cnt_sample));
     assert_eq!(entity.get_c_delivery_cnt(), &Some(c_delivery_cnt_sample));
     assert_eq!(entity.get_c_last_order_id(), &Some(c_last_order_id_sample));
@@ -65,8 +69,11 @@ fn customer_lifecycle() {
     assert_eq!(from_tuple.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(from_tuple.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(from_tuple.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(from_tuple.get_c_balance(), &Some(c_balance_sample));
-    assert_eq!(from_tuple.get_c_ytd_payment(), &Some(c_ytd_payment_sample));
+    assert_eq!(from_tuple.get_c_balance(), &Some(c_balance_sample.clone()));
+    assert_eq!(
+        from_tuple.get_c_ytd_payment(),
+        &Some(c_ytd_payment_sample.clone())
+    );
     assert_eq!(from_tuple.get_c_payment_cnt(), &Some(c_payment_cnt_sample));
     assert_eq!(
         from_tuple.get_c_delivery_cnt(),
@@ -87,8 +94,11 @@ fn customer_lifecycle() {
     assert_eq!(from_value.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(from_value.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(from_value.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(from_value.get_c_balance(), &Some(c_balance_sample));
-    assert_eq!(from_value.get_c_ytd_payment(), &Some(c_ytd_payment_sample));
+    assert_eq!(from_value.get_c_balance(), &Some(c_balance_sample.clone()));
+    assert_eq!(
+        from_value.get_c_ytd_payment(),
+        &Some(c_ytd_payment_sample.clone())
+    );
     assert_eq!(from_value.get_c_payment_cnt(), &Some(c_payment_cnt_sample));
     assert_eq!(
         from_value.get_c_delivery_cnt(),
@@ -109,8 +119,11 @@ fn customer_lifecycle() {
     assert_eq!(from_binary.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(from_binary.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(from_binary.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(from_binary.get_c_balance(), &Some(c_balance_sample));
-    assert_eq!(from_binary.get_c_ytd_payment(), &Some(c_ytd_payment_sample));
+    assert_eq!(from_binary.get_c_balance(), &Some(c_balance_sample.clone()));
+    assert_eq!(
+        from_binary.get_c_ytd_payment(),
+        &Some(c_ytd_payment_sample.clone())
+    );
     assert_eq!(from_binary.get_c_payment_cnt(), &Some(c_payment_cnt_sample));
     assert_eq!(
         from_binary.get_c_delivery_cnt(),
@@ -131,10 +144,13 @@ fn customer_lifecycle() {
     assert_eq!(from_textual.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(from_textual.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(from_textual.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(from_textual.get_c_balance(), &Some(c_balance_sample));
+    assert_eq!(
+        from_textual.get_c_balance(),
+        &Some(c_balance_sample.clone())
+    );
     assert_eq!(
         from_textual.get_c_ytd_payment(),
-        &Some(c_ytd_payment_sample)
+        &Some(c_ytd_payment_sample.clone())
     );
     assert_eq!(
         from_textual.get_c_payment_cnt(),
@@ -160,8 +176,11 @@ fn customer_lifecycle() {
     assert_eq!(from_cloned.get_c_last(), &Some(c_last_sample.clone()));
     assert_eq!(from_cloned.get_c_discount(), &Some(c_discount_sample));
     assert_eq!(from_cloned.get_c_credit(), &Some(c_credit_sample.clone()));
-    assert_eq!(from_cloned.get_c_balance(), &Some(c_balance_sample));
-    assert_eq!(from_cloned.get_c_ytd_payment(), &Some(c_ytd_payment_sample));
+    assert_eq!(from_cloned.get_c_balance(), &Some(c_balance_sample.clone()));
+    assert_eq!(
+        from_cloned.get_c_ytd_payment(),
+        &Some(c_ytd_payment_sample.clone())
+    );
     assert_eq!(from_cloned.get_c_payment_cnt(), &Some(c_payment_cnt_sample));
     assert_eq!(
         from_cloned.get_c_delivery_cnt(),
@@ -303,16 +322,19 @@ fn customer_lifecycle() {
         let bin = entity.get_field_binary("c_balance").unwrap().unwrap();
         entity.set_field_binary("c_balance", &bin).unwrap();
         let val = entity.get_field_value("c_balance").unwrap().unwrap();
-        assert_eq!(val.as_i32().unwrap(), &c_balance_sample);
+        assert_eq!(val.as_numeric().unwrap(), &c_balance_sample);
         entity
-            .set_field_value("c_balance", DataValue::from_i32(c_balance_sample))
+            .set_field_value(
+                "c_balance",
+                DataValue::from_numeric(c_balance_sample.clone()),
+            )
             .unwrap();
         assert_eq!(
             entity
                 .get_field_value("c_balance")
                 .unwrap()
                 .unwrap()
-                .as_i32()
+                .as_numeric()
                 .unwrap(),
             &c_balance_sample
         );
@@ -321,16 +343,19 @@ fn customer_lifecycle() {
         let bin = entity.get_field_binary("c_ytd_payment").unwrap().unwrap();
         entity.set_field_binary("c_ytd_payment", &bin).unwrap();
         let val = entity.get_field_value("c_ytd_payment").unwrap().unwrap();
-        assert_eq!(val.as_i32().unwrap(), &c_ytd_payment_sample);
+        assert_eq!(val.as_numeric().unwrap(), &c_ytd_payment_sample);
         entity
-            .set_field_value("c_ytd_payment", DataValue::from_i32(c_ytd_payment_sample))
+            .set_field_value(
+                "c_ytd_payment",
+                DataValue::from_numeric(c_ytd_payment_sample.clone()),
+            )
             .unwrap();
         assert_eq!(
             entity
                 .get_field_value("c_ytd_payment")
                 .unwrap()
                 .unwrap()
-                .as_i32()
+                .as_numeric()
                 .unwrap(),
             &c_ytd_payment_sample
         );

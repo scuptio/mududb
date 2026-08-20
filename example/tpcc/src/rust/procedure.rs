@@ -1,19 +1,30 @@
 use crate::rust::customer::object::Customer;
-use crate::rust::district::object::District;
-use crate::rust::item::object::Item;
 use crate::rust::new_order::object::NewOrder;
 use crate::rust::orders::object::Orders;
 use crate::rust::procedure_common::{
     customer_name, district_name, item_name, order_status_text, require_positive,
     validate_order_lines, warehouse_name,
 };
-use crate::rust::stock::object::Stock;
-use crate::rust::warehouse::object::Warehouse;
+use crate::rust::relation::{
+    C_BALANCE, C_D_ID, C_ID, C_LAST_ORDER_ID, C_PAYMENT_CNT, C_W_ID, C_YTD_PAYMENT, D_ID,
+    D_NEXT_O_ID, D_TAX, D_W_ID, D_YTD, H_AMOUNT, H_C_D_ID, H_C_ID, H_C_W_ID, H_D_ID, H_DATA, H_ID,
+    H_W_ID, I_ID, I_PRICE, MONEY_6_2, MONEY_8_2, MONEY_12_2, NO_D_ID, NO_O_ID, NO_W_ID,
+    O_ALL_LOCAL, O_C_ID, O_CARRIER_ID, O_D_ID, O_ENTRY_D, O_ID, O_OL_CNT, O_STATUS, O_W_ID,
+    OL_AMOUNT, OL_D_ID, OL_DELIVERY_D, OL_I_ID, OL_NUMBER, OL_O_ID, OL_QUANTITY, OL_SUPPLY_W_ID,
+    OL_W_ID, PH_AMOUNT, PH_C_D_ID, PH_C_ID, PH_C_W_ID, PH_D_ID, PH_DATA, PH_ID, PH_W_ID, PI_ID,
+    PI_PRICE, PI_W_ID, S_I_ID, S_ORDER_CNT, S_QUANTITY, S_REMOTE_CNT, S_W_ID, S_YTD,
+    TABLE_CUSTOMER, TABLE_DISTRICT, TABLE_HISTORY, TABLE_ITEM, TABLE_NEW_ORDER, TABLE_ORDER_LINE,
+    TABLE_ORDERS, TABLE_STOCK, TABLE_WAREHOUSE, W_ID, W_YTD, datum_i32, datum_money, datum_text,
+    key_i32, read_i32, read_money, rel_get_one, rel_insert, rel_update,
+};
+use bigdecimal::ToPrimitive;
+use mududb::binding::universal::uni_relation::UniRelationDelta;
 use mududb::common::id::OID;
 use mududb::common::result::RS;
 use mududb::contract::database::entity::Entity;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ErrorCode;
+use mududb::mudu::data_type::numeric::Numeric;
 use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
@@ -61,11 +72,53 @@ fn query_count_i32(
     Ok(value as i32)
 }
 
+fn query_one_i32(
+    xid: OID,
+    sql: &str,
+    params: &dyn mududb::contract::database::sql_params::SQLParams,
+) -> RS<i32> {
+    mudu_query::<i32>(xid, sql_stmt!(&sql), params)?
+        .next_record()?
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("query returned no rows: {sql}")
+            )
+        })
+}
+
 fn required_i32(value: &Option<i32>, field: &str) -> RS<i32> {
     value.as_ref().copied().ok_or_else(|| {
         mudu_error!(
             ErrorCode::InvalidState,
             format!("entity field is null: {field}")
+        )
+    })
+}
+
+/// Read a NUMERIC money column as a whole-number i32.
+///
+/// Money columns keep integer semantics in this workload; values may carry a
+/// fractional part depending on the column scale (e.g. `NUMERIC(12,2)` renders
+/// `42` as `42.00`), so the fractional part is truncated after validation.
+fn required_money_i32(value: &Option<Numeric>, field: &str) -> RS<i32> {
+    let numeric = value.as_ref().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidState,
+            format!("entity field is null: {field}")
+        )
+    })?;
+    let decimal = numeric.as_bigdecimal();
+    if !decimal.is_integer() {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            format!("money field {field} has a non-zero fraction: {numeric}")
+        ));
+    }
+    decimal.to_i32().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::Parse,
+            format!("money field {field} does not fit into i32: {numeric}")
         )
     })
 }
@@ -102,7 +155,13 @@ fn tpcc_seed_inner(
                     sql_stmt!(
                         &"INSERT INTO item (i_w_id, i_id, i_name, i_price) VALUES (?, ?, ?, ?)"
                     ),
-                    sql_params!(&(warehouse_id, item_id, item_name(item_id), item_id * 10)),
+                    // Keep the generated i_price within the NUMERIC(6,2) column range.
+                    sql_params!(&(
+                        warehouse_id,
+                        item_id,
+                        item_name(item_id),
+                        ((item_id - 1) % 999 + 1) * 10
+                    )),
                 )?;
             }
         }
@@ -111,7 +170,8 @@ fn tpcc_seed_inner(
             mudu_command(
                 xid,
                 sql_stmt!(&"INSERT INTO item (i_id, i_name, i_price) VALUES (?, ?, ?)"),
-                sql_params!(&(item_id, item_name(item_id), item_id * 10)),
+                // Keep the generated i_price within the NUMERIC(6,2) column range.
+                sql_params!(&(item_id, item_name(item_id), ((item_id - 1) % 999 + 1) * 10)),
             )?;
         }
     }
@@ -205,50 +265,67 @@ fn tpcc_new_order_inner(request: TpccNewOrderRequest) -> RS<String> {
         ));
     }
 
-    let district = query_one_entity::<District>(
-        xid,
-        "SELECT d_id, d_w_id, d_name, d_tax, d_ytd, d_next_o_id, d_last_delivery_o_id FROM district WHERE d_w_id = ? AND d_id = ?",
-        sql_params!(&(warehouse_id, district_id)),
-    )?;
-    let next_order_id = required_i32(district.get_d_next_o_id(), "district.d_next_o_id")?;
-    let next_d_next_o_id = next_order_id + 1;
+    let district_key = key_i32(&[(D_W_ID, warehouse_id), (D_ID, district_id)])?;
+    // Plain point read of the district row (also validates the row exists).
+    rel_get_one(xid, TABLE_DISTRICT, &district_key, &[D_TAX])?;
 
-    query_one_entity::<Customer>(
-        xid,
-        "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
-        sql_params!(&(warehouse_id, district_id, customer_id)),
-    )?;
+    let customer_key = key_i32(&[
+        (C_W_ID, warehouse_id),
+        (C_D_ID, district_id),
+        (C_ID, customer_id),
+    ])?;
+    // Plain point read of the customer row (also validates the row exists).
+    rel_get_one(xid, TABLE_CUSTOMER, &customer_key, &[C_BALANCE])?;
 
-    mudu_command(
+    // Allocate the next order id with an atomic increment: the delta is
+    // evaluated on the latest committed d_next_o_id under the row lock, so
+    // concurrent new-order transactions can no longer read the same stale
+    // value and collide on the orders/new_order primary key.
+    rel_update(
         xid,
-        sql_stmt!(&"UPDATE district SET d_next_o_id = ? WHERE d_w_id = ? AND d_id = ?"),
-        sql_params!(&(next_d_next_o_id, warehouse_id, district_id)),
+        TABLE_DISTRICT,
+        &district_key,
+        &[],
+        &[UniRelationDelta::add(D_NEXT_O_ID, datum_i32(1)?)],
     )?;
+    // Read-your-writes: this observes the increment staged above, so the
+    // allocated order id is the pre-increment value.
+    let next_order_id = read_i32(
+        &rel_get_one(xid, TABLE_DISTRICT, &district_key, &[D_NEXT_O_ID])?,
+        0,
+        "district.d_next_o_id",
+    )? - 1;
     let all_local = supplier_warehouse_ids
         .iter()
         .all(|&supplier_warehouse_id| supplier_warehouse_id == warehouse_id);
     let entry_d = format!("xid-{xid}-o{next_order_id}");
 
-    mudu_command(
+    rel_insert(
         xid,
-        sql_stmt!(
-            &"INSERT INTO orders (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local, o_status) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)"
-        ),
-        sql_params!(&(
-            next_order_id,
-            district_id,
-            warehouse_id,
-            customer_id,
-            entry_d,
-            item_ids.len() as i32,
-            if all_local { 1 } else { 0 },
-            "NEW".to_string(),
-        )),
+        TABLE_ORDERS,
+        &key_i32(&[
+            (O_W_ID, warehouse_id),
+            (O_D_ID, district_id),
+            (O_ID, next_order_id),
+        ])?,
+        &[
+            (O_C_ID, datum_i32(customer_id)?),
+            (O_ENTRY_D, datum_text(&entry_d)?),
+            (O_CARRIER_ID, datum_i32(0)?),
+            (O_OL_CNT, datum_i32(item_ids.len() as i32)?),
+            (O_ALL_LOCAL, datum_i32(if all_local { 1 } else { 0 })?),
+            (O_STATUS, datum_text("NEW")?),
+        ],
     )?;
-    mudu_command(
+    rel_insert(
         xid,
-        sql_stmt!(&"INSERT INTO new_order (no_o_id, no_d_id, no_w_id) VALUES (?, ?, ?)"),
-        sql_params!(&(next_order_id, district_id, warehouse_id)),
+        TABLE_NEW_ORDER,
+        &key_i32(&[
+            (NO_W_ID, warehouse_id),
+            (NO_D_ID, district_id),
+            (NO_O_ID, next_order_id),
+        ])?,
+        &[],
     )?;
 
     let mut total_quantity = 0;
@@ -259,77 +336,65 @@ fn tpcc_new_order_inner(request: TpccNewOrderRequest) -> RS<String> {
         .zip(quantities.iter())
         .enumerate()
     {
-        let item = if warehouse_partitioned {
-            query_one_entity::<Item>(
-                xid,
-                "SELECT i_id, i_name, i_price FROM item WHERE i_w_id = ? AND i_id = ?",
-                sql_params!(&(warehouse_id, item_id)),
-            )?
+        let (item_key, item_price_attr) = if warehouse_partitioned {
+            (
+                key_i32(&[(PI_W_ID, warehouse_id), (PI_ID, item_id)])?,
+                PI_PRICE,
+            )
         } else {
-            query_one_entity::<Item>(
-                xid,
-                "SELECT i_id, i_name, i_price FROM item WHERE i_id = ?",
-                sql_params!(&(item_id,)),
-            )?
+            (key_i32(&[(I_ID, item_id)])?, I_PRICE)
         };
-        let item_price = required_i32(item.get_i_price(), "item.i_price")?;
-        let stock = query_one_entity::<Stock>(
-            xid,
-            "SELECT s_i_id, s_w_id, s_quantity, s_ytd, s_order_cnt, s_remote_cnt FROM stock WHERE s_w_id = ? AND s_i_id = ?",
-            sql_params!(&(supplier_warehouse_id, item_id)),
+        let item_row = rel_get_one(xid, TABLE_ITEM, &item_key, &[item_price_attr])?;
+        let item_price = required_money_i32(
+            &Some(read_money(&item_row, 0, MONEY_6_2, "item.i_price")?),
+            "item.i_price",
         )?;
-        let stock_quantity = required_i32(stock.get_s_quantity(), "stock.s_quantity")?;
+        // s_quantity's conditional restock commutes with any other such
+        // update when written as `((current - 10 - q) mod 91) + 10`, so it
+        // is issued as a deferred conditional-restock delta evaluated
+        // atomically at commit apply time — no statement lock and no
+        // old-value read. s_ytd / s_order_cnt / s_remote_cnt are
+        // unconditional increments and commute as well, so they go through
+        // the same lock-free deferred path.
+        let stock_key = key_i32(&[(S_W_ID, supplier_warehouse_id), (S_I_ID, item_id)])?;
         let is_remote = supplier_warehouse_id != warehouse_id;
-        let next_stock_ytd = required_i32(stock.get_s_ytd(), "stock.s_ytd")? + quantity;
-        let next_stock_order_cnt = required_i32(stock.get_s_order_cnt(), "stock.s_order_cnt")? + 1;
-        let next_stock_remote_cnt = required_i32(stock.get_s_remote_cnt(), "stock.s_remote_cnt")?
-            + if is_remote { 1 } else { 0 };
-        let adjusted_quantity = if stock_quantity >= quantity + 10 {
-            stock_quantity - quantity
-        } else {
-            stock_quantity + 91 - quantity
-        };
         let amount = item_price * quantity;
 
-        mudu_command(
+        let mut deltas = vec![
+            UniRelationDelta::sub_wrap(S_QUANTITY, quantity as i64, 10, 91),
+            UniRelationDelta::add_deferred(S_YTD, datum_i32(quantity)?),
+            UniRelationDelta::add_deferred(S_ORDER_CNT, datum_i32(1)?),
+        ];
+        if is_remote {
+            deltas.push(UniRelationDelta::add_deferred(S_REMOTE_CNT, datum_i32(1)?));
+        }
+        rel_update(xid, TABLE_STOCK, &stock_key, &[], &deltas)?;
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"UPDATE stock SET s_quantity = ?, s_ytd = ?, s_order_cnt = ?, s_remote_cnt = ? WHERE s_w_id = ? AND s_i_id = ?"
-            ),
-            sql_params!(&(
-                adjusted_quantity,
-                next_stock_ytd,
-                next_stock_order_cnt,
-                next_stock_remote_cnt,
-                supplier_warehouse_id,
-                item_id
-            )),
-        )?;
-        mudu_command(
-            xid,
-            sql_stmt!(
-                &"INSERT INTO order_line (ol_o_id, ol_d_id, ol_w_id, ol_number, ol_i_id, ol_supply_w_id, ol_delivery_d, ol_quantity, ol_amount) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)"
-            ),
-            sql_params!(&(
-                next_order_id,
-                district_id,
-                warehouse_id,
-                idx as i32 + 1,
-                item_id,
-                supplier_warehouse_id,
-                quantity,
-                amount
-            )),
+            TABLE_ORDER_LINE,
+            &key_i32(&[
+                (OL_W_ID, warehouse_id),
+                (OL_D_ID, district_id),
+                (OL_O_ID, next_order_id),
+                (OL_NUMBER, idx as i32 + 1),
+            ])?,
+            &[
+                (OL_I_ID, datum_i32(item_id)?),
+                (OL_SUPPLY_W_ID, datum_i32(supplier_warehouse_id)?),
+                (OL_DELIVERY_D, datum_text("")?),
+                (OL_QUANTITY, datum_i32(quantity)?),
+                (OL_AMOUNT, datum_money(amount, MONEY_8_2)?),
+            ],
         )?;
         total_quantity += quantity;
         total_amount += amount;
     }
-    mudu_command(
+    rel_update(
         xid,
-        sql_stmt!(
-            &"UPDATE customer SET c_last_order_id = ? WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?"
-        ),
-        sql_params!(&(next_order_id, warehouse_id, district_id, customer_id)),
+        TABLE_CUSTOMER,
+        &customer_key,
+        &[(C_LAST_ORDER_ID, datum_i32(next_order_id)?)],
+        &[],
     )?;
 
     Ok(order_status_text(
@@ -355,88 +420,97 @@ fn tpcc_payment_inner(
     require_positive("customer_id", customer_id)?;
     require_positive("amount", amount)?;
 
-    let warehouse = query_one_entity::<Warehouse>(
-        xid,
-        "SELECT w_id, w_name, w_tax, w_ytd FROM warehouse WHERE w_id = ?",
-        sql_params!(&(warehouse_id,)),
-    )?;
-    let district = query_one_entity::<District>(
-        xid,
-        "SELECT d_id, d_w_id, d_name, d_tax, d_ytd, d_next_o_id, d_last_delivery_o_id FROM district WHERE d_w_id = ? AND d_id = ?",
-        sql_params!(&(warehouse_id, district_id)),
-    )?;
-    let customer = query_one_entity::<Customer>(
-        xid,
-        "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
-        sql_params!(&(warehouse_id, district_id, customer_id)),
-    )?;
-    let next_w_ytd = required_i32(warehouse.get_w_ytd(), "warehouse.w_ytd")? + amount;
-    let next_d_ytd = required_i32(district.get_d_ytd(), "district.d_ytd")? + amount;
-    let next_c_balance = required_i32(customer.get_c_balance(), "customer.c_balance")? - amount;
-    let next_c_ytd_payment =
-        required_i32(customer.get_c_ytd_payment(), "customer.c_ytd_payment")? + amount;
-    let next_c_payment_cnt =
-        required_i32(customer.get_c_payment_cnt(), "customer.c_payment_cnt")? + 1;
+    // The customer balance is still read to report the post-payment balance.
+    // The write side below uses delta updates (`col = col +|- datum`), so the
+    // warehouse/district base-value reads are gone and no concurrent payment
+    // can be lost; the reported balance comes from this pre-update read and
+    // may lag a concurrent payment.
+    let customer_key = key_i32(&[
+        (C_W_ID, warehouse_id),
+        (C_D_ID, district_id),
+        (C_ID, customer_id),
+    ])?;
+    let customer_row = rel_get_one(xid, TABLE_CUSTOMER, &customer_key, &[C_BALANCE])?;
+    let next_c_balance = required_money_i32(
+        &Some(read_money(
+            &customer_row,
+            0,
+            MONEY_12_2,
+            "customer.c_balance",
+        )?),
+        "customer.c_balance",
+    )? - amount;
 
-    mudu_command(
-        xid,
-        sql_stmt!(&"UPDATE warehouse SET w_ytd = ? WHERE w_id = ?"),
-        sql_params!(&(next_w_ytd, warehouse_id)),
-    )?;
-    mudu_command(
-        xid,
-        sql_stmt!(&"UPDATE district SET d_ytd = ? WHERE d_w_id = ? AND d_id = ?"),
-        sql_params!(&(next_d_ytd, warehouse_id, district_id)),
-    )?;
-    mudu_command(
-        xid,
-        sql_stmt!(
-            &"UPDATE customer SET c_balance = ?, c_ytd_payment = ?, c_payment_cnt = ? WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?"
-        ),
-        sql_params!(&(
-            next_c_balance,
-            next_c_ytd_payment,
-            next_c_payment_cnt,
-            warehouse_id,
-            district_id,
-            customer_id
-        )),
-    )?;
+    let history_id = mududb::sys::random::next_uuid_v4_string();
+    let history_data = format!("payment warehouse={warehouse_id} district={district_id}");
     if warehouse_partitioned {
-        mudu_command(
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"INSERT INTO history (h_w_id, h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            ),
-            sql_params!(&(
-                warehouse_id,
-                mududb::sys::random::next_uuid_v4_string(),
-                customer_id,
-                district_id,
-                warehouse_id,
-                district_id,
-                amount,
-                format!("payment warehouse={warehouse_id} district={district_id}")
-            )),
+            TABLE_HISTORY,
+            &[
+                (PH_W_ID, datum_i32(warehouse_id)?),
+                (PH_ID, datum_text(&history_id)?),
+            ],
+            &[
+                (PH_C_ID, datum_i32(customer_id)?),
+                (PH_C_D_ID, datum_i32(district_id)?),
+                (PH_C_W_ID, datum_i32(warehouse_id)?),
+                (PH_D_ID, datum_i32(district_id)?),
+                (PH_AMOUNT, datum_money(amount, MONEY_6_2)?),
+                (PH_DATA, datum_text(&history_data)?),
+            ],
         )?;
     } else {
-        mudu_command(
+        rel_insert(
             xid,
-            sql_stmt!(
-                &"INSERT INTO history (h_id, h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            ),
-            sql_params!(&(
-                mududb::sys::random::next_uuid_v4_string(),
-                customer_id,
-                district_id,
-                warehouse_id,
-                district_id,
-                warehouse_id,
-                amount,
-                format!("payment warehouse={warehouse_id} district={district_id}")
-            )),
+            TABLE_HISTORY,
+            &[(H_ID, datum_text(&history_id)?)],
+            &[
+                (H_C_ID, datum_i32(customer_id)?),
+                (H_C_D_ID, datum_i32(district_id)?),
+                (H_C_W_ID, datum_i32(warehouse_id)?),
+                (H_D_ID, datum_i32(district_id)?),
+                (H_W_ID, datum_i32(warehouse_id)?),
+                (H_AMOUNT, datum_money(amount, MONEY_6_2)?),
+                (H_DATA, datum_text(&history_data)?),
+            ],
         )?;
     }
+    // Delta updates evaluate on the latest tuple read under the statement
+    // lock, making concurrent payments atomic. The hottest row (warehouse,
+    // one row per warehouse for the whole table) is updated last so its lock
+    // escort tail covers only the commit critical section.
+    rel_update(
+        xid,
+        TABLE_CUSTOMER,
+        &customer_key,
+        &[],
+        &[
+            UniRelationDelta::sub(C_BALANCE, datum_money(amount, MONEY_12_2)?),
+            UniRelationDelta::add(C_YTD_PAYMENT, datum_money(amount, MONEY_12_2)?),
+            UniRelationDelta::add(C_PAYMENT_CNT, datum_i32(1)?),
+        ],
+    )?;
+    rel_update(
+        xid,
+        TABLE_DISTRICT,
+        &key_i32(&[(D_W_ID, warehouse_id), (D_ID, district_id)])?,
+        &[],
+        &[UniRelationDelta::add(
+            D_YTD,
+            datum_money(amount, MONEY_12_2)?,
+        )],
+    )?;
+    rel_update(
+        xid,
+        TABLE_WAREHOUSE,
+        &key_i32(&[(W_ID, warehouse_id)])?,
+        &[],
+        &[UniRelationDelta::add(
+            W_YTD,
+            datum_money(amount, MONEY_12_2)?,
+        )],
+    )?;
     Ok(next_c_balance)
 }
 
@@ -678,6 +752,36 @@ pub fn tpcc_stock_level_partitioned(
     tpcc_stock_level(xid, warehouse_id, district_id, threshold)
 }
 
+/// Hot-row contention injector: increments one of the K per-warehouse
+/// hotspot rows (`tpcc_hotspot`, created client-side by the benchmark).
+/// Runs as its own tiny transaction right after a TPC-C op.
+fn tpcc_hotspot_hit_inner(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    require_positive("warehouse_id", warehouse_id)?;
+    require_positive("hot_id", hot_id)?;
+    mudu_command(
+        xid,
+        sql_stmt!(
+            &"UPDATE tpcc_hotspot SET h_counter = h_counter + 1 WHERE h_w_id = ? AND h_id = ?"
+        ),
+        sql_params!(&(warehouse_id, hot_id)),
+    )?;
+    query_one_i32(
+        xid,
+        "SELECT h_counter FROM tpcc_hotspot WHERE h_w_id = ? AND h_id = ?",
+        sql_params!(&(warehouse_id, hot_id)),
+    )
+}
+
+/**mudu-proc**/
+pub fn tpcc_hotspot_hit(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    tpcc_hotspot_hit_inner(xid, warehouse_id, hot_id)
+}
+
+/**mudu-proc**/
+pub fn tpcc_hotspot_hit_partitioned(xid: OID, warehouse_id: i32, hot_id: i32) -> RS<i32> {
+    tpcc_hotspot_hit_inner(xid, warehouse_id, hot_id)
+}
+
 // Miri cannot execute FFI calls into SQLite (via rusqlite), so skip
 // these tests under Miri. They are still exercised by normal `cargo test`.
 #[cfg(test)]
@@ -708,11 +812,8 @@ mod tests {
         mudu_batch(xid, sql_stmt!(&init), sql_params!(&())).unwrap();
     }
 
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn tpcc_sync_procedures_roundtrip_against_standalone_adapter() {
-        let _guard = test_lock().lock().unwrap();
-        let db_path = temp_db_path("sync");
+    fn run_sync_roundtrip(db_name: &str) {
+        let db_path = temp_db_path(db_name);
         mudu_adapter::config::reset_db_path_override_for_test();
         mudu_adapter::syscall::set_db_path(&db_path);
 
@@ -734,5 +835,24 @@ mod tests {
         assert_eq!(tpcc_stock_level(xid, 1, 1, 20).unwrap(), 3);
 
         mudu_close(xid).unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tpcc_sync_procedures_roundtrip_against_standalone_adapter() {
+        let _guard = test_lock().lock().unwrap();
+        crate::rust::relation::reset_relation_support_for_test();
+        run_sync_roundtrip("sync");
+    }
+
+    // Same roundtrip, but with the relation syscalls forced onto the SQL
+    // fallback path used by drivers without relation-syscall support.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tpcc_sync_procedures_roundtrip_through_relation_sql_fallback() {
+        let _guard = test_lock().lock().unwrap();
+        crate::rust::relation::force_relation_sql_fallback_for_test();
+        run_sync_roundtrip("sync_sql_fallback");
+        crate::rust::relation::reset_relation_support_for_test();
     }
 }

@@ -2,7 +2,7 @@ CREATE TABLE warehouse (
     w_id INTEGER PRIMARY KEY,
     w_name TEXT NOT NULL,
     w_tax INTEGER NOT NULL,
-    w_ytd INTEGER NOT NULL
+    w_ytd NUMERIC(12,2) NOT NULL
 ) PARTITION BY GLOBAL RULE r_tpcc_wh REFERENCES (w_id);
 
 CREATE TABLE district (
@@ -10,7 +10,7 @@ CREATE TABLE district (
     d_w_id INTEGER NOT NULL,
     d_name TEXT NOT NULL,
     d_tax INTEGER NOT NULL,
-    d_ytd INTEGER NOT NULL,
+    d_ytd NUMERIC(12,2) NOT NULL,
     d_next_o_id INTEGER NOT NULL,
     d_last_delivery_o_id INTEGER NOT NULL,
     PRIMARY KEY (d_w_id, d_id)
@@ -24,8 +24,8 @@ CREATE TABLE customer (
     c_last TEXT NOT NULL,
     c_discount INTEGER NOT NULL,
     c_credit TEXT NOT NULL,
-    c_balance INTEGER NOT NULL,
-    c_ytd_payment INTEGER NOT NULL,
+    c_balance NUMERIC(12,2) NOT NULL,
+    c_ytd_payment NUMERIC(12,2) NOT NULL,
     c_payment_cnt INTEGER NOT NULL,
     c_delivery_cnt INTEGER NOT NULL,
     c_last_order_id INTEGER,
@@ -36,7 +36,7 @@ CREATE TABLE item (
     i_w_id INTEGER NOT NULL,
     i_id INTEGER NOT NULL,
     i_name TEXT NOT NULL,
-    i_price INTEGER NOT NULL,
+    i_price NUMERIC(6,2) NOT NULL,
     PRIMARY KEY (i_w_id, i_id)
 ) PARTITION BY GLOBAL RULE r_tpcc_wh REFERENCES (i_w_id);
 
@@ -79,7 +79,7 @@ CREATE TABLE order_line (
     ol_supply_w_id INTEGER NOT NULL,
     ol_delivery_d TEXT,
     ol_quantity INTEGER NOT NULL,
-    ol_amount INTEGER NOT NULL,
+    ol_amount NUMERIC(8,2) NOT NULL,
     PRIMARY KEY (ol_w_id, ol_d_id, ol_o_id, ol_number)
 ) PARTITION BY GLOBAL RULE r_tpcc_wh REFERENCES (ol_w_id);
 
@@ -90,7 +90,7 @@ CREATE TABLE history (
     h_c_d_id INTEGER NOT NULL,
     h_c_w_id INTEGER NOT NULL,
     h_d_id INTEGER NOT NULL,
-    h_amount INTEGER NOT NULL,
+    h_amount NUMERIC(6,2) NOT NULL,
     h_data TEXT NOT NULL,
     PRIMARY KEY (h_w_id, h_id)
 ) PARTITION BY GLOBAL RULE r_tpcc_wh REFERENCES (h_w_id);

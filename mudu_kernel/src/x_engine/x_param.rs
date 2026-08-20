@@ -1,7 +1,8 @@
+use crate::contract::fs_type::FsTypeKind;
 use crate::contract::partition_rule::PartitionRuleDesc;
 use crate::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
 use crate::contract::schema_table::SchemaTable;
-use crate::x_engine::api::{OptRead, Predicate, RangeData, VecDatum, VecSelTerm};
+use crate::x_engine::api::{DeltaAssign, OptRead, Predicate, RangeData, VecDatum, VecSelTerm};
 use crate::x_engine::tx_mgr::TxMgr;
 use mudu::common::id::OID;
 use std::sync::Arc;
@@ -50,6 +51,17 @@ pub struct PDropTable {
 }
 
 #[derive(Clone)]
+pub struct PCreateFsType {
+    pub name: String,
+    pub kind: FsTypeKind,
+}
+
+#[derive(Clone)]
+pub struct PDropType {
+    pub name: String,
+}
+
+#[derive(Clone)]
 pub struct PInsertKeyValue {
     pub tx_mgr: Arc<dyn TxMgr>,
     pub table_id: OID,
@@ -62,6 +74,9 @@ pub struct PUpdateKeyValue {
     pub table_id: OID,
     pub key: VecDatum,
     pub value: VecDatum,
+    /// Restricted `SET col = col <+|-> <integer literal or ?>` assignments,
+    /// evaluated against the latest committed row under the statement lock.
+    pub delta_assignments: Vec<DeltaAssign>,
 }
 
 #[derive(Clone)]

@@ -1,10 +1,11 @@
 ## Mudu Procedure 中的系统调用
 
-Mudu Procedure 可以调用三类系统 API：
+Mudu Procedure 可以调用四类系统 API：
 
 - 会话管理系统调用
 - 用于关系型 CRUD 操作的 SQL API
 - 用于会话级键值访问的 KV API
+- 用于会话级文件访问的文件系统 API
 
 当前稳定的系统调用入口分为两套：
 
@@ -250,6 +251,74 @@ pub async fn mudu_range(
 #### start_key / end_key
 
 `range` 使用的包含式范围边界。
+
+## 文件系统 API
+
+文件系统 API 在文件系统对象（fs object）上提供类 POSIX 的文件操作，共 11 个系统调用：
+
+```rust
+// 同步入口（异步入口同名，为 async fn）
+pub fn mudu_fs_open(session_id: OID, oid: OID, path: &str, flags: u32) -> RS<u32> {
+    /* ... */
+}
+pub fn mudu_fs_close(session_id: OID, fd: u32) -> RS<()> {
+    /* ... */
+}
+pub fn mudu_fs_read(session_id: OID, fd: u32, len: u32) -> RS<Vec<u8>> {
+    /* ... */
+}
+pub fn mudu_fs_write(session_id: OID, fd: u32, data: &[u8]) -> RS<u32> {
+    /* ... */
+}
+pub fn mudu_fs_pread(session_id: OID, fd: u32, offset: u64, len: u32) -> RS<Vec<u8>> {
+    /* ... */
+}
+pub fn mudu_fs_pwrite(session_id: OID, fd: u32, offset: u64, data: &[u8]) -> RS<()> {
+    /* ... */
+}
+pub fn mudu_fs_lseek(session_id: OID, fd: u32, offset: i64, whence: u32) -> RS<u64> {
+    /* ... */
+}
+pub fn mudu_fs_fstat(session_id: OID, fd: u32) -> RS<FsStat> {
+    /* ... */
+}
+pub fn mudu_fs_stat(session_id: OID, oid: OID, path: &str) -> RS<FsStat> {
+    /* ... */
+}
+pub fn mudu_fs_fsync(session_id: OID, fd: u32) -> RS<()> {
+    /* ... */
+}
+pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEntry>> {
+    /* ... */
+}
+```
+
+- `mudu_fs_open` 打开 `oid` 指定的文件系统对象内 `path` 处的文件，返回文件描述符 `fd`；`flags` 取 libc `O_*` 值。
+- `mudu_fs_read` / `mudu_fs_write` 在 `fd` 当前游标处读写；`mudu_fs_pread` / `mudu_fs_pwrite` 在指定 `offset` 处读写。
+- `mudu_fs_lseek` 移动 `fd` 的游标；`mudu_fs_fsync` 将 `fd` 的写入落盘；`mudu_fs_close` 关闭 `fd`。
+- `mudu_fs_fstat` / `mudu_fs_stat` 返回文件元数据 `FsStat`；`mudu_fs_readdir` 列出目录项 `FsDirEntry`（仅目录）。
+
+### 文件系统 API 参数
+
+#### oid
+
+文件系统对象的 OID。
+
+#### path
+
+对象内的相对路径。
+
+#### fd
+
+由 `mudu_fs_open` 返回的文件描述符。
+
+## mtp 同步转异步约束
+
+`mtp rust --async` 会把 `/**mudu-proc**/` 过程中的系统调用自动转换为异步形式：`use` 路径由
+`sys_interface::sync_api` 改写为 `sys_interface::async_api`，并在调用点拼接 `.await`。
+该转换按被调用函数的裸标识符匹配，因此上述所有系统调用（含 `mudu_fs_*` 家族）必须经过
+`use sys_interface::sync_api::{mudu_fs_open, ...}` 导入后以裸名调用，mtp 才能识别并转换；
+通过模块路径限定调用（如 `sync_api::mudu_fs_open(...)`）不会被转换。
 
 <!--
 quote_begin

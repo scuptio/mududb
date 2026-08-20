@@ -321,5 +321,5 @@ Version `1` may be deprecated only after:
 - `universal` type family (Rust): [`mudu_binding/src/universal/`](../../../mudu_binding/src/universal/)
 - Existing hand-written KV codec: [`mudu_binding/src/codec/handle_sys_session.rs`](../../../mudu_binding/src/codec/handle_sys_session.rs)
 - SQL request/response codec: [`mudu_binding/src/codec/handle_sys_incoming.rs`](../../../mudu_binding/src/codec/handle_sys_incoming.rs), [`handle_sys_outcoming.rs`](../../../mudu_binding/src/codec/handle_sys_outcoming.rs)
-- Host syscall entry points: [`mudu_runtime/src/interface/kernel.rs`](../../../mudu_runtime/src/interface/kernel.rs)
+- Host syscall entry points: [`mudu_runtime/src/interface/kernel_sync.rs`](../../../mudu_runtime/src/interface/kernel_sync.rs), [`kernel_async.rs`](../../../mudu_runtime/src/interface/kernel_async.rs)
 - Design plan: [`doc/cn/todo/project-controlled-guest-host-abi.md`](../../cn/todo/project-controlled-guest-host-abi.md)

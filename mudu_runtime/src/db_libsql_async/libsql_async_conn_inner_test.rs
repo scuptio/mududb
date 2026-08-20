@@ -73,6 +73,10 @@ fn batch_rejects_parameters() {
     .unwrap();
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[test]
 #[cfg_attr(miri, ignore)]
 fn prepared_statement_lifecycle_and_lease_release() {

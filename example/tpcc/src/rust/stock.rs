@@ -209,7 +209,7 @@ pub mod object {
                 S_REMOTE_CNT => attr_field_access::attr_get_binary::<_>(self.s_remote_cnt.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -259,7 +259,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -280,7 +280,7 @@ pub mod object {
                 S_REMOTE_CNT => attr_field_access::attr_get_value::<_>(self.s_remote_cnt.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -312,7 +312,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())

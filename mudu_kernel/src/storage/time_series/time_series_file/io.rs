@@ -39,6 +39,59 @@ pub(super) async fn flush_file(file: &SysFile) -> RS<()> {
     file.fsync().await
 }
 
+/// Blocking `write_all_at` for the sync close path (`close_sync`), which
+/// cannot await the async `SysFile` API. Writes through `libc::pwrite` on
+/// the raw descriptor; on the native backend `SysFile` always wraps a real
+/// fd. This is the only sanctioned blocking write in this module: async
+/// callers must go through `SysFile::write_all_at`.
+#[cfg(unix)]
+pub(super) fn sync_write_all_at(file: &SysFile, offset: u64, payload: &[u8]) -> RS<()> {
+    let fd = file.as_raw_fd().ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::Internal,
+            "sync page write requires a raw file descriptor"
+        )
+    })?;
+    let mut written = 0usize;
+    while written < payload.len() {
+        let rc = unsafe {
+            libc::pwrite(
+                fd,
+                payload[written..].as_ptr() as *const libc::c_void,
+                payload.len() - written,
+                (offset + written as u64) as libc::off_t,
+            )
+        };
+        if rc < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                "sync page write error",
+                err
+            ));
+        }
+        if rc == 0 {
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                "sync page write wrote zero bytes"
+            ));
+        }
+        written += rc as usize;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub(super) fn sync_write_all_at(_file: &SysFile, _offset: u64, _payload: &[u8]) -> RS<()> {
+    Err(mudu_error!(
+        ErrorCode::NotImplemented,
+        "sync page write is only supported on unix"
+    ))
+}
+
 pub(super) async fn close_file(file: SysFile) -> RS<()> {
     file.close().await
 }

@@ -41,8 +41,15 @@ args = [
         "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
 ]
 
-[tasks.cargo-build]
+# mgen and the transpiler do not emit rustfmt-clean code; format the crate so
+# regeneration never breaks the CI `cargo fmt -- --check` gate.
+[tasks.format]
 dependencies = ["generate", "transpile"]
+command = "cargo"
+args = ["fmt", "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/Cargo.toml"]
+
+[tasks.cargo-build]
+dependencies = ["format"]
 command = "cargo"
 args = ["build", "--target", "${TARGET}", "--${PROFILE}", "--lib"]
 
@@ -57,6 +64,22 @@ args = [
     "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
     "--wasm-files", "${WASM_FILE}",
     "--output", "${PACKAGE_TARGET}"
+]
+
+# Warehouse-partitioned variant of the tpcc package: same procedures, but the
+# packaged DDL creates the partition rule and partitioned tables so procedure
+# mode can scale across workers.
+[tasks.package-partitioned]
+dependencies = ["package"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl_partitioned_packaged.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/../../target/${TARGET}/${PROFILE}/tpcc_partitioned.mpk"
 ]
 
 

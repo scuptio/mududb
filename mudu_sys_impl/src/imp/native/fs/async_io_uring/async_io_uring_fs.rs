@@ -56,4 +56,16 @@ impl AsyncFs for AsyncIoUringFs {
         }
         Ok(paths)
     }
+
+    async fn remove_dir_all(&self, path: &Path) -> RS<()> {
+        // io_uring has no recursive directory removal op; mirror `read_dir`
+        // above and perform the removal synchronously.
+        std::fs::remove_dir_all(path).map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::from(&e),
+                "remove directory tree error",
+                e
+            )
+        })
+    }
 }

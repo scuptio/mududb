@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::contract::field_info::FieldInfo;
+use crate::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
 
@@ -43,4 +44,24 @@ fn default_field_info() {
     assert!(!f.is_primary());
     assert!(!f.nullable());
     assert_eq!(f.type_desc().type_family(), TypeFamily::I32);
+}
+
+#[test]
+fn fs_binding_defaults_to_none_and_sets() {
+    let mut f = FieldInfo::new(
+        "photo".to_string(),
+        9,
+        DataType::new_no_param(TypeFamily::U128),
+        0,
+        1,
+        None,
+        true,
+    );
+    assert_eq!(f.fs_binding(), None);
+
+    f.set_fs_binding(Some(FsColumnBinding::new(3, FsTypeKind::Directory)));
+    assert_eq!(
+        f.fs_binding(),
+        Some(FsColumnBinding::new(3, FsTypeKind::Directory))
+    );
 }

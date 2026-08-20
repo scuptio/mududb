@@ -245,41 +245,50 @@ fn start_mock_http_server(response_body: Value) -> String {
     let body = serde_json::to_string(&response_body).unwrap();
 
     mudu_sys::task::sync::spawn_thread_named("mock-http", move || {
-        let (mut socket, _) = listener.accept().unwrap();
-
-        let mut header_buf = Vec::new();
-        let mut byte = [0u8; 1];
+        // Serve connections in a loop: the CLI retries failed requests, so the
+        // mock must keep listening for more than one connection. Otherwise a
+        // transient first-attempt failure (e.g. under heavy load) closes the
+        // listener and every retry fails with "connection refused".
         loop {
-            if socket.read_exact(&mut byte).is_err() {
-                break;
+            let (mut socket, _) = match listener.accept() {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
+
+            let mut header_buf = Vec::new();
+            let mut byte = [0u8; 1];
+            loop {
+                if socket.read_exact(&mut byte).is_err() {
+                    break;
+                }
+                header_buf.push(byte[0]);
+                if header_buf.ends_with(b"\r\n\r\n") {
+                    break;
+                }
             }
-            header_buf.push(byte[0]);
-            if header_buf.ends_with(b"\r\n\r\n") {
-                break;
+
+            let headers = String::from_utf8_lossy(&header_buf);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("Content-Length: ")
+                        .or_else(|| line.strip_prefix("content-length: "))
+                })
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0);
+
+            if content_length > 0 {
+                let mut body_buf = vec![0u8; content_length];
+                let _ = socket.read_exact(&mut body_buf);
             }
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes());
         }
-
-        let headers = String::from_utf8_lossy(&header_buf);
-        let content_length = headers
-            .lines()
-            .find_map(|line| {
-                line.strip_prefix("Content-Length: ")
-                    .or_else(|| line.strip_prefix("content-length: "))
-            })
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(0);
-
-        if content_length > 0 {
-            let mut body_buf = vec![0u8; content_length];
-            let _ = socket.read_exact(&mut body_buf);
-        }
-
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = socket.write_all(response.as_bytes());
     })
     .unwrap();
 

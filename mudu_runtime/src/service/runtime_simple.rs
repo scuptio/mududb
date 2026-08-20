@@ -30,8 +30,12 @@ where
     for entry in fs::sync::sync_read_dir_entries(dir)? {
         let path = entry.path();
 
-        // check file name
-        if path.is_file()
+        // Check file name via the `mudu_sys` metadata wrapper rather than
+        // `std::fs`: the deterministic-simulation backend keeps an in-memory
+        // filesystem that `Path::is_file` cannot see.
+        if fs::sync::sync_metadata(&path)
+            .map(|m| m.is_file())
+            .unwrap_or(false)
             && let Some(ext) = path.extension()
             && ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION
         {
@@ -54,7 +58,11 @@ where
 
 fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
     let path_buf = PathBuf::from(path_ref.as_ref());
-    if !path_buf.is_file() {
+    // Use the `mudu_sys` metadata wrapper rather than `std::fs` (see above).
+    let is_file = fs::sync::sync_metadata(&path_buf)
+        .map(|m| m.is_file())
+        .unwrap_or(false);
+    if !is_file {
         return Err(mudu_error!(
             ErrorCode::InvalidArgument,
             format!("path {} is not a file", path_ref.as_ref().to_string_lossy())

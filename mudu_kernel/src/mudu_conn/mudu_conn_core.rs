@@ -16,7 +16,7 @@ use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::query_exec::QueryExec;
 use crate::mudu_conn::mudu_result_set_async::MuduResultSetAsync;
 use crate::sql::binder::Binder;
-use crate::sql::bound_stmt::BoundStmt;
+use crate::sql::bound_stmt::{BoundCommand, BoundStmt};
 use crate::sql::describer::Describer;
 use crate::sql::plan_ctx::PlanCtx;
 use crate::sql::planner::Planner;
@@ -28,44 +28,56 @@ pub struct MuduConnCore {
     meta_mgr: Arc<dyn MetaMgr>,
     parser: Arc<SQLParser>,
     async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    is_admin: bool,
 }
 
 impl MuduConnCore {
     pub fn new(
         meta_mgr: Arc<dyn MetaMgr>,
         async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+        is_admin: bool,
     ) -> RS<Self> {
         Ok(Self {
             meta_mgr,
             parser: Arc::new(SQLParser::new()?),
             async_runtime,
+            is_admin,
         })
     }
 
-    pub fn parse_one(&self, sql: &dyn SQLStmt) -> RS<StmtType> {
-        let stmt_list = self.parser.parse(&sql.to_sql_string())?;
-        let mut stmts = stmt_list.into_stmts();
-        if stmts.len() != 1 {
-            return Err(mudu_error!(
-                ErrorCode::Parse,
-                "expected exactly one statement"
-            ));
-        }
-        Ok(stmts.remove(0))
+    pub fn parse_one(&self, sql: &dyn SQLStmt) -> RS<Arc<StmtType>> {
+        self.parse_one_text(&sql.to_sql_string())
+    }
+
+    /// Parses exactly one statement from `text`, using the process-wide parse
+    /// cache. Callers that already rendered the SQL text (e.g. the worker's
+    /// plan-cache path) avoid a second `to_sql_string` this way.
+    pub fn parse_one_text(&self, text: &str) -> RS<Arc<StmtType>> {
+        crate::mudu_conn::stmt_parse_cache::parse_one_cached(text, |text| {
+            let stmt_list = self.parser.parse(text)?;
+            let mut stmts = stmt_list.into_stmts();
+            if stmts.len() != 1 {
+                return Err(mudu_error!(
+                    ErrorCode::Parse,
+                    "expected exactly one statement"
+                ));
+            }
+            Ok(stmts.remove(0))
+        })
     }
 
     pub fn parse_many(&self, sql: &dyn SQLStmt) -> RS<Vec<StmtType>> {
         Ok(self.parser.parse(&sql.to_sql_string())?.into_stmts())
     }
 
-    pub async fn describe_stmt(&self, stmt: StmtType) -> RS<Arc<TupleFieldDesc>> {
+    pub async fn describe_stmt(&self, stmt: &StmtType) -> RS<Arc<TupleFieldDesc>> {
         let desc = Describer::describe(self.meta_mgr.as_ref(), stmt).await?;
         Ok(Arc::new(desc))
     }
 
     pub async fn query(
         &self,
-        stmt: StmtType,
+        stmt: &StmtType,
         params: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
@@ -76,7 +88,7 @@ impl MuduConnCore {
 
     pub async fn query_rows(
         &self,
-        stmt: StmtType,
+        stmt: &StmtType,
         params: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
@@ -86,7 +98,7 @@ impl MuduConnCore {
 
     pub async fn execute(
         &self,
-        stmt: StmtType,
+        stmt: &StmtType,
         params: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
@@ -97,16 +109,21 @@ impl MuduConnCore {
 
     async fn query_inner(
         &self,
-        stmt: StmtType,
+        stmt: &StmtType,
         params: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
     ) -> RS<(Vec<TupleValue>, TupleFieldDesc)> {
         let trace = task_trace!();
         trace.watch("query.stage", "bind");
-        let bound = Binder::new(self.meta_mgr.clone())
-            .bind(stmt, params.as_ref())
-            .await?;
+        let bound = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlBind,
+            );
+            Binder::new(self.meta_mgr.clone())
+                .bind_ref(stmt, params.as_ref())
+                .await?
+        };
         let BoundStmt::Query(bound_query) = bound else {
             return Err(mudu_error!(
                 ErrorCode::InvalidType,
@@ -120,23 +137,35 @@ impl MuduConnCore {
             async_runtime: self.async_runtime.clone(),
         });
         trace.watch("query.stage", "plan");
-        let exec = planner.plan_query(bound_query).await?;
+        let exec = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlPlan,
+            );
+            planner.plan_query(bound_query).await?
+        };
         trace.watch("query.stage", "exec_rows");
+        let _stage =
+            crate::server::stage_stats::StageGuard::new(crate::server::stage_stats::Stage::SqlRun);
         query_exec_to_rows(exec).await
     }
 
     async fn execute_inner(
         &self,
-        stmt: StmtType,
+        stmt: &StmtType,
         params: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
     ) -> RS<u64> {
         let trace = task_trace!();
         trace.watch("procedure.core_execute.stage", "bind_start");
-        let bound = Binder::new(self.meta_mgr.clone())
-            .bind(stmt, params.as_ref())
-            .await?;
+        let bound = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlBind,
+            );
+            Binder::new(self.meta_mgr.clone())
+                .bind_ref(stmt, params.as_ref())
+                .await?
+        };
         trace.watch("procedure.core_execute.stage", "bind_done");
         let BoundStmt::Command(bound_command) = bound else {
             return Err(mudu_error!(
@@ -144,6 +173,16 @@ impl MuduConnCore {
                 "statement is not a command"
             ));
         };
+        if matches!(
+            bound_command,
+            BoundCommand::CreateFsType(_) | BoundCommand::DropType(_)
+        ) && !self.is_admin
+        {
+            return Err(mudu_error!(
+                ErrorCode::PermissionDenied,
+                "CREATE/DROP TYPE FILESYSTEM requires an admin session"
+            ));
+        }
         let planner = Planner::new(PlanCtx {
             tx_mgr,
             meta_mgr: self.meta_mgr.clone(),
@@ -151,13 +190,28 @@ impl MuduConnCore {
             async_runtime: self.async_runtime.clone(),
         });
         trace.watch("procedure.core_execute.stage", "plan_command_start");
-        let cmd = planner.plan_command(bound_command).await?;
+        let cmd = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlPlan,
+            );
+            planner.plan_command(bound_command).await?
+        };
         trace.watch("procedure.core_execute.stage", "plan_command_done");
         trace.watch("procedure.core_execute.stage", "prepare_start");
-        cmd.prepare().await?;
+        {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlPrepare,
+            );
+            cmd.prepare().await?;
+        }
         trace.watch("procedure.core_execute.stage", "prepare_done");
         trace.watch("procedure.core_execute.stage", "run_start");
-        cmd.run().await?;
+        {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlRun,
+            );
+            cmd.run().await?;
+        }
         trace.watch("procedure.core_execute.stage", "run_done");
         trace.watch("procedure.core_execute.stage", "affected_rows_start");
         cmd.affected_rows().await
@@ -178,21 +232,29 @@ pub async fn query_exec_to_rows(exec: Arc<dyn QueryExec>) -> RS<(Vec<TupleValue>
             trace.watch("query.exec.stage", "done");
             break;
         };
-        rows.push(tuple_field_to_value(row, &desc)?);
+        let value = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::ResultDecode,
+            );
+            tuple_field_to_value(row, &desc)?
+        };
+        rows.push(value);
     }
     Ok((rows, desc))
 }
 
-fn tuple_field_to_value(
+pub(crate) fn tuple_field_to_value(
     row: mudu_contract::tuple::tuple_field::TupleField,
     desc: &TupleFieldDesc,
 ) -> RS<TupleValue> {
     let mut values = Vec::with_capacity(row.fields().len());
-    for (index, field) in row.fields().iter().enumerate() {
+    // Consume the row: each field's bytes move straight into the decoder
+    // instead of being cloned out of the executor's tuple.
+    for (index, field) in row.into_fields().into_iter().enumerate() {
         let datum_desc = &desc.fields()[index];
         match field {
             Some(field) => {
-                let typed = TypedBin::new(datum_desc.type_family(), field.clone());
+                let typed = TypedBin::new(datum_desc.type_family(), field);
                 values.push(typed.to_value(datum_desc.data_type())?);
             }
             None => values.push(mudu_type::data_value::DataValue::null()),

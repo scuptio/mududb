@@ -5,6 +5,7 @@ Called from cargo-make for Pre Processing Stage .
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import tomllib
@@ -238,11 +239,47 @@ class Transpiler:
             enable_async,
             self.verbose)
 
+        # The transpiler copies `mod xxx;` declarations verbatim. Drop the
+        # `#[cfg(test)]`-gated ones whose target file was excluded (e.g.
+        # `*_test.rs`), otherwise the output tree has dangling modules and
+        # `cargo fmt` / `cargo check` fail on it.
+        if source_file.name == "mod.rs":
+            self._strip_excluded_test_mods(output_path, rel_path.parent)
+
         self.processed_files.add(source_file)
         self.generated_files.add(output_path)
 
         if self.package_desc is not None:
             run_merge_desc(out_desc_dir, self.package_desc, self.verbose)
+
+    def _strip_excluded_test_mods(self, mod_file: Path, rel_dir: Path):
+        """Remove `#[cfg(test)]`-gated `mod xxx;` declarations whose target
+        file was excluded from transpilation (e.g. `*_test.rs`), so the
+        generated tree has no dangling modules."""
+        attr_re = re.compile(r"^\s*#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*$")
+        decl_re = re.compile(r"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+        with open(mod_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        out = []
+        i = 0
+        changed = False
+        while i < len(lines):
+            if attr_re.match(lines[i]) and i + 1 < len(lines):
+                m = decl_re.match(lines[i + 1])
+                if m:
+                    candidate = self.source_dir / rel_dir / (m.group(1) + ".rs")
+                    if candidate.exists() and not self.should_process_file(candidate):
+                        i += 2
+                        changed = True
+                        continue
+            out.append(lines[i])
+            i += 1
+        if changed:
+            text = "".join(out).rstrip() + "\n"
+            with open(mod_file, "w", encoding="utf-8") as f:
+                f.write(text)
+            if self.verbose:
+                print(f"Stripped excluded test module declarations: {mod_file}")
 
     def generate_manifest(self):
         """Generate manifest of transpiled files."""

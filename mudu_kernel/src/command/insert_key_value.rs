@@ -1,3 +1,4 @@
+use crate::command::fs_hook;
 use crate::contract::cmd_exec::CmdExec;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::x_engine::api::{OptInsert, XContract};
@@ -61,17 +62,41 @@ impl InsertKeyValue {
 
     async fn insert_inner(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
+        let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         let mut affected_rows = 0;
         for (key, value) in &self.param.rows {
-            self.x_contract
-                .insert(
-                    self.param.tx_mgr.clone(),
+            if fs_hook::has_fs_bound_columns(desc.as_ref()) {
+                let mut value = value.clone();
+                let staged = fs_hook::bind_fs_columns_on_insert(
+                    &self.meta_mgr,
+                    &self.x_contract,
                     self.param.table_id,
+                    desc.as_ref(),
                     key,
-                    value,
-                    &OptInsert::default(),
+                    &mut value,
                 )
                 .await?;
+                self.x_contract
+                    .insert(
+                        self.param.tx_mgr.clone(),
+                        self.param.table_id,
+                        key,
+                        &value,
+                        &OptInsert::default(),
+                    )
+                    .await?;
+                fs_hook::stage_fs_ops(&self.param.tx_mgr, staged);
+            } else {
+                self.x_contract
+                    .insert(
+                        self.param.tx_mgr.clone(),
+                        self.param.table_id,
+                        key,
+                        value,
+                        &OptInsert::default(),
+                    )
+                    .await?;
+            }
             affected_rows += 1;
         }
         self.affected_rows.store(affected_rows, Ordering::Relaxed);

@@ -10,5 +10,6 @@ pub mod api;
 pub mod operator;
 
 mod data_bin;
+pub use data_bin::DataBin;
 pub mod tx_mgr;
 pub mod x_param;

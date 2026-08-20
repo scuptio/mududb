@@ -27,7 +27,7 @@ impl_scalar! {
     (Char, "char"),
     (String, "String"),
     (Blob, "Vec<u8>"),
-    (Numeric, "String"),
+    (Numeric, "mududb::mudu::data_type::numeric::Numeric"),
     (Date, "String"),
     (Time, "String"),
     (Timestamp, "String"),

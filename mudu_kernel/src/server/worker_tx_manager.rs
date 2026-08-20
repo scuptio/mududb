@@ -1,16 +1,24 @@
 use crate::server::worker_snapshot::WorkerSnapshot;
+use crate::server::x_contract::utils::encode_delta_assigns;
 use crate::wal::xl_batch::XLBatch;
-use crate::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
+use crate::wal::xl_data_op::{XLDelete, XLInsert, XLUpdate, XLWrite};
 use crate::wal::xl_entry::{TxOp, XLEntry};
+use crate::x_engine::api::DeltaAssign;
 use crate::x_engine::tx_mgr::{PhysicalRelationId, TxMgr};
+use mudu::common::id::OID;
 use mudu_utils::task_trace;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 
 struct WorkerTxState {
     stage_kv_write: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     staged_relation_ops: BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+    /// Deferred (apply-time evaluated) relation delta assignments staged by
+    /// `put_relation_deferred_deltas`: accumulated per key in issue order
+    /// and resolved against the latest committed row inside the commit
+    /// apply, so they never take a statement lock.
+    staged_relation_deferred_deltas: BTreeMap<(PhysicalRelationId, Vec<u8>), Vec<DeltaAssign>>,
     write_ops: Vec<(PhysicalRelationId, Vec<u8>)>,
     log_buffer: Vec<TxOp>,
     // Tracks the index of each key in log_buffer so that duplicate writes
@@ -18,6 +26,10 @@ struct WorkerTxState {
     // appending a new one. Only the last write to a key is kept.
     kv_log_index: BTreeMap<Vec<u8>, usize>,
     relation_log_index: BTreeMap<(PhysicalRelationId, Vec<u8>), usize>,
+    // Statement-level pessimistic write locks held by this transaction:
+    // keys locked on the local worker and remote owners that granted locks.
+    statement_lock_keys: BTreeSet<(PhysicalRelationId, Vec<u8>)>,
+    remote_lock_owners: BTreeSet<OID>,
 }
 
 pub struct WorkerTxManager {
@@ -32,10 +44,13 @@ impl WorkerTxManager {
             state: RefCell::new(WorkerTxState {
                 stage_kv_write: BTreeMap::new(),
                 staged_relation_ops: BTreeMap::new(),
+                staged_relation_deferred_deltas: BTreeMap::new(),
                 write_ops: Vec::new(),
                 log_buffer: Vec::new(),
                 kv_log_index: BTreeMap::new(),
                 relation_log_index: BTreeMap::new(),
+                statement_lock_keys: BTreeSet::new(),
+                remote_lock_owners: BTreeSet::new(),
             }),
         }
     }
@@ -204,6 +219,65 @@ impl TxMgr for WorkerTxManager {
         self.with_state(|state| state.staged_relation_ops.clone())
     }
 
+    fn put_relation_deferred_deltas(
+        &self,
+        relation_id: PhysicalRelationId,
+        key: Vec<u8>,
+        deltas: Vec<DeltaAssign>,
+    ) -> mudu::common::result::RS<()> {
+        if deltas.is_empty() {
+            return Ok(());
+        }
+        self.with_state_mut(|state| {
+            // One WAL update op per staging call: replay applies the same
+            // delta list in order, which equals applying the merged set
+            // (deferred deltas commute by contract).
+            let encoded = encode_delta_assigns(&deltas)?;
+            state.log_buffer.push(TxOp::Write(XLWrite::Update(XLUpdate {
+                table_id: relation_id.table_id,
+                partition_id: relation_id.partition_id,
+                tuple_id: 0,
+                key: key.clone(),
+                delta: encoded,
+            })));
+            state
+                .staged_relation_deferred_deltas
+                .entry((relation_id, key))
+                .or_default()
+                .extend(deltas);
+            Ok(())
+        })
+    }
+
+    fn get_relation_deltas(
+        &self,
+        relation_id: PhysicalRelationId,
+        key: &[u8],
+    ) -> Option<Vec<DeltaAssign>> {
+        self.with_state(|state| {
+            state
+                .staged_relation_deferred_deltas
+                .get(&(relation_id, key.to_vec()))
+                .cloned()
+        })
+    }
+
+    fn staged_relation_deltas(
+        &self,
+    ) -> BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Vec<DeltaAssign>>> {
+        self.with_state(|state| {
+            let mut grouped: BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Vec<DeltaAssign>>> =
+                BTreeMap::new();
+            for ((relation_id, key), deltas) in &state.staged_relation_deferred_deltas {
+                grouped
+                    .entry(*relation_id)
+                    .or_default()
+                    .insert(key.clone(), deltas.clone());
+            }
+            grouped
+        })
+    }
+
     fn staged_items_in_range(
         &self,
         start_key: &[u8],
@@ -225,7 +299,9 @@ impl TxMgr for WorkerTxManager {
 
     fn is_empty(&self) -> bool {
         self.with_state(|state| {
-            state.stage_kv_write.is_empty() && state.staged_relation_ops.is_empty()
+            state.stage_kv_write.is_empty()
+                && state.staged_relation_ops.is_empty()
+                && state.staged_relation_deferred_deltas.is_empty()
         })
     }
 
@@ -254,6 +330,38 @@ impl TxMgr for WorkerTxManager {
             state.write_ops = write_ops;
             state.write_ops.sort();
         });
+    }
+
+    fn record_statement_lock(&self, relation: PhysicalRelationId, key: Vec<u8>) {
+        self.with_state_mut(|state| {
+            state.statement_lock_keys.insert((relation, key));
+        });
+    }
+
+    fn has_statement_lock(&self, relation: &PhysicalRelationId, key: &[u8]) -> bool {
+        self.with_state(|state| {
+            state
+                .statement_lock_keys
+                .contains(&(*relation, key.to_vec()))
+        })
+    }
+
+    fn statement_locked_keys(&self) -> Vec<(PhysicalRelationId, Vec<u8>)> {
+        self.with_state(|state| state.statement_lock_keys.iter().cloned().collect())
+    }
+
+    fn record_remote_lock_owner(&self, worker_id: OID) {
+        self.with_state_mut(|state| {
+            state.remote_lock_owners.insert(worker_id);
+        });
+    }
+
+    fn remote_lock_owners(&self) -> Vec<OID> {
+        self.with_state(|state| state.remote_lock_owners.iter().copied().collect())
+    }
+
+    fn clear_remote_lock_owners(&self) {
+        self.with_state_mut(|state| state.remote_lock_owners.clear());
     }
 
     fn xl_batch(&self) -> XLBatch {

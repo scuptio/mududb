@@ -17,6 +17,8 @@ pub mod api;
 mod api_impl;
 /// Asynchronous top-level API.
 pub mod async_api;
+/// Filesystem syscall data types and encode/decode glue.
+pub mod fs;
 /// Helpers for serializing and invoking host system operations.
 pub mod host;
 /// Synchronous top-level API.

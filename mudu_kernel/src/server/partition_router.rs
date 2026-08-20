@@ -43,6 +43,14 @@ impl PartitionRouter {
             .await?;
         let route_tuple = build_route_tuple(table_desc, &binding.ref_attr_indices, key)?;
         let route_desc = build_route_tuple_desc(table_desc, &binding.ref_attr_indices)?;
+        tracing::debug!(
+            table = table_desc.name(),
+            table_id,
+            ref_attrs = ?binding.ref_attr_indices,
+            route_tuple = ?route_tuple,
+            rule = ?rule.partitions.iter().map(|p| p.partition_id).collect::<Vec<_>>(),
+            "route_exact_partition evaluating"
+        );
 
         for partition in &rule.partitions {
             let after_start = match &partition.start {
@@ -132,6 +140,23 @@ impl PartitionRouter {
             ErrorCode::EntityNotFound,
             format!("no partition matched rule {}", rule.name)
         ))
+    }
+
+    /// Whether every partition-key column (`ref_attr_indices`) is pinned by
+    /// an equality item in `prefix` (e.g. `no_w_id = ?` for a rule on
+    /// `(no_w_id)`).
+    ///
+    /// Prefix-equality scans (`SELECT ... WHERE <pk prefix> = ?`) whose
+    /// prefix covers the partition key can be routed to exactly one
+    /// partition instead of fanning an unbounded range out to every
+    /// partition (one cross-worker RPC per partition).
+    pub fn prefix_covers_partition_key(
+        ref_attr_indices: &[usize],
+        prefix: &[(usize, Buf)],
+    ) -> bool {
+        ref_attr_indices
+            .iter()
+            .all(|ref_attr| prefix.iter().any(|(attr, _)| attr == ref_attr))
     }
 
     pub fn route_rule_range_partitions(
@@ -618,6 +643,36 @@ mod tests {
             );
         })
         .unwrap()
+    }
+
+    #[test]
+    fn prefix_covers_partition_key_checks_all_ref_attrs() {
+        // All partition-key attrs pinned (order in the prefix does not matter).
+        assert!(PartitionRouter::prefix_covers_partition_key(
+            &[0],
+            &[(0, i32_value(15))]
+        ));
+        // Extra non-partition attrs do not matter.
+        assert!(PartitionRouter::prefix_covers_partition_key(
+            &[0],
+            &[(0, i32_value(15)), (1, i32_value(99))]
+        ));
+        // Multi-column partition key: only covered when all are pinned.
+        assert!(PartitionRouter::prefix_covers_partition_key(
+            &[0, 1],
+            &[(1, i32_value(5)), (0, i32_value(15))]
+        ));
+        assert!(!PartitionRouter::prefix_covers_partition_key(
+            &[0, 1],
+            &[(0, i32_value(15))]
+        ));
+        // Partition column missing from the prefix.
+        assert!(!PartitionRouter::prefix_covers_partition_key(
+            &[0],
+            &[(1, i32_value(15))]
+        ));
+        // Empty prefix covers nothing.
+        assert!(!PartitionRouter::prefix_covers_partition_key(&[0], &[]));
     }
 
     #[test]

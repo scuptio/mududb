@@ -8,10 +8,13 @@ mod tests {
     use async_trait::async_trait;
     use mudu::common::id::OID;
     use mudu::common::result::RS;
-    use mudu::common::serde_utils::deserialize_from;
-    use mudu_binding::codec::handle_sys_session;
+    use mudu_binding::codec::syscall_payload::{
+        decode_close_result, decode_delete_result, decode_get_result, decode_open_result,
+        decode_put_result, decode_range_result, encode_close_request, encode_delete_request,
+        encode_get_request, encode_open_request, encode_put_request, encode_range_request,
+    };
     use mudu_binding::system::{command_invoke, query_invoke};
-    use mudu_binding::universal::uni_error::UniError;
+    use mudu_binding::universal::uni_oid::UniOid;
     use mudu_contract::database::result_set::ResultSetAsync;
     use mudu_contract::database::sql_params::SQLParams;
     use mudu_contract::database::sql_stmt::SQLStmt;
@@ -24,29 +27,28 @@ mod tests {
     use sync_host::mududb::api::system::Host;
     use wasmtime_wasi::WasiView;
 
-    const MERR_MAGIC: &[u8] = b"MERR";
-
-    fn decode_merr_payload(bytes: &[u8]) -> UniError {
-        assert!(bytes.starts_with(MERR_MAGIC));
-        deserialize_from::<UniError>(&bytes[MERR_MAGIC.len()..])
-            .map(|(e, _)| e)
-            .expect("valid MERR payload")
-    }
-
-    fn assert_worker_local_error(bytes: &[u8]) {
-        let err = decode_merr_payload(bytes);
+    fn assert_worker_local_error(message: &str) {
         assert!(
-            err.err_msg
-                .contains("worker local interface is not configured"),
-            "unexpected error message: {}",
-            err.err_msg
+            message.contains("worker local interface is not configured"),
+            "unexpected error message: {message}"
         );
     }
 
     fn assert_no_session_error(bytes: &[u8]) {
+        // The output is a command-kind MSSP frame (the batch handler shares
+        // the command result serializer); decode it with the matching kind.
+        let err = command_invoke::deserialize_command_result(bytes)
+            .expect_err("result should be an error");
+        assert!(
+            err.to_string().contains("no such session id"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    fn assert_no_session_query_error(bytes: &[u8]) {
         let err = query_invoke::deserialize_query_result(bytes)
             .err()
-            .or_else(|| command_invoke::deserialize_command_result(bytes).err())
             .expect("result should be an error");
         assert!(
             err.to_string().contains("no such session id"),
@@ -80,7 +82,7 @@ mod tests {
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.query(input);
         assert!(!output.is_empty());
-        assert_no_session_error(&output);
+        assert_no_session_query_error(&output);
     }
 
     #[test]
@@ -114,56 +116,56 @@ mod tests {
 
     #[test]
     fn sync_host_open_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_open_param();
+        let input = encode_open_request(UniOid::from_oid(0));
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.open(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_open_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn sync_host_close_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_close_param(1);
+        let input = encode_close_request(UniOid::from_oid(1));
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.close(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_close_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn sync_host_get_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_session_get_param(1, b"alpha");
+        let input = encode_get_request(UniOid::from_oid(1), b"alpha");
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.get(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_get_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn sync_host_put_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_session_put_param(1, b"alpha", b"beta");
+        let input = encode_put_request(UniOid::from_oid(1), b"alpha", b"beta");
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.put(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_put_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn sync_host_delete_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_session_delete_param(1, b"alpha");
+        let input = encode_delete_request(UniOid::from_oid(1), b"alpha");
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.delete(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_delete_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]
     fn sync_host_range_without_worker_local_returns_worker_local_error() {
-        let input = handle_sys_session::serialize_session_range_param(1, b"a", b"z");
+        let input = encode_range_request(UniOid::from_oid(1), b"a", b"z");
         let mut ctx = build_wasi_component_context(None);
         let output = ctx.range(input);
-        assert!(output.starts_with(MERR_MAGIC));
-        assert_worker_local_error(&output);
+        let err = decode_range_result(&output).unwrap_err();
+        assert_worker_local_error(err.message());
     }
 
     #[test]

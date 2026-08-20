@@ -2655,6 +2655,7 @@ module.exports = grammar({
                 field("literal", $.literal),
                 field("parameter_placeholder", $.parameter),
                 field('qualified_field', $.qualified_field),
+                field('invocation', $.invocation),
                 field('binary_expression', $.binary_expression),
                 field('between_expression', $.between_expression),
                 wrapped_in_parenthesis(field('expression_in_parenthesis', $.expression)),

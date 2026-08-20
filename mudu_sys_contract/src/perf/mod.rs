@@ -187,6 +187,7 @@ thread_local! {
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static SAMPLE_RATE: AtomicU64 = AtomicU64::new(1);
 static NEXT_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+static SAMPLE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Enable or disable performance collection globally.
 #[inline]
@@ -219,6 +220,10 @@ pub fn next_trace_id() -> u64 {
 }
 
 /// Decide whether the current transaction should be sampled.
+///
+/// Uses its own counter rather than [`NEXT_TRACE_ID`]: the trace id only
+/// advances when a sample is taken, so gating on it would never let the
+/// first sample through when the rate is above 1.
 #[inline]
 pub fn should_sample() -> bool {
     if !is_enabled() {
@@ -228,8 +233,9 @@ pub fn should_sample() -> bool {
     if rate == 1 {
         return true;
     }
-    let id = NEXT_TRACE_ID.load(Ordering::Relaxed);
-    id.is_multiple_of(rate)
+    SAMPLE_COUNTER
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(rate)
 }
 
 /// RAII performance span. Records elapsed time when dropped.
@@ -377,5 +383,21 @@ mod tests {
 
         let parse = PerfSnapshot::get(TxnStage::Parse);
         assert_eq!(parse.count, 0);
+    }
+
+    #[test]
+    fn should_sample_honors_rate_above_one() {
+        let _guard = perf_test_lock();
+        reset();
+        set_enabled(true);
+        set_sample_rate(4);
+
+        // 100 contiguous calls with rate 4 must yield exactly 25 samples,
+        // regardless of the counter's starting offset.
+        let sampled = (0..100).filter(|_| should_sample()).count();
+        assert_eq!(sampled, 25);
+
+        set_enabled(false);
+        reset();
     }
 }

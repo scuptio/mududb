@@ -9,9 +9,11 @@ use super::utils::{
     starts_with_ignore_ascii_case,
 };
 use super::SQLParser;
+use crate::ast::stmt_create_fs_type::{FsTypeKind, StmtCreateFsType};
 use crate::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
 use crate::ast::stmt_create_partition_rule::StmtCreatePartitionRule;
 use crate::ast::stmt_create_table::StmtCreateTable;
+use crate::ast::stmt_drop_type::StmtDropType;
 use crate::ast::stmt_list::StmtList;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ts_const::{ts_field_name, ts_kind_id};
@@ -69,7 +71,43 @@ impl SQLParser {
             )])));
         }
 
+        if starts_with_ignore_ascii_case(normalized, "create type filesystem ") {
+            let stmt = self.parse_create_fs_type_custom(normalized)?;
+            return Ok(Some(StmtList::new(vec![StmtType::Command(
+                StmtCommand::CreateFsType(stmt),
+            )])));
+        }
+
+        if starts_with_ignore_ascii_case(normalized, "drop type ")
+            || normalized.eq_ignore_ascii_case("drop type")
+        {
+            let stmt = self.parse_drop_type_custom(normalized)?;
+            return Ok(Some(StmtList::new(vec![StmtType::Command(
+                StmtCommand::DropType(stmt),
+            )])));
+        }
+
         Ok(None)
+    }
+
+    /// Parse a script that mixes custom statements with standard SQL by
+    /// splitting it top-level and parsing each statement with the custom
+    /// parser first, falling back to the standard tree-sitter parser.
+    pub(crate) fn parse_mixed_script(&self, sql: &str) -> RS<StmtList> {
+        let mut stmts = Vec::new();
+        for chunk in split_top_level_statements(sql) {
+            let trimmed = chunk.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(stmt_list) = self.try_parse_custom_statement(trimmed)? {
+                stmts.extend(stmt_list.into_stmts());
+            } else {
+                let stmt_list = self.parse_standard(trimmed)?;
+                stmts.extend(stmt_list.into_stmts());
+            }
+        }
+        Ok(StmtList::new(stmts))
     }
 
     /// Parse a `CREATE TABLE ... PARTITION BY GLOBAL RULE ...` statement.
@@ -178,6 +216,36 @@ impl SQLParser {
         ))
     }
 
+    /// Parse a `CREATE TYPE FILESYSTEM FILE|DIRECTORY <name>` statement.
+    pub(crate) fn parse_create_fs_type_custom(&self, sql: &str) -> RS<StmtCreateFsType> {
+        let prefix = "create type filesystem ";
+        let rest = sql[prefix.len()..].trim();
+        let (keyword, name) = match rest.find(char::is_whitespace) {
+            Some(index) => (&rest[..index], rest[index..].trim()),
+            None => (rest, ""),
+        };
+        let kind = if keyword.eq_ignore_ascii_case("file") {
+            FsTypeKind::File
+        } else if keyword.eq_ignore_ascii_case("directory") {
+            FsTypeKind::Directory
+        } else {
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "create type filesystem must specify FILE or DIRECTORY"
+            ));
+        };
+        validate_type_name(name)?;
+        Ok(StmtCreateFsType::new(name.to_string(), kind))
+    }
+
+    /// Parse a `DROP TYPE <name>` statement.
+    pub(crate) fn parse_drop_type_custom(&self, sql: &str) -> RS<StmtDropType> {
+        let prefix = "drop type";
+        let name = sql[prefix.len()..].trim();
+        validate_type_name(name)?;
+        Ok(StmtDropType::new(name.to_string()))
+    }
+
     /// Print a human-readable parse error if the node contains errors.
     pub(crate) fn parse_error(&self, context: &ParseContext, node: &Node) -> RS<()> {
         if node.has_error() {
@@ -265,6 +333,68 @@ impl SQLParser {
     }
 }
 
+/// Validate that a type name is a non-empty identifier of alphanumeric
+/// characters or underscores that does not start with a digit.
+pub(crate) fn validate_type_name(name: &str) -> RS<()> {
+    let valid = !name.is_empty()
+        && !name.as_bytes()[0].is_ascii_digit()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+    if !valid {
+        return Err(mudu_error!(
+            ErrorCode::Parse,
+            format!("invalid type name {}", name)
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(all(test, not(miri)))]
 #[path = "entry_test.rs"]
 mod entry_test;
+
+/// True when the SQL text contains syntax only the custom parser handles
+/// (partition DDL, filesystem types, or partitioned `CREATE TABLE`).
+pub(crate) fn contains_custom_statement_syntax(sql: &str) -> bool {
+    let lowered = sql.to_lowercase();
+    lowered.contains("create partition rule ")
+        || lowered.contains("create partition placement ")
+        || lowered.contains("partition by global rule ")
+        || lowered.contains("create type filesystem ")
+}
+
+/// Split a SQL script into top-level statements on `;` boundaries, skipping
+/// `--` line comments and respecting single/double-quoted strings.
+pub(crate) fn split_top_level_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut chars = sql.chars().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    while let Some(ch) = chars.next() {
+        if !in_single_quote && !in_double_quote && ch == '-' && chars.peek() == Some(&'-') {
+            // Line comment: skip through the end of the line.
+            for skipped in chars.by_ref() {
+                if skipped == '\n' {
+                    break;
+                }
+            }
+            continue;
+        }
+        match ch {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            ';' if !in_single_quote && !in_double_quote => {
+                statements.push(std::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.push(ch);
+    }
+    if !current.trim().is_empty() {
+        statements.push(current);
+    }
+    statements
+}

@@ -95,6 +95,13 @@ pub mod time {
     pub fn utc_now() -> DateTime<Utc> {
         Utc::now()
     }
+
+    /// Returns the CPU time consumed by the calling thread.
+    ///
+    /// WASI exposes no per-thread CPU clock, so this always returns `None`.
+    pub fn thread_cpu_time_now() -> Option<std::time::Duration> {
+        None
+    }
 }
 
 #[cfg(test)]

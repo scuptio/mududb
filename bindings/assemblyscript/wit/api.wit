@@ -13,6 +13,20 @@ interface types {
         location: string,
     }
 
+    record file-stat {
+        oid: oid,
+        generation: u64,
+        entry: string,
+        length: u64,
+        state: u32,
+    }
+
+    record fs-dirent {
+        name: string,
+        is-dir: bool,
+        length: u64,
+    }
+
     variant value {
         null,
         boolean(bool),
@@ -48,6 +62,8 @@ interface types {
 interface system {
     use types.{
         error,
+        file-stat,
+        fs-dirent,
         key-value,
         oid,
         value,
@@ -86,6 +102,18 @@ interface system {
     query: func(id: oid, stmt:sql-stmt, values:value-list) -> result<result-set, error>;
     command: func(id: oid, stmt:sql-stmt, values:value-list) -> result<u64, error>;
     batch: func(id: oid, stmt:sql-stmt, values:value-list) -> result<u64, error>;
+
+    fs-open: func(session: oid, oid: oid, path: string, %flags: u32) -> result<u32, error>;
+    fs-close: func(session: oid, fd: u32) -> result<_, error>;
+    fs-read: func(session: oid, fd: u32, len: u32) -> result<list<u8>, error>;
+    fs-write: func(session: oid, fd: u32, data: list<u8>) -> result<u32, error>;
+    fs-pread: func(session: oid, fd: u32, offset: u64, len: u32) -> result<list<u8>, error>;
+    fs-pwrite: func(session: oid, fd: u32, offset: u64, data: list<u8>) -> result<_, error>;
+    fs-lseek: func(session: oid, fd: u32, offset: s64, whence: u32) -> result<u64, error>;
+    fs-fstat: func(session: oid, fd: u32) -> result<file-stat, error>;
+    fs-stat: func(session: oid, oid: oid, path: string) -> result<file-stat, error>;
+    fs-fsync: func(session: oid, fd: u32) -> result<_, error>;
+    fs-readdir: func(session: oid, oid: oid, path: string) -> result<list<fs-dirent>, error>;
 }
 
 

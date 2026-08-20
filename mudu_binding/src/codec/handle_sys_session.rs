@@ -2,7 +2,13 @@
 //!
 //! This module is mostly boilerplate encode/decode routines and therefore
 //! exempted from the `missing_docs` lint.
+//!
+//! These hand-rolled frames are superseded by the SyscallPayload v1 codec
+//! ([`crate::codec::syscall_payload`]); the module is kept until downstream
+//! crates migrate, so internal cross-references to deprecated items are
+//! expected and allowed.
 #![allow(missing_docs)]
+#![allow(deprecated)]
 
 use crate::codec::adapter;
 use crate::universal::uni_error::UniError;
@@ -16,11 +22,11 @@ use std::mem::size_of;
 
 const ERROR_MAGIC: &[u8; 4] = b"MERR";
 
-fn write_u32_be(output: &mut Vec<u8>, value: u32) {
+pub(crate) fn write_u32_be(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_be_bytes());
 }
 
-fn read_u32_be(input: &[u8], offset: &mut usize) -> RS<u32> {
+pub(crate) fn read_u32_be(input: &[u8], offset: &mut usize) -> RS<u32> {
     let end = *offset + size_of::<u32>();
     if end > input.len() {
         return Err(mudu::mudu_error!(
@@ -36,7 +42,7 @@ fn read_u32_be(input: &[u8], offset: &mut usize) -> RS<u32> {
     Ok(value)
 }
 
-fn read_bytes(input: &[u8], offset: &mut usize, len: usize) -> RS<Vec<u8>> {
+pub(crate) fn read_bytes(input: &[u8], offset: &mut usize, len: usize) -> RS<Vec<u8>> {
     let end = *offset + len;
     if end > input.len() {
         return Err(mudu::mudu_error!(
@@ -49,7 +55,7 @@ fn read_bytes(input: &[u8], offset: &mut usize, len: usize) -> RS<Vec<u8>> {
     Ok(bytes)
 }
 
-fn decode_error_result(input: &[u8]) -> RS<()> {
+pub(crate) fn decode_error_result(input: &[u8]) -> RS<()> {
     if input.len() < ERROR_MAGIC.len() || &input[..ERROR_MAGIC.len()] != ERROR_MAGIC {
         return Ok(());
     }
@@ -58,6 +64,9 @@ fn decode_error_result(input: &[u8]) -> RS<()> {
 }
 
 /// Serializes an error into a structured byte payload prefixed with `MERR`.
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_error_result(error: MuduError) -> Vec<u8> {
     let mut output = Vec::new();
     output.extend_from_slice(ERROR_MAGIC);
@@ -66,10 +75,16 @@ pub fn serialize_error_result(error: MuduError) -> Vec<u8> {
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_get_param(key: &[u8]) -> Vec<u8> {
     serialize_session_get_param(0, key)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_session_get_param(session_id: OID, key: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(size_of::<u128>() + size_of::<u32>() + key.len());
     let mut session_buf = [0u8; size_of::<u128>()];
@@ -80,10 +95,16 @@ pub fn serialize_session_get_param(session_id: OID, key: &[u8]) -> Vec<u8> {
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_get_param(input: &[u8]) -> RS<Vec<u8>> {
     Ok(deserialize_session_get_param(input)?.1)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_session_get_param(input: &[u8]) -> RS<(OID, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
         return Err(mudu::mudu_error!(
@@ -99,6 +120,9 @@ pub fn deserialize_session_get_param(input: &[u8]) -> RS<(OID, Vec<u8>)> {
     Ok((session_id, key))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_get_result(value: Option<&[u8]>) -> Vec<u8> {
     let mut output = Vec::new();
     match value {
@@ -112,6 +136,9 @@ pub fn serialize_get_result(value: Option<&[u8]>) -> Vec<u8> {
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
     decode_error_result(input)?;
     if input.is_empty() {
@@ -134,10 +161,16 @@ pub fn deserialize_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
     }
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_put_param(key: &[u8], value: &[u8]) -> Vec<u8> {
     serialize_session_put_param(0, key, value)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_session_put_param(session_id: OID, key: &[u8], value: &[u8]) -> Vec<u8> {
     let mut output =
         Vec::with_capacity(size_of::<u128>() + size_of::<u32>() * 2 + key.len() + value.len());
@@ -151,11 +184,17 @@ pub fn serialize_session_put_param(session_id: OID, key: &[u8], value: &[u8]) ->
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_put_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
     let (_, key, value) = deserialize_session_put_param(input)?;
     Ok((key, value))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_session_put_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
         return Err(mudu::mudu_error!(
@@ -173,10 +212,16 @@ pub fn deserialize_session_put_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)
     Ok((session_id, key, value))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_put_result() -> Vec<u8> {
     vec![1]
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_put_result(input: &[u8]) -> RS<()> {
     decode_error_result(input)?;
     if input == [1] {
@@ -189,34 +234,58 @@ pub fn deserialize_put_result(input: &[u8]) -> RS<()> {
     }
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_delete_param(key: &[u8]) -> Vec<u8> {
     serialize_session_get_param(0, key)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_session_delete_param(session_id: OID, key: &[u8]) -> Vec<u8> {
     serialize_session_get_param(session_id, key)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_delete_param(input: &[u8]) -> RS<Vec<u8>> {
     deserialize_get_param(input)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_session_delete_param(input: &[u8]) -> RS<(OID, Vec<u8>)> {
     deserialize_session_get_param(input)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_delete_result() -> Vec<u8> {
     serialize_put_result()
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_delete_result(input: &[u8]) -> RS<()> {
     deserialize_put_result(input)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_range_param(start_key: &[u8], end_key: &[u8]) -> Vec<u8> {
     serialize_session_range_param(0, start_key, end_key)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_session_range_param(session_id: OID, start_key: &[u8], end_key: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(
         size_of::<u128>() + size_of::<u32>() * 2 + start_key.len() + end_key.len(),
@@ -231,11 +300,17 @@ pub fn serialize_session_range_param(session_id: OID, start_key: &[u8], end_key:
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_range_param(input: &[u8]) -> RS<(Vec<u8>, Vec<u8>)> {
     let (_, start, end) = deserialize_session_range_param(input)?;
     Ok((start, end))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_session_range_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8>)> {
     if input.len() < size_of::<u128>() {
         return Err(mudu::mudu_error!(
@@ -253,14 +328,23 @@ pub fn deserialize_session_range_param(input: &[u8]) -> RS<(OID, Vec<u8>, Vec<u8
     Ok((session_id, start, end))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_open_param() -> Vec<u8> {
     serialize_open_argv_param(&UniSessionOpenArgv::default())
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_open_argv_param(argv: &UniSessionOpenArgv) -> Vec<u8> {
     mudu::common::serde_utils::serialize_to_vec(argv).unwrap_or_default()
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_open_param(input: &[u8]) -> RS<UniSessionOpenArgv> {
     if input.is_empty() {
         return Ok(UniSessionOpenArgv::default());
@@ -269,12 +353,18 @@ pub fn deserialize_open_param(input: &[u8]) -> RS<UniSessionOpenArgv> {
     Ok(argv)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_open_result(session_id: OID) -> Vec<u8> {
     let mut output = vec![0u8; size_of::<u128>()];
     write_u128(&mut output, session_id);
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_open_result(input: &[u8]) -> RS<OID> {
     decode_error_result(input)?;
     if input.len() < size_of::<u128>() {
@@ -286,12 +376,18 @@ pub fn deserialize_open_result(input: &[u8]) -> RS<OID> {
     Ok(read_u128(&input[..size_of::<u128>()]))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_close_param(session_id: OID) -> Vec<u8> {
     let mut output = vec![0u8; size_of::<u128>()];
     write_u128(&mut output, session_id);
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_close_param(input: &[u8]) -> RS<OID> {
     if input.len() < size_of::<u128>() {
         return Err(mudu::mudu_error!(
@@ -302,14 +398,23 @@ pub fn deserialize_close_param(input: &[u8]) -> RS<OID> {
     Ok(read_u128(&input[..size_of::<u128>()]))
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_close_result() -> Vec<u8> {
     vec![1]
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_close_result(input: &[u8]) -> RS<()> {
     deserialize_put_result(input)
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn serialize_range_result(items: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     let mut output = Vec::new();
     write_u32_be(&mut output, items.len() as u32);
@@ -322,6 +427,9 @@ pub fn serialize_range_result(items: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     output
 }
 
+#[deprecated(
+    note = "superseded by the SyscallPayload v1 codec; use crate::codec::syscall_payload instead"
+)]
 pub fn deserialize_range_result(input: &[u8]) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     decode_error_result(input)?;
     let mut offset = 0;

@@ -333,33 +333,28 @@ fn async_loop_batch_rejects_parameters() -> RS<()> {
 }
 
 #[test]
-fn async_loop_query_and_command_report_parse_error_on_placeholder_mismatch() -> RS<()> {
+fn async_loop_query_and_command_forward_params_without_local_validation() -> RS<()> {
     let _guard = config::test_lock().lock()?;
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
         || {
+            // The driver sends the template text plus parameters as-is;
+            // placeholder/parameter count is validated by the server binder,
+            // so the request fails only because the session is unknown.
             let stmt = SQLStmtText::new("SELECT ?1, ?2".to_string());
 
             let err = match mudu_query::<i32>(9999, &stmt, &42i32) {
-                Ok(_) => panic!("expected parse error"),
+                Ok(_) => panic!("expected session not found error"),
                 Err(e) => e,
             };
-            assert_eq!(err.ec(), ErrorCode::Parse);
-            assert!(
-                err.to_string()
-                    .contains("parameter and placeholder count mismatch")
-            );
+            assert_session_not_found(err, 9999);
 
             let err = match mudu_command(9999, &stmt, &42i32) {
-                Ok(_) => panic!("expected parse error"),
+                Ok(_) => panic!("expected session not found error"),
                 Err(e) => e,
             };
-            assert_eq!(err.ec(), ErrorCode::Parse);
-            assert!(
-                err.to_string()
-                    .contains("parameter and placeholder count mismatch")
-            );
+            assert_session_not_found(err, 9999);
             Ok(())
         },
     )

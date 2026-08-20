@@ -1,0 +1,44 @@
+# Smoke config: hotspot contention (K=1) on the original TPC-C workload.
+# Structure: `defaults` holds global/infrastructure settings and benchmark
+# parameter fallbacks; each entry under `tests` is a named group listing only
+# the benchmark parameters it overrides (everything else is inherited).
+
+defaults:
+  backends: [postgres-procedure, mududb-procedure-iouring]
+
+  mudud:
+    listen_ip: 127.0.0.1
+    ring_entries: 1024
+    partition_count: 32
+    wal_sync_mode: periodic
+    wal_sync_interval_ms: 10
+    modes:
+      procedure-iouring:
+        server_mode: iouring
+        interactive_mode: procedure
+
+  client_cpu_cores: [4]
+  client_cpu_offset: 12
+
+  output_dir: ./bench_cross_db_results
+  keep_data: true
+
+tests:
+  - name: smoke-hotrows
+    hot_rows_per_warehouse: 1
+    # Smoke runs stay fast: no think time (overrides the TPC-C ~11s default).
+    think_times_ms: [0]
+
+    cpu_cores: [12]
+    connections: [64]
+    repeats: 1
+    warmup_operations: 0
+
+    warehouses: 8
+    districts: 10
+    customers: 100
+    items: 100
+    operations: 5000
+
+    payment_percent: 50
+    new_order_percent: 35

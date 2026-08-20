@@ -451,6 +451,12 @@ mod tests {
         server_mode: ServerMode,
     ) -> RS<()> {
         let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        // Skip the io_uring variant early when io_uring is unavailable,
+        // instead of starting a backend whose mode the environment cannot
+        // serve (mirrors `start_client_backend`'s guard).
+        if server_mode == ServerMode::IOUring && should_skip_iouring_env() {
+            return Ok(());
+        }
         let Some(cfg) = test_cfg(server_mode) else {
             return Ok(());
         };
@@ -792,6 +798,11 @@ mod tests {
     async fn run_async_client_roundtrip_sql_crud(server_mode: ServerMode) -> RS<()> {
         init_test_logging();
         let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        // Skip the io_uring variant early when io_uring is unavailable
+        // (mirrors `start_client_backend`'s guard).
+        if server_mode == ServerMode::IOUring && should_skip_iouring_env() {
+            return Ok(());
+        }
         let Some(cfg) = test_cfg(server_mode) else {
             return Ok(());
         };

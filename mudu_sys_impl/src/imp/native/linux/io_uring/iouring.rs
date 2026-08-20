@@ -2,6 +2,18 @@
 mod linux {
     use std::time::Duration;
 
+    /// `IORING_REGISTER_IOWQ_AFF` from linux/io_uring.h (not exposed by
+    /// the system liburing headers, so we register by raw opcode).
+    const IORING_REGISTER_IOWQ_AFF: u32 = 17;
+    /// `IORING_REGISTER_IOWQ_MAX_WORKERS` from linux/io_uring.h.
+    const IORING_REGISTER_IOWQ_MAX_WORKERS: u32 = 19;
+
+    /// Raw io_uring_register(2) via syscall: the libc crate in this
+    /// workspace does not export `io_uring_register`.
+    unsafe fn ring_register(fd: i32, opcode: u32, arg: *const libc::c_void, nr_args: u32) -> i32 {
+        libc::syscall(libc::SYS_io_uring_register, fd, opcode, arg, nr_args) as i32
+    }
+
     pub struct IoUring {
         raw: rliburing::io_uring,
         exited: bool,
@@ -101,6 +113,39 @@ mod linux {
             match ring.wait_timeout(Duration::from_millis(200)) {
                 Ok(c) => c.result() >= 0,
                 Err(_) => false,
+            }
+        }
+
+        /// Pins this ring's io_wq worker threads to a single CPU, so
+        /// buffered-write SQEs are executed on the worker's own core
+        /// instead of being scheduled onto arbitrary (possibly busy)
+        /// cores. Returns the raw io_uring_register result (0 = ok).
+        pub fn register_iowq_affinity(&mut self, cpu: usize) -> i32 {
+            unsafe {
+                let mut set: libc::cpu_set_t = std::mem::zeroed();
+                libc::CPU_ZERO(&mut set);
+                libc::CPU_SET(cpu, &mut set);
+                ring_register(
+                    self.raw.ring_fd,
+                    IORING_REGISTER_IOWQ_AFF,
+                    &set as *const libc::cpu_set_t as *const libc::c_void,
+                    std::mem::size_of::<libc::cpu_set_t>() as u32,
+                )
+            }
+        }
+
+        /// Raises this ring's io_wq worker caps (bounded, unbounded),
+        /// so concurrent buffered writes never queue waiting for a
+        /// worker. Returns the raw io_uring_register result (0 = ok).
+        pub fn register_iowq_max_workers(&mut self, bounded: u32, unbounded: u32) -> i32 {
+            let bounds = [bounded, unbounded];
+            unsafe {
+                ring_register(
+                    self.raw.ring_fd,
+                    IORING_REGISTER_IOWQ_MAX_WORKERS,
+                    bounds.as_ptr() as *const libc::c_void,
+                    2,
+                )
             }
         }
 

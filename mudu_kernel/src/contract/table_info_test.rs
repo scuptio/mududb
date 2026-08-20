@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use crate::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use crate::contract::schema_column::SchemaColumn;
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_info::TableInfo;
@@ -54,4 +55,23 @@ fn field_mapping_matches_columns() {
     assert_eq!(fields[2].name(), "c");
     assert_eq!(fields[2].column_index(), 2);
     assert!(!fields[2].is_primary());
+}
+
+#[test]
+fn fs_binding_propagates_from_schema_column_to_field_info() {
+    let mut photo = make_col("photo", TypeFamily::U128);
+    photo.set_fs_binding(Some(FsColumnBinding::new(5, FsTypeKind::File)));
+    let schema = SchemaTable::new(
+        "info_fs_t".to_string(),
+        vec![make_col("id", TypeFamily::I32), photo],
+        vec![0],
+        vec![1],
+    );
+    let desc = TableInfo::new(schema).unwrap().table_desc().unwrap();
+    let fields = desc.fields();
+    assert_eq!(fields[0].fs_binding(), None);
+    assert_eq!(
+        fields[1].fs_binding(),
+        Some(FsColumnBinding::new(5, FsTypeKind::File))
+    );
 }

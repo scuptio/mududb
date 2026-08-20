@@ -41,4 +41,8 @@ impl AsyncFs for AsyncTokioFs {
     async fn read_dir(&self, path: &Path) -> RS<Vec<PathBuf>> {
         async_tokio::read_dir(path).await
     }
+
+    async fn remove_dir_all(&self, path: &Path) -> RS<()> {
+        async_tokio::remove_dir_all(path).await
+    }
 }

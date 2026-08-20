@@ -72,7 +72,9 @@ impl IoUringBackend {
         )?
         .with_log_chunk_size(cfg.log_chunk_size)
         .with_multi_port(cfg.tcp_multi_port)
-        .with_page_size(cfg.page_size)?;
+        .with_page_size(cfg.page_size)?
+        .with_log_batching_max_wait(std::time::Duration::from_micros(cfg.wal_flush_max_wait_us))
+        .with_wal_sync_policy(cfg.wal_sync_policy()?);
         let mut server_deps = ServerRuntimeDeps::from_cfg(&base_server_cfg)?
             .with_async_runtime(async_runtime.clone());
         let default_remote_addr = format!("{}:{}", cfg.listen_ip, cfg.tcp_listen_port);
@@ -91,7 +93,12 @@ impl IoUringBackend {
             Ok::<_, mudu::error::MuduError>(runtimes)
         })??;
         server_deps = server_deps.with_worker_procedure_runtimes(procedure_runtimes);
-        let server_launch = ServerLaunch::new(base_server_cfg, server_deps);
+        // Bind every worker listener before the management service starts so
+        // a port conflict aborts startup here instead of surfacing later as a
+        // worker that never becomes ready.
+        let listeners = base_server_cfg.prebind_worker_listeners()?;
+        let server_launch =
+            ServerLaunch::new(base_server_cfg, server_deps).with_prebound_listeners(listeners);
         spawn_management_thread(cfg.clone(), app_mgr.clone(), worker_registry, stop.clone())?;
         let result =
             KernelWorkerTcpBackend::sync_serve_with_stop_and_ready(server_launch, stop, ready);

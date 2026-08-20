@@ -48,6 +48,10 @@ fn temp_db_path(label: &str) -> String {
     path.to_str().unwrap().to_string()
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn accessors_and_connection_lifecycle() {
@@ -77,6 +81,10 @@ async fn accessors_and_connection_lifecycle() {
     assert!(app.connection(1).is_none());
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn procedure_and_describe_return_not_found_for_missing_module() {
@@ -100,6 +108,10 @@ async fn procedure_and_describe_return_not_found_for_missing_module() {
     assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn invoke_rejects_missing_procedure() {
@@ -125,6 +137,10 @@ async fn invoke_rejects_missing_procedure() {
     assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn invoke_async_rejected_when_async_disabled() {

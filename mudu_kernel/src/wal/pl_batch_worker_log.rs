@@ -94,9 +94,9 @@ mod tests {
     use crate::wal::log_frame::{
         frame_lsns, split_frame, LOG_FRAME_HEADER_SIZE, LOG_FRAME_TAILER_SIZE,
     };
-    use crate::wal::pl_entry::{PLEntry, PLFileId, PLOp, PageUpdate};
+    use crate::wal::pl_entry::{PLEntry, PLFileId, PLOp, PLRecord, PageDelta};
 
-    fn sample_batch(entry_count: usize, patch_size: usize) -> PLBatch {
+    fn sample_batch(entry_count: usize, payload_size: usize) -> PLBatch {
         let mut entries = Vec::with_capacity(entry_count);
         for i in 0..entry_count {
             entries.push(PLEntry {
@@ -107,10 +107,16 @@ mod tests {
                 },
                 ops: vec![
                     PLOp::Create,
-                    PLOp::PageUpdate(PageUpdate {
+                    PLOp::PageDelta(PageDelta {
                         page_id: PageId::new(i as u64),
-                        offset: 16,
-                        data: vec![i as u8 + 1; patch_size],
+                        init: None,
+                        links: None,
+                        removes: Vec::new(),
+                        upserts: vec![PLRecord {
+                            timestamp: i as u64,
+                            tuple_id: 1,
+                            payload: vec![i as u8 + 1; payload_size],
+                        }],
                     }),
                 ],
             });
@@ -176,5 +182,41 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("max_part_size"));
+    }
+
+    #[test]
+    fn pl_batch_record_payload_encodes_as_binary_blob() {
+        // `PLRecord::payload` must serialize as one msgpack binary object: a
+        // per-element sequence encoding would cost one serializer call per
+        // payload byte and inflate the WAL on every append. Payload bytes
+        // >= 0x80 take two msgpack bytes each in the sequence encoding, so
+        // a 256-byte payload would exceed 512 bytes there; the binary blob
+        // stays within payload + struct overhead.
+        let batch = PLBatch::new(vec![PLEntry {
+            file: PLFileId {
+                partition_id: 7,
+                table_id: 100,
+                file_index: 0,
+            },
+            ops: vec![PLOp::PageDelta(PageDelta {
+                page_id: PageId::new(0),
+                init: None,
+                links: None,
+                removes: Vec::new(),
+                upserts: vec![PLRecord {
+                    timestamp: 1,
+                    tuple_id: 1,
+                    payload: vec![0x80u8; 256],
+                }],
+            })],
+        }]);
+        let payload = rmp_serde::to_vec(&batch).unwrap();
+        assert!(
+            payload.len() < 256 + 128,
+            "payload must use the binary encoding, got {} bytes",
+            payload.len()
+        );
+        let decoded: PLBatch = rmp_serde::from_slice(&payload).unwrap();
+        assert_eq!(decoded, batch);
     }
 }

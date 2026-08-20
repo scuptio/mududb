@@ -495,7 +495,7 @@ mod tests {
                 &update_key,
                 &pred_non_key,
                 &update_value,
-                &OptUpdate {},
+                &OptUpdate::default(),
             )
             .await?;
         assert_eq!(updated, 1);
@@ -512,8 +512,201 @@ mod tests {
         Ok(())
     }
 
+    fn plus_one_update() -> OptUpdate {
+        OptUpdate {
+            delta_assignments: vec![DeltaAssign {
+                attr: 1,
+                op: DeltaOp::Add,
+                literal: datum(1),
+            }],
+        }
+    }
+
+    #[test]
+    fn iouring_xcontract_delta_update_evaluates_on_latest_committed_value() {
+        block_on(async move {
+            let r = _iouring_xcontract_delta_update_evaluates_on_latest_committed_value().await;
+            assert!(r.is_ok())
+        })
+    }
+
+    async fn _iouring_xcontract_delta_update_evaluates_on_latest_committed_value() -> RS<()> {
+        let meta_mgr = Arc::new(TestMetaMgr::new());
+        let schema = test_schema();
+        let table_id = schema.id();
+        let contract = WorkerXContract::with_log(meta_mgr, None).unwrap();
+
+        let ddl_tx = contract.begin_tx().await?;
+        contract.create_table(ddl_tx.clone(), &schema).await?;
+        contract.commit_tx(ddl_tx).await?;
+
+        let insert_tx = contract.begin_tx().await?;
+        contract
+            .insert(
+                insert_tx.clone(),
+                table_id,
+                &key_row(1),
+                &value_row(10),
+                &OptInsert::default(),
+            )
+            .await?;
+        contract.commit_tx(insert_tx).await?;
+
+        // A plain read observes v = 10 (no lock held).
+        let stale_tx = contract.begin_tx().await?;
+        let row = contract
+            .read_key(
+                stale_tx.clone(),
+                table_id,
+                &key_row(1),
+                &VecSelTerm::new(vec![1]),
+                &OptRead::default(),
+            )
+            .await?;
+        assert_eq!(row, Some(vec![Some(datum(10))]));
+
+        // Another transaction commits `v = v + 1` in the meantime.
+        let tx2 = contract.begin_tx().await?;
+        let updated = contract
+            .update(
+                tx2.clone(),
+                table_id,
+                &key_row(1),
+                &Predicate::CNF(vec![]),
+                &VecDatum::new(vec![]),
+                &plus_one_update(),
+            )
+            .await?;
+        assert_eq!(updated, 1);
+        contract.commit_tx(tx2).await?;
+
+        // The stale reader's `v = v + 1` is evaluated on the latest committed
+        // value (11) under the statement lock, yielding 12. An absolute
+        // update computed from the stale read would have written 11 and lost
+        // the concurrent increment.
+        let updated = contract
+            .update(
+                stale_tx.clone(),
+                table_id,
+                &key_row(1),
+                &Predicate::CNF(vec![]),
+                &VecDatum::new(vec![]),
+                &plus_one_update(),
+            )
+            .await?;
+        assert_eq!(updated, 1);
+        // Read-your-writes: the same transaction observes its staged delta.
+        let row = contract
+            .read_key(
+                stale_tx.clone(),
+                table_id,
+                &key_row(1),
+                &VecSelTerm::new(vec![1]),
+                &OptRead::default(),
+            )
+            .await?;
+        assert_eq!(row, Some(vec![Some(datum(12))]));
+        contract.commit_tx(stale_tx).await?;
+
+        // Subtraction form: `v = v - 2` on the committed 12 yields 10.
+        let tx3 = contract.begin_tx().await?;
+        let minus_two = OptUpdate {
+            delta_assignments: vec![DeltaAssign {
+                attr: 1,
+                op: DeltaOp::Sub,
+                literal: datum(2),
+            }],
+        };
+        let updated = contract
+            .update(
+                tx3.clone(),
+                table_id,
+                &key_row(1),
+                &Predicate::CNF(vec![]),
+                &VecDatum::new(vec![]),
+                &minus_two,
+            )
+            .await?;
+        assert_eq!(updated, 1);
+        contract.commit_tx(tx3).await?;
+
+        let read_tx = contract.begin_tx().await?;
+        let row = contract
+            .read_key(
+                read_tx,
+                table_id,
+                &key_row(1),
+                &VecSelTerm::new(vec![1]),
+                &OptRead::default(),
+            )
+            .await?;
+        assert_eq!(row, Some(vec![Some(datum(10))]));
+        Ok(())
+    }
+
     fn meta_table(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
+    }
+
+    #[test]
+    fn group_commit_tx_committed_row_replays_from_wal() {
+        block_on(async move {
+            let r = _group_commit_tx_committed_row_replays_from_wal().await;
+            if let Err(e) = &r {
+                panic!("group commit replay failed: {}", e);
+            }
+        })
+    }
+
+    async fn _group_commit_tx_committed_row_replays_from_wal() -> RS<()> {
+        let dir = temp_dir().join(format!("group_commit_replay_{}", gen_oid()));
+        let layout = WorkerLogLayout::new(dir, gen_oid(), 4096)?;
+        let log = ChunkedWorkerLogBackend::new(layout.clone()).await?;
+        let meta_mgr = Arc::new(TestMetaMgr::new());
+        let schema = test_schema();
+        let table_id = schema.id();
+        let contract = WorkerXContract::with_log(meta_mgr.clone(), Some(log))?;
+        contract.initialize().await?;
+        let ddl_tx = contract.begin_tx().await?;
+        contract.create_table(ddl_tx.clone(), &schema).await?;
+        contract.commit_tx(ddl_tx).await?;
+        let insert_tx = contract.begin_tx().await?;
+        let insert_xid = insert_tx.xid();
+        contract
+            .insert(
+                insert_tx.clone(),
+                table_id,
+                &key_row(1),
+                &value_row(10),
+                &OptInsert::default(),
+            )
+            .await?;
+        // The commit goes through the group-commit queue and self-drives the
+        // flush round, so the batch must be durable when commit_tx returns.
+        contract.commit_tx(insert_tx).await?;
+
+        // Simulate crash recovery: replay the persisted WAL batch into a
+        // fresh contract that already has the table (DDL recovery is
+        // meta-manager driven, not batch driven).
+        let bytes = mudu_sys::fs::sync::read(layout.chunk_path(0))?;
+        let frames = decode_frames(&bytes)?;
+        let batches = crate::wal::xl_batch::decode_xl_batches(&frames)?;
+        let recovered = WorkerXContract::with_log(meta_mgr, None)?;
+        recovered.initialize().await?;
+        let ddl_tx = recovered.begin_tx().await?;
+        recovered.create_table(ddl_tx.clone(), &schema).await?;
+        recovered.commit_tx(ddl_tx).await?;
+        let mut replayed = 0;
+        for batch in batches {
+            if batch.entries.iter().any(|entry| entry.xid == insert_xid) {
+                recovered.replay_worker_log_batch(batch).await?;
+                replayed += 1;
+            }
+        }
+        assert_eq!(replayed, 1);
+        let row = read_i32_value(&recovered, table_id, 1).await?;
+        assert_eq!(row, Some(datum(10)));
+        Ok(())
     }
 
     async fn make_contract_with_table(schema: &SchemaTable) -> RS<(Arc<WorkerXContract>, OID)> {

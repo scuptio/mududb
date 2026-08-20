@@ -85,7 +85,9 @@ impl SQLParser {
         node: Node,
     ) -> RS<(UniDataType, Option<Vec<UniDataValue>>)> {
         let opt_n = node.child(0);
-        let child = rs_option(opt_n, "no child in data type kind")?;
+        let Some(child) = opt_n else {
+            return self.visit_named_data_type(context, node);
+        };
         let kind = child.kind_id();
         let ret = match kind {
             ts_kind_id::INT => (UniDataType::Scalar(UniScalar::I32), None),
@@ -140,6 +142,22 @@ impl SQLParser {
         };
 
         Ok(ret)
+    }
+
+    /// Visit a childless `data_type_kind` node.
+    ///
+    /// The tree-sitter SQL grammar accepts a bare unknown identifier in the
+    /// data-type position (e.g. `photo photo_fs`) as a `data_type_kind` node
+    /// with no children. Treat its text as a named type (such as a registered
+    /// filesystem type) that the binder resolves against the catalog.
+    pub(crate) fn visit_named_data_type(
+        &self,
+        context: &ParseContext,
+        node: Node,
+    ) -> RS<(UniDataType, Option<Vec<UniDataValue>>)> {
+        let name = ts_node_context_string(context.parse_str(), &node)?;
+        super::entry::validate_type_name(&name)?;
+        Ok((UniDataType::Identifier(name), None))
     }
 
     pub(crate) fn visit_char_param(&self, context: &ParseContext, node: Node) -> RS<UniDataValue> {

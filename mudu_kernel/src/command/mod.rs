@@ -1,3 +1,6 @@
+pub mod create_fs_type;
+#[cfg(all(test, not(miri)))]
+pub mod create_fs_type_test;
 pub mod create_partition_placement;
 #[cfg(test)]
 pub mod create_partition_placement_test;
@@ -10,9 +13,15 @@ pub mod create_table_test;
 pub mod delete_key_value;
 #[cfg(test)]
 pub mod delete_key_value_test;
+pub mod drop_fs_type;
+#[cfg(test)]
+pub mod drop_fs_type_test;
 pub mod drop_table;
 #[cfg(test)]
 pub mod drop_table_test;
+pub(crate) mod fs_hook;
+#[cfg(test)]
+pub mod fs_hook_test;
 pub mod insert_key_value;
 #[cfg(test)]
 pub mod insert_key_value_test;

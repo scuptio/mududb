@@ -176,13 +176,13 @@ fn create_procedure_runtimes(
     })
 }
 
-fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
+pub(crate) fn serialize_param<T: TupleDatum>(tuple: T) -> RS<Vec<u8>> {
     let desc = T::tuple_desc_static(&[]);
     let param = ProcedureParam::from_tuple(0, tuple, &desc)?;
     procedure_invoke::serialize_param(param)
 }
 
-fn invoke_and_decode<T: TupleDatum>(
+pub(crate) fn invoke_and_decode<T: TupleDatum>(
     client: &mut SyncClient,
     session_id: u128,
     procedure_name: &str,
@@ -326,7 +326,7 @@ fn run_kv_mpk_can_be_used_by_kernel_backend(server_mode: ServerMode) -> RS<()> {
     Ok(())
 }
 
-fn supports_server_mode(server_mode: ServerMode) -> bool {
+pub(crate) fn supports_server_mode(server_mode: ServerMode) -> bool {
     match server_mode {
         ServerMode::IOUring => mudu_sys::io_uring_available(),
         ServerMode::Legacy | ServerMode::Tokio => true,

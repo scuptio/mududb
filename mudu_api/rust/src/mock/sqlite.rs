@@ -1,9 +1,8 @@
 use crate::error::ApiError;
 use crate::types::{UniCommandResult, UniCommandReturn, UniQueryReturn};
 use crate::{
-    UniCommandArgv, UniDataType, UniDataValue, UniError, UniScalar, UniScalarValue,
-    UniQueryArgv, UniQueryResult, UniRecordField, UniRecordType, UniResult, UniResultSet,
-    UniTupleRow,
+    UniCommandArgv, UniDataType, UniDataValue, UniError, UniQueryArgv, UniQueryResult,
+    UniRecordField, UniRecordType, UniResultSet, UniScalar, UniScalarValue, UniTupleRow,
 };
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, params_from_iter};
@@ -21,10 +20,10 @@ impl MockSqliteMuduSysCall {
     }
 
     pub fn database_path() -> PathBuf {
-        if let Some(lock) = DATABASE_PATH_OVERRIDE.get() {
-            if let Some(path) = lock.read().expect("database path lock poisoned").clone() {
-                return path;
-            }
+        if let Some(lock) = DATABASE_PATH_OVERRIDE.get()
+            && let Some(path) = lock.read().expect("database path lock poisoned").clone()
+        {
+            return path;
         }
 
         if let Some(path) = std::env::var_os("MUDU_MOCK_SQLITE_PATH") {
@@ -38,22 +37,24 @@ impl MockSqliteMuduSysCall {
 
     pub async fn query_raw(query_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
         tokio::task::spawn_blocking(move || {
-            let argv: UniQueryArgv = rmp_serde::from_slice(&query_in)?;
+            let argv = crate::mudu_sys::decode_query_request(&query_in)?;
             let result = Self::sys_query_sync(argv);
-            Ok(rmp_serde::to_vec(&result)?)
+            crate::mudu_sys::encode_query_response(&result)
         })
         .await?
     }
 
     pub async fn command_raw(command_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
         tokio::task::spawn_blocking(move || {
-            let argv: UniCommandArgv = rmp_serde::from_slice(&command_in)?;
+            let argv = crate::mudu_sys::decode_command_request(&command_in)?;
             let result = Self::sys_command_sync(argv);
-            Ok(rmp_serde::to_vec(&result)?)
+            crate::mudu_sys::encode_command_response(&result)
         })
         .await?
     }
 
+    /// `fetch` is not one of the 23 `uni-syscall.wit` syscalls and has no
+    /// SyscallPayload v1 route: the cursor bytes pass through untouched.
     pub async fn fetch_raw(query_result: Vec<u8>) -> Result<Vec<u8>, ApiError> {
         Ok(query_result)
     }
@@ -72,14 +73,14 @@ impl MockSqliteMuduSysCall {
 
     fn sys_command_sync(argv: UniCommandArgv) -> UniCommandReturn {
         match Self::try_sys_command(argv) {
-            Ok(result) => UniResult::Ok(result),
+            Ok(result) => UniCommandReturn::Ok(result),
             Err(message) => Self::command_error(message),
         }
     }
 
     fn sys_query_sync(argv: UniQueryArgv) -> UniQueryReturn {
         match Self::try_sys_query(argv) {
-            Ok(result) => UniResult::Ok(result),
+            Ok(result) => UniQueryReturn::Ok(result),
             Err(message) => Self::query_error(message),
         }
     }
@@ -166,6 +167,14 @@ impl MockSqliteMuduSysCall {
             UniScalarValue::F64(v) => Ok(Value::Real(v)),
             UniScalarValue::Char(v) => Ok(Value::Text(v.to_string())),
             UniScalarValue::String(v) => Ok(Value::Text(v)),
+            UniScalarValue::U128(v) | UniScalarValue::I128(v) | UniScalarValue::Blob(v) => {
+                Ok(Value::Blob(v))
+            }
+            UniScalarValue::Numeric(v)
+            | UniScalarValue::Date(v)
+            | UniScalarValue::Time(v)
+            | UniScalarValue::Timestamp(v)
+            | UniScalarValue::TimestampTz(v) => Ok(Value::Text(v)),
         }
     }
 
@@ -174,11 +183,11 @@ impl MockSqliteMuduSysCall {
         inferred_types: &mut [Option<UniDataType>],
     ) -> Result<UniTupleRow, String> {
         let mut fields = Vec::with_capacity(row.as_ref().column_count());
-        for index in 0..row.as_ref().column_count() {
+        for (index, inferred_type) in inferred_types.iter_mut().enumerate() {
             let value = row.get_ref(index).map_err(|error| error.to_string())?;
             let field = Self::to_uni_data_value(value)?;
-            if inferred_types[index].is_none() {
-                inferred_types[index] = Some(Self::infer_uni_data_type(&field));
+            if inferred_type.is_none() {
+                *inferred_type = Some(Self::infer_uni_data_type(&field));
             }
             fields.push(field);
         }
@@ -196,6 +205,7 @@ impl MockSqliteMuduSysCall {
             .map(|(field_name, field_type)| UniRecordField {
                 field_name,
                 field_type: field_type.unwrap_or(UniDataType::Scalar(UniScalar::String)),
+                field_attrs: Vec::new(),
             })
             .collect();
 
@@ -219,44 +229,34 @@ impl MockSqliteMuduSysCall {
 
     fn infer_uni_data_type(value: &UniDataValue) -> UniDataType {
         match value {
-            UniDataValue::Scalar(UniScalarValue::Bool(_)) => {
-                UniDataType::Scalar(UniScalar::Bool)
-            }
-            UniDataValue::Scalar(UniScalarValue::U8(_)) => {
-                UniDataType::Scalar(UniScalar::U8)
-            }
-            UniDataValue::Scalar(UniScalarValue::I8(_)) => {
-                UniDataType::Scalar(UniScalar::I8)
-            }
-            UniDataValue::Scalar(UniScalarValue::U16(_)) => {
-                UniDataType::Scalar(UniScalar::U16)
-            }
-            UniDataValue::Scalar(UniScalarValue::I16(_)) => {
-                UniDataType::Scalar(UniScalar::I16)
-            }
-            UniDataValue::Scalar(UniScalarValue::U32(_)) => {
-                UniDataType::Scalar(UniScalar::U32)
-            }
-            UniDataValue::Scalar(UniScalarValue::I32(_)) => {
-                UniDataType::Scalar(UniScalar::I32)
-            }
-            UniDataValue::Scalar(UniScalarValue::U64(_)) => {
-                UniDataType::Scalar(UniScalar::U64)
-            }
-            UniDataValue::Scalar(UniScalarValue::I64(_)) => {
-                UniDataType::Scalar(UniScalar::I64)
-            }
-            UniDataValue::Scalar(UniScalarValue::F32(_)) => {
-                UniDataType::Scalar(UniScalar::F32)
-            }
-            UniDataValue::Scalar(UniScalarValue::F64(_)) => {
-                UniDataType::Scalar(UniScalar::F64)
-            }
-            UniDataValue::Scalar(UniScalarValue::Char(_)) => {
-                UniDataType::Scalar(UniScalar::Char)
-            }
+            UniDataValue::Scalar(UniScalarValue::Bool(_)) => UniDataType::Scalar(UniScalar::Bool),
+            UniDataValue::Scalar(UniScalarValue::U8(_)) => UniDataType::Scalar(UniScalar::U8),
+            UniDataValue::Scalar(UniScalarValue::I8(_)) => UniDataType::Scalar(UniScalar::I8),
+            UniDataValue::Scalar(UniScalarValue::U16(_)) => UniDataType::Scalar(UniScalar::U16),
+            UniDataValue::Scalar(UniScalarValue::I16(_)) => UniDataType::Scalar(UniScalar::I16),
+            UniDataValue::Scalar(UniScalarValue::U32(_)) => UniDataType::Scalar(UniScalar::U32),
+            UniDataValue::Scalar(UniScalarValue::I32(_)) => UniDataType::Scalar(UniScalar::I32),
+            UniDataValue::Scalar(UniScalarValue::U64(_)) => UniDataType::Scalar(UniScalar::U64),
+            UniDataValue::Scalar(UniScalarValue::I64(_)) => UniDataType::Scalar(UniScalar::I64),
+            UniDataValue::Scalar(UniScalarValue::F32(_)) => UniDataType::Scalar(UniScalar::F32),
+            UniDataValue::Scalar(UniScalarValue::F64(_)) => UniDataType::Scalar(UniScalar::F64),
+            UniDataValue::Scalar(UniScalarValue::Char(_)) => UniDataType::Scalar(UniScalar::Char),
             UniDataValue::Scalar(UniScalarValue::String(_)) => {
                 UniDataType::Scalar(UniScalar::String)
+            }
+            UniDataValue::Scalar(UniScalarValue::U128(_)) => UniDataType::Scalar(UniScalar::U128),
+            UniDataValue::Scalar(UniScalarValue::I128(_)) => UniDataType::Scalar(UniScalar::I128),
+            UniDataValue::Scalar(UniScalarValue::Blob(_)) => UniDataType::Scalar(UniScalar::Blob),
+            UniDataValue::Scalar(UniScalarValue::Numeric(_)) => {
+                UniDataType::Scalar(UniScalar::Numeric)
+            }
+            UniDataValue::Scalar(UniScalarValue::Date(_)) => UniDataType::Scalar(UniScalar::Date),
+            UniDataValue::Scalar(UniScalarValue::Time(_)) => UniDataType::Scalar(UniScalar::Time),
+            UniDataValue::Scalar(UniScalarValue::Timestamp(_)) => {
+                UniDataType::Scalar(UniScalar::Timestamp)
+            }
+            UniDataValue::Scalar(UniScalarValue::TimestampTz(_)) => {
+                UniDataType::Scalar(UniScalar::TimestampTz)
             }
             UniDataValue::Binary(_) => UniDataType::Scalar(UniScalar::Blob),
             UniDataValue::Array(_) | UniDataValue::Record(_) => {
@@ -266,16 +266,18 @@ impl MockSqliteMuduSysCall {
     }
 
     fn command_error(message: String) -> UniCommandReturn {
-        UniResult::Err(UniError {
+        UniCommandReturn::Err(UniError {
             err_code: 1,
             err_msg: message,
+            ..Default::default()
         })
     }
 
     fn query_error(message: String) -> UniQueryReturn {
-        UniResult::Err(UniError {
+        UniQueryReturn::Err(UniError {
             err_code: 1,
             err_msg: message,
+            ..Default::default()
         })
     }
 }

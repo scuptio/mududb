@@ -34,6 +34,7 @@ impl MessageHandler for ExecuteHandler {
             request.oid() as _,
             request.app_name(),
             request.sql(),
+            request.params(),
             Some(digest),
         )
         .await

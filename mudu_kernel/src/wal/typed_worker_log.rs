@@ -1,18 +1,18 @@
 use crate::wal::log_frame::decode_entries_with_pending;
 use crate::wal::lsn::LSN;
 use crate::wal::worker_log::{
-    decode_frames_allow_trailing, AsyncWorkerLogRecoverySource, WorkerLogBackend,
+    scan_valid_frame_prefix, AsyncWorkerLogRecoverySource, WorkerLogBackend,
     WorkerLogRecoverySource,
 };
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu::error::ErrorCode;
-use mudu::mudu_error;
 use mudu_sys::scoped_task_trace;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::path::Path;
+use tracing::warn;
 
 #[async_trait]
 pub trait WorkerLogRecoveryHandler<L>: Send + Sync + 'static
@@ -47,6 +47,33 @@ where
     backend: B,
     handler: H,
     _marker: PhantomData<fn() -> L>,
+}
+
+/// Decodes one chunk's valid frame prefix for recovery, warning (never
+/// failing) when an un-persisted or corrupt tail is dropped.
+fn decode_chunk_frames_for_recovery(path: &Path, bytes: &[u8]) -> Vec<Vec<u8>> {
+    let prefix = scan_valid_frame_prefix(bytes);
+    if let Some(reason) = &prefix.corrupt_reason {
+        warn!(
+            path = %path.display(),
+            truncated_bytes = bytes.len() - prefix.valid_len,
+            reason = %reason,
+            "dropping un-persisted worker log chunk tail during recovery"
+        );
+    }
+    prefix.frames
+}
+
+/// A multi-part entry whose remaining frames never made it to disk (the
+/// writer crashed mid-entry) is dropped at end-of-log with a warning
+/// instead of failing recovery.
+fn warn_dropped_pending_frames(pending_frames: &[Vec<u8>]) {
+    if !pending_frames.is_empty() {
+        warn!(
+            pending_frames = pending_frames.len(),
+            "dropping unterminated log entry at end of worker log"
+        );
+    }
 }
 
 impl<L, B, H> TypedWorkerLog<L, B, H>
@@ -115,7 +142,7 @@ where
             if bytes.is_empty() {
                 continue;
             }
-            let frames = decode_frames_allow_trailing(&bytes)?;
+            let frames = decode_chunk_frames_for_recovery(path.as_path(), &bytes);
             let entries = decode_entries_with_pending::<L>(
                 &frames,
                 &mut pending_frames,
@@ -126,12 +153,7 @@ where
             }
         }
 
-        if !pending_frames.is_empty() {
-            return Err(mudu_error!(
-                ErrorCode::Decode,
-                "trailing partial log frames"
-            ));
-        }
+        warn_dropped_pending_frames(&pending_frames);
 
         self.handler.finish()
     }
@@ -148,7 +170,7 @@ where
             if bytes.is_empty() {
                 continue;
             }
-            let frames = decode_frames_allow_trailing(&bytes)?;
+            let frames = decode_chunk_frames_for_recovery(path.as_path(), &bytes);
             let entries = decode_entries_with_pending::<L>(
                 &frames,
                 &mut pending_frames,
@@ -159,12 +181,7 @@ where
             }
         }
 
-        if !pending_frames.is_empty() {
-            return Err(mudu_error!(
-                ErrorCode::Decode,
-                "trailing partial log frames"
-            ));
-        }
+        warn_dropped_pending_frames(&pending_frames);
 
         self.handler.finish()
     }
@@ -183,7 +200,7 @@ where
             if bytes.is_empty() {
                 continue;
             }
-            let frames = decode_frames_allow_trailing(&bytes)?;
+            let frames = decode_chunk_frames_for_recovery(path.as_path(), &bytes);
             let entries = decode_entries_with_pending::<L>(
                 &frames,
                 &mut pending_frames,
@@ -194,12 +211,7 @@ where
             }
         }
 
-        if !pending_frames.is_empty() {
-            return Err(mudu_error!(
-                ErrorCode::Decode,
-                "trailing partial log frames"
-            ));
-        }
+        warn_dropped_pending_frames(&pending_frames);
 
         handler.finish().await
     }

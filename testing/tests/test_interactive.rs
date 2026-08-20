@@ -1,3 +1,9 @@
+//! Runs on both the native and deterministic-simulation (`-F testing/ds`)
+//! backends. Under the simulation backend the kernel worker TCP loop rebinds
+//! the reserved port on the simulated async listener and the actix-based
+//! management HTTP service is not started, so the HTTP port probe is skipped
+//! and the TCP port probe uses the async client transport.
+
 use mudu::common::result::RS;
 use mudu_cli::client::json_client::JsonClient;
 use mudu_cli::tui::{extract_query_table, render_query_table_snapshot};
@@ -352,9 +358,12 @@ impl TestContext {
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
+        #[cfg(not(feature = "ds"))]
         wait_until_port_ready(self.http_port, "HTTP")?;
+        #[cfg(feature = "ds")]
+        let _ = self.http_port;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
-            wait_until_port_ready(self.tcp_port, "TCP")?;
+            wait_until_worker_port_ready(self.tcp_port)?;
         }
         wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
         Ok(RunningServer {
@@ -446,6 +455,7 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
     Ok(None)
 }
 
+#[cfg(not(feature = "ds"))]
 fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
     while mudu_sys::time::instant_now() < deadline {

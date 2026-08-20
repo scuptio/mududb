@@ -1,5 +1,6 @@
 use super::{
-    Args, BenchmarkMode, run_sync_async, start_backend, test_lock, with_connection_env_async,
+    Args, BenchmarkMode, Workload, run_sync_async, start_backend, test_lock,
+    with_connection_env_async,
 };
 use mududb::common::result::RS;
 use mududb::error::MuduError;
@@ -28,15 +29,26 @@ fn tpcc_benchmark_runs_through_mudud_adapter() -> RS<()> {
             customers_per_district: 8,
             items: 16,
             operation_count: 20,
+            warmup_operations: 0,
             connection_count: 2,
             payment_percent: 40,
             new_order_percent: 40,
             enable_async: false,
             warehouse_partitioned: false,
+            tcp_multi_port: false,
             app_name: "tpcc".to_string(),
             tcp_addr: "127.0.0.1:9527".to_string(),
             http_addr: "127.0.0.1:8300".to_string(),
             mpk: None,
+            perf_sample_rate: 0,
+            partition_count: None,
+            workload: Workload::Tpcc,
+            seckill_items: 320,
+            seckill_payload_bytes: 2048,
+            seckill_hotspot_percent: 0,
+            hot_rows_per_warehouse: 0,
+            order_lines: 0,
+            think_time_ms: 0,
         };
 
         let connection = format!("mudud://127.0.0.1:{tcp_port}/default");

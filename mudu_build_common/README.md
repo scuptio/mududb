@@ -21,7 +21,8 @@ extraction from `grammar.json` files.
   language-specific binding crates such as `mudu_binding`.
 - The actual tree-sitter grammars and parser code live in `tree-sitter-sql` and
   `tree-sitter-wit`.
-- Low-level filesystem and environment abstractions live in `mudu_sys`.
+- Low-level filesystem and environment abstractions live in `mudu_sys_impl`
+  (build scripts always run on the native backend, even under `mudu_sys/ds`).
 - The core database implementation lives in `mudu` and `mududb`.
 
 ## Main public entry points

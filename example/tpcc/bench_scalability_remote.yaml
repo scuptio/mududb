@@ -1,0 +1,167 @@
+# TPC-C 可扩展性扫描：PostgreSQL vs MySQL vs MuduDB vs SpacetimeDB。
+#
+# 配置意图（体现 MuduDB 的核数可扩展性）：
+# - cpu_cores 从 1 扫到 12（满物理核）：MuduDB worker_threads 随核数增长，
+#   TPS 应近似线性扩展；PG/MySQL 在高核数档受锁/latch 竞争限制，曲线提前
+#   见顶；SpacetimeDB 单节点 reducer 模型扩展性最弱。
+# - 连接数 [64, 256, 1024] 三档：低负载看延迟、中负载看稳态 TPS、高负载
+#   看过载表现。
+# - MuduDB 走 io_uring 服务端 + periodic fsync（wal_sync_mode，见
+#   perf_wal_fsync_report.md），interactive 与 procedure 两种客户端模式。
+# - repeats: 3 稀释 MuduDB 冷启动惩罚（首轮慢 2-4 倍，聚合方式为 mean）。
+# - PG/MySQL 给 80% RAM 的 buffer pool（buffer_pool_ratio: 0.8），公平对照。
+# - 数据集与 bench_showcase.yaml 完全一致（80 warehouses），两份配置的
+#   结果可横向对比。
+#
+# 结构：defaults 为全局默认（基础设施 + 基准参数回退）；tests 为命名分组，
+# 每组只列出覆盖 defaults 的基准参数，未列出的键从 defaults 继承。
+# 本文件两个测试：cpu-scaling（固定 64 连接扫核数）、connection-scaling
+# （固定 12 核扫连接数）。
+#
+# 规模：2 后端 × (5 核数档 + 4 连接档) × 3 repeats = 54 轮。
+# 如需压缩：优先把 connection-scaling 的 connections 减为 [64, 512]，或
+# repeats 减为 2（会削弱 MuduDB 冷启动稀释效果）。
+#
+# 注意：SpacetimeDB 在 1-2 核档 seed 80 warehouses 可能很慢，单次上限
+# benchmark_timeout_secs: 3600；若超时可将 stdb 拆到单独配置用更小数据集。
+#
+# 运行（建议安静窗口）：
+#   cd example/tpcc && python3 bench_cross_db.py --config bench_scalability_remote.yaml
+# 只跑子集：--backends postgres,mysql,mududb-procedure-iouring
+#
+# 远程（双机）执行：本配置已启用 remote 段并填好 server_host，
+# mudud/spacetimedb 的 listen_ip 已为 0.0.0.0，直接：
+#   python3 bench_cross_db.py --config bench_scalability_remote.yaml --setup-remote
+#   python3 bench_cross_db.py --config bench_scalability_remote.yaml
+# 详见 bench_cross_db.md "Two-machine (remote) mode"。
+
+defaults:
+  #backends: [postgres, postgres-procedure, mysql, mududb-interactive-iouring, mududb-procedure-iouring, spacetimedb]
+  backends: [postgres-procedure, mududb-procedure-iouring, spacetimedb]
+
+  repeats: 3
+  warmup_operations: 0
+
+  # TPC-C 思考时间（毫秒）：默认 11000 即规范各事务类型均值的混合加权
+  # （Clause 5.2.5.4：New-Order/Payment 12s、Order-Status 10s、Delivery/
+  # Stock-Level 5s）；0 = 关闭。开启后单轮测量阶段至少
+  # operations/connections × 11s，且与历史未 pacing 数据不可比。
+  think_times_ms: [100]
+
+  # 与 bench_showcase.yaml 一致的数据集，保证两份配置结果可对比。
+  warehouses: 80
+  districts: 10
+  customers: 400
+  items: 200
+  operations: 500
+
+  payment_percent: 50
+  new_order_percent: 35
+
+  benchmark_timeout_secs: 3600
+
+  postgres:
+    initdb: initdb
+    pg_ctl: pg_ctl
+    psql: psql
+    user: postgres
+    password: postgres
+    database: tpcc
+
+  mysql:
+    mysqld: mysqld
+    mysqladmin: mysqladmin
+    mysql: mysql
+    user: root
+    password: ""
+    database: tpcc
+
+  mudud:
+    # 远程模式必须改为 0.0.0.0（监听客户端可达地址）。
+    listen_ip: 0.0.0.0
+    ring_entries: 1024
+    partition_count: 32
+    # WAL 周期 fsync：commit 只等写入 page cache，后台每 10ms fsync。
+    # 对 MuduDB 是实打实的 TPS 收益（低中连接档 +48%~112%）。
+    wal_sync_mode: periodic
+    wal_sync_interval_ms: 10
+    modes:
+      interactive-iouring:
+        server_mode: iouring
+        interactive_mode: interactive
+      procedure-iouring:
+        server_mode: iouring
+        interactive_mode: procedure
+
+  spacetimedb:
+    version: "1.12.0"
+    cli_path: ""
+    install_dir: ""
+    # 远程模式必须改为 0.0.0.0（监听客户端可达地址）。
+    listen_ip: 0.0.0.0
+
+  # ---------------------------------------------------------------------------
+  # 远程（双机）模式：取消下面整段的注释并填 server_host 即启用；
+  # 同时把上面 mudud/spacetimedb 的 listen_ip 改为 0.0.0.0。
+  # 首次或代码更新后先跑一次 --setup-remote 同步源码并在服务端编译 mudud。
+  # 服务端机器前置条件：Rust 工具链、pg/mysql 服务端二进制、python3+PyYAML、
+  # 客户端可免密 ssh。端口为服务端固定端口（客户端需预知）；
+  # mudud_tcp_port 是一个连续端口块的起点（tcp_multi_port 每 worker 一个端口，
+  # 块大小 = 当前核数档，最大 12，即 54000-54011 需未被占用）。
+  remote:
+    server_host: 192.168.100.225      # <-- 服务端机器 IP（必填，设置即启用远程模式）
+    ssh_user: ybbh                   # 默认当前用户
+    ssh_port: 22
+    ssh_key_filename: ""             # 默认 agent 与 ~/.ssh 密钥
+    ssh_password: ""                 # 可选，优先用密钥
+    server_project_root: /home/ybbh/mududb_bench   # 服务端上的目录，--setup-remote 会自动创建
+    postgres_port: 55432
+    mysql_port: 53306
+    mudud_tcp_port: 54000
+    mudud_http_port: 58080
+    spacetimedb_port: 53000
+
+  # 客户端绑逻辑核 20-23（物理核 8-11 的 SMT sibling）：核数档 <= 8 时与服务端
+  # 零重叠；12 核档共享物理核不可避免（与 showcase 的既有约定相同）。
+  # 注意不要用 offset 12：逻辑核 12-15 是服务端物理核 0-3 的 sibling，低核数档
+  # 会直接干扰服务端。
+  #
+  # 已知伪影（2026-08-11 验证，两处）：
+  # 1) 4 核 pinned 客户端是所有 interactive 后端的隐形天花板：绑核时
+  #    postgres 从 4 核起被压在 ~1500 TPS、mysql 在 ~3800、mududb-i 在 ~3300，
+  #    均非服务端真实容量；12 核档客户端不绑核复测后 postgres 5551、
+  #    mysql ~5800-6000、mududb-i 7338 TPS（12c/64 连接）。
+  # 2) 12 核档叠加 SMT 争用：服务端占满物理核 0-11，客户端被钉在物理 8-11
+  #    的 sibling 上与 server worker 抢核，mududb-i 因此比 8 核档还低
+  #    （64 连接 3255 → 1315）。
+  # 只有瘦客户端（mududb-n、spacetimedb）的曲线反映真实服务端扩展性。
+  # 验证配置：bench_verify_12c_unpinned.yaml（mududb-i）、
+  # bench_verify_12c_pg_mysql_unpinned.yaml（pg/mysql）；结果分别在
+  # bench_cross_db_results/20260811_001809 和 20260811_002933。
+  # 解读本配置产出的 interactive 曲线时注意：绝对值是客户端受限的，
+  # 后端间相对比较（同一客户端配置）仍有效。
+  # 远程模式下客户端与服务端分属两台机器，上述争抢不复存在；此时推荐
+  # client_cpu_cores: null（客户端用满整机，数字反映服务端真实容量）——
+  # 客户端整机专用时绑核只会重新引入 4 核客户端天花板。注意远程+不绑核
+  # 的数字与本地历史数据方法论不可比（客户端预算不同且跨机有 RTT），
+  # 报告中需分开标注。
+  client_cpu_cores: null
+  client_cpu_offset: 20
+
+  # PG shared_buffers / MySQL innodb_buffer_pool_size = 80% RAM（公平）。
+  buffer_pool_ratio: 0.8
+
+  # 独立输出目录，不与 showcase / 默认配置的结果混淆。
+  output_dir: ./bench_cross_db_results_scalability
+  keep_data: false
+
+tests:
+  # 可扩展性曲线：固定 64 连接，1 → 满物理核。
+  - name: cpu-scaling
+    cpu_cores: [1, 2, 4, 8, 12]
+    connections: [64]
+
+  # 低 / 中 / 高档负载：固定满核 12，扫连接数。
+  - name: connection-scaling
+    cpu_cores: [12]
+    connections: [64, 256, 512, 1024]

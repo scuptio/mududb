@@ -5,7 +5,7 @@ use mudu_build_common::{
     collect_universal_files, generate_demo_manifest, generate_sdk_manifest, generate_universal_mod,
     read_workspace_versions, remove_stale_files, repo_root, write_if_changed,
 };
-use mudu_sys::fs::sync::{
+use mudu_sys_impl::fs::sync::{
     sync_create_dir_all, sync_read_to_string, sync_remove_dir_all, sync_write,
 };
 use std::collections::BTreeMap;
@@ -15,7 +15,7 @@ fn tmp_dir() -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    mudu_sys::env_var::temp_dir().join(format!(
+    mudu_sys_impl::env_var::temp_dir().join(format!(
         "mudu_build_common_test_{}_{}",
         std::process::id(),
         n

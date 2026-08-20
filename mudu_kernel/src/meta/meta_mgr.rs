@@ -15,12 +15,18 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::async_::AMutex;
 use tracing::trace;
 
+use crate::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::partition_rule::PartitionRuleDesc;
 use crate::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
 use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_desc::TableDesc;
 use crate::contract::table_info::TableInfo;
+use crate::meta::fs_object::{fs_object_schema, FS_OBJECT_TABLE_NAME};
+use crate::meta::fs_type_catalog::{
+    delete_fs_type_from_catalog, load_fs_types_from_catalog, open_fs_type_catalog,
+    write_fs_type_to_catalog,
+};
 use crate::meta::partition_binding_catalog::{
     load_partition_bindings_from_catalog, open_partition_binding_catalog,
     write_partition_binding_to_catalog,
@@ -67,12 +73,38 @@ struct CatalogRelation {
     partition_rule_catalog: Arc<Relation>,
     partition_binding_catalog: Arc<Relation>,
     partition_placement_catalog: Arc<Relation>,
+    fs_type: Arc<Relation>,
+}
+
+impl CatalogRelation {
+    /// Writes back dirty data pages of every catalog relation; see
+    /// [`Relation::flush_dirty_pages`]. The meta catalog relations live
+    /// outside `WorkerStorage::relation_store`, so the worker flush driver
+    /// reaches them through this method. Yields cooperatively between
+    /// catalog relations so the sweep cannot monopolize the worker event
+    /// loop.
+    async fn flush_dirty_pages(&self) -> RS<()> {
+        self.schema_catalog.flush_dirty_pages().await?;
+        crate::common::yield_now::cooperative_yield_now().await;
+        self.partition_rule_catalog.flush_dirty_pages().await?;
+        crate::common::yield_now::cooperative_yield_now().await;
+        self.partition_binding_catalog.flush_dirty_pages().await?;
+        crate::common::yield_now::cooperative_yield_now().await;
+        self.partition_placement_catalog.flush_dirty_pages().await?;
+        crate::common::yield_now::cooperative_yield_now().await;
+        self.fs_type.flush_dirty_pages().await?;
+        Ok(())
+    }
 }
 pub struct MetaMgrImpl {
     path: String,
     ddl_lock: Arc<AMutex<()>>,
     catalog: SMutex<Option<CatalogRelation>>,
     next_catalog_xid: AtomicU64,
+    /// Monotonic schema version, bumped once per applied DDL change. Used by
+    /// plan caches to detect catalog invalidation. Distinct from
+    /// `next_catalog_xid`, which is an MVCC timestamp for catalog rows.
+    catalog_version: AtomicU64,
     async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     id2table: scc::HashMap<OID, TableInfo>,
     name2id: scc::HashMap<String, OID>,
@@ -81,6 +113,9 @@ pub struct MetaMgrImpl {
     rule_name2id: scc::HashMap<String, OID>,
     binding_by_table_id: scc::HashMap<OID, TablePartitionBinding>,
     placement_by_partition_id: scc::HashMap<OID, OID>,
+    fs_type_by_name: scc::HashMap<String, FsTypeDesc>,
+    fs_type_by_id: scc::HashMap<u64, FsTypeDesc>,
+    next_fs_id: AtomicU64,
 }
 
 impl MetaMgrImpl {
@@ -105,6 +140,7 @@ impl MetaMgrImpl {
             open_partition_binding_catalog(&self.path, self.async_runtime.clone()).await?;
         let partition_placement_catalog =
             open_partition_placement_catalog(&self.path, self.async_runtime.clone()).await?;
+        let fs_type_catalog = open_fs_type_catalog(&self.path, self.async_runtime.clone()).await?;
         for schema in load_schemas_from_catalog(&schema_catalog).await? {
             self.apply_create_table_local(&schema)?;
         }
@@ -119,11 +155,22 @@ impl MetaMgrImpl {
         {
             self.apply_partition_placement_local(&placement);
         }
+        for desc in load_fs_types_from_catalog(&fs_type_catalog).await? {
+            self.apply_create_fs_type_local(&desc);
+        }
+        // Register the built-in `_fs_object` system table so it resolves like
+        // any user table and its relations get bootstrapped from the schema
+        // list. It is not persisted in the schema catalog; a user table with
+        // the same name fails as a duplicate.
+        if !self.table.contains_sync(FS_OBJECT_TABLE_NAME) {
+            self.apply_create_table_local(&fs_object_schema())?;
+        }
         let catalog = CatalogRelation {
             schema_catalog: Arc::new(schema_catalog),
             partition_rule_catalog: Arc::new(partition_rule_catalog),
             partition_placement_catalog: Arc::new(partition_placement_catalog),
             partition_binding_catalog: Arc::new(partition_binding_catalog),
+            fs_type: Arc::new(fs_type_catalog),
         };
         let mut guard = self.catalog.lock()?;
         *guard = Some(catalog);
@@ -146,6 +193,7 @@ impl MetaMgrImpl {
             ddl_lock,
             catalog: SMutex::new(None),
             next_catalog_xid: AtomicU64::new(now_catalog_xid()),
+            catalog_version: AtomicU64::new(0),
             async_runtime,
             id2table: Default::default(),
             name2id: Default::default(),
@@ -154,6 +202,9 @@ impl MetaMgrImpl {
             rule_name2id: Default::default(),
             binding_by_table_id: Default::default(),
             placement_by_partition_id: Default::default(),
+            fs_type_by_name: Default::default(),
+            fs_type_by_id: Default::default(),
+            next_fs_id: AtomicU64::new(1),
         };
         // this.initialize_inner().await?;
         Ok(this)
@@ -233,6 +284,24 @@ impl MetaMgrImpl {
             });
         placements.sort_by_key(|placement| placement.partition_id);
         placements
+    }
+
+    pub fn lookup_fs_type_by_name(&self, name: &str) -> Option<FsTypeDesc> {
+        self.fs_type_by_name.read_sync(name, |_, desc| desc.clone())
+    }
+
+    pub fn lookup_fs_type_by_id(&self, fs_id: u64) -> Option<FsTypeDesc> {
+        self.fs_type_by_id.read_sync(&fs_id, |_, desc| desc.clone())
+    }
+
+    pub fn list_fs_types_inner(&self) -> Vec<FsTypeDesc> {
+        let mut fs_types = Vec::new();
+        self.fs_type_by_id.iter_sync(|_fs_id, desc| {
+            fs_types.push(desc.clone());
+            true
+        });
+        fs_types.sort_by_key(|desc| desc.fs_id());
+        fs_types
     }
 
     pub async fn create_table_inner(&self, schema: &SchemaTable) -> RS<()> {
@@ -321,6 +390,86 @@ impl MetaMgrImpl {
         self.broadcast_upsert_partition_placements(placements)
     }
 
+    pub async fn create_fs_type_inner(&self, name: &str, kind: FsTypeKind) -> RS<u64> {
+        let _ddl_guard = self.ddl_lock.lock().await;
+        if self.fs_type_by_name.contains_sync(name) {
+            return Err(mudu_error!(
+                ER::AlreadyExists,
+                format!("filesystem type {} already exists", name)
+            ));
+        }
+        let fs_id = self.next_fs_id.fetch_add(1, Ordering::Relaxed);
+        let desc = FsTypeDesc::new(name.to_string(), fs_id, kind);
+        let fs_type_catalog = self.catalog_relation()?.fs_type;
+
+        write_fs_type_to_catalog(&fs_type_catalog, &desc, self.next_catalog_xid()).await?;
+        self.broadcast_create_fs_type(&desc)?;
+        Ok(fs_id)
+    }
+
+    pub async fn drop_fs_type_inner(&self, name: &str) -> RS<()> {
+        let _ddl_guard = self.ddl_lock.lock().await;
+        let target = self.lookup_fs_type_by_name(name).ok_or_else(|| {
+            mudu_error!(
+                ER::EntityNotFound,
+                format!("no such filesystem type {}", name)
+            )
+        })?;
+        self.check_fs_type_not_referenced(&target)?;
+        let fs_type_catalog = self.catalog_relation()?.fs_type;
+
+        delete_fs_type_from_catalog(&fs_type_catalog, name, self.next_catalog_xid()).await?;
+        self.broadcast_drop_fs_type(name)
+    }
+
+    // Reject dropping a filesystem type that is still referenced by an
+    // FS-bound table column (SchemaColumn::fs_binding).
+    fn check_fs_type_not_referenced(&self, desc: &FsTypeDesc) -> RS<()> {
+        let mut result = Ok(());
+        self.table.iter_sync(|table_name, table_info| {
+            let schema = match table_info.schema() {
+                Ok(schema) => schema,
+                Err(e) => {
+                    result = Err(e);
+                    return false;
+                }
+            };
+            for column in schema.columns() {
+                if let Some(binding) = column.fs_binding() {
+                    if binding.fs_id() == desc.fs_id() {
+                        result = Err(mudu_error!(
+                            ER::InvalidState,
+                            format!(
+                                "fs type {} still referenced by column {}.{}",
+                                desc.name(),
+                                table_name,
+                                column.get_name()
+                            )
+                        ));
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+        result
+    }
+
+    /// Loads the current catalog (schema) version with acquire semantics so
+    /// that a version check also observes the schema changes published before
+    /// the corresponding release-increment.
+    pub fn catalog_version_inner(&self) -> u64 {
+        self.catalog_version.load(Ordering::Acquire)
+    }
+
+    /// Publishes one applied DDL change by bumping the catalog version. Called
+    /// once per instance per logical DDL, including instances reached through
+    /// the registry fan-out, so all instances on the same path advance in
+    /// lockstep. Catalog replay during `initialize_inner` does not bump it.
+    fn bump_catalog_version(&self) {
+        self.catalog_version.fetch_add(1, Ordering::Release);
+    }
+
     fn next_catalog_xid(&self) -> u64 {
         let mut next = self.next_catalog_xid.load(Ordering::Relaxed);
         loop {
@@ -370,13 +519,32 @@ impl MetaMgrImpl {
             .insert_sync(placement.partition_id, placement.worker_id);
     }
 
+    fn apply_create_fs_type_local(&self, desc: &FsTypeDesc) {
+        let _ = self
+            .next_fs_id
+            .fetch_max(desc.fs_id().saturating_add(1), Ordering::Relaxed);
+        let _ = self
+            .fs_type_by_name
+            .insert_sync(desc.name().to_string(), desc.clone());
+        let _ = self.fs_type_by_id.insert_sync(desc.fs_id(), desc.clone());
+    }
+
+    fn apply_drop_fs_type_local(&self, name: &str) {
+        if let Some((_, desc)) = self.fs_type_by_name.remove_sync(name) {
+            let _ = self.fs_type_by_id.remove_sync(&desc.fs_id());
+        }
+    }
+
     fn broadcast_create(&self, schema: &SchemaTable) -> RS<()> {
         let peers = self.peer_instances()?;
         if peers.is_empty() {
-            return self.apply_create_table_local(schema);
+            self.apply_create_table_local(schema)?;
+            self.bump_catalog_version();
+            return Ok(());
         }
         for mgr in peers {
             mgr.apply_create_table_local(schema)?;
+            mgr.bump_catalog_version();
         }
         Ok(())
     }
@@ -385,10 +553,12 @@ impl MetaMgrImpl {
         let peers = self.peer_instances()?;
         if peers.is_empty() {
             self.apply_drop_table_local(table_name, oid);
+            self.bump_catalog_version();
             return Ok(());
         }
         for mgr in peers {
             mgr.apply_drop_table_local(table_name, oid);
+            mgr.bump_catalog_version();
         }
         Ok(())
     }
@@ -397,10 +567,12 @@ impl MetaMgrImpl {
         let peers = self.peer_instances()?;
         if peers.is_empty() {
             self.apply_create_partition_rule_local(rule);
+            self.bump_catalog_version();
             return Ok(());
         }
         for mgr in peers {
             mgr.apply_create_partition_rule_local(rule);
+            mgr.bump_catalog_version();
         }
         Ok(())
     }
@@ -409,10 +581,12 @@ impl MetaMgrImpl {
         let peers = self.peer_instances()?;
         if peers.is_empty() {
             self.apply_bind_table_partition_local(binding);
+            self.bump_catalog_version();
             return Ok(());
         }
         for mgr in peers {
             mgr.apply_bind_table_partition_local(binding);
+            mgr.bump_catalog_version();
         }
         Ok(())
     }
@@ -423,12 +597,42 @@ impl MetaMgrImpl {
             for placement in placements {
                 self.apply_partition_placement_local(placement);
             }
+            self.bump_catalog_version();
             return Ok(());
         }
         for mgr in peers {
             for placement in placements {
                 mgr.apply_partition_placement_local(placement);
             }
+            mgr.bump_catalog_version();
+        }
+        Ok(())
+    }
+
+    fn broadcast_create_fs_type(&self, desc: &FsTypeDesc) -> RS<()> {
+        let peers = self.peer_instances()?;
+        if peers.is_empty() {
+            self.apply_create_fs_type_local(desc);
+            self.bump_catalog_version();
+            return Ok(());
+        }
+        for mgr in peers {
+            mgr.apply_create_fs_type_local(desc);
+            mgr.bump_catalog_version();
+        }
+        Ok(())
+    }
+
+    fn broadcast_drop_fs_type(&self, name: &str) -> RS<()> {
+        let peers = self.peer_instances()?;
+        if peers.is_empty() {
+            self.apply_drop_fs_type_local(name);
+            self.bump_catalog_version();
+            return Ok(());
+        }
+        for mgr in peers {
+            mgr.apply_drop_fs_type_local(name);
+            mgr.bump_catalog_version();
         }
         Ok(())
     }
@@ -460,6 +664,18 @@ fn now_catalog_xid() -> u64 {
 impl MetaMgr for MetaMgrImpl {
     async fn initialize(&self) -> RS<()> {
         self.initialize_inner().await
+    }
+
+    async fn flush_dirty_pages(&self) -> RS<()> {
+        let catalog = self.catalog.lock()?.clone();
+        if let Some(catalog) = catalog {
+            catalog.flush_dirty_pages().await?;
+        }
+        Ok(())
+    }
+
+    fn catalog_version(&self) -> u64 {
+        self.catalog_version_inner()
     }
 
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
@@ -535,6 +751,26 @@ impl MetaMgr for MetaMgrImpl {
     async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
         self.list_schemas_inner()
     }
+
+    async fn create_fs_type(&self, name: &str, kind: FsTypeKind) -> RS<u64> {
+        self.create_fs_type_inner(name, kind).await
+    }
+
+    async fn get_fs_type_by_name(&self, name: &str) -> RS<Option<FsTypeDesc>> {
+        Ok(self.lookup_fs_type_by_name(name))
+    }
+
+    async fn get_fs_type_by_id(&self, fs_id: u64) -> RS<Option<FsTypeDesc>> {
+        Ok(self.lookup_fs_type_by_id(fs_id))
+    }
+
+    async fn list_fs_types(&self) -> RS<Vec<FsTypeDesc>> {
+        Ok(self.list_fs_types_inner())
+    }
+
+    async fn drop_fs_type(&self, name: &str) -> RS<()> {
+        self.drop_fs_type_inner(name).await
+    }
 }
 
 unsafe impl Sync for MetaMgrImpl {}
@@ -552,7 +788,9 @@ mod tests {
         clippy::unimplemented
     )]
 
+    use crate::contract::fs_type::FsColumnBinding;
     use crate::contract::schema_column::SchemaColumn;
+    use crate::meta::fs_object::FS_OBJECT_TABLE_ID;
     use mudu_sys::env_var::temp_dir;
     use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::type_family::TypeFamily;
@@ -607,6 +845,7 @@ mod tests {
         _mgr.create_table(&_schema).await?;
         let schema_catalog = mgr.catalog_relation()?.schema_catalog;
         assert_eq!(load_schemas_from_catalog(&schema_catalog).await?.len(), 1);
+        schema_catalog.flush_wal_async().await?;
         drop(mgr);
 
         let reopened = MetaMgrImpl::new(dir).await?;
@@ -640,6 +879,277 @@ mod tests {
 
         mgr2.drop_table(schema.id()).await?;
         assert!(mgr1.get_table_by_id(schema.id()).await.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_fs_type_create_query_and_drop() {
+        block_on(async move {
+            let r = _meta_mgr_fs_type_create_query_and_drop().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_fs_type_create_query_and_drop() -> RS<()> {
+        let dir = temp_dir().join(format!("meta_mgr_fs_type_{}", mudu_utils::oid::gen_oid()));
+        let mgr = Arc::new(MetaMgrImpl::new(dir).await?);
+        mgr.register_global()?;
+        mgr.initialize().await?;
+
+        let file_id = mgr.create_fs_type("file_t", FsTypeKind::File).await?;
+        let dir_id = mgr.create_fs_type("dir_t", FsTypeKind::Directory).await?;
+        assert_eq!(file_id, 1);
+        assert_eq!(dir_id, 2);
+
+        let by_name = mgr.get_fs_type_by_name("file_t").await?;
+        assert_eq!(
+            by_name,
+            Some(FsTypeDesc::new("file_t".to_string(), 1, FsTypeKind::File))
+        );
+        let by_id = mgr.get_fs_type_by_id(2).await?;
+        assert_eq!(
+            by_id,
+            Some(FsTypeDesc::new(
+                "dir_t".to_string(),
+                2,
+                FsTypeKind::Directory
+            ))
+        );
+        assert!(mgr.get_fs_type_by_name("missing").await?.is_none());
+        assert!(mgr.get_fs_type_by_id(0).await?.is_none());
+        assert_eq!(mgr.list_fs_types().await?.len(), 2);
+
+        let dup = mgr.create_fs_type("file_t", FsTypeKind::File).await;
+        assert_eq!(dup.unwrap_err().ec(), ER::AlreadyExists);
+
+        mgr.drop_fs_type("file_t").await?;
+        assert!(mgr.get_fs_type_by_name("file_t").await?.is_none());
+        assert!(mgr.get_fs_type_by_id(1).await?.is_none());
+        assert_eq!(mgr.list_fs_types().await?.len(), 1);
+
+        let missing = mgr.drop_fs_type("file_t").await;
+        assert_eq!(missing.unwrap_err().ec(), ER::EntityNotFound);
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_drop_fs_type_rejects_still_referenced_type() {
+        block_on(async move {
+            let r = _meta_mgr_drop_fs_type_rejects_still_referenced_type().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_drop_fs_type_rejects_still_referenced_type() -> RS<()> {
+        let dir = temp_dir().join(format!(
+            "meta_mgr_fs_type_ref_{}",
+            mudu_utils::oid::gen_oid()
+        ));
+        let mgr = Arc::new(MetaMgrImpl::new(dir).await?);
+        mgr.register_global()?;
+        mgr.initialize().await?;
+
+        let fs_id = mgr.create_fs_type("photo_fs", FsTypeKind::File).await?;
+
+        // Create a table with an FS-bound column referencing the type.
+        let mut photo = SchemaColumn::new(
+            "photo".to_string(),
+            TypeFamily::U128,
+            DataTypeInfo::from_text(TypeFamily::U128, String::new()),
+        );
+        photo.set_fs_binding(Some(FsColumnBinding::new(fs_id, FsTypeKind::File)));
+        let schema = SchemaTable::new(
+            "product".to_string(),
+            vec![
+                SchemaColumn::new(
+                    "id".to_string(),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+                ),
+                photo,
+            ],
+            vec![0],
+            vec![1],
+        );
+        mgr.create_table(&schema).await?;
+
+        // Dropping a still-referenced type fails and keeps the type.
+        let err = mgr.drop_fs_type("photo_fs").await.unwrap_err();
+        assert_eq!(err.ec(), ER::InvalidState);
+        assert!(err.to_string().contains("product.photo"));
+        assert!(mgr.get_fs_type_by_name("photo_fs").await?.is_some());
+
+        // After dropping the table, dropping the type succeeds.
+        mgr.drop_table(schema.id()).await?;
+        mgr.drop_fs_type("photo_fs").await?;
+        assert!(mgr.get_fs_type_by_name("photo_fs").await?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_recovers_fs_type_catalog_after_reopen() {
+        block_on(async move {
+            let r = _meta_mgr_recovers_fs_type_catalog_after_reopen().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_recovers_fs_type_catalog_after_reopen() -> RS<()> {
+        let dir = temp_dir().join(format!(
+            "meta_mgr_fs_type_replay_{}",
+            mudu_utils::oid::gen_oid()
+        ));
+        let mgr = Arc::new(MetaMgrImpl::new(&dir).await?);
+        mgr.register_global()?;
+        mgr.initialize().await?;
+        mgr.create_fs_type("file_t", FsTypeKind::File).await?;
+        mgr.create_fs_type("dir_t", FsTypeKind::Directory).await?;
+        let fs_type_catalog = mgr.catalog_relation()?.fs_type;
+        assert_eq!(load_fs_types_from_catalog(&fs_type_catalog).await?.len(), 2);
+        fs_type_catalog.flush_wal_async().await?;
+        drop(mgr);
+
+        let reopened = MetaMgrImpl::new(dir).await?;
+        reopened.initialize().await?;
+        let file = reopened.get_fs_type_by_name("file_t").await?;
+        assert_eq!(
+            file,
+            Some(FsTypeDesc::new("file_t".to_string(), 1, FsTypeKind::File))
+        );
+        let dir_type = reopened.get_fs_type_by_id(2).await?;
+        assert_eq!(
+            dir_type,
+            Some(FsTypeDesc::new(
+                "dir_t".to_string(),
+                2,
+                FsTypeKind::Directory
+            ))
+        );
+        let next_id = reopened.create_fs_type("next_t", FsTypeKind::File).await?;
+        assert_eq!(next_id, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_registers_fs_object_system_table() {
+        block_on(async move {
+            let r = _meta_mgr_registers_fs_object_system_table().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_registers_fs_object_system_table() -> RS<()> {
+        let dir = temp_dir().join(format!("meta_mgr_fs_object_{}", mudu_utils::oid::gen_oid()));
+        let mgr = Arc::new(MetaMgrImpl::new(dir).await?);
+        mgr.register_global()?;
+        mgr.initialize().await?;
+
+        let by_name = mgr.get_table_by_name(FS_OBJECT_TABLE_NAME).await?;
+        let desc = by_name.ok_or_else(|| mudu_error!(ER::Internal, "missing _fs_object"))?;
+        assert_eq!(desc.id(), FS_OBJECT_TABLE_ID);
+        let by_id = mgr.get_table_by_id(FS_OBJECT_TABLE_ID).await?;
+        assert_eq!(by_id.name(), FS_OBJECT_TABLE_NAME);
+        assert!(mgr
+            .list_schemas()
+            .await?
+            .iter()
+            .any(|schema| schema.id() == FS_OBJECT_TABLE_ID));
+
+        // A user table named `_fs_object` fails as a duplicate.
+        let schema = SchemaTable::new(
+            FS_OBJECT_TABLE_NAME.to_string(),
+            vec![SchemaColumn::new(
+                "id".to_string(),
+                TypeFamily::I32,
+                DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+            )],
+            vec![0],
+            vec![],
+        );
+        let err = mgr.create_table(&schema).await.unwrap_err();
+        assert_eq!(err.ec(), ER::EntityAlreadyExists);
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_catalog_version_bumps_on_ddl_only() {
+        block_on(async move {
+            let r = _meta_mgr_catalog_version_bumps_on_ddl_only().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_catalog_version_bumps_on_ddl_only() -> RS<()> {
+        let dir = temp_dir().join(format!(
+            "meta_mgr_catalog_version_{}",
+            mudu_utils::oid::gen_oid()
+        ));
+        let mgr = Arc::new(MetaMgrImpl::new(dir).await?);
+        mgr.register_global()?;
+        mgr.initialize().await?;
+        assert_eq!(mgr.catalog_version(), 0);
+
+        let schema = test_schema();
+        mgr.create_table(&schema).await?;
+        assert_eq!(mgr.catalog_version(), 1);
+
+        // Non-DDL reads must not advance the version.
+        let _ = mgr.get_table_by_name(schema.table_name()).await?;
+        let _ = mgr.get_table_by_id(schema.id()).await?;
+        let _ = mgr.list_schemas().await?;
+        let _ = mgr.list_partition_rules().await?;
+        let _ = mgr.list_fs_types().await?;
+        assert_eq!(mgr.catalog_version(), 1);
+
+        let rule =
+            PartitionRuleDesc::new_range("ver_rule".to_string(), vec![TypeFamily::I32], vec![]);
+        mgr.create_partition_rule(&rule).await?;
+        assert_eq!(mgr.catalog_version(), 2);
+
+        let binding = TablePartitionBinding {
+            table_id: schema.id(),
+            rule_id: rule.oid,
+            ref_attr_indices: vec![0],
+        };
+        mgr.bind_table_partition(&binding).await?;
+        assert_eq!(mgr.catalog_version(), 3);
+
+        mgr.create_fs_type("ver_fs", FsTypeKind::File).await?;
+        assert_eq!(mgr.catalog_version(), 4);
+        mgr.drop_fs_type("ver_fs").await?;
+        assert_eq!(mgr.catalog_version(), 5);
+
+        mgr.drop_table(schema.id()).await?;
+        assert_eq!(mgr.catalog_version(), 6);
+        Ok(())
+    }
+
+    #[test]
+    fn meta_mgr_catalog_version_consistent_across_peer_instances() {
+        block_on(async move {
+            let r = _meta_mgr_catalog_version_consistent_across_peer_instances().await;
+            assert!(r.is_ok());
+        });
+    }
+    async fn _meta_mgr_catalog_version_consistent_across_peer_instances() -> RS<()> {
+        let dir = temp_dir().join(format!(
+            "meta_mgr_version_peer_{}",
+            mudu_utils::oid::gen_oid()
+        ));
+        let mgr1 = Arc::new(MetaMgrImpl::new(&dir).await?);
+        mgr1.register_global()?;
+        mgr1.initialize().await?;
+        let mgr2 = Arc::new(MetaMgrImpl::new(&dir).await?);
+        mgr2.register_global()?;
+        mgr2.initialize().await?;
+        assert_eq!(mgr1.catalog_version(), 0);
+        assert_eq!(mgr2.catalog_version(), 0);
+
+        // DDL issued on one instance fans out through the registry and bumps
+        // every instance on the same path exactly once.
+        let schema = test_schema();
+        mgr1.create_table(&schema).await?;
+        assert_eq!(mgr1.catalog_version(), 1);
+        assert_eq!(mgr2.catalog_version(), 1);
+
+        mgr2.drop_table(schema.id()).await?;
+        assert_eq!(mgr1.catalog_version(), 2);
+        assert_eq!(mgr2.catalog_version(), 2);
         Ok(())
     }
 }

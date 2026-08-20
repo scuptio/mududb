@@ -6,6 +6,7 @@ use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::common::result::RS;
+use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_type::data_value::DataValue;
@@ -102,5 +103,6 @@ impl_entity_trait!(
     (I64, i64, i64),
     (F32, f32, f32),
     (F64, f64, f64),
-    (String, string, String)
+    (String, string, String),
+    (Numeric, numeric, Numeric)
 );

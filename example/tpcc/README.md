@@ -48,6 +48,10 @@ Benchmark runner modes:
   Directly calls `tpcc::rust::procedure::*` through `sys_interface` and `mudu_adapter`
 - `--mode stored-procedure`
   Connects to a running `mudud` TCP server through the `mcli` client library and invokes the installed `.mpk` procedures
+- `--mode pg-procedure`
+  PostgreSQL stored procedures: installs the PL/pgSQL functions from
+  `sql/procedures_postgres.sql` into the database named by `MUDU_CONNECTION`
+  and runs each transaction as a single `SELECT tpcc_*()` call
 
 ```bash
 cargo run -p tpcc --features benchmark-runner --bin tpcc-benchmark -- --mode interactive --operation-count 1000
@@ -117,9 +121,34 @@ Notes:
 - async procedure code is expected to be produced by the `mpm-build` transpile stage into `src/generated/`.
 - in `--mode interactive`, the host benchmark binary exercises the synchronous Rust implementation.
 - in `--mode stored-procedure`, the benchmark invokes the transpiled `.mpk` procedures over mudud TCP.
+- in `--mode pg-procedure`, the benchmark invokes the PL/pgSQL procedures in `sql/procedures_postgres.sql` (a PostgreSQL port of the same transaction logic); each `SELECT tpcc_*()` call is auto-committed and a procedure exception counts as an abort.
 
 Package build:
 
 ```bash
 cargo make package
+```
+
+## Cross-database benchmark orchestration
+
+For systematic comparisons across PostgreSQL, MySQL, MuduDB interactive, and
+MuduDB stored-procedure modes — including CPU core sweeps, connection sweeps,
+and automated plotting — see [`bench_cross_db.md`](bench_cross_db.md) and run
+[`bench_cross_db.py`](bench_cross_db.py).
+
+Quick start:
+
+```bash
+cd example/tpcc
+
+# 1. Install prerequisites (Rust, PostgreSQL, MySQL, Python packages)
+chmod +x install_prerequisites.sh
+./install_prerequisites.sh
+
+# 2. Generate and edit the benchmark configuration
+python3 bench_cross_db.py --write-default-config bench_cross_db_config.yaml
+# edit bench_cross_db_config.yaml
+
+# 3. Run the benchmark
+python3 bench_cross_db.py --config bench_cross_db_config.yaml
 ```

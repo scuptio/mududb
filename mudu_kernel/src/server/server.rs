@@ -3,6 +3,7 @@ use crate::server::async_func_task::HandleResult;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 use crate::server::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
+use crate::server::fs_gc::FS_GC_INTERVAL;
 use crate::server::message_bus_api::{
     register_worker_message_bus, set_current_message_bus, unregister_worker_message_bus,
     unset_current_message_bus, EndpointId, Envelope, MessageBus, MessageBusRef, MessageId,
@@ -15,9 +16,10 @@ use crate::server::session_bound_worker_runtime::{
 use crate::server::worker::{WorkerRuntime, WorkerRuntimeParams};
 use crate::server::worker_local::{set_current_worker_local, unset_current_worker_local};
 use crate::server::worker_registry::{WorkerIdentity, WorkerRegistry};
-use crate::wal::worker_log::WorkerLogBatching;
-use crate::wal::worker_log::{decode_frames, WorkerLogBackend};
-use crate::wal::xl_batch::decode_xl_batches;
+use crate::server::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
+use crate::wal::worker_log::{scan_valid_frame_prefix, ChunkedWorkerLogBackend, WorkerLogBackend};
+use crate::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
+use crate::wal::xl_batch::decode_xl_batches_with_pending;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 
@@ -48,7 +50,7 @@ use std::time::Duration;
 use crate::server::server_launch::{ServerLaunch, WorkerTcpBackendConfig};
 use mudu_sys::task::sync::SJoinHandle;
 
-use tracing::trace;
+use tracing::{error, trace, warn};
 
 /// Backend entry point for the `client` transport.
 ///
@@ -202,6 +204,7 @@ struct WorkerBuildConfig {
     data_dir: String,
     log_chunk_size: u64,
     log_batching: WorkerLogBatching,
+    wal_sync_policy: WalSyncPolicy,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     worker_identity: WorkerIdentity,
     worker_registry: Arc<WorkerRegistry>,
@@ -229,6 +232,7 @@ impl WorkerBuildConfig {
             data_dir: server_cfg.data_dir().to_string(),
             log_chunk_size: server_cfg.log_chunk_size(),
             log_batching: deps.log_batching(),
+            wal_sync_policy: deps.wal_sync_policy(),
             procedure_runtime: deps.procedure_runtime_for_worker(worker_id),
             worker_identity,
             worker_registry: deps.worker_registry(),
@@ -244,6 +248,7 @@ impl WorkerBuildConfig {
             data_dir: self.data_dir,
             log_chunk_size: self.log_chunk_size,
             log_batching: self.log_batching,
+            wal_sync_policy: self.wal_sync_policy,
             procedure_runtime: self.procedure_runtime,
             registry: self.worker_registry,
             async_runtime: self.async_runtime,
@@ -471,12 +476,61 @@ fn sync_serve_tokio(
                         &message_bus_ref,
                     )?;
                     trace!(worker_id, "tokio worker loop entering");
-                    let listener =
-                        AsyncTcpListener::from_std(listener.into_inner()).map_err(|e| {
-                            mudu_error!(ErrorCode::Network, "convert tokio tcp listener error", e)
-                        })?;
+                    let listener = adopt_worker_listener(listener).await?;
                     worker.ensure_partition_rpc_handler()?;
                     recover_worker_log_tokio(&worker).await?;
+                    worker.fs_gc_recover_scan().await?;
+                    let (_gc_task_notifier, gc_task_waiter) = notify_wait();
+                    let fs_gc = worker.fs_gc();
+                    let gc_stop_rx = stop_rx.clone();
+                    let gc_join = spawn_local_task(
+                        gc_task_waiter,
+                        &format!("fs_gc_loop_{worker_id}"),
+                        async move { fs_gc.gc_loop(FS_GC_INTERVAL, gc_stop_rx).await },
+                    )?;
+                    // WAL group-commit flush driver. It is stopped only after
+                    // the worker loop has drained, so no commit can enqueue
+                    // behind the final force-flush round.
+                    let (wal_flush_stop_tx, wal_flush_stop_rx) = stop_channel();
+                    let wal_flush_join = match worker.worker_log()? {
+                        Some(wal_log) => {
+                            let (_wal_task_notifier, wal_task_waiter) = notify_wait();
+                            Some(spawn_local_task(
+                                wal_task_waiter,
+                                &format!("wal_flush_loop_{worker_id}"),
+                                run_worker_wal_flush_loop(wal_log, wal_flush_stop_rx),
+                            )?)
+                        }
+                        None => None,
+                    };
+                    // WAL periodic-fsync driver (own task: an in-flight fsync
+                    // must never block the flush loop's write rounds). It is
+                    // stopped after the flush loop, so its final forced fsync
+                    // covers whatever the flush loop's final force-flush left
+                    // dirty in periodic sync mode.
+                    let (wal_fsync_stop_tx, wal_fsync_stop_rx) = stop_channel();
+                    let wal_fsync_join = match worker.worker_log()? {
+                        Some(wal_log) => {
+                            let (_fsync_task_notifier, fsync_task_waiter) = notify_wait();
+                            Some(spawn_local_task(
+                                fsync_task_waiter,
+                                &format!("wal_fsync_loop_{worker_id}"),
+                                run_worker_wal_fsync_loop(wal_log, wal_fsync_stop_rx),
+                            )?)
+                        }
+                        None => None,
+                    };
+                    // Deferred data-page flush driver (WAL-first dirty
+                    // pages): writes back dirty time-series pages in batches
+                    // so consecutive row writes coalesce into one page write.
+                    // It is stopped together with the WAL flush driver.
+                    let (page_flush_stop_tx, page_flush_stop_rx) = stop_channel();
+                    let (_page_task_notifier, page_task_waiter) = notify_wait();
+                    let page_flush_join = spawn_local_task(
+                        page_task_waiter,
+                        &format!("page_flush_loop_{worker_id}"),
+                        run_worker_page_flush_loop(worker.clone(), page_flush_stop_rx),
+                    )?;
                     let (_task_notifier, task_waiter) = notify_wait();
                     let join = spawn_local_task(
                         task_waiter,
@@ -496,15 +550,58 @@ fn sync_serve_tokio(
                         }),
                     )?;
                     let _ = started_tx.send(Ok(()));
-                    let _ = unregister_worker_message_bus(server_instance_id, worker_id);
-                    unset_current_message_bus();
-                    unset_current_worker_local();
-                    match join.await.map_err(|e| {
+                    let loop_result = match join.await.map_err(|e| {
                         mudu_error!(ErrorCode::Tokio, "join tokio worker loop task error", e)
                     })? {
                         Some(result) => result,
                         None => Ok(()),
-                    }
+                    };
+                    // The message bus and worker-local must stay registered for
+                    // the whole lifetime of the worker loop above: the loop and
+                    // the partition rpc handlers resolve them from this thread
+                    // while serving requests (cross-worker reads and commit
+                    // handoffs). Tear them down only after the loop exited.
+                    let _ = unregister_worker_message_bus(server_instance_id, worker_id);
+                    unset_current_message_bus();
+                    unset_current_worker_local();
+                    wal_flush_stop_tx.stop();
+                    let wal_flush_result = match wal_flush_join {
+                        Some(wal_flush_join) => match wal_flush_join.await.map_err(|e| {
+                            mudu_error!(ErrorCode::Tokio, "join wal flush loop task error", e)
+                        })? {
+                            Some(result) => result,
+                            None => Ok(()),
+                        },
+                        None => Ok(()),
+                    };
+                    wal_fsync_stop_tx.stop();
+                    let wal_fsync_result = match wal_fsync_join {
+                        Some(wal_fsync_join) => match wal_fsync_join.await.map_err(|e| {
+                            mudu_error!(ErrorCode::Tokio, "join wal fsync loop task error", e)
+                        })? {
+                            Some(result) => result,
+                            None => Ok(()),
+                        },
+                        None => Ok(()),
+                    };
+                    page_flush_stop_tx.stop();
+                    let page_flush_result = match page_flush_join.await.map_err(|e| {
+                        mudu_error!(ErrorCode::Tokio, "join page flush loop task error", e)
+                    })? {
+                        Some(result) => result,
+                        None => Ok(()),
+                    };
+                    let gc_result = match gc_join.await.map_err(|e| {
+                        mudu_error!(ErrorCode::Tokio, "join fs gc loop task error", e)
+                    })? {
+                        Some(result) => result,
+                        None => Ok(()),
+                    };
+                    loop_result
+                        .and(gc_result)
+                        .and(wal_flush_result)
+                        .and(wal_fsync_result)
+                        .and(page_flush_result)
                 });
                 trace!(worker_id, ok = result.is_ok(), "tokio worker loop returned");
 
@@ -657,18 +754,139 @@ async fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
     };
     let fs = log.fs();
     let chunk_paths = log.chunk_paths_sorted().await?;
+    // Multi-part batches can straddle chunk boundaries; keep the
+    // not-yet-terminated frames across chunks and drop whatever is left
+    // unterminated at end-of-log (the writer crashed mid-batch). Each chunk
+    // is decoded up to its longest valid frame prefix: a crash can leave an
+    // un-fsynced tail behind, and the frame CRCs mark exactly where valid
+    // data ends.
+    let mut pending_frames = Vec::new();
+    let mut pending_start_lsn = None;
     for path in chunk_paths {
         let bytes = fs.read_all(&path).await?;
         if bytes.is_empty() {
             continue;
         }
-        let frames = decode_frames(&bytes)?;
-        let batches = decode_xl_batches(&frames)?;
+        let prefix = scan_valid_frame_prefix(&bytes);
+        if let Some(reason) = &prefix.corrupt_reason {
+            warn!(
+                path = %path.display(),
+                truncated_bytes = bytes.len() - prefix.valid_len,
+                reason = %reason,
+                "dropping un-persisted worker log chunk tail during recovery"
+            );
+        }
+        let batches = decode_xl_batches_with_pending(
+            &prefix.frames,
+            &mut pending_frames,
+            &mut pending_start_lsn,
+        )?;
         for batch in batches {
             worker.replay_log_batch(batch).await?;
         }
     }
+    if !pending_frames.is_empty() {
+        warn!(
+            pending_frames = pending_frames.len(),
+            "dropping unterminated log entry at end of worker log"
+        );
+    }
     Ok(())
+}
+
+/// Tokio WAL group-commit flush driver. Enqueued commit batches are written
+/// and fsynced in batches: an enqueue that satisfies the batching watermarks
+/// wakes the driver immediately, otherwise the driver re-checks the queue
+/// every `flush_idle_interval`. On stop it force-flushes whatever remains so
+/// no queued commit is left waiting. In periodic sync mode this loop stays
+/// write-only; the fsync schedule lives in [`run_worker_wal_fsync_loop`] so
+/// an in-flight fsync never blocks write flushes.
+async fn run_worker_wal_flush_loop(log: ChunkedWorkerLogBackend, mut stop_rx: StopRx) -> RS<()> {
+    loop {
+        if stop_rx.is_stopped() {
+            break;
+        }
+        log.flush_pending_batches().await?;
+        tokio::select! {
+            wait_result = log.wait_flush_trigger() => {
+                wait_result?;
+            }
+            _ = mudu_sys::task::async_::sleep(log.flush_idle_interval()) => {}
+            changed = stop_rx.changed() => {
+                if !changed || stop_rx.is_stopped() {
+                    break;
+                }
+            }
+        }
+    }
+    log.force_flush_log_async().await?;
+    Ok(())
+}
+
+/// Tokio WAL periodic-fsync driver. In periodic sync mode it fsyncs the
+/// dirty WAL chunks once the sync interval elapses, in its own task so a
+/// ~10ms fsync never blocks the flush loop's write rounds. On stop it forces
+/// a final fsync so a clean stop never leaves acknowledged commits
+/// un-fsynced. In Commit mode `maybe_periodic_fsync` is a no-op and the
+/// loop just idles.
+async fn run_worker_wal_fsync_loop(log: ChunkedWorkerLogBackend, mut stop_rx: StopRx) -> RS<()> {
+    let interval = log
+        .periodic_fsync_interval()
+        .unwrap_or_else(|| log.flush_idle_interval())
+        .min(log.flush_idle_interval());
+    loop {
+        if stop_rx.is_stopped() {
+            break;
+        }
+        log.maybe_periodic_fsync().await?;
+        tokio::select! {
+            _ = mudu_sys::task::async_::sleep(interval) => {}
+            changed = stop_rx.changed() => {
+                if !changed || stop_rx.is_stopped() {
+                    break;
+                }
+            }
+        }
+    }
+    log.fsync_unsynced_paths().await?;
+    Ok(())
+}
+
+/// Writes back dirty time-series data pages of this worker's relations and
+/// meta catalogs. Shared by the tokio flush loop and the io_uring ring
+/// loop's periodic flush round.
+pub(crate) async fn flush_worker_dirty_pages(worker: &WorkerRuntime) -> RS<()> {
+    worker.storage().flush_dirty_pages_async().await?;
+    worker.meta_mgr().flush_dirty_pages().await?;
+    Ok(())
+}
+
+/// Tokio deferred data-page flush driver. Every `DIRTY_PAGE_FLUSH_INTERVAL`
+/// it writes back the worker's dirty time-series pages; on stop it flushes
+/// whatever remains so the data files are clean before the worker tears
+/// down. A failed round is logged and retried at the next interval because
+/// dirty marks survive a failed flush; the final flush result propagates.
+async fn run_worker_page_flush_loop(worker: WorkerRuntime, mut stop_rx: StopRx) -> RS<()> {
+    loop {
+        if stop_rx.is_stopped() {
+            break;
+        }
+        if let Err(err) = flush_worker_dirty_pages(&worker).await {
+            error!(
+                worker_id = worker.worker_id(),
+                "page flush round failed, {}", err
+            );
+        }
+        tokio::select! {
+            _ = mudu_sys::task::async_::sleep(DIRTY_PAGE_FLUSH_INTERVAL) => {}
+            changed = stop_rx.changed() => {
+                if !changed || stop_rx.is_stopped() {
+                    break;
+                }
+            }
+        }
+    }
+    flush_worker_dirty_pages(&worker).await
 }
 
 async fn handle_tokio_connection(
@@ -687,6 +905,7 @@ async fn handle_tokio_connection(
     let mut read_buf: Vec<u8> = Vec::with_capacity(8192);
     let mut chunk = vec![0u8; 8192];
     loop {
+        crate::server::stage_stats::dump_if_due(worker.worker_id());
         if stop.load(Ordering::Relaxed) || stop_rx.is_stopped() {
             break;
         }
@@ -749,6 +968,44 @@ fn drain_message_bus_tokio(
 
 fn create_listener(listen_addr: SocketAddr) -> RS<StdTcpListener> {
     mudu_sys::net::sync::bind_tcp(listen_addr)
+}
+
+/// Converts the prebound synchronous worker listener into the async listener
+/// the tokio worker loop accepts connections on.
+///
+/// Native backend: adopts the real OS socket via `into_inner()`.
+#[cfg(not(feature = "ds"))]
+async fn adopt_worker_listener(listener: StdTcpListener) -> RS<AsyncTcpListener> {
+    AsyncTcpListener::from_std(listener.into_inner())
+        .map_err(|e| mudu_error!(ErrorCode::Network, "convert tokio tcp listener error", e))
+}
+
+/// Converts the prebound synchronous worker listener into the async listener
+/// the tokio worker loop accepts connections on.
+///
+/// Simulation backend: a simulated listener cannot be turned into a real OS
+/// socket, so the worker releases the simulated synchronous port reservation
+/// and rebinds the same address on the simulated async listener that
+/// simulated async clients connect to.
+#[cfg(feature = "ds")]
+async fn adopt_worker_listener(listener: StdTcpListener) -> RS<AsyncTcpListener> {
+    let addr = listener.local_addr().map_err(|e| {
+        mudu_error!(
+            ErrorCode::Network,
+            "read simulated listener local address error",
+            e
+        )
+    })?;
+    // The simulation shares one port space between sync and async listeners,
+    // so the sync reservation must be released before the async rebind.
+    drop(listener);
+    AsyncTcpListener::bind(addr).await.map_err(|e| {
+        mudu_error!(
+            ErrorCode::Network,
+            "bind simulated async tcp listener error",
+            e
+        )
+    })
 }
 
 #[cfg(test)]

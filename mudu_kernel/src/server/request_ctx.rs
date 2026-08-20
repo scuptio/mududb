@@ -3,6 +3,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::database::result_set::ResultSetAsync;
+use mudu_contract::database::sql_param_value::SQLParamValue;
+use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::protocol::{
     encode_get_response, encode_procedure_invoke_response, encode_put_response,
     encode_range_scan_response, encode_server_response, encode_session_close_response,
@@ -13,6 +15,7 @@ use mudu_contract::protocol::{
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_sys::perf::TxnStage;
 use mudu_sys::time::instant_now;
+use mudu_type::data_value::DataValue;
 use std::sync::Arc;
 
 use crate::server::async_func_task::HandleResult;
@@ -153,12 +156,13 @@ impl RequestCtx {
         oid: OID,
         _app_name: &str,
         sql: &str,
+        params: &[DataValue],
         perf_digest: Option<ServerPerfDigest>,
     ) -> RS<HandleResult> {
         let exec_start = instant_now();
         let response = self
             .worker
-            .query(oid, Box::new(sql.to_string()), Box::new(()))
+            .query(oid, Box::new(sql.to_string()), sql_params(params))
             .await?;
         let mut response = Self::query_response(response, perf_digest).await?;
         let exec_ns = exec_start.elapsed().as_nanos() as u64;
@@ -176,12 +180,13 @@ impl RequestCtx {
         oid: OID,
         _app_name: &str,
         sql: &str,
+        params: &[DataValue],
         perf_digest: Option<ServerPerfDigest>,
     ) -> RS<HandleResult> {
         let exec_start = instant_now();
         let affected_rows = self
             .worker
-            .execute(oid, Box::new(sql.to_string()), Box::new(()))
+            .execute(oid, Box::new(sql.to_string()), sql_params(params))
             .await?;
         let exec_ns = exec_start.elapsed().as_nanos() as u64;
         let mut response = ServerResponse::new(
@@ -258,7 +263,6 @@ impl RequestCtx {
             &response,
         )?))
     }
-
     async fn query_response(
         result_set: Arc<dyn ResultSetAsync>,
         perf_digest: Option<ServerPerfDigest>,
@@ -279,5 +283,15 @@ impl RequestCtx {
             response = response.with_server_perf_digest(digest);
         }
         Ok(response)
+    }
+}
+
+/// Builds the worker-side SQL parameter object from wire values. An empty
+/// parameter list keeps the previous unit-params behavior exactly.
+fn sql_params(params: &[DataValue]) -> Box<dyn SQLParams> {
+    if params.is_empty() {
+        Box::new(())
+    } else {
+        Box::new(SQLParamValue::from_vec(params.to_vec()))
     }
 }

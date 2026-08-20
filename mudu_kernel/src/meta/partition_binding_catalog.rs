@@ -143,7 +143,10 @@ pub async fn write_partition_binding_to_catalog(
 ) -> RS<()> {
     let key = encode_partition_binding_catalog_key(binding.table_id)?;
     let value = encode_partition_binding_catalog_value(binding)?;
-    relation.write_value(key, value, xid).await
+    relation.write_value(key, value, xid).await?;
+    // Catalog relations have no background flush driver: drain the queued
+    // PL frames so the DDL is durable when it returns.
+    relation.flush_wal_async().await
 }
 
 fn visible_snapshot_xid() -> u64 {

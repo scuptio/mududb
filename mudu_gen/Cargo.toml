@@ -30,7 +30,8 @@ tree-sitter = { workspace = true }
 tree-sitter-wit = { workspace = true }
 mudu_build_common = { workspace = true }
 serde = { workspace = true }
-mudu_sys = { workspace = true }
+# Build scripts always run on the native backend (real env / real fs).
+mudu_sys_impl = { workspace = true }
 [lib]
 path = "src/lib.rs"
 

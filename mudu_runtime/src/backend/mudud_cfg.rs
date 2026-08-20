@@ -3,9 +3,11 @@ use crate::service::runtime_opt::ComponentTarget;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use mudu_kernel::wal::worker_log::WalSyncPolicy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Backend server execution mode.
 #[derive(Eq, PartialEq, Debug, Clone, Copy, Default)]
@@ -146,6 +148,22 @@ pub struct MuduDBCfg {
     /// requires a migration tool that rewrites all data files.
     #[serde(default = "default_page_size")]
     pub page_size: usize,
+    /// Group-commit batching window in microseconds: how long a queued WAL
+    /// commit batch may age before the flush driver flushes it. Larger
+    /// values improve fsync sharing under concurrency; smaller values lower
+    /// lone-commit latency. Defaults to 200 when omitted.
+    #[serde(default = "default_wal_flush_max_wait_us")]
+    pub wal_flush_max_wait_us: u64,
+    /// WAL durability mode: "commit" fsyncs every flush round before the
+    /// commit is acknowledged; "periodic" acknowledges once the WAL write
+    /// lands in the page cache and fsyncs at most once per
+    /// `wal_sync_interval_ms`.
+    #[serde(default = "default_wal_sync_mode")]
+    pub wal_sync_mode: String,
+    /// WAL fsync interval in milliseconds for `wal_sync_mode = "periodic"`.
+    /// A power loss may lose acknowledged commits from the last interval.
+    #[serde(default = "default_wal_sync_interval_ms")]
+    pub wal_sync_interval_ms: u64,
 }
 
 impl Display for MuduDBCfg {
@@ -193,6 +211,12 @@ impl Display for MuduDBCfg {
         writeln!(f, "  -> Routing mode: {:?}", self.routing_mode)?;
         writeln!(f, "  -> log chunk size: {}", self.log_chunk_size)?;
         writeln!(f, "  -> page size: {}", self.page_size)?;
+        writeln!(f, "  -> WAL sync mode: {}", self.wal_sync_mode)?;
+        writeln!(
+            f,
+            "  -> WAL sync interval ms: {}",
+            self.wal_sync_interval_ms
+        )?;
         writeln!(f, "-------------------")?;
         Ok(())
     }
@@ -221,6 +245,9 @@ impl Default for MuduDBCfg {
             routing_mode: RoutingMode::ConnectionId,
             log_chunk_size: default_log_chunk_size(),
             page_size: default_page_size(),
+            wal_flush_max_wait_us: default_wal_flush_max_wait_us(),
+            wal_sync_mode: default_wal_sync_mode(),
+            wal_sync_interval_ms: default_wal_sync_interval_ms(),
         }
     }
 }
@@ -283,6 +310,19 @@ log_chunk_size = 67108864
 
 # Database page size in bytes. Persistent: changing it requires re-initialization.
 page_size = 4096
+
+# WAL durability mode: "commit" or "periodic".
+# "commit" fsyncs the WAL before acknowledging every commit.
+# "periodic" acknowledges once the WAL write lands in the OS page cache and
+# fsyncs at most once per wal_sync_interval_ms; a power loss may lose
+# acknowledged commits from the last interval.
+# WAL 持久化模式："commit" 或 "periodic"。periodic 模式下掉电可能丢失最近
+# wal_sync_interval_ms 毫秒内已确认的提交。
+wal_sync_mode = "commit"
+
+# WAL fsync interval in milliseconds for wal_sync_mode = "periodic".
+# periodic 模式下的 WAL fsync 间隔（毫秒）。
+wal_sync_interval_ms = 10
 "#;
 
 impl MuduDBCfg {
@@ -324,6 +364,25 @@ impl MuduDBCfg {
             _ => ConfigMutability::RestartRequired,
         }
     }
+
+    /// Maps `wal_sync_mode` / `wal_sync_interval_ms` to the kernel's WAL
+    /// durability policy. Unknown mode strings are rejected with a clear
+    /// startup error.
+    pub fn wal_sync_policy(&self) -> RS<WalSyncPolicy> {
+        match self.wal_sync_mode.to_ascii_lowercase().as_str() {
+            "commit" => Ok(WalSyncPolicy::Commit),
+            "periodic" => Ok(WalSyncPolicy::Periodic {
+                interval: Duration::from_millis(self.wal_sync_interval_ms),
+            }),
+            other => Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                format!(
+                    "unknown wal_sync_mode: \"{}\", expected \"commit\" or \"periodic\"",
+                    other
+                )
+            )),
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -348,6 +407,18 @@ fn default_log_chunk_size() -> u64 {
 
 fn default_page_size() -> usize {
     4096
+}
+
+fn default_wal_flush_max_wait_us() -> u64 {
+    200
+}
+
+fn default_wal_sync_mode() -> String {
+    "commit".to_string()
+}
+
+fn default_wal_sync_interval_ms() -> u64 {
+    10
 }
 
 /// Returns the default configuration file path in the current working directory.
@@ -390,12 +461,13 @@ pub(crate) fn load_mudud_cfg_with_local(
     home_dir: Option<PathBuf>,
     search_global_config: bool,
 ) -> RS<MuduDBCfg> {
-    if local_cfg_path.exists() {
+    if mudu_sys::fs::sync::sync_path_exists(&local_cfg_path) {
         return read_mudud_cfg(local_cfg_path);
     }
 
     if search_global_config
-        && let Some(global_path) = global_cfg_path(home_dir).filter(|p| p.exists())
+        && let Some(global_path) =
+            global_cfg_path(home_dir).filter(|p| mudu_sys::fs::sync::sync_path_exists(p))
     {
         return read_mudud_cfg(global_path);
     }
@@ -421,7 +493,7 @@ pub fn init_mudud_cfg() -> RS<()> {
 fn write_default_mudud_cfg<P: AsRef<Path>>(path: P) -> RS<()> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
-        && !parent.exists()
+        && !mudu_sys::fs::sync::sync_path_exists(parent)
     {
         mudu_sys::fs::sync::create_dir_all(parent)?;
     }
@@ -446,7 +518,7 @@ fn read_mudud_cfg<P: AsRef<Path>>(path: P) -> RS<MuduDBCfg> {
 fn write_mudud_cfg<P: AsRef<Path>>(path: P, cfg: &MuduDBCfg) -> RS<()> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
-        && !parent.exists()
+        && !mudu_sys::fs::sync::sync_path_exists(parent)
     {
         mudu_sys::fs::sync::create_dir_all(parent)?;
     }

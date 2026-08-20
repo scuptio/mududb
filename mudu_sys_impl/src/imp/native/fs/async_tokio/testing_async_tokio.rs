@@ -35,4 +35,25 @@ mod tests {
 
         async_::remove_file_if_exists(&path).await.unwrap();
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tokio_fs_remove_dir_all_removes_tree() {
+        use crate::contract::async_fs::AsyncFs;
+        use crate::imp::native::fs::async_tokio::async_tokio_fs::AsyncTokioFs;
+
+        let root = temp_path("tree");
+        let nested = root.join("a").join("b");
+        async_::create_dir_all(&nested).await.unwrap();
+        let file = async_::TokioFile::open(nested.join("f.dat"), FileOptions::read_write_create())
+            .await
+            .unwrap();
+        file.write_all_at(0, b"payload").await.unwrap();
+        file.fsync().await.unwrap();
+        drop(file);
+        assert!(async_::path_exists(&nested).await.unwrap());
+
+        let fs = AsyncTokioFs::new();
+        fs.remove_dir_all(&root).await.unwrap();
+        assert!(!async_::path_exists(&root).await.unwrap());
+    }
 }

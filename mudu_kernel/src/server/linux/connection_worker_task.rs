@@ -87,7 +87,15 @@ async fn _run_connection_worker_task(
     loop {
         watch_conn("conn.phase", "read_frame");
         trace!(conn_id, "waiting for next protocol frame");
-        let frame = match read_next_frame(&socket, &mut read_buf).await {
+        // For a closed-loop client this wait is the response-delivery +
+        // client-turnaround + request-transit segment between two frames.
+        let frame_read = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::ConnReadWait,
+            );
+            read_next_frame(&socket, &mut read_buf).await
+        };
+        let frame = match frame_read {
             Ok(Some(frame)) => frame,
             Ok(None) => {
                 watch_conn("conn.phase", "close_socket");
@@ -128,6 +136,9 @@ async fn _run_connection_worker_task(
                     response_bytes = response.len(),
                     "dispatch completed with response"
                 );
+                let _stage = crate::server::stage_stats::StageGuard::new(
+                    crate::server::stage_stats::Stage::RespSendWait,
+                );
                 write_response(&socket, &response).await?;
             }
             Err(err) => {
@@ -139,6 +150,9 @@ async fn _run_connection_worker_task(
                     "dispatch returned error response"
                 );
                 let response = encode_merror_response(request_id, &err)?;
+                let _stage = crate::server::stage_stats::StageGuard::new(
+                    crate::server::stage_stats::Stage::RespSendWait,
+                );
                 write_response(&socket, &response).await?;
             }
         }

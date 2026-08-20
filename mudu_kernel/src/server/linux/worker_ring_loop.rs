@@ -4,6 +4,7 @@ use crate::server::callback_registry::{
     PendingCallback,
 };
 use crate::server::connection_worker_task::spawn_connection_worker_task;
+use crate::server::fs_gc::FS_GC_INTERVAL;
 use crate::server::inflight_op::{AcceptOp, InflightOp};
 use crate::server::loop_mailbox::{
     drain_messages, handle_read_completion, submit_read_if_needed, LoopMailboxSubmitCtx,
@@ -16,6 +17,7 @@ use crate::server::message_bus_api::{
     unset_current_message_bus,
 };
 use crate::server::message_bus_runtime::WorkerMessageBus;
+use crate::server::server::flush_worker_dirty_pages;
 use crate::server::server_iouring;
 use crate::server::server_iouring::RecoveryCoordinator;
 use crate::server::session_bound_worker_runtime::{
@@ -26,6 +28,7 @@ use crate::server::worker::WorkerRuntime;
 use crate::server::worker_local::{set_current_worker_local, unset_current_worker_local};
 use crate::server::worker_loop_stats::WorkerLoopStats;
 use crate::server::worker_mailbox::WorkerMailboxMsg;
+use crate::server::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
 use mudu_sys::io::worker_ring::{
     set_current_worker_ring, unset_current_worker_ring, WorkerLocalRing,
 };
@@ -48,9 +51,9 @@ use std::sync::Arc;
 use mudu_sys::sync::SMutex;
 use std::time::Duration;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "ds")))]
 use mudu_sys::net::sync::StdTcpListener;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 #[path = "worker_ring_loop/recovery.rs"]
 mod recovery;
@@ -90,6 +93,10 @@ pub(in crate::server) struct WorkerRingLoop {
     accept_submitted: bool,
     stop: Arc<AtomicBool>,
     stats: WorkerLoopStats,
+    fs_gc_next_due: mudu_sys::time::Instant,
+    fs_gc_inflight: Arc<AtomicBool>,
+    page_flush_next_due: mudu_sys::time::Instant,
+    page_flush_inflight: Arc<AtomicBool>,
 }
 
 #[cfg(test)]
@@ -135,7 +142,7 @@ impl WorkerRingLoop {
             recovery_coordinator,
             stop,
         } = args;
-        let ring = Self::new_ring()?;
+        let ring = Self::new_ring_for_worker(0)?;
         #[allow(clippy::arc_with_non_send_sync)]
         let worker_local_ring = Arc::new(WorkerLocalRing::new_with_task_wake_fd(Some(mailbox_fd)));
         Self::new_with_ring(WorkerRingLoopWithRingArgs {
@@ -209,13 +216,47 @@ impl WorkerRingLoop {
                 worker_id,
                 ..WorkerLoopStats::default()
             },
+            fs_gc_next_due: mudu_sys::time::instant_now() + FS_GC_INTERVAL,
+            fs_gc_inflight: Arc::new(AtomicBool::new(false)),
+            page_flush_next_due: mudu_sys::time::instant_now() + DIRTY_PAGE_FLUSH_INTERVAL,
+            page_flush_inflight: Arc::new(AtomicBool::new(false)),
         })
     }
 
-    pub(in crate::server) fn new_ring() -> RS<mudu_sys::io::iouring::IoUring> {
+    /// EXPERIMENT switch (`MUDU_IOWQ_AFF=1`): pin each worker ring's io_wq
+    /// threads to the worker's own core and raise their caps, attacking the
+    /// io_wq scheduling latency measured behind `wal_write_wait`.
+    pub(in crate::server) fn iowq_affinity_experiment() -> bool {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            mudu_sys::env_var::var("MUDU_IOWQ_AFF")
+                .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        })
+    }
+
+    /// Creates the worker ring and, when `MUDU_IOWQ_AFF=1`, pins the ring's
+    /// io_wq workers to `worker_index`'s own core and raises their caps, so
+    /// buffered-write SQEs execute on the same core the worker runs on.
+    pub(in crate::server) fn new_ring_for_worker(
+        worker_index: usize,
+    ) -> RS<mudu_sys::io::iouring::IoUring> {
         let ring = mudu_sys::io::iouring::IoUring::new(1024);
         match ring {
-            Ok(ring) => Ok(ring),
+            Ok(mut ring) => {
+                if Self::iowq_affinity_experiment() {
+                    let rc_aff = ring.register_iowq_affinity(worker_index);
+                    let rc_max = ring.register_iowq_max_workers(128, 512);
+                    if rc_aff != 0 || rc_max != 0 {
+                        tracing::warn!(
+                            worker_index,
+                            rc_aff,
+                            rc_max,
+                            "io_uring iowq affinity/max_workers registration failed"
+                        );
+                    }
+                }
+                Ok(ring)
+            }
             Err(rc) => Err(mudu_error!(
                 ErrorCode::Network,
                 format!("io_uring_queue_init_params error {}", rc)
@@ -288,6 +329,17 @@ impl WorkerRingLoop {
                         return Err(e);
                     }
                     std::task::Poll::Pending => {
+                        if let Err(e) = self.wake_expired_ring_timeouts() {
+                            let _ = unregister_worker_message_bus(
+                                self.worker.server_instance_id(),
+                                self.worker.worker_id(),
+                            );
+                            unset_current_message_bus();
+                            unset_current_worker_ring();
+                            unset_current_worker_local();
+                            self.recovery_coordinator.worker_failed();
+                            return Err(e);
+                        }
                         if let Err(e) = self.submit_user_ring_io_if_needed() {
                             let _ = unregister_worker_message_bus(
                                 self.worker.server_instance_id(),
@@ -314,9 +366,14 @@ impl WorkerRingLoop {
                                 format!("io_uring submit error during bootstrap {}", submitted)
                             ));
                         }
-                        let cqe = match self.ring.wait() {
-                            Ok(cqe) => cqe,
-                            Err(wait_rc) => {
+                        let cqe = match self.wait_for_cqe() {
+                            Ok(Ok(cqe)) => cqe,
+                            Ok(Err(wait_rc))
+                                if wait_rc == -libc::ETIME || wait_rc == -libc::EINTR =>
+                            {
+                                continue;
+                            }
+                            Ok(Err(wait_rc)) => {
                                 let _ = unregister_worker_message_bus(
                                     self.worker.server_instance_id(),
                                     self.worker.worker_id(),
@@ -329,6 +386,17 @@ impl WorkerRingLoop {
                                     ErrorCode::Network,
                                     format!("io_uring wait cqe error during bootstrap {}", wait_rc)
                                 ));
+                            }
+                            Err(e) => {
+                                let _ = unregister_worker_message_bus(
+                                    self.worker.server_instance_id(),
+                                    self.worker.worker_id(),
+                                );
+                                unset_current_message_bus();
+                                unset_current_worker_ring();
+                                unset_current_worker_local();
+                                self.recovery_coordinator.worker_failed();
+                                return Err(e);
                             }
                         };
                         if let Err(e) = self.process_cqe(cqe) {
@@ -374,6 +442,24 @@ impl WorkerRingLoop {
             self.recovery_coordinator.worker_failed();
             return Err(err);
         }
+        // fs GC startup recovery: reclaim generations orphaned by a crash or
+        // an aborted write before the worker starts serving.
+        {
+            let worker = self.worker.clone();
+            if let Err(err) =
+                self.drive_local_future(worker.fs_gc_recover_scan(), "fs gc recover scan")
+            {
+                let _ = unregister_worker_message_bus(
+                    self.worker.server_instance_id(),
+                    self.worker.worker_id(),
+                );
+                unset_current_message_bus();
+                unset_current_worker_ring();
+                unset_current_worker_local();
+                self.recovery_coordinator.worker_failed();
+                return Err(err);
+            }
+        }
         self.recovery_coordinator.worker_succeeded()?;
         trace!(
             worker_id = self.worker.worker_id(),
@@ -415,6 +501,7 @@ impl WorkerRingLoop {
             match future.as_mut().poll(&mut cx) {
                 std::task::Poll::Ready(result) => return result,
                 std::task::Poll::Pending => {
+                    self.wake_expired_ring_timeouts()?;
                     self.submit_user_ring_io_if_needed()?;
                     let submitted = self.ring.submit();
                     if submitted < 0 {
@@ -423,12 +510,17 @@ impl WorkerRingLoop {
                             format!("io_uring submit error during {} {}", phase, submitted)
                         ));
                     }
-                    let cqe = self.ring.wait().map_err(|wait_rc| {
-                        mudu_error!(
-                            ErrorCode::Network,
-                            format!("io_uring wait cqe error during {} {}", phase, wait_rc)
-                        )
-                    })?;
+                    let cqe = match self.wait_for_cqe()? {
+                        Ok(cqe) => cqe,
+                        Err(wait_rc) if wait_rc == -libc::ETIME => continue,
+                        Err(wait_rc) if wait_rc == -libc::EINTR => continue,
+                        Err(wait_rc) => {
+                            return Err(mudu_error!(
+                                ErrorCode::Network,
+                                format!("io_uring wait cqe error during {} {}", phase, wait_rc)
+                            ));
+                        }
+                    };
                     self.process_cqe(cqe)?;
                 }
             }
@@ -548,6 +640,67 @@ impl WorkerRingLoop {
         self.inflight.insert(token, InflightOp::Accept(op));
         self.accept_submitted = true;
         self.stats.accept_submit += 1;
+        Ok(())
+    }
+
+    /// Spawn one fs GC round when the interval has elapsed.
+    ///
+    /// io_uring worker tasks cannot sleep on the tokio timer (the service
+    /// loop drives the ring synchronously), so the periodic trigger lives in
+    /// the service loop: once `FS_GC_INTERVAL` has passed since the previous
+    /// round, a one-round task is spawned and the next round is re-armed.
+    /// Shutdown needs no extra signal: no new round is spawned once
+    /// `shutting_down`/`stop` is set, and an in-flight round completes on
+    /// its own, so the worker task registry still drains.
+    pub(in crate::server) fn submit_fs_gc_round_if_due(&mut self) -> RS<()> {
+        if self.shutting_down || self.stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let now = mudu_sys::time::instant_now();
+        if *now < *self.fs_gc_next_due || self.fs_gc_inflight.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        self.fs_gc_next_due = now + FS_GC_INTERVAL;
+        self.fs_gc_inflight.store(true, Ordering::Relaxed);
+        let gc = self.worker.fs_gc();
+        let inflight = self.fs_gc_inflight.clone();
+        let worker_id = self.worker.worker_id();
+        self.spawn(None, async move {
+            if let Err(err) = gc.gc_round().await {
+                error!(worker_id, "fs gc round failed, {}", err);
+            }
+            inflight.store(false, Ordering::Relaxed);
+            Ok(())
+        });
+        Ok(())
+    }
+
+    /// Spawn one deferred data-page flush round when the interval has
+    /// elapsed; same cadence mechanism as `submit_fs_gc_round_if_due`
+    /// (io_uring worker tasks cannot sleep on the tokio timer). Unlike fs
+    /// GC this also runs while shutting down: the flush task is tracked by
+    /// the worker task registry, so the shutdown drain waits for it and the
+    /// data files are clean before the loop exits.
+    pub(in crate::server) fn submit_page_flush_round_if_due(&mut self) -> RS<()> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let now = mudu_sys::time::instant_now();
+        if *now < *self.page_flush_next_due || self.page_flush_inflight.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        self.page_flush_next_due = now + DIRTY_PAGE_FLUSH_INTERVAL;
+        self.page_flush_inflight.store(true, Ordering::Relaxed);
+        let worker = self.worker.clone();
+        let inflight = self.page_flush_inflight.clone();
+        let worker_id = self.worker.worker_id();
+        self.spawn(None, async move {
+            if let Err(err) = flush_worker_dirty_pages(&worker).await {
+                error!(worker_id, "page flush round failed, {}", err);
+            }
+            inflight.store(false, Ordering::Relaxed);
+            Ok(())
+        });
         Ok(())
     }
 
@@ -759,18 +912,76 @@ mod tests {
     use crate::server::callback_registry::{CallbackDomain, CallbackEventKey, CallbackTrigger};
     use crate::server::worker::WorkerRuntimeParams;
     use crate::server::worker_registry::load_or_create_worker_registry;
-    use crate::wal::worker_log::WorkerLogBatching;
+    use crate::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
     use mudu_sys::env_var::temp_dir;
+    #[cfg(not(feature = "ds"))]
     use mudu_sys::imp::native::linux::io_uring::file::{close, flush, open, read, write};
+    #[cfg(not(feature = "ds"))]
     use mudu_sys::io::socket::{
         accept, close as close_socket, connect, recv, send, shutdown, socket, IoSocket,
     };
+    #[cfg(not(feature = "ds"))]
     use mudu_sys::tokio::task::yield_now;
+    #[cfg(not(feature = "ds"))]
     use mudu_sys::TaskJoinHandle;
     use mudu_utils::oid::gen_oid;
+    #[cfg(not(feature = "ds"))]
     use mudu_utils::task_async::spawn_task_detached;
+    #[cfg(not(feature = "ds"))]
     use std::io::{Read, Write};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
+    /// Regression test: a registry-spawned task must survive many
+    /// cooperative yields. tokio's own `yield_now` defers the waker to the
+    /// tokio scheduler (which never runs on worker threads) and parks the
+    /// task forever; `cooperative_yield_now` wakes the registry waker
+    /// directly, so the drain/poll cycle drives the task to completion.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn worker_ring_loop_spawned_task_survives_cooperative_yields() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let Some(mut loop_state) = test_worker_loop().await else {
+                return;
+            };
+            set_current_worker_ring(loop_state.worker_local_ring.clone());
+            let count = Arc::new(AtomicUsize::new(0));
+            let count_task = count.clone();
+            loop_state.spawn(None, async move {
+                for _ in 0..50 {
+                    crate::common::yield_now::cooperative_yield_now().await;
+                    count_task.fetch_add(1, AtomicOrdering::SeqCst);
+                }
+                Ok(())
+            });
+            for _ in 0..10000 {
+                loop_state
+                    .worker_local_ring
+                    .worker_task_registry()
+                    .drain_completions();
+                let (completed, _more) = loop_state
+                    .worker_local_ring
+                    .worker_task_registry()
+                    .poll_ready_budget(usize::MAX);
+                for task in completed {
+                    let result = task.into_result();
+                    assert!(result.is_ok(), "spawned task failed: {:?}", result.err());
+                }
+                if count.load(AtomicOrdering::SeqCst) == 50 {
+                    break;
+                }
+            }
+            assert_eq!(count.load(AtomicOrdering::SeqCst), 50);
+            unset_current_worker_ring();
+            loop_state.ring.exit();
+            mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
+        })
+        .unwrap()
+    }
 
     async fn test_worker_loop() -> Option<WorkerRingLoop> {
         let dir = temp_dir()
@@ -786,6 +997,7 @@ mod tests {
             data_dir: dir.clone(),
             log_chunk_size: 4096,
             log_batching: WorkerLogBatching::default(),
+            wal_sync_policy: WalSyncPolicy::Commit,
             procedure_runtime: None,
             registry,
             async_runtime: None,
@@ -813,6 +1025,8 @@ mod tests {
         }
     }
 
+    // Only used by the io_uring-loop tests that are gated out under `ds`.
+    #[cfg(not(feature = "ds"))]
     async fn drive_ring_future<T>(
         loop_state: &mut WorkerRingLoop,
         handle: &TaskJoinHandle<Option<T>>,
@@ -845,6 +1059,11 @@ mod tests {
         Ok(())
     }
 
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
     // These tests drive the real Linux io_uring backend, which Miri cannot
     // emulate (it does not support the io_uring syscalls/FFI). They are
     // ignored under Miri and run only on native Linux builds.
@@ -942,6 +1161,11 @@ mod tests {
         .unwrap()
     }
 
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
     #[test]
     #[cfg_attr(miri, ignore)]
     fn worker_ring_loop_executes_user_socket_connect_io_via_cqe() {
@@ -1037,6 +1261,11 @@ mod tests {
         .unwrap()
     }
 
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
     #[test]
     #[cfg_attr(miri, ignore)]
     fn worker_ring_loop_executes_user_socket_accept_io_via_cqe() {
@@ -1133,6 +1362,136 @@ mod tests {
             loop_state.ring.exit();
             mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
         })
+        .unwrap()
+    }
+
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
+    /// Reproduces the partition-RPC wait composition: a worker task parks in
+    /// `async_::timeout(..., wait.wait())` (as `bus.recv` does), the response
+    /// is delivered via `notify` from the loop thread (as
+    /// `WorkerMessageBusState::handle_incoming` does), and the next loop
+    /// iteration must complete the task with the value.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn worker_ring_loop_timeout_wait_completes_on_notify() {
+        use mudu_sys::sync::async_::notify_wait::create_notify_wait;
+
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let Some(mut loop_state) = test_worker_loop().await else {
+                return;
+            };
+            set_current_worker_ring(loop_state.worker_local_ring.clone());
+
+            let (notify, wait) = create_notify_wait::<u64>();
+            let result = Arc::new(SMutex::new(None));
+            let result_task = result.clone();
+            loop_state.spawn(None, async move {
+                let r = mudu_sys::task::async_::timeout(Duration::from_secs(10), wait.wait()).await;
+                *result_task.lock()? = r.map(|inner| inner.ok().flatten());
+                Ok(())
+            });
+
+            // First loop iteration: the task registers the ring timeout and
+            // parks on the oneshot receiver.
+            loop_state.poll_ready_worker_tasks().unwrap();
+            assert!(result.lock().unwrap().is_none());
+
+            // The response arrives: notify from the loop thread, then run the
+            // next iteration (drain completions + poll ready tasks).
+            notify.notify(42).unwrap();
+            loop_state
+                .worker_local_ring
+                .worker_task_registry()
+                .drain_completions();
+            loop_state.poll_ready_worker_tasks().unwrap();
+            assert_eq!(*result.lock().unwrap(), Some(Some(42)));
+
+            unset_current_worker_ring();
+            loop_state.ring.exit();
+            mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
+        })
+        .unwrap()
+    }
+
+    // io_uring worker-ring-loop internals: the deterministic backend's
+    // simulated ring executes SQEs synchronously at submit and does not
+    // model the CQE-driven wakeup/cooperative-budget semantics this loop
+    // exercises. Native backend only.
+    #[cfg(not(feature = "ds"))]
+    /// Regression test for the tokio coop-budget exhaustion deadlock: io_uring
+    /// worker threads poll tasks manually inside a `block_on` whose coop
+    /// budget (128 by default) is only replenished by the tokio scheduler,
+    /// which never runs there. Once the budget is exhausted, tokio primitives
+    /// (e.g. the mutex inside notify_wait) return Pending from `poll_proceed`
+    /// and defer the waker to the never-driven runtime — the task parks
+    /// forever even though its resource is ready. The server drives workers
+    /// under `tokio::task::unconstrained`; this test mirrors that and checks
+    /// that a notify-wait task still completes after hundreds of
+    /// budget-consuming operations. Driving is bounded, so if the
+    /// `unconstrained` wrapper is dropped the final assertion fails instead
+    /// of hanging.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn worker_ring_loop_tasks_survive_coop_budget_exhaustion() {
+        use mudu_sys::sync::async_::mutex::AMutex;
+        use mudu_sys::sync::async_::notify_wait::create_notify_wait;
+
+        mudu_sys::task::async_::block_on_tokio_current_thread(mudu_sys::tokio::task::unconstrained(
+            async move {
+                let Some(mut loop_state) = test_worker_loop().await else {
+                    return;
+                };
+                set_current_worker_ring(loop_state.worker_local_ring.clone());
+
+                // Burn far more than tokio's default coop budget with
+                // budget-consuming mutex acquires.
+                let drained = Arc::new(AtomicUsize::new(0));
+                let drained_task = drained.clone();
+                loop_state.spawn(None, async move {
+                    let mutex = AMutex::new(0u32);
+                    for _ in 0..300 {
+                        let mut guard = mutex.lock().await;
+                        *guard += 1;
+                        drop(guard);
+                    }
+                    drained_task.fetch_add(1, AtomicOrdering::SeqCst);
+                    Ok(())
+                });
+                loop_state.poll_ready_worker_tasks().unwrap();
+                assert_eq!(drained.load(AtomicOrdering::SeqCst), 1);
+
+                // notify_wait parks on a tokio mutex before reaching the
+                // receiver; with an exhausted coop budget this is where the
+                // task would be deferred forever.
+                let (notify, wait) = create_notify_wait::<u64>();
+                let result = Arc::new(SMutex::new(None));
+                let result_task = result.clone();
+                loop_state.spawn(None, async move {
+                    let r =
+                        mudu_sys::task::async_::timeout(Duration::from_secs(10), wait.wait()).await;
+                    *result_task.lock()? = r.map(|inner| inner.ok().flatten());
+                    Ok(())
+                });
+                loop_state.poll_ready_worker_tasks().unwrap();
+                assert!(result.lock().unwrap().is_none());
+
+                notify.notify(7).unwrap();
+                loop_state
+                    .worker_local_ring
+                    .worker_task_registry()
+                    .drain_completions();
+                loop_state.poll_ready_worker_tasks().unwrap();
+                assert_eq!(*result.lock().unwrap(), Some(Some(7)));
+
+                unset_current_worker_ring();
+                loop_state.ring.exit();
+                mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
+            },
+        ))
         .unwrap()
     }
 

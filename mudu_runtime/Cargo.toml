@@ -11,6 +11,10 @@ out-dir = "src/bindings"
 
 [features]
 debug_trace = ["mudu_kernel/debug_trace", "mudu_utils/debug_trace"]
+# Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
+# Tests that exercise real-OS semantics the simulator cannot provide (e.g.
+# libsql's real file IO) are gated with `#[cfg(not(feature = "ds"))]`.
+ds = ["mudu_sys/ds", "mudu_kernel/ds"]
 
 [lints]
 workspace = true

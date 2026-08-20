@@ -40,7 +40,6 @@ pub mod object {
     impl SQLParamMarker for NewOrder {}
 
     impl NewOrder {
-        #[allow(clippy::too_many_arguments)]
         pub fn new(no_o_id: Option<i32>, no_d_id: Option<i32>, no_w_id: Option<i32>) -> Self {
             Self {
                 no_o_id: AttrNoOId::from(no_o_id),
@@ -152,7 +151,7 @@ pub mod object {
                 NO_W_ID => attr_field_access::attr_get_binary::<_>(self.no_w_id.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -181,7 +180,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())
@@ -196,7 +195,7 @@ pub mod object {
                 NO_W_ID => attr_field_access::attr_get_value::<_>(self.no_w_id.get()),
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
         }
@@ -216,7 +215,7 @@ pub mod object {
                 }
 
                 _ => {
-                    panic!("unknown name");
+                    unreachable!("unknown field name");
                 }
             }
             Ok(())

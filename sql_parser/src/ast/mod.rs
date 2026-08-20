@@ -10,6 +10,8 @@ pub mod ast_node;
 pub mod expr_compare;
 #[cfg(test)]
 mod expr_compare_test;
+/// Function call expression AST node (`COUNT(*)`, `SUM(col)`, etc.).
+pub mod expr_function;
 /// Atomic expression items such as column names, literals, and placeholders.
 pub mod expr_item;
 /// Literal expression AST node (`NULL`, typed datum literals).
@@ -58,6 +60,8 @@ mod parser_test;
 pub mod stmt_copy_from;
 /// `COPY ... TO` statement AST node.
 pub mod stmt_copy_to;
+/// `CREATE TYPE FILESYSTEM` statement AST node.
+pub mod stmt_create_fs_type;
 /// `CREATE PARTITION PLACEMENT` statement AST node.
 pub mod stmt_create_partition_placement;
 /// `CREATE PARTITION RULE` statement AST node.
@@ -68,6 +72,8 @@ mod stmt_create_partition_rule_test;
 pub mod stmt_drop;
 /// `DROP TABLE` statement AST node.
 pub mod stmt_drop_table;
+/// `DROP TYPE` statement AST node.
+pub mod stmt_drop_type;
 /// `INSERT` statement AST node.
 pub mod stmt_insert;
 /// List of parsed SQL statements.

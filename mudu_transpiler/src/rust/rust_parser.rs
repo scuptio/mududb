@@ -618,6 +618,10 @@ mod tests {
         assert!(s.contains("let value = mudu_get(session_id, &a).await?;"));
         assert!(s.contains("let pairs = mudu_range(session_id, &a, &b).await?;"));
         assert!(s.contains("mudu_close(session_id).await?;"));
+        assert!(s.contains("pub async fn proc_fs"));
+        assert!(s.contains("let fd = mudu_fs_open(session_id, oid, \"\", 1).await?;"));
+        assert!(s.contains("let written = mudu_fs_write(session_id, fd, &data).await?;"));
+        assert!(s.contains("mudu_fs_close(session_id, fd).await?;"));
         Ok(())
     }
 }

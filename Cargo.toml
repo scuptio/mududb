@@ -51,6 +51,13 @@ disallowed-types = "deny"
 [profile.release]
 panic = "abort"
 
+# Line-tables-only debug info: keeps backtrace line numbers while cutting
+# link-time memory and target-dir size several-fold (full `debug = 2` is the
+# main driver of linker OOM kills when building this workspace's test
+# binaries in memory-constrained environments).
+[profile.dev]
+debug = 1
+
 [workspace.dependencies]
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
 test_utils = { path = "test_utils" }
@@ -159,5 +166,6 @@ wit-parser = { version = "0.252.0" }
 rliburing = { git = "https://github.com/scuptio/rliburing.git", rev = "680c3183838c05ade6475dd1ab3469a3747ae0f5" }
 
 # wasmtime family (features preserved in consuming crates).
-wasmtime = { version = "46.0.1" }
-wasmtime-wasi = { version = "46.0.1" }
+# Floor at 46.0.2: 46.0.1 is flagged by RUSTSEC-2026-0222 / RUSTSEC-2026-0223.
+wasmtime = { version = "46.0.2" }
+wasmtime-wasi = { version = "46.0.2" }

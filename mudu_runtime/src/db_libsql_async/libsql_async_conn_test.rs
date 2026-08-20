@@ -14,6 +14,10 @@ fn temp_db_folder(label: &str) -> String {
     path.to_str().unwrap().to_string()
 }
 
+// libsql performs real SQLite file IO outside `mudu_sys`; the
+// deterministic-simulation backend keeps fs writes in memory,
+// so the database file cannot be created. Native backend only.
+#[cfg(not(feature = "ds"))]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn async_conn_prepare_rollback_and_batch() {

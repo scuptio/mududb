@@ -27,6 +27,17 @@ impl WorkerSnapshot {
         Self { xid, running }
     }
 
+    /// A snapshot that observes every version committed so far. Used to
+    /// re-read a row under a statement-level write lock the caller already
+    /// holds: there the begin-time snapshot would be needlessly stale (the
+    /// lock, not the snapshot, is the conflict protection for that row).
+    ///
+    /// `u64::MAX - 1` stays below the `c_max = u64::MAX` sentinel used by
+    /// version timestamps, so every committed version is visible to it.
+    pub(crate) fn latest_committed() -> Self {
+        Self::new(u64::MAX - 1, vec![])
+    }
+
     pub fn xid(&self) -> u64 {
         self.xid
     }
@@ -72,6 +83,17 @@ impl WorkerSnapshotMgr {
                 format!("transaction {} is not active", xid)
             )),
         }
+    }
+
+    /// Return the oldest xid still running, if any.
+    pub fn oldest_running_xid(&self) -> RS<Option<u64>> {
+        Ok(self.running.lock()?.first().copied())
+    }
+
+    /// Return the newest xid allocated so far (begin or commit timestamp);
+    /// `0` when nothing was allocated yet.
+    pub fn latest_xid(&self) -> u64 {
+        self.next_ts.load(Ordering::Relaxed)
     }
 }
 

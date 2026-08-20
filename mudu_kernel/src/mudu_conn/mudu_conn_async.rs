@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use mudu::common::id::OID;
+use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -26,6 +26,8 @@ use std::sync::{Arc, OnceLock};
 use crate::mudu_conn::mudu_prepared_stmt::MuduPreparedStmt;
 use crate::server::worker_local::{try_current_worker_local, WorkerExecute, WorkerLocalRef};
 use crate::sql::describer::Describer;
+use crate::x_engine::api::DeltaOp;
+use crate::x_engine::DataBin;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::provider::create_io_provider;
 
@@ -115,11 +117,7 @@ impl MuduConnAsync {
 
     pub fn new_with_runtime(async_runtime: Option<Arc<dyn AsyncIoProvider>>) -> RS<Self> {
         if let Some(worker_local) = try_current_worker_local() {
-            return Ok(Self {
-                backend: ConnBackend::WorkerLocal(worker_local),
-                parser: Arc::new(SQLParser::new()?),
-                session_id: Arc::new(SMutex::new(None)),
-            });
+            return Self::new_with_worker_local(worker_local);
         }
         let addr = default_remote_addr().ok_or_else(|| {
             mudu_error!(
@@ -138,6 +136,19 @@ impl MuduConnAsync {
         Ok(Self {
             backend: ConnBackend::Remote(remote),
             parser,
+            session_id: Arc::new(SMutex::new(None)),
+        })
+    }
+
+    /// Create a connection bound to an explicit worker-local backend.
+    ///
+    /// Production connections resolve the backend through
+    /// [`try_current_worker_local`]; this constructor serves tests and hosts
+    /// that hold the worker-local reference directly.
+    pub fn new_with_worker_local(worker_local: WorkerLocalRef) -> RS<Self> {
+        Ok(Self {
+            backend: ConnBackend::WorkerLocal(worker_local),
+            parser: Arc::new(SQLParser::new()?),
             session_id: Arc::new(SMutex::new(None)),
         })
     }
@@ -182,6 +193,73 @@ impl MuduConnAsync {
                 .lock()?
                 .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no active session")),
             ConnBackend::Remote(remote) => remote.active_session_id().await,
+        }
+    }
+
+    /// Point-read one relation row by primary key inside this connection's
+    /// session transaction (bypasses SQL parsing and result-set
+    /// serialization).
+    pub async fn relation_get_async(
+        &self,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        select: Vec<AttrIndex>,
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => {
+                let session_id = self.ensure_session_id().await?;
+                worker_local
+                    .relation_get(session_id, table, key, select)
+                    .await
+            }
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "relation access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Read-modify-write one relation row by primary key inside this
+    /// connection's session transaction. Returns the affected row count.
+    pub async fn relation_update_async(
+        &self,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+        deltas: Vec<(AttrIndex, DeltaOp, DataBin)>,
+    ) -> RS<u64> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => {
+                let session_id = self.ensure_session_id().await?;
+                worker_local
+                    .relation_update(session_id, table, key, values, deltas)
+                    .await
+            }
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "relation access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Insert one relation row inside this connection's session transaction.
+    pub async fn relation_insert_async(
+        &self,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+    ) -> RS<()> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => {
+                let session_id = self.ensure_session_id().await?;
+                worker_local
+                    .relation_insert(session_id, table, key, values)
+                    .await
+            }
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "relation access is not supported without worker-local context"
+            )),
         }
     }
 }
@@ -344,7 +422,7 @@ impl DBConnAsync for MuduConnAsync {
         match &self.backend {
             ConnBackend::WorkerLocal(worker_local) => {
                 let parsed = self.parse_one(stmt.as_ref())?;
-                let desc = Describer::describe(worker_local.meta_mgr().as_ref(), parsed).await?;
+                let desc = Describer::describe(worker_local.meta_mgr().as_ref(), &parsed).await?;
                 Ok(Arc::new(MuduPreparedStmt::new(
                     worker_local.clone(),
                     self.session_id.clone(),

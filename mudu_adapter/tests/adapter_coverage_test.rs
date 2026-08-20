@@ -141,7 +141,7 @@ fn replace_placeholders_formats_supported_sqlite_values() -> RS<()> {
     let sql = "INSERT INTO demo VALUES (?, ?, ?, ?)";
     let params = (7_i32, 9_i64, 1.5_f32, String::from("abc"));
     let rendered = backend::replace_placeholders(sql, &params)?;
-    assert_eq!(rendered, "INSERT INTO demo VALUES (7, 9, 1.5, \"abc\")");
+    assert_eq!(rendered, "INSERT INTO demo VALUES (7, 9, 1.5, 'abc')");
     Ok(())
 }
 

@@ -7,6 +7,7 @@
 pub mod test_uni;
 pub mod uni_command_argv;
 pub mod uni_command_argv_impl;
+pub mod uni_command_return;
 pub mod uni_data_type;
 pub mod uni_data_type_impl;
 #[cfg(test)]
@@ -20,6 +21,9 @@ pub mod uni_def;
 mod uni_def_test;
 
 pub mod uni_error;
+pub mod uni_fs_dirent;
+pub mod uni_fs_open_argv;
+pub mod uni_fs_stat;
 pub mod uni_get_argv;
 pub mod uni_get_result;
 pub mod uni_key_value;
@@ -34,9 +38,11 @@ pub mod uni_put_result;
 pub mod uni_query_argv;
 pub mod uni_query_argv_impl;
 pub mod uni_query_result;
+pub mod uni_query_return;
 pub mod uni_range_argv;
 pub mod uni_range_result;
 pub mod uni_record_type;
+pub mod uni_relation;
 pub mod uni_result;
 pub mod uni_result_set;
 pub mod uni_result_type;

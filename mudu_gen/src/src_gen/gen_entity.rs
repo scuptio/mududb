@@ -28,10 +28,10 @@ fn _gen_from_ddl_sql(
     lang: String,
 ) -> RS<()> {
     let out_path_buf = PathBuf::from(output_source_path);
-    if !out_path_buf.exists() {
+    if !mudu_sys::fs::sync::sync_path_exists(&out_path_buf) {
         mudu_sys::fs::sync::sync_create_dir_all(&out_path_buf)?;
     }
-    if !out_path_buf.is_dir() {
+    if !mudu_sys::fs::sync::sync_metadata(&out_path_buf)?.is_dir() {
         return Err(mudu_error!(
             ErrorCode::NotADirectory,
             format!("Output directory {:?} is not a directory", out_path_buf)

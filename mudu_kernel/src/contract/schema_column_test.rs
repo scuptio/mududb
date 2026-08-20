@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used)]
 
+use crate::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use crate::contract::schema_column::SchemaColumn;
+use mudu::common::id::{AttrIndex, OID};
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
 #[test]
@@ -89,4 +92,59 @@ fn serde_roundtrip_preserves_fields() {
     assert_eq!(col.type_id(), decoded.type_id());
     assert_eq!(col.nullable(), decoded.nullable());
     assert_eq!(col.is_primary(), decoded.is_primary());
+}
+
+#[test]
+fn fs_binding_defaults_to_none_and_roundtrips() {
+    let mut col = SchemaColumn::new(
+        "photo".to_string(),
+        TypeFamily::U128,
+        DataType::new_no_param(TypeFamily::U128).to_info(),
+    );
+    assert_eq!(col.fs_binding(), None);
+
+    col.set_fs_binding(Some(FsColumnBinding::new(7, FsTypeKind::File)));
+    assert_eq!(
+        col.fs_binding(),
+        Some(FsColumnBinding::new(7, FsTypeKind::File))
+    );
+
+    // The catalog persists schemas with rmp_serde; the binding must survive it.
+    let bytes = rmp_serde::to_vec(&col).unwrap();
+    let decoded: SchemaColumn = rmp_serde::from_slice(&bytes).unwrap();
+    assert_eq!(decoded.fs_binding(), col.fs_binding());
+
+    col.set_fs_binding(None);
+    assert_eq!(col.fs_binding(), None);
+}
+
+// Schemas persisted before the fs_binding field existed must still decode;
+// the field then defaults to None.
+#[derive(serde::Serialize)]
+struct LegacySchemaColumn {
+    oid: OID,
+    name: String,
+    type_id: TypeFamily,
+    type_param: DataTypeInfo,
+    index: AttrIndex,
+    is_primary: Option<AttrIndex>,
+    nullable: bool,
+}
+
+#[test]
+fn decode_legacy_bytes_without_fs_binding_defaults_to_none() {
+    let legacy = LegacySchemaColumn {
+        oid: 42,
+        name: "photo".to_string(),
+        type_id: TypeFamily::U128,
+        type_param: DataType::new_no_param(TypeFamily::U128).to_info(),
+        index: 1,
+        is_primary: None,
+        nullable: true,
+    };
+    let bytes = rmp_serde::to_vec(&legacy).unwrap();
+    let decoded: SchemaColumn = rmp_serde::from_slice(&bytes).unwrap();
+    assert_eq!(decoded.get_oid(), 42);
+    assert_eq!(decoded.get_name(), "photo");
+    assert_eq!(decoded.fs_binding(), None);
 }

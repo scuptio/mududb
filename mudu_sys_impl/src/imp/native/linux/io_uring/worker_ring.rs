@@ -1,10 +1,12 @@
 use std::cell::UnsafeCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::Waker;
 
 use crate::task::async_::try_this_task_id;
 use crate::task::id::TaskID;
+use crate::time::Instant;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -61,6 +63,8 @@ pub struct WorkerLocalRing {
     pending: Mutex<VecDeque<u64>>,
     ops: Mutex<HashMap<u64, WorkerRingOp>>,
     op_tasks: Mutex<HashMap<u64, TaskID>>,
+    timeouts: Mutex<BTreeMap<(Instant, u64), Waker>>,
+    next_timeout_id: AtomicU64,
 }
 
 impl Default for WorkerLocalRing {
@@ -81,6 +85,8 @@ impl WorkerLocalRing {
             pending: Mutex::new(VecDeque::new()),
             ops: Mutex::new(HashMap::new()),
             op_tasks: Mutex::new(HashMap::new()),
+            timeouts: Mutex::new(BTreeMap::new()),
+            next_timeout_id: AtomicU64::new(1),
         }
     }
 
@@ -161,6 +167,61 @@ impl WorkerLocalRing {
             guard.remove(&op_id);
         }
     }
+
+    /// Registers `waker` to be woken once `deadline` has passed.
+    ///
+    /// The io_uring worker service loop is a synchronous loop that never
+    /// yields to the tokio runtime, so tokio timers never advance on worker
+    /// threads. This heap is the worker-local clock source used by
+    /// `mudu_sys::task::async_::timeout`/`sleep` instead; the service loop
+    /// drains it via `take_expired_timeouts` and bounds its CQE wait with
+    /// `next_timeout_deadline`.
+    ///
+    /// Returns a registration id; pass it together with `deadline` to
+    /// `remove_timeout` when the registration becomes stale (e.g. the future
+    /// is re-polled with a new waker or completes before the deadline).
+    pub fn register_timeout(&self, deadline: Instant, waker: Waker) -> RS<u64> {
+        let id = self.next_timeout_id.fetch_add(1, Ordering::Relaxed);
+        self.timeouts
+            .lock()
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "worker local ring lock poisoned"))?
+            .insert((deadline, id), waker);
+        Ok(id)
+    }
+
+    pub fn remove_timeout(&self, deadline: Instant, id: u64) -> RS<()> {
+        self.timeouts
+            .lock()
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "worker local ring lock poisoned"))?
+            .remove(&(deadline, id));
+        Ok(())
+    }
+
+    /// Pops all registrations whose deadline is at or before `now`.
+    pub fn take_expired_timeouts(&self, now: Instant) -> RS<Vec<Waker>> {
+        let mut guard = self
+            .timeouts
+            .lock()
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "worker local ring lock poisoned"))?;
+        let mut expired = Vec::new();
+        while let Some((&(deadline, _), _)) = guard.iter().next() {
+            if deadline > now {
+                break;
+            }
+            if let Some((_, waker)) = guard.pop_first() {
+                expired.push(waker);
+            }
+        }
+        Ok(expired)
+    }
+
+    pub fn next_timeout_deadline(&self) -> RS<Option<Instant>> {
+        let guard = self
+            .timeouts
+            .lock()
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "worker local ring lock poisoned"))?;
+        Ok(guard.keys().next().map(|(deadline, _)| *deadline))
+    }
 }
 
 pub fn set_current_worker_ring(ring: Arc<WorkerLocalRing>) {
@@ -235,4 +296,38 @@ pub fn complete_user_ring_op(op: UserIoInflight, result: i32, ring: &WorkerLocal
         ring.finish_op(op_id);
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use futures::task::noop_waker;
+    use std::time::Duration;
+
+    #[test]
+    fn timeout_heap_orders_expires_and_removes() {
+        let ring = WorkerLocalRing::new();
+        let now = Instant::now();
+        let late_deadline = now + Duration::from_millis(50);
+        let early_deadline = now + Duration::from_millis(10);
+
+        let late_id = ring.register_timeout(late_deadline, noop_waker()).unwrap();
+        ring.register_timeout(early_deadline, noop_waker()).unwrap();
+
+        // The nearest deadline is reported first.
+        assert_eq!(ring.next_timeout_deadline().unwrap(), Some(early_deadline));
+        // Nothing is expired at `now`.
+        assert!(ring.take_expired_timeouts(now).unwrap().is_empty());
+        // Once the earlier deadline passes, exactly one entry fires.
+        let expired = ring.take_expired_timeouts(early_deadline).unwrap();
+        assert_eq!(expired.len(), 1);
+        assert_eq!(ring.next_timeout_deadline().unwrap(), Some(late_deadline));
+
+        // Removing a stale registration empties the heap.
+        ring.remove_timeout(late_deadline, late_id).unwrap();
+        assert_eq!(ring.next_timeout_deadline().unwrap(), None);
+        // Removing an unknown registration is a no-op.
+        ring.remove_timeout(late_deadline, late_id).unwrap();
+    }
 }

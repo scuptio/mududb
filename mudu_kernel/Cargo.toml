@@ -8,6 +8,10 @@ license = "Apache-2.0"
 [features]
 test = []
 debug_trace = ["mudu_sys/debug_trace", "mudu_utils/debug_trace", "dep:async-backtrace"]
+# Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
+# Tests that exercise real-OS semantics the simulator cannot provide are
+# gated with `#[cfg(not(feature = "ds"))]`.
+ds = ["mudu_sys/ds"]
 
 [lints]
 workspace = true
@@ -15,6 +19,7 @@ workspace = true
 [dependencies]
 
 mudu = { workspace = true, features = ["test"] }
+mudu_binding = { workspace = true }
 mudu_compat_migrate = { workspace = true }
 mudu_sys = { workspace = true }
 
@@ -33,6 +38,7 @@ serde_json = { workspace = true }
 
 async-trait = { workspace = true }
 arbitrary = { workspace = true }
+bigdecimal = { workspace = true }
 tracing = { workspace = true }
 
 pgwire = { workspace = true }
@@ -52,3 +58,4 @@ byteorder = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tracing-subscriber = { workspace = true }

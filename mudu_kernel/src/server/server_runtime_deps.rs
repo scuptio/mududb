@@ -8,12 +8,13 @@ use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
 use crate::server::procedure_runtimes::ProcedureRuntimes;
 use crate::server::server_cfg::ServerCfg;
 use crate::server::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
-use crate::wal::worker_log::WorkerLogBatching;
+use crate::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 /// Dependencies assembled for one server process after pure configuration is known.
 pub struct ServerRuntimeDeps {
     log_batching: WorkerLogBatching,
+    wal_sync_policy: WalSyncPolicy,
     procedure_runtimes: ProcedureRuntimes,
     worker_registry: Arc<WorkerRegistry>,
     async_runtime: Option<Arc<dyn AsyncIoProvider>>,
@@ -22,8 +23,11 @@ pub struct ServerRuntimeDeps {
 impl ServerRuntimeDeps {
     pub fn from_cfg(cfg: &ServerCfg) -> RS<Self> {
         let worker_registry = load_or_create_worker_registry(cfg.log_dir(), cfg.worker_count())?;
+        let log_batching =
+            WorkerLogBatching::new(64 * 1024, 32, cfg.log_batching_max_wait(), 256 * 1024);
         Ok(Self {
-            log_batching: WorkerLogBatching::default(),
+            log_batching,
+            wal_sync_policy: cfg.wal_sync_policy(),
             procedure_runtimes: ProcedureRuntimes::default(),
             worker_registry,
             async_runtime: None,
@@ -72,6 +76,10 @@ impl ServerRuntimeDeps {
 
     pub fn log_batching(&self) -> WorkerLogBatching {
         self.log_batching
+    }
+
+    pub fn wal_sync_policy(&self) -> WalSyncPolicy {
+        self.wal_sync_policy
     }
 
     pub fn procedure_runtime_for_worker(&self, worker_id: usize) -> Option<AsyncFuncInvokerPtr> {

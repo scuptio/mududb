@@ -60,6 +60,11 @@ mod tests {
 
     #[test]
     fn test_listener_bind_local_yields_ephemeral_port() {
+        // Shares the process-wide port space with the other port tests; see
+        // the port_space_guard note in lib_test.rs.
+        let _guard = test_runtime_domain_lock()
+            .lock()
+            .expect("test runtime domain lock poisoned");
         let listener = TestListener::bind_local().unwrap().expect("bind failed");
         let port = listener.port().unwrap();
         assert!(port > 0);
@@ -67,6 +72,11 @@ mod tests {
 
     #[test]
     fn into_inner_returns_listener() {
+        // Shares the process-wide port space with the other port tests; see
+        // the port_space_guard note in lib_test.rs.
+        let _guard = test_runtime_domain_lock()
+            .lock()
+            .expect("test runtime domain lock poisoned");
         let listener = TestListener::bind_local().unwrap().expect("bind failed");
         let port = listener.port().unwrap();
         let inner = listener.into_inner();
@@ -100,6 +110,12 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn start_debug_server_starts_without_error() {
+        // The debug server keeps its listener bound for the rest of the
+        // process, so it must not overlap the other port tests; see the
+        // port_space_guard note in lib_test.rs.
+        let _guard = test_runtime_domain_lock()
+            .lock()
+            .expect("test runtime domain lock poisoned");
         let listener = TestListener::bind_local().unwrap().expect("bind failed");
         let port = listener.port().unwrap();
         // Release the port so the debug server can bind to it.

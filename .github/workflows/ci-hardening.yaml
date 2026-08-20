@@ -94,10 +94,8 @@ jobs:
       - name: Install cargo-outdated
         run: cargo install cargo-outdated --version 0.19.0 --locked
 
-      # cargo-outdated copies the workspace to /tmp, which breaks the relative
-      # path used by the optional `mududb_ds` dependency in `mudu_sys_impl`.
-      # Keep this job visible but non-blocking until the workspace layout is
-      # adjusted to support it.
+      # Kept visible but non-blocking until this job is re-measured on a
+      # fresh runner.
       - name: Check outdated dependencies
         run: |
           mkdir -p logs

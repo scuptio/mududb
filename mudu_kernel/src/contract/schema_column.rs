@@ -6,6 +6,8 @@ use mudu_type::type_family::TypeFamily as TypeID;
 use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
+use crate::contract::fs_type::FsColumnBinding;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SchemaColumn {
     oid: OID,
@@ -16,6 +18,8 @@ pub struct SchemaColumn {
     is_primary: Option<AttrIndex>,
     #[serde(default = "default_nullable")]
     nullable: bool,
+    #[serde(default)]
+    fs_binding: Option<FsColumnBinding>,
 }
 
 impl SchemaColumn {
@@ -29,6 +33,7 @@ impl SchemaColumn {
             index: 0,
             is_primary: None,
             nullable: true,
+            fs_binding: None,
         }
     }
 
@@ -47,6 +52,7 @@ impl SchemaColumn {
             index: 0,
             is_primary: None,
             nullable: true,
+            fs_binding: None,
         }
     }
 
@@ -99,6 +105,14 @@ impl SchemaColumn {
 
     pub fn type_param(&self) -> &DataTypeInfo {
         &self.type_param
+    }
+
+    pub fn fs_binding(&self) -> Option<FsColumnBinding> {
+        self.fs_binding
+    }
+
+    pub fn set_fs_binding(&mut self, fs_binding: Option<FsColumnBinding>) {
+        self.fs_binding = fs_binding;
     }
 }
 

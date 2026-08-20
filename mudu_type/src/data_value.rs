@@ -14,7 +14,6 @@ use mudu::mudu_error;
 use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::hint;
 
 /// A memory-efficient representation of data that can hold various scalar types
 /// or complex types (arrays, records) in a unified enum container.
@@ -132,20 +131,24 @@ macro_rules! impl_data_value_methods {
                 }
 
                 fn [<expect_ $variant_lower>](&self) -> &$inner_type {
-                    unsafe {
-                        match self {
-                            ValueKind::$variant_upper(value) => value,
-                            _ => { hint::unreachable_unchecked() }
-                        }
+                    match self {
+                        ValueKind::$variant_upper(value) => value,
+                        other => panic!(
+                            "expected {}, got {:?}",
+                            stringify!($variant_upper),
+                            other
+                        ),
                     }
                 }
 
                 fn [<into_ $variant_lower>](self) -> $inner_type {
-                    unsafe {
-                        match self {
-                            ValueKind::$variant_upper(value) => value,
-                            _ => { hint::unreachable_unchecked() }
-                        }
+                    match self {
+                        ValueKind::$variant_upper(value) => value,
+                        other => panic!(
+                            "expected {}, got {:?}",
+                            stringify!($variant_upper),
+                            other
+                        ),
                     }
                 }
             }

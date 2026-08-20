@@ -150,10 +150,14 @@ pub async fn write_schema_to_catalog(
 ) -> RS<()> {
     let key = encode_schema_catalog_key(schema.id())?;
     let value = encode_schema_catalog_value(schema)?;
-    relation.write_value(key, value, xid).await
+    relation.write_value(key, value, xid).await?;
+    // Catalog relations have no background flush driver: drain the queued
+    // PL frames so the DDL is durable when it returns.
+    relation.flush_wal_async().await
 }
 
 pub async fn delete_schema_from_catalog(relation: &Relation, oid: OID, xid: u64) -> RS<()> {
     let key = encode_schema_catalog_key(oid)?;
-    relation.write_delete(key, xid).await
+    relation.write_delete(key, xid).await?;
+    relation.flush_wal_async().await
 }

@@ -32,9 +32,18 @@ impl SQLParser {
     }
 
     /// Parse a SQL string into a [`StmtList`].
+    ///
+    /// Single custom statements (partition DDL, filesystem types) are parsed
+    /// by the dedicated custom parser. Scripts that mix custom statements
+    /// with standard SQL are split top-level and each statement is parsed
+    /// with the custom parser first, falling back to the tree-sitter
+    /// standard parser.
     pub fn parse(&self, sql: &str) -> RS<StmtList> {
         if let Some(stmt_list) = self.try_parse_custom_statement(sql)? {
             return Ok(stmt_list);
+        }
+        if entry::contains_custom_statement_syntax(sql) {
+            return self.parse_mixed_script(sql);
         }
         self.parse_standard(sql)
     }

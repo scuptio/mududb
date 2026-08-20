@@ -29,7 +29,7 @@ pub fn schema_columns_to_tuple_desc(
     let mut desc = Vec::with_capacity(field_count);
     for (column_index, sc) in fields.into_iter() {
         let ty = sc.type_param().to_data_type()?;
-        let field_info = FieldInfo::new(
+        let mut field_info = FieldInfo::new(
             sc.get_name().clone(),
             sc.get_oid(),
             ty.clone(),
@@ -38,6 +38,7 @@ pub fn schema_columns_to_tuple_desc(
             sc.primary_index(),
             sc.nullable(),
         );
+        field_info.set_fs_binding(sc.fs_binding());
         desc.push((ty, field_info, sc.nullable()))
     }
 

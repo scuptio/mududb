@@ -1,6 +1,10 @@
 use crate::contract::meta_mgr::MetaMgr;
 use crate::mudu_conn::mudu_conn_core::MuduConnCore;
+use crate::mudu_conn::mudu_result_set_async::MuduResultSetAsync;
+use crate::mudu_conn::plan_cache::{CachedPlan, PlanCache};
 use crate::server::async_func_runtime::AsyncFuncInvokerPtr;
+use crate::server::fs_gc::FsGc;
+use crate::server::fs_service::FsService;
 use crate::server::message_bus_api::ServerInstanceId;
 use crate::server::routing::SessionOpenConfig;
 use crate::server::session_bound_worker_runtime::{
@@ -13,12 +17,18 @@ use crate::server::worker_local::{
 use crate::server::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::server::worker_session_manager::{SessionContext, WorkerSessionManager};
 use crate::server::worker_snapshot::KvItem;
-use crate::server::x_contract::{WorkerXContract, WorkerXContractWorkerLogParams};
-use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBatching, WorkerLogLayout};
+use crate::server::x_contract::{WorkerStorage, WorkerXContract, WorkerXContractWorkerLogParams};
+use crate::sql::binder::Binder;
+use crate::wal::worker_log::{
+    ChunkedWorkerLogBackend, WalSyncPolicy, WorkerLogBatching, WorkerLogLayout,
+};
 use crate::wal::xl_batch::XLBatch;
-use crate::x_engine::api::XContract;
+use crate::x_engine::api::{
+    DeltaAssign, DeltaOp, OptInsert, OptRead, OptUpdate, Predicate, VecDatum, VecSelTerm, XContract,
+};
 use crate::x_engine::tx_mgr::TxMgr;
-use mudu::common::id::OID;
+use crate::x_engine::DataBin;
+use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -26,7 +36,9 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::default_sys_io_context;
 use mudu_utils::task_trace;
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicUsize;
@@ -54,12 +66,49 @@ pub struct WorkerRuntime {
     log_layout: WorkerLogLayout,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     session_manager: Arc<WorkerSessionManager>,
+    fs_service: Arc<FsService>,
+    fs_gc: Arc<FsGc>,
     registry: Arc<WorkerRegistry>,
+    plan_cache: Arc<PlanCache>,
 }
 
 /// Backward-compatible name for callers that still refer to the historical
 /// io_uring-only worker runtime.
 pub type IoUringWorker = WorkerRuntime;
+
+/// Transaction-control statements recognized on the SQL text before parsing,
+/// so that clients of the query/execute protocol can drive multi-statement
+/// transactions explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TxControlStmt {
+    Begin,
+    Commit,
+    Rollback,
+}
+
+/// Recognize `BEGIN [TRANSACTION|WORK]` / `START TRANSACTION`,
+/// `COMMIT [TRANSACTION|WORK]` and `ROLLBACK [TRANSACTION|WORK]`
+/// (case-insensitive, optional trailing semicolons). Returns `None` for any
+/// other statement, which then flows through the normal SQL pipeline.
+fn parse_tx_control_stmt(sql: &str) -> Option<TxControlStmt> {
+    let normalized = sql.trim().trim_end_matches(';').trim();
+    const VARIANTS: &[(&str, TxControlStmt)] = &[
+        ("BEGIN", TxControlStmt::Begin),
+        ("BEGIN TRANSACTION", TxControlStmt::Begin),
+        ("BEGIN WORK", TxControlStmt::Begin),
+        ("START TRANSACTION", TxControlStmt::Begin),
+        ("COMMIT", TxControlStmt::Commit),
+        ("COMMIT TRANSACTION", TxControlStmt::Commit),
+        ("COMMIT WORK", TxControlStmt::Commit),
+        ("ROLLBACK", TxControlStmt::Rollback),
+        ("ROLLBACK TRANSACTION", TxControlStmt::Rollback),
+        ("ROLLBACK WORK", TxControlStmt::Rollback),
+    ];
+    VARIANTS
+        .iter()
+        .find(|(text, _)| normalized.eq_ignore_ascii_case(text))
+        .map(|(_, control)| *control)
+}
 
 pub struct WorkerRuntimeParams {
     pub identity: WorkerIdentity,
@@ -68,6 +117,7 @@ pub struct WorkerRuntimeParams {
     pub data_dir: String,
     pub log_chunk_size: u64,
     pub log_batching: WorkerLogBatching,
+    pub wal_sync_policy: WalSyncPolicy,
     pub procedure_runtime: Option<AsyncFuncInvokerPtr>,
     pub registry: Arc<WorkerRegistry>,
     pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
@@ -88,6 +138,7 @@ impl WorkerRuntime {
             data_dir,
             log_chunk_size,
             log_batching,
+            wal_sync_policy,
             procedure_runtime,
             registry,
             async_runtime,
@@ -110,9 +161,13 @@ impl WorkerRuntime {
                     "worker registry has no default global worker"
                 )
             })?;
-        let log_layout =
-            WorkerLogLayout::new(log_dir, worker_id, log_chunk_size)?.with_batching(log_batching);
+        let log_layout = WorkerLogLayout::new(log_dir, worker_id, log_chunk_size)?
+            .with_batching(log_batching)
+            .with_sync_policy(wal_sync_policy);
 
+        // The fs service derives its storage roots from the data dir; keep a
+        // copy before it is moved into the contract params.
+        let fs_data_dir = data_dir.clone();
         let contract = Arc::new(
             WorkerXContract::with_worker_log_and_data_dir_and_runtime(
                 WorkerXContractWorkerLogParams {
@@ -134,6 +189,26 @@ impl WorkerRuntime {
             contract.meta_mgr(),
             contract.async_runtime(),
         ));
+        // Match the WAL fallback: the injected provider's fs when present,
+        // otherwise the default (tokio) sys io context.
+        let fs = match contract.async_runtime() {
+            Some(provider) => provider.fs_arc(),
+            None => default_sys_io_context().provider_arc().fs_arc(),
+        };
+        let fs_service = Arc::new(FsService::new(
+            fs_data_dir,
+            fs,
+            contract.meta_mgr(),
+            contract.clone(),
+            session_manager.clone(),
+        ));
+        let fs_gc = Arc::new(FsGc::new(
+            fs_service.data_dir().to_string(),
+            fs_service.fs().clone(),
+            fs_service.meta_mgr().clone(),
+            fs_service.object_store().clone(),
+            contract.clone(),
+        ));
         Ok(Self {
             server_instance_id,
             worker_index: identity.worker_index,
@@ -144,7 +219,10 @@ impl WorkerRuntime {
             log_layout,
             procedure_runtime,
             session_manager,
+            fs_service,
+            fs_gc,
             registry,
+            plan_cache: Arc::new(PlanCache::new()),
         })
     }
 
@@ -187,6 +265,9 @@ impl WorkerRuntime {
             "procedure.kernel.worker_invoke.stage",
             "runtime_lookup_done",
         );
+        let _stage = crate::server::stage_stats::StageGuard::new(
+            crate::server::stage_stats::Stage::ProcInvoke,
+        );
         let result = procedure_runtime
             .invoke(
                 session_id,
@@ -210,12 +291,30 @@ impl WorkerRuntime {
         self.session_manager.create_session(conn_id)
     }
 
+    pub fn create_session_with_admin(&self, conn_id: u64, is_admin: bool) -> RS<OID> {
+        self.session_manager
+            .create_session_with_admin(conn_id, is_admin)
+    }
+
+    /// Return whether the given session was created with admin privileges.
+    pub fn is_session_admin(&self, session_id: OID) -> RS<bool> {
+        self.session_manager.is_session_admin(session_id)
+    }
+
     pub fn close_session(&self, conn_id: u64, session_id: OID) -> RS<bool> {
-        self.session_manager.close_session(conn_id, session_id)
+        let closed = self.session_manager.close_session(conn_id, session_id)?;
+        if closed {
+            self.fs_service.drop_session(session_id);
+        }
+        Ok(closed)
     }
 
     pub fn close_connection_sessions(&self, conn_id: u64) -> RS<()> {
-        self.session_manager.close_connection_sessions(conn_id)
+        let session_ids = self.session_manager.close_connection_sessions(conn_id)?;
+        for session_id in session_ids {
+            self.fs_service.drop_session(session_id);
+        }
+        Ok(())
     }
 
     pub fn open_session(&self, session_id: OID) -> RS<OID> {
@@ -223,7 +322,9 @@ impl WorkerRuntime {
     }
 
     pub fn close_session_by_id(&self, session_id: OID) -> RS<()> {
-        self.session_manager.close_session_by_id(session_id)
+        self.session_manager.close_session_by_id(session_id)?;
+        self.fs_service.drop_session(session_id);
+        Ok(())
     }
 
     fn session_context(&self, session_id: OID) -> RS<Arc<SessionContext>> {
@@ -277,14 +378,30 @@ impl WorkerRuntime {
                 .begin_session_tx(session_id, self.contract.worker_begin_tx()?),
             WorkerExecute::CommitTx => {
                 let tx_manager = self.session_manager.take_session_tx(session_id)?;
-                self.contract.worker_commit_tx_async(tx_manager).await
+                self.contract
+                    .worker_commit_routed_tx_async(tx_manager)
+                    .await
             }
             WorkerExecute::RollbackTx => {
                 let tx_manager = self.session_manager.take_session_tx(session_id)?;
-                self.contract.worker_rollback_tx(tx_manager)?;
+                self.contract.worker_abort_tx_async(tx_manager).await?;
                 Ok(())
             }
         }
+    }
+
+    /// Route a transaction-control statement (BEGIN/COMMIT/ROLLBACK) received
+    /// as SQL text to the session transaction lifecycle. BEGIN on a session
+    /// that already has an active transaction fails with
+    /// `EntityAlreadyExists` (no nesting); COMMIT goes through the routed
+    /// commit so staged remote writes are handed off to their owning worker.
+    async fn execute_tx_control_stmt(&self, session_id: OID, control: TxControlStmt) -> RS<()> {
+        let instruction = match control {
+            TxControlStmt::Begin => WorkerExecute::BeginTx,
+            TxControlStmt::Commit => WorkerExecute::CommitTx,
+            TxControlStmt::Rollback => WorkerExecute::RollbackTx,
+        };
+        self.execute_tx_async(session_id, instruction).await
     }
 
     pub(crate) async fn put_in_session_async(
@@ -390,6 +507,160 @@ impl WorkerRuntime {
             .collect())
     }
 
+    /// Resolve a relation (table) name to its object id, failing with
+    /// `EntityNotFound` when the table does not exist.
+    async fn relation_table_id(&self, table: &str) -> RS<OID> {
+        let desc = self.meta_mgr().get_table_by_name(table).await?;
+        let desc = desc.ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("no such relation: {table}")
+            )
+        })?;
+        Ok(desc.id())
+    }
+
+    /// Point-read one relation row by primary key through `XContract`,
+    /// bypassing SQL parsing and result-set serialization. Runs inside the
+    /// session transaction when one is active (procedure mode begins it in
+    /// `pre_invoke`); otherwise the read executes as an autocommit statement.
+    pub(crate) async fn relation_get_in_session(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        select: Vec<AttrIndex>,
+    ) -> RS<Option<Vec<Option<DataBin>>>> {
+        let table_id = self.relation_table_id(table).await?;
+        let pred_key = VecDatum::new(key);
+        let select = VecSelTerm::new(select);
+        if self.session_manager.has_session_tx(session_id)? {
+            let tx_mgr = self.sql_tx_mgr(session_id)?.ok_or_else(|| {
+                mudu_error!(ErrorCode::Internal, "session transaction is missing")
+            })?;
+            return self
+                .contract
+                .read_key(tx_mgr, table_id, &pred_key, &select, &OptRead::default())
+                .await;
+        }
+        let tx_mgr = self.contract.begin_tx().await?;
+        let result = self
+            .contract
+            .read_key(
+                tx_mgr.clone(),
+                table_id,
+                &pred_key,
+                &select,
+                &OptRead::default(),
+            )
+            .await;
+        if result.is_ok() {
+            self.contract.commit_tx(tx_mgr).await?;
+        } else {
+            self.contract.abort_tx(tx_mgr).await?;
+        }
+        result
+    }
+
+    /// Read-modify-write one relation row by primary key through `XContract`
+    /// (statement lock, MVCC, delta assignments evaluated on the locked row).
+    /// Session-transaction and autocommit handling mirrors
+    /// [`Self::relation_get_in_session`].
+    pub(crate) async fn relation_update_in_session(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+        deltas: Vec<(AttrIndex, DeltaOp, DataBin)>,
+    ) -> RS<u64> {
+        let table_id = self.relation_table_id(table).await?;
+        let pred_key = VecDatum::new(key);
+        let values = VecDatum::new(values);
+        let opt_update = OptUpdate {
+            delta_assignments: deltas
+                .into_iter()
+                .map(|(attr, op, literal)| DeltaAssign { attr, op, literal })
+                .collect(),
+        };
+        if self.session_manager.has_session_tx(session_id)? {
+            let tx_mgr = self.sql_tx_mgr(session_id)?.ok_or_else(|| {
+                mudu_error!(ErrorCode::Internal, "session transaction is missing")
+            })?;
+            return self
+                .contract
+                .update(
+                    tx_mgr,
+                    table_id,
+                    &pred_key,
+                    &Predicate::CNF(vec![]),
+                    &values,
+                    &opt_update,
+                )
+                .await
+                .map(|affected| affected as u64);
+        }
+        let tx_mgr = self.contract.begin_tx().await?;
+        let result = self
+            .contract
+            .update(
+                tx_mgr.clone(),
+                table_id,
+                &pred_key,
+                &Predicate::CNF(vec![]),
+                &values,
+                &opt_update,
+            )
+            .await;
+        if result.is_ok() {
+            self.contract.commit_tx(tx_mgr).await?;
+        } else {
+            self.contract.abort_tx(tx_mgr).await?;
+        }
+        result.map(|affected| affected as u64)
+    }
+
+    /// Insert one relation row through `XContract` (duplicate primary keys
+    /// fail with `EntityAlreadyExists`). Session-transaction and autocommit
+    /// handling mirrors [`Self::relation_get_in_session`].
+    pub(crate) async fn relation_insert_in_session(
+        &self,
+        session_id: OID,
+        table: &str,
+        key: Vec<(AttrIndex, DataBin)>,
+        values: Vec<(AttrIndex, DataBin)>,
+    ) -> RS<()> {
+        let table_id = self.relation_table_id(table).await?;
+        let keys = VecDatum::new(key);
+        let values = VecDatum::new(values);
+        if self.session_manager.has_session_tx(session_id)? {
+            let tx_mgr = self.sql_tx_mgr(session_id)?.ok_or_else(|| {
+                mudu_error!(ErrorCode::Internal, "session transaction is missing")
+            })?;
+            return self
+                .contract
+                .insert(tx_mgr, table_id, &keys, &values, &OptInsert::default())
+                .await;
+        }
+        let tx_mgr = self.contract.begin_tx().await?;
+        let result = self
+            .contract
+            .insert(
+                tx_mgr.clone(),
+                table_id,
+                &keys,
+                &values,
+                &OptInsert::default(),
+            )
+            .await;
+        if result.is_ok() {
+            self.contract.commit_tx(tx_mgr).await?;
+        } else {
+            self.contract.abort_tx(tx_mgr).await?;
+        }
+        result
+    }
+
     fn ensure_session_owned_by_connection(&self, conn_id: u64, session_id: OID) -> RS<()> {
         self.session_manager
             .ensure_session_owned_by_connection(conn_id, session_id)
@@ -489,11 +760,32 @@ impl WorkerRuntime {
         self.contract.meta_mgr()
     }
 
+    /// The worker-local relation storage; used by the background dirty-page
+    /// flush driver to reach every hosted relation.
+    pub(crate) fn storage(&self) -> Arc<WorkerStorage> {
+        self.contract.storage().clone()
+    }
+
+    pub(crate) fn fs_service(&self) -> Arc<FsService> {
+        self.fs_service.clone()
+    }
+
+    pub(crate) fn fs_gc(&self) -> Arc<FsGc> {
+        self.fs_gc.clone()
+    }
+
+    /// Run the fs GC startup recovery scan. Called after WAL replay so the
+    /// scan observes every committed `_fs_object` row.
+    pub(crate) async fn fs_gc_recover_scan(&self) -> RS<()> {
+        self.fs_gc.recover_scan().await
+    }
+
     fn sql_core(&self, oid: OID) -> RS<Arc<MuduConnCore>> {
         if oid == 0 {
             return Ok(Arc::new(MuduConnCore::new(
                 self.meta_mgr(),
                 self.contract.async_runtime(),
+                false,
             )?));
         }
         Ok(self.session_context(oid)?.mudu_conn_core())
@@ -515,12 +807,72 @@ impl WorkerRuntime {
     ) -> RS<Arc<dyn ResultSetAsync>> {
         let trace = task_trace!();
         trace.watch("sql.kind", "query");
+        let text = stmt.to_sql_string();
+        let catalog_version = self.meta_mgr().catalog_version();
+        // Plan-cache hit: fill the cached template's parameter slots and run
+        // it (point reads issue one `read_key`; everything else goes through
+        // the planner) — parsing and binding are skipped entirely.
+        if let Some(plan) = self.plan_cache.get(&text, catalog_version)? {
+            trace.watch("sql.stage", "plan_cache_hit");
+            let result = plan
+                .run_query(
+                    param.as_ref(),
+                    tx_mgr,
+                    self.contract.clone(),
+                    self.meta_mgr(),
+                    self.contract.async_runtime(),
+                )
+                .await;
+            trace.watch("sql.stage", if result.is_ok() { "done" } else { "error" });
+            let (rows, desc) = result?;
+            return Ok(Arc::new(MuduResultSetAsync::from_rows(rows, desc)));
+        }
         trace.watch("sql.stage", "parse");
-        let stmt = core.parse_one(stmt.as_ref())?;
+        let stmt = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlParse,
+            );
+            core.parse_one_text(&text)?
+        };
+        // Miss: bind in template mode (no parameter values read), cache the
+        // template, and execute it — the first execution pays one bind, same
+        // as the uncached path.
+        let template = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlBind,
+            );
+            Binder::new(self.meta_mgr()).bind_template(&stmt).await?
+        };
+        let Some(template) = template else {
+            // DDL/COPY statements are never templated; take the regular path.
+            trace.watch("sql.stage", "query");
+            let result = core
+                .query(&stmt, param, tx_mgr, self.contract.clone())
+                .await;
+            trace.watch("sql.stage", if result.is_ok() { "done" } else { "error" });
+            return result;
+        };
+        // Cache only when the catalog did not change while binding; the
+        // version-tagged entry would never be hit after a concurrent DDL, so
+        // skipping the insert avoids churning the cache.
+        let plan = if self.meta_mgr().catalog_version() == catalog_version {
+            self.plan_cache.insert(text, catalog_version, template)?
+        } else {
+            Arc::new(CachedPlan::new(template))
+        };
         trace.watch("sql.stage", "query");
-        let result = core.query(stmt, param, tx_mgr, self.contract.clone()).await;
+        let result = plan
+            .run_query(
+                param.as_ref(),
+                tx_mgr,
+                self.contract.clone(),
+                self.meta_mgr(),
+                self.contract.async_runtime(),
+            )
+            .await;
         trace.watch("sql.stage", if result.is_ok() { "done" } else { "error" });
-        result
+        let (rows, desc) = result?;
+        Ok(Arc::new(MuduResultSetAsync::from_rows(rows, desc)))
     }
 
     async fn run_sql_execute_with_tx(
@@ -531,11 +883,74 @@ impl WorkerRuntime {
         tx_mgr: Arc<dyn TxMgr>,
     ) -> RS<u64> {
         let trace = task_trace!();
+        trace.watch("procedure.worker_sql_execute.stage", "plan_cache_lookup");
+        let text = stmt.to_sql_string();
+        let catalog_version = self.meta_mgr().catalog_version();
+        // See `run_sql_query_with_tx` for the cache semantics.
+        if let Some(plan) = self.plan_cache.get(&text, catalog_version)? {
+            trace.watch("procedure.worker_sql_execute.stage", "plan_cache_hit");
+            let result = plan
+                .run_execute(
+                    param.as_ref(),
+                    tx_mgr,
+                    self.contract.clone(),
+                    self.meta_mgr(),
+                    self.contract.async_runtime(),
+                )
+                .await;
+            trace.watch(
+                "procedure.worker_sql_execute.stage",
+                if result.is_ok() {
+                    "execute_done"
+                } else {
+                    "execute_error"
+                },
+            );
+            return result;
+        }
         trace.watch("procedure.worker_sql_execute.stage", "parse_start");
-        let stmt = core.parse_one(stmt.as_ref())?;
+        let stmt = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlParse,
+            );
+            core.parse_one_text(&text)?
+        };
+        let template = {
+            let _stage = crate::server::stage_stats::StageGuard::new(
+                crate::server::stage_stats::Stage::SqlBind,
+            );
+            Binder::new(self.meta_mgr()).bind_template(&stmt).await?
+        };
+        let Some(template) = template else {
+            // DDL/COPY statements are never templated; take the regular path.
+            trace.watch("procedure.worker_sql_execute.stage", "execute_start");
+            let result = core
+                .execute(&stmt, param, tx_mgr, self.contract.clone())
+                .await;
+            trace.watch(
+                "procedure.worker_sql_execute.stage",
+                if result.is_ok() {
+                    "execute_done"
+                } else {
+                    "execute_error"
+                },
+            );
+            return result;
+        };
+        let plan = if self.meta_mgr().catalog_version() == catalog_version {
+            self.plan_cache.insert(text, catalog_version, template)?
+        } else {
+            Arc::new(CachedPlan::new(template))
+        };
         trace.watch("procedure.worker_sql_execute.stage", "execute_start");
-        let result = core
-            .execute(stmt, param, tx_mgr, self.contract.clone())
+        let result = plan
+            .run_execute(
+                param.as_ref(),
+                tx_mgr,
+                self.contract.clone(),
+                self.meta_mgr(),
+                self.contract.async_runtime(),
+            )
             .await;
         trace.watch(
             "procedure.worker_sql_execute.stage",
@@ -548,12 +963,25 @@ impl WorkerRuntime {
         result
     }
 
+    /// Plan-cache hit/miss counters (tests and diagnostics only).
+    #[cfg(test)]
+    pub(crate) fn plan_cache_stats(&self) -> (u64, u64) {
+        self.plan_cache.stats()
+    }
+
     pub(crate) async fn query(
         &self,
         oid: OID,
         sql: Box<dyn SQLStmt>,
         param: Box<dyn SQLParams>,
     ) -> RS<Arc<dyn ResultSetAsync>> {
+        if let Some(control) = parse_tx_control_stmt(&sql.to_sql_string()) {
+            self.execute_tx_control_stmt(oid, control).await?;
+            return Ok(Arc::new(MuduResultSetAsync::from_rows(
+                vec![],
+                TupleFieldDesc::new(vec![]),
+            )));
+        }
         let core = self.sql_core(oid)?;
         if oid == 0 {
             let tx_mgr = self.contract.begin_tx().await?;
@@ -581,9 +1009,11 @@ impl WorkerRuntime {
         if started_tx {
             let tx_manager = self.session_manager.take_session_tx(oid)?;
             if result.is_ok() {
-                self.contract.worker_commit_tx_async(tx_manager).await?;
+                self.contract
+                    .worker_commit_routed_tx_async(tx_manager)
+                    .await?;
             } else {
-                self.contract.worker_rollback_tx(tx_manager)?;
+                self.contract.worker_abort_tx_async(tx_manager).await?;
             }
         }
         result
@@ -598,6 +1028,10 @@ impl WorkerRuntime {
         let trace = task_trace!();
         trace.watch("procedure.worker_execute.stage", "enter");
         trace.watch("procedure.worker_execute.oid", &oid.to_string());
+        if let Some(control) = parse_tx_control_stmt(&sql.to_sql_string()) {
+            self.execute_tx_control_stmt(oid, control).await?;
+            return Ok(0);
+        }
         let core = self.sql_core(oid)?;
         if oid == 0 {
             trace.watch("procedure.worker_execute.stage", "begin_tx_start");
@@ -635,11 +1069,13 @@ impl WorkerRuntime {
             let tx_manager = self.session_manager.take_session_tx(oid)?;
             if result.is_ok() {
                 trace.watch("procedure.worker_execute.stage", "session_commit_start");
-                self.contract.worker_commit_tx_async(tx_manager).await?;
+                self.contract
+                    .worker_commit_routed_tx_async(tx_manager)
+                    .await?;
                 trace.watch("procedure.worker_execute.stage", "session_commit_done");
             } else {
                 trace.watch("procedure.worker_execute.stage", "session_rollback_start");
-                self.contract.worker_rollback_tx(tx_manager)?;
+                self.contract.worker_abort_tx_async(tx_manager).await?;
                 trace.watch("procedure.worker_execute.stage", "session_rollback_done");
             }
         }
@@ -669,7 +1105,7 @@ impl WorkerRuntime {
             let mut total = 0;
             for stmt in stmts {
                 match core
-                    .execute(stmt, Box::new(()), tx_mgr.clone(), self.contract.clone())
+                    .execute(&stmt, Box::new(()), tx_mgr.clone(), self.contract.clone())
                     .await
                 {
                     Ok(affected) => total += affected,
@@ -695,14 +1131,14 @@ impl WorkerRuntime {
         let mut total = 0;
         for stmt in stmts {
             match core
-                .execute(stmt, Box::new(()), tx_mgr.clone(), self.contract.clone())
+                .execute(&stmt, Box::new(()), tx_mgr.clone(), self.contract.clone())
                 .await
             {
                 Ok(affected) => total += affected,
                 Err(err) => {
                     if started_tx {
                         let tx_manager = self.session_manager.take_session_tx(oid)?;
-                        self.contract.worker_rollback_tx(tx_manager)?;
+                        self.contract.worker_abort_tx_async(tx_manager).await?;
                     }
                     return Err(err);
                 }
@@ -710,7 +1146,9 @@ impl WorkerRuntime {
         }
         if started_tx {
             let tx_manager = self.session_manager.take_session_tx(oid)?;
-            self.contract.worker_commit_tx_async(tx_manager).await?;
+            self.contract
+                .worker_commit_routed_tx_async(tx_manager)
+                .await?;
         }
         Ok(total)
     }
@@ -745,7 +1183,7 @@ impl WorkerRuntime {
             ));
         }
         if config.session_id() == 0 {
-            self.create_session(conn_id)
+            self.create_session_with_admin(conn_id, true)
         } else {
             self.ensure_session_owned_by_connection(conn_id, config.session_id())?;
             Ok(config.session_id())
@@ -834,6 +1272,7 @@ mod tests {
             data_dir: data_dir.to_string(),
             log_chunk_size: 4096,
             log_batching: WorkerLogBatching::default(),
+            wal_sync_policy: WalSyncPolicy::Commit,
             procedure_runtime,
             registry,
             async_runtime: None,
@@ -1055,6 +1494,7 @@ mod tests {
             data_dir: log_dir.clone(),
             log_chunk_size: 4096,
             log_batching: WorkerLogBatching::default(),
+            wal_sync_policy: WalSyncPolicy::Commit,
             procedure_runtime: None,
             registry,
             async_runtime: None,
@@ -1086,13 +1526,14 @@ mod tests {
 
         let key_path = TimeSeriesFile::relation_file_path(&log_dir, 0, table_id, 0);
         let value_path = TimeSeriesFile::relation_file_path(&log_dir, 0, table_id, 1);
+        // `sync_path_exists` instead of `Path::exists` (deterministic backend).
         assert!(
-            key_path.exists(),
+            mudu_sys::fs::sync::sync_path_exists(&key_path),
             "missing relation key file {:?}",
             key_path
         );
         assert!(
-            value_path.exists(),
+            mudu_sys::fs::sync::sync_path_exists(&value_path),
             "missing relation value file {:?}",
             value_path
         );
@@ -1294,6 +1735,192 @@ mod tests {
 
             assert!(err.to_string().contains("write-write conflict"));
             assert_eq!(worker.get_async(b"k").await.unwrap(), Some(b"v1".to_vec()));
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn tx_control_stmt_recognition() {
+        assert_eq!(parse_tx_control_stmt("BEGIN"), Some(TxControlStmt::Begin));
+        assert_eq!(
+            parse_tx_control_stmt(" begin transaction; "),
+            Some(TxControlStmt::Begin)
+        );
+        assert_eq!(
+            parse_tx_control_stmt("START TRANSACTION"),
+            Some(TxControlStmt::Begin)
+        );
+        assert_eq!(
+            parse_tx_control_stmt("commit;"),
+            Some(TxControlStmt::Commit)
+        );
+        assert_eq!(
+            parse_tx_control_stmt(" COMMIT WORK "),
+            Some(TxControlStmt::Commit)
+        );
+        assert_eq!(
+            parse_tx_control_stmt("rollback"),
+            Some(TxControlStmt::Rollback)
+        );
+        assert_eq!(
+            parse_tx_control_stmt("ROLLBACK TRANSACTION;"),
+            Some(TxControlStmt::Rollback)
+        );
+        assert_eq!(parse_tx_control_stmt("select 1"), None);
+        assert_eq!(parse_tx_control_stmt("insert into t values (1, 2);"), None);
+        assert_eq!(parse_tx_control_stmt("BEGIN; COMMIT;"), None);
+    }
+
+    async fn sql_execute(worker: &WorkerRuntime, session_id: OID, sql: &str) -> RS<u64> {
+        worker
+            .execute(session_id, Box::new(sql.to_string()), Box::new(()))
+            .await
+    }
+
+    async fn sql_query_values(
+        worker: &WorkerRuntime,
+        session_id: OID,
+        sql: &str,
+    ) -> RS<Vec<mudu_contract::tuple::tuple_value::TupleValue>> {
+        let rs = worker
+            .query(session_id, Box::new(sql.to_string()), Box::new(()))
+            .await?;
+        let mut rows = Vec::new();
+        while let Some(row) = rs.next().await? {
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tx_control_begin_commit_two_writes_visible_after_commit() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (log_dir, registry) = test_registry(1);
+            let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+            worker.initialize().await.unwrap();
+            sql_execute(&worker, 0, "CREATE TABLE t (id INT PRIMARY KEY, v INT);")
+                .await
+                .unwrap();
+
+            let session_a = worker.create_session(1).unwrap();
+            let session_b = worker.create_session(2).unwrap();
+            sql_execute(&worker, session_a, "BEGIN;").await.unwrap();
+            sql_execute(&worker, session_a, "insert into t values (1, 10);")
+                .await
+                .unwrap();
+            sql_execute(&worker, session_a, "insert into t values (2, 20);")
+                .await
+                .unwrap();
+
+            // The transaction reads its own writes; other sessions do not see
+            // them before the commit.
+            let rows = sql_query_values(&worker, session_a, "select v from t where id = 1;")
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].values()[0].as_i32(), Some(&10));
+            let rows = sql_query_values(&worker, session_b, "select v from t where id = 1;")
+                .await
+                .unwrap();
+            assert!(rows.is_empty());
+
+            sql_execute(&worker, session_a, "COMMIT;").await.unwrap();
+
+            let rows = sql_query_values(&worker, session_b, "select v from t where id = 2;")
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].values()[0].as_i32(), Some(&20));
+        })
+        .unwrap()
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tx_control_rollback_discards_writes() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (log_dir, registry) = test_registry(1);
+            let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+            worker.initialize().await.unwrap();
+            sql_execute(&worker, 0, "CREATE TABLE t (id INT PRIMARY KEY, v INT);")
+                .await
+                .unwrap();
+
+            let session_id = worker.create_session(1).unwrap();
+            sql_execute(&worker, session_id, "BEGIN").await.unwrap();
+            sql_execute(&worker, session_id, "insert into t values (1, 10);")
+                .await
+                .unwrap();
+            sql_execute(&worker, session_id, "ROLLBACK").await.unwrap();
+
+            let rows = sql_query_values(&worker, session_id, "select v from t where id = 1;")
+                .await
+                .unwrap();
+            assert!(rows.is_empty());
+        })
+        .unwrap()
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tx_control_nested_begin_fails() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (log_dir, registry) = test_registry(1);
+            let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+            worker.initialize().await.unwrap();
+            sql_execute(&worker, 0, "CREATE TABLE t (id INT PRIMARY KEY, v INT);")
+                .await
+                .unwrap();
+
+            let session_id = worker.create_session(1).unwrap();
+            sql_execute(&worker, session_id, "BEGIN").await.unwrap();
+            let err = sql_execute(&worker, session_id, "BEGIN").await.unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+
+            // The failed nested BEGIN leaves the original transaction usable.
+            sql_execute(&worker, session_id, "insert into t values (1, 10);")
+                .await
+                .unwrap();
+            sql_execute(&worker, session_id, "COMMIT").await.unwrap();
+            let rows = sql_query_values(&worker, session_id, "select v from t where id = 1;")
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn tx_control_autocommit_unchanged() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (log_dir, registry) = test_registry(1);
+            let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+            worker.initialize().await.unwrap();
+            sql_execute(&worker, 0, "CREATE TABLE t (id INT PRIMARY KEY, v INT);")
+                .await
+                .unwrap();
+
+            let session_a = worker.create_session(1).unwrap();
+            let session_b = worker.create_session(2).unwrap();
+            // Without BEGIN each statement still autocommits and is
+            // immediately visible to other sessions.
+            sql_execute(&worker, session_a, "insert into t values (1, 10);")
+                .await
+                .unwrap();
+            let rows = sql_query_values(&worker, session_b, "select v from t where id = 1;")
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+
+            // COMMIT/ROLLBACK without an active transaction fails.
+            let err = sql_execute(&worker, session_a, "COMMIT").await.unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            let err = sql_execute(&worker, session_a, "ROLLBACK")
+                .await
+                .unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
         })
         .unwrap()
     }

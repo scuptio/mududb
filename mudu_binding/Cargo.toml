@@ -16,6 +16,8 @@ mudu_contract = {workspace = true}
 serde = { workspace = true }
 tracing = { workspace = true }
 serde_repr = {workspace = true}
+rmp-serde = { workspace = true }
+num_enum = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

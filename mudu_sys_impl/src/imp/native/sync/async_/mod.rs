@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 pub mod async_task;
+pub mod frwlock;
 pub mod futures_mutex;
 pub mod mutex;
 pub mod notify;
@@ -8,6 +9,7 @@ pub mod rwlock;
 pub mod stop_flag;
 
 pub use async_task::{AsyncLocalTask, AsyncResult, AsyncTask, Task, TaskWrapper};
+pub use frwlock::{FRwLock, FRwLockReadGuard, FRwLockWriteGuard};
 pub use futures_mutex::{FMutex, FMutexGuard};
 pub use mutex::{AMutex, AMutexGuard, MappedAMutexGuard, TryLockError};
 pub use notify::{ANotified, ANotify};

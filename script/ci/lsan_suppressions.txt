@@ -16,3 +16,10 @@ leak:actix_router::resource::ResourceDef
 leak:libsql::local::connection::Connection>::connect
 leak:libsql::local::database::Database>::connect
 
+# wasmtime's concurrent component-call machinery (StoreContextMut::run_on_worker)
+# heap-allocates each worker fiber's closure via make_fiber_unchecked. Fibers
+# that are still alive when the runtime shuts down at process exit are not
+# reclaimed (upstream wasmtime fiber lifecycle), which LeakSanitizer reports
+# as a direct leak. The allocation site is entirely inside wasmtime.
+leak:wasmtime::runtime::fiber::make_fiber
+

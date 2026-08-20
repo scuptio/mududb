@@ -141,10 +141,6 @@ impl PathExistsRequest {
         &self.path
     }
 
-    fn statx_mut_ptr(&mut self) -> *mut libc::statx {
-        self.statx.as_mut()
-    }
-
     fn finish(self, result: RS<bool>) {
         complete_op(self.state, result);
     }
@@ -161,10 +157,6 @@ impl PathMetadataLenRequest {
 
     fn path(&self) -> &CString {
         &self.path
-    }
-
-    fn statx_mut_ptr(&mut self) -> *mut libc::statx {
-        self.statx.as_mut()
     }
 
     fn finish(self, result: RS<u64>) {
@@ -432,27 +424,23 @@ pub fn submit_path_io(
             PathInflightOp::CreateDir(Box::new(request))
         }
         PathIoRequest::PathExists(mut request) => {
-            let path = request.path().clone();
-            trace!(path = %path.to_string_lossy(), "io_path submit statx exists");
-            sqe.prep_statx(
-                libc::AT_FDCWD,
-                &path,
-                0,
-                libc::STATX_BASIC_STATS,
-                request.statx_mut_ptr(),
-            );
+            trace!(path = %request.path().to_string_lossy(), "io_path submit statx exists");
+            // The SQE stores the raw path pointer until the ring is submitted,
+            // so it must reference the CString owned by the request. Passing a
+            // temporary clone would leave a dangling pointer once the clone is
+            // dropped at the end of this match arm.
+            let path = &request.path;
+            let statx = request.statx.as_mut() as *mut libc::statx;
+            sqe.prep_statx(libc::AT_FDCWD, path, 0, libc::STATX_BASIC_STATS, statx);
             PathInflightOp::PathExists(Box::new(request))
         }
         PathIoRequest::MetadataLen(mut request) => {
-            let path = request.path().clone();
-            trace!(path = %path.to_string_lossy(), "io_path submit statx len");
-            sqe.prep_statx(
-                libc::AT_FDCWD,
-                &path,
-                0,
-                libc::STATX_SIZE,
-                request.statx_mut_ptr(),
-            );
+            trace!(path = %request.path().to_string_lossy(), "io_path submit statx len");
+            // See the PathExists arm above: the SQE must point at the
+            // request-owned CString, not a dropped temporary clone.
+            let path = &request.path;
+            let statx = request.statx.as_mut() as *mut libc::statx;
+            sqe.prep_statx(libc::AT_FDCWD, path, 0, libc::STATX_SIZE, statx);
             PathInflightOp::MetadataLen(Box::new(request))
         }
         PathIoRequest::RemoveFile(request) => {

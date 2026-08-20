@@ -1,6 +1,8 @@
 use mudu::common::id::{AttrIndex, DatumIndex, OID};
 use mudu_type::data_type_fn_param::DataType;
 
+use crate::contract::fs_type::FsColumnBinding;
+
 #[derive(Clone, Debug, Default)]
 pub struct FieldInfo {
     name: String,
@@ -12,6 +14,7 @@ pub struct FieldInfo {
     column_index: AttrIndex,
     primary_index: Option<AttrIndex>,
     nullable: bool,
+    fs_binding: Option<FsColumnBinding>,
 }
 
 impl FieldInfo {
@@ -32,6 +35,7 @@ impl FieldInfo {
             column_index,
             primary_index,
             nullable,
+            fs_binding: None,
         }
     }
 
@@ -69,5 +73,13 @@ impl FieldInfo {
 
     pub fn nullable(&self) -> bool {
         self.nullable
+    }
+
+    pub fn fs_binding(&self) -> Option<FsColumnBinding> {
+        self.fs_binding
+    }
+
+    pub fn set_fs_binding(&mut self, fs_binding: Option<FsColumnBinding>) {
+        self.fs_binding = fs_binding;
     }
 }

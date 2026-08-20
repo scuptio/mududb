@@ -283,6 +283,7 @@ mod tests {
         assert_eq!(request.oid(), 123);
         assert_eq!(request.app_name(), "app");
         assert_eq!(request.sql(), "select 1");
+        assert!(request.params().is_empty());
 
         let encoded = encode_client_request_with_message_type_and_trace(
             MessageType::Query,
@@ -295,6 +296,51 @@ mod tests {
         assert!(frame.header().sampled());
         let decoded = decode_client_request(&frame).unwrap();
         assert_eq!(decoded.oid(), 123);
+    }
+
+    #[test]
+    fn client_request_params_roundtrip() {
+        use mudu_type::data_value::DataValue;
+
+        let params = vec![
+            DataValue::from_i32(7),
+            DataValue::from_i64(1_000_000_000),
+            DataValue::from_string("3.00".to_string()),
+            DataValue::from_f64(2.5),
+        ];
+        let request =
+            ClientRequest::new_with_oid(5, "app", "update t set bal = bal - ? where id = ?;")
+                .with_params(params.clone());
+
+        for message_type in [MessageType::Query, MessageType::Execute, MessageType::Batch] {
+            let encoded =
+                encode_client_request_with_message_type(message_type, 9, &request).unwrap();
+            let frame = Frame::decode(&encoded).unwrap();
+            assert_eq!(frame.header().message_type(), message_type);
+            let decoded = decode_client_request(&frame).unwrap();
+            assert_eq!(decoded.oid(), 5);
+            assert_eq!(decoded.sql(), "update t set bal = bal - ? where id = ?;");
+            assert_eq!(decoded.params().len(), params.len());
+            assert_eq!(decoded.params()[0].expect_i32(), &7);
+            assert_eq!(decoded.params()[1].expect_i64(), &1_000_000_000);
+            assert_eq!(decoded.params()[2].expect_string(), "3.00");
+            assert_eq!(decoded.params()[3].expect_f64(), &2.5);
+        }
+    }
+
+    #[test]
+    fn client_request_decodes_legacy_payload_without_params() {
+        // Payloads encoded before the `params` field existed hold only
+        // (oid, app_name, sql); the serde default must fill `params` with an
+        // empty vector.
+        let legacy_payload =
+            rmp_serde::to_vec(&(7u128, "app".to_string(), "select 1".to_string())).unwrap();
+        let frame = Frame::new(MessageType::Query, 1, legacy_payload);
+        let decoded = decode_client_request(&frame).unwrap();
+        assert_eq!(decoded.oid(), 7);
+        assert_eq!(decoded.app_name(), "app");
+        assert_eq!(decoded.sql(), "select 1");
+        assert!(decoded.params().is_empty());
     }
 
     #[test]

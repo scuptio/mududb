@@ -35,15 +35,17 @@ pub(crate) use crate::server::worker_snapshot::{KvItem, WorkerSnapshot, WorkerSn
 pub(crate) use crate::server::worker_storage::WorkerStorage;
 pub(crate) use crate::server::worker_tx_manager::WorkerTxManager;
 pub(crate) use crate::server::x_lock_mgr::XLockMgr;
-pub(crate) use crate::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogLayout};
+pub(crate) use crate::wal::worker_log::{
+    ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout,
+};
 pub(crate) use crate::wal::xl_batch::{new_xl_batch_writer, XLBatch};
 pub(crate) use crate::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
 pub(crate) use crate::wal::xl_entry::{TxOp, XLEntry};
 pub(crate) use crate::x_engine::api::{
-    AlterTable, Filter, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData,
-    TupleRow, VecDatum, VecSelTerm, XContract,
+    AlterTable, DeltaAssign, DeltaOp, Filter, OptDelete, OptInsert, OptRead, OptUpdate, Predicate,
+    RSCursor, RangeData, TupleRow, VecDatum, VecSelTerm, XContract,
 };
-pub(crate) use crate::x_engine::tx_mgr::TxMgr;
+pub(crate) use crate::x_engine::tx_mgr::{PhysicalRelationId, TxMgr};
 pub(crate) use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 pub(crate) type DataBin = Buf;

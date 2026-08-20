@@ -16,6 +16,7 @@ use mudu_contract::protocol::{
 use mudu_sys::net::sync::{SStdTcpStream, connect_tcp};
 use mudu_sys::perf::{PerfSpan, TraceContext, TxnStage, next_trace_id, should_sample};
 use mudu_sys::time::instant_now;
+use mudu_type::data_value::DataValue;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
@@ -45,9 +46,32 @@ impl SyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
+        self.query_with_oid(0, app_name, sql)
+    }
+
+    /// Execute a SQL query within the given session and return the server
+    /// response.
+    pub fn query_with_oid(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+    ) -> RS<ServerResponse> {
+        self.query_with_oid_params(oid, app_name, sql, Vec::new())
+    }
+
+    /// Execute a parameterized SQL query within the given session; `params`
+    /// bind to the `?` placeholders of `sql` in order.
+    pub fn query_with_oid_params(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
         self.send_request_with_perf(
             MessageType::Query,
-            ClientRequest::new(app_name, sql),
+            ClientRequest::new_with_oid(oid, app_name, sql).with_params(params),
             TxnStage::QueryExec,
         )
     }
@@ -58,9 +82,32 @@ impl SyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
+        self.execute_with_oid(0, app_name, sql)
+    }
+
+    /// Execute a SQL statement within the given session and return the server
+    /// response.
+    pub fn execute_with_oid(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+    ) -> RS<ServerResponse> {
+        self.execute_with_oid_params(oid, app_name, sql, Vec::new())
+    }
+
+    /// Execute a parameterized SQL statement within the given session;
+    /// `params` bind to the `?` placeholders of `sql` in order.
+    pub fn execute_with_oid_params(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
         self.send_request_with_perf(
             MessageType::Execute,
-            ClientRequest::new(app_name, sql),
+            ClientRequest::new_with_oid(oid, app_name, sql).with_params(params),
             TxnStage::CommandExec,
         )
     }
@@ -218,7 +265,9 @@ impl SyncClient {
         let (response, deserialize_ns) = response;
         let total_ns = total_start.elapsed().as_nanos() as u64;
 
-        if let Some(server_digest) = response.server_perf_digest() {
+        if trace_id != 0
+            && let Some(server_digest) = response.server_perf_digest()
+        {
             Self::log_end_to_end_perf(
                 trace_id,
                 total_ns,

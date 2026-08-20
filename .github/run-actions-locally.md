@@ -156,7 +156,7 @@ The CI workflows also write per-step log files inside the container. When `act` 
 
 - `logs/build-*.log` — `build.yaml` steps (check, clippy, test, etc.)
 - `logs/hardening-*.log` — `ci-hardening.yaml` steps (fmt, deny, hack, outdated)
-- `logs/nightly-*.log` — `nightly-checks.yaml` steps (udeps, fuzz, miri, asan, coverage)
+- `logs/nightly-*.log` — `nightly-checks.yaml` steps (udeps, fuzz, asan, coverage) and `miri.yaml` steps (`nightly-miri.log`)
 - `logs/compat-*.log` — `compatibility.yaml` steps
 
 Because each heavy step uses `set -o pipefail | tee`, the original exit code is preserved and the log file survives after the container exits.
@@ -255,15 +255,25 @@ Run the CI hardening checks:
 act -W .github/workflows/ci-hardening.yaml
 ```
 
-Run the nightly checks (udeps, fuzz, Miri, AddressSanitizer):
+Run the nightly checks (udeps, fuzz, AddressSanitizer):
 
 ```bash
 act -W .github/workflows/nightly-checks.yaml
 ```
 
+Run the Miri checks (manual-only workflow; it is not triggered by push/PR on GitHub):
+
+```bash
+act workflow_dispatch -W .github/workflows/miri.yaml
+```
+
+> **Warning:** the full-workspace Miri run takes hours under the interpreter and
+> some stress-scale tests (e.g. the 3000-record concurrent time-series test)
+> are effectively infeasible under Miri. Expect a long run.
+
 #### Miri and isolation
 
-The Miri job needs `MIRIFLAGS=-Zmiri-disable-isolation` because several tests call host APIs such as `clock_gettime`. The workflow already sets this environment variable in CI. When reproducing locally, run:
+The Miri job needs `MIRIFLAGS=-Zmiri-disable-isolation` because several tests call host APIs such as `clock_gettime`. The `miri.yaml` workflow already sets this environment variable. When reproducing locally, run:
 
 ```bash
 NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < .rust-nightly-version)"
@@ -395,3 +405,4 @@ act -W .github/workflows/build.yaml -j build --pull=true
 | Release (no publish) | `act workflow_dispatch -W .github/workflows/build-release.yml -j build-release --bind` |
 | Release (publish) | `act workflow_dispatch -W .github/workflows/build-release.yml -j build-release -s GITHUB_TOKEN=ghp_xxx --bind` |
 | Nightly checks | `act -W .github/workflows/nightly-checks.yaml` |
+| Miri (manual-only) | `act workflow_dispatch -W .github/workflows/miri.yaml` |

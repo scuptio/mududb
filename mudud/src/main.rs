@@ -18,7 +18,18 @@ use mudud::{Args, Command, ServeArgs, init_config, serve};
 use tracing::error;
 
 fn main() {
-    log_setup_ex("info", "", false);
+    // Honor RUST_LOG (e.g. `RUST_LOG=mudu_kernel=debug mudud serve`) as a
+    // tracing filter on top of the default info level. A filter that starts
+    // with target-specific directives gets an explicit `info` base level,
+    // otherwise unlisted targets would be silenced entirely.
+    let rust_log = mudu_sys::env_var::var("RUST_LOG").unwrap_or_default();
+    let first_segment = rust_log.split(',').next().unwrap_or("");
+    let filter = if !rust_log.is_empty() && first_segment.contains('=') {
+        format!("info,{rust_log}")
+    } else {
+        rust_log
+    };
+    log_setup_ex("info", &filter, false);
     let args = Args::parse();
     let r = match args.command {
         Some(Command::InitCfg) => init_config(),
@@ -29,6 +40,10 @@ fn main() {
         Ok(_) => {}
         Err(e) => {
             error!("mududb run error: {}", e);
+            // Exit non-zero so supervisors and benchmark harnesses can tell a
+            // startup failure (e.g. listen port already in use) apart from a
+            // clean shutdown.
+            mudu_sys::process::exit(1);
         }
     }
 }

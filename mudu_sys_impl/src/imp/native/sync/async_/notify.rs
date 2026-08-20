@@ -36,6 +36,17 @@ impl ANotify {
         self.signaled.store(true, Ordering::Release);
         self.inner.notify_waiters();
     }
+
+    /// Clears the sticky signaled flag so that `notified()` futures created
+    /// afterwards park until the next `notify_waiters()` call.
+    ///
+    /// Callers waiting on a condition must re-check that condition after
+    /// clearing: a `notify_waiters()` that raced with the clear is
+    /// indistinguishable from one that happened before it, and only the
+    /// condition re-check avoids missing the wakeup.
+    pub fn clear_signal(&self) {
+        self.signaled.store(false, Ordering::Release);
+    }
 }
 
 impl Default for ANotify {

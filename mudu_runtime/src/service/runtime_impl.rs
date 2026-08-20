@@ -20,15 +20,16 @@ impl RuntimeImpl {
     pub async fn new(package_path: &String, db_path: &String, rt_opt: RuntimeOpt) -> RS<Self> {
         for ps in [package_path, db_path] {
             let path = PathBuf::from(ps);
-            if !path.exists() {
+            // Use the `mudu_sys` fs wrappers rather than `std::fs` so the
+            // deterministic-simulation backend's in-memory filesystem is
+            // honored.
+            if !mudu_sys::fs::sync::sync_path_exists(&path) {
                 mudu_sys::fs::sync::create_dir_all(&path)?
-            } else {
-                if !path.is_dir() {
-                    return Err(mudu_error!(
-                        ErrorCode::NotADirectory,
-                        format!("{} is not a directory", ps)
-                    ));
-                }
+            } else if !mudu_sys::fs::sync::sync_metadata(&path)?.is_dir() {
+                return Err(mudu_error!(
+                    ErrorCode::NotADirectory,
+                    format!("{} is not a directory", ps)
+                ));
             }
         }
         let mut runtime = RuntimeSimple::new(package_path, db_path, rt_opt).await?;

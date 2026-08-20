@@ -267,6 +267,11 @@ impl Context {
     pub fn session_id(&self) -> OID {
         self.inner.session_id()
     }
+
+    /// The database connection this context executes statements on.
+    pub fn db_conn(&self) -> &DBConn {
+        &self.inner.conn
+    }
     fn rollback_tx(&self) -> RS<()> {
         self.inner.conn.expected_sync()?.rollback_tx()
     }
