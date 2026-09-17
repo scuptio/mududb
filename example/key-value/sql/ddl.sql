@@ -1,1 +1,0 @@
--- kv key/value example does not require SQL schema.

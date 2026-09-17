@@ -1,1 +1,0 @@
--- No SQL initialization is required for the kv key/value example.

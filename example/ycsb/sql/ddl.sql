@@ -1,1 +1,0 @@
--- ycsb key/value benchmark does not require SQL schema.

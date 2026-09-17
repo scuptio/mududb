@@ -1,8 +1,0 @@
-//! Rust language definition and Askama-based templates.
-
-pub mod lang_def;
-mod render_rs;
-mod template_entity_rs;
-mod template_enum_rs;
-mod template_record_rs;
-mod template_variant_rs;

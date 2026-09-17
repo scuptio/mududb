@@ -1,6 +1,0 @@
-interface universal {
-    record uni-sql-stmt {
-        sql-string: string,
-    }
-}
-
