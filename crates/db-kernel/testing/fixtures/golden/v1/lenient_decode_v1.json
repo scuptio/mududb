@@ -1,0 +1,146 @@
+{
+  "format": "lenient-decode-v1",
+  "reference": "mudu_binding::universal::mp_wire lenient decode rules (proto3-flavored)",
+  "container": "lenient_decode_v1.bin: one segment per vector, each a 4-byte big-endian u32 length followed by a complete hand-built NON-canonical MSSP frame (16-byte header + MessagePack body); segment order matches the vectors array below",
+  "regenerate": "cargo test -p testing --test compat_golden -- generate_golden_v1_fixtures --ignored",
+  "conventions": {
+    "integers": "u64/i64/u128 values are decimal strings; u8/u32 values are plain JSON numbers",
+    "byte_strings": "byte strings are lowercase hex in *_hex fields (empty string = empty bytes)",
+    "oids": "a UniOid is {\"h\": ..., \"l\": ...} with both u64 halves as decimal strings",
+    "unit": "a unit (ok, no payload) result is {\"unit\": true}",
+    "relation_cells": "a relation row is an array of cells; each cell is a hex string or null; a null row means no row found",
+    "direction": "request = decode with the request codec, response = decode with the result codec"
+  },
+  "vectors": [
+    {
+      "index": 0,
+      "kind": "int-width-widening",
+      "message_kind": 13,
+      "message_kind_name": "fs-write",
+      "direction": "response",
+      "note": "u64 value 2 encoded with the u32 marker 0xCE instead of fixint 0x02",
+      "expect": {
+        "written": 2
+      }
+    },
+    {
+      "index": 1,
+      "kind": "int-unsigned-marker",
+      "message_kind": 16,
+      "message_kind_name": "fs-lseek",
+      "direction": "request",
+      "note": "i64 offset 8 encoded with the unsigned u8 marker 0xCC instead of fixint 0x08",
+      "expect": {
+        "fd": 3,
+        "offset": "8",
+        "whence": 1
+      }
+    },
+    {
+      "index": 2,
+      "kind": "int-wide-negative",
+      "message_kind": 16,
+      "message_kind_name": "fs-lseek",
+      "direction": "request",
+      "note": "i64 offset -2 encoded with the i64 marker 0xD3 instead of negfixint 0xFE",
+      "expect": {
+        "fd": 3,
+        "offset": "-2",
+        "whence": 1
+      }
+    },
+    {
+      "index": 3,
+      "kind": "record-key-order",
+      "message_kind": 10,
+      "message_kind_name": "fs-open",
+      "direction": "request",
+      "note": "fs-open argv record map keys in 4,3,2,1 order instead of 1,2,3,4",
+      "expect": {
+        "session": {
+          "h": "0",
+          "l": "10"
+        },
+        "oid": {
+          "h": "0",
+          "l": "11"
+        },
+        "path": "docs/a.txt",
+        "flags": 2
+      }
+    },
+    {
+      "index": 4,
+      "kind": "record-unknown-field",
+      "message_kind": 10,
+      "message_kind_name": "fs-open",
+      "direction": "request",
+      "note": "fs-open argv record map with an unknown field number 99 (skipped)",
+      "expect": {
+        "session": {
+          "h": "0",
+          "l": "10"
+        },
+        "oid": {
+          "h": "0",
+          "l": "11"
+        },
+        "path": "docs/a.txt",
+        "flags": 2
+      }
+    },
+    {
+      "index": 5,
+      "kind": "map-noninteger-key",
+      "message_kind": 10,
+      "message_kind_name": "fs-open",
+      "direction": "request",
+      "note": "fs-open argv map with a string key \"note\" (skipped)",
+      "expect": {
+        "session": {
+          "h": "0",
+          "l": "10"
+        },
+        "oid": {
+          "h": "0",
+          "l": "11"
+        },
+        "path": "docs/a.txt",
+        "flags": 2
+      }
+    },
+    {
+      "index": 6,
+      "kind": "request-missing-param",
+      "message_kind": 12,
+      "message_kind_name": "fs-read",
+      "direction": "request",
+      "note": "fs-read request without parameter 2 (len defaults to 0)",
+      "expect": {
+        "fd": 3,
+        "len": 0
+      }
+    },
+    {
+      "index": 7,
+      "kind": "record-missing-fields",
+      "message_kind": 1,
+      "message_kind_name": "query",
+      "direction": "response",
+      "note": "query result whose record field omits the variant field_type (default case scalar(bool)) and field_attrs, and whose result_set is absent",
+      "expect": {
+        "record_name": "t",
+        "fields": [
+          {
+            "field_name": "a",
+            "field_type": "scalar(bool)",
+            "field_attrs": []
+          }
+        ],
+        "eof": false,
+        "rows": [],
+        "cursor_hex": ""
+      }
+    }
+  ]
+}

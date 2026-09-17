@@ -1,0 +1,17 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}class {{ enum_name }}(IntEnum):
+{% for case in cases %}{% if !case.comments.is_empty() %}{{ case.comments }}
+{% endif %}    {{ case.member_name }} = {{ case.number }}
+{% endfor %}
+# MSSP wire conversion: the enum encodes as its discriminant integer. Decode
+# rejects unknown discriminants.
+def {{ enum_snake }}_to_value(x: {{ enum_name }}) -> int:
+    return _u64_checked(int(x))
+
+
+def {{ enum_snake }}_from_value(v) -> {{ enum_name }}:
+    _n = _u64_checked(v)
+    try:
+        return {{ enum_name }}(_n)
+    except ValueError:
+        raise ValueError(f"unknown {{ enum_name }} discriminant {_n}") from None

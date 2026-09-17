@@ -1,0 +1,114 @@
+import {
+  Oid,
+  SqlStmt,
+  Value,
+  ValueList,
+  witCommand,
+  witQuery,
+} from "@mududb/mududb";
+import { Box, Items } from "./items";
+import { Box as InfoBox, ItemInfo as ItemInfoRow } from "./item_info";
+import { ItemInfoLabels } from "./item_info_labels";
+import { ItemInfo } from "../gentypes/types";
+
+/**mudu-proc*/
+export function create_item(id: Oid, item_id: i64, name: string): i64 {
+  const item = new Items(item_id as i32, name, new Box<i32>(0));
+  const inserted = item.insert(id);
+  if (inserted != 1) {
+    throw new Error("create item failed");
+  }
+  return item_id;
+}
+
+/**
+ * Read the label side rows of one item, re-sorted by idx (the engine has
+ * no ORDER BY).
+ */
+function queryLabels(id: Oid, item_id: i64): Array<ItemInfoLabels> {
+  const params = new ValueList();
+  params.bind(0, Value.int64(item_id));
+  const rows = witQuery(
+    id,
+    new SqlStmt("SELECT idx, label FROM item_info_labels WHERE item_id = ?"),
+    params,
+  );
+  const labels = new Array<ItemInfoLabels>(0);
+  while (rows.next()) {
+    const row = rows.currentRow();
+    labels.push(
+      new ItemInfoLabels(
+        item_id as i32,
+        row.valueByName("idx").asInt64() as i32,
+        row.isNullByName("label") ? null : row.valueByName("label").asText(),
+      ),
+    );
+  }
+  labels.sort((a, b) => a.idx - b.idx);
+  return labels;
+}
+
+/**
+ * Rebuild the stored item-info record: the flat entity columns plus the
+ * side-table labels.
+ */
+function queryItemInfo(id: Oid, item_id: i64): ItemInfo {
+  const row = ItemInfoRow.getByPk(id, item_id as i32);
+  if (row === null) {
+    throw new Error("item info not found");
+  }
+  const labelRows = queryLabels(id, item_id);
+  const labels = new Array<string>(labelRows.length);
+  for (let i = 0; i < labelRows.length; i++) {
+    labels[i] = labelRows[i].label!;
+  }
+  const info = new ItemInfo();
+  info.name = row.name!;
+  info.price = row.price!.value as u32;
+  info.in_stock = row.in_stock!.value != 0;
+  info.labels = labels;
+  return info;
+}
+
+/**mudu-proc*/
+export function update_item_info(id: Oid, item_id: i64, info: ItemInfo): ItemInfo {
+  const params = new ValueList();
+  params.bind(0, Value.text(info.name));
+  params.bind(1, Value.int64(info.price as i64));
+  params.bind(2, Value.int64(info.in_stock ? 1 : 0));
+  params.bind(3, Value.int64(item_id));
+  const updated = <i64>witCommand(
+    id,
+    new SqlStmt("UPDATE item_info SET name = ?, price = ?, in_stock = ? WHERE item_id = ?"),
+    params,
+  );
+  if (updated == 0) {
+    const row = new ItemInfoRow(
+      item_id as i32,
+      info.name,
+      new InfoBox<i32>(info.price as i32),
+      new InfoBox<i32>(info.in_stock ? 1 : 0),
+    );
+    const inserted = row.insert(id);
+    if (inserted != 1) {
+      throw new Error("insert item info failed");
+    }
+  }
+  // The engine requires a complete primary key for DELETE, so the old
+  // labels are first read by the key-prefix predicate and then deleted one
+  // by one.
+  const oldLabels = queryLabels(id, item_id);
+  for (let i = 0; i < oldLabels.length; i++) {
+    const deleted = ItemInfoLabels.deleteByPk(id, item_id as i32, oldLabels[i].idx);
+    if (deleted != 1) {
+      throw new Error("delete item label failed");
+    }
+  }
+  for (let i = 0; i < info.labels.length; i++) {
+    const insertedLabel = new ItemInfoLabels(item_id as i32, i, info.labels[i]).insert(id);
+    if (insertedLabel != 1) {
+      throw new Error("insert item label failed");
+    }
+  }
+  return queryItemInfo(id, item_id);
+}

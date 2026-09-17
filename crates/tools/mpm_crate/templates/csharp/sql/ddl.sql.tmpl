@@ -1,0 +1,25 @@
+CREATE TABLE items
+(
+    item_id  INT PRIMARY KEY,
+    name     VARCHAR(100),
+    quantity INT
+);
+
+-- update_item_info: the item-info record flattened into columns (bool/u32
+-- ride as INT; the host carries both as i32), labels in a side table keyed
+-- by (item_id, idx).
+CREATE TABLE item_info
+(
+    item_id  INT PRIMARY KEY,
+    name     VARCHAR(100),
+    price    INT,
+    in_stock INT
+);
+
+CREATE TABLE item_info_labels
+(
+    item_id INT,
+    idx     INT,
+    label   VARCHAR(100),
+    PRIMARY KEY (item_id, idx)
+);

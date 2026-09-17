@@ -404,6 +404,13 @@ class BuildScript:
         self.toggle_install_tools = self.args.install_tools
         self.verbose = self.args.verbose
         self.build_features = ""
+        # Independent cargo workspaces, built one at a time from the repo root.
+        self.workspace_groups = [
+            "crates/common",
+            "crates/db-kernel",
+            "crates/sdk",
+            "crates/tools",
+        ]
 
         self.rust_toolchain = "stable"
         if len(sys.argv) == 1:
@@ -576,9 +583,10 @@ class BuildScript:
 
         self.logger.info("Cleaning cargo cache...")
 
-        if not self.run_command("cargo clean"):
-            self.logger.error("Failed to clean cache")
-            return False
+        for group in self.workspace_groups:
+            if not self.run_command(f"cd {group} && cargo clean"):
+                self.logger.error(f"Failed to clean cache in {group}")
+                return False
 
         self.logger.success("Cache cleaned")
 
@@ -604,10 +612,12 @@ class BuildScript:
 
         # Platform-specific adjustments
 
-        # Execute build
-        if not self.run_command(build_cmd, capture_output=True):
-            self.logger.error("Build failed")
-            return False
+        # Execute build in each group workspace (no root workspace exists).
+        for group in self.workspace_groups:
+            self.logger.info(f"Building workspace group: {group}")
+            if not self.run_command(f"cd {group} && {build_cmd}", capture_output=True):
+                self.logger.error(f"Build failed in {group}")
+                return False
 
         self.show_artifact()
         self.logger.success("Build completed successfully")
@@ -625,9 +635,12 @@ class BuildScript:
         if self.build_mode == "release":
             test_cmd += " --release"
 
-        if not self.run_command(test_cmd):
-            self.logger.error("Tests failed")
-            return False
+        # Run tests in each group workspace (no root workspace exists).
+        for group in self.workspace_groups:
+            self.logger.info(f"Running tests in workspace group: {group}")
+            if not self.run_command(f"cd {group} && {test_cmd}"):
+                self.logger.error(f"Tests failed in {group}")
+                return False
 
         self.logger.success("All tests passed")
 
@@ -639,9 +652,9 @@ class BuildScript:
             return True
 
         for path in [
-            "mudu_gen",
-            "mudu_transpiler",
-            "mpm_build"]:
+            "crates/tools/mudu_gen",
+            "crates/tools/mudu_transpiler",
+            "crates/tools/mpm_build"]:
             cmd = "cargo install --force --locked --path {}".format(path)
             if not self.run_command(cmd, capture_output=True):
                 self.logger.error("{} Build failed".format(path))

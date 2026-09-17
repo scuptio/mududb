@@ -1,0 +1,30 @@
+package mududb:fixtures;
+
+world fixtures {
+    import binding;
+}
+
+interface binding {
+    // Records shared by the funcs below; note that the tree-sitter-wit
+    // grammar accepts comments before records but not directly before `func`
+    // items, so the funcs are deliberately uncommented.
+    record mu-oid {
+        h: u64,
+        l: u64,
+    }
+
+    record mu-error {
+        err-code: u32,
+        err-msg: string,
+        err-details: list<u8>,
+    }
+
+    record mu-entry {
+        key: list<u8>,
+        value: list<u8>,
+    }
+
+    get: func(oid: mu-oid, key: list<u8>) -> result<option<list<u8>>, mu-error>;
+    put: func(oid: mu-oid, entry: mu-entry) -> result<_, mu-error>;
+    scan: func(oid: mu-oid, prefix: list<u8>) -> result<list<mu-entry>, mu-error>;
+}

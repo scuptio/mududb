@@ -1,0 +1,111 @@
+[env]
+WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/../../.."
+WALLET_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet"
+WALLET_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet.mpk"
+WALLET_AS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-as"
+WALLET_AS_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet-as.mpk"
+WALLET_CS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-cs"
+WALLET_CS_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet-cs.mpk"
+WALLET_PY_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-py"
+WALLET_PY_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/py-guest/wallet-py.mpk"
+WALLET_GO_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-go"
+WALLET_GO_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/go-guest/wallet-go.mpk"
+WALLET_C_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-c"
+WALLET_C_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/c-guest/wallet-c.mpk"
+TESTING_MPK_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/mpk"
+TESTING_WALLET_MPK = "${TESTING_MPK_DIR}/wallet.mpk"
+TESTING_WALLET_AS_MPK = "${TESTING_MPK_DIR}/wallet-as.mpk"
+TESTING_WALLET_CS_MPK = "${TESTING_MPK_DIR}/wallet-cs.mpk"
+TESTING_WALLET_PY_MPK = "${TESTING_MPK_DIR}/wallet-py.mpk"
+TESTING_WALLET_GO_MPK = "${TESTING_MPK_DIR}/wallet-go.mpk"
+TESTING_WALLET_C_MPK = "${TESTING_MPK_DIR}/wallet-c.mpk"
+
+# Reinstall workspace CLI tools from source so the toolchain cannot drift
+# from the current commit.
+[tasks.build-tools]
+command = "python3"
+args = ["${WORKSPACE_ROOT}/script/build/install_binaries.py", "--profile", "release"]
+
+[tasks.build-wallet-mpk]
+dependencies = ["build-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_DIR}"
+
+# The wallet-as build chain needs Node.js/npm on PATH (asc compiler).
+[tasks.build-wallet-as-mpk]
+dependencies = ["build-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_AS_DIR}"
+
+# The wallet-cs build chain needs the .NET 10 SDK at ~/.dotnet (see
+# crates/sdk/example/wallet-cs/readme.md).
+[tasks.build-wallet-cs-mpk]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_CS_DIR}"
+
+# The wallet-py build chain needs componentize-py on PATH
+# (pipx install componentize-py==0.25.1) plus wasm-tools.
+[tasks.build-wallet-py-mpk]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_PY_DIR}"
+
+# The wallet-go build chain needs TinyGo 0.42 and the Go 1.27 toolchain on
+# PATH (see example/wallet-go/readme.md) plus wasm-tools.
+[tasks.build-wallet-go-mpk]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_GO_DIR}"
+
+# The wallet-c build chain needs a clang targeting wasm32 freestanding
+# (wasi-sdk 29 at ~/.wasi-sdk by default; see example/wallet-c/readme.md)
+# plus wasm-tools.
+[tasks.build-wallet-c-mpk]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${WALLET_C_DIR}"
+
+[tasks.prepare-mpk-dir]
+command = "mkdir"
+args = ["-p", "${TESTING_MPK_DIR}"]
+
+[tasks.copy-wallet-mpk]
+dependencies = ["build-wallet-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_MPK}", "${TESTING_WALLET_MPK}"]
+
+[tasks.copy-wallet-as-mpk]
+dependencies = ["build-wallet-as-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_AS_MPK}", "${TESTING_WALLET_AS_MPK}"]
+
+[tasks.copy-wallet-cs-mpk]
+dependencies = ["build-wallet-cs-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_CS_MPK}", "${TESTING_WALLET_CS_MPK}"]
+
+[tasks.copy-wallet-py-mpk]
+dependencies = ["build-wallet-py-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_PY_MPK}", "${TESTING_WALLET_PY_MPK}"]
+
+[tasks.copy-wallet-go-mpk]
+dependencies = ["build-wallet-go-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_GO_MPK}", "${TESTING_WALLET_GO_MPK}"]
+
+[tasks.copy-wallet-c-mpk]
+dependencies = ["build-wallet-c-mpk", "prepare-mpk-dir"]
+command = "cp"
+args = ["${WALLET_C_MPK}", "${TESTING_WALLET_C_MPK}"]
+
+[tasks.test]
+dependencies = ["copy-wallet-mpk", "copy-wallet-as-mpk", "copy-wallet-cs-mpk", "copy-wallet-py-mpk", "copy-wallet-go-mpk", "copy-wallet-c-mpk"]
+command = "cargo"
+args = ["test", "-p", "testing", "--", "--nocapture"]
+
+[tasks.default]
+alias = "test"

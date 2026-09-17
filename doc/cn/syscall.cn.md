@@ -80,7 +80,7 @@ pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 
@@ -89,7 +89,7 @@ pub async fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 ```

@@ -1,0 +1,170 @@
+# Build pipeline for the {{project_name}} MuduDB app (AssemblyScript).
+#
+# Required on PATH: node + npm, python3, cargo-make, wasm-tools,
+# mgen, mtp and mpm-build. See readme.md for details.
+
+[env]
+PACKAGE_NAME = "{{module_name}}"
+WORLD_NAME = "{{kebab_name}}"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+AS_CORE_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wasm"
+AS_EMBEDDED_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.embedded.wasm"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}",
+]
+
+[tasks.npm-install]
+command = "npm"
+args = ["install", "--prefix", "${CARGO_MAKE_WORKING_DIRECTORY}"]
+
+# Generate the AssemblyScript message types of the project WIT records
+# (item-info) with mgen: types.ts carries the classes plus their XxxCodec
+# MessagePack codecs. The generated file imports `./mpack` — the shim the
+# `gentypes-shim` task stages next to it.
+[tasks.gentypes]
+command = "mgen"
+args = [
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes/types.ts",
+    "-l", "assemblyscript",
+]
+
+# Stage the mpack re-export shim the generated types import (`./mpack` must
+# resolve to the binding's MpackReader/MpackWriter).
+[tasks.gentypes-shim]
+dependencies = ["gentypes"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build-cfg/gentypes-mpack.ts",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes/mpack.ts",
+]
+
+# Transpile the procedures into the byte-pipe adapter, the world WIT and the
+# procedure description. --type-wit registers the project record types
+# (wit/types.wit) so procedure signatures may use them; --type-import points
+# the generated adapter at the mgen-generated types module (relative to the
+# adapter's own location in generated/).
+[tasks.transpile]
+dependencies = ["prepare", "gentypes"]
+command = "mtp"
+args = [
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly/procedures.ts",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--module", "${PACKAGE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "../gentypes/types",
+    "assembly-script",
+]
+
+# Generate typed entity bindings from the DDL schema into assembly/ (one file
+# per table; import each as `import { <Record> } from "./<table>"`).
+[tasks.generate]
+dependencies = ["prepare"]
+command = "mgen"
+args = [
+    "entity",
+    "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly",
+    "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
+    "--lang", "assemblyscript",
+]
+
+# Stage the mtp-generated world WIT next to the checked-in
+# `wit/deps/mududb-api/api.wit` copy of the host syscall interface so
+# `wasm-tools component embed` can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/procedures.gen.wit",
+]
+
+# Statically check every SQL string literal in assembly/ (the hand-written
+# procedures and the generated entities) against the DDL schema.
+[tasks.check-sql]
+dependencies = ["prepare", "generate"]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "as",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly",
+]
+
+[tasks.asc-build]
+dependencies = ["transpile", "npm-install", "check-sql", "gentypes-shim"]
+command = "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/.bin/asc"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--outFile", "${AS_CORE_WASM}",
+    "--textFile", "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wat",
+    "--path", "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules",
+    "--optimizeLevel", "3",
+    "--shrinkLevel", "0",
+    "--exportRuntime",
+    "--exportStart", "_initialize",
+]
+
+# Rename the `mp2_*` wasm exports to the kebab-case component names.
+[tasks.patch-component-exports]
+dependencies = ["asc-build"]
+command = "python3"
+args = ["${CARGO_MAKE_WORKING_DIRECTORY}/scripts/patch-component-exports.py"]
+
+[tasks.as-componentize]
+dependencies = ["patch-component-exports", "stage-wit"]
+command = "wasm-tools"
+args = [
+    "component", "embed",
+    "--world", "${WORLD_NAME}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.patched.wasm",
+    "--output", "${AS_EMBEDDED_WASM}",
+]
+
+# The `--adapt env=...` module satisfies the AssemblyScript runtime's
+# `env.abort` import; the `mududb:api/system` imports are satisfied by the
+# host runtime, and the world's root-level `mp2-*` byte-pipe exports are
+# called by it.
+[tasks.as-component]
+dependencies = ["as-componentize"]
+command = "wasm-tools"
+args = [
+    "component", "new",
+    "${AS_EMBEDDED_WASM}",
+    "--adapt", "env=${CARGO_MAKE_WORKING_DIRECTORY}/build-cfg/abort-adapter.wat",
+    "--output", "${WASM_FILE}",
+]
+
+[tasks.validate-component]
+dependencies = ["as-component"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+[tasks.default]
+alias = "package"

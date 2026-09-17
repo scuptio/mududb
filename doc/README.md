@@ -17,11 +17,11 @@ This directory contains the MuduDB documentation. If you are new, follow the ord
 | Document | Purpose |
 |----------|---------|
 | [`en/your_first_mpk.md`](en/your_first_mpk.md) / [`cn/your_first_mpk.cn.md`](cn/your_first_mpk.cn.md) | Build a minimal MPK package from the wallet example, install it, and invoke it. |
-| [`../example/wallet/readme.md`](../example/wallet/readme.md) | A complete Rust example: users, wallets, and transfers. |
-| [`../example/wallet-as/readme.md`](../example/wallet-as/readme.md) | The AssemblyScript version of the wallet example. |
-| [`../example/key-value/README.md`](../example/key-value/README.md) | Key/value API example. |
-| [`../example/tpcc/README.md`](../example/tpcc/README.md) | TPC-C benchmark example. |
-| [`../example/ycsb/README.md`](../example/ycsb/README.md) | YCSB benchmark example. |
+| [`../example/wallet/readme.md`](../crates/sdk/example/wallet/readme.md) | A complete Rust example: users, wallets, and transfers. |
+| [`../example/wallet-as/readme.md`](../crates/sdk/example/wallet-as/readme.md) | The AssemblyScript version of the wallet example. |
+| [`../example/key-value/README.md`](../crates/sdk/example/key-value/README.md) | Key/value API example. |
+| [`../example/tpcc/README.md`](../crates/sdk/example/tpcc/README.md) | TPC-C benchmark example. |
+| [`../example/ycsb/README.md`](../crates/sdk/example/ycsb/README.md) | YCSB benchmark example. |
 
 ## Concepts and Design
 
@@ -32,14 +32,14 @@ This directory contains the MuduDB documentation. If you are new, follow the ord
 | [`en/partition.md`](en/partition.md) / [`cn/partition.cn.md`](cn/partition.cn.md) | Partitioning model. |
 | [`en/session.md`](en/session.md) / [`cn/session.cn.md`](cn/session.cn.md) | Session management. |
 | [`en/syscall.md`](en/syscall.md) / [`cn/syscall.cn.md`](cn/syscall.cn.md) | System call interface overview. |
+| [`en/abi/guest_host_abi.md`](en/abi/guest_host_abi.md) / [`cn/abi/guest_host_abi.cn.md`](cn/abi/guest_host_abi.cn.md) | Guest/host syscall ABI (MSSP v1): wire format, per-language integration, and interop verification. |
 
 ## Procedure Development
 
 | Document | Purpose |
 |----------|---------|
 | [`en/procedure.md`](en/procedure.md) / [`cn/procedure.cn.md`](cn/procedure.cn.md) | Mudu Procedure specification and development guide. |
-| [`../mudu_transpiler/readme.md`](../mudu_transpiler/readme.md) | Transpiler (`mtp`) usage for Rust and AssemblyScript. |
-| [`../mudu_wasm/README.md`](../mudu_wasm/README.md) | WebAssembly bindings and component model notes. |
+| [`../crates/tools/mudu_transpiler/readme.md`](../crates/tools/mudu_transpiler/readme.md) | Transpiler (`mtp`) usage for Rust and AssemblyScript. |
 
 ## API Reference
 
@@ -66,5 +66,7 @@ The [`lang.common/`](lang.common/) directory contains per-call reference documen
 The [`en/contract/`](en/contract/) and [`cn/contract/`](cn/contract/) directories contain formal, versioned specifications for persistent formats, protocols, and deployment artifacts.
 
 ## Developer and Design Notes
+
+The [`dev/`](dev/) directory contains developer-facing notes, including [`dev/sql_subset.md`](dev/sql_subset.md) — the SQL subset checked by `mgen check-sql`, its diagnostics, and build integration — [`dev/new_guest_language.md`](dev/new_guest_language.md), the step-by-step guide for adding a new guest language across all tools (`mpm-crate`, `mtp`, `mgen`, bindings, e2e) — [`dev/custom_types.md`](dev/custom_types.md), the authoring guide for user-defined record types in procedure signatures (`.wit` entities) — and [`dev/app_namespace.md`](dev/app_namespace.md), the per-app schema namespace semantics (default schema `mududb`), per-client visibility, migration notes, and v1 limits.
 
 The [`cn/todo/`](cn/todo/) directory contains design documents and TODOs. Some are historical; check the header of each document to see whether it reflects the current implementation.

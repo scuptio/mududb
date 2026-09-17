@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "mududb",
+    "mudu_api_sync",
+    "example/app1",
+    "example/wallet",
+    "example/vote",
+    "example/game-backend",
+    "example/key-value",
+    "example/ycsb",
+    "example/tpcc",
+]
+
+[workspace.package]
+rust-version = "1.96"
+
+[workspace.lints.rust]
+future_incompatible = { level = "allow", priority = -1 }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[workspace.lints.clippy]
+disallowed-types = "deny"
+
+[profile.release]
+panic = "abort"
+
+# Line-tables-only debug info: keeps backtrace line numbers while cutting
+# link-time memory and target-dir size several-fold (full `debug = 2` is the
+# main driver of linker OOM kills when building this workspace's test
+# binaries in memory-constrained environments).
+[profile.dev]
+debug = 1
+
+[workspace.dependencies]
+# Crates in this workspace.
+mududb = { path = "mududb" }
+mudu_api_sync = { path = "mudu_api_sync" }
+
+# Crates from the sibling common workspace.
+mudu = { path = "../common/mudu" }
+mudu_binding = { path = "../common/mudu_binding" }
+mudu_build_common = { path = "../common/mudu_build_common" }
+mudu_client = { path = "../common/mudu_client" }
+mudu_contract = { path = "../common/mudu_contract" }
+mudu_sys = { path = "../common/mudu_sys" }
+mudu_sys_impl = { path = "../common/mudu_sys_impl" }
+mudu_type = { path = "../common/mudu_type" }
+mudu_utils = { path = "../common/mudu_utils" }
+
+# Crates from the sibling db-kernel workspace.
+mudu_adapter = { path = "../db-kernel/mudu_adapter" }
+mudu_runtime = { path = "../db-kernel/mudu_runtime" }
+
+# External dependencies.
+async-backtrace = { version = "0.2.7" }
+bigdecimal = { version = "0.4.10" }
+chrono = { version = "0.4.42" }
+clap = { version = "4.5.50" }
+fallible-iterator = { version = "0.3.0" }
+lazy_static = { version = "1.5.0" }
+serde_json = { version = "1.0.145", features = ["preserve_order"] }
+tokio = { version = "1.47.1", features = ["full"] }
+toml = { version = "1.1.0", features = ["preserve_order"] }
+tracing-subscriber = { version = "0.3.20" }
+uuid = { version = "1.18.1", features = ["v4", "js"] }
+wit-bindgen = { version = "0.58.0" }
+
+# Versions read by the mudu_api_sync build script (via
+# `mudu_build_common::read_workspace_versions`) when generating the
+# standalone `mudu_api/rust` SDK manifests.
+rmp = { version = "0.8.15" }
+rmp-serde = { version = "1.3.0" }
+serde = { version = "1.0.228", features = ["default", "derive", "serde_derive"] }
+serde_repr = { version = "0.1.20" }
+rusqlite = { version = "0.40.1" }

@@ -1,0 +1,22 @@
+[package]
+name = "mudu_client"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true }

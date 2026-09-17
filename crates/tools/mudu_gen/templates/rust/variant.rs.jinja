@@ -1,0 +1,134 @@
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+#[derive(Debug, Clone
+{% if cfg.impl_eq %}, Eq, PartialEq {% endif %}
+{% if cfg.impl_hash %}, Hash {% endif %}
+)]
+
+pub enum {{ variant.variant_name }} {
+    {% for case in variant.variant_cases %}
+    {% if case.vc_comments.len() > 0 %}
+    {{ case.vc_comments }}
+    {% endif %}
+    {{ case.vc_case_name }}{% if case.vc_has_inner_type %}({{ case.vc_inner_type_name }}){% endif %},
+    {% endfor %}
+}
+
+{% if cfg.impl_default %}
+impl Default for {{ variant.variant_name }} {
+    fn default() -> Self {
+        {% if variant.variant_cases[0].vc_has_inner_type %}
+        Self::{{ variant.variant_cases[0].vc_case_name }} (Default::default())
+        {% else %}
+        Self::{{ variant.variant_cases[0].vc_case_name }}
+        {% endif %}
+    }
+}
+{% endif %}
+
+{% if cfg.impl_display %}
+impl std::fmt::Display for {{ variant.variant_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            {% for case in variant.variant_cases %}
+            Self::{{ case.vc_case_name }}{% if case.vc_has_inner_type %}(inner){% endif %} => {
+                write!(f, "{{ case.vc_case_name }}")?;
+                {% if case.vc_has_inner_type %}
+                write!(f, "({})", inner)?;
+                {% endif %}
+                Ok(())
+            }
+            {% endfor %}
+        }
+    }
+}
+{% endif %}
+
+{% if cfg.impl_inner_func %}
+
+
+impl {{ variant.variant_name }} {
+    {% for case in variant.variant_cases %}
+    {% if case.vc_has_inner_type %}
+    pub fn from_{{ case.vc_case_name_snake }}(inner: {{ case.vc_inner_type_name }}) -> Self {
+        Self::{{ case.vc_case_name }}(inner)
+    }
+
+    pub fn as_{{ case.vc_case_name_snake }}(&self) -> Option<&{{ case.vc_inner_type_name }}> {
+        match self {
+            Self::{{ case.vc_case_name }}(inner) => { Some(inner) }
+            _ => { None }
+        }
+    }
+
+    pub fn expect_{{ case.vc_case_name_snake }}(&self) ->  &{{ case.vc_inner_type_name }} {
+        match self {
+            Self::{{ case.vc_case_name }}(inner) => { inner }
+            _ => { panic!("{{ variant.variant_name }}::expect_{{ case.vc_case_name_snake }} called on the wrong variant") }
+        }
+    }
+    {% endif %}
+    {% endfor %}
+}
+{% endif %}
+
+{% if cfg.impl_serialize %}
+// MSSP wire conversion: the variant encodes as a fixed `[tag, payload]`
+// 2-element array; payload-less cases carry a `0u8` placeholder. Decode
+// rejects unknown tags.
+impl crate::universal::mp_wire::ToValue for {{ variant.variant_name }} {
+    fn to_value(&self) -> crate::universal::mp_wire::Value {
+        match self {
+            {% for case in variant.variant_cases %}
+            {% if case.vc_has_inner_type %}
+            {{ variant.variant_name }}::{{ case.vc_case_name }}(inner) => {
+                crate::universal::mp_wire::Value::Array(vec![
+                    crate::universal::mp_wire::Value::from({{ case.vc_number }}u32),
+                    {{ case.vc_to_value }},
+                ])
+            }
+            {% else %}
+            {{ variant.variant_name }}::{{ case.vc_case_name }} => {
+                // has no inner payload, write a dummy u8 value
+                crate::universal::mp_wire::Value::Array(vec![
+                    crate::universal::mp_wire::Value::from({{ case.vc_number }}u32),
+                    crate::universal::mp_wire::Value::from(0u8),
+                ])
+            }
+            {% endif %}
+            {% endfor %}
+        }
+    }
+}
+
+impl crate::universal::mp_wire::FromValue for {{ variant.variant_name }} {
+    fn from_value(
+        value: &crate::universal::mp_wire::Value,
+    ) -> Result<Self, crate::universal::mp_wire::WireError> {
+        let items = value.as_array()?;
+        if items.len() != 2 {
+            return Err(crate::universal::mp_wire::WireError::new(format!(
+                "a {} value must be a 2-element [tag, payload] array, found {} elements",
+                "{{ variant.variant_name }}",
+                items.len()
+            )));
+        }
+        let tag = u32::from_value(&items[0])?;
+        match tag {
+            {% for case in variant.variant_cases %}
+            {% if case.vc_has_inner_type %}
+            {{ case.vc_number }} => Ok(Self::{{ case.vc_case_name }}({{ case.vc_from_value }}?)),
+            {% else %}
+            // has no inner payload; the placeholder is not inspected
+            {{ case.vc_number }} => Ok(Self::{{ case.vc_case_name }}),
+            {% endif %}
+            {% endfor %}
+            _ => Err(crate::universal::mp_wire::WireError::new(format!(
+                "unknown {{ variant.variant_name }} tag {tag}"
+            ))),
+        }
+    }
+}
+
+{% endif %}

@@ -1,0 +1,270 @@
+{
+  "types": {
+    "Users": [
+      2,
+      {
+        "record_name": "users",
+        "record_fields": [
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "phone",
+            "field_type": [
+              0,
+              12
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteChoices": [
+      2,
+      {
+        "record_name": "vote_choices",
+        "record_fields": [
+          {
+            "field_name": "choice_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "action_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "option_id",
+            "field_type": [
+              0,
+              12
+            ]
+          }
+        ]
+      }
+    ],
+    "Options": [
+      2,
+      {
+        "record_name": "options",
+        "record_fields": [
+          {
+            "field_name": "option_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "option_text",
+            "field_type": [
+              0,
+              12
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteHistoryItem": [
+      2,
+      {
+        "record_name": "vote_history_item",
+        "record_fields": [
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "topic",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "action_time",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "is_withdrawn",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "vote_ended",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteActions": [
+      2,
+      {
+        "record_name": "vote_actions",
+        "record_fields": [
+          {
+            "field_name": "action_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "action_time",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "is_withdrawn",
+            "field_type": [
+              0,
+              6
+            ]
+          }
+        ]
+      }
+    ],
+    "VoteResult": [
+      2,
+      {
+        "record_name": "vote_result",
+        "record_fields": [
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "topic",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "vote_ended",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "total_votes",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "options",
+            "field_type": [
+              0,
+              12
+            ]
+          }
+        ]
+      }
+    ],
+    "Votes": [
+      2,
+      {
+        "record_name": "votes",
+        "record_fields": [
+          {
+            "field_name": "vote_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "creator_id",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "topic",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "vote_type",
+            "field_type": [
+              0,
+              12
+            ]
+          },
+          {
+            "field_name": "max_choices",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "end_time",
+            "field_type": [
+              0,
+              6
+            ]
+          },
+          {
+            "field_name": "visibility_rule",
+            "field_type": [
+              0,
+              12
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

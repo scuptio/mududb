@@ -1,0 +1,20 @@
+[package]
+name = "mudu_api_sync"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[build-dependencies]
+toml = { workspace = true }
+# Build scripts always run on the native backend (real env / real fs).
+mudu_sys_impl = { workspace = true }
+mudu_build_common = { workspace = true }
+
+[lints]
+workspace = true

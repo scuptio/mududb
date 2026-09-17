@@ -36,11 +36,21 @@ jobs:
         run: |
           mkdir -p logs
           set -o pipefail
-          cargo fmt -- --check 2>&1 | tee logs/hardening-fmt.log
+          {
+            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+              echo "=== cargo fmt --check: ${group} ==="
+              (cd "${group}" && cargo fmt -- --check)
+            done
+          } 2>&1 | tee logs/hardening-fmt.log
 
   cargo-deny:
-    name: cargo-deny
+    name: cargo-deny - ${{ matrix.group }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Each group workspace has its own Cargo.lock and must be checked
+        # separately; deny.toml stays at the repository root.
+        group: [ common, db-kernel, sdk, tools ]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
@@ -52,10 +62,11 @@ jobs:
         run: cargo install cargo-deny --version 0.19.9 --locked
 
       - name: Run cargo-deny
+        working-directory: crates/${{ matrix.group }}
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo deny check bans licenses advisories sources 2>&1 | tee logs/hardening-deny.log
+          cargo deny check --config ${{ github.workspace }}/deny.toml bans licenses advisories sources 2>&1 | tee ${{ github.workspace }}/logs/hardening-deny-${{ matrix.group }}.log
 
   cargo-hack:
     name: cargo-hack
@@ -78,7 +89,12 @@ jobs:
         run: |
           mkdir -p logs
           set -o pipefail
-          cargo hack check --workspace --each-feature --no-dev-deps 2>&1 | tee logs/hardening-hack.log
+          {
+            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+              echo "=== cargo hack: ${group} ==="
+              (cd "${group}" && cargo hack check --workspace --each-feature --no-dev-deps)
+            done
+          } 2>&1 | tee logs/hardening-hack.log
         continue-on-error: true
 
   cargo-outdated:
@@ -100,5 +116,10 @@ jobs:
         run: |
           mkdir -p logs
           set -o pipefail
-          cargo outdated --workspace --root-deps-only 2>&1 | tee logs/hardening-outdated.log
+          {
+            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+              echo "=== cargo outdated: ${group} ==="
+              (cd "${group}" && cargo outdated --workspace --root-deps-only)
+            done
+          } 2>&1 | tee logs/hardening-outdated.log
         continue-on-error: true

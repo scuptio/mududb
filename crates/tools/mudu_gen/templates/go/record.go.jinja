@@ -1,0 +1,40 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}{% if fields.len() == 0 %}type {{ record_name }} struct{}
+{% else %}type {{ record_name }} struct {
+{% for f in fields %}{% if !f.comments.is_empty() %}{{ f.comments }}
+{% endif %}	{{ f.name_padded }} {{ f.type_name }}
+{% endfor %}}
+{% endif %}
+// {{ record_name }}ToValue converts x to its MSSP wire value: the
+// integer-keyed MessagePack map of the 1-based field numbers (WIT
+// declaration order). Option fields are omitted when nil (proto3 presence
+// semantics); []byte fields encode as arrays of u8 (the record-context form
+// of list<u8>), NOT as MessagePack bin.
+func {{ record_name }}ToValue(x {{ record_name }}) (any, error) {
+	_d := map[uint64]any{}
+{% for f in fields %}{{ f.to_value_stmts }}
+{% endfor %}	return _d, nil
+}
+
+// {{ record_name }}FromValue converts a wire value back to {{ record_name }}.
+// Decode is lenient: non-integer map keys are skipped, unknown field numbers
+// are ignored and missing fields keep their proto3-style default.
+func {{ record_name }}FromValue(v any) ({{ record_name }}, error) {
+	var x {{ record_name }}
+{% for f in fields %}{% if !f.default_init.is_empty() %}	{{ f.default_init }}
+{% endif %}{% endfor %}	_m, err := expectMap(v)
+	if err != nil {
+		return x, err
+	}
+	for _k, _val := range _m {
+		_key, _ok := mapKeyUint(_k)
+		if !_ok {
+			continue
+		}
+		switch _key {
+{% for f in fields %}		case {{ f.number }}:
+{{ f.from_value_stmts }}
+{% endfor %}		}
+	}
+	return x, nil
+}

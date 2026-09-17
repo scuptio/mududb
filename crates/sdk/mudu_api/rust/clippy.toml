@@ -1,0 +1,3 @@
+# The standalone SDK cannot depend on `mudu_sys`, so the workspace-level
+# `mudu_sys`-replacement rules from the repository-root clippy.toml do not
+# apply here; this file shadows that configuration for this workspace.

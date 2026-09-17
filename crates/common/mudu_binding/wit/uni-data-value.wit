@@ -1,0 +1,15 @@
+use crate:universal:uni-scalar-value/uni-scalar-value;
+
+interface universal {
+record uni-data-value-field {
+    field-name: string,
+    field-value: uni-data-value,
+}
+
+variant uni-data-value {
+    scalar(uni-scalar-value),
+    array(list<uni-data-value>),
+    record(list<uni-data-value-field>),
+    binary(list<u8>)
+}
+}

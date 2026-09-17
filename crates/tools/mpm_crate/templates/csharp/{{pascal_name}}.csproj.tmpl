@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>wasi-wasm</RuntimeIdentifier>
+    <UseAppHost>false</UseAppHost>
+    <PublishTrimmed>true</PublishTrimmed>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SelfContained>true</SelfContained>
+    <IlcExportUnmanagedEntrypoints>true</IlcExportUnmanagedEntrypoints>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The component file name doubles as the mududb module name: mpm-build
+         matches `package.desc.json` modules against wasm file stems. -->
+    <AssemblyName>{{module_name}}</AssemblyName>
+    <RootNamespace>{{pascal_name}}</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Wit Remove="**\*.wit" />
+    <Wit Include="wit" World="{{kebab_name}}" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BytecodeAlliance.Componentize.DotNet.Wasm.SDK" Version="0.8.0-preview00011" />
+    <PackageReference Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-rc.1.26357.1" />
+    <!-- The mgen-generated record codecs (src/types/) and the mtp-generated
+         adapter use only the raw MessagePackReader/MessagePackWriter paths:
+         WASI-safe. The static MessagePackSerializer paths are NOT (their
+         MessagePackSecurity static initializer needs a RNG WASI does not
+         have) — do not call them in guest code. -->
+    <PackageReference Include="MessagePack" Version="3.1.8" />
+  </ItemGroup>
+
+</Project>

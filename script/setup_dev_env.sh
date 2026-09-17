@@ -49,6 +49,9 @@ install_stable_toolchain() {
         --profile minimal \
         --component clippy,rustfmt \
         --target x86_64-unknown-linux-gnu,wasm32-wasip2
+    # Pin the stable toolchain as the default so plain `cargo`/`rustc` work
+    # without a `+toolchain` override, even outside this repo directory.
+    rustup default "${STABLE_TOOLCHAIN}"
     rustup show active-toolchain
     rustc --version --verbose
     cargo --version

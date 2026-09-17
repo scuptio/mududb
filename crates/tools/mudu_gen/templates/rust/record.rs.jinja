@@ -1,0 +1,105 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+#[derive(Debug, Clone
+{% if cfg.impl_eq %}, Eq, PartialEq {% endif %}
+{% if cfg.impl_hash %}, Hash {% endif %}
+)]
+pub struct {{ record.record_name }} {
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    pub {{ field.rf_name }}: {{ field.rf_type }},
+    {% endfor %}
+}
+
+{% if cfg.impl_default %}
+impl Default for {{ record.record_name }} {
+    fn default() -> Self {
+        Self {
+            {% for field in record.record_fields %}
+            {{ field.rf_name }}: Default::default(),
+            {% endfor %}
+        }
+    }
+}
+{% endif %}
+
+{% if cfg.impl_serialize %}
+// MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+// 1-based field numbers (WIT declaration order). Decode is lenient: unknown
+// keys are skipped and missing fields fall back to the type default
+// (proto3 semantics). `Vec<u8>` fields encode as arrays of `u8` (the
+// record-context form of `list<u8>`), NOT as MessagePack bin.
+impl crate::universal::mp_wire::ToValue for {{ record.record_name }} {
+    fn to_value(&self) -> crate::universal::mp_wire::Value {
+{% if has_option_field %}        #[allow(unused_mut)]
+        let mut fields = vec![
+            {% for field in record.record_fields %}
+            {% if !field.rf_is_option %}
+            (
+                crate::universal::mp_wire::Value::from({{ field.rf_number }}u32),
+                {{ field.rf_to_value }},
+            ),
+            {% endif %}
+            {% endfor %}
+        ];
+        {% for field in record.record_fields %}
+        {% if field.rf_is_option %}
+        // WIT option fields are omitted when they hold no value (proto3
+        // presence semantics); decode treats a missing key as the default.
+        if self.{{ field.rf_name }}.is_some() {
+            fields.push((
+                crate::universal::mp_wire::Value::from({{ field.rf_number }}u32),
+                {{ field.rf_to_value }},
+            ));
+        }
+        {% endif %}
+        {% endfor %}
+        crate::universal::mp_wire::Value::Map(fields)
+{% else %}        crate::universal::mp_wire::Value::Map(vec![
+            {% for field in record.record_fields %}
+            (
+                crate::universal::mp_wire::Value::from({{ field.rf_number }}u32),
+                {{ field.rf_to_value }},
+            ),
+            {% endfor %}
+        ])
+{% endif %}    }
+}
+
+impl crate::universal::mp_wire::FromValue for {{ record.record_name }} {
+    fn from_value(
+        value: &crate::universal::mp_wire::Value,
+    ) -> Result<Self, crate::universal::mp_wire::WireError> {
+        {% if record.record_fields.len() == 0 %}
+        let _ = value.as_map()?;
+        Ok(Self {})
+        {% else %}
+        let map_pairs = value.as_map()?;
+        {% for field in record.record_fields %}
+        let mut {{ field.rf_name }} = None;
+        {% endfor %}
+        for (key, val) in map_pairs {
+            let Ok(number) = key.as_u64() else {
+                // Non-integer keys are not record fields; skip them.
+                continue;
+            };
+            match number {
+                {% for field in record.record_fields %}
+                {{ field.rf_number }} => {{ field.rf_name }} = Some({{ field.rf_from_value }}?),
+                {% endfor %}
+                // Unknown field numbers are skipped (forward compatibility).
+                _ => {}
+            }
+        }
+        Ok(Self {
+            {% for field in record.record_fields %}
+            {{ field.rf_name }}: {{ field.rf_name }}.unwrap_or_default(),
+            {% endfor %}
+        })
+        {% endif %}
+    }
+}
+{% endif %}

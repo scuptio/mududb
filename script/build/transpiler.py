@@ -65,7 +65,7 @@ def run_mudu_transpiler(
         verbose: bool
 ):
     workspace_root = Path(__file__).resolve().parents[2]
-    mtp_manifest = workspace_root / "mudu_transpiler" / "Cargo.toml"
+    mtp_manifest = workspace_root / "crates" / "tools" / "mudu_transpiler" / "Cargo.toml"
     desc_argv = []
     type_desc_argv = []
     async_argv = []

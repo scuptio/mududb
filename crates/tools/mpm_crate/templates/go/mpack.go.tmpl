@@ -1,0 +1,523 @@
+package main
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
+)
+
+// A minimal MessagePack reader/writer covering exactly the wire shapes the
+// mududb byte-pipe ABI uses (see `mudu_binding::codec::syscall_payload` and
+// `mudu_binding::codec::handle_procedure` on the host).
+//
+// This exists because pulling a full MessagePack library into a TinyGo
+// wasip2 guest is poor trade for twenty-odd wire shapes; the uni DTO tag
+// numbers the codec serves are verified against the Rust host sources
+// (`uni_scalar_value.rs`, `uni_data_value.rs`).
+//
+// MSSP v1 shapes: records and request argument lists are MessagePack maps
+// keyed by the 1-based field/parameter numbers (WIT declaration order);
+// variants stay `[tag, payload]` 2-arrays. Writes are canonical (shortest
+// integer/str/bin form, matching rmp_serde); reads are lenient (integer
+// keys of any width, unknown keys skipped, missing fields defaulted).
+//
+// The reader carries a sticky error: once a read fails, every later read is
+// a no-op returning zero values, so call sites check `err` once at the end
+// of a decode pass instead of after every field.
+
+var errMpUnexpectedEnd = errors.New("msgpack: unexpected end of input")
+
+// ---- writer ----
+
+type mpWriter struct {
+	buf []byte
+}
+
+func (w *mpWriter) bytes() []byte { return w.buf }
+
+func (w *mpWriter) put(b byte) { w.buf = append(w.buf, b) }
+
+func (w *mpWriter) putBytes(bs []byte) { w.buf = append(w.buf, bs...) }
+
+func (w *mpWriter) writeArrayHeader(count uint32) {
+	switch {
+	case count < 16:
+		w.put(byte(0x90 | count))
+	case count <= math.MaxUint16:
+		w.put(0xdc)
+		var tmp [2]byte
+		binary.BigEndian.PutUint16(tmp[:], uint16(count))
+		w.putBytes(tmp[:])
+	default:
+		w.put(0xdd)
+		var tmp [4]byte
+		binary.BigEndian.PutUint32(tmp[:], count)
+		w.putBytes(tmp[:])
+	}
+}
+
+func (w *mpWriter) writeMapHeader(count uint32) {
+	switch {
+	case count < 16:
+		w.put(byte(0x80 | count))
+	case count <= math.MaxUint16:
+		w.put(0xde)
+		var tmp [2]byte
+		binary.BigEndian.PutUint16(tmp[:], uint16(count))
+		w.putBytes(tmp[:])
+	default:
+		w.put(0xdf)
+		var tmp [4]byte
+		binary.BigEndian.PutUint32(tmp[:], count)
+		w.putBytes(tmp[:])
+	}
+}
+
+func (w *mpWriter) writeUInt(value uint64) {
+	switch {
+	case value < 0x80:
+		w.put(byte(value))
+	case value <= math.MaxUint8:
+		w.put(0xcc)
+		w.put(byte(value))
+	case value <= math.MaxUint16:
+		w.put(0xcd)
+		var tmp [2]byte
+		binary.BigEndian.PutUint16(tmp[:], uint16(value))
+		w.putBytes(tmp[:])
+	case value <= math.MaxUint32:
+		w.put(0xce)
+		var tmp [4]byte
+		binary.BigEndian.PutUint32(tmp[:], uint32(value))
+		w.putBytes(tmp[:])
+	default:
+		w.put(0xcf)
+		var tmp [8]byte
+		binary.BigEndian.PutUint64(tmp[:], value)
+		w.putBytes(tmp[:])
+	}
+}
+
+func (w *mpWriter) writeInt(value int64) {
+	switch {
+	case value >= 0:
+		w.writeUInt(uint64(value))
+	case value >= -32:
+		w.put(byte(0xe0 | byte(value+32)))
+	case value >= math.MinInt8:
+		w.put(0xd0)
+		w.put(byte(int8(value)))
+	case value >= math.MinInt16:
+		w.put(0xd1)
+		var tmp [2]byte
+		binary.BigEndian.PutUint16(tmp[:], uint16(int16(value)))
+		w.putBytes(tmp[:])
+	case value >= math.MinInt32:
+		w.put(0xd2)
+		var tmp [4]byte
+		binary.BigEndian.PutUint32(tmp[:], uint32(int32(value)))
+		w.putBytes(tmp[:])
+	default:
+		w.put(0xd3)
+		var tmp [8]byte
+		binary.BigEndian.PutUint64(tmp[:], uint64(value))
+		w.putBytes(tmp[:])
+	}
+}
+
+func (w *mpWriter) writeDouble(value float64) {
+	w.put(0xcb)
+	var tmp [8]byte
+	binary.BigEndian.PutUint64(tmp[:], math.Float64bits(value))
+	w.putBytes(tmp[:])
+}
+
+func (w *mpWriter) writeFloat32(value float32) {
+	w.put(0xca)
+	var tmp [4]byte
+	binary.BigEndian.PutUint32(tmp[:], math.Float32bits(value))
+	w.putBytes(tmp[:])
+}
+
+func (w *mpWriter) writeBool(value bool) {
+	if value {
+		w.put(0xc3)
+	} else {
+		w.put(0xc2)
+	}
+}
+
+func (w *mpWriter) writeString(value string) {
+	n := len(value)
+	switch {
+	case n < 32:
+		w.put(byte(0xa0 | byte(n)))
+	case n <= math.MaxUint8:
+		w.put(0xd9)
+		w.put(byte(n))
+	case n <= math.MaxUint16:
+		w.put(0xda)
+		var tmp [2]byte
+		binary.BigEndian.PutUint16(tmp[:], uint16(n))
+		w.putBytes(tmp[:])
+	default:
+		w.put(0xdb)
+		var tmp [4]byte
+		binary.BigEndian.PutUint32(tmp[:], uint32(n))
+		w.putBytes(tmp[:])
+	}
+	w.putBytes([]byte(value))
+}
+
+// ---- reader ----
+
+type mpReader struct {
+	data []byte
+	pos  int
+	err  error // sticky: set on the first malformed read
+}
+
+func (r *mpReader) fail(format string, args ...any) {
+	if r.err == nil {
+		r.err = fmt.Errorf(format, args...)
+	}
+}
+
+func (r *mpReader) take() byte {
+	if r.err != nil {
+		return 0
+	}
+	if r.pos >= len(r.data) {
+		r.err = errMpUnexpectedEnd
+		return 0
+	}
+	b := r.data[r.pos]
+	r.pos++
+	return b
+}
+
+func (r *mpReader) peek() byte {
+	if r.err != nil {
+		return 0
+	}
+	if r.pos >= len(r.data) {
+		r.err = errMpUnexpectedEnd
+		return 0
+	}
+	return r.data[r.pos]
+}
+
+func (r *mpReader) takeN(n int) []byte {
+	if r.err != nil {
+		return nil
+	}
+	if r.pos+n > len(r.data) {
+		r.err = errMpUnexpectedEnd
+		return nil
+	}
+	s := r.data[r.pos : r.pos+n]
+	r.pos += n
+	return s
+}
+
+func (r *mpReader) takeBE16() uint16 {
+	s := r.takeN(2)
+	if r.err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint16(s)
+}
+
+func (r *mpReader) takeBE32() uint32 {
+	s := r.takeN(4)
+	if r.err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(s)
+}
+
+func (r *mpReader) takeBE64() uint64 {
+	s := r.takeN(8)
+	if r.err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint64(s)
+}
+
+func (r *mpReader) readArrayHeader() uint32 {
+	code := r.take()
+	if r.err != nil {
+		return 0
+	}
+	if (code & 0xf0) == 0x90 {
+		return uint32(code & 0x0f)
+	}
+	switch code {
+	case 0xdc:
+		return uint32(r.takeBE16())
+	case 0xdd:
+		return r.takeBE32()
+	default:
+		r.fail("msgpack: expected array, code 0x%02x", code)
+		return 0
+	}
+}
+
+func (r *mpReader) readMapHeader() uint32 {
+	code := r.take()
+	if r.err != nil {
+		return 0
+	}
+	if (code & 0xf0) == 0x80 {
+		return uint32(code & 0x0f)
+	}
+	switch code {
+	case 0xde:
+		return uint32(r.takeBE16())
+	case 0xdf:
+		return r.takeBE32()
+	default:
+		r.fail("msgpack: expected map, code 0x%02x", code)
+		return 0
+	}
+}
+
+// readUInt reads any MessagePack integer family as a u64 (fixint, uint8-64,
+// and non-negative int8-64 encodings — rmp_serde picks the smallest form per
+// value, so callers must accept them all). A negative payload is an error,
+// mirroring the checked casts of the host-side decoders.
+func (r *mpReader) readUInt() uint64 {
+	code := r.take()
+	if r.err != nil {
+		return 0
+	}
+	if code <= 0x7f {
+		return uint64(code)
+	}
+	switch code {
+	case 0xcc:
+		return uint64(r.take())
+	case 0xcd:
+		return uint64(r.takeBE16())
+	case 0xce:
+		return uint64(r.takeBE32())
+	case 0xcf:
+		return r.takeBE64()
+	case 0xd0:
+		return r.signedAsUnsigned(int64(int8(r.take())), code)
+	case 0xd1:
+		return r.signedAsUnsigned(int64(int16(r.takeBE16())), code)
+	case 0xd2:
+		return r.signedAsUnsigned(int64(int32(r.takeBE32())), code)
+	case 0xd3:
+		return r.signedAsUnsigned(int64(r.takeBE64()), code)
+	default:
+		r.fail("msgpack: expected unsigned integer, code 0x%02x", code)
+		return 0
+	}
+}
+
+func (r *mpReader) signedAsUnsigned(value int64, code byte) uint64 {
+	if r.err != nil {
+		return 0
+	}
+	if value < 0 {
+		r.fail("msgpack: negative integer where unsigned expected, code 0x%02x", code)
+		return 0
+	}
+	return uint64(value)
+}
+
+// readInt reads any MessagePack integer family as an i64.
+func (r *mpReader) readInt() int64 {
+	code := r.take()
+	if r.err != nil {
+		return 0
+	}
+	if code <= 0x7f {
+		return int64(code)
+	}
+	if code >= 0xe0 {
+		return int64(int8(code))
+	}
+	switch code {
+	case 0xcc:
+		return int64(r.take())
+	case 0xcd:
+		return int64(r.takeBE16())
+	case 0xce:
+		return int64(r.takeBE32())
+	case 0xcf:
+		v := r.takeBE64()
+		if r.err != nil {
+			return 0
+		}
+		if v > math.MaxInt64 {
+			r.fail("msgpack: unsigned integer overflows i64, code 0x%02x", code)
+			return 0
+		}
+		return int64(v)
+	case 0xd0:
+		return int64(int8(r.take()))
+	case 0xd1:
+		return int64(int16(r.takeBE16()))
+	case 0xd2:
+		return int64(int32(r.takeBE32()))
+	case 0xd3:
+		return int64(r.takeBE64())
+	default:
+		r.fail("msgpack: expected integer, code 0x%02x", code)
+		return 0
+	}
+}
+
+func (r *mpReader) readBool() bool {
+	code := r.take()
+	if r.err != nil {
+		return false
+	}
+	switch code {
+	case 0xc2:
+		return false
+	case 0xc3:
+		return true
+	default:
+		r.fail("msgpack: expected bool, code 0x%02x", code)
+		return false
+	}
+}
+
+func (r *mpReader) readDouble() float64 {
+	code := r.take()
+	if r.err != nil {
+		return 0
+	}
+	switch code {
+	case 0xca:
+		return float64(math.Float32frombits(r.takeBE32()))
+	case 0xcb:
+		return math.Float64frombits(r.takeBE64())
+	default:
+		r.fail("msgpack: expected float, code 0x%02x", code)
+		return 0
+	}
+}
+
+// nextIsInteger reports whether the next value belongs to the MessagePack
+// integer family (fixint or any int/uint width). Record/request map keys are
+// field numbers, so a non-integer key is skipped with its value (lenient
+// decode).
+func (r *mpReader) nextIsInteger() bool {
+	code := r.peek()
+	if r.err != nil {
+		return false
+	}
+	return code <= 0x7f || code >= 0xe0 || (code >= 0xcc && code <= 0xd3)
+}
+
+func (r *mpReader) readString() string {
+	code := r.take()
+	if r.err != nil {
+		return ""
+	}
+	var n uint32
+	if (code & 0xe0) == 0xa0 {
+		n = uint32(code & 0x1f)
+	} else {
+		switch code {
+		case 0xd9:
+			n = uint32(r.take())
+		case 0xda:
+			n = uint32(r.takeBE16())
+		case 0xdb:
+			n = r.takeBE32()
+		default:
+			r.fail("msgpack: expected string, code 0x%02x", code)
+			return ""
+		}
+	}
+	if r.err != nil {
+		return ""
+	}
+	return string(r.takeN(int(n)))
+}
+
+// skip skips one complete value of any shape (used for fields the procedures
+// never read: tuple descriptors, result cursors, error detail blobs).
+func (r *mpReader) skip() {
+	code := r.peek()
+	if r.err != nil {
+		return
+	}
+	switch {
+	case code <= 0x7f || code >= 0xe0 || code == 0xc0 || code == 0xc2 || code == 0xc3:
+		r.take()
+	case code == 0xcc || code == 0xd0:
+		r.takeN(2)
+	case code == 0xcd || code == 0xd1:
+		r.takeN(3)
+	case code == 0xce || code == 0xd2 || code == 0xca:
+		r.takeN(5)
+	case code == 0xcf || code == 0xd3 || code == 0xcb:
+		r.takeN(9)
+	case (code & 0xe0) == 0xa0:
+		r.takeN(1 + int(code&0x1f))
+	case (code & 0xf0) == 0x90:
+		r.take()
+		for i := 0; i < int(code&0x0f); i++ {
+			r.skip()
+		}
+	case (code & 0xf0) == 0x80:
+		r.take()
+		for i := 0; i < int(code&0x0f); i++ {
+			r.skip()
+			r.skip()
+		}
+	default:
+		switch code {
+		case 0xd4:
+			r.takeN(2)
+		case 0xd5:
+			r.takeN(3)
+		case 0xd6:
+			r.takeN(5)
+		case 0xd7:
+			r.takeN(9)
+		case 0xd8:
+			r.takeN(17)
+		case 0xd9, 0xc4:
+			r.take()
+			n := r.take()
+			if r.err != nil {
+				return
+			}
+			r.takeN(int(n))
+		case 0xda, 0xc5:
+			n := r.takeBE16()
+			if r.err != nil {
+				return
+			}
+			r.takeN(int(n))
+		case 0xdb, 0xc6:
+			n := r.takeBE32()
+			if r.err != nil {
+				return
+			}
+			r.takeN(int(n))
+		case 0xdc, 0xdd:
+			count := r.readArrayHeader()
+			for i := uint32(0); i < count; i++ {
+				r.skip()
+			}
+		case 0xde, 0xdf:
+			count := r.readMapHeader()
+			for i := uint32(0); i < count; i++ {
+				r.skip()
+				r.skip()
+			}
+		default:
+			r.fail("msgpack: cannot skip code 0x%02x", code)
+		}
+	}
+}

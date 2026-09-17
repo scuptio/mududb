@@ -1,0 +1,153 @@
+#nullable enable
+
+namespace {{pascal_name}};
+
+/// <summary>
+/// {{project_name}} business logic: every procedure takes the session OID
+/// from the procedure parameter. SQL goes through
+/// <see cref="MuduSys"/>, which frames SyscallPayload v1 (MSSP) messages
+/// over the <c>mududb:api/system</c> byte pipe. Table rows travel as
+/// mgen-generated entity records (e.g. <c>Items</c> from src/items.cs,
+/// regenerated from sql/ddl.sql by the `generate` build task).
+///
+/// To add a procedure: write a <c>public static</c> method with a
+/// <c>// mudu-proc</c> comment immediately above it (first parameter the
+/// <c>MuduOid</c> session) and rebuild — mtp regenerates the byte-pipe
+/// exports class, the world WIT and the procedure descriptor (see
+/// readme.md). Parameter and result types: the scalar table plus the
+/// user-defined record types of wit/types.wit (generated into the
+/// <see cref="{{pascal_name}}Types.ItemInfo"/> namespace by the `gentypes`
+/// build task).
+/// </summary>
+internal static class Procedures
+{
+    // mudu-proc
+    public static long CreateItem(MuduOid session, long itemId, string name)
+    {
+        var item = new Items { ItemId = (int)itemId, Name = name, Quantity = 0 };
+        var inserted = MuduSys.Command(session, Items.SqlInsert, item.InsertParams());
+        if (inserted != 1)
+        {
+            throw new {{pascal_name}}Exception(ErrorCodes.DomainViolation, "create item failed");
+        }
+
+        return itemId;
+    }
+
+    // The record type is used namespace-qualified: the mgen entity of the
+    // item_info table is a global-namespace class also named `ItemInfo`,
+    // which would shadow an imported `{{pascal_name}}Types.ItemInfo`.
+
+    // mudu-proc
+    public static {{pascal_name}}Types.ItemInfo UpdateItemInfo(
+        MuduOid session, long itemId, {{pascal_name}}Types.ItemInfo info)
+    {
+        var updated = MuduSys.Command(
+            session,
+            "UPDATE item_info SET name = ?, price = ?, in_stock = ? WHERE item_id = ?",
+            info.Name,
+            (long)info.Price,
+            info.InStock ? 1L : 0L,
+            itemId);
+        if (updated == 0)
+        {
+            var inserted = MuduSys.Command(
+                session,
+                "INSERT INTO item_info (item_id, name, price, in_stock) VALUES (?, ?, ?, ?)",
+                itemId,
+                info.Name,
+                (long)info.Price,
+                info.InStock ? 1L : 0L);
+            if (inserted != 1)
+            {
+                throw new {{pascal_name}}Exception(ErrorCodes.DomainViolation, "insert item info failed");
+            }
+        }
+
+        // The engine requires a complete primary key for DELETE, so the old
+        // labels are first read by the key-prefix predicate and then deleted
+        // one by one.
+        var oldLabels = MuduSys.Query(
+            session, "SELECT idx, label FROM item_info_labels WHERE item_id = ?", itemId);
+        foreach (var oldLabel in oldLabels)
+        {
+            var deleted = MuduSys.Command(
+                session,
+                "DELETE FROM item_info_labels WHERE item_id = ? AND idx = ?",
+                itemId,
+                (long)oldLabel[0]!);
+            if (deleted != 1)
+            {
+                throw new {{pascal_name}}Exception(ErrorCodes.DomainViolation, "delete item label failed");
+            }
+        }
+
+        for (var i = 0; i < info.Labels.Count; i++)
+        {
+            var insertedLabel = MuduSys.Command(
+                session,
+                "INSERT INTO item_info_labels (item_id, idx, label) VALUES (?, ?, ?)",
+                itemId,
+                (long)i,
+                info.Labels[i]);
+            if (insertedLabel != 1)
+            {
+                throw new {{pascal_name}}Exception(ErrorCodes.DomainViolation, "insert item label failed");
+            }
+        }
+
+        return QueryItemInfo(session, itemId);
+    }
+
+    /// Rebuilds the stored item-info record: the flat columns plus the
+    /// side-table labels re-sorted by idx (the engine has no ORDER BY).
+    private static {{pascal_name}}Types.ItemInfo QueryItemInfo(MuduOid session, long itemId)
+    {
+        var rows = MuduSys.Query(
+            session, "SELECT name, price, in_stock FROM item_info WHERE item_id = ?", itemId);
+        if (rows.Count == 0)
+        {
+            throw new {{pascal_name}}Exception(ErrorCodes.EntityNotFound, "item info not found");
+        }
+
+        var row = rows[0];
+        var labelRows = MuduSys.Query(
+            session, "SELECT idx, label FROM item_info_labels WHERE item_id = ?", itemId);
+        labelRows.Sort((a, b) => ((long)a[0]!).CompareTo((long)b[0]!));
+        var labels = new global::System.Collections.Generic.List<string>(labelRows.Count);
+        foreach (var labelRow in labelRows)
+        {
+            labels.Add((string)labelRow[1]!);
+        }
+
+        return new {{pascal_name}}Types.ItemInfo
+        {
+            Name = (string)row[0]!,
+            Price = (uint)(long)row[1]!,
+            InStock = (long)row[2]! != 0,
+            Labels = labels,
+        };
+    }
+}
+
+/// <summary>
+/// Numeric mirrors of the host's <c>mudu::error::ErrorCode</c> discriminants
+/// carried in the <c>UniError</c> result arm.
+/// </summary>
+internal static class ErrorCodes
+{
+    public const uint EntityNotFound = 50009;
+    public const uint DomainViolation = 50017;
+    public const uint InvalidArgument = 50029;
+    public const uint Internal = 50000;
+}
+
+/// <summary>
+/// A domain error raised by a procedure; the byte-pipe dispatcher encodes it
+/// as the <c>{1: UniError}</c> arm of the procedure result.
+/// </summary>
+internal sealed class {{pascal_name}}Exception(uint code, string message)
+    : global::System.Exception(message)
+{
+    public uint Code { get; } = code;
+}

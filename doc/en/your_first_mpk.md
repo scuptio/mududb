@@ -31,10 +31,11 @@ This single command runs the full pipeline:
 
 1. Reinstalls the workspace CLI tools (`mgen`, `mtp`, `mpm-build`, etc.) from source so the toolchain stays in sync with the current commit.
 2. `mgen entity ...` — generates typed Rust entity bindings from `sql/ddl.sql`.
-3. `mtp` transpiles synchronous procedure code into async WebAssembly wrappers.
-4. Formats the generated sources with `cargo fmt`.
-5. `cargo build --target wasm32-wasip2 --release` — compiles the generated code to a WebAssembly component.
-6. `mpm-build create ...` — packages the DDL, descriptors, and WASM file into `target/wasm32-wasip2/release/wallet.mpk`.
+3. `mgen check-sql ...` — statically checks SQL literals in the procedure sources against the DDL.
+4. `mtp` transpiles synchronous procedure code into async WebAssembly wrappers.
+5. Formats the generated sources with `cargo fmt`.
+6. `cargo build --target wasm32-wasip2 --release` — compiles the generated code to a WebAssembly component.
+7. `mpm-build create ...` — packages the DDL, descriptors, and WASM file into `target/wasm32-wasip2/release/wallet.mpk`.
 
 You can also invoke `mpm-build create` directly if you already have the WASM file and descriptors; `cargo make package` is just a convenient wrapper used by the example.
 
@@ -106,8 +107,49 @@ SELECT user_id, balance FROM wallets WHERE user_id = 1002;
 \q
 ```
 
+## 7. Create a new project from a template
+
+The `mpm-crate` tool scaffolds a new `.mpk` application project — the way
+`npm create` / `cargo new` / `dotnet new` do — so you do not have to copy
+and rename the wallet example:
+
+```bash
+mpm-crate my-app --lang rust --sdk-path /path/to/mududb
+```
+
+- The project name must start with a lowercase letter and may contain only
+  lowercase letters, digits and `-` (at most 64 characters). The tool
+  derives the snake_case module name (`my_app`), the kebab-case WIT world
+  name (`my-app`) and the PascalCase C# names (`MyApp`) from it.
+- `--lang` selects the guest language: `rust`, `assemblyscript`, `csharp`,
+  `python`, `c` or `go`, with the short aliases `rs`, `as`, `cs`, `py`,
+  `cc`/`cpp` and `golang` (the Python and Go toolchains are experimental).
+- `--sdk-path` points at a mududb repository checkout and rewrites the SDK
+  dependency to a path dependency (not used for `csharp`, whose template is
+  self-contained). Without it, the project depends on the published SDK
+  package placeholders.
+- `--path <DIR>` creates the project under `<DIR>` instead of the current
+  directory. The destination must not exist or be empty.
+
+The scaffolded project contains one example table, one example procedure
+and a standalone `Makefile.toml`. Build, install and invoke it exactly like
+the wallet example:
+
+```bash
+cd my-app
+cargo make package
+mpm-install target/wasm32-wasip2/release/my_app.mpk
+mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
+  --app my_app --module my_app --proc create_item \
+  --json '{"item_id": 2, "name": "pear"}'
+```
+
+See the project's `readme.md` for its toolchain requirements and how to add
+tables and procedures.
+
 ## Next steps
 
 - Read [`concepts.md`](concepts.md) for the terminology used above.
 - Read [`procedure.md`](procedure.md) to learn how to write your own procedures.
 - Try the [`example/key-value`](../example/key-value/README.md) example for a smaller project that uses the key/value API.
+- Adding support for a new guest language? Follow [`dev/new_guest_language.md`](../dev/new_guest_language.md).

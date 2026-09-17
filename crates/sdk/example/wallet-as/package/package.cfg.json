@@ -1,0 +1,6 @@
+{
+  "name": "wallet-as",
+  "lang": "assemblyscript",
+  "version": "0.1.0",
+  "use_async": false
+}

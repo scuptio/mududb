@@ -1,0 +1,11 @@
+package {{ package }}
+{%- if imports.len() > 0 %}
+
+import (
+{% for import in imports %}	"{{ import }}"
+{% endfor %})
+{%- endif %}
+{%- for block in blocks %}
+
+{{ block }}
+{%- endfor %}

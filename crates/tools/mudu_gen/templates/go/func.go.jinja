@@ -1,0 +1,99 @@
+{% if !func.comments.is_empty() %}{{ func.comments }}
+{% endif %}{% if func.param_count == 0 %}// Encode{{ func.pascal }}Request encodes the `{{ func.kebab }}` request frame (no arguments, empty body).
+func Encode{{ func.pascal }}Request() ([]byte, error) {
+	return codec.EncodeFrame(uint32({{ func.kind_member }}), nil), nil
+}
+
+// Decode{{ func.pascal }}Request decodes the `{{ func.kebab }}` request frame.
+func Decode{{ func.pascal }}Request(frame []byte) error {
+	_body, err := codec.ExpectFrameBody(frame, uint32({{ func.kind_member }}))
+	if err != nil {
+		return err
+	}
+	if len(_body) != 0 {
+		return fmt.Errorf("trailing bytes after syscall payload body")
+	}
+	return nil
+}
+{% else %}// Encode{{ func.pascal }}Request encodes the `{{ func.kebab }}` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func Encode{{ func.pascal }}Request({{ func.req_signature }}) ([]byte, error) {
+	_body := map[uint64]any{}
+{{ func.req_encode_stmts }}
+	return codec.EncodeRequestFrame(uint32({{ func.kind_member }}), _body)
+}
+
+// Decode{{ func.pascal }}Request decodes the `{{ func.kebab }}` request frame;
+// missing arguments decode as their proto3-style default.
+func Decode{{ func.pascal }}Request(frame []byte) ({{ func.req_return_types }}, error) {
+{{ func.req_result_decls }}
+{% if !func.req_default_inits.is_empty() %}{{ func.req_default_inits }}
+{% endif %}	_fields, err := codec.DecodeRequestMap(uint32({{ func.kind_member }}), frame)
+	if err != nil {
+		return {{ func.req_return_names }}, err
+	}
+{{ func.req_decode_stmts }}
+	return {{ func.req_return_names }}, nil
+}
+{% endif %}
+{% if func.result_is_unit %}// Encode{{ func.pascal }}Result encodes the `{{ func.kebab }}` result frame:
+// [0, 0] on success, [1, error] on failure.
+func Encode{{ func.pascal }}Result(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := {{ func.err_type_name }}ToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32({{ func.kind_member }}), _e)
+	}
+	return codec.EncodeUnitResultOkFrame(uint32({{ func.kind_member }})), nil
+}
+
+// Decode{{ func.pascal }}Result decodes the `{{ func.kebab }}` result frame.
+func Decode{{ func.pascal }}Result(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32({{ func.kind_member }}), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := {{ func.err_type_name }}FromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	return WireResult{}, nil
+}
+{% else %}// Encode{{ func.pascal }}Result encodes the `{{ func.kebab }}` result frame:
+// [0, value] on success, [1, error] on failure.
+func Encode{{ func.pascal }}Result(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := {{ func.err_type_name }}ToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32({{ func.kind_member }}), _e)
+	}
+	var _w any
+{{ func.res_ok_encode_stmts }}
+	return codec.EncodeResultOkFrame(uint32({{ func.kind_member }}), _w)
+}
+
+// Decode{{ func.pascal }}Result decodes the `{{ func.kebab }}` result frame.
+func Decode{{ func.pascal }}Result(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32({{ func.kind_member }}), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := {{ func.err_type_name }}FromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+{{ func.res_ok_decode_stmts }}
+	return WireResult{Value: _v}, nil
+}
+{% endif %}

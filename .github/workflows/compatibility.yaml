@@ -57,7 +57,130 @@ jobs:
             ${{ runner.os }}-cargo-stable
 
       - name: Run golden fixture tests
+        working-directory: crates/db-kernel
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo test -p testing --test compat_golden 2>&1 | tee logs/compat-golden.log
+          cargo test -p testing --test compat_golden 2>&1 | tee ${{ github.workspace }}/logs/compat-golden.log
+
+  csharp-corpus:
+    name: C# corpus compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          # Mudu.Api.Tests/Mudu.Api.Tests.csproj targets net8.0.
+          dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('crates/sdk/mudu_api/csharp/**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - name: Run C# corpus tests
+        working-directory: crates/sdk/mudu_api/csharp
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          dotnet test Mudu.Api.Tests 2>&1 | tee ${{ github.workspace }}/logs/compat-csharp-corpus.log
+
+  as-corpus:
+    name: AssemblyScript corpus compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # assemblyscript devDependency requires node >= 18.
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: crates/sdk/bindings/assemblyscript/package-lock.json
+
+      - name: Install dependencies
+        working-directory: crates/sdk/bindings/assemblyscript
+        run: npm ci
+
+      - name: Run AssemblyScript corpus tests
+        working-directory: crates/sdk/bindings/assemblyscript
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          {
+            node run_mp_corpus_test.mjs
+            node run_syscall_corpus_test.mjs
+            node run_lenient_decode_test.mjs
+          } 2>&1 | tee ${{ github.workspace }}/logs/compat-as-corpus.log
+
+  py-corpus:
+    name: Python corpus compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run Python corpus tests
+        working-directory: crates/sdk/bindings/python
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          {
+            python3 -m unittest discover tests
+            python3 run_mp_corpus_test.py
+            python3 run_syscall_corpus_test.py
+            python3 run_lenient_decode_test.py
+          } 2>&1 | tee ${{ github.workspace }}/logs/compat-py-corpus.log
+
+  c-corpus:
+    name: C corpus compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Run C corpus tests
+        working-directory: crates/sdk/bindings/c
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          {
+            make check CC=clang CXX=clang++
+          } 2>&1 | tee ${{ github.workspace }}/logs/compat-c-corpus.log
+
+  go-corpus:
+    name: Go corpus compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run Go corpus tests
+        working-directory: crates/sdk/bindings/go
+        run: |
+          mkdir -p ${{ github.workspace }}/logs
+          set -o pipefail
+          {
+            go build ./...
+            go vet ./...
+            test -z "$(gofmt -l .)"
+            go test ./...
+          } 2>&1 | tee ${{ github.workspace }}/logs/compat-go-corpus.log

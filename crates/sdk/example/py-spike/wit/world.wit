@@ -1,0 +1,6 @@
+package mududb:spike;
+
+world spike {
+    import mududb:api/system;
+    export mp2-hello: func(param: list<u8>) -> list<u8>;
+}

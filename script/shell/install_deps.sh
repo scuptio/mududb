@@ -31,6 +31,10 @@ if ! command -v rustup &> /dev/null; then
 fi
 rustup toolchain install "$STABLE_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target x86_64-unknown-linux-gnu,wasm32-wasip2
 rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal
+# Pin the stable toolchain as the default so plain `cargo`/`rustc` invocations
+# resolve without a `+toolchain` override, even outside a directory that
+# carries a rust-toolchain.toml.
+rustup default "$STABLE_TOOLCHAIN"
 echo "Stable build toolchain and nightly tooling toolchain installed."
 echo ""
 

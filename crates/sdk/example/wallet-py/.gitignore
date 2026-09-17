@@ -1,0 +1,6 @@
+build/
+wit/procedures_gen.wit
+wit/deps/
+
+# mgen-generated message types (see Makefile.toml `gentypes` task)
+gentypes.py

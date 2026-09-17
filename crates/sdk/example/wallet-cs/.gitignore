@@ -1,0 +1,9 @@
+# .NET build artifacts
+bin/
+obj/
+
+# mtp-generated artifacts (see Makefile.toml `transpile`/`stage-wit` tasks)
+src/WalletCsWorldExportsImpl.cs
+src/WalletCsWorldExportsImpl.wit
+wit/wallet-cs.wit
+package/package.desc.json

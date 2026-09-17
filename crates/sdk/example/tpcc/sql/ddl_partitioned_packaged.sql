@@ -1,0 +1,3 @@
+-- The partitioned procedure package ships no DDL: the partition rule,
+-- placement, and tables are created by the benchmark client after install
+-- (placement must exist before the partitioned tables).

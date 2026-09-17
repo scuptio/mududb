@@ -1,0 +1,175 @@
+# Length in bytes of the fixed syscall payload header.
+HEADER_LEN = 16
+MAGIC = 0x4D535350
+VERSION = 1
+
+
+# Syscall message kinds carried in the header's `message_kind` field. The
+# discriminants identify the WIT functions of this file and are pinned to
+# their 1-based declaration order; `0` and unknown values are rejected by
+# `decode_header`.
+class MessageKind(IntEnum):
+{% for kind in kinds %}{% if !kind.comments.is_empty() %}{{ kind.comments }}
+{% endif %}    {{ kind.member_name }} = {{ kind.discriminant }}
+{% endfor %}
+
+# Wire-level `result<T, E>` exchanged with the peer: a success carries
+# `value` (encoded as `[0, value]`), a failure carries `error` (encoded as
+# `[1, error]`). Protocol-level decode failures raise `ValueError` instead.
+class WireResult:
+    def __init__(self, value=None, error=None):
+        self.value = value
+        self.error = error
+
+    @staticmethod
+    def ok(value=None) -> "WireResult":
+        return WireResult(value=value)
+
+    @staticmethod
+    def err(error) -> "WireResult":
+        return WireResult(error=error)
+
+    @property
+    def is_ok(self) -> bool:
+        return self.error is None
+
+
+def _message_kind_from_u32(raw: int) -> MessageKind:
+    try:
+        return MessageKind(raw)
+    except ValueError:
+        raise ValueError(f"MSSP unknown syscall message kind {raw}") from None
+
+
+def encode_header(kind: MessageKind) -> bytes:
+    # the fixed 16-byte header: magic, version, zero flags, message kind
+    return (
+        MAGIC.to_bytes(4, "big")
+        + VERSION.to_bytes(4, "big")
+        + (0).to_bytes(4, "big")
+        + int(kind).to_bytes(4, "big")
+    )
+
+
+def decode_header(frame: bytes) -> MessageKind:
+    # decode and validate the fixed 16-byte header, returning the message
+    # kind; raises on any integrity violation
+    if len(frame) < HEADER_LEN:
+        raise ValueError(f"MSSP header shorter than {HEADER_LEN} bytes ({len(frame)})")
+    magic = int.from_bytes(frame[0:4], "big")
+    if magic != MAGIC:
+        raise ValueError(f"MSSP bad magic 0x{magic:08x}, expected 0x{MAGIC:08x}")
+    version = int.from_bytes(frame[4:8], "big")
+    if version != VERSION:
+        raise ValueError(
+            f"MSSP unsupported payload version {version}, supported range is [1, 1]"
+        )
+    flags = int.from_bytes(frame[8:12], "big")
+    if flags != 0:
+        raise ValueError(f"MSSP nonzero header flags 0x{flags:x}")
+    return _message_kind_from_u32(int.from_bytes(frame[12:16], "big"))
+
+
+def encode_frame(kind: MessageKind, body: bytes) -> bytes:
+    # a complete frame: the 16-byte header followed by `body`
+    return encode_header(kind) + body
+
+
+def decode_frame(frame: bytes):
+    # split a frame into its validated message kind and the body
+    return decode_header(frame), frame[HEADER_LEN:]
+
+
+def expect_frame_body(frame: bytes, expected: MessageKind) -> bytes:
+    # validate a frame, check it carries the expected message kind, and
+    # return the body
+    kind = decode_header(frame)
+    if kind != expected:
+        raise ValueError(
+            f"MSSP unexpected syscall message kind {int(kind)}, expected {int(expected)}"
+        )
+    return frame[HEADER_LEN:]
+
+
+def encode_request_frame(kind: MessageKind, body: dict) -> bytes:
+    # a request body is the integer-keyed MessagePack map of the WIT-declared
+    # arguments (1-based parameter numbers)
+    writer = MpackWriter()
+    writer.write_value(body)
+    return encode_frame(kind, writer.to_bytes())
+
+
+def decode_request_map(expected: MessageKind, frame: bytes) -> dict:
+    # decode a request frame into its argument map; non-integer keys are
+    # skipped (they cannot be WIT parameters) and trailing body bytes are
+    # rejected
+    body = expect_frame_body(frame, expected)
+    reader = MpackReader(body)
+    value = reader.read_value()
+    if not reader.is_done():
+        raise ValueError("trailing bytes after syscall payload body")
+    if not isinstance(value, dict):
+        raise ValueError("request body must be an integer-keyed map")
+    fields = {}
+    for key, item in value.items():
+        if isinstance(key, bool) or not isinstance(key, int):
+            continue
+        fields[key] = item
+    return fields
+
+
+def decode_field(fields: dict, number: int, decode, default_factory):
+    # decode one argument by its 1-based number; a missing key decodes as the
+    # type default (proto3 semantics), an unknown key is ignored by the caller
+    if number in fields:
+        return decode(fields[number])
+    return default_factory()
+
+
+def encode_result_frame(kind: MessageKind, result: WireResult, ok_to_value) -> bytes:
+    # a result body is `[0, value]` on success or `[1, error]` on failure
+    if result.is_ok:
+        body = [0, ok_to_value(result.value)]
+    else:
+        body = [1, {{ err_to_value_expr }}]
+    writer = MpackWriter()
+    writer.write_value(body)
+    return encode_frame(kind, writer.to_bytes())
+
+
+def decode_result_frame(expected: MessageKind, frame: bytes) -> WireResult:
+    # decode a result frame; the success arm stays in raw wire-value form for
+    # the caller to convert, the error arm decodes eagerly
+    body = expect_frame_body(frame, expected)
+    reader = MpackReader(body)
+    value = reader.read_value()
+    if not reader.is_done():
+        raise ValueError("trailing bytes after syscall payload body")
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(
+            f"result body must be a 2-element [tag, payload] array, found {value!r}"
+        )
+    tag = value[0]
+    if tag == 0:
+        return WireResult.ok(value[1])
+    if tag == 1:
+        return WireResult.err({{ err_from_value_expr }})
+    raise ValueError(f"MSSP unknown result tag {tag}, expected 0 (ok) or 1 (err)")
+
+
+def encode_unit_result_frame(kind: MessageKind, result: WireResult) -> bytes:
+    # a unit result body is `[0, 0]` on success or `[1, error]` on failure
+    if result.is_ok:
+        body = [0, 0]
+    else:
+        body = [1, {{ err_to_value_expr }}]
+    writer = MpackWriter()
+    writer.write_value(body)
+    return encode_frame(kind, writer.to_bytes())
+
+
+def decode_unit_result_frame(expected: MessageKind, frame: bytes) -> WireResult:
+    raw = decode_result_frame(expected, frame)
+    if raw.is_ok:
+        return WireResult.ok(None)
+    return raw

@@ -30,13 +30,20 @@ After the script finishes, activate the Python virtual environment:
 source .venv/bin/activate
 ```
 
-Then verify the build:
+Then verify the build. The repository is split into four independent Cargo workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`); build each workspace from its own directory:
 
 ```bash
+cd crates/db-kernel
 cargo build
 cargo test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --workspace --no-deps
+```
+
+Or run the full check sequence for all four workspaces from the repository root:
+
+```bash
+bash script/shell/check_all.sh
 ```
 
 ### Option B: Dev Container / Docker
@@ -116,6 +123,7 @@ python script/build/install_binaries.py
 Default installed tools:
 
 - `mpm-build`: package builder
+- `mpm-crate`: project scaffolder
 - `mgen`: source generator
 - `mtp`: transpiler
 - `mudud`: MuduDB server
@@ -445,10 +453,6 @@ Then verify the names with:
 mcli --http-addr 127.0.0.1:8300 app-list
 mcli --http-addr 127.0.0.1:8300 app-detail --app <app>
 ```
-
-### Why is the crate called `mod_0` instead of `mudu_wasm`?
-
-The directory and human-readable name are `mudu_wasm`, but the Cargo package name and the component module name used by the runtime are `mod_0`. When importing the library in Rust, use `mod_0::generated` and `mod_0::wasm_mtp`. See [`mudu_wasm/README.md`](../../mudu_wasm/README.md).
 
 ### Where can I learn more?
 

@@ -1,0 +1,22 @@
+# .NET build outputs
+**/bin/
+**/obj/
+
+# Test/demo runtime artifacts
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# User-specific IDE files
+**/.vs/
+**/*.user
+**/*.suo
+**/*.userosscache
+**/*.rsuser
+
+# Rider / IntelliJ
+**/.idea/
+
+# ReSharper
+**/_ReSharper*/
+**/*.DotSettings.user

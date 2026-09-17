@@ -1,0 +1,132 @@
+# Build pipeline for the {{project_name}} MuduDB app (Python, experimental).
+#
+# Required on PATH: componentize-py 0.25.1 (`pipx install
+# componentize-py==0.25.1`), wasm-tools, cargo-make, mtp and mpm-build.
+# See readme.md for details.
+
+[env]
+PACKAGE_NAME = "{{module_name}}"
+WORLD_NAME = "{{kebab_name}}"
+# Directory that contains the `mududb` Python package; it is bundled into
+# the component by componentize-py (`-p`). Scaffolded either from
+# --sdk-path (a mududb repository checkout) or as a placeholder: `pip
+# install mududb`, then set this to the site-packages directory that
+# contains the `mududb` package (find it with
+# `python3 -c "import mududb, pathlib; print(pathlib.Path(mududb.__file__).parent.parent)"`).
+PY_BINDINGS = "{{py_sdk_path}}"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/build/${PACKAGE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/py-guest/${PACKAGE_NAME}.mpk"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build",
+]
+
+# Generate typed entity bindings from the DDL schema into the project root
+# (one module per table; import each as `from <table> import <Record>`).
+[tasks.generate]
+dependencies = ["prepare"]
+command = "mgen"
+args = [
+    "entity",
+    "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}",
+    "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
+    "--lang", "python",
+]
+
+# Statically check every SQL string literal in the procedure sources
+# (procedures.py and the generated entity modules live in the project root)
+# against the DDL schema.
+[tasks.check-sql]
+dependencies = ["prepare", "generate"]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "py",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}",
+]
+
+# Generate the Python message types of the project WIT records (item-info)
+# with mgen: a single self-contained `gentypes.py` module carrying the
+# dataclasses plus their xxx_to_value/xxx_from_value codecs — the module
+# the mtp adapter wiring references through --type-import (see the
+# transpile task) and procedures.py imports.
+[tasks.gentypes]
+dependencies = ["prepare"]
+command = "mgen"
+args = [
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes.py",
+    "-l", "python",
+]
+
+# Transpile the procedures into the componentize-py adapter, the world WIT
+# and the procedure description. --type-wit registers the project record
+# types (wit/types.wit) so procedure signatures may use them; --type-import
+# points the generated adapter at the mgen-generated types module.
+[tasks.transpile]
+dependencies = ["prepare", "check-sql", "gentypes"]
+command = "mtp"
+args = [
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.py",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures_gen.py",
+    "--module", "${PACKAGE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "gentypes",
+    "python",
+]
+
+# Stage the mtp-generated world WIT next to the checked-in
+# `wit/deps/api/api.wit` copy of the host syscall interface so
+# componentize-py can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures_gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/procedures_gen.wit",
+]
+
+# componentize-py produces the component directly: the generated adapter
+# imports the user's `procedures` module (-p .), the mududb package
+# (-p ${PY_BINDINGS}), and lives in `generated` (-p generated).
+[tasks.componentize]
+dependencies = ["stage-wit"]
+command = "componentize-py"
+args = [
+    "-d", "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "-w", "${WORLD_NAME}",
+    "componentize", "procedures_gen",
+    "-p", "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "-p", "${CARGO_MAKE_WORKING_DIRECTORY}",
+    "-p", "${PY_BINDINGS}",
+    "-o", "${WASM_FILE}",
+]
+
+[tasks.validate-component]
+dependencies = ["componentize"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+[tasks.default]
+alias = "package"

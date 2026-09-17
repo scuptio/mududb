@@ -1,0 +1,83 @@
+use crate::service::app_inst::AppInst;
+use crate::service::runtime::Runtime;
+use crate::service::runtime_opt::RuntimeOpt;
+use crate::service::runtime_simple::RuntimeSimple;
+use async_trait::async_trait;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_utils::notifier::Notifier;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+#[derive(Clone)]
+struct RuntimeImpl {
+    inner: Arc<RuntimeSimple>,
+}
+
+impl RuntimeImpl {
+    pub async fn new(package_path: &String, db_path: &String, rt_opt: RuntimeOpt) -> RS<Self> {
+        for ps in [package_path, db_path] {
+            let path = PathBuf::from(ps);
+            // Use the `mudu_sys` fs wrappers rather than `std::fs` so the
+            // deterministic-simulation backend's in-memory filesystem is
+            // honored.
+            if !mudu_sys::fs::sync::sync_path_exists(&path) {
+                mudu_sys::fs::sync::create_dir_all(&path)?
+            } else if !mudu_sys::fs::sync::sync_metadata(&path)?.is_dir() {
+                return Err(mudu_error!(
+                    ErrorCode::NotADirectory,
+                    format!("{} is not a directory", ps)
+                ));
+            }
+        }
+        let mut runtime = RuntimeSimple::new(package_path, db_path, rt_opt).await?;
+        runtime.initialize().await?;
+        let ret = Self {
+            inner: Arc::new(runtime),
+        };
+        Ok(ret)
+    }
+}
+
+#[async_trait]
+impl Runtime for RuntimeImpl {
+    async fn list(&self) -> Vec<String> {
+        self.inner.list()
+    }
+
+    async fn app(&self, app_name: String) -> Option<Arc<dyn AppInst>> {
+        self.inner.app(app_name)
+    }
+
+    async fn install(&self, pkg_path: String) -> RS<()> {
+        self.inner.install(pkg_path).await
+    }
+
+    async fn drain_initdb(&self) -> RS<()> {
+        self.inner.drain_initdb().await
+    }
+
+    fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
+        self.inner.async_runtime()
+    }
+}
+
+unsafe impl Sync for RuntimeImpl {}
+
+unsafe impl Send for RuntimeImpl {}
+
+/// Creates a runtime service from a package path and database path.
+pub async fn create_runtime_service(
+    package_path: &String,
+    db_path: &String,
+    opt_initialized_notifier: Option<Notifier>,
+    rt_opt: RuntimeOpt,
+) -> RS<Arc<dyn Runtime>> {
+    let runtime = RuntimeImpl::new(package_path, db_path, rt_opt).await?;
+    if let Some(notifier) = opt_initialized_notifier {
+        notifier.notify_all();
+    }
+    Ok(Arc::new(runtime))
+}

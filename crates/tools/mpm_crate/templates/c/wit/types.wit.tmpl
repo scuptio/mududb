@@ -1,0 +1,31 @@
+// Project message types for the {{project_name}} guest: user-defined
+// procedure types declared in WIT, consumed two ways from the same file:
+//
+//   - `mgen message -i wit/types.wit -o gentypes/Types.h -l c` generates
+//     the C structs plus their xxx_encode/xxx_decode codecs as a
+//     self-contained header — see the Makefile `gentypes` task;
+//   - `mtp ... --type-wit wit/types.wit` registers these names so procedure
+//     annotations in src/procedures.c may use them (record
+//     parameters/returns, enum parameters) — see the Makefile `transpile`
+//     task.
+//
+// On the procedure byte pipe a record travels as the positional
+// `uni-data-value` record case (declaration order, names dropped by the
+// host); the desc JSON keys are the WIT field names verbatim.
+//
+// The `package` clause matches the mtp-generated world.wit: one WIT
+// directory is one package, and the `wasm-tools component embed` world
+// build rejects headerless files sitting next to a packaged world. The
+// world does not reference this interface; it rides along inertly.
+package mududb:{{kebab_name}};
+
+interface types {
+    // The item fact sheet: scalar fields (u32 and bool both cross the host
+    // as i32 — bool as 0/1) and a list field.
+    record item-info {
+        name: string,
+        price: u32,
+        in-stock: bool,
+        labels: list<string>,
+    }
+}

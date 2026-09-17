@@ -1,11 +1,10 @@
 {
   "packages": [
-    "mudu_wasm",
-    "example/game-backend",
-    "example/key-value",
-    "example/tpcc",
-    "example/vote",
-    "example/wallet",
-    "example/ycsb"
+    "crates/sdk/example/game-backend",
+    "crates/sdk/example/key-value",
+    "crates/sdk/example/tpcc",
+    "crates/sdk/example/vote",
+    "crates/sdk/example/wallet",
+    "crates/sdk/example/ycsb"
   ]
 }

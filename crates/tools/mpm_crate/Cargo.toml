@@ -1,0 +1,21 @@
+[package]
+name = "mpm_crate"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+mudu_sys = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "mpm-crate"
+path = "src/main.rs"

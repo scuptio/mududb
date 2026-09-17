@@ -1,0 +1,87 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+[MessagePackFormatter(typeof({{ record.record_name }}Formatter))]
+public struct {{ record.record_name }} {
+    {% if cfg.impl_default %}
+    [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public {{ record.record_name }}()
+    {
+        {% for field in record.record_fields %}
+        {{ field.rf_name }} = {{ field.rf_default_value }};
+        {% endfor %}
+    }
+    {% endif %}
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    public {% if field.rf_required %}required {% endif %}{{ field.rf_type }} {{ field.rf_name }} { get; set; }
+    {% endfor %}
+}
+
+public class {{ record.record_name }}Formatter : IMessagePackFormatter<{{ record.record_name }}>
+{
+    public void Serialize(ref MessagePackWriter writer, {{ record.record_name }} value, MessagePackSerializerOptions options)
+    {
+{% if has_option_field %}        // The record encodes as a MessagePack map keyed by the 1-based field
+        // numbers (WIT declaration order). WIT option fields are omitted
+        // when they hold no value (proto3 presence semantics); decode
+        // treats a missing key as the default.
+        writer.WriteMapHeader({{ record.record_fields.len() }}{% for field in record.record_fields %}{% if field.rf_is_option %} - 1 + (value.{{ field.rf_name }} is not null ? 1 : 0){% endif %}{% endfor %});
+        {% for field in record.record_fields %}
+        {% if field.rf_is_option %}
+        if (value.{{ field.rf_name }} is not null)
+        {
+            writer.Write({{ field.rf_number }});
+{{ field.rf_serialize }}
+        }
+        {% else %}
+        writer.Write({{ field.rf_number }});
+{{ field.rf_serialize }}
+        {% endif %}
+        {% endfor %}
+{% else %}        // The record encodes as a MessagePack map keyed by the 1-based field
+        // numbers (WIT declaration order).
+        writer.WriteMapHeader({{ record.record_fields.len() }});
+        {% for field in record.record_fields %}
+        writer.Write({{ field.rf_number }});
+{{ field.rf_serialize }}
+        {% endfor %}
+{% endif %}    }
+
+    public {{ record.record_name }} Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    {
+        // Decode is lenient: integer keys of any MessagePack width are
+        // accepted, non-integer and unknown keys are skipped, key order is
+        // arbitrary, and missing fields keep the constructor defaults
+        // (proto3 semantics).
+        var count = reader.ReadMapHeader();
+        var value = new {{ record.record_name }}();
+        for (var __i = 0; __i < count; __i++)
+        {
+            if (reader.NextMessagePackType != MessagePackType.Integer)
+            {
+                reader.Skip();
+                reader.Skip();
+                continue;
+            }
+
+            switch (reader.ReadInt64())
+            {
+                {% for field in record.record_fields %}
+                case {{ field.rf_number }}:
+                {
+{{ field.rf_deserialize }}
+                    break;
+                }
+                {% endfor %}
+                default:
+                    reader.Skip();
+                    break;
+            }
+        }
+
+        return value;
+    }
+}

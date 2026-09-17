@@ -1,0 +1,206 @@
+{
+  "records": [
+    {
+      "name": "mu-entry",
+      "fields": [
+        {
+          "number": 1,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "number": 2,
+          "name": "value",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mu-error",
+      "fields": [
+        {
+          "number": 1,
+          "name": "err-code",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "err-msg",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "err-details",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mu-oid",
+      "fields": [
+        {
+          "number": 1,
+          "name": "h",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 2,
+          "name": "l",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    }
+  ],
+  "tables": [],
+  "variants": [],
+  "enums": [],
+  "functions": [
+    {
+      "name": "get",
+      "message_kind": 1,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "mu-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                3,
+                [
+                  7,
+                  0
+                ]
+              ],
+              "err": [
+                6,
+                "mu-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "put",
+      "message_kind": 2,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "mu-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "entry",
+          "data_type": [
+            6,
+            "mu-entry"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "mu-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "scan",
+      "message_kind": 3,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "mu-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "prefix",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                1,
+                [
+                  6,
+                  "mu-entry"
+                ]
+              ],
+              "err": [
+                6,
+                "mu-error"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

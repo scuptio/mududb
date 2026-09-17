@@ -23,15 +23,15 @@ Run code coverage locally using cargo llvm-cov.
 Options:
   -p, --profile <profile>   Coverage scope: 'core' (default) or 'workspace'
   -f, --format <format>     Output format: 'html', 'json', 'lcov', or 'all' (default)
-  --[no-]branch             Enable/disable branch coverage (default: enabled for core, disabled for workspace)
+  --[no-]branch             Enable/disable branch coverage (default: disabled; llvm-cov
+                            in the pinned nightly SIGSEGVs on branch data at report time)
   -o, --output-dir <dir>    Output directory (default: target/llvm-cov)
   -h, --help                Show this help message
 
 Examples:
-  $0                        # coverage for core crates, all formats, with branch coverage
-  $0 --no-branch            # disable branch coverage
-  $0 -p workspace -f html   # full workspace, HTML only (line coverage by default)
-  $0 -p workspace --branch  # full workspace with branch coverage (may crash due to LLVM bug)
+  $0                        # coverage for core crates, all formats, line coverage
+  $0 --branch               # core crates with branch coverage (unstable, see above)
+  $0 -p workspace -f html   # full workspace, HTML only
   $0 -p core -f json        # core crates, JSON summary only
 EOF
 }
@@ -39,8 +39,12 @@ EOF
 parse_args() {
     PROFILE="core"
     FORMAT="all"
-    BRANCH=1
-    BRANCH_SET=0
+    # Branch coverage defaults off: branch-instrumented data makes llvm-cov
+    # (LLVM in the pinned nightly) SIGSEGV at report time in
+    # getInstantiationGroups, and cargo-llvm-cov auto-enables branch display
+    # whenever the data contains branch records, so the only reliable
+    # workaround is to not collect branch data. --branch opts in explicitly.
+    BRANCH=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--profile)
@@ -53,12 +57,10 @@ parse_args() {
                 ;;
             --branch)
                 BRANCH=1
-                BRANCH_SET=1
                 shift
                 ;;
             --no-branch)
                 BRANCH=0
-                BRANCH_SET=1
                 shift
                 ;;
             -o|--output-dir)
@@ -76,13 +78,6 @@ parse_args() {
                 ;;
         esac
     done
-
-    # workspace profile currently crashes with branch coverage due to an LLVM bug
-    # when mudu_kernel is included. Default to line coverage unless explicitly requested.
-    if [[ "${PROFILE}" == "workspace" && "${BRANCH_SET}" -eq 0 ]]; then
-        BRANCH=0
-        log_info "workspace profile defaults to line coverage (--no-branch); use --branch to force branch coverage."
-    fi
 }
 
 read_nightly_toolchain() {
@@ -133,16 +128,34 @@ ensure_cargo_llvm_cov() {
     fi
 }
 
-build_package_args() {
+# Independent group workspaces, each with its own Cargo.lock. Coverage runs
+# one group at a time because no root workspace exists anymore.
+# Note: GROUPS is a special bash variable (the user's group IDs) and cannot be
+# assigned to, so this array uses a different name.
+WS_GROUPS=(crates/common crates/db-kernel crates/sdk crates/tools)
+
+# Sets PACKAGE_ARGS for the given group. Returns 1 when the selected profile
+# covers no packages in that group (caller skips it).
+group_package_args() {
+    local group="$1"
     if [[ "${PROFILE}" == "core" ]]; then
-        PACKAGE_ARGS=(
-            --package mudu
-            --package mudu_type
-            --package mudu_contract
-            --package mudu_kernel
-        )
+        case "${group}" in
+            crates/common)
+                PACKAGE_ARGS=(
+                    --package mudu
+                    --package mudu_type
+                    --package mudu_contract
+                )
+                ;;
+            crates/db-kernel)
+                PACKAGE_ARGS=(--package mudu_kernel)
+                ;;
+            *)
+                return 1
+                ;;
+        esac
         if [[ "${BRANCH}" -eq 1 ]]; then
-            log_info "Note: branch coverage for the 'core' profile can trigger an LLVM bug in mudu_kernel; if report generation crashes, rerun with --no-branch."
+            log_info "Note: --branch is unstable with the pinned nightly's LLVM: llvm-cov can SIGSEGV at report time (getInstantiationGroups), failing the run."
         fi
     elif [[ "${PROFILE}" == "workspace" ]]; then
         PACKAGE_ARGS=(--workspace)
@@ -150,6 +163,7 @@ build_package_args() {
         log_error "Unknown profile: ${PROFILE}. Use 'core' or 'workspace'."
         exit 1
     fi
+    return 0
 }
 
 branch_args() {
@@ -160,14 +174,16 @@ branch_args() {
 
 clean_coverage_artifacts() {
     log_info "Cleaning old coverage artifacts..."
-    cd "${PROJECT_ROOT}"
-    cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov clean
+    for group in "${WS_GROUPS[@]}"; do
+        (cd "${PROJECT_ROOT}/${group}" && cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov clean)
+    done
     rm -rf "${OUTPUT_DIR}"
 }
 
 run_tests_with_coverage() {
-    log_info "Running tests with coverage instrumentation for profile '${PROFILE}'..."
-    cd "${PROJECT_ROOT}"
+    local group="$1"
+    log_info "Running tests with coverage instrumentation for profile '${PROFILE}' in ${group}..."
+    cd "${PROJECT_ROOT}/${group}"
     CARGO_INCREMENTAL=0 \
         cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov \
         "${PACKAGE_ARGS[@]}" \
@@ -179,48 +195,51 @@ run_tests_with_coverage() {
 }
 
 generate_html_report() {
-    mkdir -p "${OUTPUT_DIR}/html"
+    local out_dir="$1"
+    mkdir -p "${out_dir}/html"
     cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-        $(branch_args) \
         --html \
-        --output-dir "${OUTPUT_DIR}/html"
+        --output-dir "${out_dir}/html"
 }
 
 generate_json_report() {
+    local out_dir="$1"
     cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-        $(branch_args) \
         --json \
-        --output-path "${OUTPUT_DIR}/coverage.json"
+        --output-path "${out_dir}/coverage.json"
 }
 
 generate_lcov_report() {
+    local out_dir="$1"
     cargo "+${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-        $(branch_args) \
         --lcov \
-        --output-path "${OUTPUT_DIR}/coverage.lcov"
+        --output-path "${out_dir}/coverage.lcov"
 }
 
-run_coverage() {
-    run_tests_with_coverage
+run_coverage_for_group() {
+    local group="$1"
+    local out_dir="${OUTPUT_DIR}/$(basename "${group}")"
+
+    run_tests_with_coverage "${group}"
 
     case "${FORMAT}" in
         html)
             log_info "Generating HTML report..."
-            generate_html_report
+            generate_html_report "${out_dir}"
             ;;
         json)
             log_info "Generating JSON report..."
-            generate_json_report
+            generate_json_report "${out_dir}"
             ;;
         lcov)
             log_info "Generating LCOV report..."
-            generate_lcov_report
+            generate_lcov_report "${out_dir}"
             ;;
         all)
             log_info "Generating HTML / JSON / LCOV reports..."
-            generate_html_report
-            generate_json_report
-            generate_lcov_report
+            generate_html_report "${out_dir}"
+            generate_json_report "${out_dir}"
+            generate_lcov_report "${out_dir}"
             ;;
         *)
             log_error "Unknown format: ${FORMAT}. Use 'html', 'json', 'lcov', or 'all'."
@@ -229,28 +248,45 @@ run_coverage() {
     esac
 }
 
+run_coverage() {
+    local group
+    for group in "${WS_GROUPS[@]}"; do
+        if ! group_package_args "${group}"; then
+            log_info "Profile '${PROFILE}' covers no packages in ${group}; skipping."
+            continue
+        fi
+        run_coverage_for_group "${group}"
+    done
+}
+
 print_summary() {
-    log_success "Coverage report generated in ${OUTPUT_DIR}"
+    log_success "Coverage report generated under ${OUTPUT_DIR}/<group>/"
     if [[ "${BRANCH}" -eq 1 ]]; then
         echo "  Branch coverage: enabled"
     else
         echo "  Branch coverage: disabled"
     fi
-    case "${FORMAT}" in
-        html|all)
-            echo "  HTML report : file://${OUTPUT_DIR}/html/index.html"
-            ;;
-    esac
-    case "${FORMAT}" in
-        json|all)
-            echo "  JSON summary: ${OUTPUT_DIR}/coverage.json"
-            ;;
-    esac
-    case "${FORMAT}" in
-        lcov|all)
-            echo "  LCOV file   : ${OUTPUT_DIR}/coverage.lcov"
-            ;;
-    esac
+    local group out_dir
+    for group in "${WS_GROUPS[@]}"; do
+        out_dir="${OUTPUT_DIR}/$(basename "${group}")"
+        [[ -d "${out_dir}" ]] || continue
+        echo "  ${group}:"
+        case "${FORMAT}" in
+            html|all)
+                echo "    HTML report : file://${out_dir}/html/index.html"
+                ;;
+        esac
+        case "${FORMAT}" in
+            json|all)
+                echo "    JSON summary: ${out_dir}/coverage.json"
+                ;;
+        esac
+        case "${FORMAT}" in
+            lcov|all)
+                echo "    LCOV file   : ${out_dir}/coverage.lcov"
+                ;;
+        esac
+    done
 }
 
 main() {
@@ -259,7 +295,6 @@ main() {
     ensure_nightly_toolchain
     ensure_llvm_tools
     ensure_cargo_llvm_cov
-    build_package_args
     clean_coverage_artifacts
     mkdir -p "${OUTPUT_DIR}"
     run_coverage

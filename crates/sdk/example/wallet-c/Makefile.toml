@@ -1,0 +1,173 @@
+# Build pipeline for the wallet-c MuduDB app (C), mirroring the mpm-crate
+# C template with the wallet-go repo-root output convention.
+#
+# Required on PATH: cargo-make, wasm-tools and the workspace tools mgen /
+# mtp / mpm-build; plus a clang that can target wasm32 freestanding
+# (wasi-sdk's clang by default — override with `WASI_SDK=/path/to/wasi-sdk
+# cargo make`, or point `CLANG` at any suitable compiler binary). The wire
+# runtime is the in-repo C binding (../../bindings/c), compiled straight
+# from source through BINDING_DIR — nothing is vendored into the example,
+# the C analogue of wallet-go's `replace` in go.mod. See readme.md for
+# details.
+
+[env]
+PACKAGE_NAME = "wallet-c"
+MODULE_NAME = "wallet_c"
+WORLD_NAME = "wallet-c"
+WASI_SDK = { value = "${HOME}/.wasi-sdk/wasi-sdk-29.0", condition = { env_not_set = ["WASI_SDK"] } }
+CLANG = { value = "${WASI_SDK}/bin/clang", condition = { env_not_set = ["CLANG"] } }
+BINDING_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/c"
+GENERATED_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/generated"
+BUILD_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/build"
+CORE_WASM = "${BUILD_DIR}/${MODULE_NAME}.core.wasm"
+EMBEDDED_WASM = "${BUILD_DIR}/${MODULE_NAME}.embedded.wasm"
+WASM_FILE = "${BUILD_DIR}/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/c-guest/${PACKAGE_NAME}.mpk"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${GENERATED_DIR}",
+    "${BUILD_DIR}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/c-guest",
+]
+
+# Statically check every SQL string literal in src/procedures.c against the
+# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+[tasks.check-sql]
+dependencies = ["prepare"]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "c",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
+]
+
+# Generate the C message types of the project WIT records (profile/address)
+# with mgen: gentypes/Types.h carries the structs plus their
+# xxx_encode/xxx_decode codecs (a self-contained header, the same shape the
+# binding's mududb/types/Uni*.h carry). src/procedures.c includes it as
+# "gentypes/Types.h" — the include specifier the mtp --type-import wiring
+# references (see the transpile task).
+[tasks.gentypes]
+command = "mgen"
+args = [
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes/Types.h",
+    "-l", "c",
+]
+
+# Transpile the `// mudu-proc` annotated functions of src/procedures.c into
+# the export-wrapper translation unit, the world WIT and the procedure
+# description — the artifacts that used to be maintained by hand.
+# --type-wit registers the project record types (wit/types.wit) so procedure
+# signatures may use them; --type-import points the generated adapter at the
+# mgen-generated types header (the adapter includes it).
+[tasks.transpile]
+dependencies = ["check-sql", "gentypes"]
+command = "mtp"
+args = [
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
+    "--output", "${GENERATED_DIR}/procedures_gen.c",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "gentypes/Types.h",
+    "c",
+]
+
+# Stage the mtp-generated world WIT next to the checked-in
+# `wit/deps/mududb-api/api.wit` copy of the host syscall interface so
+# `wasm-tools component embed` can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${GENERATED_DIR}/procedures_gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/world.wit",
+]
+
+# Freestanding core module: no libc, no WASI imports — the only imports are
+# the `mududb:api/system` syscalls declared in the mtp-generated
+# `wit/world.wit`. The mtp-generated `procedures_gen.c` carries the `mp2-*`
+# export wrappers and their arity/kind check preambles. The C binding
+# (mpack.c + mpack_alloc.c + record_bridge.c) is compiled from
+# ../../bindings/c; its `mp_realloc` allocation hook lands on the
+# freestanding `realloc`/`free` shims in src/mudu_sys.c. Headers
+# (string.h/stdbool.h/stdint.h) come from the wasi-sdk sysroot include
+# directory — only headers are used, the link stays `-nostdlib`.
+# (`-mexec-model=reactor` from the mpm-crate C template is omitted here:
+# `-Wl,--no-entry` already yields the reactor model.) The example root is on
+# the include path so "gentypes/Types.h" (the mgen-generated record types)
+# resolves.
+[tasks.cc-build]
+dependencies = ["stage-wit"]
+command = "${CLANG}"
+args = [
+    "--target=wasm32",
+    "-nostdlib",
+    "-fno-builtin",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-std=c99",
+    "-isystem", "${WASI_SDK}/share/wasi-sysroot/include/wasm32-wasip1",
+    "-I${CARGO_MAKE_WORKING_DIRECTORY}",
+    "-I${CARGO_MAKE_WORKING_DIRECTORY}/src",
+    "-I${BINDING_DIR}",
+    "-Wl,--no-entry",
+    "-Wl,--export-memory",
+    "${BINDING_DIR}/mududb/codec/mpack.c",
+    "${BINDING_DIR}/mududb/codec/mpack_alloc.c",
+    "${BINDING_DIR}/mududb/codec/record_bridge.c",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/mudu_sys.c",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
+    "${GENERATED_DIR}/procedures_gen.c",
+    "-o",
+    "${CORE_WASM}",
+]
+
+# Wrap the core module into a WASI 0.2 component: embed the world metadata,
+# then let wasm-tools generate the canonical-ABI glue (lift for the `mp2-*`
+# exports, lower for the `mududb:api/system` imports). No `--adapt` is
+# needed: the module imports nothing outside the world.
+[tasks.c-embed]
+dependencies = ["cc-build"]
+command = "wasm-tools"
+args = [
+    "component", "embed",
+    "--world", "${WORLD_NAME}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "${CORE_WASM}",
+    "--output", "${EMBEDDED_WASM}",
+]
+
+[tasks.c-component]
+dependencies = ["c-embed"]
+command = "wasm-tools"
+args = ["component", "new", "${EMBEDDED_WASM}", "--output", "${WASM_FILE}"]
+
+[tasks.validate-component]
+dependencies = ["c-component"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+[tasks.default]
+alias = "package"

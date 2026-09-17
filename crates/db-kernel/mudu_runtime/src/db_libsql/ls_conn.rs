@@ -1,0 +1,259 @@
+use crate::db_libsql::ls_async_conn::LSSyncConn;
+use libsql::Connection;
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+use mudu_contract::database::db_conn::DBConnSync;
+use mudu_contract::database::result_set::ResultSet;
+use mudu_contract::database::sql::DBConn;
+use mudu_contract::database::sql_params::SQLParams;
+use mudu_contract::database::sql_stmt::SQLStmt;
+use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+use std::any::Any;
+use std::sync::Arc;
+
+pub fn create_ls_conn(db_path: &str, app_name: &str, ddl_path: &str) -> RS<DBConn> {
+    Ok(DBConn::Sync(Arc::new(LSConn::new(
+        db_path, app_name, ddl_path,
+    )?)))
+}
+
+struct LSConn {
+    inner: Arc<LSSyncConn>,
+}
+
+pub fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection> {
+    let inner = conn as &dyn Any;
+    let opt_ls_conn = inner.downcast_ref::<LSConn>();
+    opt_ls_conn.map(|ls_conn| ls_conn.inner.libsql_connection())
+}
+
+impl LSConn {
+    fn new(db_path: &str, app_name: &str, ddl_path: &str) -> RS<Self> {
+        let inner = LSSyncConn::new(db_path, app_name, ddl_path)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+}
+
+impl DBConnSync for LSConn {
+    fn exec_silent(&self, sql_text: &str) -> RS<()> {
+        self.inner.exe_sql(sql_text.to_owned())
+    }
+
+    fn begin_tx(&self) -> RS<OID> {
+        self.inner.sync_begin_tx()
+    }
+
+    fn rollback_tx(&self) -> RS<()> {
+        self.inner.sync_rollback()
+    }
+
+    fn commit_tx(&self) -> RS<()> {
+        self.inner.sync_commit()
+    }
+
+    fn query(
+        &self,
+        sql: &dyn SQLStmt,
+        param: &dyn SQLParams,
+    ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
+        self.inner.sync_query(sql, param)
+    }
+
+    fn command(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.inner.sync_command(sql, param)
+    }
+
+    fn batch(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<u64> {
+        self.inner.sync_batch(sql, param)
+    }
+}
+
+unsafe impl Send for LSConn {}
+
+unsafe impl Sync for LSConn {}
+
+#[cfg(test)]
+#[path = "ls_conn_test.rs"]
+mod ls_conn_test;
+
+// The test in this module exercises libsql's real file IO, and all helpers
+// here exist only for it; skip compiling the module under the deterministic
+// backend.
+#[cfg(all(test, not(feature = "ds")))]
+mod test {
+    use crate::db_libsql::ls_conn::create_ls_conn;
+    use libsql::{Connection, params};
+    use mudu::common::id::OID;
+    use mudu::common::result::RS;
+    use mudu_contract::database::sql::DBConn;
+    use mudu_sys::env_var::temp_dir;
+    use mudu_sys::fs::sync::SFile;
+    use mudu_sys::tokio::runtime::Builder;
+    use mudu_utils::log::log_setup;
+    use mudu_utils::notifier::notify_wait;
+    use mudu_utils::task_async::spawn_task;
+    use mudu_utils::this_file;
+    use std::io::{BufRead, BufReader};
+    use std::path::{Path, PathBuf};
+    use tracing::debug;
+
+    fn test_db_temp_folder() -> String {
+        let folder = temp_dir();
+        let path2 = folder.join("test_db");
+        if !path2.exists() {
+            mudu_sys::fs::sync::create_dir_all(&path2).unwrap();
+        }
+        path2.to_str().unwrap().to_string()
+    }
+
+    fn test_db_sql_folder() -> String {
+        let file = this_file!();
+        let path1 = PathBuf::from(file);
+        let path2 = path1.parent().unwrap().join("test_db");
+        path2.to_str().unwrap().to_string()
+    }
+    async fn execute_sql_file<P: AsRef<Path>>(
+        conn: &Connection,
+        path: P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // open SQL file
+        let file = SFile::open(path)?;
+        let reader = BufReader::new(file);
+
+        let mut sql_statement = String::new();
+
+        for line in reader.lines() {
+            let line = line?;
+
+            // ignore commend and empty lines
+            let trimmed = line.trim();
+            if trimmed.starts_with("--") || trimmed.is_empty() {
+                continue;
+            }
+
+            // sql statement
+            sql_statement.push_str(&line);
+            sql_statement.push(' ');
+
+            // if ;, execute this SQL
+            if trimmed.ends_with(';') {
+                // remove the end ; and empty
+                sql_statement = sql_statement.trim().to_string();
+                if sql_statement.ends_with(';') {
+                    sql_statement.pop();
+                }
+
+                // execute SQL statement
+                conn.execute(&sql_statement, params!([])).await?;
+
+                // prepare for next statement
+                sql_statement.clear();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn sql_file(folder: &String) -> String {
+        let path1 = PathBuf::from(folder);
+        let path2 = path1.join("testdb.ddl.sql");
+        path2.to_str().unwrap().to_string()
+    }
+
+    const APP_NAME: &str = "app_test_ls_conn";
+
+    fn db_file(folder: &String) -> String {
+        format!("{}/{}", folder, APP_NAME)
+    }
+
+    async fn prepare_test_db() {
+        let db_path = db_file(&test_db_temp_folder());
+        let db = libsql::Builder::new_local(db_path).build().await.unwrap();
+
+        let conn = db.connect().unwrap();
+        let sql_path = sql_file(&test_db_sql_folder());
+        execute_sql_file(&conn, sql_path).await.unwrap();
+    }
+    // libsql performs real SQLite file IO outside `mudu_sys`; the
+    // deterministic-simulation backend keeps fs writes in memory,
+    // so the database file cannot be created. Native backend only.
+    #[cfg(not(feature = "ds"))]
+    // libsql calls SQLite C functions (e.g. `sqlite3_config`) that Miri does
+    // not support, so this test is ignored under Miri and runs only on native
+    // builds.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_ls_conn() {
+        log_setup("info");
+        let builder = Builder::new_multi_thread().enable_all().build().unwrap();
+
+        let conn_max = 1;
+        builder.block_on(async move {
+            let (_cancel_notifier, cancel_waiter) = notify_wait();
+            prepare_test_db().await;
+            let mut join = vec![];
+            {
+                let db_path = test_db_temp_folder();
+                let ddl_path = test_db_sql_folder();
+                let j = spawn_task(cancel_waiter, "task_0", async move {
+                    handle_conn(0, conn_max, APP_NAME.to_string(), db_path, ddl_path)
+                        .await
+                        .unwrap();
+                })
+                .unwrap();
+                join.push(j);
+            }
+            for j in join {
+                j.await.unwrap();
+            }
+        });
+    }
+
+    async fn handle_conn(
+        i: u32,
+        conn_max: u32,
+        app_name: String,
+        db_path: String,
+        ddl_path: String,
+    ) -> RS<()> {
+        let conn = create_ls_conn(&db_path, &app_name, &ddl_path)?;
+        let tx_max = 2;
+
+        for n in 0..tx_max {
+            let xid = conn.expected_sync()?.begin_tx()?;
+            let r = process(i, conn_max, n, tx_max, xid, conn.clone());
+            if Ok(()) == r {
+                conn.expected_sync()?.commit_tx()?;
+            } else {
+                conn.expected_sync()?.rollback_tx()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn process(
+        conn_id: u32,
+        _conn_max: u32,
+        n: u32,
+        tx_max: u32,
+        _xid: OID,
+        conn: DBConn,
+    ) -> RS<()> {
+        let id = conn_id * tx_max + n;
+        let rows = conn.expected_sync()?.command(
+            &format!("insert into orders(order_id, user_id, amount, status) VALUES({}, 1, 100, 'status');", id), &())?;
+        let (result, _desc) = conn.expected_sync()?.query(
+            &"select order_id, user_id, amount, status from orders;",
+            &(),
+        )?;
+        debug!("affected rows {}", rows);
+        let mut n: u64 = 0;
+        while let Some(_row) = result.next()? {
+            n += 1;
+        }
+        debug!("task {} query {} rows", conn_id, n);
+        Ok(())
+    }
+}

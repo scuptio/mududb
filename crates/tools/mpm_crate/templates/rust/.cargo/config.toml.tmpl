@@ -1,0 +1,5 @@
+# Keep build artifacts inside this project. Cargo merges .cargo/config.toml
+# files from every parent directory; pinning target-dir here stops an outer
+# workspace's shared target-dir from capturing this project's artifacts.
+[build]
+target-dir = "target"

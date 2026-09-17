@@ -1,0 +1,185 @@
+{% if func.comments.len() > 0 %}
+{{ func.comments }}
+{% endif %}
+{% for holder in func.tuple_holders %}
+export class {{ holder.name }} {
+    {% for ty in holder.field_types %}
+    f{{ loop.index0 }}: {{ ty }} = {{ holder.field_defaults[loop.index0] }};
+    {% endfor %}
+}
+{% endfor %}
+{% if func.param_count > 1 %}
+export class {{ func.req_holder_name }} {
+    {% for field in func.req_holder_fields %}
+    {{ field.name }}: {{ field.ty }} = {{ field.default }};
+    {% endfor %}
+}
+{% endif %}
+{% if func.param_count == 0 %}
+export function encode{{ func.pascal }}Request(): Uint8Array {
+    return encodeFrame(MessageKind.{{ func.kind_case }}, new Uint8Array(0));
+}
+
+export function decode{{ func.pascal }}Request(frame: Uint8Array): void {
+    const body = expectFrameBody(frame, MessageKind.{{ func.kind_case }});
+    if (body.length !== 0) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+}
+{% else %}
+export function encode{{ func.pascal }}Request({{ func.req_signature }}): Uint8Array {
+    const writer = new MpackWriter();
+{{ func.req_encode_stmts }}
+    return encodeFrame(MessageKind.{{ func.kind_case }}, writer.toBytes());
+}
+
+{% if func.param_count > 1 %}
+export function decode{{ func.pascal }}Request(frame: Uint8Array): {{ func.req_holder_name }} {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.{{ func.kind_case }}));
+    const value = new {{ func.req_holder_name }}();
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        {% for param in func.req_params %}
+        {% if loop.first %}if{% else %}else if{% endif %} (key == {{ param.number }}) {
+{{ param.decode_stmts }}
+        } {% endfor %}else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+{% else %}
+export function decode{{ func.pascal }}Request(frame: Uint8Array): {{ func.req_single_type }} {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.{{ func.kind_case }}));
+    let value: {{ func.req_single_type }} = {{ func.req_single_default }};
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        {% for param in func.req_params %}
+        {% if loop.first %}if{% else %}else if{% endif %} (key == {{ param.number }}) {
+{{ param.decode_stmts }}
+        } {% endfor %}else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+{% endif %}
+{% endif %}
+
+export class {{ func.res_holder_name }} {
+    {% if !func.result_is_unit %}
+    value: {{ func.res_ok_type }} = {{ func.res_ok_default }};
+    {% endif %}
+    error: {{ func.err_type_name }} | null = null;
+
+    {% if func.result_is_unit %}
+    static ok(): {{ func.res_holder_name }} {
+        return new {{ func.res_holder_name }}();
+    }
+    {% else %}
+    static ok(value: {{ func.res_ok_type }}): {{ func.res_holder_name }} {
+        const result = new {{ func.res_holder_name }}();
+        result.value = value;
+        return result;
+    }
+    {% endif %}
+
+    static err(error: {{ func.err_type_name }}): {{ func.res_holder_name }} {
+        const result = new {{ func.res_holder_name }}();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+{% if func.result_is_unit %}
+export function encode{{ func.pascal }}Result(result: {{ func.res_holder_name }}): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        {{ func.err_type_name }}Codec.encode(error!, writer);
+    } else {
+        // unit success: the `0u8` placeholder payload
+        writer.writeU64(0);
+        writer.writeU64(0);
+    }
+    return encodeFrame(MessageKind.{{ func.kind_case }}, writer.toBytes());
+}
+
+export function decode{{ func.pascal }}Result(frame: Uint8Array): {{ func.res_holder_name }} {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.{{ func.kind_case }}));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        // consume the `0u8` placeholder payload
+        reader.readU64();
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return new {{ func.res_holder_name }}();
+    }
+    if (tag === 1) {
+        const result = {{ func.res_holder_name }}.err({{ func.err_type_name }}Codec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+{% else %}
+export function encode{{ func.pascal }}Result(result: {{ func.res_holder_name }}): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        {{ func.err_type_name }}Codec.encode(error!, writer);
+    } else {
+        writer.writeU64(0);
+{{ func.res_encode_stmts }}
+    }
+    return encodeFrame(MessageKind.{{ func.kind_case }}, writer.toBytes());
+}
+
+export function decode{{ func.pascal }}Result(frame: Uint8Array): {{ func.res_holder_name }} {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.{{ func.kind_case }}));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        const result = new {{ func.res_holder_name }}();
+{{ func.res_decode_stmts }}
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    if (tag === 1) {
+        const result = {{ func.res_holder_name }}.err({{ func.err_type_name }}Codec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+{% endif %}

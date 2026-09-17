@@ -1,0 +1,9 @@
+interface universal {
+    // object id
+    record uni-oid {
+        // higher 64 bits
+        h:u64,
+        // lower 64 bits
+        l:u64,
+    }
+}

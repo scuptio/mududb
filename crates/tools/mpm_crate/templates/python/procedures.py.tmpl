@@ -1,0 +1,125 @@
+"""{{project_name}} procedures, written against the canonical Python facade
+(`mududb.db` / `mududb.sql`) and the mgen-generated entity modules (e.g.
+`items.py`, regenerated from sql/ddl.sql by the `generate` build task).
+update_item_info demonstrates a user-defined record type (wit/types.wit,
+generated into `gentypes.py` by mgen) as a procedure parameter and return
+type.
+
+Convention: the first parameter of each `# mudu-proc` function is the bound
+session `UniOid`, injected by the mtp-generated adapter from
+`UniProcedureParam.session`; the remaining parameters arrive positionally in
+`param_list`.
+"""
+
+from gentypes import ItemInfo
+from items import Items
+from mududb.db import Database
+from mududb.generated.uni_oid import UniOid
+from mududb.result import as_i64, as_string
+from mududb.sql import Params, SqlStmt
+
+
+def _command(db: Database, sql: str, values: Params | None = None) -> int:
+    return db.command(SqlStmt(sql), values)
+
+
+# mudu-proc
+def create_item(session: UniOid, item_id: int, name: str) -> int:
+    db = Database(session)
+    item = Items(item_id=item_id, name=name, quantity=0)
+    inserted = item.insert(db)
+    if inserted != 1:
+        raise Exception("create item failed")
+    return item_id
+
+
+# update_item_info stores a user-defined record argument and returns the
+# stored record. The `item-info` record type is declared in wit/types.wit
+# and generated into `gentypes.py` by mgen; the mtp adapter decodes the
+# positional record envelope through the binding record bridge
+# (mududb.codec.bridge.record_field_values) composed with
+# gentypes.item_info_from_value, and encodes the returned record
+# symmetrically.
+#
+# Storage design: the record flattens into the `item_info` table columns
+# (bool/u32 as INT — the host carries both as i32); the label list lands in
+# the `item_info_labels` side table keyed by (item_id, idx) — the engine
+# requires a complete key for DELETE and has no ORDER BY, so
+# _query_item_info re-sorts by idx.
+#
+# mudu-proc
+def update_item_info(session: UniOid, item_id: int, info: ItemInfo) -> ItemInfo:
+    db = Database(session)
+    in_stock = 1 if info.in_stock else 0
+    updated = _command(
+        db,
+        "UPDATE item_info SET name = ?, price = ?, in_stock = ? WHERE item_id = ?",
+        Params().bind(0, info.name).bind(1, info.price).bind(2, in_stock).bind(3, item_id),
+    )
+    if updated == 0:
+        inserted = _command(
+            db,
+            "INSERT INTO item_info (item_id, name, price, in_stock) VALUES (?, ?, ?, ?)",
+            Params().bind(0, item_id).bind(1, info.name).bind(2, info.price).bind(3, in_stock),
+        )
+        if inserted != 1:
+            raise Exception("insert item info failed")
+    # The engine requires a complete primary key for DELETE, so the old
+    # labels are first read by the key-prefix predicate and then deleted one
+    # by one.
+    old_idx = []
+    old_labels = db.query(
+        SqlStmt("SELECT idx, label FROM item_info_labels WHERE item_id = ?"),
+        Params().bind(0, item_id),
+    )
+    while old_labels.next():
+        old_idx.append(as_i64(old_labels.current_row().value_by_name("idx")))
+    for idx in old_idx:
+        deleted = _command(
+            db,
+            "DELETE FROM item_info_labels WHERE item_id = ? AND idx = ?",
+            Params().bind(0, item_id).bind(1, idx),
+        )
+        if deleted != 1:
+            raise Exception("delete item label failed")
+    for idx, label in enumerate(info.labels):
+        inserted = _command(
+            db,
+            "INSERT INTO item_info_labels (item_id, idx, label) VALUES (?, ?, ?)",
+            Params().bind(0, item_id).bind(1, idx).bind(2, label),
+        )
+        if inserted != 1:
+            raise Exception("insert item label failed")
+    return _query_item_info(db, item_id)
+
+
+# _query_item_info rebuilds the stored item-info record: the flat columns
+# and the side-table labels re-sorted by idx.
+def _query_item_info(db: Database, item_id: int) -> ItemInfo:
+    rows = db.query(
+        SqlStmt("SELECT name, price, in_stock FROM item_info WHERE item_id = ?"),
+        Params().bind(0, item_id),
+    )
+    if not rows.next():
+        raise Exception("item info not found")
+    row = rows.current_row()
+    indexed = []
+    label_rows = db.query(
+        SqlStmt("SELECT idx, label FROM item_info_labels WHERE item_id = ?"),
+        Params().bind(0, item_id),
+    )
+    while label_rows.next():
+        label_row = label_rows.current_row()
+        indexed.append(
+            (
+                as_i64(label_row.value_by_name("idx")),
+                as_string(label_row.value_by_name("label")),
+            )
+        )
+    indexed.sort(key=lambda item: item[0])
+    return ItemInfo(
+        name=as_string(row.value_by_name("name")),
+        price=as_i64(row.value_by_name("price")),
+        in_stock=as_i64(row.value_by_name("in_stock")) != 0,
+        labels=[label for _, label in indexed],
+    )

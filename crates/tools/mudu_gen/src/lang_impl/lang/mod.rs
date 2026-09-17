@@ -1,0 +1,16 @@
+//! Shared language-agnostic types and rendering traits.
+
+pub(crate) mod abstract_template;
+pub(crate) mod enum_info;
+pub(crate) mod func_info;
+pub mod lang_data_type;
+pub mod lang_handle_tuple;
+pub mod lang_kind;
+pub mod lang_macro_rule;
+pub mod non_scalar;
+mod record_fields;
+pub(crate) mod record_info;
+pub(crate) mod render;
+pub(crate) mod table_info;
+pub mod template_kind;
+pub(crate) mod variant_info;

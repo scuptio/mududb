@@ -1,0 +1,67 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}// {{ variant_name }} is a sealed union: one struct per case, discriminated by
+// {{ variant_name }}Kind. Codec functions take/return the interface and
+// discriminate with a type switch.
+type {{ variant_name }} interface {
+	{{ variant_camel }}Kind() {{ variant_name }}Kind
+}
+
+// {{ variant_name }}Kind identifies the case of a {{ variant_name }} value.
+type {{ variant_name }}Kind uint32
+
+const (
+{% for case in cases %}	{{ case.kind_const_padded }} {{ variant_name }}Kind = {{ case.number }}
+{% endfor %})
+
+// default{{ variant_name }} returns the proto3-style default of a missing
+// {{ variant_name }}-typed field: the first declared case with its zero
+// payload.
+func default{{ variant_name }}() {{ variant_name }} {
+	return {{ first_case_struct }}{}
+}
+
+{% for case in cases %}{% if !case.comments.is_empty() %}{{ case.comments }}
+{% endif %}{% if case.has_inner %}type {{ case.struct_name }} struct {
+	Inner {{ case.inner_type }}
+}
+{% else %}type {{ case.struct_name }} struct{}
+{% endif %}
+// {{ case.struct_name }} implements {{ variant_name }}.
+func ({{ case.struct_name }}) {{ variant_camel }}Kind() {{ variant_name }}Kind {
+	return {{ case.kind_const }}
+}
+
+{% endfor %}// {{ variant_name }}ToValue converts x to its MSSP wire value: the fixed
+// [tag, payload] 2-element array; payload-less cases carry a 0u8 placeholder
+// (NOT nil), matching the Rust host's variant serde.
+func {{ variant_name }}ToValue(x {{ variant_name }}) (any, error) {
+	switch {% if has_payload_case %}_x := {% endif %}x.(type) {
+{% for case in cases %}	case {{ case.struct_name }}:
+{% if case.has_inner %}{{ case.to_value_stmts }}
+		return []any{uint64({{ case.number }}), _p}, nil
+{% else %}		return []any{uint64({{ case.number }}), uint8(0)}, nil
+{% endif %}{% endfor %}	default:
+		return nil, fmt.Errorf("unknown {{ variant_name }} kind %T", x)
+	}
+}
+
+// {{ variant_name }}FromValue converts a wire value back to {{ variant_name }}; unknown tags are rejected.
+func {{ variant_name }}FromValue(v any) ({{ variant_name }}, error) {
+	_s, err := expectSeq(v, 2)
+	if err != nil {
+		return nil, err
+	}
+	_tag, err := u64Checked(_s[0])
+	if err != nil {
+		return nil, err
+	}
+	switch _tag {
+{% for case in cases %}	case {{ case.number }}:
+{% if case.has_inner %}{{ case.from_value_stmts }}
+		return {{ case.struct_name }}{Inner: _p}, nil
+{% else %}		// the payload placeholder is not inspected
+		return {{ case.struct_name }}{}, nil
+{% endif %}{% endfor %}	default:
+		return nil, fmt.Errorf("unknown {{ variant_name }} tag %d", _tag)
+	}
+}

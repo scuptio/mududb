@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>wasi-wasm</RuntimeIdentifier>
+    <UseAppHost>false</UseAppHost>
+    <PublishTrimmed>true</PublishTrimmed>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SelfContained>true</SelfContained>
+    <IlcExportUnmanagedEntrypoints>true</IlcExportUnmanagedEntrypoints>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The component file name doubles as the mududb module name: mpm-build
+         matches `package.desc.json` modules against wasm file stems. -->
+    <AssemblyName>wallet_cs</AssemblyName>
+    <RootNamespace>WalletCs</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Wit Remove="**\*.wit" />
+    <Wit Include="wit" World="wallet-cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BytecodeAlliance.Componentize.DotNet.Wasm.SDK" Version="0.8.0-preview00011" />
+    <PackageReference Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-rc.1.26357.1" />
+  </ItemGroup>
+
+</Project>

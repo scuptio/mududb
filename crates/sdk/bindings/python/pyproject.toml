@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mududb"
+version = "0.1.0"
+description = "mududb Python bindings: MessagePack runtime (mududb.codec.mpack), mgen-generated MSSP codecs (mududb.generated) and the Uni* type facade (mududb.types), for mududb tooling and corpus verification"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Repository = "https://github.com/ybbh/mududb_p"
+
+[tool.setuptools]
+packages = ["mududb", "mududb.codec", "mududb.types", "mududb.generated"]
+
+[tool.setuptools.package-data]
+"mududb.generated" = ["*.desc.json"]

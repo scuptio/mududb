@@ -5,6 +5,12 @@
 # staying reasonably fast. Do not raise without re-measuring.
 [build]
 jobs = 4
+# Shared target directory for all four group workspaces (crates/common,
+# crates/db-kernel, crates/sdk, crates/tools). Relative paths in a config
+# file resolve against the directory containing that file's `.cargo`
+# directory, so this points at <repo-root>/target no matter which group
+# workspace cargo is invoked from.
+target-dir = "target"
 
 # Link with the rust-lld bundled in the toolchain (via .cargo/cc-lld.sh)
 # instead of the system GNU ld: linking the wasmtime-scale test binaries of

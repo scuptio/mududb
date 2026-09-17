@@ -1,0 +1,17 @@
+[package]
+name = "{{module_name}}"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lazy_static = "1.5.0"
+wit-bindgen = "0.58.0"
+{{rust_sdk_dep}}
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']

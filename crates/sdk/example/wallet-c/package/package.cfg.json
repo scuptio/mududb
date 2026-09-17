@@ -1,0 +1,6 @@
+{
+  "name": "wallet-c",
+  "lang": "c",
+  "version": "0.1.0",
+  "use_async": false
+}

@@ -1,0 +1,143 @@
+# Build pipeline for the wallet-go MuduDB app (Go, experimental), mirroring
+# the mpm-crate Go template with the wallet-py repo-root output convention.
+#
+# Required on PATH: TinyGo 0.42.0 AND the Go 1.27.1 toolchain (TinyGo
+# shells out to `go` for package loading), plus wasm-tools, cargo-make,
+# mgen, mtp and mpm-build. Builds run offline: the wit-bindgen-go bindings
+# under binding/, the vendored go.bytecodealliance.org/cm module under
+# third_party/ and the in-repo Go binding (../../bindings/go, wired through
+# a `replace` in go.mod) need no module downloads. See readme.md for details.
+
+[env]
+PACKAGE_NAME = "wallet-go"
+MODULE_NAME = "wallet_go"
+WORLD_NAME = "wallet-go"
+TINYGO = { value = "tinygo", condition = { env_not_set = ["TINYGO"] } }
+BUILD_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/build"
+WASM_FILE = "${BUILD_DIR}/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/go-guest/${PACKAGE_NAME}.mpk"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${BUILD_DIR}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/go-guest",
+]
+
+# Statically check every SQL string literal in procedures.go against the
+# DDL schema (mgen check-sql; see doc/dev/sql_subset.md). Only procedures.go
+# is scanned — binding/ and third_party/ contain no application SQL.
+[tasks.check-sql]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "go",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.go",
+]
+
+# Generate the Go message types of the project WIT records (profile/address)
+# with mgen. types.go carries the structs plus their XxxToValue/XxxFromValue
+# codecs; wire.go is the helper runtime those codecs reference (mgen emits a
+# byte-identical copy of the binding's hand-written types/wire.go).
+# --namespace sets the Go package clause (`package gentypes`); without it the
+# clause would be the canonical `types` (the binding's own package name, used
+# when regenerating the binding). The package is imported as
+# `wallet_go/gentypes` — the import path the mtp adapter wiring references
+# through --type-import (see the transpile task).
+[tasks.gentypes]
+command = "mgen"
+args = [
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes/types.go",
+    "-l", "go",
+    "--namespace", "gentypes",
+]
+
+# Transpile the `// mudu-proc` functions of procedures.go into the Exports
+# wiring module (main_gen.go, package main), the world WIT and the
+# procedure description — the artifacts that used to be maintained by hand.
+# --type-wit registers the project record types (wit/types.wit) so procedure
+# signatures may use them; --type-import points the generated adapter at the
+# mgen-generated types package.
+[tasks.transpile]
+dependencies = ["check-sql", "gentypes"]
+command = "mtp"
+args = [
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.go",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/main_gen.go",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "${MODULE_NAME}/gentypes",
+    "go",
+]
+
+# Stage the mtp-generated world WIT next to the checked-in `wit/deps` copies
+# (the host syscall interface plus the WASI 0.2 interfaces the TinyGo
+# runtime needs) so TinyGo can resolve the world.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/main_gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/world.wit",
+]
+
+# TinyGo compiles the Go guest straight into a WASI 0.2 component: imports
+# `mududb:api/system` (plus the WASI 0.2 interfaces the TinyGo runtime
+# uses), exports the `mp2-*` byte-pipe procedure entry points declared in
+# the mtp-generated `wit/world.wit`.
+[tasks.tinygo-build]
+dependencies = ["prepare", "stage-wit"]
+command = "${TINYGO}"
+args = [
+    "build",
+    "-target=wasip2",
+    "-wit-package", "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "-wit-world", "${WORLD_NAME}",
+    "-o", "${WASM_FILE}",
+    ".",
+]
+
+[tasks.validate-component]
+dependencies = ["tinygo-build"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+# Regenerate the bindings under binding/ after adding or renaming
+# procedures in `procedures.go` (mtp refreshes `wit/world.wit`; the checked-in
+# bindings must be regenerated to match). Like every Go module operation this
+# uses the network the first time the tool downloads; plain builds never
+# invoke `go run` and work offline. The regenerated world package clause
+# follows wit-bindgen-go's own naming (e.g. `package walletgo`); the
+# mtp-generated main_gen.go imports the package under the `muduworld` alias
+# either way, so no hand-written file changes.
+[tasks.regen-bindings]
+dependencies = ["stage-wit"]
+command = "go"
+args = [
+    "run", "go.bytecodealliance.org/cmd/wit-bindgen-go@v0.7.0",
+    "generate",
+    "--world", "${WORLD_NAME}",
+    "--out", "${CARGO_MAKE_WORKING_DIRECTORY}/binding",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+]
+
+[tasks.default]
+alias = "package"

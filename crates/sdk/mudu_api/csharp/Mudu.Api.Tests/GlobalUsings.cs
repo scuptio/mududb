@@ -1,0 +1,12 @@
+global using UniCommandArgv = mududb.types.UniCommandArgv;
+global using UniCommandResult = mududb.types.UniCommandResult;
+global using UniCommandReturn = mududb.types.UniCommandReturn;
+global using UniCommandReturnErr = mududb.types.UniCommandReturnErr;
+global using UniCommandReturnKind = mududb.types.UniCommandReturnKind;
+global using UniCommandReturnOk = mududb.types.UniCommandReturnOk;
+global using UniError = mududb.types.UniError;
+global using UniOid = mududb.types.UniOid;
+global using UniRelationDelta = mududb.types.UniRelationDelta;
+global using UniRelationDeltaOp = mududb.types.UniRelationDeltaOp;
+global using UniSqlParam = mududb.types.UniSqlParam;
+global using UniSqlStmt = mududb.types.UniSqlStmt;

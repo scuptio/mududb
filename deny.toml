@@ -4,7 +4,18 @@
 # It must only be depended upon by mudu_sys.
 [bans]
 deny = [
-    { name = "mudu_sys_impl", wrappers = ["mudu_sys"] },
+    # Library/runtime code must reach the native backend only through
+    # mudu_sys. Build scripts are the exception: they always run on the real
+    # host (real env vars like CARGO_MANIFEST_DIR/OUT_DIR, real fs), so the
+    # build-time tooling crate and the crates whose build.rs uses it are
+    # named as wrappers too.
+    { name = "mudu_sys_impl", wrappers = [
+        "mudu_sys",
+        "mudu_build_common",
+        "sql_parser",
+        "mudu_api_sync",
+        "mudu_gen",
+    ] },
 ]
 
 # Several large transitive dependencies pull in conflicting major versions of
@@ -148,4 +159,8 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "transitive dependency; upgrade pending" },
     { id = "RUSTSEC-2025-0134", reason = "transitive dependency; upgrade pending" },
     { id = "RUSTSEC-2025-0141", reason = "transitive dependency; upgrade pending" },
+    # h2 0.3.27 has no patched 0.3.x release; it is pinned via
+    # actix-web 4 / tonic 0.11 (hyper 0.14) / libsql. The h2 0.4 line in the
+    # graph is already at 0.4.19. Upgrade pending on the web stack.
+    { id = "RUSTSEC-2026-0258", reason = "h2 0.3 pinned via actix-web/tonic/libsql; upgrade pending" },
 ]

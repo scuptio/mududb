@@ -1,0 +1,733 @@
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_binding::system::{command_invoke, query_invoke};
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_contract::database::entity::Entity;
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::result_batch::ResultBatch;
+use mudu_contract::database::sql::Context;
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_contract::database::sql_params::SQLParams;
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+use mudu_contract::database::sql_stmt::SQLStmt;
+
+use crate::host;
+
+/// Re-export the fs data types so every cfg path exposes the same API surface.
+pub use crate::fs::{FsDirEntry, FsStat};
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+fn not_implemented<T>(name: &str) -> RS<T> {
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::NotImplemented,
+        name
+    ))
+}
+
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+))]
+/// Re-export the platform-specific implementation.
+pub use super::sync_wasm::*;
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a query against the session.
+pub fn mudu_query<R: Entity>(
+    _oid: OID,
+    _sql: &dyn SQLStmt,
+    _params: &dyn SQLParams,
+) -> RS<EntitySet<R>> {
+    not_implemented("mudu_query")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a command against the session.
+pub fn mudu_command(_oid: OID, _sql: &dyn SQLStmt, _params: &dyn SQLParams) -> RS<u64> {
+    not_implemented("mudu_command")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a batch of statements against the session.
+pub fn mudu_batch(_oid: OID, _sql: &dyn SQLStmt, _params: &dyn SQLParams) -> RS<u64> {
+    not_implemented("mudu_batch")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Open a new session against the session.
+pub fn mudu_open() -> RS<OID> {
+    not_implemented("mudu_open")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Open a new session with arguments against the session.
+pub fn mudu_open_argv(_argv: &UniSessionOpenArgv) -> RS<OID> {
+    not_implemented("mudu_open_argv")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Close a session against the session.
+pub fn mudu_close(_session_id: OID) -> RS<()> {
+    not_implemented("mudu_close")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Get a value by key against the session.
+pub fn mudu_get(_session_id: OID, _key: &[u8]) -> RS<Option<Vec<u8>>> {
+    not_implemented("mudu_get")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Store a key-value pair against the session.
+pub fn mudu_put(_session_id: OID, _key: &[u8], _value: &[u8]) -> RS<()> {
+    not_implemented("mudu_put")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Scan a key range against the session.
+pub fn mudu_range(
+    _session_id: OID,
+    _start_key: &[u8],
+    _end_key: &[u8],
+) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
+    not_implemented("mudu_range")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Point-read one relation row by primary key.
+pub fn mudu_relation_get(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _select: &[u64],
+) -> RS<Option<Vec<Option<Vec<u8>>>>> {
+    not_implemented("mudu_relation_get")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Read-modify-write one relation row by primary key.
+pub fn mudu_relation_update(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _values: &[(u64, Vec<u8>)],
+    _deltas: &[mudu_binding::universal::uni_relation::UniRelationDelta],
+) -> RS<u64> {
+    not_implemented("mudu_relation_update")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Insert one relation row; a duplicate primary key fails.
+pub fn mudu_relation_insert(
+    _session_id: OID,
+    _table: &str,
+    _key: &[(u64, Vec<u8>)],
+    _values: &[(u64, Vec<u8>)],
+) -> RS<()> {
+    not_implemented("mudu_relation_insert")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Open the fs object `oid` (or an entry of it) and return a file descriptor.
+pub fn mudu_fs_open(_session_id: OID, _oid: OID, _path: &str, _flags: u32) -> RS<u32> {
+    not_implemented("mudu_fs_open")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Close an open fs file descriptor.
+pub fn mudu_fs_close(_session_id: OID, _fd: u32) -> RS<()> {
+    not_implemented("mudu_fs_close")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Read up to `len` bytes at the fd cursor, advancing the cursor.
+pub fn mudu_fs_read(_session_id: OID, _fd: u32, _len: u32) -> RS<Vec<u8>> {
+    not_implemented("mudu_fs_read")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Write `data` at the fd cursor, advancing the cursor; returns bytes written.
+pub fn mudu_fs_write(_session_id: OID, _fd: u32, _data: &[u8]) -> RS<u32> {
+    not_implemented("mudu_fs_write")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Read up to `len` bytes at `offset` without moving the fd cursor.
+pub fn mudu_fs_pread(_session_id: OID, _fd: u32, _offset: u64, _len: u32) -> RS<Vec<u8>> {
+    not_implemented("mudu_fs_pread")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Write `data` at `offset` without moving the fd cursor.
+pub fn mudu_fs_pwrite(_session_id: OID, _fd: u32, _offset: u64, _data: &[u8]) -> RS<()> {
+    not_implemented("mudu_fs_pwrite")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Move the fd cursor (`whence` 0/1/2 = SET/CUR/END); returns the new cursor.
+pub fn mudu_fs_lseek(_session_id: OID, _fd: u32, _offset: i64, _whence: u32) -> RS<u64> {
+    not_implemented("mudu_fs_lseek")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Stat an open fs file descriptor.
+pub fn mudu_fs_fstat(_session_id: OID, _fd: u32) -> RS<FsStat> {
+    not_implemented("mudu_fs_fstat")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Stat the fs object `oid` (or an entry of it) without opening an fd.
+pub fn mudu_fs_stat(_session_id: OID, _oid: OID, _path: &str) -> RS<FsStat> {
+    not_implemented("mudu_fs_stat")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Flush a write fd's content to durable storage.
+pub fn mudu_fs_fsync(_session_id: OID, _fd: u32) -> RS<()> {
+    not_implemented("mudu_fs_fsync")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// List the entries of an fs object directory.
+pub fn mudu_fs_readdir(_session_id: OID, _oid: OID, _path: &str) -> RS<Vec<FsDirEntry>> {
+    not_implemented("mudu_fs_readdir")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a query from a serialized byte payload.
+pub fn mudu_query_bytes(query_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = query_invoke::deserialize_query_param(query_in)?;
+    let context = Context::context(oid).ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
+            format!("no such session/context {}", oid)
+        )
+    })?;
+    let response = context
+        .query_raw(stmt.as_ref(), params.as_ref())
+        .and_then(|result| {
+            let desc = result.1.as_ref().clone();
+            let _ = context.cache_result(result)?;
+            let rows = super::drain_context_rows(&context)?;
+            Ok((ResultBatch::from(oid, rows, true), desc))
+        });
+    Ok(query_invoke::serialize_query_result(response))
+}
+
+/// Fetch more rows from a serialized byte payload.
+pub fn mudu_fetch_bytes(cursor: &[u8]) -> RS<Vec<u8>> {
+    let oid = super::fetch_cursor_oid(cursor)?;
+    let context = Context::context(oid).ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
+            format!("no such session/context {}", oid)
+        )
+    })?;
+    let response =
+        super::drain_context_rows(&context).map(|rows| ResultBatch::from(oid, rows, true));
+    super::serialize_fetch_result(response)
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a command from a serialized byte payload.
+pub fn mudu_command_bytes(command_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = command_invoke::deserialize_command_param(command_in)?;
+    let context = Context::context(oid).ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
+            format!("no such session/context {}", oid)
+        )
+    })?;
+    Ok(command_invoke::serialize_command_result(
+        context.command(stmt.as_ref(), params.as_ref()),
+    ))
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Execute a batch of statements from a serialized byte payload.
+pub fn mudu_batch_bytes(batch_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = command_invoke::deserialize_command_param(batch_in)?;
+    let context = Context::context(oid).ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::EntityNotFound,
+            format!("no such session/context {}", oid)
+        )
+    })?;
+    Ok(command_invoke::serialize_command_result(
+        context.batch(stmt.as_ref(), params.as_ref()),
+    ))
+}
+
+/// Open a new session from a serialized byte payload.
+pub fn mudu_open_bytes(open_in: &[u8]) -> RS<Vec<u8>> {
+    let argv = host::deserialize_open_param(open_in)?;
+    Ok(host::serialize_open_result(mudu_open_argv(&argv)?))
+}
+
+/// Close a session from a serialized byte payload.
+pub fn mudu_close_bytes(close_in: &[u8]) -> RS<Vec<u8>> {
+    let session_id = host::deserialize_close_param(close_in)?;
+    mudu_close(session_id)?;
+    Ok(host::serialize_close_result())
+}
+
+/// Get a value by key from a serialized byte payload.
+pub fn mudu_get_bytes(get_in: &[u8]) -> RS<Vec<u8>> {
+    let (session_id, key) = host::deserialize_session_get_param(get_in)?;
+    let value = mudu_get(session_id, &key)?;
+    Ok(host::serialize_get_result(value.as_deref()))
+}
+
+/// Store a key-value pair from a serialized byte payload.
+pub fn mudu_put_bytes(put_in: &[u8]) -> RS<Vec<u8>> {
+    let (session_id, key, value) = host::deserialize_session_put_param(put_in)?;
+    mudu_put(session_id, &key, &value)?;
+    Ok(host::serialize_put_result())
+}
+
+/// Scan a key range from a serialized byte payload.
+pub fn mudu_range_bytes(range_in: &[u8]) -> RS<Vec<u8>> {
+    let (session_id, start_key, end_key) = host::deserialize_session_range_param(range_in)?;
+    let items = mudu_range(session_id, &start_key, &end_key)?;
+    Ok(host::serialize_range_result(&items))
+}
+
+#[cfg(all(test, not(miri)))]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::host;
+    use mudu::common::id::OID;
+    use mudu::common::result::RS;
+    use mudu_binding::system::{command_invoke, query_invoke};
+    use mudu_binding::universal::mp_wire::{FromValue, ToValue, decode_value, encode_value};
+    use mudu_binding::universal::uni_error::UniError;
+    use mudu_binding::universal::uni_oid::UniOid;
+    use mudu_binding::universal::uni_result::UniResult;
+    use mudu_binding::universal::uni_result_set::UniResultSet;
+    use mudu_contract::database::db_conn::DBConnSync;
+    use mudu_contract::database::entity::Entity;
+    use mudu_contract::database::result_set::ResultSet;
+    use mudu_contract::database::sql::{Context, DBConn};
+    use mudu_contract::database::sql_params::SQLParams;
+    use mudu_contract::database::sql_stmt::SQLStmt;
+    use mudu_contract::database::sql_stmt_text::SQLStmtText;
+    use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
+    use mudu_contract::tuple::tuple_value::TupleValue;
+    use mudu_sys::sync::SMutex;
+    use mudu_type::data_value::DataValue;
+    use std::sync::Arc;
+
+    // Share the OID counter with the async tests so contexts created by the two
+    // test modules do not collide in the global SessionContext map.
+    use super::super::next_oid;
+
+    struct MockResultSet {
+        rows: SMutex<Vec<Option<TupleValue>>>,
+    }
+
+    impl MockResultSet {
+        fn new(rows: Vec<TupleValue>) -> Self {
+            Self {
+                rows: SMutex::new(rows.into_iter().map(Some).collect()),
+            }
+        }
+    }
+
+    impl ResultSet for MockResultSet {
+        fn next(&self) -> RS<Option<TupleValue>> {
+            let mut rows = self.rows.lock().unwrap();
+            Ok(if rows.is_empty() {
+                None
+            } else {
+                rows.remove(0)
+            })
+        }
+    }
+
+    struct MockDBConnSync {
+        query_result: RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)>,
+        command_result: RS<u64>,
+        batch_result: RS<u64>,
+    }
+
+    impl MockDBConnSync {
+        fn new() -> Self {
+            Self {
+                query_result: Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Database,
+                    "no query result"
+                )),
+                command_result: Ok(0),
+                batch_result: Ok(0),
+            }
+        }
+
+        fn with_query(rows: Vec<TupleValue>) -> Self {
+            let desc = i32::tuple_desc().clone();
+            Self {
+                query_result: Ok((Arc::new(MockResultSet::new(rows)), Arc::new(desc))),
+                command_result: Ok(0),
+                batch_result: Ok(0),
+            }
+        }
+
+        fn with_command_result(affected: u64) -> Self {
+            Self {
+                command_result: Ok(affected),
+                ..Self::new()
+            }
+        }
+
+        fn with_batch_result(affected: u64) -> Self {
+            Self {
+                batch_result: Ok(affected),
+                ..Self::new()
+            }
+        }
+    }
+
+    impl DBConnSync for MockDBConnSync {
+        fn exec_silent(&self, _sql_text: &str) -> RS<()> {
+            Ok(())
+        }
+
+        fn begin_tx(&self) -> RS<OID> {
+            Ok(next_oid())
+        }
+
+        fn rollback_tx(&self) -> RS<()> {
+            Ok(())
+        }
+
+        fn commit_tx(&self) -> RS<()> {
+            Ok(())
+        }
+
+        fn query(
+            &self,
+            _sql: &dyn SQLStmt,
+            _param: &dyn SQLParams,
+        ) -> RS<(Arc<dyn ResultSet>, Arc<TupleFieldDesc>)> {
+            self.query_result.clone()
+        }
+
+        fn command(&self, _sql: &dyn SQLStmt, _param: &dyn SQLParams) -> RS<u64> {
+            self.command_result.clone()
+        }
+
+        fn batch(&self, _sql: &dyn SQLStmt, _param: &dyn SQLParams) -> RS<u64> {
+            self.batch_result.clone()
+        }
+    }
+
+    fn make_query_input(oid: OID) -> Vec<u8> {
+        let stmt = SQLStmtText::new("SELECT 1".to_string());
+        query_invoke::serialize_query_dyn_param(oid, &stmt, &()).unwrap()
+    }
+
+    fn make_command_input(oid: OID) -> Vec<u8> {
+        let stmt = SQLStmtText::new("INSERT".to_string());
+        command_invoke::serialize_command_param(oid, &stmt, &()).unwrap()
+    }
+
+    fn make_batch_input(oid: OID) -> Vec<u8> {
+        make_command_input(oid)
+    }
+
+    fn serialize_cursor(oid: OID) -> Vec<u8> {
+        encode_value(&UniOid::from(oid).to_value())
+    }
+
+    fn decode_fetch_result(bytes: &[u8]) -> UniResult<UniResultSet, UniError> {
+        UniResult::from_value(&decode_value(bytes).unwrap()).unwrap()
+    }
+
+    fn first_i32_from_uni_result_set(rs: &UniResultSet) -> i32 {
+        *rs.row_set[0].fields[0]
+            .as_scalar()
+            .unwrap()
+            .as_i32()
+            .unwrap()
+    }
+
+    #[test]
+    fn mudu_query_bytes_roundtrips_result() {
+        let oid = next_oid();
+        let row = TupleValue::from(vec![DataValue::from_i32(42)]);
+        let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(vec![row])));
+        let _ctx = Context::create(oid, conn).unwrap();
+
+        let input = make_query_input(oid);
+        let output = mudu_query_bytes(&input).unwrap();
+        let (batch, _desc) = query_invoke::deserialize_query_result(&output).unwrap();
+        assert_eq!(batch.rows().len(), 1);
+        assert_eq!(batch.rows()[0].values()[0].as_i32().unwrap(), &42);
+
+        Context::remove(oid);
+    }
+
+    #[test]
+    fn mudu_query_bytes_missing_context() {
+        let oid = next_oid();
+        let input = make_query_input(oid);
+        let err = mudu_query_bytes(&input).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    }
+
+    #[test]
+    fn mudu_query_bytes_propagates_db_error() {
+        let oid = next_oid();
+        let conn = DBConn::Sync(Arc::new(MockDBConnSync::new()));
+        let _ctx = Context::create(oid, conn).unwrap();
+
+        let input = make_query_input(oid);
+        let output = mudu_query_bytes(&input).unwrap();
+        let err = match query_invoke::deserialize_query_result(&output) {
+            Ok(_) => panic!("expected deserialize to fail"),
+            Err(err) => err,
+        };
+        assert_eq!(err.ec(), mudu::error::ErrorCode::Database);
+
+        Context::remove(oid);
+    }
+
+    #[test]
+    fn mudu_command_bytes_roundtrips_affected_rows() {
+        let oid = next_oid();
+        let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_command_result(7)));
+        let _ctx = Context::create(oid, conn).unwrap();
+
+        let input = make_command_input(oid);
+        let output = mudu_command_bytes(&input).unwrap();
+        let affected = command_invoke::deserialize_command_result(&output).unwrap();
+        assert_eq!(affected, 7);
+
+        Context::remove(oid);
+    }
+
+    #[test]
+    fn mudu_batch_bytes_roundtrips_affected_rows() {
+        let oid = next_oid();
+        let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_batch_result(5)));
+        let _ctx = Context::create(oid, conn).unwrap();
+
+        let input = make_batch_input(oid);
+        let output = mudu_batch_bytes(&input).unwrap();
+        let affected = command_invoke::deserialize_command_result(&output).unwrap();
+        assert_eq!(affected, 5);
+
+        Context::remove(oid);
+    }
+
+    #[test]
+    fn mudu_fetch_bytes_drains_cached_rows() {
+        let oid = next_oid();
+        let rows = vec![
+            TupleValue::from(vec![DataValue::from_i32(10)]),
+            TupleValue::from(vec![DataValue::from_i32(20)]),
+        ];
+        let conn = DBConn::Sync(Arc::new(MockDBConnSync::with_query(rows)));
+        let ctx = Context::create(oid, conn).unwrap();
+
+        let (rs, desc) = ctx.query_raw(&"SELECT 1", &()).unwrap();
+        ctx.cache_result((rs, desc)).unwrap();
+
+        let cursor = serialize_cursor(oid);
+        let output = mudu_fetch_bytes(&cursor).unwrap();
+        let response = decode_fetch_result(&output);
+        let result_set = match response {
+            UniResult::Ok(rs) => rs,
+            UniResult::Err(err) => panic!("unexpected error: {}", err.err_msg),
+        };
+        assert_eq!(result_set.row_set.len(), 2);
+        assert_eq!(first_i32_from_uni_result_set(&result_set), 10);
+
+        Context::remove(oid);
+    }
+
+    #[test]
+    fn mudu_fetch_bytes_missing_context() {
+        let oid = next_oid();
+        let cursor = serialize_cursor(oid);
+        let err = mudu_fetch_bytes(&cursor).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    }
+
+    #[test]
+    fn mudu_open_bytes_returns_not_implemented() {
+        let err = mudu_open_bytes(&host::serialize_open_param()).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
+    }
+
+    #[test]
+    fn mudu_close_bytes_returns_not_implemented() {
+        let oid = next_oid();
+        let err = mudu_close_bytes(&host::serialize_close_param(oid)).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
+    }
+
+    #[test]
+    fn mudu_get_bytes_returns_not_implemented() {
+        let oid = next_oid();
+        let err = mudu_get_bytes(&host::serialize_session_get_param(oid, b"k")).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
+    }
+
+    #[test]
+    fn mudu_put_bytes_returns_not_implemented() {
+        let oid = next_oid();
+        let err = mudu_put_bytes(&host::serialize_session_put_param(oid, b"k", b"v")).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
+    }
+
+    #[test]
+    fn mudu_range_bytes_returns_not_implemented() {
+        let oid = next_oid();
+        let err =
+            mudu_range_bytes(&host::serialize_session_range_param(oid, b"a", b"z")).unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
+    }
+}

@@ -1,0 +1,186 @@
+{
+  "modules": {
+    "mod_0": [
+      {
+        "module_name": "mod_0",
+        "proc_name": "proc_sys_call_mtp",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "a",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I64",
+                "param": null
+              },
+              "name": "b",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "c",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "1",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "mod_0",
+        "proc_name": "proc2_mtp",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "a",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I64",
+                "param": null
+              },
+              "name": "b",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "c",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "1",
+              "nullable": false
+            }
+          ]
+        }
+      },
+      {
+        "module_name": "mod_0",
+        "proc_name": "proc_mtp",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "a",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "I64",
+                "param": null
+              },
+              "name": "b",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "c",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "I32",
+                "param": null
+              },
+              "name": "0",
+              "nullable": false
+            },
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "1",
+              "nullable": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

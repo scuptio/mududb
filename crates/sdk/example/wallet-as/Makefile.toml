@@ -1,0 +1,181 @@
+[env]
+PACKAGE_NAME = "wallet-as"
+MODULE_NAME = "wallet_as"
+WORLD_NAME = "wallet-as"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/${TARGET}/${PROFILE}/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+AS_CORE_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wasm"
+AS_EMBEDDED_WASM = "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.embedded.wasm"
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as"
+]
+
+[tasks.transpile]
+dependencies = ["prepare"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_transpiler/Cargo.toml",
+    "--bin", "mtp",
+    "--",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly/procedures.ts",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "assembly-script"
+]
+
+[tasks.patch-generated-imports]
+dependencies = ["transpile"]
+command = "python3"
+args = ["${CARGO_MAKE_WORKING_DIRECTORY}/scripts/patch-generated-imports.py"]
+
+# Stage the mtp-generated world WIT next to the checked-in
+# `wit/deps/mududb-api/api.wit` copy of the host syscall interface so
+# `wasm-tools component embed` can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/procedures.gen.wit"
+]
+
+[tasks.link-binding-scope]
+dependencies = ["prepare"]
+command = "mkdir"
+args = ["-p", "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb"]
+
+[tasks.link-binding]
+dependencies = ["link-binding-scope"]
+command = "ln"
+args = [
+    "-sfn",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb/mududb"
+]
+
+[tasks.link-binding-entry]
+dependencies = ["link-binding"]
+command = "ln"
+args = [
+    "-sfn",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript/assembly/index.ts",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules/@mududb/mududb.ts"
+]
+
+[tasks.npm-install]
+command = "npm"
+args = [
+    "install",
+    "--prefix", "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/assemblyscript"
+]
+
+# Statically check every SQL string literal in assembly/ against the DDL
+# schema (see doc/dev/sql_subset.md).
+[tasks.check-sql]
+dependencies = ["prepare"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_gen/Cargo.toml",
+    "--bin", "mgen",
+    "--",
+    "check-sql",
+    "--lang", "as",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly"
+]
+
+[tasks.asc-build]
+dependencies = ["patch-generated-imports", "link-binding-entry", "npm-install", "check-sql"]
+command = "../../bindings/assemblyscript/node_modules/.bin/asc"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures.gen.ts",
+    "--outFile", "${AS_CORE_WASM}",
+    "--textFile", "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.wat",
+    "--path", "${CARGO_MAKE_WORKING_DIRECTORY}/node_modules",
+    "--optimizeLevel", "3",
+    "--shrinkLevel", "0",
+    "--exportRuntime",
+    "--exportStart", "_initialize"
+]
+
+[tasks.patch-component-exports]
+dependencies = ["asc-build"]
+command = "python3"
+args = ["${CARGO_MAKE_WORKING_DIRECTORY}/scripts/patch-component-exports.py"]
+
+[tasks.as-componentize]
+dependencies = ["patch-component-exports", "stage-wit"]
+command = "wasm-tools"
+args = [
+    "component", "embed",
+    "--world", "${WORLD_NAME}",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build/as/procedures.core.patched.wasm",
+    "--output", "${AS_EMBEDDED_WASM}"
+]
+
+# The `--adapt env=...` module satisfies the AssemblyScript runtime's
+# `env.abort` import; the `mududb:api/system` imports are satisfied by the
+# host runtime, and the world's root-level `mp2-*` byte-pipe exports are
+# called by it.
+[tasks.as-component]
+dependencies = ["as-componentize"]
+command = "wasm-tools"
+args = [
+    "component", "new",
+    "${AS_EMBEDDED_WASM}",
+    "--adapt", "env=${CARGO_MAKE_WORKING_DIRECTORY}/build-cfg/abort-adapter.wat",
+    "--output", "${WASM_FILE}"
+]
+
+[tasks.validate-component]
+dependencies = ["as-component"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.package-placeholder]
+dependencies = ["transpile"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.default]
+alias = "package"

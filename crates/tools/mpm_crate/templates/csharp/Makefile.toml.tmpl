@@ -1,0 +1,130 @@
+# Build pipeline for the {{project_name}} MuduDB app (C#).
+#
+# Required: the .NET 10 SDK (10.0.400 or later; override the `dotnet`
+# binary with `DOTNET=/path/to/dotnet cargo make`), cargo-make, wasm-tools,
+# mgen, mtp and mpm-build on PATH. See readme.md for details.
+
+[env]
+PACKAGE_NAME = "{{module_name}}"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+DOTNET = { value = "dotnet", condition = { env_not_set = ["DOTNET"] } }
+DOTNET_PUBLISH_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/bin/Release/net10.0/wasi-wasm/publish"
+PUBLISHED_COMPONENT = "${DOTNET_PUBLISH_DIR}/${PACKAGE_NAME}.wasm"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+DOTNET_NOLOGO = "1"
+
+# Transpile the `// mudu-proc` methods of src/Procedures.cs into the
+# componentize-dotnet exports class, the world WIT and the procedure
+# description — the three artifacts that used to be maintained by hand.
+# --type-wit registers the project record types (wit/types.wit) so procedure
+# signatures may use them; --type-import is the C# namespace of the
+# mgen-generated types (see the gentypes task).
+[tasks.transpile]
+dependencies = ["gentypes"]
+command = "mtp"
+args = [
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/Procedures.cs",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/src/WorldExportsImpl.cs",
+    "--module", "${PACKAGE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "{{pascal_name}}Types",
+    "csharp",
+]
+
+# Generate the C# message types of the project WIT records (item-info) with
+# mgen: Types.cs carries the structs plus their XxxFormatter MessagePack
+# codecs (raw MessagePackReader/MessagePackWriter paths only — WASI-safe,
+# unlike the static MessagePackSerializer paths). --namespace sets the C#
+# namespace (mgen sanitizes dots: `{{pascal_name}}.Types` would become
+# `{{pascal_name}}Types`); the mtp adapter wiring references it through
+# --type-import (see the transpile task).
+[tasks.gentypes]
+command = "mgen"
+args = [
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/src/types/Types.cs",
+    "-l", "csharp",
+    "--namespace", "{{pascal_name}}Types",
+]
+
+# Stage the mtp-generated world WIT next to the checked-in
+# `wit/deps/mududb-api/api.wit` copy of the host syscall interface so
+# componentize-dotnet can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/WorldExportsImpl.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/world.wit",
+]
+
+# Generate typed entity bindings from the DDL schema into src/ (one file per
+# table, in the global namespace; e.g. `Items` from src/items.cs).
+[tasks.generate]
+command = "mgen"
+args = [
+    "entity",
+    "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/src",
+    "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
+    "--lang", "csharp",
+]
+
+# Statically check every SQL string literal in src/ (the hand-written
+# procedures and the generated entities) against the DDL schema.
+[tasks.check-sql]
+dependencies = ["generate"]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "cs",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src",
+]
+
+# componentize-dotnet compiles the C# guest straight into a WASI 0.2
+# component: imports `mududb:api/system`, exports the `mp2-*` byte-pipe
+# procedure entry points declared in the mtp-generated `wit/world.wit`.
+# NOTE: `dotnet build`, not `dotnet publish` — the Wasm.SDK chains its
+# componentization publish step AfterTargets="Build", so a direct
+# `dotnet publish` hits a circular target dependency.
+[tasks.dotnet-build]
+dependencies = ["check-sql", "stage-wit"]
+command = "${DOTNET}"
+args = ["build", "${CARGO_MAKE_WORKING_DIRECTORY}/{{pascal_name}}.csproj", "-c", "Release"]
+
+[tasks.copy-wasm]
+dependencies = ["dotnet-build"]
+command = "mkdir"
+args = ["-p", "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}"]
+
+[tasks.stage-wasm]
+dependencies = ["copy-wasm"]
+command = "cp"
+args = ["${PUBLISHED_COMPONENT}", "${WASM_FILE}"]
+
+[tasks.validate-component]
+dependencies = ["stage-wasm"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+[tasks.default]
+alias = "package"

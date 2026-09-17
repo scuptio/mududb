@@ -1,0 +1,96 @@
+# Build pipeline for the {{project_name}} MuduDB app.
+#
+# Required on PATH: cargo (with the wasm32-wasip2 target), cargo-make,
+# mgen, mtp and mpm-build. See readme.md for details.
+
+[env]
+PACKAGE_NAME = "{{module_name}}"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+
+# Generate typed entity bindings from the DDL schema into src/rust (one file
+# per table; declare each new file with `pub mod <table>;` in
+# src/rust/mod.rs).
+[tasks.generate]
+command = "mgen"
+args = [
+    "entity",
+    "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
+    "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
+    "--lang", "rust",
+]
+
+# Statically check every SQL string literal in src/rust against the DDL schema.
+[tasks.check-sql]
+dependencies = ["generate"]
+command = "mgen"
+args = [
+    "check-sql",
+    "--lang", "rust",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
+]
+
+# Transpile every src/rust source file into src/generated (the transpiler
+# rewrites module paths and turns the sync syscall API into async procedure
+# wrappers), then merge the per-file procedure descriptions into
+# package/package.desc.json.
+[tasks.transpile]
+dependencies = ["check-sql"]
+script_runner = "@shell"
+script = [
+    '''
+set -eu
+SRC="${CARGO_MAKE_WORKING_DIRECTORY}/src/rust"
+DST="${CARGO_MAKE_WORKING_DIRECTORY}/src/generated"
+DESC_DIR="${CARGO_MAKE_WORKING_DIRECTORY}/build/desc"
+rm -rf "${DESC_DIR}"
+mkdir -p "${DST}" "${DESC_DIR}"
+for f in "${SRC}"/*.rs; do
+    stem="$(basename "${f}" .rs)"
+    mtp \
+        --input "${f}" \
+        --output "${DST}/${stem}.rs" \
+        --module "${PACKAGE_NAME}" \
+        --package-desc "${DESC_DIR}/${stem}.desc.json" \
+        --type-desc "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json" \
+        --src-mod rust \
+        --dst-mod generated \
+        --async \
+        rust
+done
+mpm-build merge-desc \
+    --input-folder "${DESC_DIR}" \
+    --output-desc-file "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json"
+''',
+]
+
+# Format generated sources so `cargo fmt --check` stays clean.
+[tasks.format-generated]
+dependencies = ["transpile"]
+command = "cargo"
+args = ["fmt"]
+
+[tasks.cargo-build]
+dependencies = ["format-generated"]
+command = "cargo"
+args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
+
+[tasks.package]
+dependencies = ["cargo-build"]
+command = "mpm-build"
+args = [
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}",
+]
+
+[tasks.default]
+alias = "package"

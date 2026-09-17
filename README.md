@@ -50,6 +50,27 @@ At runtime, procedure invocation (④) executes close to the data within kernel-
 
 Execution is organized around a per-core worker model. Each CPU core is assigned a dedicated worker thread, and I/O, networking, and user-code execution are multiplexed cooperatively within those workers. This minimizes inter-thread coordination, locking, and preemptive context switching, improving locality and reducing overhead.
 
+## Project Structure
+
+The repository is organized as four independent Cargo workspaces under `crates/`, connected by path dependencies. All workspaces share a single `target/` directory at the repository root (configured in `.cargo/config.toml`).
+
+| Directory | Workspace | Contents |
+|-----------|-----------|----------|
+| `crates/common` | `mududb-common` | Foundation and shared libraries: `mudu` (core types/errors), `mudu_sys*` (OS/async abstraction), `mudu_type`, `mudu_binding`, `mudu_contract` (wire protocol), `sql_parser`, `sys_interface`, `mudu_client` (TCP/JSON client), and utilities. |
+| `crates/db-kernel` | `mududb-kernel` | The database itself: `mudu_kernel` (engine), `mudu_runtime` (WASM host, HTTP/pgwire servers), `mudud` (server daemon), `mudu_adapter` (storage adapters), `sys_interface_standalone`, `testing` (integration tests). |
+| `crates/sdk` | `mududb-sdk` | App development kit: `mududb` (app-facing facade), language bindings (`bindings/`, `mudu_api/`), and example apps (`example/`). |
+| `crates/tools` | `mududb-tools` | Developer toolchain: `mcli` (CLI client), `mgen` (code generator), `mtp` (transpiler), `mpm-build` / `mpm-install` (MPK packaging). |
+
+Dependency direction is strictly one-way: `common` ← `db-kernel` ← `sdk`, with `tools` depending only on `common`.
+
+Build or check one workspace at a time from its directory:
+
+```bash
+cd crates/db-kernel && cargo build --release
+```
+
+`script/shell/check_all.sh` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --no-run --workspace` across all four workspaces sequentially.
+
 ## Documentation
 
 - [Documentation index](doc/README.md)

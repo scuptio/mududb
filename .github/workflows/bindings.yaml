@@ -1,0 +1,185 @@
+name: Bindings
+
+# Cross-language binding consistency gate + per-language package publishing.
+#
+# Consistency (PRs/pushes touching the binding sources):
+#   - regen-clean check (script/ci/check_bindings_regen.sh): WIT or mgen
+#     template changes must ship regenerated codecs in the same commit.
+#   - the golden-fixture corpus tests of every language binding must stay green.
+#
+# Publishing (tags as-v* / cs-v* / py-v*): each job re-runs the consistency
+# gate, then publishes its package. Registry credentials come from secrets /
+# trusted publishing; see doc/dev/binding_api_surface.md for setup.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'crates/common/mudu_binding/wit/**'
+      - 'crates/tools/mudu_gen/**'
+      - 'crates/sdk/bindings/**'
+      - 'crates/sdk/mudu_api/csharp/**'
+      - 'script/ci/check_bindings_regen.sh'
+      - '.github/workflows/bindings.yaml'
+    tags:
+      - 'as-v*'
+      - 'cs-v*'
+      - 'py-v*'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'crates/common/mudu_binding/wit/**'
+      - 'crates/tools/mudu_gen/**'
+      - 'crates/sdk/bindings/**'
+      - 'crates/sdk/mudu_api/csharp/**'
+      - 'script/ci/check_bindings_regen.sh'
+      - '.github/workflows/bindings.yaml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  consistency:
+    name: regen-clean + corpus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: regen-clean check
+        run: bash script/ci/check_bindings_regen.sh
+
+      - name: Python corpus + unit tests
+        working-directory: crates/sdk/bindings/python
+        run: |
+          python3 -m unittest discover tests -v
+          python3 run_mp_corpus_test.py
+          python3 run_syscall_corpus_test.py
+          python3 run_lenient_decode_test.py
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+
+      - name: Python guest component build (wallet-py)
+        run: |
+          pipx install componentize-py==0.25.1
+          cd crates/sdk/example/wallet-py && cargo make package
+
+      - name: AssemblyScript corpus tests
+        working-directory: crates/sdk/bindings/assemblyscript
+        run: |
+          npm ci
+          node run_mp_corpus_test.mjs
+          node run_syscall_corpus_test.mjs
+          node run_lenient_decode_test.mjs
+
+      - name: C# corpus tests
+        run: dotnet test crates/sdk/mudu_api/csharp/Mudu.Api.Tests/Mudu.Api.Tests.csproj
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Go corpus tests
+        working-directory: crates/sdk/bindings/go
+        run: |
+          go build ./...
+          go vet ./...
+          test -z "$(gofmt -l .)"
+          go test ./...
+
+      - name: C corpus tests (C99 + C++17 header compiles, golden corpus)
+        working-directory: crates/sdk/bindings/c
+        run: make check CC=clang CXX=clang++
+
+  publish-npm:
+    name: publish @mududb/mududb (npm)
+    if: startsWith(github.ref, 'refs/tags/as-v')
+    needs: consistency
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # npm provenance / trusted publishing
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        working-directory: crates/sdk/bindings/assemblyscript
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-nuget:
+    name: publish mududb (NuGet)
+    if: startsWith(github.ref, 'refs/tags/cs-v')
+    needs: consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pack
+        run: dotnet pack -c Release crates/sdk/mudu_api/csharp/Mudu.Api.csproj
+
+      - name: Push to nuget.org
+        run: >-
+          dotnet nuget push
+          crates/sdk/mudu_api/csharp/bin/Release/mududb.*.nupkg
+          --source https://api.nuget.org/v3/index.json
+          --api-key ${{ secrets.NUGET_API_KEY }}
+
+  publish-pypi:
+    name: publish mududb (PyPI)
+    if: startsWith(github.ref, 'refs/tags/py-v')
+    needs: consistency
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # PyPI trusted publishing
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Build distributions
+        working-directory: crates/sdk/bindings/python
+        run: |
+          python3 -m pip install --upgrade build
+          python3 -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: crates/sdk/bindings/python/dist/

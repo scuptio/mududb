@@ -5,7 +5,7 @@ source "$HOME/.cargo/env" 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MPK_FILE="$REPO_ROOT/testing/mpk/wallet.mpk"
+MPK_FILE="$REPO_ROOT/crates/db-kernel/testing/mpk/wallet.mpk"
 TEMP_DIR="/tmp/mudu_debug_$(date +%s)"
 DATA_DIR="$TEMP_DIR/data"
 MPK_DIR="$TEMP_DIR/mpk"

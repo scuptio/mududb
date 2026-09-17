@@ -1,0 +1,30 @@
+/* Encode `value` as a `[tag, payload]` 2-array; payload-less cases carry a
+ * `0u8` placeholder (NOT nil), matching the Rust host's variant serde. An
+ * unknown kind flags `w` (check `mpw_ok`) instead of emitting a corrupt
+ * value. */
+MP_INLINE void {{ data.name }}_encode(mp_writer *w, const {{ data.name }} *value) {
+{{ data.encode_body }}
+}
+
+/* Decode one variant into `value` (arena contract of the generated
+ * decoders). 0 on success, -1 (sticky error set) on a malformed shape or an
+ * unknown tag. */
+MP_INLINE int {{ data.name }}_decode(mp_reader *r, mp_arena *a, {{ data.name }} *value) {
+{{ data.decode_body }}
+}
+
+/* Decode one variant into freshly arena-allocated storage; 0 on failure
+ * (the reader's sticky error is set). Boxes of this type decode through
+ * this function, so headers referencing it by pointer never need its
+ * `sizeof`. */
+MP_INLINE {{ data.name }} *{{ data.name }}_decode_new(mp_reader *r, mp_arena *a) {
+    {{ data.name }} *p = ({{ data.name }} *)mpa_alloc(a, sizeof({{ data.name }}));
+    if (p == 0) {
+        mpr_fail(r);
+        return 0;
+    }
+    if ({{ data.name }}_decode(r, a, p) != 0) {
+        return 0;
+    }
+    return p;
+}

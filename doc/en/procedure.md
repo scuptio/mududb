@@ -135,7 +135,7 @@ pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 
@@ -143,7 +143,7 @@ pub async fn mudu_query_async<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 ```
@@ -230,6 +230,34 @@ An SQL statement that uses `?` as parameter placeholders.
 The parameter list.
 For `batch`, the current libsql-backed implementation requires this list to be empty.
 
+### Generated entity bindings (`mgen entity`)
+
+For each table in `sql/ddl.sql`, `mgen entity` generates a Rust module containing:
+
+- the row struct (e.g. `Wallets`) implementing the `Entity` trait, plus `TABLE_NAME` and `columns::*` name
+  constants;
+- pre-built SQL text constants `SQL_GET_BY_PK`, `SQL_INSERT`, and `SQL_DELETE_BY_PK` for tables with a primary
+  key, and `insert_params()` returning the typed bind tuple for `SQL_INSERT`;
+- a partial-update changeset `<Table>Change` holding one `FieldChange<T>` per non-key column: `Unchanged`
+  (the default) leaves the column out of the update, `Set(v)` sets it, and for a nullable column `Set(None)`
+  writes a SQL `NULL`.
+
+`update_by_pk(...)` builds the `UPDATE ... SET ... WHERE <pk> = ?` statement and its bind parameters, and
+returns `None` when no column is marked:
+
+```rust
+let change = WalletsChange {
+    balance: FieldChange::Set(Some(200)),
+    ..WalletsChange::default()
+};
+if let Some((sql, params)) = change.update_by_pk(user_id) {
+    mudu_command(oid, sql_stmt!(&sql), sql_params!(&params))?;
+}
+```
+
+SQL literals in procedure sources can be checked against the DDL at build time with `mgen check-sql`;
+see [`../dev/sql_subset.md`](../dev/sql_subset.md).
+
 
 <!--
 quote_begin
@@ -242,33 +270,23 @@ content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L15-L37)"
+content="[Entity](../../mudu_contract/src/database/entity.rs#L23-L44)"
 lang="rust"
 -->
 
 ```rust
-pub trait Entity: private::Sealed + Datum {
-    fn new_empty() -> Self;
-
+pub trait Entity: Datum {
     fn tuple_desc() -> &'static TupleFieldDesc;
 
-    fn object_name() -> &'static str;
+    fn table_name() -> &'static str;
 
-    fn get_field_binary(&self, field_name: &str) -> RS<Option<Vec<u8>>>;
+    fn from_tuple(row: &TupleField) -> RS<Self>;
 
-    fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
+    fn from_tuple_value(row: &TupleValue) -> RS<Self>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
+    fn to_tuple(&self) -> RS<TupleField>;
 
-    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
-
-    fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
-        entity_utils::entity_from_tuple(tuple_row)
-    }
-
-    fn to_tuple(&self) -> RS<TupleField> {
-        entity_utils::entity_to_tuple(self)
-    }
+    fn to_tuple_value(&self) -> RS<TupleValue>;
 }
 ```
 

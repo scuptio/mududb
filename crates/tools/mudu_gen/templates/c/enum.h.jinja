@@ -1,0 +1,24 @@
+{%- if comments.len() > 0 -%}
+{{ comments }}
+{% endif -%}
+typedef enum {
+{%- for case in cases %}
+{%- if case.comments.len() > 0 %}
+    {{ case.comments }}
+{%- endif %}
+    {{ case.const_name }} = {{ case.number }}u,
+{%- endfor %}
+} {{ name }};
+
+/* Encode `value` as its case number (u64). */
+MP_INLINE void {{ name }}_encode(mp_writer *w, const {{ name }} *value) {
+    mpw_u64(w, (uint64_t)*value);
+}
+
+/* Decode one case number into `out`; lenient (no range check), matching the
+ * host and the other bindings. Result contract of the generated decoders. */
+MP_INLINE int {{ name }}_decode(mp_reader *r, mp_arena *a, {{ name }} *out) {
+    (void)a;
+    *out = ({{ name }})mpr_u64(r);
+    return mpr_ok(r) ? 0 : -1;
+}

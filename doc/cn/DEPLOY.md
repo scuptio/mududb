@@ -69,9 +69,9 @@ docker run --cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1 ...
 
 编译并安装全部组件：
 
-1. `cargo build --release` — 编译工作区 crate
+1. 在 `crates/` 下的四个组 workspace（`common`、`db-kernel`、`sdk`、`tools`）中分别执行 `cargo build --release` — 编译全部 crate
 2. `python3 script/build/install_binaries.py` — 安装二进制文件到 `~/.cargo/bin/`（mudud、mcli、mpm-build、mgen、mtp）
-3. 在 `example/wallet` 中执行 `cargo make` — 重新生成实体代码、转译过程、编译 wallet 示例并生成 `.mpk` 包
+3. 在 `crates/sdk/example/wallet` 中执行 `cargo make` — 重新生成实体代码、转译过程、编译 wallet 示例并生成 `.mpk` 包
 
 wallet 的 `Makefile.toml` 会在生成代码前从源码重新安装工作区 CLI 工具，因此包总是用当前 commit 的工具链构建。
 

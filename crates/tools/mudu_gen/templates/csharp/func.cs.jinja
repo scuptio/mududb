@@ -1,0 +1,71 @@
+{% if func.comments.len() > 0 %}
+{{ func.comments }}
+{% endif %}
+public static partial class {{ func.module_name }}
+{
+    {% if func.param_count == 0 %}
+    /// Encodes a `{{ func.pascal }}` request frame with an empty body.
+    public static byte[] Encode{{ func.pascal }}Request()
+    {
+        return SyscallPayload.EncodeFrame(MessageKind.{{ func.kind_case }}, global::System.ReadOnlySpan<byte>.Empty);
+    }
+
+    /// Decodes a `{{ func.pascal }}` request frame, requiring an empty body.
+    public static void Decode{{ func.pascal }}Request(byte[] frame)
+    {
+        var body = SyscallPayload.ExpectFrame(MessageKind.{{ func.kind_case }}, frame);
+        if (body.Length != 0)
+        {
+            throw new global::System.IO.InvalidDataException(
+                "MSSP trailing bytes after MessagePack body");
+        }
+    }
+    {% else %}
+    /// Encodes a `{{ func.pascal }}` request frame.
+    public static byte[] Encode{{ func.pascal }}Request({{ func.req_signature }}, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.{{ func.kind_case }}, {{ func.req_args }}, options);
+    }
+
+    /// Decodes a `{{ func.pascal }}` request frame's argument map into its
+    /// positional values.
+    public static {{ func.req_return_type }} Decode{{ func.pascal }}Request(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<{{ func.req_decode_types }}>(
+            SyscallPayload.ExpectFrame(MessageKind.{{ func.kind_case }}, frame), options);
+    }
+    {% endif %}
+
+    {% if func.result_is_unit %}
+    /// Encodes a `{{ func.pascal }}` unit result frame: body `[0, 0]` or
+    /// `[1, error]`; pass `null` for success.
+    public static byte[] Encode{{ func.pascal }}Result({{ func.err_type_name }}? error, MessagePackSerializerOptions? options = null)
+    {
+        return error is null
+            ? SyscallPayload.EncodeUnitResultFrame(MessageKind.{{ func.kind_case }})
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.{{ func.kind_case }}, error.Value, options);
+    }
+
+    /// Decodes a `{{ func.pascal }}` unit result frame, returning the carried
+    /// error or `null` on success.
+    public static {{ func.err_type_name }}? Decode{{ func.pascal }}Result(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeUnitResultFrame(MessageKind.{{ func.kind_case }}, frame, options);
+    }
+    {% else %}
+    /// Encodes a `{{ func.pascal }}` result frame: body `[0, value]` or
+    /// `[1, error]`.
+    public static byte[] Encode{{ func.pascal }}Result(SyscallResult<{{ func.res_ok_type }}> result, MessagePackSerializerOptions? options = null)
+    {
+        return result.IsOk
+            ? SyscallPayload.EncodeResultFrame(MessageKind.{{ func.kind_case }}, result.Value!, options)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.{{ func.kind_case }}, result.Error.GetValueOrDefault(), options);
+    }
+
+    /// Decodes a `{{ func.pascal }}` result frame.
+    public static SyscallResult<{{ func.res_ok_type }}> Decode{{ func.pascal }}Result(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeResultFrame<{{ func.res_ok_type }}>(MessageKind.{{ func.kind_case }}, frame, options);
+    }
+    {% endif %}
+}

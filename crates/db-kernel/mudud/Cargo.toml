@@ -1,0 +1,20 @@
+[package]
+name = "mudud"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[features]
+debug_trace = ["mudu_runtime/debug_trace", "mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+mudu_runtime = { workspace = true }
+mudu = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_utils = { workspace = true }
+tracing = { workspace = true }

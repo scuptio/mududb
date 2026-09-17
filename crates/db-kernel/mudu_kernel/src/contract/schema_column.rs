@@ -1,0 +1,133 @@
+#[cfg(any(test, feature = "test", fuzzing))]
+use arbitrary::{Arbitrary, Unstructured};
+use mudu::common::id::{AttrIndex, OID};
+use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::type_family::TypeFamily as TypeID;
+use mudu_utils::oid::gen_oid;
+use serde::{Deserialize, Serialize};
+
+use crate::contract::fs_type::FsColumnBinding;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SchemaColumn {
+    oid: OID,
+    name: String,
+    type_id: TypeID,
+    type_param: DataTypeInfo,
+    index: AttrIndex,
+    is_primary: Option<AttrIndex>,
+    #[serde(default = "default_nullable")]
+    nullable: bool,
+    #[serde(default)]
+    fs_binding: Option<FsColumnBinding>,
+}
+
+impl SchemaColumn {
+    pub fn new(name: String, data_type: TypeID, type_param: DataTypeInfo) -> Self {
+        Self {
+            oid: gen_oid(),
+            name,
+            type_id: data_type,
+            type_param: type_param.clone(),
+
+            index: 0,
+            is_primary: None,
+            nullable: true,
+            fs_binding: None,
+        }
+    }
+
+    pub fn new_with_oid(
+        oid: OID,
+        name: String,
+        data_type: TypeID,
+        type_param: DataTypeInfo,
+    ) -> Self {
+        Self {
+            oid,
+            name,
+            type_id: data_type,
+            type_param: type_param.clone(),
+
+            index: 0,
+            is_primary: None,
+            nullable: true,
+            fs_binding: None,
+        }
+    }
+
+    pub fn get_oid(&self) -> OID {
+        self.oid
+    }
+
+    pub fn get_name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn is_primary(&self) -> bool {
+        self.is_primary.is_some()
+    }
+
+    pub fn primary_index(&self) -> Option<AttrIndex> {
+        self.is_primary
+    }
+
+    pub fn set_primary_index(&mut self, index: Option<AttrIndex>) {
+        self.is_primary = index;
+        if index.is_some() {
+            self.nullable = false;
+        }
+    }
+
+    pub fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    pub fn set_nullable(&mut self, nullable: bool) {
+        self.nullable = nullable;
+    }
+
+    pub fn get_index(&self) -> AttrIndex {
+        self.index
+    }
+
+    pub fn set_index(&mut self, index: AttrIndex) {
+        self.index = index;
+    }
+
+    pub fn type_id(&self) -> TypeID {
+        self.type_id
+    }
+
+    pub fn is_fixed_length(&self) -> bool {
+        self.type_id().is_fixed_len()
+    }
+
+    pub fn type_param(&self) -> &DataTypeInfo {
+        &self.type_param
+    }
+
+    pub fn fs_binding(&self) -> Option<FsColumnBinding> {
+        self.fs_binding
+    }
+
+    pub fn set_fs_binding(&mut self, fs_binding: Option<FsColumnBinding>) {
+        self.fs_binding = fs_binding;
+    }
+}
+
+fn default_nullable() -> bool {
+    true
+}
+
+#[cfg(any(test, feature = "test", fuzzing))]
+impl<'a> Arbitrary<'a> for SchemaColumn {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let name = String::arbitrary(u)?;
+        let data_type = TypeID::arbitrary(u)?;
+        let fn_arbitrary = data_type.fn_arb_param();
+        let param = fn_arbitrary(u)?;
+        let schema = Self::new(name, data_type, DataTypeInfo::from_opt_object(&param));
+        Ok(schema)
+    }
+}

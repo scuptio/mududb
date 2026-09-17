@@ -1,0 +1,47 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}class {{ variant_name }}Kind(IntEnum):
+{% for case in cases %}    {{ case.member_name }} = {{ case.number }}
+{% endfor %}
+
+# Python has no union types; the variant is a base class carrying the `kind`
+# tag with one subclass per case. Codec functions take/return the base class
+# and discriminate with isinstance checks.
+class {{ variant_name }}:
+    kind = {{ variant_name }}Kind.{{ cases[0].member_name }}
+
+    @staticmethod
+    def default() -> "{{ variant_name }}":
+        # the proto3-style default of a missing variant-typed field: the
+        # first declared case with its default payload
+        return {{ first_case_class }}()
+
+
+{% for case in cases %}@dataclass
+class {{ case.class_name }}({{ variant_name }}):
+{% if !case.comments.is_empty() %}{{ case.comments }}
+{% endif %}    kind = {{ variant_name }}Kind.{{ case.member_name }}
+{% if case.has_inner %}    inner: {{ case.inner_annotation }} = {{ case.inner_default }}
+{% endif %}
+{% endfor %}
+# MSSP wire conversion: the variant encodes as a fixed `[tag, payload]`
+# 2-element array; payload-less cases carry a `0u8` placeholder. Decode
+# rejects unknown tags.
+def {{ variant_snake }}_to_value(x: {{ variant_name }}) -> list:
+{% for case in cases %}    {% if loop.first %}if{% else %}elif{% endif %} isinstance(x, {{ case.class_name }}):
+{% if case.has_inner %}        return [{{ case.number }}, {{ case.to_value_expr }}]
+{% else %}        # payload-less case: the `0u8` placeholder (NOT nil), matching the
+        # Rust host's variant serde
+        return [{{ case.number }}, 0]
+{% endif %}{% endfor %}    else:
+        raise ValueError(f"unknown {{ variant_name }} kind {type(x).__name__}")
+
+
+def {{ variant_snake }}_from_value(v) -> {{ variant_name }}:
+    _expect_seq(v, 2)
+    _tag = _u64_checked(v[0])
+{% for case in cases %}    {% if loop.first %}if{% else %}elif{% endif %} _tag == {{ case.number }}:
+{% if case.has_inner %}        return {{ case.class_name }}({{ case.from_value_expr }})
+{% else %}        # the payload placeholder is not inspected
+        return {{ case.class_name }}()
+{% endif %}{% endfor %}    else:
+        raise ValueError(f"unknown {{ variant_name }} tag {_tag}")

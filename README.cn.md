@@ -50,6 +50,27 @@ MuduDB 采用一种内核-运行时架构，将应用逻辑与数据管理带入
 
 执行围绕“每核一个 worker”的模型组织。每个 CPU 核心对应一个专用工作线程，而 I/O、网络处理以及用户代码执行都通过协作式方式复用在这些 worker 中。这种设计减少了线程间协调、加锁以及抢占式上下文切换，从而提升局部性并降低开销。
 
+## 项目结构
+
+仓库按 `crates/` 下的四个独立 Cargo workspace 组织，workspace 之间通过 path 依赖连接。所有 workspace 共享仓库根目录下的同一个 `target/` 目录（在 `.cargo/config.toml` 中配置）。
+
+| 目录 | Workspace | 内容 |
+|------|-----------|------|
+| `crates/common` | `mududb-common` | 基础与共享库：`mudu`（核心类型/错误码）、`mudu_sys*`（操作系统/异步抽象）、`mudu_type`、`mudu_binding`、`mudu_contract`（线协议）、`sql_parser`、`sys_interface`、`mudu_client`（TCP/JSON 客户端）以及各类工具库。 |
+| `crates/db-kernel` | `mududb-kernel` | 数据库本体：`mudu_kernel`（引擎）、`mudu_runtime`（WASM 宿主、HTTP/pgwire 服务）、`mudud`（服务器守护进程）、`mudu_adapter`（存储适配器）、`sys_interface_standalone`、`testing`（集成测试）。 |
+| `crates/sdk` | `mududb-sdk` | 应用开发套件：`mududb`（面向应用的 facade）、语言绑定（`bindings/`、`mudu_api/`）以及示例应用（`example/`）。 |
+| `crates/tools` | `mududb-tools` | 开发者工具链：`mcli`（命令行客户端）、`mgen`（代码生成器）、`mtp`（转译器）、`mpm-build` / `mpm-install`（MPK 打包）。 |
+
+依赖方向严格单向：`common` ← `db-kernel` ← `sdk`，`tools` 仅依赖 `common`。
+
+构建或检查某个 workspace 时，进入对应目录执行：
+
+```bash
+cd crates/db-kernel && cargo build --release
+```
+
+`script/shell/check_all.sh` 会依次对全部四个 workspace 执行 `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --no-run --workspace`。
+
 ## 文档导航
 
 - [文档索引](doc/README.md)

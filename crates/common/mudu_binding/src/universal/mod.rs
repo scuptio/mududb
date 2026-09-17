@@ -1,0 +1,67 @@
+//! Portable/universal types used for FFI, RPC and serialization.
+//!
+//! This module is large, mostly mechanical bindings and therefore exempted
+//! from the `missing_docs` lint.
+#![allow(missing_docs)]
+
+pub mod mp_wire;
+pub mod test_uni;
+pub mod uni_command_argv;
+pub mod uni_command_argv_impl;
+pub mod uni_command_result;
+pub mod uni_command_return;
+pub mod uni_data_type;
+pub mod uni_data_type_impl;
+#[cfg(test)]
+mod uni_data_type_test;
+pub mod uni_data_value;
+pub mod uni_data_value_impl;
+#[cfg(test)]
+mod uni_data_value_test;
+pub mod uni_def;
+#[cfg(test)]
+mod uni_def_test;
+
+pub mod uni_error;
+pub mod uni_fs_dirent;
+pub mod uni_fs_open_argv;
+pub mod uni_fs_stat;
+pub mod uni_get_argv;
+pub mod uni_get_result;
+pub mod uni_key_value;
+pub mod uni_oid;
+pub mod uni_oid_impl;
+pub mod uni_procedure_param;
+pub mod uni_procedure_param_impl;
+pub mod uni_procedure_result;
+pub mod uni_procedure_result_impl;
+pub mod uni_put_argv;
+pub mod uni_put_result;
+pub mod uni_query_argv;
+pub mod uni_query_argv_impl;
+pub mod uni_query_result;
+pub mod uni_query_return;
+pub mod uni_range_argv;
+pub mod uni_range_result;
+pub mod uni_record_type;
+pub mod uni_relation;
+pub mod uni_result;
+pub mod uni_result_set;
+pub mod uni_result_type;
+pub mod uni_scalar;
+pub mod uni_scalar_impl;
+pub mod uni_scalar_value;
+#[cfg(test)]
+mod uni_scalar_value_test;
+pub mod uni_schema_desc;
+pub mod uni_serde;
+pub mod uni_session_open_argv;
+pub mod uni_session_open_argv_impl;
+pub mod uni_sql_param;
+pub mod uni_sql_param_impl;
+pub mod uni_sql_stmt;
+pub mod uni_sql_stmt_impl;
+pub mod uni_tuple_row;
+pub mod uni_tuple_row_impl;
+pub mod uni_type_compat;
+pub mod uni_type_desc;

@@ -30,13 +30,20 @@ cd mududb
 source .venv/bin/activate
 ```
 
-然后验证构建：
+然后验证构建。仓库已拆分为 `crates/` 下的四个独立 Cargo workspace（`common`、`db-kernel`、`sdk`、`tools`），需进入各 workspace 目录分别构建：
 
 ```bash
+cd crates/db-kernel
 cargo build
 cargo test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --workspace --no-deps
+```
+
+也可以在仓库根目录运行覆盖全部四个 workspace 的完整检查：
+
+```bash
+bash script/shell/check_all.sh
 ```
 
 ### 方式 B：Dev Container / Docker
@@ -116,6 +123,7 @@ python script/build/install_binaries.py
 默认安装的工具有：
 
 - `mpm-build`：打包构建工具
+- `mpm-crate`：项目脚手架工具
 - `mgen`：源码生成工具
 - `mtp`：转译器
 - `mudud`：MuduDB 服务器
@@ -445,10 +453,6 @@ mcli --http-addr 127.0.0.1:8300 app-install --mpk path/to/package.mpk
 mcli --http-addr 127.0.0.1:8300 app-list
 mcli --http-addr 127.0.0.1:8300 app-detail --app <app>
 ```
-
-### 为什么 crate 叫 `mod_0` 而不是 `mudu_wasm`？
-
-目录和可读名称是 `mudu_wasm`，但 Cargo 包名以及运行时所使用的组件模块名是 `mod_0`。在 Rust 中导入该库时请使用 `mod_0::generated` 和 `mod_0::wasm_mtp`。详见 [`mudu_wasm/README.md`](../../mudu_wasm/README.md)。
 
 ### 想了解更多？
 

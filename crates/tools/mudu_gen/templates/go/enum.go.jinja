@@ -1,0 +1,28 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}type {{ enum_name }} uint32
+
+const (
+{% for case in cases %}{% if !case.comments.is_empty() %}{{ case.comments }}
+{% endif %}	{{ case.member_name_padded }} {{ enum_name }} = {{ case.number }}
+{% endfor %})
+
+// {{ enum_name }}ToValue converts x to its MSSP wire value: the enum
+// discriminant integer.
+func {{ enum_name }}ToValue(x {{ enum_name }}) (any, error) {
+	return uint64(x), nil
+}
+
+// {{ enum_name }}FromValue converts a wire value back to {{ enum_name }};
+// unknown discriminants are rejected.
+func {{ enum_name }}FromValue(v any) ({{ enum_name }}, error) {
+	_n, err := u64Checked(v)
+	if err != nil {
+		return 0, err
+	}
+	switch {{ enum_name }}(_n) {
+	case {{ member_list }}:
+		return {{ enum_name }}(_n), nil
+	default:
+		return 0, fmt.Errorf("unknown {{ enum_name }} discriminant %d", _n)
+	}
+}

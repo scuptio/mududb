@@ -1,0 +1,6 @@
+{
+  "name": "tpcc",
+  "lang": "rust",
+  "version": "0.1.0",
+  "use_async": true
+}

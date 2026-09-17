@@ -26,8 +26,12 @@ defaults:
 
 jobs:
   cargo-udeps:
-    name: cargo-udeps
+    name: cargo-udeps - ${{ matrix.group }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Each group workspace has its own Cargo.lock and is checked separately.
+        group: [ common, db-kernel, sdk, tools ]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
@@ -39,10 +43,11 @@ jobs:
         run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked
 
       - name: Run cargo-udeps
+        working-directory: crates/${{ matrix.group }}
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets 2>&1 | tee ${{ github.workspace }}/logs/nightly-udeps.log
+          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets 2>&1 | tee ${{ github.workspace }}/logs/nightly-udeps-${{ matrix.group }}.log
 
       - name: Local reproduction command
         if: failure()
@@ -51,6 +56,7 @@ jobs:
           echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
           echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked"
+          echo "  cd crates/${{ matrix.group }}"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets"
 
   cargo-fuzz:
@@ -77,7 +83,7 @@ jobs:
         run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked
 
       - name: Run fuzz targets (smoke)
-        working-directory: mudu_kernel/fuzz
+        working-directory: crates/db-kernel/mudu_kernel/fuzz
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
@@ -95,7 +101,7 @@ jobs:
           echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
           echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked"
-          echo "  cd mudu_kernel/fuzz"
+          echo "  cd crates/db-kernel/mudu_kernel/fuzz"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} fuzz run <target> -- -max_total_time=60"
 
   sanitizer-address:
@@ -126,7 +132,16 @@ jobs:
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu 2>&1 | tee ${{ github.workspace }}/logs/nightly-asan.log
+          {
+            # Run every group even if one fails, but propagate any failure:
+            # the pipeline status must not be decided by the last group alone.
+            failed=0
+            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+              echo "=== ASan tests: ${group} ==="
+              (cd "${group}" && cargo +${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu) || failed=1
+            done
+            exit "${failed}"
+          } 2>&1 | tee ${{ github.workspace }}/logs/nightly-asan.log
         env:
           RUSTFLAGS: "-Z sanitizer=address"
           LSAN_OPTIONS: "suppressions=${{ github.workspace }}/script/ci/lsan_suppressions.txt"
@@ -138,6 +153,7 @@ jobs:
           echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
           echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
           echo "  rustup target add x86_64-unknown-linux-gnu --toolchain \${NIGHTLY_TOOLCHAIN}"
+          echo "  cd crates/<group>   # one of: common db-kernel sdk tools"
           echo "  RUSTFLAGS=\"-Z sanitizer=address\" LSAN_OPTIONS=\"suppressions=$(pwd)/script/ci/lsan_suppressions.txt\" MUDU_CLI_HTTP_TIMEOUT_SECS=120 cargo +\${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu"
 
   coverage:
@@ -172,31 +188,15 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-llvm-cov --version 0.8.7 --locked
 
-      - name: Run tests with coverage instrumentation
+      - name: Run coverage (per group workspace)
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-            --package mudu \
-            --package mudu_type \
-            --package mudu_contract \
-            --package mudu_kernel \
-            --lib \
-            --tests \
-            --no-report \
-            -- \
-            --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
-
-      - name: Generate coverage reports
-        run: |
-          mkdir -p target/llvm-cov ${{ github.workspace }}/logs
-          set -o pipefail
-          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-            --html --output-dir target/llvm-cov/html 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-html.log
-          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-            --json --output-path target/llvm-cov/coverage.json 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-json.log
-          cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-            --lcov --output-path target/llvm-cov/coverage.lcov 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage-report-lcov.log
+          # The core packages (mudu, mudu_type, mudu_contract, mudu_kernel) are
+          # split across the crates/common and crates/db-kernel workspaces;
+          # the script runs llvm-cov per group and writes reports to
+          # target/llvm-cov/<group>/.
+          bash script/coverage/run_coverage.sh --profile core --format all 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
 
       - name: Upload coverage artifacts
         if: env.ACT != 'true'
@@ -204,9 +204,9 @@ jobs:
         with:
           name: coverage-${{ github.run_id }}-${{ github.sha }}
           path: |
-            target/llvm-cov/html
-            target/llvm-cov/coverage.json
-            target/llvm-cov/coverage.lcov
+            target/llvm-cov/*/html
+            target/llvm-cov/*/coverage.json
+            target/llvm-cov/*/coverage.lcov
           retention-days: 30
 
       - name: Summarize coverage in job summary
@@ -215,16 +215,13 @@ jobs:
           echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          python3 .github/scripts/summarize_coverage.py target/llvm-cov/coverage.json >> "$GITHUB_STEP_SUMMARY" || true
+          for json in target/llvm-cov/*/coverage.json; do
+            echo "### ${json}" >> "$GITHUB_STEP_SUMMARY"
+            python3 .github/scripts/summarize_coverage.py "${json}" >> "$GITHUB_STEP_SUMMARY" || true
+          done
 
       - name: Local reproduction command
         if: failure()
         run: |
           echo "To reproduce locally:"
-          echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
-          echo "  rustup component add llvm-tools-preview --toolchain \"\${NIGHTLY_TOOLCHAIN}\""
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-llvm-cov --version 0.8.7 --locked"
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov --package mudu --package mudu_type --package mudu_contract --package mudu_kernel --lib --tests --no-report -- --test-threads=1"
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --html --output-dir target/llvm-cov/html"
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --json --output-path target/llvm-cov/coverage.json"
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} llvm-cov report --lcov --output-path target/llvm-cov/coverage.lcov"
+          echo "  bash script/coverage/run_coverage.sh --profile core --format all"

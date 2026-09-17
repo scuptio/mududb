@@ -1,0 +1,740 @@
+{
+  "records": [
+    {
+      "name": "character",
+      "fields": [
+        {
+          "number": 1,
+          "name": "character-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "house-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "age",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 5,
+          "name": "is-alive",
+          "data_type": [
+            0,
+            0
+          ]
+        },
+        {
+          "number": 6,
+          "name": "loyalty",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 7,
+          "name": "influence",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 8,
+          "name": "father-id",
+          "data_type": [
+            3,
+            [
+              6,
+              "id"
+            ]
+          ]
+        },
+        {
+          "number": 9,
+          "name": "mother-id",
+          "data_type": [
+            3,
+            [
+              6,
+              "id"
+            ]
+          ]
+        },
+        {
+          "number": 10,
+          "name": "spouse-id",
+          "data_type": [
+            3,
+            [
+              6,
+              "id"
+            ]
+          ]
+        },
+        {
+          "number": 11,
+          "name": "children-ids",
+          "data_type": [
+            1,
+            [
+              6,
+              "id"
+            ]
+          ]
+        },
+        {
+          "number": 12,
+          "name": "traits",
+          "data_type": [
+            1,
+            [
+              0,
+              14
+            ]
+          ]
+        },
+        {
+          "number": 13,
+          "name": "attributes",
+          "data_type": [
+            6,
+            "character-attributes"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "character-attributes",
+      "fields": [
+        {
+          "number": 1,
+          "name": "martial",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "intelligence",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 3,
+          "name": "charisma",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 4,
+          "name": "stewardship",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chronicle-event",
+      "fields": [
+        {
+          "number": 1,
+          "name": "chronicle-event-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "timestamp",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 3,
+          "name": "title",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "message",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 5,
+          "name": "epoch",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 6,
+          "name": "epoch-date",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "city",
+      "fields": [
+        {
+          "number": 1,
+          "name": "id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "city-type",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "location",
+          "data_type": [
+            6,
+            "coordinate"
+          ]
+        },
+        {
+          "number": 5,
+          "name": "population",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 6,
+          "name": "military",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 7,
+          "name": "economy",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 8,
+          "name": "food",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 9,
+          "name": "culture",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 10,
+          "name": "happiness",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 11,
+          "name": "resource-stock",
+          "data_type": [
+            6,
+            "resource-stock"
+          ]
+        },
+        {
+          "number": 12,
+          "name": "boundary-radius",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 13,
+          "name": "boundary-polygon",
+          "data_type": [
+            6,
+            "polygon"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "coordinate",
+      "fields": [
+        {
+          "number": 1,
+          "name": "x",
+          "data_type": [
+            0,
+            12
+          ]
+        },
+        {
+          "number": 2,
+          "name": "y",
+          "data_type": [
+            0,
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "name": "faction",
+      "fields": [
+        {
+          "number": 1,
+          "name": "fraction-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "food",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 4,
+          "name": "population",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 5,
+          "name": "happiness",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 6,
+          "name": "stability",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 7,
+          "name": "culture",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 8,
+          "name": "technology",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "name": "house",
+      "fields": [
+        {
+          "number": 1,
+          "name": "fraction-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "house-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "prestige",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 5,
+          "name": "loyalty-to-faction",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 6,
+          "name": "head-character-id",
+          "data_type": [
+            3,
+            [
+              6,
+              "id"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "id",
+      "fields": [
+        {
+          "number": 1,
+          "name": "id1",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "id2",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "polygon",
+      "fields": [
+        {
+          "number": 1,
+          "name": "shell",
+          "data_type": [
+            1,
+            [
+              6,
+              "coordinate"
+            ]
+          ]
+        },
+        {
+          "number": 2,
+          "name": "holes",
+          "data_type": [
+            1,
+            [
+              1,
+              [
+                6,
+                "coordinate"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "resource-stock",
+      "fields": [
+        {
+          "number": 1,
+          "name": "wood",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 2,
+          "name": "iron",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 3,
+          "name": "bronze",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 4,
+          "name": "stone",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 5,
+          "name": "horse",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 6,
+          "name": "gold",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "name": "character-table",
+      "key": [
+        {
+          "number": 1,
+          "name": "character-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        }
+      ],
+      "value": [
+        {
+          "number": 1,
+          "name": "character",
+          "data_type": [
+            6,
+            "character"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chronicle-table",
+      "key": [
+        {
+          "number": 1,
+          "name": "chronicle-event-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        }
+      ],
+      "value": [
+        {
+          "number": 1,
+          "name": "chronicle-event",
+          "data_type": [
+            6,
+            "chronicle-event"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "city-table",
+      "key": [
+        {
+          "number": 1,
+          "name": "city-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        }
+      ],
+      "value": [
+        {
+          "number": 1,
+          "name": "city",
+          "data_type": [
+            6,
+            "city"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "faction-table",
+      "key": [
+        {
+          "number": 1,
+          "name": "faction-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        }
+      ],
+      "value": [
+        {
+          "number": 1,
+          "name": "faction",
+          "data_type": [
+            6,
+            "faction"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "main-house-id",
+          "data_type": [
+            3,
+            [
+              6,
+              "id"
+            ]
+          ]
+        },
+        {
+          "number": 3,
+          "name": "characters",
+          "data_type": [
+            6,
+            "character-table"
+          ]
+        },
+        {
+          "number": 4,
+          "name": "houses",
+          "data_type": [
+            6,
+            "house-table"
+          ]
+        },
+        {
+          "number": 5,
+          "name": "cities",
+          "data_type": [
+            6,
+            "city-table"
+          ]
+        },
+        {
+          "number": 6,
+          "name": "chronicle",
+          "data_type": [
+            6,
+            "chronicle-table"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "house-table",
+      "key": [
+        {
+          "number": 1,
+          "name": "house-id",
+          "data_type": [
+            6,
+            "id"
+          ]
+        }
+      ],
+      "value": [
+        {
+          "number": 1,
+          "name": "house",
+          "data_type": [
+            6,
+            "house"
+          ]
+        }
+      ]
+    }
+  ],
+  "variants": [],
+  "enums": [],
+  "functions": []
+}

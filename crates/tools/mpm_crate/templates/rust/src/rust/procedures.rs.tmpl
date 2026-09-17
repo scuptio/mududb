@@ -1,0 +1,36 @@
+//! Stored procedures for the {{project_name}} app.
+//!
+//! Each `/**mudu-proc**/` function becomes an invocable Mudu Procedure: the
+//! first parameter is the transaction session id injected by the runtime,
+//! the remaining parameters are passed by the caller, and the return value
+//! is the procedure result.
+
+use crate::rust::items::object::Items;
+use mududb::common::id::OID;
+use mududb::common::result::RS;
+use mududb::contract::{sql_params, sql_stmt};
+use mududb::error::ErrorCode;
+use mududb::mudu_error;
+use mududb::sys_interface::sync_api::mudu_command;
+
+/**mudu-proc**/
+/// Creates an item with zero quantity and returns its id.
+pub fn create_item(xid: OID, item_id: i32, name: String) -> RS<i32> {
+    let item = Items {
+        item_id,
+        name: Some(name),
+        quantity: Some(0),
+    };
+    let inserted = mudu_command(
+        xid,
+        sql_stmt!(&Items::SQL_INSERT),
+        sql_params!(&item.insert_params()),
+    )?;
+    if inserted != 1 {
+        return Err(mudu_error!(
+            ErrorCode::DomainViolation,
+            "create item failed"
+        ));
+    }
+    Ok(item_id)
+}

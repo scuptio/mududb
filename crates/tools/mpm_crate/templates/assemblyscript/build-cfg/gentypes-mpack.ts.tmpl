@@ -1,0 +1,5 @@
+// Re-export the binding's MessagePack runtime under the module path the
+// mgen-generated project types import (`./mpack`, see the Makefile
+// `gentypes` task). The `gentypes-shim` task copies this file to
+// `gentypes/mpack.ts`; edit this source, never the copy.
+export { MpackReader, MpackWriter } from "@mududb/mududb";

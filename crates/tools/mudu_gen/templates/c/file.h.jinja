@@ -1,0 +1,33 @@
+/*
+ * mududb C binding message types/codecs (mgen message -l c
+ * --with-func-codec). Self-contained header: `MP_INLINE` functions only
+ * (`static inline` in C, `inline` in C++), no mutable state. Ownership
+ * contract: encode borrows its inputs; decode copies every variable-length
+ * value into the caller's `mp_arena`; the writer owns its buffer
+ * (`mpw_free`). See the package readme.md.
+ */
+#ifndef {{ file.guard }}
+#define {{ file.guard }}
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "mududb/codec/mpack.h"
+{%- for inc in file.includes %}
+#include "mududb/types/{{ inc }}.h"
+{%- endfor %}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+{% for block in file.blocks %}
+{{ block }}
+{% endfor %}
+#ifdef __cplusplus
+}
+#endif
+{% for inc in file.late_includes -%}
+#include "mududb/types/{{ inc }}.h"
+{% endfor %}
+#endif /* {{ file.guard }} */

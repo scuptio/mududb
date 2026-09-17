@@ -302,7 +302,7 @@ mududb 的 partition 机制（见 `doc/cn/partition.cn.md`）把表数据按 RAN
 
 - `mudu_binding/wit/` 新增 `uni-fs-open-argv.wit`、`uni-fs-stat.wit`、`uni-fs-dirent.wit` 等类型定义；
 - `mudu_binding/wit/uni-syscall.wit` 的 `interface universal` 中声明对应的类型化函数签名（如 `fs-open: func(argv: uni-fs-open-argv) -> result<u64, uni-error>`）；
-- 该 schema 由 `mgen`（`mudu_binding/makefile.toml` 的 `generate` / `generate-csharp` 任务）生成 Rust / C# / AssemblyScript 类型，并为将来纳入 SyscallPayload v1 路由器（`doc/cn/todo/project-controlled-guest-host-abi.md` Phase 3）做好准备；WIT 集合变更后需同步刷新 `mudu_binding/wit/contract.md5.txt`。
+- 该 schema 由 `mgen`（`mudu_binding/makefile.toml` 的 `generate` / `generate-csharp` 任务）生成 Rust / C# / AssemblyScript 类型，并为将来纳入 SyscallPayload v1 路由器（`doc/cn/todo/project-controlled-guest-host-abi.md` Phase 3）做好准备。
 
 ### 4.4 host 处理链
 
@@ -469,10 +469,10 @@ pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEnt
 
 ### 6.5 AssemblyScript 实现结构
 
-- 调用链：AS guest → `mududb:component-shim` → `bindings/rs-shim` → `sys_interface` → host。新增 fs 函数需要在 `bindings/component-shim/wit/api.wit`、`bindings/rs-shim/wit/api.wit`、`bindings/assemblyscript/wit/api.wit` 三份 WIT 中同步声明，rs-shim 薄封装透传。
-- `bindings/assemblyscript/assembly/fs.ts` 手写 canonical ABI（与 `wit.ts` 同风格，已实现）：每个 fs 函数一个 `@external("mududb:component-shim/system", "fs-open")` 导入声明；`session` 与 `oid` 两个 u128 均以 `{ hi: u64, lo: u64 }` 传递（`rawQuery(idHi, idLo, ...)` 惯例）；string/bytes 手工 lowering；result 帧先解 errno tag 再解 payload。
+- 调用链：AS guest → `mududb:api/system`（直连 byte-pipe）→ host。fs 帧（`UniFsOpenArgv`/`UniFsStat`/`UniFsDirent`）由 `bindings/assemblyscript/assembly/generated/` 的 mgen 编解码器成帧，与 SQL 系统调用同一条 MSSP 通道；无伴生组件。
+- `bindings/assemblyscript/assembly/syscall.ts` 声明 fs 家族的字节管道 import（`@external("mududb:api/system", "fs-open")` 等，canonical ABI `(ptr, len, resultPtr) -> void`），`fs.ts` 在其上提供纯函数封装；除 `fs-open`（帧内携带 session 与 oid）外，fd 操作与 `fs-stat`/`fs-readdir` 由宿主按过程调用绑定的 session 解析。
 - 上层 `fs.ts` 纯函数集合：`fsOpen(sessionHi, sessionLo, oidHi, oidLo, path, flags): Result<u32>`、`fsRead(sessionHi, sessionLo, fd, len): Result<ArrayBuffer>`、`fsWrite(...): Result<u32>`、`fsReaddir(...): Result<FsDirEntry[]>` 等，与 Rust 侧一一对应（首参为 session，与 Rust `mudu_fs_*` 一致）。
-- 同步 / 异步双版本：Phase 2 先交付**同步版**（`@external` 同步 import，guest 纯函数直接返回 `Result<T>`）；**异步版**走 component-model async ABI（`async func` import），其实现依赖 AS 手写 ABI 对 async 的支持与 rs-shim 的 async world 组合，作为 Phase 2 的后续项——guest 侧函数签名保持不变。
+- 同步 / 异步双版本：Phase 2 先交付**同步版**（`@external` 同步 import，guest 纯函数直接返回 `Result<T>`）；**异步版**走 component-model async ABI（`async func` import），其实现依赖 AS 对 async 的支持，作为 Phase 2 的后续项——guest 侧函数签名保持不变。
 - `mtp` 转译器无需改动——fs API 是普通 guest 库，不参与过程导出代码生成。
 
 ### 6.6 C#（Phase 2，已实现）
@@ -522,11 +522,11 @@ pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEnt
 
 - `mudu_runtime/wit/api.wit`、`mudu_runtime/wit/async-api.wit`
 - `sys_interface/wit/sync/api.wit`、`sys_interface/wit/async/async-api.wit`（guest 侧副本，并顺带修复现有 sync 副本缺 `delete` 的漂移）
-- `mudu_binding/wit/uni-syscall.wit`、`mudu_binding/wit/contract.md5.txt`
+- `mudu_binding/wit/uni-syscall.wit`
 - `mudu_runtime/src/service/wasi_context_component.rs`
 - `mudu_runtime/src/service/kernel_function_p2.rs`、`kernel_function_p2_async.rs`
 - `mudu_runtime/src/interface/kernel_sync.rs`、`kernel_async.rs`
 - `mudu_kernel/src/server/worker_local.rs`
 - `mudu_kernel/src/command/{insert,update,delete}_key_value.rs`（FS 列 DML 钩子：对象绑定 / 解绑随行进 `_fs_object` 事务）
 - `mudu_adapter/src/local_fs.rs`（standalone 路径的本地文件模拟，sqlite/postgres/mysql 驱动共享；mudud 驱动返回 `NotImplemented`）
-- `bindings/{component-shim,rs-shim,assemblyscript}/wit/api.wit`（Phase 2）
+- `bindings/assemblyscript/assembly/{syscall,fs}.ts`（Phase 2，guest 侧 fs 封装）

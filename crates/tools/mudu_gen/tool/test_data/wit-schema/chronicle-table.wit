@@ -1,0 +1,13 @@
+use crate:game-data:id/id;
+use crate:game-data:chronicle-event/chronicle-event;
+
+interface game-data {
+  table chronicle-table {
+    key: {
+        chronicle-event-id: id,
+    },
+    value: {
+        chronicle-event: chronicle-event,
+    }
+  }
+}

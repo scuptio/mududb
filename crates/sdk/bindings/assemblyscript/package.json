@@ -1,0 +1,45 @@
+{
+  "name": "@mududb/mududb",
+  "version": "0.1.0",
+  "description": "MuduDB AssemblyScript wasm component binding library",
+  "main": "assembly/index.ts",
+  "types": "assembly/index.ts",
+  "files": [
+    "assembly",
+    "index.ts",
+    "types.ts",
+    "codec.ts",
+    "db.ts",
+    "sql.ts",
+    "fs.ts",
+    "result.ts",
+    "sys.ts",
+    "generated.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ybbh/mududb_p.git",
+    "directory": "crates/sdk/bindings/assemblyscript"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "asc assembly/index.ts --target release",
+    "build:debug": "asc assembly/index.ts --target debug",
+    "test": "asp"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.0"
+  },
+  "keywords": [
+    "mududb",
+    "assemblyscript",
+    "wasm",
+    "component-model"
+  ],
+  "license": "Apache-2.0"
+}

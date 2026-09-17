@@ -1,0 +1,10 @@
+use crate:universal:uni-oid/uni-oid;
+
+interface universal {
+    record uni-fs-open-argv {
+        session:uni-oid,
+        oid:uni-oid,
+        path:string,
+        flags:u32,
+    }
+}

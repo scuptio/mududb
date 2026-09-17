@@ -1,0 +1,44 @@
+{
+  "types": {
+    "Orders": [
+      2,
+      {
+        "record_name": "orders",
+        "record_fields": [
+          {
+            "field_name": "order_id",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "user_id",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "amount",
+            "field_type": [
+              0,
+              6
+            ],
+            "field_attrs": []
+          },
+          {
+            "field_name": "status",
+            "field_type": [
+              0,
+              14
+            ],
+            "field_attrs": []
+          }
+        ]
+      }
+    ]
+  }
+}

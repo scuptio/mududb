@@ -1,0 +1,18 @@
+[package]
+name = "tpcc-stdb-benchmark"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "tpcc-stdb-benchmark"
+path = "src/main.rs"
+
+[dependencies]
+spacetimedb-sdk = "=1.12.0"
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+
+# Standalone workspace: this crate targets a remote SpacetimeDB server and
+# must not be part of the mududb workspace.
+[workspace]

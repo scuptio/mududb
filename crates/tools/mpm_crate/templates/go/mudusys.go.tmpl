@@ -1,0 +1,883 @@
+package main
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+
+	"{{module_name}}/binding/mududb/api/system"
+
+	"github.com/ybbh/mududb_p/bindings/go/types"
+	"go.bytecodealliance.org/cm"
+)
+
+// Syscall layer for the {{project_name}} guest: SyscallPayload v1 (MSSP)
+// framing plus the `uni` MessagePack wire shapes, mirroring the Rust SDK's
+// `SyscallPayload`/`MuduSysCallApi` semantics with tag numbers verified
+// against the Rust host (`mudu_binding::universal`).
+//
+// Frame layout (all header fields big-endian):
+// `magic "MSSP" | version 1 | flags 0 | message_kind`, then one MessagePack
+// body. Request bodies are integer-keyed maps of the WIT-declared arguments
+// (1-based parameter numbers); record arguments nest as their own
+// integer-keyed maps (1-based field numbers). Result bodies are
+// `[ok_tag, value]` with `0` = ok and `1` = `UniError`. Decoding is lenient:
+// keys of any integer width, unknown keys skipped, missing fields defaulted.
+//
+// Composite datums (record/array/binary — user-defined procedure types from
+// wit/types.wit) pass through in their typed `types.UniDataValue` form:
+// the mtp-generated adapter unwraps a record parameter through the binding
+// record bridge (`types.RecordFieldValues`) composed with the mgen-generated
+// `XxxFromValue` codec of the gentypes package, and wraps a record result
+// back with `types.RecordFromFieldValues`; the writers below re-emit that
+// envelope untouched.
+
+const (
+	msspMagic   uint32 = 0x4D535350
+	msspVersion uint32 = 1
+	kindQuery   uint32 = 1
+	kindCommand uint32 = 2
+	msspHeadLen        = 16
+)
+
+// UniDataValue discriminants (`uni_data_value.rs`).
+const (
+	datScalar uint64 = 0
+	datArray  uint64 = 1
+	datRecord uint64 = 2
+	datBinary uint64 = 3
+)
+
+// UniScalarValue discriminants used by this guest (`uni_scalar_value.rs`).
+const (
+	scalarBool    uint64 = 0
+	scalarI32     uint64 = 6
+	scalarI64     uint64 = 9
+	scalarF64     uint64 = 12
+	scalarString  uint64 = 14
+	scalarBlob    uint64 = 15
+	scalarNumeric uint64 = 16
+	scalarNull    uint64 = 21
+)
+
+// muduOid is the uni OID record: two u64 halves, MessagePack map
+// `{1: h, 2: l}`.
+type muduOid struct {
+	H uint64
+	L uint64
+}
+
+// uniError is the uni error record carried by the `[1, UniError]` result
+// arm: MessagePack map `{1: err_code, 2: err_msg, 3: err_src, 4: err_loc,
+// 5: err_details}` (details travel as an int array, the record-context
+// shape of `list<u8>`).
+type uniError struct {
+	Code    uint32
+	Message string
+}
+
+// uniHostError is a host-side uni error surfaced to the procedure; the
+// byte-pipe dispatcher re-encodes it as the procedure result's error arm.
+type uniHostError struct {
+	uni uniError
+}
+
+func (e *uniHostError) Error() string { return e.uni.Message }
+
+// sysQuery runs a SQL query and returns the rows, each cell decoded as
+// `int64` or `string`. A host error comes back as `*uniHostError`.
+func sysQuery(oid muduOid, sql string, args ...any) ([][]any, error) {
+	frame, err := encodeSQLRequest(kindQuery, oid, sql, args)
+	if err != nil {
+		return nil, err
+	}
+	response := system.Query(cm.ToList(frame))
+	reader, err := openResult(kindQuery, response.Slice())
+	if err != nil {
+		return nil, err
+	}
+
+	// UniQueryResult = {1: tuple_desc, 2: result_set}; the procedures never
+	// read the tuple descriptor.
+	var rows [][]any
+	queryResultCount := reader.readMapHeader()
+	for i := uint32(0); i < queryResultCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 2:
+			rows = readResultSet(reader)
+		default:
+			reader.skip()
+		}
+	}
+	if reader.err != nil {
+		return nil, reader.err
+	}
+	return rows, nil
+}
+
+// sysCommand runs a SQL command and returns affected rows. A host error
+// comes back as `*uniHostError`.
+func sysCommand(oid muduOid, sql string, args ...any) (uint64, error) {
+	frame, err := encodeSQLRequest(kindCommand, oid, sql, args)
+	if err != nil {
+		return 0, err
+	}
+	response := system.Command(cm.ToList(frame))
+	reader, err := openResult(kindCommand, response.Slice())
+	if err != nil {
+		return 0, err
+	}
+
+	// UniCommandResult = {1: affected_rows}.
+	var affected uint64
+	commandResultCount := reader.readMapHeader()
+	for i := uint32(0); i < commandResultCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 1:
+			affected = reader.readUInt()
+		default:
+			reader.skip()
+		}
+	}
+	if reader.err != nil {
+		return 0, reader.err
+	}
+	return affected, nil
+}
+
+// ---- procedure byte-pipe codec (`handle_procedure`) ----
+
+// procedureParam is the decoded `UniProcedureParam` the host passes to
+// `mp2-*` exports: `{1: procedure, 2: session, 3: param_list}`. Scalar
+// parameters decode to `bool` / `int64` / `float64` / `string` / `[]byte`
+// (the type table the mtp Go front-end supports); composite datums
+// (record/array/binary — user-defined types) keep their typed
+// `types.UniDataValue` form for the record bridge.
+type procedureParam struct {
+	Procedure uint64
+	Session   muduOid
+	Params    []any
+}
+
+func decodeProcedureParam(b []byte) (procedureParam, error) {
+	var param procedureParam
+	reader := &mpReader{data: b}
+	paramCount := reader.readMapHeader()
+	for i := uint32(0); i < paramCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 1:
+			param.Procedure = reader.readUInt()
+		case key == 2:
+			param.Session = readOid(reader)
+		case key == 3:
+			param.Params = readParamList(reader)
+		default:
+			reader.skip()
+		}
+	}
+	if reader.err != nil {
+		return procedureParam{}, reader.err
+	}
+	return param, nil
+}
+
+// encodeProcedureOk encodes the ok arm of
+// `UniResult<UniProcedureResult, UniError>`: the single-entry map
+// `{0: {1: [return_list]}}`, mirroring the hand-written serde impl of
+// `mudu_binding::universal::uni_result::UniResult` with the record-as-map
+// `UniProcedureResult` payload. The result type dispatch covers the scalar
+// shapes the mtp Go front-end supports (`int64` / `string` / `float64` /
+// `bool` / `[]byte` / `nil`) plus a `types.UniDataValue` passthrough for
+// record-typed results (the envelope the mtp adapter builds with
+// `types.RecordFromFieldValues`); anything else panics, which the generated
+// `invoke` driver re-encodes as an internal error.
+func encodeProcedureOk(value any) []byte {
+	w := &mpWriter{}
+	w.writeMapHeader(1)
+	w.writeUInt(0)
+	w.writeMapHeader(1) // UniProcedureResult
+	w.writeUInt(1)
+	w.writeArrayHeader(1) // return_list
+	switch v := value.(type) {
+	case nil:
+		writeDatumNull(w)
+	case int64:
+		writeDatumI64(w, v)
+	case int32:
+		writeDatumI32(w, v)
+	case int:
+		writeDatumI64(w, int64(v))
+	case float64:
+		writeDatumF64(w, v)
+	case bool:
+		writeDatumBool(w, v)
+	case string:
+		writeDatumString(w, v)
+	case []byte:
+		writeDatumBlob(w, v)
+	case numeric:
+		writeDatumNumeric(w, string(v))
+	case types.UniDataValue:
+		writeDatumTyped(w, v)
+	default:
+		panic(fmt.Sprintf("unsupported procedure result type: %T", value))
+	}
+	return w.bytes()
+}
+
+// encodeProcedureError encodes the err arm: `{1: UniError}`.
+func encodeProcedureError(code uint32, message string) []byte {
+	w := &mpWriter{}
+	w.writeMapHeader(1)
+	w.writeUInt(1)
+	writeUniError(w, code, message)
+	return w.bytes()
+}
+
+// ---- adapter cast helpers (used by the mtp-generated wiring) ----
+
+func asI64(v any) (int64, error) {
+	i, ok := v.(int64)
+	if !ok {
+		return 0, &domainError{errCodeInvalidArgument, "expected an i64 parameter"}
+	}
+	return i, nil
+}
+
+func asString(v any) (string, error) {
+	s, ok := v.(string)
+	if !ok {
+		return "", &domainError{errCodeInvalidArgument, "expected a string parameter"}
+	}
+	return s, nil
+}
+
+func asF64(v any) (float64, error) {
+	f, ok := v.(float64)
+	if !ok {
+		return 0, &domainError{errCodeInvalidArgument, "expected an f64 parameter"}
+	}
+	return f, nil
+}
+
+func asBool(v any) (bool, error) {
+	b, ok := v.(bool)
+	if !ok {
+		return false, &domainError{errCodeInvalidArgument, "expected a bool parameter"}
+	}
+	return b, nil
+}
+
+func asBytes(v any) ([]byte, error) {
+	b, ok := v.([]byte)
+	if !ok {
+		return nil, &domainError{errCodeInvalidArgument, "expected a binary parameter"}
+	}
+	return b, nil
+}
+
+// ---- internals ----
+
+func encodeSQLRequest(kind uint32, oid muduOid, sql string, args []any) ([]byte, error) {
+	w := &mpWriter{}
+	w.writeMapHeader(1) // {1: argv}
+	w.writeUInt(1)
+	w.writeMapHeader(3) // UniQueryArgv / UniCommandArgv
+	w.writeUInt(1)
+	w.writeMapHeader(2) // UniOid
+	w.writeUInt(1)
+	w.writeUInt(oid.H)
+	w.writeUInt(2)
+	w.writeUInt(oid.L)
+	w.writeUInt(2)
+	w.writeMapHeader(1) // UniSqlStmt
+	w.writeUInt(1)
+	w.writeString(sql)
+	w.writeUInt(3)
+	w.writeMapHeader(1) // UniSqlParam
+	w.writeUInt(1)
+	w.writeArrayHeader(uint32(len(args)))
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case nil:
+			writeDatumNull(w)
+		case int64:
+			writeDatumI64(w, v)
+		case int32:
+			writeDatumI32(w, v)
+		case int:
+			writeDatumI64(w, int64(v))
+		case float64:
+			writeDatumF64(w, v)
+		case bool:
+			writeDatumBool(w, v)
+		case string:
+			writeDatumString(w, v)
+		case []byte:
+			writeDatumBlob(w, v)
+		case numeric:
+			writeDatumNumeric(w, string(v))
+		default:
+			return nil, fmt.Errorf("unsupported SQL parameter type: %T", arg)
+		}
+	}
+
+	body := w.bytes()
+	frame := make([]byte, msspHeadLen+len(body))
+	binary.BigEndian.PutUint32(frame[0:4], msspMagic)
+	binary.BigEndian.PutUint32(frame[4:8], msspVersion)
+	// flags at [8:12] stay zero.
+	binary.BigEndian.PutUint32(frame[12:16], kind)
+	copy(frame[msspHeadLen:], body)
+	return frame, nil
+}
+
+// openResult validates the response frame header and the `[ok_tag, ...]`
+// body. On the ok arm it returns the body reader positioned at the value;
+// on the err arm it returns the decoded UniError as `*uniHostError`.
+func openResult(expectedKind uint32, frame []byte) (*mpReader, error) {
+	if len(frame) < msspHeadLen ||
+		binary.BigEndian.Uint32(frame[0:4]) != msspMagic ||
+		binary.BigEndian.Uint32(frame[4:8]) != msspVersion ||
+		binary.BigEndian.Uint32(frame[8:12]) != 0 ||
+		binary.BigEndian.Uint32(frame[12:16]) != expectedKind {
+		return nil, errors.New("MSSP: invalid response frame header")
+	}
+
+	reader := &mpReader{data: frame[msspHeadLen:]}
+	expectArrayLen(reader.readArrayHeader(), 2, "result body", reader)
+	tag := reader.readUInt()
+	if reader.err != nil {
+		return nil, reader.err
+	}
+	switch tag {
+	case 0:
+		return reader, nil
+	case 1:
+		uniErr := readUniError(reader)
+		if reader.err != nil {
+			return nil, reader.err
+		}
+		return nil, &uniHostError{uniErr}
+	default:
+		return nil, fmt.Errorf("MSSP: unknown result tag %d", tag)
+	}
+}
+
+// readRecordKey reads one record-map key. It returns the field number, or
+// ok == false when the key is not an integer — in that case both the key and
+// its value have already been skipped, mirroring the lenient generated
+// decoders.
+func readRecordKey(reader *mpReader) (int64, bool) {
+	if !reader.nextIsInteger() {
+		reader.skip()
+		reader.skip()
+		return 0, false
+	}
+	return reader.readInt(), true
+}
+
+// readResultSet reads UniResultSet = `{1: eof, 2: row_set, 3: cursor}`; only
+// the rows are read (eof and the cursor int array are skipped).
+func readResultSet(reader *mpReader) [][]any {
+	var rows [][]any
+	resultSetCount := reader.readMapHeader()
+	for i := uint32(0); i < resultSetCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 2:
+			rows = readRows(reader)
+		default:
+			reader.skip()
+		}
+	}
+	return rows
+}
+
+func readRows(reader *mpReader) [][]any {
+	rowCount := reader.readArrayHeader()
+	rows := make([][]any, 0, rowCount)
+	for i := uint32(0); i < rowCount; i++ {
+		// UniTupleRow = {1: fields}.
+		var fields []any
+		tupleRowCount := reader.readMapHeader()
+		for k := uint32(0); k < tupleRowCount; k++ {
+			key, ok := readRecordKey(reader)
+			switch {
+			case !ok:
+			case key == 1:
+				fields = readFields(reader)
+			default:
+				reader.skip()
+			}
+		}
+		rows = append(rows, fields)
+	}
+	return rows
+}
+
+func readFields(reader *mpReader) []any {
+	fieldCount := reader.readArrayHeader()
+	fields := make([]any, 0, fieldCount)
+	for f := uint32(0); f < fieldCount; f++ {
+		fields = append(fields, readDatum(reader))
+	}
+	return fields
+}
+
+func readOid(reader *mpReader) muduOid {
+	var oid muduOid
+	oidCount := reader.readMapHeader()
+	for i := uint32(0); i < oidCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 1:
+			oid.H = reader.readUInt()
+		case key == 2:
+			oid.L = reader.readUInt()
+		default:
+			reader.skip()
+		}
+	}
+	return oid
+}
+
+func readParamList(reader *mpReader) []any {
+	paramCount := reader.readArrayHeader()
+	params := make([]any, 0, paramCount)
+	for i := uint32(0); i < paramCount; i++ {
+		params = append(params, readDatum(reader))
+	}
+	return params
+}
+
+func writeDatumI64(w *mpWriter, value int64) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::I64
+	w.writeUInt(scalarI64)
+	w.writeInt(value)
+}
+
+func writeDatumString(w *mpWriter, value string) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::String
+	w.writeUInt(scalarString)
+	w.writeString(value)
+}
+
+func writeDatumNull(w *mpWriter) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::Null
+	w.writeUInt(scalarNull)
+	w.writeUInt(0) // payload-less case: the 0u8 placeholder (0x00)
+}
+
+func writeDatumI32(w *mpWriter, value int32) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::I32
+	w.writeUInt(scalarI32)
+	w.writeInt(int64(value))
+}
+
+func writeDatumBool(w *mpWriter, value bool) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::Bool
+	w.writeUInt(scalarBool)
+	w.writeBool(value)
+}
+
+func writeDatumF64(w *mpWriter, value float64) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::F64
+	w.writeUInt(scalarF64)
+	w.writeDouble(value)
+}
+
+func writeDatumBlob(w *mpWriter, value []byte) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::Blob
+	w.writeUInt(scalarBlob)
+	// Record-context `list<u8>` encodes as an array of u8 (the pinned host
+	// quirk), not as MessagePack bin.
+	w.writeArrayHeader(uint32(len(value)))
+	for _, b := range value {
+		w.writeUInt(uint64(b))
+	}
+}
+
+func writeDatumNumeric(w *mpWriter, value string) {
+	w.writeArrayHeader(2) // UniDataValue::Scalar
+	w.writeUInt(datScalar)
+	w.writeArrayHeader(2) // UniScalarValue::Numeric
+	w.writeUInt(scalarNumeric)
+	w.writeString(value)
+}
+
+// writeDatumTyped writes one typed UniDataValue as the `[tag, payload]`
+// variant form, recursively. It exists for values that are already in
+// UniDataValue form — the record-case envelope the mtp-generated adapter
+// builds for a record-typed result with `types.RecordFromFieldValues` —
+// which must reach the wire untouched.
+func writeDatumTyped(w *mpWriter, datum types.UniDataValue) {
+	switch value := datum.(type) {
+	case types.UniDataValueScalar:
+		w.writeArrayHeader(2)
+		w.writeUInt(datScalar)
+		writeScalarTyped(w, value.Inner)
+	case types.UniDataValueArray:
+		w.writeArrayHeader(2)
+		w.writeUInt(datArray)
+		w.writeArrayHeader(uint32(len(value.Inner)))
+		for _, item := range value.Inner {
+			writeDatumTyped(w, item)
+		}
+	case types.UniDataValueRecord:
+		w.writeArrayHeader(2)
+		w.writeUInt(datRecord)
+		w.writeArrayHeader(uint32(len(value.Inner)))
+		for _, field := range value.Inner {
+			w.writeMapHeader(2) // UniDataValueField
+			w.writeUInt(1)
+			w.writeString(field.FieldName)
+			w.writeUInt(2)
+			writeDatumTyped(w, field.FieldValue)
+		}
+	case types.UniDataValueBinary:
+		w.writeArrayHeader(2)
+		w.writeUInt(datBinary)
+		// Record-context `list<u8>` encodes as an array of u8, like the Blob
+		// scalar (the pinned host quirk), not as MessagePack bin.
+		w.writeArrayHeader(uint32(len(value.Inner)))
+		for _, b := range value.Inner {
+			w.writeUInt(uint64(b))
+		}
+	default:
+		panic(fmt.Sprintf("unsupported UniDataValue kind %T", datum))
+	}
+}
+
+// writeScalarTyped writes one typed UniScalarValue as the `[tag, payload]`
+// variant form. 128-bit integers have no writer (the guest datum surface
+// has no 128-bit shape) and panic, like an unsupported result type.
+func writeScalarTyped(w *mpWriter, scalar types.UniScalarValue) {
+	w.writeArrayHeader(2)
+	switch value := scalar.(type) {
+	case types.UniScalarValueBool:
+		w.writeUInt(scalarBool)
+		w.writeBool(value.Inner)
+	case types.UniScalarValueU8:
+		w.writeUInt(1)
+		w.writeUInt(uint64(value.Inner))
+	case types.UniScalarValueI8:
+		w.writeUInt(2)
+		w.writeInt(int64(value.Inner))
+	case types.UniScalarValueU16:
+		w.writeUInt(3)
+		w.writeUInt(uint64(value.Inner))
+	case types.UniScalarValueI16:
+		w.writeUInt(4)
+		w.writeInt(int64(value.Inner))
+	case types.UniScalarValueU32:
+		w.writeUInt(5)
+		w.writeUInt(uint64(value.Inner))
+	case types.UniScalarValueI32:
+		w.writeUInt(scalarI32)
+		w.writeInt(int64(value.Inner))
+	case types.UniScalarValueU64:
+		w.writeUInt(7)
+		w.writeUInt(value.Inner)
+	case types.UniScalarValueI64:
+		w.writeUInt(scalarI64)
+		w.writeInt(value.Inner)
+	case types.UniScalarValueF32:
+		w.writeUInt(11)
+		w.writeFloat32(value.Inner)
+	case types.UniScalarValueF64:
+		w.writeUInt(scalarF64)
+		w.writeDouble(value.Inner)
+	case types.UniScalarValueChar:
+		w.writeUInt(13)
+		w.writeString(value.Inner)
+	case types.UniScalarValueString:
+		w.writeUInt(scalarString)
+		w.writeString(value.Inner)
+	case types.UniScalarValueNumeric:
+		w.writeUInt(scalarNumeric)
+		w.writeString(value.Inner)
+	case types.UniScalarValueDate:
+		w.writeUInt(17)
+		w.writeString(value.Inner)
+	case types.UniScalarValueTime:
+		w.writeUInt(18)
+		w.writeString(value.Inner)
+	case types.UniScalarValueTimestamp:
+		w.writeUInt(19)
+		w.writeString(value.Inner)
+	case types.UniScalarValueTimestampTz:
+		w.writeUInt(20)
+		w.writeString(value.Inner)
+	case types.UniScalarValueBlob:
+		w.writeUInt(scalarBlob)
+		w.writeArrayHeader(uint32(len(value.Inner)))
+		for _, b := range value.Inner {
+			w.writeUInt(uint64(b))
+		}
+	case types.UniScalarValueNull:
+		w.writeUInt(scalarNull)
+		w.writeUInt(0) // payload-less case: the 0u8 placeholder (0x00)
+	default:
+		panic(fmt.Sprintf("unsupported UniScalarValue kind %T", scalar))
+	}
+}
+
+// numeric marks a string to be sent as a UniScalarValue::Numeric datum
+// (Go has no decimal type in the standard library).
+type numeric string
+
+// readDatum reads one UniDataValue. A scalar datum unwraps to its native Go
+// value (`bool` / `int64` / `float64` / `string` / `[]byte` / nil); a
+// composite datum (record/array/binary — user-defined procedure types)
+// keeps its typed `types.UniDataValue` form so the mtp-generated adapter
+// can unwrap it through the binding record bridge
+// (`types.RecordFieldValues`).
+func readDatum(reader *mpReader) any {
+	datum := readDatumTyped(reader)
+	if reader.err != nil {
+		return nil
+	}
+	scalar, ok := datum.(types.UniDataValueScalar)
+	if !ok {
+		return datum
+	}
+	return scalarToNative(reader, scalar.Inner)
+}
+
+// readDatumTyped reads one UniDataValue into its typed form, recursively:
+// `[0, scalar]` / `[1, [items]]` / `[2, [fields]]` / `[3, [bytes]]`.
+func readDatumTyped(reader *mpReader) types.UniDataValue {
+	expectArrayLen(reader.readArrayHeader(), 2, "UniDataValue", reader)
+	kind := reader.readUInt()
+	if reader.err != nil {
+		return nil
+	}
+	switch kind {
+	case datScalar:
+		return types.UniDataValueScalar{Inner: readScalarTyped(reader)}
+	case datArray:
+		itemCount := reader.readArrayHeader()
+		items := make([]types.UniDataValue, 0, itemCount)
+		for i := uint32(0); i < itemCount; i++ {
+			items = append(items, readDatumTyped(reader))
+		}
+		return types.UniDataValueArray{Inner: items}
+	case datRecord:
+		fieldCount := reader.readArrayHeader()
+		fields := make([]types.UniDataValueField, 0, fieldCount)
+		for i := uint32(0); i < fieldCount; i++ {
+			fields = append(fields, readDatumField(reader))
+		}
+		return types.UniDataValueRecord{Inner: fields}
+	case datBinary:
+		blobCount := reader.readArrayHeader()
+		blob := make([]byte, 0, blobCount)
+		for b := uint32(0); b < blobCount; b++ {
+			blob = append(blob, byte(reader.readUInt()))
+		}
+		return types.UniDataValueBinary{Inner: blob}
+	default:
+		reader.fail("unsupported UniDataValue kind %d", kind)
+		return nil
+	}
+}
+
+// readDatumField reads one UniDataValueField: the integer-keyed map
+// `{1: field_name, 2: field_value}` (the host drops the names — positional
+// semantics — but the map shape stays).
+func readDatumField(reader *mpReader) types.UniDataValueField {
+	var field types.UniDataValueField
+	fieldCount := reader.readMapHeader()
+	for i := uint32(0); i < fieldCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 1:
+			field.FieldName = reader.readString()
+		case key == 2:
+			field.FieldValue = readDatumTyped(reader)
+		default:
+			reader.skip()
+		}
+	}
+	return field
+}
+
+// readScalarTyped reads one UniScalarValue as the `[tag, payload]` variant
+// into its typed form. 128-bit integers are rejected (the guest datum
+// surface has no 128-bit shape).
+func readScalarTyped(reader *mpReader) types.UniScalarValue {
+	expectArrayLen(reader.readArrayHeader(), 2, "UniScalarValue", reader)
+	scalar := reader.readUInt()
+	if reader.err != nil {
+		return nil
+	}
+	switch scalar {
+	case scalarBool:
+		return types.UniScalarValueBool{Inner: reader.readBool()}
+	case 1: // U8
+		return types.UniScalarValueU8{Inner: uint8(reader.readUInt())}
+	case 2: // I8
+		return types.UniScalarValueI8{Inner: int8(reader.readInt())}
+	case 3: // U16
+		return types.UniScalarValueU16{Inner: uint16(reader.readUInt())}
+	case 4: // I16
+		return types.UniScalarValueI16{Inner: int16(reader.readInt())}
+	case 5: // U32
+		return types.UniScalarValueU32{Inner: uint32(reader.readUInt())}
+	case scalarI32:
+		return types.UniScalarValueI32{Inner: int32(reader.readInt())}
+	case 7: // U64
+		return types.UniScalarValueU64{Inner: reader.readUInt()}
+	case scalarI64:
+		return types.UniScalarValueI64{Inner: reader.readInt()}
+	case 11: // F32
+		return types.UniScalarValueF32{Inner: float32(reader.readDouble())}
+	case scalarF64:
+		return types.UniScalarValueF64{Inner: reader.readDouble()}
+	case 13: // Char (a single-character string)
+		return types.UniScalarValueChar{Inner: reader.readString()}
+	case scalarString:
+		return types.UniScalarValueString{Inner: reader.readString()}
+	case scalarBlob:
+		// Record-context `list<u8>` arrives as an array of u8 (the pinned
+		// host quirk), not as MessagePack bin.
+		blobCount := reader.readArrayHeader()
+		blob := make([]byte, 0, blobCount)
+		for b := uint32(0); b < blobCount; b++ {
+			blob = append(blob, byte(reader.readUInt()))
+		}
+		return types.UniScalarValueBlob{Inner: blob}
+	case scalarNumeric:
+		return types.UniScalarValueNumeric{Inner: reader.readString()}
+	case 17: // Date
+		return types.UniScalarValueDate{Inner: reader.readString()}
+	case 18: // Time
+		return types.UniScalarValueTime{Inner: reader.readString()}
+	case 19: // Timestamp
+		return types.UniScalarValueTimestamp{Inner: reader.readString()}
+	case 20: // TimestampTz
+		return types.UniScalarValueTimestampTz{Inner: reader.readString()}
+	case scalarNull:
+		reader.skip() // the 0u8 placeholder
+		return types.UniScalarValueNull{}
+	default:
+		reader.fail("unsupported UniScalarValue tag %d", scalar)
+		return nil
+	}
+}
+
+// scalarToNative unwraps a typed scalar to its native Go value; every
+// integer width collapses to int64 (the procedure type table has no
+// narrower ints).
+func scalarToNative(reader *mpReader, scalar types.UniScalarValue) any {
+	switch value := scalar.(type) {
+	case types.UniScalarValueBool:
+		return value.Inner
+	case types.UniScalarValueU8:
+		return int64(value.Inner)
+	case types.UniScalarValueI8:
+		return int64(value.Inner)
+	case types.UniScalarValueU16:
+		return int64(value.Inner)
+	case types.UniScalarValueI16:
+		return int64(value.Inner)
+	case types.UniScalarValueU32:
+		return int64(value.Inner)
+	case types.UniScalarValueI32:
+		return int64(value.Inner)
+	case types.UniScalarValueU64:
+		return int64(value.Inner)
+	case types.UniScalarValueI64:
+		return value.Inner
+	case types.UniScalarValueF32:
+		return float64(value.Inner)
+	case types.UniScalarValueF64:
+		return value.Inner
+	case types.UniScalarValueChar:
+		return value.Inner
+	case types.UniScalarValueString:
+		return value.Inner
+	case types.UniScalarValueNumeric:
+		return value.Inner
+	case types.UniScalarValueDate:
+		return value.Inner
+	case types.UniScalarValueTime:
+		return value.Inner
+	case types.UniScalarValueTimestamp:
+		return value.Inner
+	case types.UniScalarValueTimestampTz:
+		return value.Inner
+	case types.UniScalarValueBlob:
+		return value.Inner
+	case types.UniScalarValueNull:
+		return nil
+	default:
+		reader.fail("unsupported UniScalarValue kind %T", scalar)
+		return nil
+	}
+}
+
+func writeUniError(w *mpWriter, code uint32, message string) {
+	w.writeMapHeader(5) // UniError
+	w.writeUInt(1)
+	w.writeUInt(uint64(code))
+	w.writeUInt(2)
+	w.writeString(message)
+	w.writeUInt(3)
+	w.writeString("{{kebab_name}}") // err_src
+	w.writeUInt(4)
+	w.writeString("") // err_loc
+	w.writeUInt(5)
+	w.writeArrayHeader(0) // err_details (record-context int array)
+}
+
+func readUniError(reader *mpReader) uniError {
+	var uniErr uniError
+	errorCount := reader.readMapHeader()
+	for i := uint32(0); i < errorCount; i++ {
+		key, ok := readRecordKey(reader)
+		switch {
+		case !ok:
+		case key == 1:
+			uniErr.Code = uint32(reader.readUInt())
+		case key == 2:
+			uniErr.Message = reader.readString()
+		default:
+			reader.skip() // err_src / err_loc / err_details, unknown keys
+		}
+	}
+	return uniErr
+}
+
+func expectArrayLen(actual uint32, expected uint32, what string, reader *mpReader) {
+	if reader.err != nil {
+		return
+	}
+	if actual != expected {
+		reader.fail("%s: expected MessagePack array of length %d, got %d", what, expected, actual)
+	}
+}

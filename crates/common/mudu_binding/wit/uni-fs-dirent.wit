@@ -1,0 +1,7 @@
+interface universal {
+    record uni-fs-dirent {
+        name:string,
+        is-dir:bool,
+        length:u64,
+    }
+}

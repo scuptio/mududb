@@ -1,0 +1,60 @@
+{%- if func.comments.len() > 0 -%}
+{{ func.comments }}
+{% endif -%}
+{% for decl in func.holder_decls -%}
+{{ decl }}
+{% endfor -%}
+{% if func.param_count > 1 -%}
+typedef struct {
+{%- for field in func.req_holder_fields %}
+{{ field.decl }}
+{%- endfor %}
+} {{ func.req_holder_name }};
+
+{% endif -%}
+{% if func.param_count == 0 -%}
+/* Encode one `{{ func.func_snake }}` request frame (header + empty body). */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_request_encode(mp_writer *w) {
+{{ func.req_encode_body }}
+}
+
+/* Decode one `{{ func.func_snake }}` request frame; the body must be empty. */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_request_decode(mp_reader *r, mp_arena *a) {
+{{ func.req_decode_body }}
+}
+{% else -%}
+/* Encode one `{{ func.func_snake }}` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_request_encode(mp_writer *w, {{ func.req_signature }}) {
+{{ func.req_encode_body }}
+}
+
+/* Decode one `{{ func.func_snake }}` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_request_decode(mp_reader *r, mp_arena *a, {{ func.req_decode_out_ty }} *out) {
+{{ func.req_decode_body }}
+}
+{% endif %}
+/* Wire-level `result<T, E>` of `{{ func.func_snake }}`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    {{ func.err_ty }} err;
+{%- if !func.result_is_unit %}
+{{ func.res_value_decl }}
+{%- endif %}
+} {{ func.res_holder_name }};
+
+/* Encode one `{{ func.func_snake }}` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_result_encode(mp_writer *w, const {{ func.res_holder_name }} *res) {
+{{ func.res_encode_body }}
+}
+
+/* Decode one `{{ func.func_snake }}` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int {{ func.prefix }}_{{ func.func_snake }}_result_decode(mp_reader *r, mp_arena *a, {{ func.res_holder_name }} *out) {
+{{ func.res_decode_body }}
+}

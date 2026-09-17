@@ -73,8 +73,15 @@ jobs:
 
       - name: Build Release Binaries
         run: |
-          RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/../lib" \
-            cargo build --release --target ${{ matrix.rust_target }}
+          # The release binaries live in two independent group workspaces:
+          # mudud in crates/db-kernel; mpm-build, mgen, mtp, mcli in
+          # crates/tools. All builds share the root target/ directory.
+          for group in crates/db-kernel crates/tools; do
+            echo "=== cargo build --release: ${group} ==="
+            (cd "${group}" && \
+              RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/../lib" \
+              cargo build --release --target ${{ matrix.rust_target }})
+          done
 
       - name: Collect Binaries
         run: |
@@ -101,6 +108,7 @@ jobs:
           declare -A BIN_MAP
           BIN_MAP=(
             ["mpm_build"]="mpm-build"
+            ["mpm_crate"]="mpm-crate"
             ["mudu_gen"]="mgen"
             ["mudu_transpiler"]="mtp"
             ["mudud"]="mudud"

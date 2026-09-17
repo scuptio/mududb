@@ -1,0 +1,46 @@
+{% if !func.comments.is_empty() %}{{ func.comments }}
+{% endif %}{% if func.param_count == 0 %}def encode_{{ func.snake }}_request() -> bytes:
+    return encode_frame(MessageKind.{{ func.kind_member }}, b"")
+
+
+def decode_{{ func.snake }}_request(frame: bytes) -> None:
+    _body = expect_frame_body(frame, MessageKind.{{ func.kind_member }})
+    if len(_body) != 0:
+        raise ValueError("trailing bytes after syscall payload body")
+{% else %}def encode_{{ func.snake }}_request({{ func.req_signature }}) -> bytes:
+    return encode_request_frame(
+        MessageKind.{{ func.kind_member }},
+        {
+{{ func.req_encode_entries }}
+        },
+    )
+
+
+def decode_{{ func.snake }}_request(frame: bytes) -> {{ func.req_return_type }}:
+    fields = decode_request_map(MessageKind.{{ func.kind_member }}, frame)
+{{ func.req_decode_stmts }}
+    return {{ func.req_decode_return }}
+{% endif %}
+
+{% if func.result_is_unit %}def encode_{{ func.snake }}_result(result: WireResult) -> bytes:
+    # unit success payload: `[0, 0]`; failure: `[1, error]`
+    return encode_unit_result_frame(MessageKind.{{ func.kind_member }}, result)
+
+
+def decode_{{ func.snake }}_result(frame: bytes) -> WireResult:
+    return decode_unit_result_frame(MessageKind.{{ func.kind_member }}, frame)
+{% else %}def encode_{{ func.snake }}_result(result: WireResult) -> bytes:
+    # success payload: `[0, value]`; failure: `[1, error]`
+    return encode_result_frame(
+        MessageKind.{{ func.kind_member }},
+        result,
+        lambda value: {{ func.res_ok_to_value }},
+    )
+
+
+def decode_{{ func.snake }}_result(frame: bytes) -> WireResult:
+    raw = decode_result_frame(MessageKind.{{ func.kind_member }}, frame)
+    if raw.is_ok:
+        return WireResult.ok({{ func.res_ok_from_value }})
+    return raw
+{% endif %}

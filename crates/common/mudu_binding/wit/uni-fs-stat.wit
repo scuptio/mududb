@@ -1,0 +1,11 @@
+use crate:universal:uni-oid/uni-oid;
+
+interface universal {
+    record uni-fs-stat {
+        oid:uni-oid,
+        generation:u64,
+        entry:string,
+        length:u64,
+        state:u32,
+    }
+}

@@ -46,7 +46,12 @@ jobs:
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} miri test --workspace -- --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/nightly-miri.log
+          {
+            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+              echo "=== Miri tests: ${group} ==="
+              (cd "${group}" && cargo +${NIGHTLY_TOOLCHAIN} miri test --workspace -- --test-threads=1)
+            done
+          } 2>&1 | tee ${{ github.workspace }}/logs/nightly-miri.log
         env:
           MIRIFLAGS: "-Zmiri-disable-isolation"
 
@@ -57,4 +62,5 @@ jobs:
           echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
           echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
           echo "  rustup component add miri --toolchain \${NIGHTLY_TOOLCHAIN}"
+          echo "  cd crates/<group>   # one of: common db-kernel sdk tools"
           echo "  MIRIFLAGS=\"-Zmiri-disable-isolation\" cargo +\${NIGHTLY_TOOLCHAIN} miri test --workspace -- --test-threads=1"

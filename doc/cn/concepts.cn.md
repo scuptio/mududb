@@ -57,7 +57,7 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 |------|------|----------|
 | `mudud` | MuduDB 服务器。 | 运行数据库时始终需要。 |
 | `mcli` | TCP 协议客户端与 HTTP 管理 CLI。 | 交互式执行 SQL、安装应用包、调用过程。 |
-| `mgen` | 源码生成器。根据 SQL DDL 生成 Rust 实体类型。 | 应用有 SQL 表且希望查询结果带类型时。 |
+| `mgen` | 源码生成器。根据 SQL DDL 生成 Rust 实体类型，并对照 DDL 静态检查过程源码中的 SQL（`check-sql`）。 | 应用有 SQL 表且希望查询结果带类型、SQL 在构建期得到校验时。 |
 | `mtp` | 转译器。将 Rust/AssemblyScript 源码转换为 Mudu Procedure 格式，并生成异步包装代码。 | 编写或修改 `/**mudu-proc**/` 函数时。 |
 | `mpm-build` | 包构建器。根据 DDL、描述符和 WASM 模块生成 `.mpk` 文件。 | 将应用部署到 `mudud` 之前。 |
 | `mudup` | 发布版安装器。下载并激活发布二进制。 | 日常使用或服务器部署，不想从源码构建时。**暂时 not stable；推荐源码构建。** |
@@ -76,8 +76,6 @@ MuduDB 向过程暴露一组精简的系统调用风格 API，供其访问数据
 ## 组件模型
 
 MuduDB 使用 [WebAssembly Component Model](https://component-model.bytecodealliance.org/) 运行用户过程。过程被编译为 `wasm32-wasip2` 目标，再与 MuduDB host 组件 compose，最终打包进 MPK。
-
-`mudu_wasm` crate（Cargo 包名为 `mod_0`）提供生成的 guest 绑定和 host 侧转译辅助代码。
 
 ## 交互式执行与存储过程执行
 

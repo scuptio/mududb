@@ -1,0 +1,25 @@
+[tasks.generate]
+command = "mgen"
+args = [
+    "message",
+    "-l",
+    "rust",
+    "-i",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "-o",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/universal"
+]
+
+[tasks.generate-csharp]
+command = "mgen"
+args = [
+    "message",
+    "-l",
+    "csharp",
+    "-n",
+    "MGameActor.Universal",
+    "-i",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "-o",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/csharp"
+]

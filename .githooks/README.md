@@ -19,10 +19,12 @@ git config core.hooksPath .githooks
 
 ## Pre-commit Hook
 
-The pre-commit hook runs the following checks before each commit:
+The pre-commit hook runs the following checks before each commit, once per
+group workspace (`crates/common`, `crates/db-kernel`, `crates/sdk`,
+`crates/tools` — there is no root cargo workspace):
 
 - `cargo fmt -- --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo deny check bans licenses advisories sources`
+- `cargo deny check --config <repo-root>/deny.toml bans licenses advisories sources`
 
 If any check fails, the commit is aborted.

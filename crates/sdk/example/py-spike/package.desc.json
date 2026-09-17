@@ -1,0 +1,28 @@
+{
+  "modules": {
+    "spike": [
+      {
+        "module_name": "spike",
+        "proc_name": "hello",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": { "id": "I32", "param": null },
+              "name": "n",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": [
+            {
+              "data_type": { "id": "String", "param": { "String": { "length": 65536 } } },
+              "name": "0",
+              "nullable": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

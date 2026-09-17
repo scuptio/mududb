@@ -1,0 +1,5 @@
+package-cfg = "package/package.cfg.json"
+package-desc = "package/package.desc.json"
+ddl-sql = "sql/ddl.sql"
+initdb-sql = "sql/init.sql"
+wasm-files = []

@@ -61,12 +61,12 @@ MuduDB 过程是 Rust 或 AssemblyScript 中的普通函数，用 `/**mudu-proc*
 
 ## 6. 内置 ORM 与类型安全
 
-MuduDB 为查询结果映射到语言类型提供了一流支持。`Entity` trait 将 SQL 行转换为 Rust 结构体，`sql_stmt!` 和 `sql_params!` 宏在编译期捕获 SQL 与参数错误。`mgen` 工具还能直接根据 DDL 生成实体类型，在减少样板代码的同时避免引入笨重的外部 ORM。
+MuduDB 为查询结果映射到语言类型提供了一流支持。`Entity` trait 将 SQL 行转换为 Rust 结构体，`mgen check-sql` 在构建期对照 DDL 静态校验过程源码中的 SQL 语句。`mgen` 工具还能直接根据 DDL 生成实体类型，在减少样板代码的同时避免引入笨重的外部 ORM。
 
 **亮点**
 
 - 通过 `Entity` trait 自动完成关系-对象映射
-- `sql_stmt!` 与 `sql_params!` 提供编译期 SQL 校验
+- `mgen check-sql` 在构建期对照 DDL 校验 SQL
 - `mgen` 根据 DDL 生成带类型的实体
 - 在早期发现 schema 与查询不匹配
 

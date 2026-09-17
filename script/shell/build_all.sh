@@ -12,9 +12,12 @@ cd "$REPO_ROOT"
 echo "=== MuduDB Build & Install ==="
 echo ""
 
-# 1. Build the full workspace (34 crates)
-echo "[1/4] Building workspace (cargo build --release)..."
-cargo build --release
+# 1. Build all four group workspaces (crates/{common,db-kernel,sdk,tools})
+echo "[1/4] Building workspaces (cargo build --release)..."
+for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+    echo "  Building $group ..."
+    (cd "$REPO_ROOT/$group" && cargo build --release)
+done
 echo "Workspace build complete."
 echo ""
 
@@ -26,7 +29,7 @@ echo ""
 
 # 3. Add wasm target and build wallet example
 echo "[3/4] Building wallet example (.mpk)..."
-cd "$REPO_ROOT/example/wallet"
+cd "$REPO_ROOT/crates/sdk/example/wallet"
 cargo make
 cd "$REPO_ROOT"
 echo "Wallet example built."

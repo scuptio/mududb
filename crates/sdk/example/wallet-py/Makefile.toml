@@ -1,0 +1,125 @@
+[env]
+PACKAGE_NAME = "wallet-py"
+MODULE_NAME = "wallet_py"
+WORLD_NAME = "wallet-py"
+PY_BINDINGS = "${CARGO_MAKE_WORKING_DIRECTORY}/../../bindings/python"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/build/wallet_py.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/py-guest/${PACKAGE_NAME}.mpk"
+
+# The wallet-py build chain needs componentize-py on PATH
+# (pipx install componentize-py==0.25.1) plus wasm-tools.
+
+[tasks.prepare]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/build",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/deps/api"
+]
+
+# Statically check every SQL string literal in procedures.py against the
+# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+[tasks.check-sql]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_gen/Cargo.toml",
+    "--bin", "mgen",
+    "--",
+    "check-sql",
+    "--lang", "python",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.py",
+]
+
+# Generate the Python message types of the project WIT records
+# (profile/address) with mgen: a single self-contained `gentypes.py`
+# module carrying the dataclasses plus their xxx_to_value/xxx_from_value
+# codecs — the module the mtp adapter wiring references through
+# --type-import (see the transpile task) and procedures.py imports.
+[tasks.gentypes]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_gen/Cargo.toml",
+    "--bin", "mgen",
+    "--",
+    "message",
+    "-i", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "-o", "${CARGO_MAKE_WORKING_DIRECTORY}/gentypes.py",
+    "-l", "python",
+]
+
+[tasks.transpile]
+dependencies = ["prepare", "check-sql", "gentypes"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_transpiler/Cargo.toml",
+    "--bin", "mtp",
+    "--",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.py",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures_gen.py",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--type-wit", "${CARGO_MAKE_WORKING_DIRECTORY}/wit/types.wit",
+    "--type-import", "gentypes",
+    "python"
+]
+
+# Stage the mtp-generated world WIT next to a copy of the host syscall
+# interface so componentize-py can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/generated/procedures_gen.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/procedures_gen.wit"
+]
+
+[tasks.stage-wit-deps]
+dependencies = ["prepare"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../../common/sys_interface/wit/sync/api.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/deps/api/api.wit"
+]
+
+# componentize-py produces the component directly: the generated adapter
+# imports the user's `procedures` module (-p .), the mududb package
+# (-p ${PY_BINDINGS}), and lives in `generated` (-p generated).
+[tasks.componentize]
+dependencies = ["stage-wit", "stage-wit-deps"]
+command = "componentize-py"
+args = [
+    "-d", "${CARGO_MAKE_WORKING_DIRECTORY}/wit",
+    "-w", "${WORLD_NAME}",
+    "componentize", "procedures_gen",
+    "-p", "${CARGO_MAKE_WORKING_DIRECTORY}/generated",
+    "-p", "${CARGO_MAKE_WORKING_DIRECTORY}",
+    "-p", "${PY_BINDINGS}",
+    "-o", "${WASM_FILE}"
+]
+
+[tasks.validate-component]
+dependencies = ["componentize"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]

@@ -1,0 +1,82 @@
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+export enum {{ variant.variant_name }}Kind {
+{% for case in variant.variant_cases %}
+    {{ case.vc_case_name }} = {{ case.vc_number }},
+{% endfor %}
+}
+
+// AssemblyScript has no union types; the variant is a base class carrying the
+// `kind` tag with one subclass per case. Codec functions take/return the base
+// class and downcast with checked `as` casts.
+export class {{ variant.variant_name }} {
+    kind: {{ variant.variant_name }}Kind = {{ variant.variant_name }}Kind.{{ variant.variant_cases[0].vc_case_name }};
+}
+
+{% for holder in tuple_holders %}
+export class {{ holder.name }} {
+    {% for ty in holder.field_types %}
+    f{{ loop.index0 }}: {{ ty }} = {{ holder.field_defaults[loop.index0] }};
+    {% endfor %}
+}
+{% endfor %}
+{% for case in variant.variant_cases %}
+export class {{ variant.variant_name }}{{ case.vc_case_name }} extends {{ variant.variant_name }} {
+    {% if case.vc_has_inner_type %}
+    inner: {{ case_codecs[loop.index0].inner_ty }} = {{ case_codecs[loop.index0].inner_default }};
+    {% endif %}
+    constructor() {
+        super();
+        this.kind = {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    }
+}
+{% endfor %}
+
+export class {{ variant.variant_name }}Codec {
+    static encode(value: {{ variant.variant_name }}, writer: MpackWriter): void {
+        writer.writeArrayHeader(2);
+        writer.writeU64(value.kind as u64);
+        switch (value.kind) {
+            {% for case in variant.variant_cases %}
+            case {{ variant.variant_name }}Kind.{{ case.vc_case_name }}: {
+                {% if case.vc_has_inner_type %}
+                {{ case_codecs[loop.index0].encode_stmts }}
+                {% else %}
+                // payload-less case: the `0u8` placeholder (NOT nil), matching
+                // the Rust host's variant serde.
+                writer.writeU64(0);
+                {% endif %}
+                break;
+            }
+            {% endfor %}
+            default:
+                throw new Error(`Unknown kind: ${value.kind}`);
+        }
+    }
+
+    static decode(reader: MpackReader): {{ variant.variant_name }} {
+        const count = reader.readArrayHeader();
+        if (count !== 2) {
+            throw new Error(`Expected array of length 2, got ${count}`);
+        }
+        const tag = reader.readU64() as u32;
+        switch (tag) {
+            {% for case in variant.variant_cases %}
+            case {{ case.vc_number }}: {
+                {% if case.vc_has_inner_type %}
+                const value = new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                {{ case_codecs[loop.index0].decode_stmts }}
+                return value;
+                {% else %}
+                // consume the `0u8` placeholder
+                reader.readU64();
+                return new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                {% endif %}
+            }
+            {% endfor %}
+            default:
+                throw new Error(`Unknown tag: ${tag}`);
+        }
+    }
+}

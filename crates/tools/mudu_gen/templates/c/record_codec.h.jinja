@@ -1,0 +1,32 @@
+/* Encode `value` as a MessagePack map keyed by the 1-based field numbers
+ * (WIT declaration order); `option` fields are omitted when null (proto3
+ * presence semantics). Encode only borrows `value`; failures are sticky in
+ * `w` (check `mpw_ok`). */
+MP_INLINE void {{ data.name }}_encode(mp_writer *w, const {{ data.name }} *value) {
+{{ data.encode_body }}
+}
+
+/* Decode one record into `out`, borrowing nothing from the input: every
+ * string, blob, array and boxed value is copied into `a`. Lenient: unknown
+ * keys are skipped and missing fields keep their zero default (absent
+ * `option` fields decode as null). 0 on success, -1 (with the reader's
+ * sticky error set) on malformed input or arena exhaustion. */
+MP_INLINE int {{ data.name }}_decode(mp_reader *r, mp_arena *a, {{ data.name }} *out) {
+{{ data.decode_body }}
+}
+
+/* Decode one record into freshly arena-allocated storage; 0 on failure
+ * (the reader's sticky error is set). Boxes of this type decode through
+ * this function, so headers referencing it by pointer never need its
+ * `sizeof`. */
+MP_INLINE {{ data.name }} *{{ data.name }}_decode_new(mp_reader *r, mp_arena *a) {
+    {{ data.name }} *p = ({{ data.name }} *)mpa_alloc(a, sizeof({{ data.name }}));
+    if (p == 0) {
+        mpr_fail(r);
+        return 0;
+    }
+    if ({{ data.name }}_decode(r, a, p) != 0) {
+        return 0;
+    }
+    return p;
+}

@@ -1,0 +1,36 @@
+[package]
+name = "testing"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[features]
+# Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
+# Integration tests that exercise real-OS semantics the simulator cannot
+# provide are gated with `#[cfg(not(feature = "ds"))]`.
+ds = ["mudu_sys/ds", "mudu_kernel/ds", "mudu_runtime/ds"]
+
+[dependencies]
+mudu_runtime = { workspace = true }
+mudu_utils = { workspace = true , features = ["debug_trace"]}
+mudu_client = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_contract = { workspace = true }
+mudu = { workspace = true }
+mudu_kernel = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mudu_cli = { workspace = true }
+rmp-serde = { workspace = true }
+tokio = { workspace = true }

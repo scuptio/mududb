@@ -1,0 +1,41 @@
+// Project message types for the wallet-py guest: user-defined procedure
+// types declared in WIT, consumed two ways from the same file:
+//
+//   - `mgen message -i wit/types.wit -o gentypes.py -l python` generates the
+//     Python dataclasses plus their xxx_to_value/xxx_from_value codecs as a
+//     single self-contained module — see the Makefile `gentypes` task;
+//   - `mtp ... --type-wit wit/types.wit` registers these names so procedure
+//     signatures in procedures.py may use them (record parameters/returns,
+//     enum parameters) — see the Makefile `transpile` task.
+//
+// On the procedure byte pipe a record travels as the positional
+// `uni-data-value` record case (declaration order, names dropped by the
+// host); the desc JSON keys are the WIT field names verbatim.
+//
+// The `package` clause matches the mtp-generated procedures_gen.wit: one
+// WIT directory is one package, and the componentize-py world build
+// (`componentize-py -d wit`) rejects headerless files sitting next to a
+// packaged world. The world does not reference this interface; it rides
+// along inertly.
+package mududb:wallet-py;
+
+interface wallet-types {
+    // A flat nested record: two plain string fields.
+    record address {
+        city: string,
+        zip: string,
+    }
+
+    // The wallet user profile: scalar fields (u32 and bool both cross the
+    // host as i32 — bool as 0/1), a list field, and a nested optional
+    // record. Keep the option field LAST: the wire form is positional, and
+    // an omitted trailing option is the only omission a positional record
+    // can express unambiguously.
+    record profile {
+        display-name: string,
+        level: u32,
+        vip: bool,
+        tags: list<string>,
+        home: option<address>,
+    }
+}

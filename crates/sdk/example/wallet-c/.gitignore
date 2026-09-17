@@ -1,0 +1,9 @@
+build/
+
+# mtp-generated artifacts (see Makefile.toml `transpile`/`stage-wit` tasks)
+generated/
+wit/world.wit
+package/package.desc.json
+
+# mgen-generated types (see Makefile.toml `gentypes` task)
+gentypes/

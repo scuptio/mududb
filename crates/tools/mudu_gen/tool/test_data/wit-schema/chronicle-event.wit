@@ -1,0 +1,11 @@
+
+interface game-data {
+    record chronicle-event {
+        chronicle-event-id: id,
+        timestamp: u64,
+        title: string,
+        message: string,
+        epoch: string,
+        epoch-date: string,
+    }
+}

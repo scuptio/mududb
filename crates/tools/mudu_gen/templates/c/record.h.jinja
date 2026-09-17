@@ -1,0 +1,17 @@
+{%- if comments.len() > 0 -%}
+{{ comments }}
+{% endif -%}
+{% for decl in holder_decls -%}
+{{ decl }}
+{% endfor -%}
+struct {{ name }} {
+{%- for field in fields %}
+{%- if field.comments.len() > 0 %}
+    {{ field.comments }}
+{%- endif %}
+    {{ field.ty }} {{ field.name }};
+{%- if field.is_option %}
+    bool {{ field.name }}_is_null;
+{%- endif %}
+{%- endfor %}
+};

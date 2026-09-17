@@ -1,0 +1,37 @@
+[package]
+name = "sys_interface_standalone"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lib]
+# NOTE: keep this crate rlib-only. A cdylib crate-type makes cargo emit the
+# final artifacts under the *unhashed* names
+# (libsys_interface_standalone.{rlib,so}) in the shared repository-root
+# target/; every group workspace then overwrites the same file and
+# downstream compiles fail with E0463. See AGENTS.md. Re-add cdylib only if
+# the uniffi-bindings workflow is revived, and isolate the target dir then.
+crate-type = ["rlib"]
+
+[features]
+async = []
+uniffi-bindings = ["dep:uniffi", "dep:thiserror", "dep:tokio"]
+
+[lints]
+workspace = true
+
+[dependencies]
+sys_interface = { workspace = true }
+mudu_adapter = { workspace = true }
+mudu = { workspace = true }
+mudu_binding = { workspace = true }
+mudu_contract = { workspace = true }
+uniffi = { workspace = true, features = ["tokio"], optional = true }
+thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }

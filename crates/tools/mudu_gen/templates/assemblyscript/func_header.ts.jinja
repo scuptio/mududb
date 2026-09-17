@@ -1,0 +1,95 @@
+// Length in bytes of the fixed syscall payload header.
+export const MSSP_HEADER_LEN: i32 = 16;
+const MSSP_MAGIC: u32 = 0x4D535350;
+const MSSP_VERSION: u32 = 1;
+
+// Syscall message kinds carried in the header's `message_kind` field. The
+// discriminants identify the WIT functions of this file and are pinned to
+// their 1-based declaration order; `0` and unknown values are rejected by
+// `decodeHeader`.
+export enum MessageKind {
+    {% for kind in kinds %}
+    {% if kind.comment.len() > 0 %}
+    {{ kind.comment }}
+    {% endif %}
+    {{ kind.case_name }} = {{ kind.discriminant }},
+    {% endfor %}
+}
+
+// Convert a raw header value into a message kind; throws on `0` and unknown
+// values.
+export function messageKindFromU32(raw: u32): MessageKind {
+    switch (raw) {
+        {% for kind in kinds %}
+        case {{ kind.discriminant }}:
+            return MessageKind.{{ kind.case_name }};
+        {% endfor %}
+        default:
+            throw new Error(`MSSP unknown syscall message kind ${raw}`);
+    }
+}
+
+// Encodes the fixed 16-byte header for `kind`.
+export function encodeHeader(kind: MessageKind): Uint8Array {
+    const out = new Uint8Array(MSSP_HEADER_LEN);
+    writeBeU32(out, 0, MSSP_MAGIC);
+    writeBeU32(out, 4, MSSP_VERSION);
+    // flags at [8..12] stay zero.
+    writeBeU32(out, 12, kind as u32);
+    return out;
+}
+
+// Decodes and validates the fixed 16-byte header, returning the message
+// kind; throws on any integrity violation.
+export function decodeHeader(frame: Uint8Array): MessageKind {
+    if (frame.length < MSSP_HEADER_LEN) {
+        throw new Error(`MSSP header shorter than ${MSSP_HEADER_LEN} bytes (${frame.length})`);
+    }
+    const magic = readBeU32(frame, 0);
+    if (magic !== MSSP_MAGIC) {
+        throw new Error(`MSSP bad magic 0x${magic.toString(16)}, expected 0x${MSSP_MAGIC.toString(16)}`);
+    }
+    const version = readBeU32(frame, 4);
+    if (version !== MSSP_VERSION) {
+        throw new Error(`MSSP unsupported payload version ${version}, supported range is [1, 1]`);
+    }
+    const flags = readBeU32(frame, 8);
+    if (flags !== 0) {
+        throw new Error(`MSSP nonzero header flags 0x${flags.toString(16)}`);
+    }
+    return messageKindFromU32(readBeU32(frame, 12));
+}
+
+// Encodes a complete frame: the 16-byte header followed by `body`.
+export function encodeFrame(kind: MessageKind, body: Uint8Array): Uint8Array {
+    const out = new Uint8Array(MSSP_HEADER_LEN + body.length);
+    out.set(encodeHeader(kind), 0);
+    out.set(body, MSSP_HEADER_LEN);
+    return out;
+}
+
+// Validates a frame, checks it carries the expected message kind, and
+// returns the body.
+export function expectFrameBody(frame: Uint8Array, expected: MessageKind): Uint8Array {
+    const kind = decodeHeader(frame);
+    if (kind !== expected) {
+        const kindRaw = kind as u32;
+        const expectedRaw = expected as u32;
+        throw new Error(`MSSP unexpected syscall message kind ${kindRaw}, expected ${expectedRaw}`);
+    }
+    return frame.subarray(MSSP_HEADER_LEN);
+}
+
+function readBeU32(frame: Uint8Array, offset: i32): u32 {
+    return ((frame[offset] as u32) << 24)
+        | ((frame[offset + 1] as u32) << 16)
+        | ((frame[offset + 2] as u32) << 8)
+        | (frame[offset + 3] as u32);
+}
+
+function writeBeU32(out: Uint8Array, offset: i32, value: u32): void {
+    out[offset] = (value >>> 24) as u8;
+    out[offset + 1] = (value >>> 16) as u8;
+    out[offset + 2] = (value >>> 8) as u8;
+    out[offset + 3] = value as u8;
+}

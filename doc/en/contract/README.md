@@ -13,7 +13,7 @@ This directory contains the formal, versioned contracts for MuduDB's persistent 
 | MPK Package Manifest | [v1](mpk_manifest_v1.md) | Stable | [`mudu_runtime/src/service/app_package.rs`](../../../mudu_runtime/src/service/app_package.rs) |
 | Server Configuration | [v1](mudud_cfg_v1.md) | Stable | [`mudu_runtime/src/backend/mudud_cfg.rs`](../../../mudu_runtime/src/backend/mudud_cfg.rs) |
 | File Layout | [v1](file_layout_v1.md) | Stable | [`mudu_kernel/src/storage/time_series/time_series_file.rs`](../../../mudu_kernel/src/storage/time_series/time_series_file.rs) |
-| Guest→Host Syscall Payload | [v1](syscall_payload_v1.md) | Draft | [`mudu/src/compat/mod.rs`](../../../mudu/src/compat/mod.rs) (registry; codec pending Phase 2) |
+| Guest→Host Syscall Payload | [v1](syscall_payload_v1.md) | Stable | [`mudu_binding/src/codec/syscall_payload/`](../../../crates/common/mudu_binding/src/codec/syscall_payload/) (host router; registry in `mudu/src/compat/mod.rs`) |
 
 ## Adding or changing a contract
 

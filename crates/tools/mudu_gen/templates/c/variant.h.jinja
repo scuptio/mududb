@@ -1,0 +1,25 @@
+{%- if comments.len() > 0 -%}
+{{ comments }}
+{% endif -%}
+typedef enum {
+{%- for case in kind_cases %}
+{%- if case.comments.len() > 0 %}
+    {{ case.comments }}
+{%- endif %}
+    {{ case.const_name }} = {{ case.number }}u,
+{%- endfor %}
+} {{ kind_name }};
+
+{% for decl in holder_decls -%}
+{{ decl }}
+{% endfor -%}
+struct {{ name }} {
+    {{ kind_name }} kind;
+{%- if has_union %}
+    union {
+{%- for member in union_members %}
+{{ member }}
+{%- endfor %}
+    } as;
+{%- endif %}
+};

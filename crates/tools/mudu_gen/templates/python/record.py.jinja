@@ -1,0 +1,37 @@
+{% if !comments.is_empty() %}{{ comments }}
+{% endif %}@dataclass
+class {{ record_name }}:
+{% if fields.len() == 0 %}    pass
+{% else %}{% for f in fields %}{% if !f.comments.is_empty() %}{{ f.comments }}
+{% endif %}    {{ f.name }}: {{ f.annotation }} = {{ f.default }}
+{% endfor %}{% endif %}
+
+# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# 1-based field numbers (WIT declaration order). Decode is lenient: unknown
+# keys are skipped and missing fields fall back to the type default (proto3
+# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# of `list<u8>`), NOT as MessagePack bin.
+def {{ record_snake }}_to_value(x: {{ record_name }}) -> dict:
+{% if fields.len() == 0 %}    return {}
+{% elif has_option_field %}    d = {
+{% for f in fields %}{% if !f.is_option %}        {{ f.number }}: {{ f.to_value_expr }},
+{% endif %}{% endfor %}    }
+{% for f in fields %}{% if f.is_option %}    # WIT option fields are omitted when None (proto3 presence semantics);
+    # decode treats a missing key as the default.
+    if x.{{ f.name }} is not None:
+        d[{{ f.number }}] = {{ f.to_value_expr }}
+{% endif %}{% endfor %}    return d
+{% else %}    return {
+{% for f in fields %}        {{ f.number }}: {{ f.to_value_expr }},
+{% endfor %}    }
+{% endif %}
+
+def {{ record_snake }}_from_value(v) -> {{ record_name }}:
+    x = {{ record_name }}()
+    for _key, _val in _expect_map(v).items():
+        if isinstance(_key, bool) or not isinstance(_key, int):
+            # non-integer keys are not record fields; skip them
+            continue
+{% for f in fields %}        {% if loop.first %}if{% else %}elif{% endif %} _key == {{ f.number }}:
+            x.{{ f.name }} = {{ f.from_value_expr }}
+{% endfor %}    return x

@@ -121,7 +121,7 @@ pub fn mudu_query<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 
@@ -129,7 +129,7 @@ pub async fn mudu_query_async<R: Entity>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<RecordSet<R>> {
+) -> RS<EntitySet<R>> {
     /* ... */
 }
 ```
@@ -215,6 +215,32 @@ pub async fn mudu_batch_async(
 参数列表。
 对于 `batch`，当前 libsql 实现要求参数列表为空。
 
+### 生成的实体绑定（`mgen entity`）
+
+对于 `sql/ddl.sql` 中的每张表，`mgen entity` 生成一个 Rust 模块，包含：
+
+- 实现 `Entity` trait 的行结构体（如 `Wallets`），以及 `TABLE_NAME` 与 `columns::*` 列名常量；
+- 针对含主键表的预构建 SQL 文本常量 `SQL_GET_BY_PK`、`SQL_INSERT`、`SQL_DELETE_BY_PK`，以及返回
+  `SQL_INSERT` 类型化绑定元组的 `insert_params()`；
+- 部分更新变更集 `<Table>Change`，每个非键列对应一个 `FieldChange<T>`：`Unchanged`（默认）不更新该列，
+  `Set(v)` 更新该列；对于可空列，`Set(None)` 写入 SQL `NULL`。
+
+`update_by_pk(...)` 构造 `UPDATE ... SET ... WHERE <pk> = ?` 语句及其绑定参数；当没有任何列被标记时
+返回 `None`：
+
+```rust
+let change = WalletsChange {
+    balance: FieldChange::Set(Some(200)),
+    ..WalletsChange::default()
+};
+if let Some((sql, params)) = change.update_by_pk(user_id) {
+    mudu_command(oid, sql_stmt!(&sql), sql_params!(&params))?;
+}
+```
+
+过程源码中的 SQL 字面量可以在构建期通过 `mgen check-sql` 对照 DDL 进行静态检查，
+参见 [`../dev/sql_subset.md`](../dev/sql_subset.md)。
+
 
 <!--
 quote_begin
@@ -227,33 +253,23 @@ content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L15-L37)"
+content="[Entity](../../mudu_contract/src/database/entity.rs#L23-L44)"
 lang="rust"
 -->
 
 ```rust
-pub trait Entity: private::Sealed + Datum {
-    fn new_empty() -> Self;
-
+pub trait Entity: Datum {
     fn tuple_desc() -> &'static TupleFieldDesc;
 
-    fn object_name() -> &'static str;
+    fn table_name() -> &'static str;
 
-    fn get_field_binary(&self, field_name: &str) -> RS<Option<Vec<u8>>>;
+    fn from_tuple(row: &TupleField) -> RS<Self>;
 
-    fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
+    fn from_tuple_value(row: &TupleValue) -> RS<Self>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
+    fn to_tuple(&self) -> RS<TupleField>;
 
-    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
-
-    fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
-        entity_utils::entity_from_tuple(tuple_row)
-    }
-
-    fn to_tuple(&self) -> RS<TupleField> {
-        entity_utils::entity_to_tuple(self)
-    }
+    fn to_tuple_value(&self) -> RS<TupleValue>;
 }
 ```
 

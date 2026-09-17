@@ -1,0 +1,37 @@
+[package]
+name = "sys_interface"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lib]
+# NOTE: keep this crate rlib-only. A cdylib crate-type makes cargo emit the
+# final artifacts under the *unhashed* names (libsys_interface.{rlib,so}) in
+# the shared repository-root target/; every group workspace then overwrites
+# the same file and downstream compiles fail with E0463. See AGENTS.md.
+crate-type = ["rlib"]
+
+[features]
+default = ["component-model"]
+wasip2 = ["component-model"]
+component-model = []
+async = []
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_binding = {workspace = true}
+mudu_sys = { workspace = true }
+wit-bindgen = { workspace = true }
+
+[dev-dependencies]
+mudu_type = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+async-trait = { workspace = true }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ['wit-bindgen']

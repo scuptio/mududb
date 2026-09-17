@@ -1,0 +1,7 @@
+use crate:universal:uni-data-value/uni-data-value;
+
+interface universal {
+    record uni-procedure-result {
+        return-list: list<uni-data-value>
+    }
+}

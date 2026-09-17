@@ -1,0 +1,10 @@
+use crate:universal:uni-tuple-row/uni-tuple-row;
+
+interface universal {
+    record uni-result-set {
+        eof:bool,
+        row-set: list<uni-tuple-row>,
+        cursor: list<u8>
+    }
+}
+

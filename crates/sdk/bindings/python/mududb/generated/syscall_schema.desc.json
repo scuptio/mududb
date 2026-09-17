@@ -1,0 +1,2099 @@
+{
+  "records": [
+    {
+      "name": "uni-command-argv",
+      "fields": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "command",
+          "data_type": [
+            6,
+            "uni-sql-stmt"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "param-list",
+          "data_type": [
+            6,
+            "uni-sql-param"
+          ]
+        },
+        {
+          "number": 4,
+          "name": "param-desc",
+          "data_type": [
+            3,
+            [
+              6,
+              "uni-record-type"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-command-result",
+      "fields": [
+        {
+          "number": 1,
+          "name": "affected-rows",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-data-value-field",
+      "fields": [
+        {
+          "number": 1,
+          "name": "field-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "field-value",
+          "data_type": [
+            6,
+            "uni-data-value"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-error",
+      "fields": [
+        {
+          "number": 1,
+          "name": "err-code",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "err-msg",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "err-src",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "err-loc",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 5,
+          "name": "err-details",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-field-attr",
+      "fields": [
+        {
+          "number": 1,
+          "name": "attr-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "attr-value",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-fs-dirent",
+      "fields": [
+        {
+          "number": 1,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "is-dir",
+          "data_type": [
+            0,
+            0
+          ]
+        },
+        {
+          "number": 3,
+          "name": "length",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-fs-open-argv",
+      "fields": [
+        {
+          "number": 1,
+          "name": "session",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "path",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "flags",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-fs-stat",
+      "fields": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "generation",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 3,
+          "name": "entry",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 4,
+          "name": "length",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 5,
+          "name": "state",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-message",
+      "fields": [
+        {
+          "number": 1,
+          "name": "message-id",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "source-oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "destination-oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 4,
+          "name": "payload",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-oid",
+      "fields": [
+        {
+          "number": 1,
+          "name": "h",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 2,
+          "name": "l",
+          "data_type": [
+            0,
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-procedure-param",
+      "fields": [
+        {
+          "number": 1,
+          "name": "procedure",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 2,
+          "name": "session",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "param-list",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-data-value"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-procedure-result",
+      "fields": [
+        {
+          "number": 1,
+          "name": "return-list",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-data-value"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-query-argv",
+      "fields": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "query",
+          "data_type": [
+            6,
+            "uni-sql-stmt"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "param-list",
+          "data_type": [
+            6,
+            "uni-sql-param"
+          ]
+        },
+        {
+          "number": 4,
+          "name": "param-desc",
+          "data_type": [
+            3,
+            [
+              6,
+              "uni-record-type"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-query-result",
+      "fields": [
+        {
+          "number": 1,
+          "name": "tuple-desc",
+          "data_type": [
+            6,
+            "uni-record-type"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "result-set",
+          "data_type": [
+            6,
+            "uni-result-set"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-record-field",
+      "fields": [
+        {
+          "number": 1,
+          "name": "field-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "field-type",
+          "data_type": [
+            6,
+            "uni-data-type"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "field-attrs",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-field-attr"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-record-type",
+      "fields": [
+        {
+          "number": 1,
+          "name": "record-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "record-fields",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-record-field"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-result-set",
+      "fields": [
+        {
+          "number": 1,
+          "name": "eof",
+          "data_type": [
+            0,
+            0
+          ]
+        },
+        {
+          "number": 2,
+          "name": "row-set",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-tuple-row"
+            ]
+          ]
+        },
+        {
+          "number": 3,
+          "name": "cursor",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-result-type",
+      "fields": [
+        {
+          "number": 1,
+          "name": "ok",
+          "data_type": [
+            3,
+            [
+              8,
+              [
+                6,
+                "uni-data-type"
+              ]
+            ]
+          ]
+        },
+        {
+          "number": 2,
+          "name": "err",
+          "data_type": [
+            3,
+            [
+              8,
+              [
+                6,
+                "uni-data-type"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-sql-param",
+      "fields": [
+        {
+          "number": 1,
+          "name": "params",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-data-value"
+            ]
+          ]
+        },
+        {
+          "number": 2,
+          "name": "param-names",
+          "data_type": [
+            3,
+            [
+              1,
+              [
+                0,
+                14
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-sql-stmt",
+      "fields": [
+        {
+          "number": 1,
+          "name": "sql-string",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-tuple-row",
+      "fields": [
+        {
+          "number": 1,
+          "name": "fields",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-data-value"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "tables": [],
+  "variants": [
+    {
+      "name": "uni-command-return",
+      "cases": [
+        {
+          "tag": 0,
+          "name": "ok",
+          "payload_type": [
+            6,
+            "uni-command-result"
+          ]
+        },
+        {
+          "tag": 1,
+          "name": "err",
+          "payload_type": [
+            6,
+            "uni-error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-data-type",
+      "cases": [
+        {
+          "tag": 0,
+          "name": "scalar",
+          "payload_type": [
+            6,
+            "uni-scalar"
+          ]
+        },
+        {
+          "tag": 1,
+          "name": "array",
+          "payload_type": [
+            8,
+            [
+              6,
+              "uni-data-type"
+            ]
+          ]
+        },
+        {
+          "tag": 2,
+          "name": "record",
+          "payload_type": [
+            6,
+            "uni-record-type"
+          ]
+        },
+        {
+          "tag": 3,
+          "name": "option",
+          "payload_type": [
+            8,
+            [
+              6,
+              "uni-data-type"
+            ]
+          ]
+        },
+        {
+          "tag": 4,
+          "name": "tuple",
+          "payload_type": [
+            1,
+            [
+              6,
+              "uni-data-type"
+            ]
+          ]
+        },
+        {
+          "tag": 5,
+          "name": "result",
+          "payload_type": [
+            6,
+            "uni-result-type"
+          ]
+        },
+        {
+          "tag": 6,
+          "name": "identifier",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 7,
+          "name": "binary",
+          "payload_type": null
+        },
+        {
+          "tag": 8,
+          "name": "%box",
+          "payload_type": [
+            8,
+            [
+              6,
+              "uni-data-type"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-data-value",
+      "cases": [
+        {
+          "tag": 0,
+          "name": "scalar",
+          "payload_type": [
+            6,
+            "uni-scalar-value"
+          ]
+        },
+        {
+          "tag": 1,
+          "name": "array",
+          "payload_type": [
+            1,
+            [
+              6,
+              "uni-data-value"
+            ]
+          ]
+        },
+        {
+          "tag": 2,
+          "name": "record",
+          "payload_type": [
+            1,
+            [
+              6,
+              "uni-data-value-field"
+            ]
+          ]
+        },
+        {
+          "tag": 3,
+          "name": "binary",
+          "payload_type": [
+            7,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-query-return",
+      "cases": [
+        {
+          "tag": 0,
+          "name": "ok",
+          "payload_type": [
+            6,
+            "uni-query-result"
+          ]
+        },
+        {
+          "tag": 1,
+          "name": "err",
+          "payload_type": [
+            6,
+            "uni-error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-scalar-value",
+      "cases": [
+        {
+          "tag": 0,
+          "name": "bool",
+          "payload_type": [
+            0,
+            0
+          ]
+        },
+        {
+          "tag": 1,
+          "name": "%u8",
+          "payload_type": [
+            0,
+            1
+          ]
+        },
+        {
+          "tag": 2,
+          "name": "i8",
+          "payload_type": [
+            0,
+            2
+          ]
+        },
+        {
+          "tag": 3,
+          "name": "%u16",
+          "payload_type": [
+            0,
+            3
+          ]
+        },
+        {
+          "tag": 4,
+          "name": "i16",
+          "payload_type": [
+            0,
+            4
+          ]
+        },
+        {
+          "tag": 5,
+          "name": "%u32",
+          "payload_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "tag": 6,
+          "name": "i32",
+          "payload_type": [
+            0,
+            6
+          ]
+        },
+        {
+          "tag": 7,
+          "name": "%u64",
+          "payload_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "tag": 8,
+          "name": "u128",
+          "payload_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "tag": 9,
+          "name": "i64",
+          "payload_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "tag": 10,
+          "name": "i128",
+          "payload_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "tag": 11,
+          "name": "%f32",
+          "payload_type": [
+            0,
+            11
+          ]
+        },
+        {
+          "tag": 12,
+          "name": "%f64",
+          "payload_type": [
+            0,
+            12
+          ]
+        },
+        {
+          "tag": 13,
+          "name": "%char",
+          "payload_type": [
+            0,
+            13
+          ]
+        },
+        {
+          "tag": 14,
+          "name": "%string",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 15,
+          "name": "blob",
+          "payload_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "tag": 16,
+          "name": "numeric",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 17,
+          "name": "date",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 18,
+          "name": "time",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 19,
+          "name": "timestamp",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 20,
+          "name": "timestamp-tz",
+          "payload_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "tag": 21,
+          "name": "null",
+          "payload_type": null
+        }
+      ]
+    }
+  ],
+  "enums": [
+    {
+      "name": "uni-scalar",
+      "cases": [
+        {
+          "number": 0,
+          "name": "bool"
+        },
+        {
+          "number": 1,
+          "name": "%u8"
+        },
+        {
+          "number": 2,
+          "name": "i8"
+        },
+        {
+          "number": 3,
+          "name": "%u16"
+        },
+        {
+          "number": 4,
+          "name": "i16"
+        },
+        {
+          "number": 5,
+          "name": "%u32"
+        },
+        {
+          "number": 6,
+          "name": "i32"
+        },
+        {
+          "number": 7,
+          "name": "%u64"
+        },
+        {
+          "number": 8,
+          "name": "u128"
+        },
+        {
+          "number": 9,
+          "name": "i64"
+        },
+        {
+          "number": 10,
+          "name": "i128"
+        },
+        {
+          "number": 11,
+          "name": "%f32"
+        },
+        {
+          "number": 12,
+          "name": "%f64"
+        },
+        {
+          "number": 13,
+          "name": "%char"
+        },
+        {
+          "number": 14,
+          "name": "%string"
+        },
+        {
+          "number": 15,
+          "name": "blob"
+        },
+        {
+          "number": 16,
+          "name": "numeric"
+        },
+        {
+          "number": 17,
+          "name": "date"
+        },
+        {
+          "number": 18,
+          "name": "time"
+        },
+        {
+          "number": 19,
+          "name": "timestamp"
+        },
+        {
+          "number": 20,
+          "name": "timestamp-tz"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "query",
+      "message_kind": 1,
+      "params": [
+        {
+          "number": 1,
+          "name": "argv",
+          "data_type": [
+            6,
+            "uni-query-argv"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-query-result"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "command",
+      "message_kind": 2,
+      "params": [
+        {
+          "number": 1,
+          "name": "argv",
+          "data_type": [
+            6,
+            "uni-command-argv"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-command-result"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "batch",
+      "message_kind": 3,
+      "params": [
+        {
+          "number": 1,
+          "name": "argv",
+          "data_type": [
+            6,
+            "uni-command-argv"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-command-result"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "open-session",
+      "message_kind": 4,
+      "params": [
+        {
+          "number": 1,
+          "name": "worker-id",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-oid"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "close-session",
+      "message_kind": 5,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "message_kind": 6,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                3,
+                [
+                  7,
+                  0
+                ]
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "put",
+      "message_kind": 7,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "number": 3,
+          "name": "value",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "message_kind": 8,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "range",
+      "message_kind": 9,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "start",
+          "data_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "number": 3,
+          "name": "end",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                1,
+                [
+                  4,
+                  [
+                    [
+                      7,
+                      0
+                    ],
+                    [
+                      7,
+                      0
+                    ]
+                  ]
+                ]
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-open",
+      "message_kind": 10,
+      "params": [
+        {
+          "number": 1,
+          "name": "argv",
+          "data_type": [
+            6,
+            "uni-fs-open-argv"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                0,
+                5
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-close",
+      "message_kind": 11,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-read",
+      "message_kind": 12,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "len",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                7,
+                0
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-write",
+      "message_kind": 13,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "data",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                0,
+                5
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-pread",
+      "message_kind": 14,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "offset",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 3,
+          "name": "len",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                7,
+                0
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-pwrite",
+      "message_kind": 15,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "offset",
+          "data_type": [
+            0,
+            7
+          ]
+        },
+        {
+          "number": 3,
+          "name": "data",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-lseek",
+      "message_kind": 16,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        },
+        {
+          "number": 2,
+          "name": "offset",
+          "data_type": [
+            0,
+            9
+          ]
+        },
+        {
+          "number": 3,
+          "name": "whence",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                0,
+                7
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-fstat",
+      "message_kind": 17,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-fs-stat"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-stat",
+      "message_kind": 18,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "path",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-fs-stat"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-fsync",
+      "message_kind": 19,
+      "params": [
+        {
+          "number": 1,
+          "name": "fd",
+          "data_type": [
+            0,
+            5
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fs-readdir",
+      "message_kind": 20,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "path",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                1,
+                [
+                  6,
+                  "uni-fs-dirent"
+                ]
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "relation-get",
+      "message_kind": 21,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "table",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "key",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        },
+        {
+          "number": 4,
+          "name": "select",
+          "data_type": [
+            1,
+            [
+              0,
+              7
+            ]
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                3,
+                [
+                  1,
+                  [
+                    3,
+                    [
+                      7,
+                      0
+                    ]
+                  ]
+                ]
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "relation-update",
+      "message_kind": 22,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "table",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "key",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        },
+        {
+          "number": 4,
+          "name": "values",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        },
+        {
+          "number": 5,
+          "name": "deltas",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                0,
+                7
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "relation-insert",
+      "message_kind": 23,
+      "params": [
+        {
+          "number": 1,
+          "name": "oid",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "table",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 3,
+          "name": "key",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        },
+        {
+          "number": 4,
+          "name": "values",
+          "data_type": [
+            1,
+            [
+              4,
+              [
+                [
+                  0,
+                  7
+                ],
+                [
+                  7,
+                  0
+                ]
+              ]
+            ]
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

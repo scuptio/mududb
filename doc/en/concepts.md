@@ -57,7 +57,7 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 |------|---------|------------------|
 | `mudud` | The MuduDB server. | Always, to run the database. |
 | `mcli` | TCP protocol client and HTTP management CLI. | To run SQL interactively, install packages, and invoke procedures. |
-| `mgen` | Source generator. Creates Rust entity types from SQL DDL. | When your application has SQL tables and wants typed query results. |
+| `mgen` | Source generator. Creates Rust entity types from SQL DDL, and statically checks SQL in procedure sources against the DDL (`check-sql`). | When your application has SQL tables and wants typed query results and build-time SQL validation. |
 | `mtp` | Transpiler. Transforms Rust/AssemblyScript source into Mudu procedure format and generates async wrappers. | Whenever you write or change a `/**mudu-proc**/` function. |
 | `mpm-build` | Package builder. Produces `.mpk` files from DDL, descriptors, and WASM modules. | Before deploying an application to `mudud`. |
 | `mudup` | Release installer. Downloads and activates released binaries. | For daily use or server deployment without building from source. **Not stable yet; source build recommended.** |
@@ -76,8 +76,6 @@ See the `doc/lang.common/` directory for per-call reference documentation.
 ## Component Model
 
 MuduDB runs user procedures as WebAssembly components using the [WebAssembly Component Model](https://component-model.bytecodealliance.org/). Procedures are compiled to `wasm32-wasip2` and then composed with the MuduDB host component before being packaged into an MPK.
-
-The `mudu_wasm` crate (published under the Cargo name `mod_0`) provides the generated guest bindings and host-side transpilation helpers.
 
 ## Interactive vs. Stored-Procedure Execution
 

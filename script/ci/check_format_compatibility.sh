@@ -13,12 +13,14 @@ set -euo pipefail
 BASE_REF="${1:-origin/main}"
 
 FORMAT_PATHS=(
-  "mudu_kernel/src/storage/page/format/"
-  "mudu_kernel/src/wal/format/"
-  "mudu_contract/src/protocol/format/"
+  "crates/db-kernel/mudu_kernel/src/storage/page/format/"
+  "crates/db-kernel/mudu_kernel/src/wal/format/"
+  "crates/common/mudu_contract/src/protocol/format/"
+  "crates/common/mudu_binding/src/codec/syscall_payload/"
+  "crates/common/mudu_binding/wit/"
 )
 
-COMPAT_PATH="mudu/src/compat/"
+COMPAT_PATH="crates/common/mudu/src/compat/"
 CONTRACT_EN_PATH="doc/en/contract/"
 CONTRACT_CN_PATH="doc/cn/contract/"
 

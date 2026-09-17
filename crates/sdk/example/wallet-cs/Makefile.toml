@@ -1,0 +1,108 @@
+[env]
+PACKAGE_NAME = "wallet-cs"
+MODULE_NAME = "wallet_cs"
+TARGET = "wasm32-wasip2"
+PROFILE = "release"
+# .NET 10 SDK (see readme.md): installed per-user, never system-wide.
+DOTNET = "${HOME}/.dotnet/dotnet"
+DOTNET_PUBLISH_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/bin/Release/net10.0/wasi-wasm/publish"
+PUBLISHED_COMPONENT = "${DOTNET_PUBLISH_DIR}/${MODULE_NAME}.wasm"
+WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/${TARGET}/${PROFILE}/${MODULE_NAME}.wasm"
+PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
+WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../.."
+DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+DOTNET_NOLOGO = "1"
+
+# Transpile the procedures into the componentize-dotnet exports class, the
+# world WIT and the procedure description — the three artifacts that used to
+# be maintained by hand (wit/wallet-cs.wit, src/WalletCsWorldExportsImpl.cs,
+# package/package.desc.json). mtp writes the exports class (and the sibling
+# world WIT) straight into src/; the csproj compiles every src/*.cs.
+[tasks.transpile]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_transpiler/Cargo.toml",
+    "--bin", "mtp",
+    "--",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/Procedures.cs",
+    "--output", "${CARGO_MAKE_WORKING_DIRECTORY}/src/WalletCsWorldExportsImpl.cs",
+    "--module", "${MODULE_NAME}",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "csharp"
+]
+
+# Stage the mtp-generated world WIT next to the vendored
+# `wit/deps/mududb-api/api.wit` copy of the host syscall interface so
+# componentize-dotnet can resolve `import mududb:api/system`.
+[tasks.stage-wit]
+dependencies = ["transpile"]
+command = "cp"
+args = [
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/WalletCsWorldExportsImpl.wit",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/wit/wallet-cs.wit"
+]
+
+# Statically check every SQL string literal in src/ against the DDL
+# schema (see doc/dev/sql_subset.md).
+[tasks.check-sql]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mudu_gen/Cargo.toml",
+    "--bin", "mgen",
+    "--",
+    "check-sql",
+    "--lang", "cs",
+    "--ddl", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src"
+]
+
+# componentize-dotnet compiles the C# guest straight into a WASI 0.2
+# component: imports `mududb:api/system`, exports the `mp2-*` byte-pipe
+# procedure entry points declared in the mtp-generated `wit/wallet-cs.wit`.
+# NOTE: `dotnet build`, not `dotnet publish` — the Wasm.SDK chains its
+# componentization publish step AfterTargets="Build", so a direct
+# `dotnet publish` hits a circular target dependency.
+[tasks.dotnet-build]
+dependencies = ["check-sql", "stage-wit"]
+command = "${DOTNET}"
+args = ["build", "${CARGO_MAKE_WORKING_DIRECTORY}/WalletCs.csproj", "-c", "Release"]
+
+[tasks.copy-wasm]
+dependencies = ["dotnet-build"]
+command = "mkdir"
+args = [
+    "-p",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/../../../../target/${TARGET}/${PROFILE}",
+]
+
+[tasks.stage-wasm]
+dependencies = ["copy-wasm"]
+command = "cp"
+args = ["${PUBLISHED_COMPONENT}", "${WASM_FILE}"]
+
+[tasks.validate-component]
+dependencies = ["stage-wasm"]
+command = "wasm-tools"
+args = ["validate", "${WASM_FILE}"]
+
+[tasks.package]
+dependencies = ["validate-component"]
+command = "cargo"
+args = [
+    "run", "--quiet",
+    "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/../../../tools/mpm_build/Cargo.toml",
+    "--bin", "mpm-build",
+    "--",
+    "create",
+    "--package-cfg", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.cfg.json",
+    "--package-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/package.desc.json",
+    "--ddl-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
+    "--initdb-sql", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/init.sql",
+    "--wasm-files", "${WASM_FILE}",
+    "--output", "${PACKAGE_TARGET}"
+]
+
+[tasks.default]
+alias = "package"

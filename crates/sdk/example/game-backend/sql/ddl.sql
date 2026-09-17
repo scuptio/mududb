@@ -1,0 +1,1 @@
+-- game-backend uses the built-in key/value interface and does not require SQL schema.

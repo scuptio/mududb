@@ -1,0 +1,584 @@
+#nullable enable
+
+using System.Buffers.Binary;
+using System.Text;
+
+namespace {{pascal_name}};
+
+/// <summary>
+/// A minimal, allocation-lean MessagePack reader/writer covering exactly the
+/// wire shapes the mududb byte-pipe ABI uses (see
+/// `mudu_binding::codec::syscall_payload` and
+/// `mudu_binding::codec::handle_procedure`).
+///
+/// This exists because MessagePack-CSharp cannot run on the wasi-wasm
+/// NativeAOT-LLVM target: its `MessagePackSecurity` static initializer
+/// eagerly constructs a `SipHash` keyed by
+/// `System.Security.Cryptography.RandomNumberGenerator`, which throws
+/// `PlatformNotSupportedException` on WASI — so the Mudu.Api SDK codec
+/// (`SyscallPayload.cs`/`MuduSysCallApi.cs`), being MessagePack-CSharp based,
+/// is unusable inside the guest. The uni DTO tag numbers below are verified
+/// against the Rust host sources (`uni_scalar_value.rs`, `uni_data_value.rs`).
+///
+/// MSSP v1 shapes: records and request argument lists are MessagePack maps
+/// keyed by the 1-based field/parameter numbers (WIT declaration order);
+/// variants stay `[tag, payload]` 2-arrays. Writes are canonical (shortest
+/// integer/str/bin form, matching rmp_serde); reads are lenient (integer
+/// keys of any width, unknown keys skipped, missing fields defaulted).
+/// </summary>
+internal static class Mp
+{
+    // ---- writer ----
+
+    internal sealed class Writer
+    {
+        private byte[] buffer = new byte[256];
+        private int length;
+
+        public byte[] ToArray() => buffer[..length];
+
+        private void Put(byte b)
+        {
+            if (length == buffer.Length)
+            {
+                global::System.Array.Resize(ref buffer, buffer.Length * 2);
+            }
+
+            buffer[length++] = b;
+        }
+
+        private void Put(global::System.ReadOnlySpan<byte> bytes)
+        {
+            foreach (var b in bytes)
+            {
+                Put(b);
+            }
+        }
+
+        public void WriteArrayHeader(uint count)
+        {
+            if (count < 16)
+            {
+                Put((byte)(0x90 | count));
+            }
+            else if (count <= ushort.MaxValue)
+            {
+                Put(0xdc);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(tmp, (ushort)count);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xdd);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(tmp, count);
+                Put(tmp);
+            }
+        }
+
+        public void WriteNil() => Put(0xc0);
+
+        public void WriteBool(bool value) => Put(value ? (byte)0xc3 : (byte)0xc2);
+
+        public void WriteMapHeader(uint count)
+        {
+            if (count < 16)
+            {
+                Put((byte)(0x80 | count));
+            }
+            else if (count <= ushort.MaxValue)
+            {
+                Put(0xde);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(tmp, (ushort)count);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xdf);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(tmp, count);
+                Put(tmp);
+            }
+        }
+
+        public void WriteUInt(ulong value)
+        {
+            if (value < 0x80)
+            {
+                Put((byte)value);
+            }
+            else if (value <= byte.MaxValue)
+            {
+                Put(0xcc);
+                Put((byte)value);
+            }
+            else if (value <= ushort.MaxValue)
+            {
+                Put(0xcd);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(tmp, (ushort)value);
+                Put(tmp);
+            }
+            else if (value <= uint.MaxValue)
+            {
+                Put(0xce);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(tmp, (uint)value);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xcf);
+                Span<byte> tmp = stackalloc byte[8];
+                BinaryPrimitives.WriteUInt64BigEndian(tmp, value);
+                Put(tmp);
+            }
+        }
+
+        public void WriteInt(long value)
+        {
+            if (value >= 0)
+            {
+                WriteUInt((ulong)value);
+            }
+            else if (value >= -32)
+            {
+                Put((byte)(0xe0 | (value + 32)));
+            }
+            else if (value >= sbyte.MinValue)
+            {
+                Put(0xd0);
+                Put((byte)(sbyte)value);
+            }
+            else if (value >= short.MinValue)
+            {
+                Put(0xd1);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteInt16BigEndian(tmp, (short)value);
+                Put(tmp);
+            }
+            else if (value >= int.MinValue)
+            {
+                Put(0xd2);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteInt32BigEndian(tmp, (int)value);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xd3);
+                Span<byte> tmp = stackalloc byte[8];
+                BinaryPrimitives.WriteInt64BigEndian(tmp, value);
+                Put(tmp);
+            }
+        }
+
+        public void WriteDouble(double value)
+        {
+            Put(0xcb);
+            Span<byte> tmp = stackalloc byte[8];
+            BinaryPrimitives.WriteDoubleBigEndian(tmp, value);
+            Put(tmp);
+        }
+
+        public void WriteString(string value)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            uint len = (uint)bytes.Length;
+            if (len < 32)
+            {
+                Put((byte)(0xa0 | len));
+            }
+            else if (len <= byte.MaxValue)
+            {
+                Put(0xd9);
+                Put((byte)len);
+            }
+            else if (len <= ushort.MaxValue)
+            {
+                Put(0xda);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(tmp, (ushort)len);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xdb);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(tmp, len);
+                Put(tmp);
+            }
+
+            Put(bytes);
+        }
+
+        /// Writes a MessagePack bin (bin8/16/32 by length). The mgen-generated
+        /// record codecs read `blob` fields with `MessagePackReader.ReadBytes`,
+        /// which accepts the bin form only — the record bridge therefore
+        /// transcodes byte strings to bin (never the record-context u8-array
+        /// form) on the way into a generated formatter.
+        public void WriteBin(byte[] value)
+        {
+            uint len = (uint)value.Length;
+            if (len <= byte.MaxValue)
+            {
+                Put(0xc4);
+                Put((byte)len);
+            }
+            else if (len <= ushort.MaxValue)
+            {
+                Put(0xc5);
+                Span<byte> tmp = stackalloc byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(tmp, (ushort)len);
+                Put(tmp);
+            }
+            else
+            {
+                Put(0xc6);
+                Span<byte> tmp = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(tmp, len);
+                Put(tmp);
+            }
+
+            Put(value);
+        }
+    }
+
+    // ---- reader ----
+
+    internal sealed class Reader(byte[] data)
+    {
+        private readonly byte[] data = data;
+        private int pos;
+
+        public bool End => pos >= data.Length;
+
+        private byte Take()
+        {
+            if (pos >= data.Length)
+            {
+                throw new global::System.IO.InvalidDataException("msgpack: unexpected end of input");
+            }
+
+            return data[pos++];
+        }
+
+        private byte Peek()
+        {
+            if (pos >= data.Length)
+            {
+                throw new global::System.IO.InvalidDataException("msgpack: unexpected end of input");
+            }
+
+            return data[pos];
+        }
+
+        private global::System.ReadOnlySpan<byte> TakeSpan(int count)
+        {
+            if (pos + count > data.Length)
+            {
+                throw new global::System.IO.InvalidDataException("msgpack: unexpected end of input");
+            }
+
+            var span = new global::System.ReadOnlySpan<byte>(data, pos, count);
+            pos += count;
+            return span;
+        }
+
+        public uint ReadArrayHeader()
+        {
+            var code = Take();
+            if ((code & 0xf0) == 0x90)
+            {
+                return (uint)(code & 0x0f);
+            }
+
+            return code switch
+            {
+                0xdc => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                0xdd => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected array, code 0x{code:x2}"),
+            };
+        }
+
+        public uint ReadMapHeader()
+        {
+            var code = Take();
+            if ((code & 0xf0) == 0x80)
+            {
+                return (uint)(code & 0x0f);
+            }
+
+            return code switch
+            {
+                0xde => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                0xdf => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected map, code 0x{code:x2}"),
+            };
+        }
+
+        /// Reads any MessagePack integer family as a u64 (fixint, uint8-64,
+        /// and non-negative int8-64 encodings — rmp_serde picks the smallest
+        /// form per value, so callers must accept them all).
+        public ulong ReadUInt()
+        {
+            var code = Take();
+            if (code <= 0x7f)
+            {
+                return code;
+            }
+
+            return code switch
+            {
+                0xcc => Take(),
+                0xcd => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                0xce => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                0xcf => BinaryPrimitives.ReadUInt64BigEndian(TakeSpan(8)),
+                0xd0 => checked((ulong)(sbyte)Take()),
+                0xd1 => checked((ulong)BinaryPrimitives.ReadInt16BigEndian(TakeSpan(2))),
+                0xd2 => checked((ulong)BinaryPrimitives.ReadInt32BigEndian(TakeSpan(4))),
+                0xd3 => checked((ulong)BinaryPrimitives.ReadInt64BigEndian(TakeSpan(8))),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected unsigned integer, code 0x{code:x2}"),
+            };
+        }
+
+        /// Reads any MessagePack integer family as an i64.
+        public long ReadInt()
+        {
+            var code = Take();
+            if (code <= 0x7f)
+            {
+                return code;
+            }
+
+            if (code >= 0xe0)
+            {
+                return (sbyte)code;
+            }
+
+            return code switch
+            {
+                0xcc => Take(),
+                0xcd => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                0xce => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                0xcf => checked((long)BinaryPrimitives.ReadUInt64BigEndian(TakeSpan(8))),
+                0xd0 => (sbyte)Take(),
+                0xd1 => BinaryPrimitives.ReadInt16BigEndian(TakeSpan(2)),
+                0xd2 => BinaryPrimitives.ReadInt32BigEndian(TakeSpan(4)),
+                0xd3 => BinaryPrimitives.ReadInt64BigEndian(TakeSpan(8)),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected integer, code 0x{code:x2}"),
+            };
+        }
+
+        public bool ReadBool()
+        {
+            var code = Take();
+            return code switch
+            {
+                0xc2 => false,
+                0xc3 => true,
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected bool, code 0x{code:x2}"),
+            };
+        }
+
+        /// Reads a MessagePack f32/f64 as a double.
+        public double ReadDouble()
+        {
+            var code = Take();
+            return code switch
+            {
+                0xca => BinaryPrimitives.ReadSingleBigEndian(TakeSpan(4)),
+                0xcb => BinaryPrimitives.ReadDoubleBigEndian(TakeSpan(8)),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected float, code 0x{code:x2}"),
+            };
+        }
+
+        /// Reports whether the next value belongs to the MessagePack integer
+        /// family (fixint or any int/uint width). Record/request map keys are
+        /// field numbers, so a non-integer key is skipped with its value
+        /// (lenient decode).
+        public bool NextIsInteger()
+        {
+            var code = Peek();
+            return code <= 0x7f
+                || code >= 0xe0
+                || code is >= 0xcc and <= 0xd3;
+        }
+
+        /// The MessagePack marker byte of the next value without consuming
+        /// it; the record bridge's wire-datum reader dispatches on it.
+        public byte PeekCode() => Peek();
+
+        public string ReadString()
+        {
+            var code = Take();
+            uint len;
+            if ((code & 0xe0) == 0xa0)
+            {
+                len = (uint)(code & 0x1f);
+            }
+            else
+            {
+                len = code switch
+                {
+                    0xd9 => Take(),
+                    0xda => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                    0xdb => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                    _ => throw new global::System.IO.InvalidDataException(
+                        $"msgpack: expected string, code 0x{code:x2}"),
+                };
+            }
+
+            return Encoding.UTF8.GetString(TakeSpan(checked((int)len)));
+        }
+
+        /// Reads a MessagePack bin (bin8/16/32) as a byte array.
+        public byte[] ReadBin()
+        {
+            var code = Take();
+            uint len = code switch
+            {
+                0xc4 => Take(),
+                0xc5 => BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2)),
+                0xc6 => BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4)),
+                _ => throw new global::System.IO.InvalidDataException(
+                    $"msgpack: expected bin, code 0x{code:x2}"),
+            };
+            return TakeSpan(checked((int)len)).ToArray();
+        }
+
+        /// Skips one complete value of any shape (used for fields the wallet
+        /// procedures never read: tuple descriptors, result cursors, error
+        /// detail blobs).
+        public void Skip()
+        {
+            var code = Peek();
+            switch (code)
+            {
+                case <= 0x7f:
+                case >= 0xe0:
+                case 0xc0:
+                case 0xc2:
+                case 0xc3:
+                    Take();
+                    return;
+                case 0xcc or 0xd0:
+                    pos += 2;
+                    return;
+                case 0xcd or 0xd1:
+                    pos += 3;
+                    return;
+                case 0xce or 0xd2 or 0xca:
+                    pos += 5;
+                    return;
+                case 0xcf or 0xd3 or 0xcb:
+                    pos += 9;
+                    return;
+                default:
+                    if ((code & 0xe0) == 0xa0)
+                    {
+                        pos += 1 + (code & 0x1f);
+                        return;
+                    }
+
+                    if ((code & 0xf0) == 0x90)
+                    {
+                        Take();
+                        for (var i = 0; i < (code & 0x0f); i++)
+                        {
+                            Skip();
+                        }
+
+                        return;
+                    }
+
+                    if ((code & 0xf0) == 0x80)
+                    {
+                        Take();
+                        for (var i = 0; i < (code & 0x0f); i++)
+                        {
+                            Skip();
+                            Skip();
+                        }
+
+                        return;
+                    }
+
+                    switch (code)
+                    {
+                        case 0xd4: pos += 2; return;
+                        case 0xd5: pos += 3; return;
+                        case 0xd6: pos += 5; return;
+                        case 0xd7: pos += 9; return;
+                        case 0xd8: pos += 17; return;
+                        case 0xd9 or 0xc4:
+                        {
+                            Take();
+                            pos += Take();
+                            return;
+                        }
+                        case 0xda or 0xc5:
+                        {
+                            var len = BinaryPrimitives.ReadUInt16BigEndian(TakeSpan(2));
+                            pos += len;
+                            return;
+                        }
+
+                        case 0xdb or 0xc6:
+                        {
+                            var len = BinaryPrimitives.ReadUInt32BigEndian(TakeSpan(4));
+                            pos += checked((int)len);
+                            return;
+                        }
+
+                        case 0xdc:
+                        {
+                            var count = ReadArrayHeader();
+                            for (uint i = 0; i < count; i++)
+                            {
+                                Skip();
+                            }
+
+                            return;
+                        }
+
+                        case 0xdd:
+                        {
+                            var count = ReadArrayHeader();
+                            for (uint i = 0; i < count; i++)
+                            {
+                                Skip();
+                            }
+
+                            return;
+                        }
+
+                        case 0xde:
+                        case 0xdf:
+                        {
+                            var count = ReadMapHeader();
+                            for (uint i = 0; i < count; i++)
+                            {
+                                Skip();
+                                Skip();
+                            }
+
+                            return;
+                        }
+
+                        default:
+                            throw new global::System.IO.InvalidDataException(
+                                $"msgpack: cannot skip code 0x{code:x2}");
+                    }
+            }
+        }
+    }
+}

@@ -1,0 +1,12 @@
+use crate:universal:uni-error/uni-error;
+
+interface universal {
+    record uni-command-result {
+        affected-rows: u64,
+    }
+
+    variant uni-command-return {
+        ok(uni-command-result),
+        err(uni-error)
+    }
+}

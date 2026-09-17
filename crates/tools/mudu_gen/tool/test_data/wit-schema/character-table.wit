@@ -1,0 +1,14 @@
+use crate:game-data:id/id;
+use crate:game-data:character/character;
+
+interface game-data {
+    /* Character Table */
+    table character-table {
+        key: {
+           character-id: id,
+        },
+        value: {
+            character: character,
+        }
+    }
+}

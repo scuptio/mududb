@@ -18,6 +18,11 @@ SUPPORTED_BINS: List[Dict[str, str]] = [
         "description": "package builder",
     },
     {
+        "package": "mpm_crate",
+        "bin": "mpm-crate",
+        "description": "project scaffolder",
+    },
+    {
         "package": "mpm_install",
         "bin": "mpm-install",
         "description": "package installer",
@@ -57,45 +62,57 @@ def load_workspace_metadata(workspace_root: Path) -> dict:
     return json.loads(proc.stdout)
 
 
-def load_workspace_bins(workspace_root: Path) -> List[Tuple[Path, str]]:
-    metadata = load_workspace_metadata(workspace_root)
+def find_group_workspaces(repo_root: Path) -> List[Path]:
+    """Return the independent group workspaces under crates/."""
+    groups = []
+    for group in ("common", "db-kernel", "sdk", "tools"):
+        group_dir = repo_root / "crates" / group
+        if (group_dir / "Cargo.toml").exists():
+            groups.append(group_dir)
+    return groups
+
+
+def load_workspace_bins(workspace_roots: List[Path]) -> List[Tuple[Path, str]]:
     bins: List[Tuple[Path, str]] = []
     seen = set()
 
-    workspace_members = set(metadata.get("workspace_members", []))
-    for package in metadata.get("packages", []):
-        if package.get("id") not in workspace_members:
-            continue
-
-        manifest_path = Path(package["manifest_path"]).resolve()
-        package_dir = manifest_path.parent
-
-        for target in package.get("targets", []):
-            kinds = set(target.get("kind", []))
-            if "bin" not in kinds:
+    for workspace_root in workspace_roots:
+        metadata = load_workspace_metadata(workspace_root)
+        workspace_members = set(metadata.get("workspace_members", []))
+        for package in metadata.get("packages", []):
+            if package.get("id") not in workspace_members:
                 continue
 
-            bin_name = target["name"]
-            key = (str(package_dir), bin_name)
-            if key in seen:
-                continue
+            manifest_path = Path(package["manifest_path"]).resolve()
+            package_dir = manifest_path.parent
 
-            seen.add(key)
-            bins.append((package_dir, bin_name))
+            for target in package.get("targets", []):
+                kinds = set(target.get("kind", []))
+                if "bin" not in kinds:
+                    continue
+
+                bin_name = target["name"]
+                key = (str(package_dir), bin_name)
+                if key in seen:
+                    continue
+
+                seen.add(key)
+                bins.append((package_dir, bin_name))
 
     bins.sort(key=lambda x: (str(x[0]).lower(), x[1]))
     return bins
 
 
-def load_supported_bins(workspace_root: Path) -> List[Tuple[Path, str, str]]:
-    metadata = load_workspace_metadata(workspace_root)
+def load_supported_bins(workspace_roots: List[Path]) -> List[Tuple[Path, str, str]]:
     package_index = {}
 
-    workspace_members = set(metadata.get("workspace_members", []))
-    for package in metadata.get("packages", []):
-        if package.get("id") not in workspace_members:
-            continue
-        package_index[package["name"]] = package
+    for workspace_root in workspace_roots:
+        metadata = load_workspace_metadata(workspace_root)
+        workspace_members = set(metadata.get("workspace_members", []))
+        for package in metadata.get("packages", []):
+            if package.get("id") not in workspace_members:
+                continue
+            package_index[package["name"]] = package
 
     bins: List[Tuple[Path, str, str]] = []
     for item in SUPPORTED_BINS:
@@ -173,7 +190,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workspace-root",
         default=str(Path(__file__).resolve().parents[2]),
-        help="Workspace root path (default: auto-detected).",
+        help="Repository root path; group workspaces are discovered under crates/ (default: auto-detected).",
     )
     parser.add_argument(
         "--profile",
@@ -203,9 +220,11 @@ def main() -> int:
     args = parse_args()
     workspace_root = Path(args.workspace_root).resolve()
 
-    if not (workspace_root / "Cargo.toml").exists():
+    workspace_roots = find_group_workspaces(workspace_root)
+    if not workspace_roots:
         print(
-            f"Invalid workspace root: {workspace_root}. Cargo.toml not found.",
+            f"Invalid repository root: {workspace_root}. "
+            "No group workspaces found under crates/.",
             file=sys.stderr,
         )
         return 2
@@ -214,10 +233,10 @@ def main() -> int:
         if args.all_workspace_bins:
             bins = [
                 (package_dir, bin_name, "workspace binary target")
-                for package_dir, bin_name in load_workspace_bins(workspace_root)
+                for package_dir, bin_name in load_workspace_bins(workspace_roots)
             ]
         else:
-            bins = load_supported_bins(workspace_root)
+            bins = load_supported_bins(workspace_roots)
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1

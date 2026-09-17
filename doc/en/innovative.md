@@ -61,12 +61,12 @@ MuduDB procedures are ordinary functions in Rust or AssemblyScript, marked with 
 
 ## 6. Built-in ORM and Type Safety
 
-MuduDB provides first-class support for mapping query results to language types. The `Entity` trait turns SQL rows into Rust structs, while `sql_stmt!` and `sql_params!` macros catch SQL and parameter errors at compile time. The `mgen` tool can generate entity types directly from DDL, reducing boilerplate without adding a heavy external ORM.
+MuduDB provides first-class support for mapping query results to language types. The `Entity` trait turns SQL rows into Rust structs, and `mgen check-sql` statically validates SQL statements in procedure sources against the DDL at build time. The `mgen` tool can also generate entity types directly from DDL, reducing boilerplate without adding a heavy external ORM.
 
 **Highlights**
 
 - Automatic relation-to-object mapping via the `Entity` trait
-- Compile-time SQL validation with `sql_stmt!` and `sql_params!`
+- Build-time SQL validation against the DDL with `mgen check-sql`
 - `mgen` generates typed entities from DDL
 - Early detection of schema and query mismatches
 

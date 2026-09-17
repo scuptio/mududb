@@ -1,0 +1,124 @@
+
+{% if variant.variant_comments.len() > 0 %}
+{{ variant.variant_comments }}
+{% endif %}
+[MessagePackFormatter(typeof({{ variant.variant_name }}Formatter))]
+public interface {{ variant.variant_name }}
+{
+    public {{ variant.variant_name }}Kind Kind();
+}
+
+public enum {{ variant.variant_name }}Kind {
+{% for case in variant.variant_cases %}
+   {{ case.vc_case_name }} = {{ case.vc_number }},
+{% endfor %}
+}
+
+
+{% for case in variant.variant_cases %}
+public class {{ variant.variant_name }}{{ case.vc_case_name }} : {{ variant.variant_name }}
+{
+    {% if cfg.impl_default %}
+    [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public {{ variant.variant_name }}{{ case.vc_case_name }}()
+    {
+        Inner = {{ case.vc_inner_default_value }};
+    }
+    {% endif %}
+
+    public {% if case.vc_inner_required %}required {% endif %}{{ case.vc_inner_type_name }} Inner  { get; set; }
+
+    public {{ variant.variant_name }}Kind Kind() {
+        return {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    }
+
+    public static {{ variant.variant_name }}Kind KindStatic() {
+        return {{ variant.variant_name }}Kind.{{ case.vc_case_name }};
+    }
+
+    public static {{ variant.variant_name }}{{ case.vc_case_name }} As{{case.vc_case_name}}({{ variant.variant_name }} value)
+    {
+        switch (value)
+        {
+            case {{ variant.variant_name }}{{ case.vc_case_name }}  v:
+                return v;
+            default:
+                throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
+        }
+    }
+}
+{% endfor %}
+
+public class {{ variant.variant_name }}Formatter : IMessagePackFormatter<{{ variant.variant_name }}?>
+{
+    /// The proto3-style default instance of the variant: the first declared
+    /// case carrying its own default payload. Record fields of this variant
+    /// type initialize to this value, so a field missing from the wire map
+    /// decodes to the default case instead of null.
+    public static {{ variant.variant_name }} DefaultInstance()
+    {
+        {% if variant.variant_cases[0].vc_has_inner_type %}
+        return new {{ variant.variant_name }}{{ variant.variant_cases[0].vc_case_name }} { Inner = {{ variant.variant_cases[0].vc_inner_default_value }} };
+        {% else %}
+        return new {{ variant.variant_name }}{{ variant.variant_cases[0].vc_case_name }}();
+        {% endif %}
+    }
+
+    public void Serialize(ref MessagePackWriter writer, {{ variant.variant_name }}? value, MessagePackSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNil();
+            return;
+        }
+
+        writer.WriteArrayHeader(2);
+        writer.Write((uint)value.Kind());
+        switch (value.Kind())
+        {
+            {% for case in variant.variant_cases %}
+            case {{ variant.variant_name }}Kind.{{ case.vc_case_name }}:
+                {% if case.vc_has_inner_type %}
+{{ case.vc_inner_serialize }}
+                {% else %}
+                writer.Write((byte)0);
+                {% endif %}
+                break;
+            {% endfor %}
+            default:
+                throw new global::System.InvalidOperationException($"Unknown kind: {value.Kind()}");
+        }
+    }
+
+    public {{ variant.variant_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    {
+        if (reader.TryReadNil())
+        {
+            return null;
+        }
+
+        var count = reader.ReadArrayHeader();
+        if (count != 2)
+        {
+            throw new global::System.InvalidOperationException($"Expected array of length 2, got {count}");
+        }
+
+        var tag = reader.ReadUInt32();
+        switch (tag)
+        {
+            {% for case in variant.variant_cases %}
+            case {{ case.vc_number }}:
+                {% if case.vc_has_inner_type %}
+{{ case.vc_inner_deserialize }}
+                return new {{ variant.variant_name }}{{ case.vc_case_name }} { Inner = {{ case.vc_case_name_snake }}Inner };
+                {% else %}
+                // The payload-less placeholder is skipped, not inspected.
+                reader.Skip();
+                return new {{ variant.variant_name }}{{ case.vc_case_name }}();
+                {% endif %}
+            {% endfor %}
+            default:
+                throw new global::System.InvalidOperationException($"Unknown tag: {tag}");
+        }
+    }
+}

@@ -1,0 +1,60 @@
+//! Core runtime services for loading, installing and invoking Mudu packages.
+
+#![allow(clippy::module_inception)]
+/// Application instance trait.
+pub mod app_inst;
+/// Application instance implementation.
+pub mod app_inst_impl;
+pub(crate) mod app_package;
+#[cfg(test)]
+mod app_package_test;
+mod file_name;
+/// WebAssembly package module wrapper.
+pub mod package_module;
+/// Runtime trait definitions.
+pub mod runtime;
+/// Runtime implementation helpers.
+pub mod runtime_impl;
+#[cfg(test)]
+mod runtime_impl_test;
+mod runtime_simple;
+#[cfg(test)]
+mod test_wasm_mod_path;
+
+/// Pool of instantiated WASM component instances for procedure invocation.
+pub mod procedure_instance_pool;
+/// Component responsible for invoking procedures.
+pub mod procedure_invoke_component;
+// The spike drives real WASM executions backed by libsql, which performs
+// real SQLite file IO outside `mudu_sys`; the deterministic-simulation
+// backend keeps fs writes in memory. Native backend only.
+#[cfg(all(test, not(feature = "ds")))]
+mod concurrent_wasm_suspension_test;
+#[cfg(test)]
+mod runtime_simple_test;
+/// Service task registry and execution.
+pub mod service;
+mod service_impl;
+mod service_trait;
+/// Pre-instantiated Wasmtime component wrapper.
+pub mod wt_instance_pre;
+
+mod wt_runtime;
+
+mod kernel_function_p2;
+#[cfg(test)]
+mod kernel_function_p2_test;
+/// Runtime option structures.
+pub mod runtime_opt;
+mod wasi_context_component;
+#[cfg(test)]
+mod wasi_context_component_test;
+mod wt_runtime_component;
+
+/// Application list types.
+pub mod app_list;
+mod kernel_function_p2_async;
+#[cfg(test)]
+mod kernel_function_p2_async_test;
+#[cfg(test)]
+mod wt_runtime_component_test;

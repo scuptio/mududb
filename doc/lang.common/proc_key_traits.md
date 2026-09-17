@@ -4,32 +4,22 @@
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L15-L37)"
+content="[Entity](../../mudu_contract/src/database/entity.rs#L23-L44)"
 lang="rust"
 -->
 ```rust
-pub trait Entity: private::Sealed + Datum {
-    fn new_empty() -> Self;
-
+pub trait Entity: Datum {
     fn tuple_desc() -> &'static TupleFieldDesc;
 
-    fn object_name() -> &'static str;
+    fn table_name() -> &'static str;
 
-    fn get_field_binary(&self, field_name: &str) -> RS<Option<Vec<u8>>>;
+    fn from_tuple(row: &TupleField) -> RS<Self>;
 
-    fn set_field_binary<B: AsRef<[u8]>>(&mut self, field_name: &str, binary: B) -> RS<()>;
+    fn from_tuple_value(row: &TupleValue) -> RS<Self>;
 
-    fn get_field_value(&self, field_name: &str) -> RS<Option<DataValue>>;
+    fn to_tuple(&self) -> RS<TupleField>;
 
-    fn set_field_value<D: AsRef<DataValue>>(&mut self, field_name: &str, value: D) -> RS<()>;
-
-    fn from_tuple(tuple_row: &TupleField) -> RS<Self> {
-        entity_utils::entity_from_tuple_field(tuple_row)
-    }
-
-    fn to_tuple(&self) -> RS<TupleField> {
-        entity_utils::entity_to_tuple(self)
-    }
+    fn to_tuple_value(&self) -> RS<TupleValue>;
 }
 ```
 <!--quote_end-->
@@ -77,6 +67,32 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
     fn to_value(&self, data_type: &DataType) -> RS<DataValue>;
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
+}
+```
+<!--quote_end-->
+
+### FieldChange
+
+`FieldChange<T>` is the per-column change type of the partial-update
+changesets (`<Table>Change`) that `mgen entity` generates for each table.
+`Unchanged` leaves the column out of the generated `UPDATE ... SET` clause,
+`Set(v)` updates it. Nullable columns use `FieldChange<Option<T>>`, so
+`Set(None)` writes a SQL `NULL` while `Unchanged` leaves the column
+untouched.
+
+<!--
+quote_begin
+content="[FieldChange](../../mudu_contract/src/database/field_change.rs#L15-L22)"
+lang="rust"
+-->
+```rust
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum FieldChange<T> {
+    /// The column is not touched by the update.
+    #[default]
+    Unchanged,
+    /// The column is updated to the contained value.
+    Set(T),
 }
 ```
 <!--quote_end-->

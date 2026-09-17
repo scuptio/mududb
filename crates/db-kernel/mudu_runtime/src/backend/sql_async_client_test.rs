@@ -1,0 +1,930 @@
+// Miri cannot execute the io_uring syscalls and SQLite/tree-sitter FFI used by
+// the async backend integration tests, so skip them under Miri. They are still
+// exercised by normal `cargo test`.
+#[cfg(test)]
+mod tests {
+    use crate::backend::backend::Backend;
+    use crate::backend::mudud_cfg::{MuduDBCfg, ServerMode};
+    use lazy_static::lazy_static;
+    use mudu::common::result::RS;
+    use mudu_client::client::async_client::{AsyncClient, AsyncClientImpl};
+    use mudu_contract::protocol::{ClientRequest, ServerResponse};
+    use mudu_sys::tokio::sync::Mutex as AsyncMutex;
+    use mudu_type::datum::DatumDyn;
+    use mudu_type::type_family::TypeFamily;
+    use mudu_utils::notifier::{Notifier, notify_wait};
+
+    use mudu_sys::net::sync::StdTcpListener;
+    use mudu_sys::task::sync::SJoinHandle;
+    use std::path::PathBuf;
+    use std::sync::Once;
+    use std::time::Duration;
+    use tracing::info;
+
+    lazy_static! {
+        static ref SQL_ASYNC_BACKEND_TEST_LOCK: AsyncMutex<()> = AsyncMutex::new(());
+    }
+    static LOG_INIT: Once = Once::new();
+
+    fn init_test_logging() {
+        LOG_INIT.call_once(|| {
+            mudu_utils::log::log_setup_ex("info", "", false);
+        });
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        mudu_sys::env_var::temp_dir().join(format!(
+            "{}_{}",
+            prefix,
+            mudu_sys::random::next_uuid_v4_string()
+        ))
+    }
+
+    fn reserve_port() -> Option<u16> {
+        StdTcpListener::bind("127.0.0.1:0".parse().unwrap())
+            .ok()
+            .and_then(|listener| listener.local_addr().ok().map(|addr| addr.port()))
+    }
+
+    fn test_cfg(server_mode: ServerMode) -> Option<MuduDBCfg> {
+        let tcp_port = reserve_port()?;
+        let mut http_port = reserve_port()?;
+        while http_port == tcp_port {
+            http_port = reserve_port()?;
+        }
+        let db_path = temp_dir("mudu_sql_async_db");
+        let mpk_path = temp_dir("mudu_sql_async_mpk");
+        mudu_sys::fs::sync::create_dir_all(&db_path).ok()?;
+        mudu_sys::fs::sync::create_dir_all(&mpk_path).ok()?;
+        Some(MuduDBCfg {
+            mpk_path: mpk_path.to_string_lossy().into_owned(),
+            db_path: db_path.to_string_lossy().into_owned(),
+            listen_ip: "127.0.0.1".to_string(),
+            http_listen_port: http_port,
+            pg_listen_port: 0,
+            tcp_listen_port: tcp_port,
+            server_mode,
+            worker_threads: 1,
+            ..Default::default()
+        })
+    }
+
+    fn should_skip_iouring_test(err: &mudu::error::MuduError) -> bool {
+        let msg = err.to_string();
+        msg.contains("connect io_uring tcp server error")
+            || msg.contains("io_uring_queue_init_params error")
+            || msg.contains("io_uring backend exited before becoming ready")
+    }
+
+    fn should_skip_iouring_env() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            match mudu_sys::io_uring_available() {
+                true => false,
+                false => {
+                    info!("skip io_uring async client test: io_uring unavailable");
+                    true
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            eprintln!("skip io_uring async client test: non-linux target");
+            true
+        }
+    }
+
+    async fn wait_for_client(addr: &str, timeout: Duration) -> RS<AsyncClientImpl> {
+        let deadline = mudu_sys::time::instant_now() + timeout;
+        loop {
+            match AsyncClientImpl::connect(addr).await {
+                Ok(client) => return Ok(client),
+                Err(err) => {
+                    if mudu_sys::time::instant_now() >= deadline {
+                        return Err(err);
+                    }
+                    mudu_sys::sleep(Duration::from_millis(50)).await?;
+                }
+            }
+        }
+    }
+
+    fn backend_ready_timeout() -> Duration {
+        mudu_sys::env_var::var("MUDU_TEST_BACKEND_READY_TIMEOUT_SECS")
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_secs(30))
+    }
+
+    async fn spawn_backend_server(cfg: MuduDBCfg) -> RS<(Notifier, SJoinHandle<RS<()>>)> {
+        let (stop_notifier, stop_waiter) = notify_wait();
+        let (ready_notifier, ready_waiter) = notify_wait();
+        let server = mudu_sys::task::sync::spawn_thread(move || {
+            Backend::sync_serve_with_stop_and_ready(cfg, stop_waiter, Some(ready_notifier))
+        })?;
+
+        // Poll for readiness while also watching for premature server exit. In
+        // restricted containers (e.g. act with a seccomp profile that blocks
+        // io_uring syscalls) the io_uring worker can fail before the recovery
+        // barrier is reached. Detecting that lets the test fail fast and skip
+        // the io_uring variant instead of hanging on the ready barrier.
+        let ready_timeout = backend_ready_timeout();
+        let deadline = mudu_sys::time::instant_now() + ready_timeout;
+        loop {
+            if server.is_finished() {
+                stop_notifier.notify_all();
+                return match server.join() {
+                    Ok(Ok(())) => Err(mudu::mudu_error!(
+                        mudu::error::ErrorCode::Tokio,
+                        "sql async backend exited before becoming ready"
+                    )),
+                    Ok(Err(e)) => {
+                        eprintln!(
+                            "sql async backend server thread exited with error before ready: {}",
+                            e
+                        );
+                        Err(e)
+                    }
+                    Err(_) => Err(mudu::mudu_error!(
+                        mudu::error::ErrorCode::Thread,
+                        "sql async backend server thread panicked"
+                    )),
+                };
+            }
+            let remaining = deadline.saturating_duration_since(mudu_sys::time::instant_now());
+            if remaining.is_zero() {
+                stop_notifier.notify_all();
+                let _ = server.join();
+                return Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Tokio,
+                    "sql async backend ready barrier timed out"
+                ));
+            }
+            let poll_interval = std::cmp::min(remaining, Duration::from_millis(50));
+            if mudu_sys::timeout(poll_interval, ready_waiter.wait())
+                .await
+                .is_some()
+            {
+                return Ok((stop_notifier, server));
+            }
+        }
+    }
+
+    async fn with_timeout<T>(future: impl std::future::Future<Output = RS<T>>) -> RS<T> {
+        mudu_sys::timeout(Duration::from_secs(20), future)
+            .await
+            .ok_or_else(|| {
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::Tokio,
+                    "sql async client test timed out"
+                )
+            })?
+    }
+
+    async fn with_timeout_named<T>(
+        label: &str,
+        future: impl std::future::Future<Output = RS<T>>,
+    ) -> RS<T> {
+        info!("sql async client test begin: {}", label);
+        let started = mudu_sys::time::instant_now();
+        let result = with_timeout(future).await;
+        match &result {
+            Ok(_) => info!(
+                elapsed_ms = started.elapsed().as_millis(),
+                "sql async client test success: {}", label
+            ),
+            Err(err) => info!(
+                elapsed_ms = started.elapsed().as_millis(),
+                error = %err,
+                "sql async client test failed: {}",
+                label
+            ),
+        }
+        result
+    }
+
+    fn response_rows_as_strings(response: &ServerResponse) -> Vec<Vec<String>> {
+        response
+            .rows()
+            .iter()
+            .map(|row| {
+                row.values()
+                    .iter()
+                    .zip(response.row_desc().fields().iter())
+                    .map(
+                        |(value, field_desc)| match field_desc.data_type().type_family() {
+                            TypeFamily::String => value.expect_string().clone(),
+                            TypeFamily::Numeric => value.expect_numeric().to_plain_string(),
+                            _ => value
+                                .to_textual(field_desc.data_type())
+                                .map(|text| text.to_string())
+                                .unwrap(),
+                        },
+                    )
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn stop_server(
+        client: AsyncClientImpl,
+        stop_notifier: mudu_utils::notifier::Notifier,
+        server: SJoinHandle<RS<()>>,
+    ) -> RS<()> {
+        drop(client);
+        stop_notifier.notify_all();
+        server.join().map_err(|_| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Thread,
+                "join sql async backend thread error"
+            )
+        })?
+    }
+
+    async fn start_client_backend(
+        server_mode: ServerMode,
+    ) -> Option<
+        RS<(
+            AsyncClientImpl,
+            mudu_utils::notifier::Notifier,
+            SJoinHandle<RS<()>>,
+        )>,
+    > {
+        if server_mode == ServerMode::IOUring && should_skip_iouring_env() {
+            return None;
+        }
+        let cfg = test_cfg(server_mode)?;
+        let addr = format!("127.0.0.1:{}", cfg.tcp_listen_port);
+        let (stop_notifier, server) = match spawn_backend_server(cfg).await {
+            Ok(started) => started,
+            Err(err) => {
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return None;
+                }
+                return Some(Err(err));
+            }
+        };
+        let client = match wait_for_client(&addr, Duration::from_secs(10)).await {
+            Ok(client) => client,
+            Err(err) => {
+                stop_notifier.notify_all();
+                let _ = server.join();
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return None;
+                }
+                return Some(Err(err));
+            }
+        };
+        Some(Ok((client, stop_notifier, server)))
+    }
+
+    async fn run_with_client_backend(
+        server_mode: ServerMode,
+    ) -> Option<
+        RS<(
+            AsyncClientImpl,
+            mudu_utils::notifier::Notifier,
+            SJoinHandle<RS<()>>,
+        )>,
+    > {
+        start_client_backend(server_mode).await
+    }
+
+    async fn exec_sql(client: &mut AsyncClientImpl, sql: &str) -> RS<()> {
+        with_timeout_named(
+            &format!("execute sql: {}", sql),
+            client.execute(ClientRequest::new("default", sql)),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn batch_sql(client: &mut AsyncClientImpl, sql: &str) -> RS<()> {
+        with_timeout_named(
+            &format!("batch sql: {}", sql),
+            client.batch(ClientRequest::new("default", sql)),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn query_sql(client: &mut AsyncClientImpl, sql: &str) -> RS<ServerResponse> {
+        with_timeout_named(
+            &format!("query sql: {}", sql),
+            client.query(ClientRequest::new("default", sql)),
+        )
+        .await
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_roundtrip_sql_crud_over_iouring_backend() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                if should_skip_iouring_env() {
+                    return Ok(());
+                }
+                let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+                let Some(cfg) = test_cfg(ServerMode::IOUring) else {
+                    return Ok(());
+                };
+                let addr = format!("127.0.0.1:{}", cfg.tcp_listen_port);
+                let (stop_notifier, server) = match spawn_backend_server(cfg).await {
+                    Ok(started) => started,
+                    Err(err) => {
+                        if should_skip_iouring_test(&err) {
+                            eprintln!("skip io_uring async client test: {}", err);
+                            return Ok(());
+                        }
+                        return Err(err);
+                    }
+                };
+
+                let mut client = match wait_for_client(&addr, Duration::from_secs(10)).await {
+                    Ok(client) => client,
+                    Err(err) => {
+                        stop_notifier.notify_all();
+                        let _ = server.join();
+                        if should_skip_iouring_test(&err) {
+                            eprintln!("skip io_uring async client test: {}", err);
+                            return Ok(());
+                        }
+                        return Err(err);
+                    }
+                };
+
+                with_timeout(client.execute(ClientRequest::new(
+                    "default",
+                    "CREATE TABLE t(id INT, v INT, PRIMARY KEY(id))",
+                )))
+                .await?;
+                let inserted = with_timeout(client.execute(ClientRequest::new(
+                    "default",
+                    "INSERT INTO t(id, v) VALUES (1, 10)",
+                )))
+                .await?;
+                assert_eq!(inserted.affected_rows(), 1);
+
+                let selected = with_timeout(client.query(ClientRequest::new(
+                    "default",
+                    "SELECT id, v FROM t WHERE id = 1",
+                )))
+                .await?;
+                assert_eq!(
+                    response_rows_as_strings(&selected),
+                    vec![vec!["1".to_string(), "10".to_string()]]
+                );
+
+                let updated = with_timeout(client.execute(ClientRequest::new(
+                    "default",
+                    "UPDATE t SET v = 20 WHERE id = 1",
+                )))
+                .await?;
+                assert_eq!(updated.affected_rows(), 1);
+
+                let selected = with_timeout(client.query(ClientRequest::new(
+                    "default",
+                    "SELECT v FROM t WHERE id = 1",
+                )))
+                .await?;
+                assert_eq!(
+                    response_rows_as_strings(&selected),
+                    vec![vec!["20".to_string()]]
+                );
+
+                let deleted = with_timeout(
+                    client.execute(ClientRequest::new("default", "DELETE FROM t WHERE id = 1")),
+                )
+                .await?;
+                assert_eq!(deleted.affected_rows(), 1);
+
+                let selected = with_timeout(client.query(ClientRequest::new(
+                    "default",
+                    "SELECT id FROM t WHERE id = 1",
+                )))
+                .await?;
+                assert!(selected.rows().is_empty());
+
+                stop_server(client, stop_notifier, server)?;
+                Ok(())
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_roundtrip_sql_crud_over_tokio_backend() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_roundtrip_sql_crud(ServerMode::Tokio).await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_batch_executes_multiple_sql_commands() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_batch_executes_multiple_sql_commands(ServerMode::IOUring).await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_batch_executes_multiple_sql_commands_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_batch_executes_multiple_sql_commands(ServerMode::Tokio).await
+            })
+    }
+
+    async fn run_async_client_batch_executes_multiple_sql_commands(
+        server_mode: ServerMode,
+    ) -> RS<()> {
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        // Skip the io_uring variant early when io_uring is unavailable,
+        // instead of starting a backend whose mode the environment cannot
+        // serve (mirrors `start_client_backend`'s guard).
+        if server_mode == ServerMode::IOUring && should_skip_iouring_env() {
+            return Ok(());
+        }
+        let Some(cfg) = test_cfg(server_mode) else {
+            return Ok(());
+        };
+        let addr = format!("127.0.0.1:{}", cfg.tcp_listen_port);
+        let (stop_notifier, server) = match spawn_backend_server(cfg).await {
+            Ok(started) => started,
+            Err(err) => {
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return Ok(());
+                }
+                return Err(err);
+            }
+        };
+
+        let mut client = match wait_for_client(&addr, Duration::from_secs(10)).await {
+            Ok(client) => client,
+            Err(err) => {
+                stop_notifier.notify_all();
+                let _ = server.join();
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return Ok(());
+                }
+                return Err(err);
+            }
+        };
+
+        batch_sql(
+            &mut client,
+            "CREATE TABLE t(id INT, v INT, PRIMARY KEY(id));\
+                 INSERT INTO t(id, v) VALUES (1, 11);",
+        )
+        .await?;
+
+        let selected = query_sql(&mut client, "SELECT id, v FROM t WHERE id = 1").await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["1".to_string(), "11".to_string()]]
+        );
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_drop_table_removes_table_from_catalog() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_drop_table_removes_table_from_catalog(ServerMode::IOUring).await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_drop_table_removes_table_from_catalog_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_drop_table_removes_table_from_catalog(ServerMode::Tokio).await
+            })
+    }
+
+    async fn run_async_client_drop_table_removes_table_from_catalog(
+        server_mode: ServerMode,
+    ) -> RS<()> {
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        let Some(started) = run_with_client_backend(server_mode).await else {
+            return Ok(());
+        };
+        let (mut client, stop_notifier, server) = started?;
+
+        exec_sql(
+            &mut client,
+            "CREATE TABLE t(id INT, v INT, PRIMARY KEY(id))",
+        )
+        .await?;
+        exec_sql(&mut client, "INSERT INTO t(id, v) VALUES (1, 10)").await?;
+        exec_sql(&mut client, "DROP TABLE t").await?;
+
+        let err = query_sql(&mut client, "SELECT id, v FROM t WHERE id = 1")
+            .await
+            .expect_err("query on dropped table should fail");
+        assert!(err.to_string().contains("no such table"));
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_range_scan_over_primary_key() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_range_scan_over_primary_key(ServerMode::IOUring).await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_range_scan_over_primary_key_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_range_scan_over_primary_key(ServerMode::Tokio).await
+            })
+    }
+
+    async fn run_async_client_range_scan_over_primary_key(server_mode: ServerMode) -> RS<()> {
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        let Some(started) = run_with_client_backend(server_mode).await else {
+            return Ok(());
+        };
+        let (mut client, stop_notifier, server) = started?;
+
+        exec_sql(
+            &mut client,
+            "CREATE TABLE t(id INT, v INT, PRIMARY KEY(id))",
+        )
+        .await?;
+        batch_sql(
+            &mut client,
+            "INSERT INTO t(id, v) VALUES (5, 50);\
+             INSERT INTO t(id, v) VALUES (1, 10);\
+             INSERT INTO t(id, v) VALUES (3, 30);\
+             INSERT INTO t(id, v) VALUES (2, 20);\
+             INSERT INTO t(id, v) VALUES (4, 40);",
+        )
+        .await?;
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id, v FROM t WHERE id >= 2 AND id <= 4",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![
+                vec!["2".to_string(), "20".to_string()],
+                vec!["3".to_string(), "30".to_string()],
+                vec!["4".to_string(), "40".to_string()],
+            ]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id FROM t WHERE id > 2 AND id <= 4",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["3".to_string()], vec!["4".to_string()]]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT v FROM t WHERE id >= 4",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["40".to_string()], vec!["50".to_string()]]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id FROM t WHERE id > 10",
+        )))
+        .await?;
+        assert!(selected.rows().is_empty());
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id FROM t WHERE id >= 3 AND id <= 3",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["3".to_string()]]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id FROM t WHERE id < 3",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["1".to_string()], vec!["2".to_string()]]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT v FROM t WHERE id >= 2 AND id <= 4",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![
+                vec!["20".to_string()],
+                vec!["30".to_string()],
+                vec!["40".to_string()],
+            ]
+        );
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_rejects_mixed_equality_and_range_key_predicates() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_rejects_mixed_equality_and_range_key_predicates(
+                    ServerMode::IOUring,
+                )
+                .await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_rejects_mixed_equality_and_range_key_predicates_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_rejects_mixed_equality_and_range_key_predicates(ServerMode::Tokio)
+                    .await
+            })
+    }
+
+    async fn run_async_client_rejects_mixed_equality_and_range_key_predicates(
+        server_mode: ServerMode,
+    ) -> RS<()> {
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        let Some(started) = run_with_client_backend(server_mode).await else {
+            return Ok(());
+        };
+        let (mut client, stop_notifier, server) = started?;
+
+        exec_sql(
+            &mut client,
+            "CREATE TABLE t(k1 INT, k2 INT, v INT, PRIMARY KEY(k1, k2))",
+        )
+        .await?;
+        let err = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT k1, k2 FROM t WHERE k1 = 1 AND k2 >= 2 AND k2 <= 4",
+        )))
+        .await
+        .expect_err("mixed equality and range predicate should be rejected");
+        assert!(
+            err.to_string()
+                .contains("mixed equality and range predicates are not implemented")
+        );
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_roundtrip_numeric_primary_key_and_values() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_roundtrip_numeric_primary_key_and_values(ServerMode::IOUring).await
+            })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn async_client_roundtrip_numeric_primary_key_and_values_tokio() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+                run_async_client_roundtrip_numeric_primary_key_and_values(ServerMode::Tokio).await
+            })
+    }
+
+    async fn run_async_client_roundtrip_numeric_primary_key_and_values(
+        server_mode: ServerMode,
+    ) -> RS<()> {
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        let Some(started) = run_with_client_backend(server_mode).await else {
+            return Ok(());
+        };
+        let (mut client, stop_notifier, server) = started?;
+
+        exec_sql(
+            &mut client,
+            "CREATE TABLE ledger(amount NUMERIC(9, 4), note CHAR(16), PRIMARY KEY(amount))",
+        )
+        .await?;
+        batch_sql(
+            &mut client,
+            "INSERT INTO ledger(amount, note) VALUES (12.3400, 'coffee');\
+             INSERT INTO ledger(amount, note) VALUES (-0.0100, 'refund');",
+        )
+        .await?;
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT amount, note FROM ledger WHERE amount = 12.3400",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["12.3400".to_string(), "coffee".to_string()]]
+        );
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT amount FROM ledger WHERE amount >= -0.0100 AND amount <= 12.3400",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["-0.0100".to_string()], vec!["12.3400".to_string()]]
+        );
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    async fn run_async_client_roundtrip_sql_crud(server_mode: ServerMode) -> RS<()> {
+        init_test_logging();
+        let _guard = SQL_ASYNC_BACKEND_TEST_LOCK.lock().await;
+        // Skip the io_uring variant early when io_uring is unavailable
+        // (mirrors `start_client_backend`'s guard).
+        if server_mode == ServerMode::IOUring && should_skip_iouring_env() {
+            return Ok(());
+        }
+        let Some(cfg) = test_cfg(server_mode) else {
+            return Ok(());
+        };
+        let addr = format!("127.0.0.1:{}", cfg.tcp_listen_port);
+        let (stop_notifier, server) = match spawn_backend_server(cfg).await {
+            Ok(started) => started,
+            Err(err) => {
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return Ok(());
+                }
+                return Err(err);
+            }
+        };
+
+        let mut client = match wait_for_client(&addr, Duration::from_secs(10)).await {
+            Ok(client) => client,
+            Err(err) => {
+                stop_notifier.notify_all();
+                let _ = server.join();
+                if server_mode == ServerMode::IOUring && should_skip_iouring_test(&err) {
+                    eprintln!("skip io_uring async client test: {}", err);
+                    return Ok(());
+                }
+                return Err(err);
+            }
+        };
+
+        with_timeout(client.execute(ClientRequest::new(
+            "default",
+            "CREATE TABLE t(id INT, v INT, PRIMARY KEY(id))",
+        )))
+        .await?;
+        let inserted = with_timeout(client.execute(ClientRequest::new(
+            "default",
+            "INSERT INTO t(id, v) VALUES (1, 10)",
+        )))
+        .await?;
+        assert_eq!(inserted.affected_rows(), 1);
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id, v FROM t WHERE id = 1",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["1".to_string(), "10".to_string()]]
+        );
+
+        let updated = with_timeout(client.execute(ClientRequest::new(
+            "default",
+            "UPDATE t SET v = 20 WHERE id = 1",
+        )))
+        .await?;
+        assert_eq!(updated.affected_rows(), 1);
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT v FROM t WHERE id = 1",
+        )))
+        .await?;
+        assert_eq!(
+            response_rows_as_strings(&selected),
+            vec![vec!["20".to_string()]]
+        );
+
+        let deleted = with_timeout(
+            client.execute(ClientRequest::new("default", "DELETE FROM t WHERE id = 1")),
+        )
+        .await?;
+        assert_eq!(deleted.affected_rows(), 1);
+
+        let selected = with_timeout(client.query(ClientRequest::new(
+            "default",
+            "SELECT id FROM t WHERE id = 1",
+        )))
+        .await?;
+        assert!(selected.rows().is_empty());
+
+        stop_server(client, stop_notifier, server)?;
+        Ok(())
+    }
+
+    /// Regression test for backend fail-fast behavior.
+    ///
+    /// When the backend fails during initialization (here by pointing the data
+    /// directory at a regular file), the server thread exits before the ready
+    /// barrier. `spawn_backend_server` must detect that and return an error
+    /// instead of hanging until the full ready timeout.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn spawn_backend_server_fails_fast_on_init_error() -> RS<()> {
+        mudu_sys::task::async_::build_multi_thread_runtime()
+            .unwrap()
+            .block_on(async move {
+                init_test_logging();
+
+                let mut cfg = test_cfg(ServerMode::Tokio).ok_or_else(|| {
+                    mudu::mudu_error!(mudu::error::ErrorCode::NotFound, "could not build test cfg")
+                })?;
+
+                // Make db_path point at a regular file so directory creation
+                // inside the backend fails early.
+                let bogus_db = temp_dir("mudu_fail_fast_db");
+                mudu_sys::fs::sync::sync_write(&bogus_db, "not a directory")?;
+                cfg.db_path = bogus_db.to_string_lossy().into_owned();
+
+                let started = mudu_sys::time::instant_now();
+                let result = spawn_backend_server(cfg).await;
+                let elapsed = started.elapsed();
+
+                assert!(
+                    result.is_err(),
+                    "expected early failure when backend initialization fails"
+                );
+                assert!(
+                    elapsed < std::time::Duration::from_secs(5),
+                    "spawn_backend_server hung instead of failing fast: {:?}",
+                    elapsed
+                );
+                Ok(())
+            })
+    }
+}

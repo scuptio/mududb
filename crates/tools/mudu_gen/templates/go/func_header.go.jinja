@@ -1,0 +1,50 @@
+// MessageKind carries the syscall message kinds in the MSSP header's
+// message_kind field. The discriminants identify the WIT functions of this
+// file and are pinned to their 1-based declaration order; 0 and unknown
+// values are rejected by DecodeHeader.
+type MessageKind uint32
+
+const (
+{% for kind in kinds %}{% if !kind.comments.is_empty() %}{{ kind.comments }}
+{% endif %}	{{ kind.member_name_padded }} MessageKind = {{ kind.discriminant }}
+{% endfor %})
+
+// WireResult is the wire-level result<T, E> exchanged with the peer: a
+// success carries Value (encoded as [0, value]), a failure carries Error
+// (encoded as [1, error]). Protocol-level decode failures are returned as Go
+// errors instead. Value holds the per-func typed payload; option payloads
+// travel unwrapped (nil means absent).
+type WireResult struct {
+	Value any
+	Error *{{ err_type_name }}
+}
+
+// OkResult builds a success WireResult carrying value.
+func OkResult(value any) WireResult {
+	return WireResult{Value: value}
+}
+
+// ErrResult builds a failure WireResult carrying err.
+func ErrResult(err {{ err_type_name }}) WireResult {
+	return WireResult{Error: &err}
+}
+
+// IsOk reports whether the result is a success.
+func (r WireResult) IsOk() bool {
+	return r.Error == nil
+}
+
+// DecodeHeader decodes and validates the fixed 16-byte MSSP header of frame,
+// returning the message kind; it fails on any integrity violation.
+func DecodeHeader(frame []byte) (MessageKind, error) {
+	_raw, err := codec.DecodeHeader(frame)
+	if err != nil {
+		return 0, err
+	}
+	switch _kind := MessageKind(_raw); _kind {
+	case {{ member_list }}:
+		return _kind, nil
+	default:
+		return 0, fmt.Errorf("MSSP unknown syscall message kind %d", _raw)
+	}
+}

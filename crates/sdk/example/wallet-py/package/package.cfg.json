@@ -1,0 +1,6 @@
+{
+  "name": "wallet-py",
+  "lang": "python",
+  "version": "0.1.0",
+  "use_async": false
+}

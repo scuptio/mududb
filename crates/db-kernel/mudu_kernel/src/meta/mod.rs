@@ -1,0 +1,15 @@
+//! In-memory catalog managers for schemas, partitions, rules, and placements.
+
+#![allow(missing_docs)]
+
+#[cfg(any(test, feature = "test", fuzzing))]
+pub mod _fuzz;
+
+pub mod fs_object;
+pub mod fs_type_catalog;
+pub mod meta_mgr;
+pub mod meta_mgr_factory;
+pub mod partition_binding_catalog;
+pub mod partition_placement_catalog;
+pub mod partition_rule_catalog;
+pub mod schema_catalog;

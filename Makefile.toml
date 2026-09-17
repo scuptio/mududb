@@ -1,0 +1,201 @@
+# Root cargo-make orchestration for the whole MuduDB project.
+#
+# The repository root is not a cargo workspace: crates are grouped into four
+# independent group workspaces (crates/{common,db-kernel,sdk,tools}) plus the
+# standalone guest-SDK workspace crates/sdk/mudu_api/rust. All of them share
+# the repository-root target/ directory via the root .cargo/config.toml.
+#
+# Common entry points:
+#   cargo make            # = cargo make build
+#   cargo make build      # release build of all workspaces + CLI tools + wallet.mpk
+#   cargo make check      # fmt + clippy + test compilation (delegates to check_all.sh)
+#   cargo make test       # cargo test --workspace for every workspace
+#   cargo make test-e2e   # end-to-end tests with wallet/wallet-as/wallet-cs/wallet-py/wallet-go/wallet-c mpk packages
+#   cargo make install-tools  # install mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli
+
+[env]
+REPO_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}"
+GROUP_COMMON = "${REPO_ROOT}/crates/common"
+GROUP_DB_KERNEL = "${REPO_ROOT}/crates/db-kernel"
+GROUP_SDK = "${REPO_ROOT}/crates/sdk"
+GROUP_TOOLS = "${REPO_ROOT}/crates/tools"
+MUDU_API_RUST = "${GROUP_SDK}/mudu_api/rust"
+
+# ---------------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------------
+
+[tasks.build-group-common]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${GROUP_COMMON}"
+
+[tasks.build-group-db-kernel]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${GROUP_DB_KERNEL}"
+
+[tasks.build-group-sdk]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${GROUP_SDK}"
+
+[tasks.build-group-tools]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${GROUP_TOOLS}"
+
+# cargo-make runs dependencies sequentially, which keeps one cargo invocation
+# at a time (memory budget, and avoids the shared-target E0463 flake).
+[tasks.build-workspaces]
+dependencies = [
+    "build-group-common",
+    "build-group-db-kernel",
+    "build-group-sdk",
+    "build-group-tools",
+]
+
+# The guest SDK is a standalone workspace outside the four groups.
+[tasks.build-mudu-api]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${MUDU_API_RUST}"
+
+# Reinstall the workspace CLI tools from source (mgen, mtp, mpm-build,
+# mpm-install, mudud, mcli) so the toolchain cannot drift from the commit.
+[tasks.install-tools]
+command = "python3"
+args = ["${REPO_ROOT}/script/build/install_binaries.py", "--profile", "release"]
+cwd = "${REPO_ROOT}"
+
+[tasks.package-wallet]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet"
+
+# Optional: needs Node.js/npm on PATH (asc compiler).
+[tasks.package-wallet-as]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet-as"
+
+# Optional: needs the .NET 10 SDK at ~/.dotnet (see example/wallet-cs/readme.md).
+[tasks.package-wallet-cs]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet-cs"
+
+# Optional: needs componentize-py on PATH (pipx install componentize-py==0.25.1)
+# plus wasm-tools (see example/wallet-py/readme.md).
+[tasks.package-wallet-py]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet-py"
+
+# Optional: needs TinyGo 0.42 and the Go 1.27 toolchain on PATH plus
+# wasm-tools (see example/wallet-go/readme.md).
+[tasks.package-wallet-go]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet-go"
+
+# Optional: needs a clang targeting wasm32 freestanding (wasi-sdk 29 at
+# ~/.wasi-sdk by default; see example/wallet-c/readme.md) plus wasm-tools.
+[tasks.package-wallet-c]
+dependencies = ["install-tools"]
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_SDK}/example/wallet-c"
+
+# All guest example packages (requires the full external toolchain set).
+[tasks.package-examples]
+dependencies = ["package-wallet", "package-wallet-as", "package-wallet-cs", "package-wallet-py", "package-wallet-go", "package-wallet-c"]
+
+# Equivalent of script/shell/build_all.sh: workspaces + tools + wallet.mpk.
+[tasks.build]
+clear = true
+dependencies = [
+    "build-workspaces",
+    "build-mudu-api",
+    "install-tools",
+    "package-wallet",
+]
+
+[tasks.default]
+clear = true
+alias = "build"
+
+# ---------------------------------------------------------------------------
+# check / test
+# ---------------------------------------------------------------------------
+
+# fmt + clippy (-D warnings) + test compilation across the four group
+# workspaces. Delegates to the CI script to keep a single source of truth.
+[tasks.check]
+clear = true
+command = "bash"
+args = ["${REPO_ROOT}/script/shell/check_all.sh"]
+cwd = "${REPO_ROOT}"
+
+# `--quiet` after `--` collapses libtest's one-line-per-test output into
+# progress dots: with thousands of tests across five workspaces the per-test
+# lines bury failures and summaries. Failures still print their full captured
+# output; per-suite `test result:` summaries are kept.
+[tasks.test-group-common]
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${GROUP_COMMON}"
+
+[tasks.test-group-db-kernel]
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${GROUP_DB_KERNEL}"
+
+[tasks.test-group-sdk]
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${GROUP_SDK}"
+
+[tasks.test-group-tools]
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${GROUP_TOOLS}"
+
+[tasks.test-mudu-api]
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${MUDU_API_RUST}"
+
+[tasks.test]
+clear = true
+dependencies = [
+    "test-group-common",
+    "test-group-db-kernel",
+    "test-group-sdk",
+    "test-group-tools",
+    "test-mudu-api",
+]
+
+# End-to-end suite: builds wallet / wallet-as / wallet-cs / wallet-py /
+# wallet-go / wallet-c mpk packages first (requires the full external
+# toolchain set), then runs the testing crate.
+[tasks.test-e2e]
+command = "cargo"
+args = ["make", "test"]
+cwd = "${GROUP_DB_KERNEL}/testing"
+
+# ---------------------------------------------------------------------------
+# misc
+# ---------------------------------------------------------------------------
+
+# Cleans the shared repository-root target/ directory.
+[tasks.clean]
+clear = true
+command = "cargo"
+args = ["clean"]
+cwd = "${REPO_ROOT}"

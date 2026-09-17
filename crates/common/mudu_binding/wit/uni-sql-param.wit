@@ -1,0 +1,9 @@
+use crate:universal:uni-data-value/uni-data-value;
+
+interface universal {
+    record uni-sql-param {
+        params:list<uni-data-value>,
+        param-names: option<list<string>>,
+    }
+}
+

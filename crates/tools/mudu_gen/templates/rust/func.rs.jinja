@@ -1,0 +1,90 @@
+{% if func.comments.len() > 0 %}
+{{ func.comments }}
+{% endif %}
+/// Encodes a `{{ func.snake }}` request frame.
+{% if func.param_count == 0 %}
+pub fn encode_{{ func.snake }}_request() -> Vec<u8> {
+    encode_frame(MessageKind::{{ func.kind_case }}, &[])
+}
+{% else %}
+pub fn encode_{{ func.snake }}_request({{ func.req_signature }}) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::{{ func.kind_case }},
+        Value::Map(vec![
+{{ func.req_encode_entries }}
+        ]),
+    )
+}
+{% endif %}
+
+/// Decodes a `{{ func.snake }}` request frame into its positional arguments.
+{% if func.param_count == 0 %}
+pub fn decode_{{ func.snake }}_request(frame: &[u8]) -> Result<(), SyscallFrameError> {
+    let body = decode_typed_frame(MessageKind::{{ func.kind_case }}, frame)?;
+    if !body.is_empty() {
+        return Err(SyscallFrameError::new(
+            "trailing bytes after syscall payload body",
+        ));
+    }
+    Ok(())
+}
+{% else %}
+pub fn decode_{{ func.snake }}_request(
+    frame: &[u8],
+) -> Result<{{ func.req_return_type }}, SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::{{ func.kind_case }}, frame)?;
+{{ func.req_decode_stmts }}
+    Ok({{ func.req_decode_return }})
+}
+{% endif %}
+
+{% if func.result_is_unit %}
+/// Encodes a `{{ func.snake }}` unit result frame: body `[0u8, 0u8]` or
+/// `[1u8, error]`.
+pub fn encode_{{ func.snake }}_result(result: &UniResult<()>) -> Vec<u8> {
+    encode_unit_result_frame(MessageKind::{{ func.kind_case }}, result)
+}
+
+/// Decodes a `{{ func.snake }}` unit result frame.
+pub fn decode_{{ func.snake }}_result(
+    frame: &[u8],
+) -> Result<UniResult<()>, SyscallFrameError> {
+    decode_unit_result_frame(MessageKind::{{ func.kind_case }}, frame)
+}
+{% else %}
+/// Encodes a `{{ func.snake }}` result frame: body `[0u8, value]` or
+/// `[1u8, error]`.
+///
+/// Forwards to [`encode_{{ func.snake }}_result_ref`]; kept concrete so
+/// error-only calls (`&Err(e)`) need no type annotation.
+pub fn encode_{{ func.snake }}_result(result: &UniResult<{{ func.res_ok_type }}>) -> Vec<u8> {
+    encode_{{ func.snake }}_result_ref(result)
+}
+
+/// Borrow variant of [`encode_{{ func.snake }}_result`], generic over
+/// `T: Borrow<{{ func.res_ok_type }}>`: callers holding only a reference to
+/// the success value (e.g. `UniResult<&{{ func.res_ok_type }}>`) encode
+/// without cloning the payload.
+pub fn encode_{{ func.snake }}_result_ref<T>(result: &UniResult<T>) -> Vec<u8>
+where
+    T: core::borrow::Borrow<{{ func.res_ok_type }}>,
+{
+    encode_result_frame(
+        MessageKind::{{ func.kind_case }},
+        map_result_ref(result, |value| {{ func.res_encode_map }}),
+    )
+}
+
+/// Decodes a `{{ func.snake }}` result frame.
+pub fn decode_{{ func.snake }}_result(
+    frame: &[u8],
+) -> Result<UniResult<{{ func.res_ok_type }}>, SyscallFrameError> {
+    match decode_result_frame(MessageKind::{{ func.kind_case }}, frame)? {
+        Ok(value) => match {{ func.res_decode_expr }} {
+            Ok(value) => Ok(Ok(value)),
+            Err(error) => Err(wire_error_to_frame(error)),
+        },
+        Err(error) => Ok(Err(error)),
+    }
+}
+{% endif %}

@@ -1,0 +1,12 @@
+use crate:universal:uni-oid/uni-oid;
+
+interface universal {
+
+record uni-message {
+    message-id : u32,
+    source-oid : uni-oid,
+    destination-oid: uni-oid,
+    payload : list<u8>
+}
+
+}

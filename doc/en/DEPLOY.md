@@ -70,9 +70,9 @@ Installs all dependencies required to run MuduDB:
 
 Builds and installs all components:
 
-1. `cargo build --release` — builds the workspace crates
+1. `cargo build --release` in each of the four group workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`) — builds all crates
 2. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mudud, mcli, mpm-build, mgen, mtp)
-3. `cargo make` in `example/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
+3. `cargo make` in `crates/sdk/example/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
 
 The wallet `Makefile.toml` reinstalls the workspace CLI tools from source before generating code, so the package is always built with the current commit's toolchain.
 

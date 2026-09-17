@@ -1,0 +1,38 @@
+[package]
+name = "mudu_sys_impl"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+rust-version.workspace = true
+
+[lints.clippy]
+disallowed-types = "allow"
+
+[features]
+default = []
+debug_trace = []
+
+[dependencies]
+mudu = { workspace = true }
+mudu_sys_contract = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+lazy_static = { workspace = true }
+scc = { workspace = true }
+async-backtrace = { workspace = true }
+futures = { workspace = true }
+crossbeam-queue = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libc = { workspace = true }
+socket2 = { workspace = true }
+tokio = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rliburing = { workspace = true }
+
+[dev-dependencies]
+project-root = { workspace = true }
+tokio = { workspace = true }

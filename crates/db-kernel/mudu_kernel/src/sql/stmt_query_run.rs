@@ -1,0 +1,156 @@
+use crate::contract::query_exec::QueryExec;
+use crate::contract::ssn_ctx::SsnCtx;
+use crate::sql::current_tx::get_tx;
+use crate::sql::proj_list::ProjList;
+use crate::sql::stmt_query::StmtQuery;
+use futures::stream;
+use futures::Stream;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode as ER;
+use mudu::mudu_error;
+use mudu_type::type_family::{TypeFamily as TypeID, TypeFamily};
+use pgwire::api::portal::Format;
+use pgwire::api::results::{DataRowEncoder, FieldInfo};
+use pgwire::api::Type as PGDataType;
+use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::messages::data::DataRow;
+use std::sync::Arc;
+use tracing::error;
+
+// Run a query execution statement(Select)
+pub async fn run_query_stmt(
+    stmt: &dyn StmtQuery,
+    ctx: &dyn SsnCtx,
+) -> RS<(
+    Arc<Vec<FieldInfo>>,
+    impl Stream<Item = PgWireResult<DataRow>>,
+)> {
+    let _xid = get_tx(ctx).await?;
+    let r = run_query_stmt_gut(stmt, ctx).await;
+    match r {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            error!("run query error: {}", e);
+            //ctx.thd_ctx().abort_tx(xid).await?;
+            ctx.end_tx()?;
+            Err(e)
+        }
+    }
+}
+
+pub async fn run_query_stmt_gut(
+    stmt: &dyn StmtQuery,
+    ctx: &dyn SsnCtx,
+) -> RS<(
+    Arc<Vec<FieldInfo>>,
+    impl Stream<Item = PgWireResult<DataRow>>,
+)> {
+    let (exec, fields) = build_query_exec(stmt, ctx).await?;
+    let stream = encode_pg_wire_row_data(&*exec, &fields).await?;
+    Ok((fields, stream))
+}
+
+async fn build_query_exec(
+    stmt: &dyn StmtQuery,
+    ctx: &dyn SsnCtx,
+) -> RS<(Arc<dyn QueryExec>, Arc<Vec<FieldInfo>>)> {
+    stmt.realize(ctx).await?;
+    let desc = stmt.proj_list()?;
+    let fields = to_pg_field_info(&desc, &Default::default())?;
+    let cmd = stmt.build(ctx).await?;
+    cmd.open().await?;
+    Ok((cmd, Arc::new(fields)))
+}
+
+fn to_pg_field_info(rd: &ProjList, format: &Format) -> RS<Vec<FieldInfo>> {
+    rd.fields()
+        .iter()
+        .enumerate()
+        .map(|(index, desc)| {
+            Ok(FieldInfo::new(
+                desc.name().clone(),
+                None,
+                None,
+                dt_id_to_pg_type(desc.type_desc().type_family())?,
+                format.format_for(index),
+            ))
+        })
+        .collect()
+}
+
+fn dt_id_to_pg_type(dt: TypeID) -> RS<PGDataType> {
+    match dt {
+        TypeID::I32 => Ok(PGDataType::INT4),
+        TypeID::I64 => Ok(PGDataType::INT8),
+        TypeID::F32 => Ok(PGDataType::FLOAT4),
+        TypeID::F64 => Ok(PGDataType::FLOAT8),
+        TypeID::String => Ok(PGDataType::TEXT),
+        _ => Err(mudu_error!(
+            ER::InvalidType,
+            format!("unsupported projection type for pgwire: {:?}", dt)
+        )),
+    }
+}
+
+async fn encode_pg_wire_row_data(
+    rows: &dyn QueryExec,
+    fields: &Arc<Vec<FieldInfo>>,
+) -> RS<impl Stream<Item = PgWireResult<DataRow>>> {
+    let mut results: Vec<PgWireResult<DataRow>> = Vec::new();
+    let cols = fields.len();
+    let mut has_err = false;
+    let tuple_desc = rows.tuple_desc()?;
+    while let Ok(Some(row)) = rows.next().await {
+        if row.fields().len() != cols || tuple_desc.fields().len() != cols {
+            return Err(mudu_error!(
+                ER::FatalInternal,
+                "fatal error: non consistent column number"
+            ));
+        }
+        let mut encoder = DataRowEncoder::new(fields.clone());
+        for idx in 0..cols {
+            if row.is_null(idx) {
+                if let Err(e) = encoder.encode_field(&None::<i8>) {
+                    has_err = true;
+                    results.push(Err(e));
+                    break;
+                }
+            } else if let Some(datum) = row.get(idx) {
+                let field_desc = &tuple_desc.fields()[idx];
+                let type_family = field_desc.type_family();
+                let (internal, _) = type_family.fn_recv()(&datum, field_desc.data_type())
+                    .map_err(|e| mudu_error!(ER::TypeConversionFailed, "recv error", e))?;
+
+                let r = match type_family {
+                    TypeFamily::I32 => encoder.encode_field(&internal.to_i32()),
+                    TypeFamily::I64 => encoder.encode_field(&internal.to_i64()),
+                    TypeFamily::F32 => encoder.encode_field(&internal.to_f32()),
+                    TypeFamily::F64 => encoder.encode_field(&internal.to_f64()),
+                    TypeFamily::String => encoder.encode_field(internal.expect_string()),
+                    _ => {
+                        has_err = true;
+                        results.push(Err(PgWireError::ApiError(Box::new(mudu_error!(
+                            ER::InvalidType,
+                            format!("unsupported row type for pgwire encode: {:?}", type_family)
+                        )))));
+                        break;
+                    }
+                };
+                if let Err(e) = r {
+                    has_err = true;
+                    results.push(Err(e));
+                }
+            } else {
+                has_err = true;
+                results.push(Err(PgWireError::ApiError(Box::new(ER::IndexOutOfRange))));
+                break;
+            }
+        }
+        if !has_err {
+            let e = encoder.take_row();
+            results.push(Ok(e));
+        }
+    }
+
+    Ok(stream::iter(results))
+}

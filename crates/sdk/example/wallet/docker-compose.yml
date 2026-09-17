@@ -1,0 +1,9 @@
+services:
+  postgres:
+    image: docker.io/postgres:17
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/setup.sh:/docker-entrypoint-initdb.d/setup.sh
+    environment:
+      POSTGRES_PASSWORD: postgres

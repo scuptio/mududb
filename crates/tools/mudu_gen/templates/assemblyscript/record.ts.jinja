@@ -1,0 +1,61 @@
+{% if record.record_comments.len() > 0 %}
+{{ record.record_comments }}
+{% endif %}
+{% for holder in tuple_holders %}
+export class {{ holder.name }} {
+    {% for ty in holder.field_types %}
+    f{{ loop.index0 }}: {{ ty }} = {{ holder.field_defaults[loop.index0] }};
+    {% endfor %}
+}
+{% endfor %}
+export class {{ record.record_name }} {
+    {% for field in record.record_fields %}
+    {% if field.rf_comments.len() > 0 %}
+    {{ field.rf_comments }}
+    {% endif %}
+    {{ field.rf_name }}: {{ field_codecs[loop.index0].ty }} = {{ field_codecs[loop.index0].default }};
+    {% endfor %}
+}
+
+export class {{ record.record_name }}Codec {
+    static encode(value: {{ record.record_name }}, writer: MpackWriter): void {
+{% if has_option_field %}        writer.writeMapHeader({{ record.record_fields.len() }}{% for codec in field_codecs %}{% if codec.is_option %} - 1 + (value.{{ record.record_fields[loop.index0].rf_name }} === null ? 0 : 1){% endif %}{% endfor %});
+        {% for codec in field_codecs %}
+        {% if codec.is_option %}
+        // WIT option fields are omitted when null (proto3 presence
+        // semantics); decode treats a missing key as the default.
+        if (value.{{ record.record_fields[loop.index0].rf_name }} !== null) {
+            writer.writeU64({{ codec.number }});
+{{ codec.encode_stmts }}
+        }
+        {% else %}
+        writer.writeU64({{ codec.number }});
+{{ codec.encode_stmts }}
+        {% endif %}
+        {% endfor %}
+{% else %}        writer.writeMapHeader({{ record.record_fields.len() }});
+        {% for codec in field_codecs %}
+        writer.writeU64({{ codec.number }});
+{{ codec.encode_stmts }}
+        {% endfor %}
+{% endif %}    }
+
+    static decode(reader: MpackReader): {{ record.record_name }} {
+        const value = new {{ record.record_name }}();
+        const count = reader.readMapHeader();
+        for (let i: u32 = 0; i < count; i++) {
+            const key = reader.readMapKey();
+            {% if field_codecs.len() == 0 %}
+            reader.skipValue();
+            {% else %}
+            {% for codec in field_codecs %}
+            {% if loop.first %}if{% else %}else if{% endif %} (key == {{ codec.number }}) {
+{{ codec.decode_stmts }}
+            } {% endfor %}else {
+                reader.skipValue();
+            }
+            {% endif %}
+        }
+        return value;
+    }
+}

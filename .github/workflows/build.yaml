@@ -36,7 +36,7 @@ defaults:
 
 jobs:
   build:
-    name: Build - ${{ matrix.os }}
+    name: Build - ${{ matrix.os }} - ${{ matrix.group }}
     runs-on: ${{ matrix.os }}
     env:
       ENABLE_CARGO_CLEAN: ${{ github.event.inputs.clean_cargo || 'true' }}
@@ -51,9 +51,16 @@ jobs:
     strategy:
       matrix:
         os: [ ubuntu-latest ]
+        # The repository has no root workspace; each group under crates/ is an
+        # independent cargo workspace with its own Cargo.lock.
+        group: [ common, db-kernel, sdk, tools ]
         include:
           - os: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
+    defaults:
+      run:
+        shell: bash
+        working-directory: crates/${{ matrix.group }}
 
     steps:
       - name: Checkout Code
@@ -79,46 +86,48 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-stable-${{ matrix.group }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-stable
+            ${{ runner.os }}-cargo-stable-${{ matrix.group }}
 
       - name: Clean cargo cache (optional)
         if: env.ENABLE_CARGO_CLEAN == 'true'
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo clean 2>&1 | tee logs/build-clean.log
+          cargo clean 2>&1 | tee ${{ github.workspace }}/logs/build-clean-${{ matrix.group }}.log
 
       - name: Check (debug)
         if: env.ENABLE_RELEASE_TEST != 'true'
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo check 2>&1 | tee logs/build-check-debug.log
+          cargo check 2>&1 | tee ${{ github.workspace }}/logs/build-check-debug-${{ matrix.group }}.log
 
       - name: Check (release)
         if: env.ENABLE_RELEASE_TEST == 'true'
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo check --release 2>&1 | tee logs/build-check-release.log
+          cargo check --release 2>&1 | tee ${{ github.workspace }}/logs/build-check-release-${{ matrix.group }}.log
 
       - name: Clippy
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee logs/build-clippy.log
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee ${{ github.workspace }}/logs/build-clippy-${{ matrix.group }}.log
 
       - name: Verify Install Script (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.group == 'tools'
+        working-directory: ${{ github.workspace }}
         run: |
           mkdir -p logs
           set -o pipefail
           python3 script/build/install_binaries.py --dry-run 2>&1 | tee logs/build-verify-install.log
 
       - name: Inspect io_uring Environment (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.group == 'db-kernel'
+        working-directory: ${{ github.workspace }}
         run: |
           mkdir -p logs
           set -o pipefail
@@ -127,16 +136,16 @@ jobs:
       - name: Test (debug)
         if: env.ENABLE_RELEASE_TEST != 'true'
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo test -- --test-threads=1 2>&1 | tee logs/build-test-debug.log
+          cargo test -- --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/build-test-debug-${{ matrix.group }}.log
 
       - name: Test (release)
         if: env.ENABLE_RELEASE_TEST == 'true'
         run: |
-          mkdir -p logs
+          mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          cargo test --release -- --test-threads=1 2>&1 | tee logs/build-test-release.log
+          cargo test --release -- --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/build-test-release-${{ matrix.group }}.log
 
   rustdoc:
     name: Rustdoc
@@ -161,4 +170,9 @@ jobs:
             ${{ runner.os }}-cargo-doc
 
       - name: Generate documentation
-        run: cargo doc --workspace --no-deps
+        run: |
+          # No root workspace exists; document each group workspace in turn.
+          for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+            echo "=== cargo doc: ${group} ==="
+            (cd "${group}" && cargo doc --workspace --no-deps)
+          done

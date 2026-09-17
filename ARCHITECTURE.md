@@ -2,6 +2,29 @@
 
 This document describes the crate layout, dependency direction, and key design decisions for the `mududb` workspace.
 
+## Repository Layout
+
+The repository root is **not** a cargo workspace. Crates live under `crates/`
+in four independent group workspaces, each with its own `Cargo.toml` and
+`Cargo.lock`:
+
+```text
+crates/
+├── common/      # foundation, sys abstraction, types, bindings, parser, client
+├── db-kernel/   # kernel, runtime, server (mudud), adapter, testing
+├── sdk/         # mududb SDK, examples, bindings (assemblyscript, python), APIs
+└── tools/       # mudu_cli, mudu_gen, mudu_transpiler, mpm_build, mpm_install
+```
+
+Cross-group path dependencies (e.g. `crates/db-kernel/*` depending on
+`crates/common/mudu`) are legal and used heavily; cargo builds them as normal
+path dependencies of the consuming workspace. All four workspaces share the
+repository-root `target/` directory (root `.cargo/config.toml` sets
+`[build] target-dir = "target"`), so artifact paths like
+`target/wasm32-wasip2/release/*.mpk` are unchanged. Run cargo commands per
+group (`cd crates/<group> && cargo ...`); `script/shell/check_all.sh`
+orchestrates fmt/clippy/test-compile across all four.
+
 ## Crate Layers
 
 ```text
@@ -10,11 +33,11 @@ This document describes the crate layout, dependency direction, and key design d
 │  (mudud, mudu_cli, mpm_build, npm_install, testing /*)       │
 ├─────────────────────────────────────────────────────────────┤
 │  Runtime & Kernel                                            │
-│  (mudu_runtime, mudu_kernel)                                │
+│  (mudu_runtime, mudu_kernel, sys_interface_standalone)      │
 ├─────────────────────────────────────────────────────────────┤
 │  Language / Binding / Contract                               │
 │  (mudu_contract, mudu_binding, mudu_type, mudu_transpiler,  │
-│   sql_parser, mudu_gen)                                     │
+│   sql_parser, mudu_gen, mudu_client)                        │
 ├─────────────────────────────────────────────────────────────┤
 │  Utilities                                                   │
 │  (mudu_utils, mudu_build_common)                            │
@@ -52,4 +75,5 @@ This document describes the crate layout, dependency direction, and key design d
 
 - `mudu_sys_impl` depends on `mudu` for `RS`/`EC`/`mudu_error!`. 
 - `mudu_utils` depends on both `mudu` and `mudu_sys`, making it the natural home for higher-level I/O utilities.
+- `sql_parser` parses DDL into `TableDef` and also hosts the SQL static-check core (`sql_parser::check`) used by `mgen check-sql`.
 - `mududb.ds` is a separate workspace that consumes the public crates from `mududb` for deterministic simulation / model checking.
