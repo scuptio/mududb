@@ -313,7 +313,7 @@ export function encodeQueryResult(result: QueryResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniQueryResultCodec.encode(result.value, writer);
@@ -413,7 +413,7 @@ export function encodeCommandResult(result: CommandResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniCommandResultCodec.encode(result.value, writer);
@@ -513,7 +513,7 @@ export function encodeBatchResult(result: BatchResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniCommandResultCodec.encode(result.value, writer);
@@ -613,7 +613,7 @@ export function encodeOpenSessionResult(result: OpenSessionResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniOidCodec.encode(result.value, writer);
@@ -709,7 +709,7 @@ export function encodeCloseSessionResult(result: CloseSessionResult): Uint8Array
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -823,7 +823,7 @@ export function encodeGetResult(result: GetResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             {
@@ -831,7 +831,7 @@ export function encodeGetResult(result: GetResult): Uint8Array {
                 if (opt === null) {
                     writer.writeNil();
                 } else {
-                    writer.writeBin(opt!);
+                    writer.writeBin(opt);
                 }
             }
     }
@@ -950,7 +950,7 @@ export function encodePutResult(result: PutResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -1060,7 +1060,7 @@ export function encodeDeleteResult(result: DeleteResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -1189,7 +1189,7 @@ export function encodeRangeResult(result: RangeResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeArrayHeader(result.value.length);
@@ -1311,7 +1311,7 @@ export function encodeFsOpenResult(result: FsOpenResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeU64(result.value as u64);
@@ -1407,7 +1407,7 @@ export function encodeFsCloseResult(result: FsCloseResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -1521,7 +1521,7 @@ export function encodeFsReadResult(result: FsReadResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeBin(result.value);
@@ -1634,7 +1634,7 @@ export function encodeFsWriteResult(result: FsWriteResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeU64(result.value as u64);
@@ -1754,7 +1754,7 @@ export function encodeFsPreadResult(result: FsPreadResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeBin(result.value);
@@ -1870,7 +1870,7 @@ export function encodeFsPwriteResult(result: FsPwriteResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -1991,7 +1991,7 @@ export function encodeFsLseekResult(result: FsLseekResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeU64(result.value);
@@ -2091,7 +2091,7 @@ export function encodeFsFstatResult(result: FsFstatResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniFsStatCodec.encode(result.value, writer);
@@ -2204,7 +2204,7 @@ export function encodeFsStatResult(result: FsStatResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             UniFsStatCodec.encode(result.value, writer);
@@ -2300,7 +2300,7 @@ export function encodeFsFsyncResult(result: FsFsyncResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -2414,7 +2414,7 @@ export function encodeFsReaddirResult(result: FsReaddirResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeArrayHeader(result.value.length);
@@ -2593,7 +2593,7 @@ export function encodeRelationGetResult(result: RelationGetResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             {
@@ -2601,15 +2601,15 @@ export function encodeRelationGetResult(result: RelationGetResult): Uint8Array {
                 if (opt === null) {
                     writer.writeNil();
                 } else {
-                    writer.writeArrayHeader(opt!.length);
-                    for (let i = 0; i < opt!.length; i++) {
-                        const item = opt![i];
+                    writer.writeArrayHeader(opt.length);
+                    for (let i = 0; i < opt.length; i++) {
+                        const item = opt[i];
                         {
                             const opt = item;
                             if (opt === null) {
                                 writer.writeNil();
                             } else {
-                                writer.writeBin(opt!);
+                                writer.writeBin(opt);
                             }
                         }
                     }
@@ -2854,7 +2854,7 @@ export function encodeRelationUpdateResult(result: RelationUpdateResult): Uint8A
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeU64(result.value);
@@ -3037,7 +3037,7 @@ export function encodeRelationInsertResult(result: RelationInsertResult): Uint8A
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        UniErrorCodec.encode(error!, writer);
+        UniErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);

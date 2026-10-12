@@ -20,7 +20,7 @@ package corpus
 import (
 	"testing"
 
-	"github.com/ybbh/mududb_p/bindings/go/types"
+	"github.com/mududb/mududb-go/types"
 )
 
 func TestSyscallCorpus(t *testing.T) {

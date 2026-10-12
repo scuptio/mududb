@@ -6,7 +6,7 @@ rust-version.workspace = true
 license = "Apache-2.0"
 
 [features]
-test = []
+arbitrary = []
 
 [lints]
 workspace = true

@@ -1,5 +1,4 @@
-//! `tuple::datum_desc` module.
-#![allow(missing_docs)]
+//! Description of a named, typed datum.
 
 use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
@@ -24,6 +23,7 @@ impl DatumDesc {
         }
     }
 
+    /// Creates a new DatumDesc with explicit nullability.
     pub fn new_nullable(name: String, data_type: DataType, nullable: bool) -> Self {
         Self {
             data_type,
@@ -49,10 +49,12 @@ impl DatumDesc {
         self.data_type.type_family()
     }
 
+    /// Returns whether the datum may hold SQL NULL.
     pub fn nullable(&self) -> bool {
         self.nullable
     }
 
+    /// Consumes `self` and returns the name and data type.
     pub fn into(self) -> (String, DataType) {
         (self.name, self.data_type)
     }

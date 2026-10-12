@@ -1,10 +1,7 @@
-//! `database::entity` module.
-//!
 //! An [`Entity`] is a typed row: a Rust struct mapped positionally onto a
 //! tuple described by a [`TupleFieldDesc`]. The trait carries the row mapping
 //! only; SQL text and column metadata live on the generated structs, and the
 //! transport layer (`mudu_query` / `mudu_command`) stays outside this layer.
-#![allow(missing_docs)]
 
 use crate::tuple::tuple_field::TupleField;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
@@ -20,6 +17,8 @@ use mudu_type::data_value::DataValue;
 use mudu_type::datum::{Datum, DatumDyn};
 use mudu_type::type_family::TypeFamily;
 
+/// A typed row: a Rust struct mapped positionally onto a tuple described by
+/// a [`TupleFieldDesc`].
 pub trait Entity: Datum {
     /// Tuple layout of the row: column names, types, and declaration order.
     /// This description drives the tuple binary storage format.
@@ -137,6 +136,7 @@ pub fn entity_data_type<E: Entity>() -> DataType {
     data_type::record::new_record_type(table_name, vec)
 }
 
+/// Returns the type family of an entity (always [`TypeFamily::Record`]).
 pub fn entity_type_family() -> RS<TypeFamily> {
     Ok(TypeFamily::Record)
 }
@@ -216,6 +216,7 @@ pub fn entity_to_textual<E: Entity>(entity: &E, ty: &DataType) -> RS<DataTextual
     Ok(textual)
 }
 
+/// Clones an entity into a boxed datum trait object.
 pub fn entity_clone_boxed<E: Entity>(entity: &E) -> Box<dyn DatumDyn> {
     Box::new(entity.clone())
 }

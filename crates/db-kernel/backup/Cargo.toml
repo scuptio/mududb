@@ -1,0 +1,33 @@
+[package]
+name = "backup"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "WAL archiving, base backup/PITR restore, and logical dump/restore"
+
+[features]
+debug_trace = ["mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+command = { workspace = true }
+meta = { workspace = true }
+repl = { workspace = true }
+sql = { workspace = true }
+wal = { workspace = true }
+worker = { workspace = true }
+xengine = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+short-uuid = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zip = { workspace = true }

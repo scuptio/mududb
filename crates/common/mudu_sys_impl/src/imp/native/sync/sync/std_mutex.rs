@@ -5,6 +5,8 @@ use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar as StdCondvar, Mutex as StdSyncMutex, Mutex, MutexGuard as StdMutexGuard};
 
+/// Blocking mutex over [`std::sync::Mutex`]; lock poisoning is reported as
+/// an error instead of a panic.
 pub struct SMutex<T: ?Sized> {
     inner: StdSyncMutex<T>,
 }
@@ -13,10 +15,12 @@ unsafe impl<T: ?Sized> Send for SMutex<T> {}
 
 unsafe impl<T: ?Sized> Sync for SMutex<T> {}
 
+/// RAII guard holding an [`SMutex`] lock; releases on drop.
 pub struct SMutexGuard<'a, T: ?Sized + 'a> {
     inner: StdMutexGuard<'a, T>,
 }
 
+/// Blocking condition variable over [`std::sync::Condvar`].
 pub struct SCondvar {
     inner: StdCondvar,
 }
@@ -26,6 +30,7 @@ pub struct SCondvar {
 unsafe impl<T: ?Sized + Sync> Sync for SMutexGuard<'_, T> {}
 
 impl<T> SMutex<T> {
+    /// Creates a new mutex protecting `t`.
     pub const fn new(t: T) -> SMutex<T> {
         Self {
             inner: StdSyncMutex::new(t),
@@ -34,6 +39,8 @@ impl<T> SMutex<T> {
 }
 
 impl<T: ?Sized> SMutex<T> {
+    /// Acquires the mutex, blocking until it is available; fails if the
+    /// mutex is poisoned.
     pub fn lock(&self) -> RS<SMutexGuard<'_, T>> {
         let r = self.inner.lock();
         match r {
@@ -42,6 +49,8 @@ impl<T: ?Sized> SMutex<T> {
         }
     }
 
+    /// Attempts to acquire the mutex without blocking; returns `None` if it
+    /// is locked or poisoned.
     pub fn try_lock(&self) -> Option<SMutexGuard<'_, T>> {
         let r = self.inner.try_lock();
         match r {
@@ -58,12 +67,15 @@ impl Default for SCondvar {
 }
 
 impl SCondvar {
+    /// Creates a new condition variable.
     pub const fn new() -> Self {
         Self {
             inner: StdCondvar::new(),
         }
     }
 
+    /// Blocks until notified, releasing and re-acquiring the mutex around
+    /// the wait; fails if the mutex is poisoned.
     pub fn wait<'a, T>(&self, guard: SMutexGuard<'a, T>) -> RS<SMutexGuard<'a, T>> {
         self.inner
             .wait(guard.inner)
@@ -71,12 +83,15 @@ impl SCondvar {
             .map_err(|_| mudu_error!(ErrorCode::Mutex, ""))
     }
 
+    /// Wakes up all threads blocked on this condition variable.
     pub fn notify_all(&self) {
         self.inner.notify_all();
     }
 }
 
 impl<T> SMutex<T> {
+    /// Consumes the mutex and returns the protected value; fails if the
+    /// mutex is poisoned.
     pub fn into_inner(self) -> RS<T> {
         let r = self.inner.into_inner();
         match r {

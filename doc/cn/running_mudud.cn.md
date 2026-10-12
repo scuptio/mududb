@@ -170,3 +170,33 @@ mcli --http-addr 127.0.0.1:8300 server-topology
 - [mcli 管理接口](mcli_admin.cn.md) — 安装、列出和调用应用包。
 - [你的第一个 MPK 包](your_first_mpk.cn.md) — 构建并安装完整示例。
 - [核心概念](concepts.cn.md) — 了解 Mudu Procedure、MPK 包和运行时模型。
+
+## WASM 过程资源限制
+
+在 `mudud.cfg` 末尾添加以下配置；省略的字段使用这些默认值，修改后需要重启。数值必须大于零，单应用并发不能超过全局并发，单次内存不能超过总预留内存。
+
+```toml
+[invocation_limits]
+memory_bytes = 134217728
+fuel = 1000000000
+timeout_ms = 30000
+max_input_bytes = 8388608
+max_output_bytes = 8388608
+max_host_calls = 10000
+max_resources = 256
+table_elements = 100000
+max_concurrent = 4
+max_concurrent_per_app = 2
+total_memory_bytes = 536870912
+```
+
+- `memory_bytes` 限制每次调用所有 guest 线性内存的累计大小（含实例初始化）；`table_elements` 限制累计表元素。超限会终止调用。
+- `fuel` 限制 Wasm 指令执行量，`timeout_ms` 从请求获准执行开始计时，包含事务和实例初始化。共享 epoch 时钟每 10 ms 检查一次；异步 Wasm 定期让出执行权。
+- 输入、输出分别限制为 `max_input_bytes` / `max_output_bytes`。SQL 结果逐行计量；文件读取在分配前检查请求长度。`max_host_calls` 限制 host 调用次数，`max_resources` 限制调用中打开的会话和文件句柄数。
+- `max_concurrent`、`max_concurrent_per_app` 和 `total_memory_bytes` 在创建事务前检查。内存按单次最大预算预留，满额立即返回 `ResourceBusy`，不会创建无限请求队列。同名应用共享配额；同步执行器固定为 4 个线程，队列容量为 4。Legacy/SQLite 后端同应用事务串行执行。
+
+每次调用创建独立 Store、Instance 和 WASI 上下文，只复用编译及链接结果。guest 内存、全局变量和句柄不会传给下一次调用；需要跨调用保存的业务状态应写入数据库。
+
+请求 future 被丢弃时触发取消。独立的生命周期任务负责等待执行退出、关闭本次打开的资源、回滚自建事务，最后释放并发和内存配额。借用已有事务的调用失败后，该事务只能先回滚，不能继续执行或提交。取消和提交有明确边界：进入提交之前取消会回滚，进入提交之后等待真实提交结果，提交报错可能意味着结果未知，不能当作已回滚。
+
+这些限制不是进程 RSS 的硬上限：数据库执行器、WASI、编译器和其他原生分配不计入 guest 线性内存预算。已经进入的原生 host 操作不能由 fuel/epoch 强制打断，必须等待它返回后再清理，期间保留配额；超时因此不是包含清理时间的响应硬时限。对任意阻塞原生代码要求硬终止或完整内存隔离时，需要独立工作进程及操作系统资源限制。

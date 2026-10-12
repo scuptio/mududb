@@ -16,7 +16,8 @@ reserving ephemeral TCP ports, waiting for services to become ready, and connect
 
 ## What does NOT belong here
 
-- The actual database server implementation (see `mudu_runtime`, `mudu_kernel`, `mudu`).
+- The actual database server implementation (see `mudu_runtime`,
+  `runtime_wasm`, and the narrow kernel crates `repl`, `wal`, `storage`).
 - The synchronous CLI client itself (see `mudu_cli`).
 - Low-level networking and system abstractions (see `mudu_sys`).
 - User-facing contract and binding types (see `mudu_contract`, `mudu_binding`).

@@ -43,6 +43,14 @@ guest 发起的每一次系统调用——SQL、键值、relation、文件系统
 - 例外是 `fetch`：一个**不**经 MSSP 路由的宿主 WIT 函数，直接收发原始 `rmp_serde`
   字节（见下文 [`fetch` 协议](#fetch-协议)）。
 
+术语说明：**MSSP** 是 MuduDB guest↔host 系统调用帧协议的名称（帧魔数
+`0x4D53_5350`，即 ASCII `MSSP`；当前版本 v1）。**`mp2-<kebab-name>`** 是转译器为
+每个过程生成的根级 WIT 导出名——一个不透明的 `list<u8>` 字节管道；`mp` 沿用
+"Mudu Procedure（Mudu 过程）" 的命名（见
+[`../concepts.cn.md`](../concepts.cn.md)）。**`mp_wire`** 指
+`mudu_binding::universal::mp_wire` 模块——项目自控的 MessagePack 线编解码器，
+服务于由规范 WIT 模式生成的 universal 类型。
+
 ## MSSP v1 帧格式
 
 每个请求与每个响应都是一条自描述的帧。没有长度前缀；WIT 传输层负责投递精确的
@@ -233,8 +241,8 @@ WIT 模式的下列属性是已部署的线值——不要轻易改动：
 - `uni-data-type.wit` 以 `%box(box<uni-data-type>)` 结尾（标签 8，在标签 7 的
   `binary` 之后）。`Box` 变体同时充当 `mgen` 内部表示 WIT `box<T>` 类型的 IR，因此
   尽管没有任何 syscall 负载携带它，也必须保留。
-- 旧的校验和文件 `mudu_binding/wit/contract.md5.txt` 早于这些修正，内容已过期，且不再
-  被任何构建任务引用。
+- 生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.sh` 强制保证：它在临时
+  目录重新生成全部绑定代码，并要求与仓库中的版本逐字节一致。
 
 ### 验证门禁
 
@@ -294,14 +302,14 @@ workspace（包名 `mudu_api_rust`），面向在主仓库之外构建的 guest�
 ~/.dotnet/dotnet test Mudu.Api.Tests
 ```
 
-**真实 C# guest 已验证。** [`crates/sdk/example/wallet-cs`](../../../crates/sdk/example/wallet-cs/)
+**真实 C# guest 已验证。** [`example/mpk/wallet-cs`](../../../example/mpk/wallet-cs/)
 是 wallet 示例的 byte-pipe C# 移植（5 个过程，断言与 `wallet-as` 完全对齐），用
 componentize-dotnet 构建（.NET 10 SDK、`dotnet-experimental` feed、
 `IlcExportUnmanagedEntrypoints`、`wit/deps` 布局）并打包为 `wallet-cs.mpk`。它在真实
 `mudud` 上通过
 [`testing/tests/wallet_cs_mpk.rs`](../../../crates/db-kernel/testing/tests/wallet_cs_mpk.rs)。
 构建要求与确切工具链见
-[wallet-cs readme](../../../crates/sdk/example/wallet-cs/readme.md)。运行时备注：
+[wallet-cs readme](../../../example/mpk/wallet-cs/readme.md)。运行时备注：
 sync-world 组件运行在专用的无运行时线程上（`WTInstancePre.requires_async` 由组件的
 导入计算得出；导入异步 API 的组件仍走 `call_async` 路径），TCP 调用器按应用的
 `enable_async`/`use_async` 路由。
@@ -316,7 +324,7 @@ AssemblyScript guest 与 C# guest 采用相同的直连 byte-pipe 架构：组�
 编码 `UniResult<UniProcedureResult, UniError>`）以及过程 world WIT（`import
 mududb:api/system`，每个过程一个根级 `mp2-<kebab>` 导出），不再需要任何伴生 Rust 组件
 （见
-[`crates/sdk/example/wallet-as/Makefile.toml`](../../../crates/sdk/example/wallet-as/Makefile.toml)）：
+[`example/mpk/wallet-as/Makefile.toml`](../../../example/mpk/wallet-as/Makefile.toml)）：
 
 ```text
 AssemblyScript 组件（mtp 适配器 + 生成的 MSSP 编解码器）
@@ -400,7 +408,7 @@ make check CC=clang CXX=clang++   # 头文件编译门禁 + 语料 driver（398 
 ### Go（语料验证）
 
 [`crates/sdk/bindings/go`](../../../crates/sdk/bindings/go/) 是 Go 对应物：**语料验证**，
-同时是 Go guest 引用的绑定（模块 `github.com/ybbh/mududb_p/bindings/go`）。纯 stdlib，
+同时是 Go guest 引用的绑定（模块 `github.com/mududb/mududb-go`）。纯 stdlib，
 兼容 TinyGo（无 `unsafe`、无泛型、无反射）。布局：
 
 - `codec/mpack.go` —— 手写 canonical MessagePack 写入端 / 宽松读取端，基于原生值模型
@@ -634,7 +642,7 @@ C# / AS / Python / C / Go 消费方应按 sidecar 的 `expect` 重放同一组�
   （重新生成见 crate `README.md`）
 - AssemblyScript 生成的编解码器：[crates/sdk/bindings/assemblyscript/assembly/generated/](../../../crates/sdk/bindings/assemblyscript/assembly/generated/)
 - Python 生成的编解码器（工具/测试验证）：[crates/sdk/bindings/python/](../../../crates/sdk/bindings/python/)
-- wallet-as 直连 byte-pipe 构建：[crates/sdk/example/wallet-as/Makefile.toml](../../../crates/sdk/example/wallet-as/Makefile.toml)
-- wallet-cs（C# 组件 guest）：[crates/sdk/example/wallet-cs/](../../../crates/sdk/example/wallet-cs/)
+- wallet-as 直连 byte-pipe 构建：[example/mpk/wallet-as/Makefile.toml](../../../example/mpk/wallet-as/Makefile.toml)
+- wallet-cs（C# 组件 guest）：[example/mpk/wallet-cs/](../../../example/mpk/wallet-cs/)
 - Golden 语料：[testing/fixtures/golden/v1/syscall_payload_v1_all.bin](../../../crates/db-kernel/testing/fixtures/golden/v1/syscall_payload_v1_all.bin)
 - MP 原语语料：[testing/fixtures/golden/v1/mp_primitives_v1.bin](../../../crates/db-kernel/testing/fixtures/golden/v1/mp_primitives_v1.bin)（含 `mp_primitives_v1.json` sidecar）

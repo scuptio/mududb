@@ -7,6 +7,8 @@ use mudu::utils;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// The parameter of the `TimestampTz` (`timestamptz`) type:
+/// fractional-second precision.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataTypeParamTimestampTz {
     precision: u8,
@@ -19,14 +21,19 @@ impl Default for DataTypeParamTimestampTz {
 }
 
 impl DataTypeParamTimestampTz {
+    /// Creates a timestamptz parameter with the given fractional-second
+    /// precision.
     pub fn new(precision: u8) -> Self {
         Self { precision }
     }
 
+    /// Returns the fractional-second precision.
     pub fn precision(&self) -> u8 {
         self.precision
     }
 
+    /// Validates the precision against [`TEMPORAL_MAX_PRECISION`]; returns
+    /// an error message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if self.precision > TEMPORAL_MAX_PRECISION {
             return Err(format!(

@@ -4,6 +4,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use std::sync::mpsc;
 
+/// Sending half of a bounded blocking MPSC channel.
 pub struct SyncSender<T> {
     inner: mpsc::SyncSender<T>,
 }
@@ -16,12 +17,16 @@ impl<T> Clone for SyncSender<T> {
     }
 }
 
+/// Creates a bounded blocking MPSC channel whose queue holds at most
+/// `bound` messages; sends block once the queue is full.
 pub fn sync_channel<T>(bound: usize) -> (SyncSender<T>, SyncReceiver<T>) {
     let (tx, rx) = mpsc::sync_channel(bound);
     (SyncSender { inner: tx }, SyncReceiver::new(rx))
 }
 
 impl<T> SyncSender<T> {
+    /// Sends `value`, blocking while the queue is full; fails if the
+    /// receiver was dropped.
     pub fn send(&self, value: T) -> RS<()> {
         match self.inner.send(value) {
             Ok(()) => Ok(()),
@@ -32,6 +37,8 @@ impl<T> SyncSender<T> {
         }
     }
 
+    /// Attempts to send `value` without blocking; fails if the queue is
+    /// full or the receiver was dropped.
     pub fn try_send(&self, value: T) -> RS<()> {
         match self.inner.try_send(value) {
             Ok(()) => Ok(()),

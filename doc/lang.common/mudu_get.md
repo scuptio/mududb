@@ -1,6 +1,6 @@
 <!--
 quote_begin
-content="[Get API](../../sys_interface/src/sync_api.rs#L1)"
+content="[Get API](../../crates/common/sys_interface/src/sync_api.rs#L1)"
 lang="rust"
 -->
 ```rust

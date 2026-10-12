@@ -47,114 +47,13 @@ pub fn serialize_stmts(
 ) -> RS<String> {
     let mut out = String::new();
     match ty {
-        UniDataType::Scalar(scalar) => match scalar {
-            UniScalar::Bool
-            | UniScalar::U8
-            | UniScalar::I8
-            | UniScalar::U16
-            | UniScalar::I16
-            | UniScalar::U32
-            | UniScalar::I32
-            | UniScalar::U64
-            | UniScalar::I64
-            | UniScalar::F32
-            | UniScalar::F64 => {
-                line(&mut out, ind, &format!("writer.Write({value});"));
-            }
-            UniScalar::Char => {
-                // A WIT char travels as a single-character MessagePack
-                // string (MessagePack-CSharp's own char write uses a ushort
-                // marker, which is NOT the wire form).
-                line(&mut out, ind, &format!("writer.Write({value}.ToString());"));
-            }
-            UniScalar::String
-            | UniScalar::Numeric
-            | UniScalar::Date
-            | UniScalar::Time
-            | UniScalar::Timestamp
-            | UniScalar::TimestampTz
-            | UniScalar::Blob => {
-                // The resolver's reference-type formatters encode `null` as
-                // nil; guard explicitly to keep that behavior.
-                nil_guard(&mut out, ind, tmp, value, &mut |out, inner_ind, _| {
-                    line(out, inner_ind, &format!("writer.Write({value});"));
-                    Ok(())
-                })?;
-            }
-            UniScalar::U128 | UniScalar::I128 => {
-                serialize_fallback(&mut out, ind, value);
-            }
-        },
-        UniDataType::Binary => {
-            // Record-context `binary` is `List<byte>`: a MessagePack ARRAY of
-            // u8, matching the resolver's `ListFormatter<byte>`.
-            nil_guard(&mut out, ind, tmp, value, &mut |out, inner_ind, tmp| {
-                let n = next_tmp(tmp);
-                line(
-                    out,
-                    inner_ind,
-                    &format!("writer.WriteArrayHeader({value}.Count);"),
-                );
-                line(out, inner_ind, &format!("foreach (var __e{n} in {value})"));
-                line(out, inner_ind, "{");
-                line(out, inner_ind, &format!("    writer.Write(__e{n});"));
-                line(out, inner_ind, "}");
-                Ok(())
-            })?;
-        }
+        UniDataType::Scalar(scalar) => serialize_scalar_stmts(&mut out, ind, tmp, value, scalar)?,
+        UniDataType::Binary => serialize_binary_stmts(&mut out, ind, tmp, value)?,
         UniDataType::Array(inner) => {
-            if matches!(inner.as_ref(), UniDataType::Scalar(UniScalar::U8)) {
-                // `list<u8>` maps to `byte[]`: MessagePack bin.
-                nil_guard(&mut out, ind, tmp, value, &mut |out, inner_ind, _| {
-                    line(out, inner_ind, &format!("writer.Write({value});"));
-                    Ok(())
-                })?;
-            } else {
-                nil_guard(&mut out, ind, tmp, value, &mut |out, inner_ind, tmp| {
-                    let n = next_tmp(tmp);
-                    line(
-                        out,
-                        inner_ind,
-                        &format!("writer.WriteArrayHeader({value}.Count);"),
-                    );
-                    line(out, inner_ind, &format!("foreach (var __e{n} in {value})"));
-                    line(out, inner_ind, "{");
-                    let body_ind = format!("{inner_ind}    ");
-                    out.push_str(&serialize_stmts(
-                        inner,
-                        &format!("__e{n}"),
-                        &body_ind,
-                        tmp,
-                        type_kinds,
-                    )?);
-                    line(out, inner_ind, "}");
-                    Ok(())
-                })?;
-            }
+            serialize_array_stmts(&mut out, ind, tmp, value, inner, type_kinds)?
         }
         UniDataType::Option(inner) => {
-            if csharp_is_reference_type_with_kinds(inner, type_kinds) {
-                nil_guard(&mut out, ind, tmp, value, &mut |out, inner_ind, tmp| {
-                    out.push_str(&serialize_stmts(inner, value, inner_ind, tmp, type_kinds)?);
-                    Ok(())
-                })?;
-            } else {
-                line(&mut out, ind, &format!("if ({value}.HasValue)"));
-                line(&mut out, ind, "{");
-                let body_ind = format!("{ind}    ");
-                out.push_str(&serialize_stmts(
-                    inner,
-                    &format!("{value}.Value"),
-                    &body_ind,
-                    tmp,
-                    type_kinds,
-                )?);
-                line(&mut out, ind, "}");
-                line(&mut out, ind, "else");
-                line(&mut out, ind, "{");
-                line(&mut out, ind, "    writer.WriteNil();");
-                line(&mut out, ind, "}");
-            }
+            serialize_option_stmts(&mut out, ind, tmp, value, inner, type_kinds)?
         }
         UniDataType::Identifier(name) => {
             let formatter = format!("{}Formatter", to_pascal_case(name));
@@ -165,20 +64,7 @@ pub fn serialize_stmts(
             );
         }
         UniDataType::Tuple(elems) => {
-            line(
-                &mut out,
-                ind,
-                &format!("writer.WriteArrayHeader({});", elems.len()),
-            );
-            for (i, elem) in elems.iter().enumerate() {
-                out.push_str(&serialize_stmts(
-                    elem,
-                    &format!("{value}.Item{}", i + 1),
-                    ind,
-                    tmp,
-                    type_kinds,
-                )?);
-            }
+            serialize_tuple_stmts(&mut out, ind, tmp, value, elems, type_kinds)?
         }
         UniDataType::Box(inner) => {
             out.push_str(&serialize_stmts(inner, value, ind, tmp, type_kinds)?);
@@ -188,6 +74,177 @@ pub fn serialize_stmts(
         }
     }
     Ok(out)
+}
+
+/// Scalar writes: raw `writer.Write` for primitives, a `.ToString()` write
+/// for `char`, a nil-guarded write for the reference-like scalars, and the
+/// serializer fallback for 128-bit integers.
+fn serialize_scalar_stmts(
+    out: &mut String,
+    ind: &str,
+    tmp: &mut usize,
+    value: &str,
+    scalar: &UniScalar,
+) -> RS<()> {
+    match scalar {
+        UniScalar::Bool
+        | UniScalar::U8
+        | UniScalar::I8
+        | UniScalar::U16
+        | UniScalar::I16
+        | UniScalar::U32
+        | UniScalar::I32
+        | UniScalar::U64
+        | UniScalar::I64
+        | UniScalar::F32
+        | UniScalar::F64 => {
+            line(out, ind, &format!("writer.Write({value});"));
+        }
+        UniScalar::Char => {
+            // A WIT char travels as a single-character MessagePack
+            // string (MessagePack-CSharp's own char write uses a ushort
+            // marker, which is NOT the wire form).
+            line(out, ind, &format!("writer.Write({value}.ToString());"));
+        }
+        UniScalar::String
+        | UniScalar::Numeric
+        | UniScalar::Date
+        | UniScalar::Time
+        | UniScalar::Timestamp
+        | UniScalar::TimestampTz
+        | UniScalar::Blob => {
+            // The resolver's reference-type formatters encode `null` as
+            // nil; guard explicitly to keep that behavior.
+            nil_guard(out, ind, tmp, value, &mut |out, inner_ind, _| {
+                line(out, inner_ind, &format!("writer.Write({value});"));
+                Ok(())
+            })?;
+        }
+        UniScalar::U128 | UniScalar::I128 => {
+            serialize_fallback(out, ind, value);
+        }
+    }
+    Ok(())
+}
+
+/// `binary` write: record-context `binary` is `List<byte>` (a MessagePack
+/// ARRAY of u8, matching the resolver's `ListFormatter<byte>`).
+fn serialize_binary_stmts(out: &mut String, ind: &str, tmp: &mut usize, value: &str) -> RS<()> {
+    nil_guard(out, ind, tmp, value, &mut |out, inner_ind, tmp| {
+        let n = next_tmp(tmp);
+        line(
+            out,
+            inner_ind,
+            &format!("writer.WriteArrayHeader({value}.Count);"),
+        );
+        line(out, inner_ind, &format!("foreach (var __e{n} in {value})"));
+        line(out, inner_ind, "{");
+        line(out, inner_ind, &format!("    writer.Write(__e{n});"));
+        line(out, inner_ind, "}");
+        Ok(())
+    })
+}
+
+/// List writes: `list<u8>` maps to `byte[]` (MessagePack bin); other lists
+/// nil-guard and loop over the elements.
+fn serialize_array_stmts(
+    out: &mut String,
+    ind: &str,
+    tmp: &mut usize,
+    value: &str,
+    inner: &UniDataType,
+    type_kinds: &HashMap<String, String>,
+) -> RS<()> {
+    if matches!(inner, UniDataType::Scalar(UniScalar::U8)) {
+        // `list<u8>` maps to `byte[]`: MessagePack bin.
+        nil_guard(out, ind, tmp, value, &mut |out, inner_ind, _| {
+            line(out, inner_ind, &format!("writer.Write({value});"));
+            Ok(())
+        })?;
+    } else {
+        nil_guard(out, ind, tmp, value, &mut |out, inner_ind, tmp| {
+            let n = next_tmp(tmp);
+            line(
+                out,
+                inner_ind,
+                &format!("writer.WriteArrayHeader({value}.Count);"),
+            );
+            line(out, inner_ind, &format!("foreach (var __e{n} in {value})"));
+            line(out, inner_ind, "{");
+            let body_ind = format!("{inner_ind}    ");
+            out.push_str(&serialize_stmts(
+                inner,
+                &format!("__e{n}"),
+                &body_ind,
+                tmp,
+                type_kinds,
+            )?);
+            line(out, inner_ind, "}");
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// Option writes: reference-typed inners nil-guard; value-typed inners branch
+/// on `HasValue`.
+fn serialize_option_stmts(
+    out: &mut String,
+    ind: &str,
+    tmp: &mut usize,
+    value: &str,
+    inner: &UniDataType,
+    type_kinds: &HashMap<String, String>,
+) -> RS<()> {
+    if csharp_is_reference_type_with_kinds(inner, type_kinds) {
+        nil_guard(out, ind, tmp, value, &mut |out, inner_ind, tmp| {
+            out.push_str(&serialize_stmts(inner, value, inner_ind, tmp, type_kinds)?);
+            Ok(())
+        })?;
+    } else {
+        line(out, ind, &format!("if ({value}.HasValue)"));
+        line(out, ind, "{");
+        let body_ind = format!("{ind}    ");
+        out.push_str(&serialize_stmts(
+            inner,
+            &format!("{value}.Value"),
+            &body_ind,
+            tmp,
+            type_kinds,
+        )?);
+        line(out, ind, "}");
+        line(out, ind, "else");
+        line(out, ind, "{");
+        line(out, ind, "    writer.WriteNil();");
+        line(out, ind, "}");
+    }
+    Ok(())
+}
+
+/// Tuple write: an array header plus one element write per item.
+fn serialize_tuple_stmts(
+    out: &mut String,
+    ind: &str,
+    tmp: &mut usize,
+    value: &str,
+    elems: &[UniDataType],
+    type_kinds: &HashMap<String, String>,
+) -> RS<()> {
+    line(
+        out,
+        ind,
+        &format!("writer.WriteArrayHeader({});", elems.len()),
+    );
+    for (i, elem) in elems.iter().enumerate() {
+        out.push_str(&serialize_stmts(
+            elem,
+            &format!("{value}.Item{}", i + 1),
+            ind,
+            tmp,
+            type_kinds,
+        )?);
+    }
+    Ok(())
 }
 
 /// Emit C# statements reading a WIT `ty` value from `reader` into the
@@ -210,8 +267,12 @@ pub fn deserialize_stmts(
             if !matches!(inner.as_ref(), UniDataType::Scalar(UniScalar::U8)) =>
         {
             let elem_ty = uni_data_type_to_name(inner, &LangKind::CSharp)?;
-            let elem_expr = deserialize_expr(inner, false)
-                .unwrap_or_else(|_| deserialize_fallback(&elem_ty, false));
+            // WIT list<T> declares non-null elements unless T is option<U>.
+            // Match the declared C# element type without changing the historical
+            // lenient nil decoding (the null-forgiving operator is compile-time only).
+            let elem_required = !matches!(inner.as_ref(), UniDataType::Option(_));
+            let elem_expr = deserialize_expr(inner, elem_required)
+                .unwrap_or_else(|_| deserialize_fallback(&elem_ty, elem_required));
             list_read_stmts(&mut out, ind, target, &elem_ty, &elem_expr, tmp);
         }
         UniDataType::Tuple(elems) => {
@@ -515,6 +576,31 @@ mod tests {
         assert!(s.contains("new List<byte>(__c0)"));
         assert!(s.contains("__l0.Add(reader.ReadByte());"));
         assert!(s.contains("value.ErrDetails = null!;"));
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_list_element_nullability_matches_wit() -> RS<()> {
+        for optional in [false, true] {
+            let element = UniDataType::Identifier("uni-data-value".to_string());
+            let element = if optional {
+                UniDataType::Option(Box::new(element))
+            } else {
+                element
+            };
+            let mut tmp = 0;
+            let source = deserialize_stmts(
+                &UniDataType::Array(Box::new(element)),
+                "value.Fields",
+                true,
+                "",
+                &mut tmp,
+            )?;
+            let bang = if optional { "" } else { "!" };
+            assert!(source.contains(&format!(
+                "__l0.Add(new UniDataValueFormatter().Deserialize(ref reader, options){bang});"
+            )));
+        }
         Ok(())
     }
 

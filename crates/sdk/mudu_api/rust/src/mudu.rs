@@ -8,29 +8,41 @@ use crate::{
     UniQueryResult, UniRecordType, UniRelationDelta, UniResultSet,
 };
 
+/// Typed guest-facing entry point for every MSSP syscall family.
+///
+/// Each method serializes its arguments, dispatches to the configured
+/// backend and wraps the wire-level result in a response type.
 pub struct Mudu;
 
 impl Mudu {
+    /// Runs a `command` syscall (a SQL statement without a result set).
     pub async fn command(argv: &UniCommandArgv) -> Result<CommandResponse, ApiError> {
         Ok(CommandResponse::new(mudu_sys::sys_command(argv).await?))
     }
 
+    /// Runs a `query` syscall (a SQL statement returning a result set).
     pub async fn query(argv: &UniQueryArgv) -> Result<QueryResponse, ApiError> {
         Ok(QueryResponse::new(mudu_sys::sys_query(argv).await?))
     }
 
+    /// Serializes a `command` request into a complete MSSP frame without
+    /// dispatching it.
     pub fn serialize_command(argv: &UniCommandArgv) -> Result<Vec<u8>, ApiError> {
         mudu_sys::serialize_command(argv)
     }
 
+    /// Serializes a `query` request into a complete MSSP frame without
+    /// dispatching it.
     pub fn serialize_query(argv: &UniQueryArgv) -> Result<Vec<u8>, ApiError> {
         mudu_sys::serialize_query(argv)
     }
 
+    /// Deserializes a `command` result MSSP frame.
     pub fn deserialize_command(bytes: &[u8]) -> Result<UniCommandReturn, ApiError> {
         mudu_sys::deserialize_command_result(bytes)
     }
 
+    /// Deserializes a `query` result MSSP frame.
     pub fn deserialize_query(bytes: &[u8]) -> Result<UniQueryReturn, ApiError> {
         mudu_sys::deserialize_query_result(bytes)
     }
@@ -205,57 +217,71 @@ pub struct UniResponse<T> {
 }
 
 impl<T> UniResponse<T> {
+    /// Wraps a wire-level `result<T, uni-error>`.
     pub fn new(inner: UniReturn<T>) -> Self {
         Self { inner }
     }
 
+    /// Returns the wrapped wire-level result.
     pub fn raw(&self) -> &UniReturn<T> {
         &self.inner
     }
 
+    /// Returns `true` when the syscall succeeded.
     pub fn is_ok(&self) -> bool {
         self.inner.is_ok()
     }
 
+    /// Returns `true` when the syscall reported a `UniError`.
     pub fn is_err(&self) -> bool {
         self.inner.is_err()
     }
 
+    /// Returns the success value, or `None` on error.
     pub fn result(&self) -> Option<&T> {
         self.inner.as_ref().ok()
     }
 
+    /// Returns the reported error, or `None` on success.
     pub fn error(&self) -> Option<&UniError> {
         self.inner.as_ref().err()
     }
 
+    /// Consumes the response, turning the wire-level result into a `Result`.
     pub fn require_ok(self) -> Result<T, UniError> {
         self.inner
     }
 }
 
+/// Response of a `command` or `batch` syscall, wrapping a
+/// [`UniCommandReturn`].
 #[derive(Debug, Clone)]
 pub struct CommandResponse {
     inner: UniCommandReturn,
 }
 
 impl CommandResponse {
+    /// Wraps a wire-level command result.
     pub fn new(inner: UniCommandReturn) -> Self {
         Self { inner }
     }
 
+    /// Returns the wrapped wire-level result.
     pub fn raw(&self) -> &UniCommandReturn {
         &self.inner
     }
 
+    /// Returns `true` when the command succeeded.
     pub fn is_ok(&self) -> bool {
         matches!(self.inner, UniCommandReturn::Ok(_))
     }
 
+    /// Returns `true` when the command reported a `UniError`.
     pub fn is_err(&self) -> bool {
         matches!(self.inner, UniCommandReturn::Err(_))
     }
 
+    /// Returns the command result, or `None` on error.
     pub fn result(&self) -> Option<&UniCommandResult> {
         match &self.inner {
             UniCommandReturn::Ok(result) => Some(result),
@@ -263,6 +289,7 @@ impl CommandResponse {
         }
     }
 
+    /// Returns the reported error, or `None` on success.
     pub fn error(&self) -> Option<&UniError> {
         match &self.inner {
             UniCommandReturn::Ok(_) => None,
@@ -270,10 +297,12 @@ impl CommandResponse {
         }
     }
 
+    /// Returns the affected row count, or `None` on error.
     pub fn affected_rows(&self) -> Option<u64> {
         self.result().map(|result| result.affected_rows)
     }
 
+    /// Consumes the response, turning the wire-level result into a `Result`.
     pub fn require_ok(self) -> Result<UniCommandResult, UniError> {
         match self.inner {
             UniCommandReturn::Ok(result) => Ok(result),
@@ -282,28 +311,34 @@ impl CommandResponse {
     }
 }
 
+/// Response of a `query` syscall, wrapping a [`UniQueryReturn`].
 #[derive(Debug, Clone)]
 pub struct QueryResponse {
     inner: UniQueryReturn,
 }
 
 impl QueryResponse {
+    /// Wraps a wire-level query result.
     pub fn new(inner: UniQueryReturn) -> Self {
         Self { inner }
     }
 
+    /// Returns the wrapped wire-level result.
     pub fn raw(&self) -> &UniQueryReturn {
         &self.inner
     }
 
+    /// Returns `true` when the query succeeded.
     pub fn is_ok(&self) -> bool {
         matches!(self.inner, UniQueryReturn::Ok(_))
     }
 
+    /// Returns `true` when the query reported a `UniError`.
     pub fn is_err(&self) -> bool {
         matches!(self.inner, UniQueryReturn::Err(_))
     }
 
+    /// Returns the query result, or `None` on error.
     pub fn result(&self) -> Option<&UniQueryResult> {
         match &self.inner {
             UniQueryReturn::Ok(result) => Some(result),
@@ -311,6 +346,7 @@ impl QueryResponse {
         }
     }
 
+    /// Returns the reported error, or `None` on success.
     pub fn error(&self) -> Option<&UniError> {
         match &self.inner {
             UniQueryReturn::Ok(_) => None,
@@ -318,14 +354,17 @@ impl QueryResponse {
         }
     }
 
+    /// Returns the row type descriptor, or `None` on error.
     pub fn tuple_desc(&self) -> Option<&UniRecordType> {
         self.result().map(|result| &result.tuple_desc)
     }
 
+    /// Returns the (first batch of the) result set, or `None` on error.
     pub fn result_set(&self) -> Option<&UniResultSet> {
         self.result().map(|result| &result.result_set)
     }
 
+    /// Consumes the response, turning the wire-level result into a `Result`.
     pub fn require_ok(self) -> Result<UniQueryResult, UniError> {
         match self.inner {
             UniQueryReturn::Ok(result) => Ok(result),

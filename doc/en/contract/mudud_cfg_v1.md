@@ -62,5 +62,5 @@ If none of these files exist, the server returns a `NotFound` error. Use `mudud 
 
 ## References
 
-- Parser: [`mudu_runtime/src/backend/mudud_cfg.rs`](../../../mudu_runtime/src/backend/mudud_cfg.rs)
-- Example config: [`doc/cfg/mudud.cfg`](../../cfg/mudud.cfg)
+- Parser: [`mudu_runtime/src/backend/mudud_cfg.rs`](../../../crates/db-kernel/mudu_runtime/src/backend/mudud_cfg.rs)
+- Example config: [`mudud init-cfg`](../running_mudud.md)

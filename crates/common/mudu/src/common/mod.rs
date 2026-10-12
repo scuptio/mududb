@@ -1,8 +1,6 @@
-#![allow(missing_docs)]
-
 //! Common types and helpers shared across the workspace.
 
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 pub mod _arb_de_en;
 #[cfg(test)]
 mod _arb_de_en_test;
@@ -30,6 +28,9 @@ mod expected_test;
 pub mod id;
 #[cfg(test)]
 mod id_test;
+
+pub mod page_id;
+pub mod u64_id;
 
 pub mod len_payload;
 

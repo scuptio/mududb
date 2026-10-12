@@ -1,0 +1,30 @@
+[package]
+name = "repl"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Primary-replica streaming replication with Raft fault tolerance"
+
+[features]
+debug_trace = ["mudu_utils/debug_trace"]
+ds = ["mudu_sys/ds"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+storage = { workspace = true }
+wal = { workspace = true }
+worker = { workspace = true }
+xcontract = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_raft = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

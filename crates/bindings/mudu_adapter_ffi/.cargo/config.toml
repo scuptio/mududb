@@ -1,0 +1,14 @@
+# Isolate this standalone cdylib workspace's artifacts from the shared
+# repository-root `target/`. The root `.cargo/config.toml` sets
+# `target-dir = "target"` for the group workspaces; because this crate
+# emits a cdylib (unhashed `libmudu_adapter_ffi.so`) it must not write into
+# that shared directory.
+#
+# A relative `target-dir` resolves against the directory containing this
+# `.cargo` directory (`crates/bindings/mudu_adapter_ffi`), so this points at
+# `<repo-root>/target/sdk-adapter` — the same location
+# `script/sdk/adapter_runtime.py` builds into via `CARGO_TARGET_DIR`, so a
+# direct `cargo build` here and the SDK runtime build share one artifact
+# cache. That env override still takes precedence when the script runs.
+[build]
+target-dir = "../../../target/sdk-adapter"

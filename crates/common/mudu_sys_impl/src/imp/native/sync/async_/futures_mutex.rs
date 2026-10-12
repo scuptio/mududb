@@ -13,6 +13,7 @@ pub struct FMutex<T: ?Sized> {
     inner: FuturesMutex<T>,
 }
 
+/// RAII guard holding an [`FMutex`] lock; releases on drop.
 pub struct FMutexGuard<'a, T: ?Sized> {
     inner: FuturesMutexGuard<'a, T>,
 }
@@ -21,6 +22,7 @@ unsafe impl<T> Send for FMutex<T> where T: ?Sized + Send {}
 unsafe impl<T> Sync for FMutex<T> where T: ?Sized + Send {}
 
 impl<T: ?Sized> FMutex<T> {
+    /// Creates a new async mutex protecting `t`.
     pub fn new(t: T) -> Self
     where
         T: Sized,
@@ -30,16 +32,20 @@ impl<T: ?Sized> FMutex<T> {
         }
     }
 
+    /// Locks the mutex, waiting asynchronously until it is available.
     pub async fn lock(&self) -> FMutexGuard<'_, T> {
         FMutexGuard {
             inner: self.inner.lock().await,
         }
     }
 
+    /// Attempts to lock the mutex without waiting; returns `None` if it is
+    /// locked.
     pub fn try_lock(&self) -> Option<FMutexGuard<'_, T>> {
         self.inner.try_lock().map(|inner| FMutexGuard { inner })
     }
 
+    /// Consumes the mutex and returns the protected value.
     pub fn into_inner(self) -> T
     where
         T: Sized,

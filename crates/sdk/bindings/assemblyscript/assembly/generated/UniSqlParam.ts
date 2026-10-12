@@ -40,9 +40,9 @@ export class UniSqlParamCodec {
             if (opt === null) {
                 writer.writeNil();
             } else {
-                writer.writeArrayHeader(opt!.length);
-                for (let i = 0; i < opt!.length; i++) {
-                    const item = opt![i];
+                writer.writeArrayHeader(opt.length);
+                for (let i = 0; i < opt.length; i++) {
+                    const item = opt[i];
                     writer.writeString(item);
                 }
             }

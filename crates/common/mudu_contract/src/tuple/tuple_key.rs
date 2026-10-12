@@ -1,5 +1,4 @@
-//! `tuple::tuple_key` module.
-#![allow(missing_docs)]
+//! A binary tuple used as an ordered map key.
 
 use crate::tuple::comparator::{tuple_compare, tuple_equal, tuple_hash};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
@@ -9,6 +8,7 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
+/// A binary tuple bundled with its layout descriptor, usable as an ordered key.
 #[derive(Clone, Debug)]
 pub struct TupleKey {
     desc: *const TupleBinaryDesc,
@@ -47,18 +47,22 @@ impl Ord for TupleKey {
 }
 
 impl TupleKey {
+    /// Returns the layout descriptor of the tuple.
     pub fn desc(&self) -> &TupleBinaryDesc {
         unsafe { &(*self.desc) }
     }
 
+    /// Creates a key from a raw layout descriptor pointer and the tuple bytes.
     pub fn from_buf(desc: *const TupleBinaryDesc, data: Buf) -> Self {
         Self { desc, key: data }
     }
 
+    /// Consumes the key and returns the tuple bytes.
     pub fn into(self) -> Buf {
         self.key
     }
 
+    /// Returns the tuple bytes.
     pub fn buf(&self) -> &Buf {
         &self.key
     }
@@ -76,15 +80,18 @@ impl Borrow<Buf> for TupleKey {
     }
 }
 
+/// A borrowed key reference comparable with [`TupleKey`].
 pub struct _KeyRef<'a, K: AsRef<[u8]>> {
     key_ref: &'a K,
 }
 
+/// An owned key comparable with [`TupleKey`].
 pub struct _Key<K: AsRef<[u8]>> {
     key: K,
 }
 
 impl<'a, K: AsRef<[u8]>> _KeyRef<'a, K> {
+    /// Creates a borrowed key reference.
     pub fn new(key_ref: &'a K) -> Self {
         Self { key_ref }
     }
@@ -105,6 +112,7 @@ impl<K: AsRef<[u8]>> Comparable<TupleKey> for _KeyRef<'_, K> {
 }
 
 impl<K: AsRef<[u8]>> _Key<K> {
+    /// Creates an owned key.
     pub fn new(key: K) -> Self {
         Self { key }
     }

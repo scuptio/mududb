@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ybbh/mududb_p/bindings/go/codec"
+	"github.com/mududb/mududb-go/codec"
 )
 
 func scalarString(s string) UniDataValue {

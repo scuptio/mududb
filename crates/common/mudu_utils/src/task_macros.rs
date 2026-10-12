@@ -1,3 +1,9 @@
+/// Creates a trace guard for the current scope, capturing the invocation
+/// location.
+///
+/// Expands to a [`TaskTrace`](crate::task_trace::TaskTrace) with the
+/// `debug_trace` feature enabled, and to a
+/// [`NoopTaskTrace`](crate::task_trace::NoopTaskTrace) otherwise.
 #[macro_export]
 macro_rules! task_trace {
     () => {{
@@ -13,6 +19,8 @@ macro_rules! task_trace {
     }};
 }
 
+/// Creates an anonymous task trace guard that lives until the end of the
+/// current scope.
 #[macro_export]
 macro_rules! scoped_task_trace {
     () => {
@@ -20,6 +28,9 @@ macro_rules! scoped_task_trace {
     };
 }
 
+/// Returns a dump of the traces of all registered task contexts.
+///
+/// Expands to an empty string when the `debug_trace` feature is disabled.
 #[macro_export]
 macro_rules! dump_task_trace {
     () => {{
@@ -34,6 +45,9 @@ macro_rules! dump_task_trace {
     }};
 }
 
+/// Returns the recorded backtrace of the current task.
+///
+/// Expands to an empty string when the `debug_trace` feature is disabled.
 #[macro_export]
 macro_rules! task_backtrace {
     () => {{
@@ -48,6 +62,7 @@ macro_rules! task_backtrace {
     }};
 }
 
+/// Returns the ID of the current async task.
 #[macro_export]
 macro_rules! this_task_id {
     () => {{ $crate::task_trace::this_task_id() }};

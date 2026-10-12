@@ -23,8 +23,9 @@ use mudu_binding::table::column_def::ColumnDef;
 use mudu_binding::table::table_def::TableDef;
 
 pub use mudu_binding::universal::uni_type_compat::{
-    param_type_compatible, param_type_tag_of_value, uni_data_type_name, ParamTypeTag,
+    param_type_compatible, uni_data_type_name, ParamTypeTag,
 };
+pub use mudu_binding::universal::uni_type_compat_impl::param_type_tag_of_value;
 
 /// Map every `?` placeholder in `sql` (in [`placeholder_spans`] order) to
 /// its target column in `schema`.

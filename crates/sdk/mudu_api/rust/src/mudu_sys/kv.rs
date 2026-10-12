@@ -1,7 +1,7 @@
 //! Frame codecs for the KV syscall family: `get`, `put`, `delete`, `range`.
 //!
 //! Thin adapter over the `mudu_gen`-generated codec in
-//! [`super::generated::uni_syscall`]: requests are positional MessagePack
+//! `super::generated::uni_syscall`: requests are positional MessagePack
 //! arrays with byte strings encoded as MessagePack bin (`get` `[oid, key]`,
 //! `put` `[oid, key, value]`, `delete` `[oid, key]`, `range`
 //! `[oid, start, end]`); results are `[0, value]` / `[1, UniError]` with unit
@@ -143,8 +143,15 @@ pub async fn sys_range(
     deserialize_range_result(&response)
 }
 
+/// Dispatches a pre-encoded `get` request frame to the configured backend
+/// and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn get_raw(get_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("get", &get_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::get_raw(get_in).await;
@@ -165,8 +172,15 @@ pub async fn get_raw(get_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a pre-encoded `put` request frame to the configured backend
+/// and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn put_raw(put_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("put", &put_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::put_raw(put_in).await;
@@ -187,8 +201,15 @@ pub async fn put_raw(put_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a pre-encoded `delete` request frame to the configured backend
+/// and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn delete_raw(delete_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("delete", &delete_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::delete_raw(delete_in).await;
@@ -209,8 +230,15 @@ pub async fn delete_raw(delete_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a pre-encoded `range` request frame to the configured backend
+/// and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn range_raw(range_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("range", &range_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::range_raw(range_in).await;

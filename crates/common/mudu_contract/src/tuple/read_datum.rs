@@ -1,5 +1,4 @@
-//! `tuple::read_datum` module.
-#![allow(missing_docs)]
+//! Reading of fixed- and variable-length values from a binary tuple.
 
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
@@ -8,6 +7,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
+/// Reads and bounds-checks the slot of a variable-length field.
 pub fn read_slot(field_desc: &FieldDesc, tuple: &TupleSlice) -> RS<Slot> {
     let _slot = field_desc.slot();
     if _slot.offset() + Slot::size_of() > tuple.len() {
@@ -20,6 +20,7 @@ pub fn read_slot(field_desc: &FieldDesc, tuple: &TupleSlice) -> RS<Slot> {
     Ok(slot)
 }
 
+/// Reads a fixed-length value at `offset` of `size` bytes from `tuple`.
 pub fn read_fixed_len_value(offset: usize, size: usize, tuple: &TupleSlice) -> RS<&[u8]> {
     let _offset = offset;
     let _size = size;
@@ -30,6 +31,7 @@ pub fn read_fixed_len_value(offset: usize, size: usize, tuple: &TupleSlice) -> R
     Ok(&tuple[_offset..(_offset + _size)])
 }
 
+/// Reads a variable-length value whose slot sits at `offset` in `tuple`.
 pub fn read_var_len_value(offset: usize, tuple: &TupleSlice) -> RS<&[u8]> {
     let _offset = offset;
     if tuple.len() < _offset + Slot::size_of() {
@@ -43,6 +45,7 @@ pub fn read_var_len_value(offset: usize, tuple: &TupleSlice) -> RS<&[u8]> {
     }
 }
 
+/// Reads the binary value of the field described by `desc` from `tuple`.
 pub fn read_binary_data<'a>(desc: &FieldDesc, tuple: &'a TupleSlice) -> RS<&'a [u8]> {
     if desc.is_fixed_len() {
         read_fixed_len_value(desc.slot().offset(), desc.slot().length(), tuple)

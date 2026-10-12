@@ -12,12 +12,12 @@ use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, read, remove_dir_all};
 use mudu_sys::sync::SMutex;
 use mudu_sys::task::sync::{SJoinHandle, spawn_thread};
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -168,6 +168,29 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         .block_on(install_app_package(&ctx.http_addr(), mpk_binary))
         .map_err(to_mudu_error)?;
 
+    let (mut client, session_id) = connect_wallet_session(&runtime, &ctx)?;
+    exercise_wallet_procedures_via_client(&runtime, &mut client, session_id)?;
+    assert!(
+        runtime
+            .block_on(
+                client.close_session(mudu_contract::protocol::SessionCloseRequest::new(
+                    session_id
+                ))
+            )
+            .map_err(|e| to_mudu_error(e.to_string()))?
+            .closed()
+    );
+
+    drop(server);
+    Ok(())
+}
+
+// Connects to worker 0 (from the server topology) and opens a client
+// session pinned to that worker.
+fn connect_wallet_session(
+    runtime: &tokio::runtime::Runtime,
+    ctx: &TestContext,
+) -> RS<(AsyncClientImpl, u128)> {
     let topology = runtime
         .block_on(fetch_server_topology(&ctx.http_addr()))
         .map_err(to_mudu_error)?;
@@ -199,37 +222,42 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         )
         .map_err(|e| to_mudu_error(e.to_string()))?
         .session_id();
+    Ok((client, session_id))
+}
 
+// create_user + delete_user round-trip for user 4, then read-only checks on
+// the seeded rows: user 1 still holds the init.sql balance and no
+// transactions were recorded.
+fn exercise_wallet_procedures_via_client(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    session_id: u128,
+) -> RS<()> {
     invoke_void(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session_id,
         "wallet/wallet/create_user",
         (4i32, "Dave".to_string(), "dave@example.com".to_string()),
     )?;
     invoke_void(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session_id,
         "wallet/wallet/delete_user",
         (4i32,),
     )?;
-    assert!(!user_exists_via_client(&runtime, &mut client, "wallet", 4)?);
-    assert!(!wallet_exists_via_client(
-        &runtime,
-        &mut client,
-        "wallet",
-        4
-    )?);
-    assert!(user_exists_via_client(&runtime, &mut client, "wallet", 1)?);
+    assert!(!user_exists_via_client(runtime, client, "wallet", 4)?);
+    assert!(!wallet_exists_via_client(runtime, client, "wallet", 4)?);
+    assert!(user_exists_via_client(runtime, client, "wallet", 1)?);
     assert_eq!(
-        wallet_balance_via_client(&runtime, &mut client, "wallet", 1)?,
+        wallet_balance_via_client(runtime, client, "wallet", 1)?,
         10000
     );
     assert_eq!(
         query_backend_via_client(
-            &runtime,
-            &mut client,
+            runtime,
+            client,
             "wallet",
             "SELECT trans_id FROM transactions"
         )?
@@ -237,18 +265,6 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
         .len(),
         0
     );
-    assert!(
-        runtime
-            .block_on(
-                client.close_session(mudu_contract::protocol::SessionCloseRequest::new(
-                    session_id
-                ))
-            )
-            .map_err(|e| to_mudu_error(e.to_string()))?
-            .closed()
-    );
-
-    drop(server);
     Ok(())
 }
 

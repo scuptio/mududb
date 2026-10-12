@@ -158,91 +158,21 @@ impl FuncRenderAS {
         let err_type_name = uni_data_type_to_name(&err_ty, &LangKind::AssemblyScript)?;
         let mut namer = CollectingTupleNamer::with_kinds(kinds);
 
-        // ---- request side ----
-        let mut signature = Vec::with_capacity(sig.params.len());
-        let mut encode_lines = vec![format!(
-            "        writer.writeMapHeader({});",
-            sig.params.len()
-        )];
-        let mut req_params = Vec::with_capacity(sig.params.len());
-        let mut holder_fields = Vec::with_capacity(sig.params.len());
-        let mut req_single_type = String::new();
-        let mut req_single_default = String::new();
-        let multi = sig.params.len() > 1;
-        for (index, param) in sig.params.iter().enumerate() {
-            let camel = to_camel_case(&param.param_name);
-            let base = format!("{}{}", pascal, to_pascal_case(&param.param_name));
-            namer.begin(base);
-            let ty = as_codec_type(&param.param_type, &mut namer)?;
-            signature.push(format!("{}: {}", camel, ty));
-            encode_lines.push(format!("        writer.writeU64({});", index + 1));
-            as_encode_stmts(
-                AS_STYLE_FUNC,
-                &param.param_type,
-                &camel,
-                8,
-                &mut encode_lines,
-            )?;
-            namer.begin(format!("{}{}", pascal, to_pascal_case(&param.param_name)));
-            let target = if multi {
-                format!("value.{}", camel)
-            } else {
-                "value".to_string()
-            };
-            let mut decode_lines = Vec::new();
-            as_decode_stmts(
-                AS_STYLE_FUNC,
-                &param.param_type,
-                &target,
-                12,
-                &mut decode_lines,
-                &mut namer,
-            )?;
-            req_params.push(ReqParamAS {
-                number: index + 1,
-                decode_stmts: as_join(&decode_lines),
-            });
-            let default = as_codec_default(&param.param_type, &mut namer)?;
-            if multi {
-                holder_fields.push(HolderFieldAS {
-                    name: camel,
-                    ty,
-                    default,
-                });
-            } else {
-                req_single_type = ty;
-                req_single_default = default;
-            }
-        }
-
-        // ---- result side ----
+        let req = request_side_as(sig, &pascal, &mut namer)?;
         let (result_is_unit, res_ok_type, res_ok_default, res_encode_lines, res_decode_lines) =
-            match &sig.result {
-                FuncResult::Unit { .. } => (true, String::new(), String::new(), None, None),
-                FuncResult::Value { ok, .. } => {
-                    namer.begin(format!("{}Result", pascal));
-                    let ok_type = as_codec_type(ok, &mut namer)?;
-                    let ok_default = as_codec_default(ok, &mut namer)?;
-                    let mut enc = Vec::new();
-                    as_encode_stmts(AS_STYLE_FUNC, ok, "result.value", 12, &mut enc)?;
-                    namer.begin(format!("{}Result", pascal));
-                    let mut dec = Vec::new();
-                    as_decode_stmts(AS_STYLE_FUNC, ok, "result.value", 12, &mut dec, &mut namer)?;
-                    (false, ok_type, ok_default, Some(enc), Some(dec))
-                }
-            };
+            result_side_as(sig, &pascal, &mut namer)?;
         Ok(Self {
             comments: sig.func_comments.clone(),
             kind_case: pascal.clone(),
             pascal: pascal.clone(),
             param_count: sig.params.len(),
-            req_signature: signature.join(", "),
-            req_encode_stmts: as_join(&encode_lines),
+            req_signature: req.signature.join(", "),
+            req_encode_stmts: as_join(&req.encode_lines),
             req_holder_name: format!("{}Request", pascal),
-            req_holder_fields: holder_fields,
-            req_single_type,
-            req_single_default,
-            req_params,
+            req_holder_fields: req.holder_fields,
+            req_single_type: req.req_single_type,
+            req_single_default: req.req_single_default,
+            req_params: req.req_params,
             tuple_holders: namer.holders().to_vec(),
             result_is_unit,
             res_holder_name: format!("{}Result", pascal),
@@ -253,4 +183,121 @@ impl FuncRenderAS {
             err_type_name,
         })
     }
+}
+
+/// Request-side render data collected from the parameter loop.
+struct RequestSideAS {
+    /// Encoder parameter list entries (`name: Type`).
+    signature: Vec<String>,
+    /// Encode statements (including the leading map header line).
+    encode_lines: Vec<String>,
+    /// Per-parameter request decode data, in declaration order.
+    req_params: Vec<ReqParamAS>,
+    /// Request holder class fields (when `param_count > 1`).
+    holder_fields: Vec<HolderFieldAS>,
+    /// Single-parameter decode type (empty when `param_count != 1`).
+    req_single_type: String,
+    /// Single-parameter decode default expression.
+    req_single_default: String,
+}
+
+fn request_side_as(
+    sig: &FuncSig,
+    pascal: &str,
+    namer: &mut CollectingTupleNamer,
+) -> RS<RequestSideAS> {
+    let mut signature = Vec::with_capacity(sig.params.len());
+    let mut encode_lines = vec![format!(
+        "        writer.writeMapHeader({});",
+        sig.params.len()
+    )];
+    let mut req_params = Vec::with_capacity(sig.params.len());
+    let mut holder_fields = Vec::with_capacity(sig.params.len());
+    let mut req_single_type = String::new();
+    let mut req_single_default = String::new();
+    let multi = sig.params.len() > 1;
+    for (index, param) in sig.params.iter().enumerate() {
+        let camel = to_camel_case(&param.param_name);
+        let base = format!("{}{}", pascal, to_pascal_case(&param.param_name));
+        namer.begin(base);
+        let ty = as_codec_type(&param.param_type, &mut *namer)?;
+        signature.push(format!("{}: {}", camel, ty));
+        encode_lines.push(format!("        writer.writeU64({});", index + 1));
+        as_encode_stmts(
+            AS_STYLE_FUNC,
+            &param.param_type,
+            &camel,
+            8,
+            &mut encode_lines,
+        )?;
+        namer.begin(format!("{}{}", pascal, to_pascal_case(&param.param_name)));
+        let target = if multi {
+            format!("value.{}", camel)
+        } else {
+            "value".to_string()
+        };
+        let mut decode_lines = Vec::new();
+        as_decode_stmts(
+            AS_STYLE_FUNC,
+            &param.param_type,
+            &target,
+            12,
+            &mut decode_lines,
+            &mut *namer,
+        )?;
+        req_params.push(ReqParamAS {
+            number: index + 1,
+            decode_stmts: as_join(&decode_lines),
+        });
+        let default = as_codec_default(&param.param_type, &mut *namer)?;
+        if multi {
+            holder_fields.push(HolderFieldAS {
+                name: camel,
+                ty,
+                default,
+            });
+        } else {
+            req_single_type = ty;
+            req_single_default = default;
+        }
+    }
+    Ok(RequestSideAS {
+        signature,
+        encode_lines,
+        req_params,
+        holder_fields,
+        req_single_type,
+        req_single_default,
+    })
+}
+
+/// Result-side render data: unit flag, ok type, ok default and the encode /
+/// decode statement lists of the ok value (`None` for unit results).
+type ResultSideAS = (
+    bool,
+    String,
+    String,
+    Option<Vec<String>>,
+    Option<Vec<String>>,
+);
+
+fn result_side_as(
+    sig: &FuncSig,
+    pascal: &str,
+    namer: &mut CollectingTupleNamer,
+) -> RS<ResultSideAS> {
+    Ok(match &sig.result {
+        FuncResult::Unit { .. } => (true, String::new(), String::new(), None, None),
+        FuncResult::Value { ok, .. } => {
+            namer.begin(format!("{}Result", pascal));
+            let ok_type = as_codec_type(ok, &mut *namer)?;
+            let ok_default = as_codec_default(ok, &mut *namer)?;
+            let mut enc = Vec::new();
+            as_encode_stmts(AS_STYLE_FUNC, ok, "result.value", 12, &mut enc)?;
+            namer.begin(format!("{}Result", pascal));
+            let mut dec = Vec::new();
+            as_decode_stmts(AS_STYLE_FUNC, ok, "result.value", 12, &mut dec, &mut *namer)?;
+            (false, ok_type, ok_default, Some(enc), Some(dec))
+        }
+    })
 }

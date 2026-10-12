@@ -22,8 +22,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const out = join(mkdtempSync(join(tmpdir(), "record-bridge-test-")), "record_bridge_test.wasm");
 execFileSync(
-  "npx",
-  ["asc", "assembly/__tests__/record_bridge_test.ts", "--outFile", out, "--bindings", "esm", "--debug"],
+  process.execPath,
+  [join(here, "node_modules/assemblyscript/bin/asc.js"), "assembly/__tests__/record_bridge_test.ts", "--outFile", out, "--bindings", "esm", "--debug"],
   { cwd: here, stdio: "inherit" },
 );
 const mod = await import(pathToFileURL(out.replace(/\.wasm$/, ".js")).href);

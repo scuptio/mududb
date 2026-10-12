@@ -16,6 +16,8 @@ use clap::{Arg, Command};
 use mpm_build::merge_desc::merge_desc_files;
 use mudu::common::app_info::AppInfo;
 use mudu::compat::SYSCALL_PAYLOAD_CURRENT_VERSION;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
 use mudu::utils::json::to_json_str;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_sys::fs::sync::{SFile, sync_create_dir_all, sync_path_exists};
@@ -424,7 +426,10 @@ fn build_package(config: MpmBuildPackage) -> Result<()> {
     let package_file = SFile::open(&config.output_path)?;
     let zip_archive = zip::ZipArchive::new(package_file)?;
     for file_name in zip_archive.file_names() {
-        println!("  - {}", file_name);
+        println!(
+            "  - {}",
+            file_name.map_err(|e| mudu_error!(ErrorCode::Io, "zip walk error", e))?
+        );
     }
 
     Ok(())

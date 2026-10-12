@@ -8,6 +8,10 @@ use std::path::Path;
 
 pub use mudu::utils::json::{JsonArray, JsonMap, JsonNumber, JsonValue};
 
+/// Deserializes the JSON file at `path` into `D`.
+///
+/// Returns an error if the file cannot be read or its content is not valid
+/// JSON for `D`.
 pub fn read_json<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> RS<D> {
     let s = mudu_sys::fs::sync::read_to_string(path.as_ref())?;
     let ret: D = from_json_str::<D>(&s)
@@ -15,12 +19,16 @@ pub fn read_json<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> RS<D> {
     Ok(ret)
 }
 
+/// Serializes `object` to JSON and writes it to the file at `path`.
+///
+/// Returns an error if serialization or the file write fails.
 pub fn write_json<S: Serialize, P: AsRef<Path>>(object: &S, path: P) -> RS<()> {
     let json_string = to_json_str(object)?;
     mudu_sys::fs::sync::write(path.as_ref(), json_string)?;
     Ok(())
 }
 
+/// Constructs a `serde_json::Value` from a JSON literal.
 #[macro_export]
 macro_rules! json_value {
     ($($json:tt)+) => {

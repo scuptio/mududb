@@ -4,13 +4,7 @@ use mudu_api_rust::{
 };
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let db_path = std::env::current_dir()?
-        .join("crates")
-        .join("sdk")
-        .join("mudu_api")
-        .join("rust")
-        .join("demo")
-        .join("demo.db");
+    let db_path = std::env::current_dir()?.join("demo.db");
     MockSqliteMuduSysCall::set_database_path(&db_path);
 
     run_command(
@@ -36,6 +30,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             params: vec![UniDataValue::Scalar(UniScalarValue::I32(10))],
             param_names: None,
         },
+        param_desc: None,
     };
 
     let response = Mudu::query(&query).await?;
@@ -99,6 +94,7 @@ async fn run_command(sql: &str) -> Result<(), Box<dyn std::error::Error>> {
             params: Vec::new(),
             param_names: None,
         },
+        param_desc: None,
     };
 
     let response = Mudu::command(&argv).await?;

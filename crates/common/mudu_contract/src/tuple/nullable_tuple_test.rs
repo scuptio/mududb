@@ -1,5 +1,4 @@
 //! `tuple::nullable_tuple` tests.
-#![allow(missing_docs)]
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]

@@ -1,9 +1,9 @@
 use crate::backend::session::{DummyAuthSource, Session};
-use crate::db_connector::DBConnector;
 use libsql::Connection;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use runtime_libsql::db_connector::DBConnector;
 
 use mudu_sys::sync::async_::AMutex;
 use pgwire::api::auth::md5pass::Md5PasswordAuthStartupHandler;

@@ -1,5 +1,6 @@
-#![allow(missing_docs)]
+/// `AsyncFile` implementation backed by io_uring.
 pub mod async_io_uring_file;
+/// `AsyncFs` implementation backed by io_uring.
 pub mod async_io_uring_fs;
 pub(crate) mod io_uring_file;
 pub(crate) mod io_uring_fs;

@@ -6,6 +6,7 @@ Called from cargo-make for Pre Processing Stage .
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -240,11 +241,11 @@ class Transpiler:
             self.verbose)
 
         # The transpiler copies `mod xxx;` declarations verbatim. Drop the
-        # `#[cfg(test)]`-gated ones whose target file was excluded (e.g.
-        # `*_test.rs`), otherwise the output tree has dangling modules and
-        # `cargo fmt` / `cargo check` fail on it.
+        # ones whose target file was excluded (test files, or cfg `exclude`
+        # entries such as native-only modules), otherwise the output tree
+        # has dangling modules and `cargo fmt` / `cargo check` fail on it.
         if source_file.name == "mod.rs":
-            self._strip_excluded_test_mods(output_path, rel_path.parent)
+            self._strip_excluded_mods(output_path, rel_path.parent)
 
         self.processed_files.add(source_file)
         self.generated_files.add(output_path)
@@ -252,25 +253,35 @@ class Transpiler:
         if self.package_desc is not None:
             run_merge_desc(out_desc_dir, self.package_desc, self.verbose)
 
-    def _strip_excluded_test_mods(self, mod_file: Path, rel_dir: Path):
-        """Remove `#[cfg(test)]`-gated `mod xxx;` declarations whose target
-        file was excluded from transpilation (e.g. `*_test.rs`), so the
-        generated tree has no dangling modules."""
+    def _strip_excluded_mods(self, mod_file: Path, rel_dir: Path):
+        """Remove `mod xxx;` declarations whose target file was excluded from
+        transpilation (test files, or cfg `exclude` entries), so the generated
+        tree has no dangling modules. A leading `#[cfg(test)]` attribute line
+        and the doc comment block directly above the declaration are dropped
+        together with it."""
         attr_re = re.compile(r"^\s*#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*$")
-        decl_re = re.compile(r"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+        decl_re = re.compile(
+            r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+        doc_re = re.compile(r"^\s*//")
         with open(mod_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
         out = []
         i = 0
         changed = False
         while i < len(lines):
-            if attr_re.match(lines[i]) and i + 1 < len(lines):
-                m = decl_re.match(lines[i + 1])
+            has_cfg_test = bool(attr_re.match(lines[i]))
+            decl_index = i + 1 if has_cfg_test else i
+            if decl_index < len(lines):
+                m = decl_re.match(lines[decl_index])
                 if m:
                     candidate = self.source_dir / rel_dir / (m.group(1) + ".rs")
                     if candidate.exists() and not self.should_process_file(candidate):
-                        i += 2
+                        i = decl_index + 1
                         changed = True
+                        while out and doc_re.match(out[-1]):
+                            out.pop()
+                        if out and not out[-1].strip():
+                            out.pop()
                         continue
             out.append(lines[i])
             i += 1
@@ -279,7 +290,7 @@ class Transpiler:
             with open(mod_file, "w", encoding="utf-8") as f:
                 f.write(text)
             if self.verbose:
-                print(f"Stripped excluded test module declarations: {mod_file}")
+                print(f"Stripped excluded module declarations: {mod_file}")
 
     def generate_manifest(self):
         """Generate manifest of transpiled files."""
@@ -324,6 +335,14 @@ class Transpiler:
 
             # Save configuration
             self.create_transpiler_config()
+
+            # Clear per-file descriptor outputs from previous runs: the merge
+            # step globs this whole folder, so a stale descriptor for a source
+            # that is now excluded would leak duplicate procedures into the
+            # package description.
+            desc_dir = self.artifact_dir / "desc"
+            if self.package_desc is not None and desc_dir.exists():
+                shutil.rmtree(desc_dir)
 
             # Process Rust files
             source_files = list(self.source_dir.rglob("*"))

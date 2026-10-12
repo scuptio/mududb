@@ -1,3 +1,5 @@
+//! Time-of-day values.
+
 use crate::data_type::temporal::{
     MICROS_PER_DAY, MICROS_PER_HOUR, MICROS_PER_MINUTE, MICROS_PER_SECOND,
     format_fractional_micros, parse_naive_time, truncate_micros, validate_precision,
@@ -5,12 +7,15 @@ use crate::data_type::temporal::{
 use chrono::{NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
+/// A time of day stored as microseconds since midnight.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimeValue {
     micros_since_midnight: i64,
 }
 
 impl TimeValue {
+    /// Creates a time from microseconds since midnight; errors when the value
+    /// is outside a single day.
     pub fn from_micros_since_midnight(micros_since_midnight: i64) -> Result<Self, String> {
         if !(0..MICROS_PER_DAY).contains(&micros_since_midnight) {
             return Err("time micros must be within a single day".to_string());
@@ -20,15 +25,18 @@ impl TimeValue {
         })
     }
 
+    /// Returns the microseconds elapsed since midnight.
     pub fn micros_since_midnight(&self) -> i64 {
         self.micros_since_midnight
     }
 
+    /// Parses a `HH:MM:SS[.fraction]` time string.
     pub fn parse(s: &str) -> Result<Self, String> {
         let time = parse_naive_time(s)?;
         Self::from_naive_time(time)
     }
 
+    /// Formats the time as `HH:MM:SS` with `precision` fractional digits.
     pub fn format(&self, precision: u8) -> String {
         let precision = precision.min(6);
         let micros = truncate_micros(self.micros_since_midnight, precision);
@@ -45,11 +53,13 @@ impl TimeValue {
         )
     }
 
+    /// Truncates the value to the given fractional-second precision.
     pub fn truncate_precision(&self, precision: u8) -> Result<Self, String> {
         validate_precision(precision)?;
         Self::from_micros_since_midnight(truncate_micros(self.micros_since_midnight, precision))
     }
 
+    /// Converts a [`NaiveTime`] into a `TimeValue`.
     pub fn from_naive_time(time: NaiveTime) -> Result<Self, String> {
         let micros = time.num_seconds_from_midnight() as i64 * MICROS_PER_SECOND
             + (time.nanosecond() / 1_000) as i64;

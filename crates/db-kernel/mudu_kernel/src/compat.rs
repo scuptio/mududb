@@ -32,8 +32,8 @@ pub fn install_compatibility_router() {
         router.set_supported_window(component, 1, current);
     }
 
-    router.register(FormatKind::Page, crate::storage::page::migrate::identity());
-    router.register(FormatKind::LogFrame, crate::wal::migrate::identity());
+    router.register(FormatKind::Page, ::storage::page::migrate::identity());
+    router.register(FormatKind::LogFrame, ::wal::migrate::identity());
     router.register(
         FormatKind::ProtocolFrame,
         mudu_contract::protocol::migrate::identity(),

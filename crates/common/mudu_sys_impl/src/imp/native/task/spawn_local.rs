@@ -10,6 +10,9 @@ use tracing::trace;
 use super::async_::TASK_ID;
 use super::{id, TaskContext, TaskJoinHandle, TaskRuntime};
 
+/// Spawns a `!Send` future as a named task on the current thread's local
+/// task set; the join handle resolves to `None` if `cancel_waiter` fires
+/// first.
 pub fn spawn_local_task<F>(
     cancel_waiter: Waiter,
     name: &str,
@@ -33,6 +36,8 @@ where
     )))
 }
 
+/// Spawns a `!Send` future as a named local task whose cancellation
+/// notifier is discarded (the task runs to completion).
 pub fn spawn_local_detached<F>(name: &str, future: F) -> RS<TaskJoinHandle<Option<F::Output>>>
 where
     F: Future + 'static,
@@ -42,6 +47,8 @@ where
     spawn_local_task(cancel_waiter, name, future)
 }
 
+/// A set of `!Send` local tasks driven together on one thread (wraps
+/// [`tokio::task::LocalSet`]).
 pub struct LocalTaskSet {
     inner: LocalSet,
 }
@@ -53,16 +60,20 @@ impl Default for LocalTaskSet {
 }
 
 impl LocalTaskSet {
+    /// Returns the underlying [`tokio::task::LocalSet`].
     pub fn inner(&self) -> &LocalSet {
         &self.inner
     }
 
+    /// Creates an empty local task set.
     pub fn new() -> Self {
         Self {
             inner: LocalSet::new(),
         }
     }
 
+    /// Spawns a named local task in this set, cancelled via
+    /// `cancel_waiter`.
     pub fn spawn<F>(
         &self,
         cancel_waiter: Waiter,
@@ -85,6 +96,8 @@ impl LocalTaskSet {
         ))))
     }
 
+    /// Spawns a named local task whose cancellation notifier is discarded
+    /// (the task runs to completion).
     pub fn spawn_detached<F>(&self, name: &str, future: F) -> RS<TaskJoinHandle<Option<F::Output>>>
     where
         F: Future + 'static,
@@ -94,6 +107,8 @@ impl LocalTaskSet {
         self.spawn(cancel_waiter, name, future)
     }
 
+    /// Runs the tasks in this set until `future` completes and returns its
+    /// output.
     pub async fn run_until<F>(&self, future: F) -> F::Output
     where
         F: Future,
@@ -101,6 +116,8 @@ impl LocalTaskSet {
         self.inner.run_until(future).await
     }
 
+    /// Runs the tasks in this set on `runtime` until `future` completes,
+    /// blocking the current thread.
     pub fn block_on<F>(&self, runtime: &TaskRuntime, future: F) -> F::Output
     where
         F: Future,
@@ -129,6 +146,10 @@ where
     .await
 }
 
+/// Awaits `future`, returning [`TaskFailed::Cancel`] if `waiter` fires
+/// first or [`TaskFailed::Timeout`] if `duration` elapses first (internal
+/// helper).
+#[doc(hidden)]
 pub async fn __select_local_till_done_or_timeout<F>(
     waiter: Waiter,
     duration: Duration,
@@ -154,8 +175,11 @@ where
     .await
 }
 
+/// Why a raced task finished without producing its output.
 #[derive(Debug)]
 pub enum TaskFailed {
+    /// The task's cancellation waiter fired before it completed.
     Cancel,
+    /// The deadline elapsed before the task completed.
     Timeout,
 }

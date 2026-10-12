@@ -29,7 +29,7 @@ echo ""
 
 # 3. Add wasm target and build wallet example
 echo "[3/4] Building wallet example (.mpk)..."
-cd "$REPO_ROOT/crates/sdk/example/wallet"
+cd "$REPO_ROOT/example/mpk/wallet"
 cargo make
 cd "$REPO_ROOT"
 echo "Wallet example built."

@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+/// The parameter of the `Record` (`object`) type: the record name and its
+/// named, typed fields.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct DataTypeParamRecord {
     name: String,
@@ -36,6 +38,7 @@ impl DataTypeParamDyn for DataTypeParamRecord {
 }
 
 impl DataTypeParamRecord {
+    /// Creates a record parameter with a type name and named, typed fields.
     pub fn new(name: String, field: Vec<(String, DataType)>) -> DataTypeParamRecord {
         let mut map = HashMap::new();
         for (name, ty) in &field {
@@ -44,14 +47,17 @@ impl DataTypeParamRecord {
         Self { name, field }
     }
 
+    /// Returns the record type name.
     pub fn record_name(&self) -> &String {
         &self.name
     }
 
+    /// Returns the field names and their data types.
     pub fn fields(&self) -> &Vec<(String, DataType)> {
         &self.field
     }
 
+    /// Consumes the parameter and returns the record name and fields.
     pub fn into(self) -> (String, Vec<(String, DataType)>) {
         (self.name, self.field)
     }

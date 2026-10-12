@@ -12,7 +12,7 @@ the Go standard library.
 ## Layout
 
 ```
-go.mod        module github.com/ybbh/mududb_p/bindings/go
+go.mod        module github.com/mududb/mududb-go
 codec/        hand-written runtime (package codec)
   mpack.go      canonical MessagePack writer / lenient reader, value model
   frame.go      MSSP v1 16-byte header + request/result body helpers

@@ -1,0 +1,83 @@
+{
+  "as": {
+    "source": "crates/sdk/bindings/assemblyscript",
+    "roots": [
+      "assembly",
+      "package.json",
+      "package-lock.json",
+      "asconfig.json",
+      "*.ts",
+      "run_*.mjs",
+      "README.md",
+      "adapter"
+    ]
+  },
+  "py": {
+    "source": "crates/sdk/bindings/python",
+    "roots": [
+      "mududb",
+      "tests",
+      "pyproject.toml",
+      "corpus_common.py",
+      "run_*.py",
+      "README.md"
+    ]
+  },
+  "cs": {
+    "source": "crates/sdk/mudu_api/csharp",
+    "roots": [
+      "*.cs",
+      "*.csproj",
+      "uni",
+      "mudu_sys",
+      "mock",
+      "db",
+      "codec",
+      "types",
+      "sql",
+      "fs",
+      "result",
+      "sys",
+      "Mudu.Api.Tests",
+      "README.md",
+      "demo"
+    ]
+  },
+  "go": {
+    "source": "crates/sdk/bindings/go",
+    "version": "0.1.0",
+    "roots": [
+      "go.mod",
+      "go.sum",
+      "codec",
+      "types",
+      "corpus",
+      "README.md",
+      "adapter"
+    ]
+  },
+  "c": {
+    "source": "crates/sdk/bindings/c",
+    "version": "0.1.0",
+    "roots": [
+      "mududb",
+      "tests",
+      "Makefile",
+      "check.py",
+      "README.md"
+    ]
+  },
+  "rs": {
+    "source": "crates/sdk/mudu_api/rust",
+    "roots": [
+      "src",
+      "tests",
+      "wit",
+      "demo",
+      "Cargo.toml",
+      "Cargo.lock",
+      "clippy.toml",
+      "README.md"
+    ]
+  }
+}

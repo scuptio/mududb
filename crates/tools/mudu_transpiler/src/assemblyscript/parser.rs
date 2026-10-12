@@ -255,10 +255,9 @@ fn resolve_return_value_type(
 
 fn strip_result_type(input: &str) -> Option<String> {
     let normalized = normalize_type_name(input);
-    for prefix in ["result<"] {
-        if normalized.starts_with(prefix) && normalized.ends_with('>') {
-            return Some(normalized[prefix.len()..normalized.len() - 1].to_string());
-        }
+    let prefix = "result<";
+    if normalized.starts_with(prefix) && normalized.ends_with('>') {
+        return Some(normalized[prefix.len()..normalized.len() - 1].to_string());
     }
     None
 }

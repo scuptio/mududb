@@ -1,3 +1,5 @@
+//! Arbitrary-precision decimal numbers.
+
 use bigdecimal::rounding::RoundingMode;
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use serde::de::Error as DeError;
@@ -16,42 +18,52 @@ pub struct Numeric {
 }
 
 impl Numeric {
+    /// Wraps a [`BigDecimal`].
     pub fn new(inner: BigDecimal) -> Self {
         Self { inner }
     }
 
+    /// Returns a zero value.
     pub fn zero() -> Self {
         Self::from(0_i32)
     }
 
+    /// Parses a decimal number from its string form.
     pub fn parse(value: &str) -> Result<Self, ParseBigDecimalError> {
         BigDecimal::from_str(value).map(Self::new)
     }
 
+    /// Wraps a [`BigDecimal`].
     pub fn from_bigdecimal(inner: BigDecimal) -> Self {
         Self::new(inner)
     }
 
+    /// Returns a reference to the wrapped [`BigDecimal`].
     pub fn as_bigdecimal(&self) -> &BigDecimal {
         &self.inner
     }
 
+    /// Unwraps into the inner [`BigDecimal`].
     pub fn into_bigdecimal(self) -> BigDecimal {
         self.inner
     }
 
+    /// Returns the value rescaled to `new_scale` digits after the decimal point.
     pub fn with_scale(&self, new_scale: i64) -> Self {
         Self::new(self.inner.with_scale(new_scale))
     }
 
+    /// Returns the value rescaled to `new_scale` digits, rounding with `mode`.
     pub fn with_scale_round(&self, new_scale: i64, mode: RoundingMode) -> Self {
         Self::new(self.inner.with_scale_round(new_scale, mode))
     }
 
+    /// Rounds to `new_scale` digits using half-even (banker's) rounding.
     pub fn round_half_even(&self, new_scale: i64) -> Self {
         self.with_scale_round(new_scale, RoundingMode::HalfEven)
     }
 
+    /// Returns the plain (non-scientific) decimal string.
     pub fn to_plain_string(&self) -> String {
         self.inner.to_plain_string()
     }

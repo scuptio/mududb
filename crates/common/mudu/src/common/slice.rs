@@ -1,48 +1,63 @@
+//! Byte-slice adapters implementing [`Encoder`] and [`Decoder`].
+
 use crate::common::codec::{DecErr, Decoder, EncErr, Encoder};
+
+/// A byte-slice reader with a cursor, usable as a [`Decoder`].
 pub struct SliceRef<'r> {
     s: &'r [u8],
     read_pos: usize,
 }
 
+/// A mutable byte-slice writer with a cursor, usable as an [`Encoder`].
 pub struct SliceMutRef<'r> {
     s: &'r mut [u8],
     write_pos: usize,
 }
 
 impl<'r> SliceMutRef<'r> {
+    /// Creates a writer over `s`.
     pub fn new(s: &'r mut [u8]) -> Self {
         Self { s, write_pos: 0 }
     }
+
+    /// Returns the total capacity of the underlying slice.
     pub fn capacity(&self) -> usize {
         self.s.len()
     }
 
+    /// Returns the current write position.
     pub fn write_pos(&self) -> usize {
         self.write_pos
     }
 
+    /// Resets the write position to the start of the slice.
     pub fn set_write_pos(&mut self) {
         self.write_pos = 0;
     }
 
+    /// Returns the written portion of the slice.
     pub fn as_slice(&self) -> &[u8] {
         &self.s[..self.write_pos]
     }
 }
 
 impl<'r> SliceRef<'r> {
+    /// Creates a reader over `s`.
     pub fn new(s: &'r [u8]) -> Self {
         Self { s, read_pos: 0 }
     }
 
+    /// Returns the current read position.
     pub fn read_pos(&self) -> usize {
         self.read_pos
     }
 
+    /// Resets the read position to the start of the slice.
     pub fn resize(&mut self) {
         self.read_pos = 0;
     }
 
+    /// Returns the portion of the slice read so far.
     pub fn as_slice(&self) -> &'r [u8] {
         &self.s[..self.read_pos]
     }

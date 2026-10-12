@@ -1,15 +1,19 @@
-//! `database::sql_stmt` module.
-#![allow(missing_docs)]
+//! SQL statement abstraction.
 
 use std::fmt;
 
+/// An SQL statement that can be rendered to text and cloned behind a trait object.
 pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
+    /// Returns the SQL text of the statement.
     fn to_sql_string(&self) -> String;
 
+    /// Clones the statement into a boxed trait object.
     fn clone_boxed(&self) -> Box<dyn SQLStmt>;
 }
 
+/// Conversion to an [`SQLStmt`] trait object reference.
 pub trait AsSQLStmtRef {
+    /// Returns `self` as an [`SQLStmt`] trait object reference.
     fn as_sql_stmt_ref(&self) -> &dyn SQLStmt;
 }
 impl AsSQLStmtRef for Box<dyn SQLStmt> {

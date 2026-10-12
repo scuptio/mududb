@@ -1,5 +1,4 @@
-//! `tuple::tuple_field` module.
-#![allow(missing_docs)]
+//! A tuple of per-field binary values.
 
 use crate::tuple::binary_to_json::tuple_binary_to_json;
 use crate::tuple::datum_desc::DatumDesc;
@@ -9,42 +8,51 @@ use mudu::mudu_error;
 use mudu::utils::json::{JsonMap, JsonValue};
 use serde::{Deserialize, Serialize};
 
+/// A tuple carried as per-field binary values; `None` is a SQL NULL.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TupleField {
     fields: Vec<Option<Vec<u8>>>,
 }
 
 impl TupleField {
+    /// Creates a tuple from non-null per-field binary values.
     pub fn new(fields: Vec<Vec<u8>>) -> TupleField {
         Self {
             fields: fields.into_iter().map(Some).collect(),
         }
     }
 
+    /// Creates a tuple from nullable per-field binary values.
     pub fn new_nullable(fields: Vec<Option<Vec<u8>>>) -> TupleField {
         Self { fields }
     }
 
+    /// Returns the per-field binary values.
     pub fn fields(&self) -> &Vec<Option<Vec<u8>>> {
         &self.fields
     }
 
+    /// Consumes `self` and returns the per-field binary values.
     pub fn into_fields(self) -> Vec<Option<Vec<u8>>> {
         self.fields
     }
 
+    /// Returns a mutable reference to the per-field binary values.
     pub fn mut_fields(&mut self) -> &mut Vec<Option<Vec<u8>>> {
         &mut self.fields
     }
 
+    /// Returns the binary value of field `n`, or `None` if missing or NULL.
     pub fn get(&self, n: usize) -> Option<Vec<u8>> {
         self.fields.get(n).cloned().flatten()
     }
 
+    /// Returns whether field `n` exists and is SQL NULL.
     pub fn is_null(&self, n: usize) -> bool {
         matches!(self.fields.get(n), Some(None))
     }
 
+    /// Renders the tuple as a JSON object keyed by the field names in `desc`.
     pub fn to_json_value(&self, desc: &[DatumDesc]) -> RS<JsonValue> {
         if self.fields().len() != desc.len() {
             return Err(mudu_error!(
@@ -67,6 +75,8 @@ impl TupleField {
         }
         Ok(JsonValue::Object(map))
     }
+
+    /// Renders the tuple as per-field textual values, typed by `desc`.
     pub fn to_textual(&self, desc: &[DatumDesc]) -> RS<Vec<String>> {
         if self.fields().len() != desc.len() {
             return Err(mudu_error!(

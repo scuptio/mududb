@@ -8,58 +8,52 @@
 
 ---
 
-MuduDB is a database system that makes it easier to build data-oriented applications and run their logic directly inside the database environment.
+MuduDB is an open-source relational database with a built-in application runtime.
 
-**It is currently in an early-stage, fast-moving demonstration phase.**
+Build data-centric, real-time applications in C, C#, Go, JavaScript, Python, or Rust, package them as MuduDB Apps, and deploy them directly into the database. 
 
-MuduDB explores a set of [innovative features](doc/en/innovative.md): in-database WebAssembly procedures written in general-purpose languages, a unified interactive-and-procedural execution model, AI-assisted database engineering, a modern hardware-oriented runtime built on `io_uring` and per-core workers, and one-click `.mpk` packaging for deployment.
+Your application logic runs right next to the data, reducing data movement, simplifying system architecture, and enabling low-latency execution.
 
----
+Application Server + Database. All in One. 
 
-## What is MuduDB
+Run your application where your data lives.
 
-MuduDB brings application logic and data management into a unified execution environment. Instead of pulling data out to an application server, you write ordinary procedures in general-purpose languages, compile them to WebAssembly, and run them inside the database kernel—close to the data, under the same transactional and scheduling authority.
+## Start here
 
-The same procedure can be invoked interactively from a client or executed as part of a server-side workflow, so ad-hoc exploration and production logic share one model.
+| Your task | Reading path |
+|---|---|
+| Install tools and run an example | [Environment setup](doc/en/how_to_start.md) → [Your first MPK](doc/en/your_first_mpk.md) |
+| Write or call a procedure | [Core concepts](doc/en/concepts.md) → [Procedure development](doc/en/procedure.md) |
+| Choose or publish an SDK | [Languages and execution modes](doc/dev/sdk_distribution.md#language-and-execution-modes) · [Manual publishing](doc/dev/sdk_distribution.md#manual-github-action) |
+| Change the database implementation | [Code architecture](ARCHITECTURE.md) · [Contributor conventions](AGENTS.md) |
 
-## Key Features
+## Execution model
 
-- **Run Application Logic Inside the Database** — Business logic runs as WebAssembly procedures inside the database kernel, close to the data, cutting out repeated network round-trips.
-- **One Codebase for Development and Production** — The same Mudu Procedure runs interactively during development (like an ORM) and is deployed as a server-side procedure, so there is no separate "dev vs. production" code path.
-- **Use General-Purpose Languages** — Write procedures in Rust or AssemblyScript instead of database-specific stored-procedure languages such as PL/pgSQL.
-- **Built-in ORM and Type Safety** — Query results map automatically to Rust structs via the `Entity` trait, and `sql_stmt!` / `sql_params!` macros provide compile-time SQL validation.
-- **Modern Hardware-Optimized Runtime** — Per-core workers, `io_uring`-based asynchronous I/O, and lock-free hot paths are designed for lower tail latency and better multi-core scalability.
-- **WebAssembly + MPK Packaging** — Procedures compile to WASM and are packaged as `.mpk` files containing schema, initial data, and descriptors for simple install-and-run deployment.
-- **Microkernel + Plugin Architecture** — A minimal core engine (storage, ACID, query parsing/execution) plus a plug-in ecosystem.
+Procedures compile to WebAssembly components and are packaged with their DDL (data definition language — the schema the procedures run against), initial data and descriptors in an `.mpk` (MuduDB package) archive. Clients invoke the procedures after installing the package in `mudud`.
+
+Native applications can instead run as local applications by explicitly selecting the separately distributed adapter runtime; each language's entry point for this mode is listed under [Languages and execution modes](doc/dev/sdk_distribution.md#language-and-execution-modes).
+
+Rust procedures use the `Entity` trait to map query results to structs. The build's `mgen check-sql` step checks SQL against DDL, while the language compiler checks types. Neither replaces runtime tests.
 
 ## Architecture
 
 <img src="doc/pic/architecture.svg" width="100%">
 
-The figure above illustrates the architecture of MuduDB.
+The kernel owns storage, transactions, query execution and scheduling. The runtime loads and executes WebAssembly components. Procedures access the kernel through system calls, with transaction and scheduling decisions made by the kernel.
 
-MuduDB follows a kernel-runtime architecture that brings application logic and data management into a unified execution environment.
-
-The kernel provides the core correctness substrate, including storage, transaction processing, query execution, and execution control. Rather than exposing a broad client-driver surface, it defines a narrow [system call](doc/en/syscall.md) interface for session management and data access.
-
-The runtime hosts user-defined procedures as WebAssembly via the [WebAssembly Component Model](https://component-model.bytecodealliance.org/). The runtime is intentionally passive: it does not introduce its own scheduler or an independent execution policy. Procedure execution is invoked and controlled by the kernel so that scheduling, correctness, and data access remain under a single authority.
-
-At the handwritten source level, Mudu procedures are typically written in a sequential style using general-purpose languages (①). Unlike traditional database-specific stored procedure languages, this code can also be invoked through interactive client access (②). The toolchain can transform such procedures into deployable artifacts: synchronous source code can be transpiled into asynchronous generated forms (③), compiled to WebAssembly, and packaged together with related assets such as schema definitions and initial data.
-
-At runtime, procedure invocation (④) executes close to the data within kernel-managed worker threads (⑤). System calls issued by user procedures trap into the kernel, where they run under kernel-controlled transactional and scheduling rules (⑥). This keeps computation and data access co-located and reduces cross-boundary interaction on the critical path.
-
-Execution is organized around a per-core worker model. Each CPU core is assigned a dedicated worker thread, and I/O, networking, and user-code execution are multiplexed cooperatively within those workers. This minimizes inter-thread coordination, locking, and preemptive context switching, improving locality and reducing overhead.
+The runtime uses per-core workers and a Linux I/O path based on `io_uring`. See [runtime design](doc/en/modern_hardware.md) for the tradeoffs and the table below for the source layout.
 
 ## Project Structure
 
-The repository is organized as four independent Cargo workspaces under `crates/`, connected by path dependencies. All workspaces share a single `target/` directory at the repository root (configured in `.cargo/config.toml`).
+The repository is organized as independent Cargo workspaces under `crates/`, connected by path dependencies. All workspaces share a single `target/` directory at the repository root (configured in `.cargo/config.toml`).
 
-| Directory | Workspace | Contents |
-|-----------|-----------|----------|
-| `crates/common` | `mududb-common` | Foundation and shared libraries: `mudu` (core types/errors), `mudu_sys*` (OS/async abstraction), `mudu_type`, `mudu_binding`, `mudu_contract` (wire protocol), `sql_parser`, `sys_interface`, `mudu_client` (TCP/JSON client), and utilities. |
-| `crates/db-kernel` | `mududb-kernel` | The database itself: `mudu_kernel` (engine), `mudu_runtime` (WASM host, HTTP/pgwire servers), `mudud` (server daemon), `mudu_adapter` (storage adapters), `sys_interface_standalone`, `testing` (integration tests). |
-| `crates/sdk` | `mududb-sdk` | App development kit: `mududb` (app-facing facade), language bindings (`bindings/`, `mudu_api/`), and example apps (`example/`). |
-| `crates/tools` | `mududb-tools` | Developer toolchain: `mcli` (CLI client), `mgen` (code generator), `mtp` (transpiler), `mpm-build` / `mpm-install` (MPK packaging). |
+| Directory | Contents |
+|-----------|----------|
+| `crates/common` | Foundation and shared libraries: `mudu` (core types/errors), `mudu_sys*` (OS/async abstraction), `mudu_type`, `mudu_binding`, `mudu_contract` (wire protocol), `sql_parser`, `sys_interface`, `mudu_client` (TCP/JSON client), and utilities. |
+| `crates/db-kernel` | The database itself: `mudu_kernel` (facade re-exporting the fourteen engine crates — `catalog`/`index`/`wal`/`xengine`/`storage`/`meta`/`command`/`sql`/`conn`/`xcontract`/`worker`/`repl`/`backup`/`server`), `mudu_runtime` (pgwire/HTTP serving backend), `runtime_wasm` (WASM procedure host), `runtime_libsql` (libsql connector), `mudud` (server daemon), `mudu_adapter` (storage adapters), `sys_interface_standalone`, `testing` (integration tests). |
+| `crates/sdk` | App development kit: `mududb` (app-facing facade), language bindings (`bindings/`, `mudu_api/`). |
+| `example/mpk` | Guest-SDK example apps (`wallet`, `tpcc`, `ycsb`, ...) in their own workspace. |
+| `crates/tools` | Developer toolchain: `mcli` (CLI client), `mgen` (code generator), `mtp` (transpiler), `mpm-build` / `mpm-crate` / `mpm-install` (MPK packaging). |
 
 Dependency direction is strictly one-way: `common` ← `db-kernel` ← `sdk`, with `tools` depending only on `common`.
 
@@ -69,7 +63,7 @@ Build or check one workspace at a time from its directory:
 cd crates/db-kernel && cargo build --release
 ```
 
-`script/shell/check_all.sh` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --no-run --workspace` across all four workspaces sequentially.
+`script/shell/check_all.sh` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --no-run --workspace` across all workspaces sequentially.
 
 ## Documentation
 

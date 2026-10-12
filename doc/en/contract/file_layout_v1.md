@@ -147,6 +147,6 @@ Version `1` may be deprecated only after:
 - MPK manifest: [mpk_manifest_v1.md](mpk_manifest_v1.md)
 - Server config: [mudud_cfg_v1.md](mudud_cfg_v1.md)
 - Implementation:
-  - [`mudu_kernel/src/storage/time_series/time_series_file.rs`](../../../mudu_kernel/src/storage/time_series/time_series_file.rs)
-  - [`mudu_kernel/src/storage/relation/relation.rs`](../../../mudu_kernel/src/storage/relation/relation.rs)
-  - [`mudu_kernel/src/wal/worker_wal_backend/layout.rs`](../../../mudu_kernel/src/wal/worker_wal_backend/layout.rs)
+  - [`mudu_kernel/src/storage/time_series/time_series_file.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/time_series/time_series_file.rs)
+  - [`mudu_kernel/src/storage/relation/relation.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/relation/relation.rs)
+  - [`mudu_kernel/src/wal/worker_wal_backend/layout.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/worker_wal_backend/layout.rs)

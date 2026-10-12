@@ -16,6 +16,8 @@ This is an architecture overview document. It focuses on design intent, system s
 
 ## 1. Why a Modern Hardware-Optimized Architecture
 
+**Status: design rationale** — motivation and context; this section makes no implementation claim.
+
 Traditional OLTP server designs often have these properties:
 
 - network I/O and execution scheduling are split across multiple abstraction layers
@@ -40,6 +42,8 @@ The core premise of a modern hardware-optimized architecture is:
 ---
 
 ## 2. Core Design Principles
+
+**Status: implemented** — the io_uring backend realizes this target shape: one control plane plus per-partition workers, each owning its ring, local queues, connection table and executor (`crates/db-kernel/mudu_kernel/src/server/`).
 
 This style of architecture usually follows these principles:
 
@@ -68,41 +72,43 @@ The typical target shape is:
                                            |
                      one worker thread per core / partition
                                            |
-    --------------------------------------------------------------------------------
-    |                          |                          |                          |
-    v                          v                          v                          v
-+-----------+            +-----------+            +-----------+              +-----------+
-| Worker 0  |            | Worker 1  |            | Worker 2  |              | Worker N  |
-| core-local|            | core-local|            | core-local|              | core-local|
-+-----+-----+            +-----+-----+            +-----+-----+              +-----+-----+
-      |                        |                        |                            |
-      |  +------------------------------------------------------------------------+ |
-      |  | worker-local runtime                                                   | |
-      |  |                                                                        | |
-      |  |  +--------------------+   +--------------------+   +----------------+  | |
-      |  |  | io_uring ring      |   | protocol FSM       |   | procedure /    |  | |
-      |  |  | SQ/CQ              |-->| decode / dispatch  |-->| component exec |  | |
-      |  |  | accept/recv/send   |   | continuation park  |   | continuation   |  | |
-      |  |  +---------+----------+   +----------+---------+   +--------+-------+  | |
-      |  |            |                         |                          |        | |
-      |  |  +---------v----------+   +----------v---------+   +------------v----+ | |
-      |  |  | local ready queue  |   | partition-local conn   |   | KV syscall path | | |
-      |  |  | lock-free / low-lock|  | table / ownership  |   | get / put /     | | |
-      |  |  | hot-path scheduling|   | boundary           |   | range            | | |
-      |  |  +---------+----------+   +----------+---------+   +-----------------+ | |
-      |  |            |                         |                                  | |
-      |  |  +---------v----------------------------------------------------------+ | |
-      |  |  | cross-partition inbox / handoff queue                                  | | |
-      |  |  | lock-free MPSC message passing when ownership must move            | | |
-      |  |  +--------------------------------------------------------------------+ | |
-      |  +------------------------------------------------------------------------+ |
-      |                                                                             |
-      +----------------------- optional partition handoff ------------------------------+
+-----------------------------------------------------------------------------
+      |                   |                   |                       |
+      v                   v                   v                       v
++-----------+       +-----------+       +-----------+           +-----------+
+| Worker 0  |       | Worker 1  |       | Worker 2  |           | Worker N  |
+| core-local|       | core-local|       | core-local|           | core-local|
++-----+-----+       +-----+-----+       +-----+-----+           +-----+-----+
+      |                   |                   |                       |
+      |  +-----------------------------------------------------------------------+
+      |  | worker-local runtime                                                  |
+      |  |                                                                       |
+      |  |   +-----------------+     +-------------------+   +-----------------+ |
+      |  |   | io_uring ring   |     | protocol FSM      |   | procedure /     | |
+      |  |   | SQ/CQ           | --> | decode / dispatch |-->| component exec  | |
+      |  |   | accept/recv/send|     | continuation park |   | continuation    | |
+      |  |   +--------+--------+     +---------+---------+   +--------+--------+ |
+      |  |            |                        |                      |          |
+      |  | +----------v----------+  +----------v----------+  +--------v--------+ |
+      |  | | local ready queue   |  | partition-local conn|  | KV syscall path | |
+      |  | | lock-free / low-lock|  | table / ownership   |  | get / put /     | |
+      |  | | hot-path scheduling |  | boundary            |  | range           | |
+      |  | +----------+----------+  +----------+----------+  +--------+--------+ |
+      |  |            |                        |                      |          |
+      |  | +----------v--------------------------------------------------------+ |
+      |  | | cross-partition inbox / handoff queue                             | |
+      |  | | lock-free MPSC message passing when ownership must move           | |
+      |  | +-------------------------------------------------------------------+ |
+      |  +-----------------------------------------------------------------------+
+      |
+      +----------------- optional partition handoff ------------------+
 ```
 
 ---
 
 ## 3. The Role of io_uring
+
+**Status: implemented** — the io_uring backend (`server/linux/server_iouring.rs`, `worker_ring_loop.rs`) ships as the selectable `ServerMode::IOUring` next to the Tokio backend.
 
 `io_uring` is the foundation of this architecture. It is not just “a faster async socket API”. It turns I/O from “blocking syscalls plus sleeping threads” into a unified “submission queue plus completion queue plus user-space event loop” model.
 
@@ -124,9 +130,9 @@ This allows a worker to model many operations through one event flow:
 - `timeout`
 - `cancel`
 
-### 3.2 Why It Fits a Database 
+### 3.2 Why It Fits a Database
 
-A database  commonly needs to handle:
+A database commonly needs to handle:
 
 - high-frequency network traffic
 - WAL or log writes
@@ -148,6 +154,8 @@ With a good implementation, `io_uring` typically enables:
 ---
 
 ## 4. Per-Core Worker Architecture
+
+**Status: implemented** — workers and their partition-local state exist today (`worker.rs`, `worker_local.rs`, `worker_registry.rs`).
 
 A modern hardware-optimized runtime is usually not “a generic thread pool stealing arbitrary tasks”. It is more often “one ownership domain per core”.
 
@@ -179,6 +187,8 @@ This model is more constrained than “any thread can process any connection”,
 ---
 
 ## 5. Asynchronous Processing Model
+
+**Status: implemented** — continuation-driven async execution exists in the kernel (`async_func_runtime.rs`); the synchronous-to-async lowering is done by the transpiler (mtp) at deployment time.
 
 A modern async architecture does not mean “write `async/await` everywhere and stop there”. What actually matters is that the request lifecycle must be decomposable, suspendable, resumable, and batch-drivable.
 
@@ -260,6 +270,8 @@ user writes synchronous procedure
 
 ## 6. Lock-Free and Low-Lock Design
 
+**Status: partially implemented** — worker-local tables, queues and handoff channels exist; the degree of lock-freedom on the hot path is not separately verified and remains an ongoing effort.
+
 “Lock-free” should not be interpreted as “there are literally no locks anywhere in the system”. It should be interpreted as:
 
 - no mutexes on the hot path whenever possible
@@ -315,6 +327,8 @@ The correct order is:
 
 ## 7. Batching, Backpressure, and Pipelining
 
+**Status: partially implemented** — batched submission and completion exist in the io_uring worker loop and the WAL backend (`server/linux/worker_ring_loop.rs`, `wal/worker_wal_backend/batching.rs`); first-class backpressure is planned / under development.
+
 Another key property of a modern hardware-optimized architecture is batching.
 
 ### 7.1 Why Batching Matters
@@ -363,18 +377,18 @@ It is important to state the current status precisely:
 - the `io_uring` runtime architecture exists
 - the async continuation-driven execution model exists
 - the KV-oriented path exists
-- SQL support on the current `io_uring` path is not implemented yet
+- SQL also runs on the `io_uring` backend today — the integration suite exercises
+  it end-to-end (filesystem SQL e2e and the interactive `mcli` shell both run on
+  `ServerMode::IOUring`)
 
-SQL support for this path is still under implementation.
-
-So for now:
-
-- SQL should be treated as an unfinished capability in the `io_uring` backend
-- the current usable direction of the `io_uring` runtime is the KV-oriented path
+The KV-first framing above describes the design orientation of this path, not a
+capability limitation: both SQL and KV are usable on the `io_uring` backend.
 
 ---
 
 ## 9. Main Benefits of This Architecture
+
+**Status: goals** — the benefits below are expected outcomes of a full implementation, not measured guarantees.
 
 If fully implemented, this architecture should provide benefits in these areas:
 
@@ -393,6 +407,8 @@ If fully implemented, this architecture should provide benefits in these areas:
 
 ## 10. Costs and Engineering Tradeoffs
 
+**Status: current guidance** — these costs already apply to the implemented backend, and the strategy list below guides the remaining work.
+
 This architecture is not free. It introduces real engineering complexity:
 
 - state machine and continuation design becomes harder
@@ -409,15 +425,8 @@ A practical engineering strategy is usually:
 
 ---
 
-## 11. What It Means for MuduDB
+## 11. Further reading
 
-For MuduDB, the value of a modern hardware-optimized architecture is not just “higher speed”. It also allows the system to preserve three important properties at the same time:
-
-- a natural synchronous programming experience for procedure authors
-- a genuinely async, multi-core-aware runtime internally
-- room to evolve toward component-based, KV-first, low-latency execution paths
-
-
-If this design is reduced to one sentence, it is this:
-
-> Use `io_uring` as the unified async completion model, per-core workers as the locality boundary, lock-free queues to reduce shared contention, and the runtime plus transpiler rather than user code to absorb async complexity.
+- [Code architecture](../../ARCHITECTURE.md): crate layers and dependency rules.
+- [Procedure development](procedure.md): author-facing APIs, SQL and transactions.
+- [Partitioning](partition.md): data ownership across workers and its limits.

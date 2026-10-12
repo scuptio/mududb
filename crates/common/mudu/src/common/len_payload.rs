@@ -1,20 +1,28 @@
+//! Length-prefixed payload header helpers.
+//!
+//! A length-prefixed payload starts with a 4-byte big-endian length header
+//! that stores the number of payload bytes following it.
+
 use crate::common::endian::Endian;
 use byteorder::ByteOrder;
 
-// length of payload
+/// Helpers for the 4-byte length header of a length-prefixed payload.
 pub struct LenPayload {}
 
 impl LenPayload {
+    /// Reads the payload length from the 4-byte header at the start of `s`.
     pub fn len(s: &[u8]) -> u32 {
         assert!(s.len() >= 4);
         Endian::read_u32(s)
     }
 
+    /// Returns the payload bytes following the 4-byte length header of `s`.
     pub fn payload(s: &[u8]) -> &[u8] {
         assert!(s.len() >= 4);
         &s[size_of::<u32>()..]
     }
 
+    /// Writes `len` into the 4-byte header at the start of `s`.
     pub fn set_len(s: &mut [u8], len: u32) {
         assert!(s.len() >= 4);
         Endian::write_u32(s, len);

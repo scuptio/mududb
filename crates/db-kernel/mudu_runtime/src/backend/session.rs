@@ -249,84 +249,14 @@ pub(super) fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
             .unwrap()
             .clone();
         // we only support a small amount of types for demo
-        match &param_type {
-            &Type::BOOL => {
-                let param = portal.parameter::<bool>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL bool parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Integer(param as i64));
-            }
-            &Type::INT2 => {
-                let param = portal.parameter::<i16>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL int2 parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Integer(param as i64));
-            }
-            &Type::INT4 => {
-                let param = portal.parameter::<i32>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL int4 parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Integer(param as i64));
-            }
-            &Type::INT8 => {
-                let param = portal.parameter::<i64>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL int8 parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Integer(param));
-            }
-            &Type::TEXT | &Type::VARCHAR => {
-                let param = portal.parameter::<String>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL text parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Text(param));
-            }
-            &Type::FLOAT4 => {
-                let param = portal.parameter::<f32>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL float4 parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Real(param as f64));
-            }
-            &Type::FLOAT8 => {
-                let param = portal.parameter::<f64>(i, &param_type)?;
-                let param = param.ok_or_else(|| {
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "22023".to_owned(),
-                        format!("NULL float8 parameter at index {}", i),
-                    )))
-                })?;
-                results.push(Value::Real(param));
-            }
+        let value = match &param_type {
+            &Type::BOOL => bool_param(portal, i, &param_type)?,
+            &Type::INT2 => int2_param(portal, i, &param_type)?,
+            &Type::INT4 => int4_param(portal, i, &param_type)?,
+            &Type::INT8 => int8_param(portal, i, &param_type)?,
+            &Type::TEXT | &Type::VARCHAR => text_param(portal, i, &param_type)?,
+            &Type::FLOAT4 => float4_param(portal, i, &param_type)?,
+            &Type::FLOAT8 => float8_param(portal, i, &param_type)?,
             _ => {
                 return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
@@ -334,10 +264,62 @@ pub(super) fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
                     format!("Unsupported parameter type: {param_type}"),
                 ))));
             }
-        }
+        };
+        results.push(value);
     }
 
     Ok(results)
+}
+
+/// Unwraps a decoded portal parameter, mapping NULL to a `22023` user error
+/// naming the parameter kind and index.
+fn non_null_param<T>(param: Option<T>, kind: &str, index: usize) -> PgWireResult<T> {
+    param.ok_or_else(|| {
+        PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "22023".to_owned(),
+            format!("NULL {kind} parameter at index {index}"),
+        )))
+    })
+}
+
+fn bool_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<bool>(index, param_type)?, "bool", index)?;
+    Ok(Value::Integer(param as i64))
+}
+
+fn int2_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<i16>(index, param_type)?, "int2", index)?;
+    Ok(Value::Integer(param as i64))
+}
+
+fn int4_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<i32>(index, param_type)?, "int4", index)?;
+    Ok(Value::Integer(param as i64))
+}
+
+fn int8_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<i64>(index, param_type)?, "int8", index)?;
+    Ok(Value::Integer(param))
+}
+
+fn text_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(
+        portal.parameter::<String>(index, param_type)?,
+        "text",
+        index,
+    )?;
+    Ok(Value::Text(param))
+}
+
+fn float4_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<f32>(index, param_type)?, "float4", index)?;
+    Ok(Value::Real(param as f64))
+}
+
+fn float8_param(portal: &Portal<String>, index: usize, param_type: &Type) -> PgWireResult<Value> {
+    let param = non_null_param(portal.parameter::<f64>(index, param_type)?, "float8", index)?;
+    Ok(Value::Real(param))
 }
 
 pub(super) fn row_desc_from_stmt(

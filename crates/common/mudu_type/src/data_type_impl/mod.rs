@@ -21,49 +21,49 @@ mod fn_timestamptz_param;
 mod fn_u128;
 
 mod fn_array;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_array_arb;
 mod fn_array_param;
 mod fn_binary;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_binary_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_date_arb;
 #[cfg(test)]
 mod fn_date_arb_test;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_f32_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_f64_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_i128_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_i32_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_i64_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_numeric_arb;
 #[cfg(test)]
 mod fn_numeric_arb_test;
 mod fn_object;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_object_arb;
 mod fn_object_param;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_string_arb;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_time_arb;
 #[cfg(test)]
 mod fn_time_arb_test;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_timestamp_arb;
 #[cfg(test)]
 mod fn_timestamp_arb_test;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_timestamptz_arb;
 #[cfg(test)]
 mod fn_timestamptz_arb_test;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 mod fn_u128_arb;
 
 // Property tests with many arbitrary inputs are too slow under Miri.

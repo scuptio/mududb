@@ -5,7 +5,7 @@ This package is the AssemblyScript guest binding: guests import the host's
 list<u8>` syscalls) and frame MSSP (SyscallPayload v1) in-language with the
 mgen-generated, corpus-verified codec in `assembly/generated/` — the same
 direct byte-pipe architecture as the C# guest
-(`crates/sdk/example/wallet-cs`). No companion Rust component is involved:
+(`example/mpk/wallet-cs`). No companion Rust component is involved:
 
 ```text
 AssemblyScript guest component
@@ -25,7 +25,7 @@ npm install @mududb/mududb
 The package ships pure AssemblyScript source; consumers compile it with
 their own `asc`. This package is the **reference implementation** of the
 cross-language canonical facade surface — see
-[`doc/dev/binding_api_surface.md`](../../../doc/dev/binding_api_surface.md)
+[`doc/dev/binding_api_surface.md`](../../../../doc/dev/binding_api_surface.md)
 for the operation-level contract shared with the C#, Rust, and (pending)
 Python bindings. The root entry re-exports the full public surface:
 
@@ -157,7 +157,7 @@ npx asc example/assembly/index.ts --outFile build/release/example.wasm --optimiz
 ```
 
 For a full guest package (mtp adapter generation, component embed/new, mpk
-packaging) see `crates/sdk/example/wallet-as`.
+packaging) see `example/mpk/wallet-as`.
 
 ## Codec verification
 

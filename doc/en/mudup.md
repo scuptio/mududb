@@ -1,9 +1,15 @@
 # mudup Design
 
-`mudup` is the MuduDB toolchain installer and version manager. Its role is similar to
-`rustup`: it downloads verified prebuilt releases, installs them into a per-user
-toolchain directory, and exposes stable command names such as `mudud`, `mcli`, `mpk`,
-`mgen`, and `mtp`.
+> **Status: design proposal — not implemented.** `mudup` does not exist as a tool
+> yet; everything below describes planned behavior. The working install path today
+> is building from source with `cargo make` (or `script/build/install_binaries.py`)
+> and using the documented toolchain — see [how_to_start.md](how_to_start.md) and
+> [concepts.md](concepts.md).
+
+`mudup` is a proposed MuduDB toolchain installer and version manager. Its role would be
+similar to `rustup`: it would download verified prebuilt releases, install them into a
+per-user toolchain directory, and expose stable command names such as `mudud`, `mcli`,
+`mpm-build`, `mpm-crate`, `mpm-install`, `mgen`, and `mtp`.
 
 ## Goals
 
@@ -33,13 +39,13 @@ mudup list
 mudup uninstall <vYYYYMMDD.HHMM>
 ```
 
-`mudup update` installs the latest available version. Release versions use UTC timestamps
-in the form `vYYYYMMDD.HHMM`; the latest version is the greatest timestamp known to the
-release channel.
+`mudup update` would install the latest available version. Release versions would use UTC
+timestamps in the form `vYYYYMMDD.HHMM`; the latest version would be the greatest
+timestamp known to the release channel.
 
 ## Installation Layout
 
-`mudup` uses a per-user root directory:
+`mudup` would use a per-user root directory:
 
 ```text
 ${HOME}/.mudup/
@@ -49,7 +55,9 @@ ${HOME}/.mudup/
   bin/
     mudud
     mcli
-    mpk
+    mpm-build
+    mpm-crate
+    mpm-install
     mgen
     mtp
   toolchains/
@@ -58,7 +66,9 @@ ${HOME}/.mudup/
       bin/
         mudud
         mcli
-        mpk
+        mpm-build
+        mpm-crate
+        mpm-install
         mgen
         mtp
       lib/
@@ -66,9 +76,9 @@ ${HOME}/.mudup/
       manifest.txt
 ```
 
-The `current` entry is a symbolic link to the active versioned toolchain. Command proxies
-or symlinks are installed into `${HOME}/.mudup/bin`, and that directory should be added to
-`PATH`.
+The `current` entry would be a symbolic link to the active versioned toolchain. Command
+proxies or symlinks would be installed into `${HOME}/.mudup/bin`, and that directory
+should be added to `PATH`.
 
 ## Release Artifact Layout
 
@@ -79,7 +89,9 @@ Each release tarball should unpack to a single top-level version directory:
   bin/
     mudud
     mcli
-    mpk
+    mpm-build
+    mpm-crate
+    mpm-install
     mgen
     mtp
   lib/
@@ -87,9 +99,9 @@ Each release tarball should unpack to a single top-level version directory:
   manifest.txt
 ```
 
-`lib/lib-list.txt` is copied from `build-release/lib-list.txt` during release packaging.
-It records dynamic library requirements and their download locations. `manifest.txt`
-records the packaged files and release metadata.
+`lib/lib-list.txt` would be copied from `build-release/lib-list.txt` during release
+packaging. It records dynamic library requirements and their download locations.
+`manifest.txt` records the packaged files and release metadata.
 
 ## Distribution Server
 
@@ -134,7 +146,9 @@ lib_list=lib/lib-list.txt
 [files]
 bin/mudud
 bin/mcli
-bin/mpk
+bin/mpm-build
+bin/mpm-crate
+bin/mpm-install
 bin/mgen
 bin/mtp
 lib/lib-list.txt
@@ -208,8 +222,9 @@ distribution. A binary built on a newer glibc may not run on older distributions
 
 ## Security
 
-The minimum verification requirement is SHA-256 from the channel manifest. For public
-releases, add signed manifests or signed artifacts before declaring the installer stable.
+The minimum verification requirement would be SHA-256 from the channel manifest. For
+public releases, signed manifests or signed artifacts should be added before declaring
+the installer stable.
 
 Recommended approach:
 

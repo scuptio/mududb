@@ -1,0 +1,36 @@
+[package]
+name = "storage"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "On-disk storage layer: pages, relations, and time-series files"
+
+[features]
+debug_trace = ["mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+index = { workspace = true }
+wal = { workspace = true }
+xengine = { workspace = true }
+mudu = { workspace = true }
+mudu_compat_migrate = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+byteorder = { workspace = true }
+futures = { workspace = true }
+libc = { workspace = true }
+rmp-serde = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+project-root = { workspace = true }

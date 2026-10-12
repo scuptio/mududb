@@ -6,7 +6,7 @@ use crate::python::parser::discover_procedures;
 use crate::python::render::{render_adapter_source, render_wit};
 use crate::python::transpile_python;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tree_sitter::Parser;
 
@@ -153,7 +153,34 @@ fn transpiles_python_and_generates_all_artifacts() -> Result<(), Box<dyn Error>>
 
     assert_python_syntax(&py)?;
     assert_wit_syntax(&wit)?;
-    let desc_json = serde_json::from_str::<serde_json::Value>(&desc)?;
+    assert_sample_desc(&desc)?;
+
+    assert!(py.contains("class WitWorld(wit_world.WitWorld):"));
+    assert!(py.contains("from wit_world.imports import system as _system"));
+    assert!(py.contains("_mududb_sys.set_transport(_system)"));
+    assert!(py.contains("def mp2_transfer(self, param: bytes) -> bytes:"));
+    assert!(py.contains("def mp2_greet(self, param: bytes) -> bytes:"));
+    assert!(py.contains("def mp2_create_user(self, param: bytes) -> bytes:"));
+    assert!(py.contains("from mududb.codec.procedure import ("));
+    assert!(py.contains(
+        "result = procedures.transfer(*[_from_uni(_v) for _v in proc_param.param_list])"
+    ));
+    assert!(py.contains(
+        "result = procedures.create_user(proc_param.session, *[_from_uni(_v) for _v in proc_param.param_list])"
+    ));
+    assert!(py.contains("return encode_procedure_err(1, str(e), \"python\", \"transfer\")"));
+    assert!(wit.contains("package mududb:test;"));
+    assert!(wit.contains("world test {"));
+    assert!(wit.contains("import mududb:api/system;"));
+    assert!(wit.contains("export mp2-transfer: func(param: list<u8>) -> list<u8>;"));
+    assert!(wit.contains("export mp2-greet: func(param: list<u8>) -> list<u8>;"));
+    assert!(wit.contains("export mp2-create-user: func(param: list<u8>) -> list<u8>;"));
+    assert!(desc.contains("\"transfer\""));
+    Ok(())
+}
+
+fn assert_sample_desc(desc: &str) -> Result<(), Box<dyn Error>> {
+    let desc_json = serde_json::from_str::<serde_json::Value>(desc)?;
     let transfer_desc = &desc_json["modules"]["test"][0];
     assert_eq!(transfer_desc["module_name"], "test");
     assert_eq!(transfer_desc["proc_name"], "transfer");
@@ -201,29 +228,43 @@ fn transpiles_python_and_generates_all_artifacts() -> Result<(), Box<dyn Error>>
         create_user_desc["return_desc"]["fields"][0]["data_type"]["id"],
         "I64"
     );
-
-    assert!(py.contains("class WitWorld(wit_world.WitWorld):"));
-    assert!(py.contains("from wit_world.imports import system as _system"));
-    assert!(py.contains("_mududb_sys.set_transport(_system)"));
-    assert!(py.contains("def mp2_transfer(self, param: bytes) -> bytes:"));
-    assert!(py.contains("def mp2_greet(self, param: bytes) -> bytes:"));
-    assert!(py.contains("def mp2_create_user(self, param: bytes) -> bytes:"));
-    assert!(py.contains("from mududb.codec.procedure import ("));
-    assert!(py.contains(
-        "result = procedures.transfer(*[_from_uni(_v) for _v in proc_param.param_list])"
-    ));
-    assert!(py.contains(
-        "result = procedures.create_user(proc_param.session, *[_from_uni(_v) for _v in proc_param.param_list])"
-    ));
-    assert!(py.contains("return encode_procedure_err(1, str(e), \"python\", \"transfer\")"));
-    assert!(wit.contains("package mududb:test;"));
-    assert!(wit.contains("world test {"));
-    assert!(wit.contains("import mududb:api/system;"));
-    assert!(wit.contains("export mp2-transfer: func(param: list<u8>) -> list<u8>;"));
-    assert!(wit.contains("export mp2-greet: func(param: list<u8>) -> list<u8>;"));
-    assert!(wit.contains("export mp2-create-user: func(param: list<u8>) -> list<u8>;"));
-    assert!(desc.contains("\"transfer\""));
     Ok(())
+}
+
+fn python3_on_path() -> bool {
+    mudu_sys::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_ok()
+}
+
+/// Run a python3 driver script with `module_dir` and the Python bindings on
+/// PYTHONPATH; returns stdout. `failure_label` is the assertion message used
+/// when the interpreter exits non-zero.
+fn run_python_driver(
+    driver_path: &Path,
+    module_dir: &Path,
+    bindings_path: &Path,
+    failure_label: &str,
+) -> Result<String, Box<dyn Error>> {
+    let python_path = format!(
+        "{}:{}",
+        module_dir.to_str().ok_or("invalid UTF-8 in tmp path")?,
+        bindings_path
+            .to_str()
+            .ok_or("invalid UTF-8 in bindings path")?
+    );
+    let output = mudu_sys::process::Command::new("python3")
+        .arg(driver_path)
+        .env("PYTHONPATH", python_path)
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        output.status.success(),
+        "{failure_label}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    Ok(stdout)
 }
 
 /// End-to-end check of the generated adapter in a real CPython interpreter:
@@ -233,19 +274,21 @@ fn transpiles_python_and_generates_all_artifacts() -> Result<(), Box<dyn Error>>
 /// `python3` interpreter is on PATH.
 #[test]
 fn generated_adapter_roundtrips_in_cpython() -> Result<(), Box<dyn Error>> {
-    if mudu_sys::process::Command::new("python3")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !python3_on_path() {
         eprintln!("skipping CPython smoke test: python3 not found");
         return Ok(());
     }
 
-    let tmp_pb = unique_temp_dir("mudu_transpiler_py_smoke")?;
-    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb)?;
+    let bindings_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/bindings/python");
+    let (tmp_pb, input_path, output_path) = transpile_smoke_procedures()?;
+    run_smoke_scenario(&tmp_pb, &bindings_path)?;
+    run_transport_scenario(&input_path, &output_path, &bindings_path)?;
 
-    let user_source = r#"
+    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&tmp_pb);
+    Ok(())
+}
+
+const SMOKE_USER_SOURCE: &str = r#"
 from mududb import sys as mududb_sys
 from mududb.generated.uni_oid import UniOid
 
@@ -288,25 +331,8 @@ def open_probe(session):
     opened = mududb_sys.wit_open("")
     return opened.l
 "#;
-    let input_path = tmp_pb.join("procedures.py");
-    let output_path = tmp_pb.join("procedures_gen.py");
-    mudu_sys::fs::sync::sync_write(&input_path, user_source)?;
 
-    let ret = transpile_python(
-        &input_path,
-        &output_path,
-        "smoke".to_string(),
-        false,
-        None,
-        None,
-        None,
-    );
-    assert_eq!(ret, 0, "transpile_python failed");
-
-    // Minimal stand-in for the componentize-py generated bindings module.
-    mudu_sys::fs::sync::sync_write(tmp_pb.join("wit_world.py"), "class WitWorld:\n    pass\n")?;
-
-    let driver = r#"
+const SMOKE_DRIVER: &str = r#"
 import procedures_gen
 
 from mududb.codec.mpack import MpackReader, MpackWriter
@@ -380,44 +406,48 @@ except Exception as e:
 
 print("SMOKE-OK")
 "#;
+
+/// Transpile the smoke procedures and install the plain-module `wit_world`
+/// stub; returns (tmp dir, input path, generated adapter path).
+fn transpile_smoke_procedures() -> Result<(PathBuf, PathBuf, PathBuf), Box<dyn Error>> {
+    let tmp_pb = unique_temp_dir("mudu_transpiler_py_smoke")?;
+    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb)?;
+
+    let input_path = tmp_pb.join("procedures.py");
+    let output_path = tmp_pb.join("procedures_gen.py");
+    mudu_sys::fs::sync::sync_write(&input_path, SMOKE_USER_SOURCE)?;
+
+    let ret = transpile_python(
+        &input_path,
+        &output_path,
+        "smoke".to_string(),
+        false,
+        None,
+        None,
+        None,
+    );
+    assert_eq!(ret, 0, "transpile_python failed");
+
+    // Minimal stand-in for the componentize-py generated bindings module.
+    mudu_sys::fs::sync::sync_write(tmp_pb.join("wit_world.py"), "class WitWorld:\n    pass\n")?;
+    Ok((tmp_pb, input_path, output_path))
+}
+
+fn run_smoke_scenario(tmp_pb: &Path, bindings_path: &Path) -> Result<(), Box<dyn Error>> {
     let driver_path = tmp_pb.join("smoke_driver.py");
-    mudu_sys::fs::sync::sync_write(&driver_path, driver)?;
+    mudu_sys::fs::sync::sync_write(&driver_path, SMOKE_DRIVER)?;
 
-    let bindings_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/bindings/python");
-    let python_path = format!(
-        "{}:{}",
-        tmp_pb.to_str().ok_or("invalid UTF-8 in tmp path")?,
-        bindings_path
-            .to_str()
-            .ok_or("invalid UTF-8 in bindings path")?
-    );
-    let output = mudu_sys::process::Command::new("python3")
-        .arg(&driver_path)
-        .env("PYTHONPATH", python_path)
-        .output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    assert!(
-        output.status.success(),
-        "CPython smoke test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(stdout.contains("SMOKE-OK"), "unexpected stdout: {stdout}");
-
-    // Second scenario: `wit_world` as a package carrying a recording
-    // `imports.system` stub — the adapter's top-level wiring must install it
-    // as the `mududb.sys` transport, so a procedure using the facade hits
-    // the stub.
-    let tmp_transport = unique_temp_dir("mudu_transpiler_py_smoke_transport")?;
-    let imports_dir = tmp_transport.join("wit_world").join("imports");
-    mudu_sys::fs::sync::sync_create_dir_all(&imports_dir)?;
-    mudu_sys::fs::sync::sync_write(
-        tmp_transport.join("wit_world").join("__init__.py"),
-        "class WitWorld:\n    pass\n",
+    let stdout = run_python_driver(
+        &driver_path,
+        tmp_pb,
+        bindings_path,
+        "CPython smoke test failed",
     )?;
-    mudu_sys::fs::sync::sync_write(imports_dir.join("__init__.py"), "")?;
-    mudu_sys::fs::sync::sync_write(
-        imports_dir.join("system.py"),
-        r#"
+    assert!(stdout.contains("SMOKE-OK"), "unexpected stdout: {stdout}");
+    Ok(())
+}
+
+const TRANSPORT_SYSTEM_STUB: &str = r#"
 from mududb.generated.uni_oid import UniOid
 from mududb.generated.uni_syscall import WireResult, encode_open_session_result
 
@@ -427,12 +457,9 @@ calls = []
 def open(request):
     calls.append("open")
     return encode_open_session_result(WireResult.ok(UniOid(h=0, l=99)))
-"#,
-    )?;
-    mudu_sys::fs::sync::sync_copy(&output_path, tmp_transport.join("procedures_gen.py"))?;
-    mudu_sys::fs::sync::sync_copy(&input_path, tmp_transport.join("procedures.py"))?;
+"#;
 
-    let transport_driver = r#"
+const TRANSPORT_DRIVER: &str = r#"
 import procedures_gen
 import wit_world.imports.system as system_stub
 
@@ -459,32 +486,42 @@ assert system_stub.calls == ["open"], system_stub.calls
 
 print("SMOKE-TRANSPORT-OK")
 "#;
-    let transport_driver_path = tmp_transport.join("smoke_transport_driver.py");
-    mudu_sys::fs::sync::sync_write(&transport_driver_path, transport_driver)?;
 
-    let transport_python_path = format!(
-        "{}:{}",
-        tmp_transport.to_str().ok_or("invalid UTF-8 in tmp path")?,
-        bindings_path
-            .to_str()
-            .ok_or("invalid UTF-8 in bindings path")?
-    );
-    let output = mudu_sys::process::Command::new("python3")
-        .arg(&transport_driver_path)
-        .env("PYTHONPATH", transport_python_path)
-        .output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    assert!(
-        output.status.success(),
-        "CPython transport smoke test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+// Second scenario: `wit_world` as a package carrying a recording
+// `imports.system` stub — the adapter's top-level wiring must install it
+// as the `mududb.sys` transport, so a procedure using the facade hits
+// the stub.
+fn run_transport_scenario(
+    input_path: &Path,
+    output_path: &Path,
+    bindings_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let tmp_transport = unique_temp_dir("mudu_transpiler_py_smoke_transport")?;
+    let imports_dir = tmp_transport.join("wit_world").join("imports");
+    mudu_sys::fs::sync::sync_create_dir_all(&imports_dir)?;
+    mudu_sys::fs::sync::sync_write(
+        tmp_transport.join("wit_world").join("__init__.py"),
+        "class WitWorld:\n    pass\n",
+    )?;
+    mudu_sys::fs::sync::sync_write(imports_dir.join("__init__.py"), "")?;
+    mudu_sys::fs::sync::sync_write(imports_dir.join("system.py"), TRANSPORT_SYSTEM_STUB)?;
+    mudu_sys::fs::sync::sync_copy(output_path, tmp_transport.join("procedures_gen.py"))?;
+    mudu_sys::fs::sync::sync_copy(input_path, tmp_transport.join("procedures.py"))?;
+
+    let transport_driver_path = tmp_transport.join("smoke_transport_driver.py");
+    mudu_sys::fs::sync::sync_write(&transport_driver_path, TRANSPORT_DRIVER)?;
+
+    let stdout = run_python_driver(
+        &transport_driver_path,
+        &tmp_transport,
+        bindings_path,
+        "CPython transport smoke test failed",
+    )?;
     assert!(
         stdout.contains("SMOKE-TRANSPORT-OK"),
         "unexpected stdout: {stdout}"
     );
 
-    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&tmp_pb);
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(&tmp_transport);
     Ok(())
 }
@@ -652,11 +689,16 @@ fn transpiles_custom_types_and_generates_all_artifacts() -> Result<(), Box<dyn E
     assert_python_syntax(&py)?;
     assert_wit_syntax(&wit)?;
     assert!(wit.contains("export mp2-update-profile: func(param: list<u8>) -> list<u8>;"));
+    assert_shop_custom_desc(&desc)?;
+    Ok(())
+}
 
-    let desc_json = serde_json::from_str::<serde_json::Value>(&desc)?;
-    let proc_desc = &desc_json["modules"]["shop_py"][0];
-    assert_eq!(proc_desc["proc_name"], "update_profile");
-
+fn shop_desc_type_jsons() -> (
+    serde_json::Value,
+    serde_json::Value,
+    serde_json::Value,
+    serde_json::Value,
+) {
     let string_type = serde_json::json!({
         "id": "String",
         "param": { "String": { "length": 65536 } }
@@ -697,6 +739,15 @@ fn transpiles_custom_types_and_generates_all_artifacts() -> Result<(), Box<dyn E
             }
         }
     });
+    (string_type, i32_type, address_type, profile_type)
+}
+
+fn assert_shop_custom_desc(desc: &str) -> Result<(), Box<dyn Error>> {
+    let desc_json = serde_json::from_str::<serde_json::Value>(desc)?;
+    let proc_desc = &desc_json["modules"]["shop_py"][0];
+    assert_eq!(proc_desc["proc_name"], "update_profile");
+
+    let (string_type, i32_type, address_type, profile_type) = shop_desc_type_jsons();
     let fields = proc_desc["param_desc"]["fields"]
         .as_array()
         .ok_or("param_desc.fields is not an array")?;
@@ -762,29 +813,32 @@ fn transpiles_custom_types_and_generates_all_artifacts() -> Result<(), Box<dyn E
 /// with a minimal `wit_world` stub. Skipped when no `python3` is on PATH.
 #[test]
 fn custom_type_adapter_roundtrips_in_cpython() -> Result<(), Box<dyn Error>> {
-    if mudu_sys::process::Command::new("python3")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !python3_on_path() {
         eprintln!("skipping CPython custom-type smoke test: python3 not found");
         return Ok(());
     }
 
-    let tmp_pb = unique_temp_dir("mudu_transpiler_py_smoke_custom")?;
-    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb)?;
+    let tmp_pb = stage_custom_type_fixture()?;
+    let bindings_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/bindings/python");
+    let driver_path = tmp_pb.join("smoke_custom_driver.py");
+    mudu_sys::fs::sync::sync_write(&driver_path, CUSTOM_DRIVER)?;
 
-    // Generate the project types module exactly like the Makefile task does.
-    let wit_input_path = tmp_pb.join("types.wit");
-    mudu_sys::fs::sync::sync_write(&wit_input_path, SHOP_TYPES_WIT)?;
-    mudu_gen::src_gen::gen_message::gen_message(
-        &wit_input_path,
-        tmp_pb.join("shop_types.py"),
-        "python".to_string(),
-        None,
+    let stdout = run_python_driver(
+        &driver_path,
+        &tmp_pb,
+        &bindings_path,
+        "CPython custom-type smoke test failed",
     )?;
+    assert!(
+        stdout.contains("SMOKE-CUSTOM-OK"),
+        "unexpected stdout: {stdout}"
+    );
 
-    let user_source = r#"
+    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&tmp_pb);
+    Ok(())
+}
+
+const CUSTOM_USER_SOURCE: &str = r#"
 from mududb.generated.uni_oid import UniOid
 from shop_types import Profile
 
@@ -796,29 +850,8 @@ def update_profile(session: UniOid, user_id: int, profile: Profile) -> Profile:
     profile.display_name = f"{profile.display_name}#{user_id}"
     return profile
 "#;
-    let input_path = tmp_pb.join("procedures.py");
-    let output_path = tmp_pb.join("procedures_gen.py");
-    mudu_sys::fs::sync::sync_write(&input_path, user_source)?;
 
-    let registry = TypeRegistry::from_wit_paths(&[wit_input_path
-        .to_str()
-        .ok_or("invalid UTF-8 in path")?
-        .to_string()])?;
-    let ret = transpile_python(
-        &input_path,
-        &output_path,
-        "smoke".to_string(),
-        false,
-        None,
-        Some(&registry),
-        Some("shop_types".to_string()),
-    );
-    assert_eq!(ret, 0, "transpile_python failed");
-
-    // Minimal stand-in for the componentize-py generated bindings module.
-    mudu_sys::fs::sync::sync_write(tmp_pb.join("wit_world.py"), "class WitWorld:\n    pass\n")?;
-
-    let driver = r#"
+const CUSTOM_DRIVER: &str = r#"
 import procedures_gen
 
 from mududb.codec.bridge import record_field_values, record_from_field_values
@@ -873,34 +906,46 @@ assert fields[2] == {1: "", 2: [0, [6, 1]]}, fields[2]
 
 print("SMOKE-CUSTOM-OK")
 "#;
-    let driver_path = tmp_pb.join("smoke_custom_driver.py");
-    mudu_sys::fs::sync::sync_write(&driver_path, driver)?;
 
-    let bindings_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/bindings/python");
-    let python_path = format!(
-        "{}:{}",
-        tmp_pb.to_str().ok_or("invalid UTF-8 in tmp path")?,
-        bindings_path
-            .to_str()
-            .ok_or("invalid UTF-8 in bindings path")?
-    );
-    let output = mudu_sys::process::Command::new("python3")
-        .arg(&driver_path)
-        .env("PYTHONPATH", python_path)
-        .output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    assert!(
-        output.status.success(),
-        "CPython custom-type smoke test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("SMOKE-CUSTOM-OK"),
-        "unexpected stdout: {stdout}"
-    );
+/// Generate the types module with mgen, transpile the record procedure
+/// against it, and install the plain-module `wit_world` stub; returns the
+/// staging directory.
+fn stage_custom_type_fixture() -> Result<PathBuf, Box<dyn Error>> {
+    let tmp_pb = unique_temp_dir("mudu_transpiler_py_smoke_custom")?;
+    mudu_sys::fs::sync::sync_create_dir_all(&tmp_pb)?;
 
-    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&tmp_pb);
-    Ok(())
+    // Generate the project types module exactly like the Makefile task does.
+    let wit_input_path = tmp_pb.join("types.wit");
+    mudu_sys::fs::sync::sync_write(&wit_input_path, SHOP_TYPES_WIT)?;
+    mudu_gen::src_gen::gen_message::gen_message(
+        &wit_input_path,
+        tmp_pb.join("shop_types.py"),
+        "python".to_string(),
+        None,
+    )?;
+
+    let input_path = tmp_pb.join("procedures.py");
+    let output_path = tmp_pb.join("procedures_gen.py");
+    mudu_sys::fs::sync::sync_write(&input_path, CUSTOM_USER_SOURCE)?;
+
+    let registry = TypeRegistry::from_wit_paths(&[wit_input_path
+        .to_str()
+        .ok_or("invalid UTF-8 in path")?
+        .to_string()])?;
+    let ret = transpile_python(
+        &input_path,
+        &output_path,
+        "smoke".to_string(),
+        false,
+        None,
+        Some(&registry),
+        Some("shop_types".to_string()),
+    );
+    assert_eq!(ret, 0, "transpile_python failed");
+
+    // Minimal stand-in for the componentize-py generated bindings module.
+    mudu_sys::fs::sync::sync_write(tmp_pb.join("wit_world.py"), "class WitWorld:\n    pass\n")?;
+    Ok(tmp_pb)
 }
 
 fn unique_temp_dir(prefix: &str) -> Result<std::path::PathBuf, Box<dyn Error>> {

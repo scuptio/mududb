@@ -180,111 +180,111 @@ const GO_TEMPLATES: &[TemplateFile] = &[
     template!("go", "vendor/go.bytecodealliance.org/cm/variant.go.tmpl"),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/codec/frame.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/codec/frame.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/codec/mpack.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/codec/mpack.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniCommandArgv.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniCommandArgv.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniCommandResult.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniCommandResult.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniDataType.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniDataType.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniDataValue.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniDataValue.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniError.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniError.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniFsDirent.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniFsDirent.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniFsOpenArgv.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniFsOpenArgv.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniFsStat.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniFsStat.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniMessage.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniMessage.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniOid.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniOid.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniProcedureParam.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniProcedureParam.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniProcedureResult.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniProcedureResult.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniQueryArgv.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniQueryArgv.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniQueryResult.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniQueryResult.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniRecordType.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniRecordType.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniResultSet.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniResultSet.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniResultType.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniResultType.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniScalar.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniScalar.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniScalarValue.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniScalarValue.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniSqlParam.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniSqlParam.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniSqlStmt.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniSqlStmt.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniSyscall.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniSyscall.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/UniTupleRow.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniTupleRow.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/bridge.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/bridge.go.tmpl"
     ),
     template!(
         "go",
-        "vendor/github.com/ybbh/mududb_p/bindings/go/types/wire.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/wire.go.tmpl"
     ),
     template!("go", "vendor/modules.txt.tmpl"),
     template!("go", "wit/deps/cli/command.wit.tmpl"),

@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::imp::task::SJoinHandle;
 use mudu::common::result::RS;
 
@@ -8,14 +7,17 @@ mod std_thread;
 pub use context::try_this_thread_task_id;
 pub use std_thread::{sleep, spawn_thread, spawn_thread_named, Thread, ThreadJoinHandle};
 
+/// Thread subsystem - native implementation over `std::thread`.
 #[derive(Default)]
 pub struct SysThread;
 
 impl SysThread {
+    /// Creates the thread subsystem handle.
     pub fn new() -> Self {
         Self
     }
 
+    /// Spawns a thread running `f` and returns a join handle for its result.
     pub fn spawn<F, T>(&self, f: F) -> RS<SJoinHandle<T>>
     where
         F: FnOnce() -> T + Send + 'static,
@@ -24,6 +26,8 @@ impl SysThread {
         spawn_thread(f)
     }
 
+    /// Spawns a named thread running `f` and returns a join handle for its
+    /// result.
     pub fn spawn_named<F, T>(&self, name: impl Into<String>, f: F) -> RS<SJoinHandle<T>>
     where
         F: FnOnce() -> T + Send + 'static,

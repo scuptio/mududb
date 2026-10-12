@@ -1,5 +1,4 @@
-//! `tuple::comparator` module.
-#![allow(missing_docs)]
+//! Comparison, equality, and hashing of binary tuples.
 
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -14,15 +13,22 @@ use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::type_family::TypeFamily;
 
+/// Function pointers implementing comparison, equality, and hashing of
+/// binary tuples laid out by a [`TupleBinaryDesc`].
 #[derive(Clone, Copy)]
 pub struct TupleComparator {
+    /// Compares two tuples field by field.
     pub compare: fn(&[u8], &[u8], &TupleBinaryDesc) -> RS<Ordering>,
+    /// Tests two tuples for field-by-field equality.
     pub equal: fn(&[u8], &[u8], &TupleBinaryDesc) -> RS<bool>,
+    /// Hashes one tuple into `Hasher`.
     pub hash_cal_one: fn(&[u8], &TupleBinaryDesc, &mut dyn Hasher) -> RS<()>,
+    /// Hashes one tuple into `Hasher` and returns the finished hash value.
     pub hash_cal_finish: fn(&[u8], &TupleBinaryDesc, &mut dyn Hasher) -> RS<u64>,
 }
 
 impl TupleComparator {
+    /// Creates a comparator using the default field-wise implementations.
     pub fn new() -> Self {
         Self {
             compare: tuple_compare_adapter,
@@ -59,6 +65,7 @@ fn tuple_hash_finish_adapter(
     tuple_hash_finish(desc, tuple, hasher)
 }
 
+/// Compares two binary tuples field by field, returning the first non-equal ordering.
 pub fn tuple_compare(desc: &TupleBinaryDesc, tuple1: &[u8], tuple2: &[u8]) -> RS<Ordering> {
     _iter_value(
         desc,
@@ -70,6 +77,7 @@ pub fn tuple_compare(desc: &TupleBinaryDesc, tuple1: &[u8], tuple2: &[u8]) -> RS
     )
 }
 
+/// Tests two binary tuples for field-by-field equality.
 pub fn tuple_equal(desc: &TupleBinaryDesc, tuple1: &[u8], tuple2: &[u8]) -> RS<bool> {
     _iter_value(
         desc,
@@ -81,12 +89,14 @@ pub fn tuple_equal(desc: &TupleBinaryDesc, tuple1: &[u8], tuple2: &[u8]) -> RS<b
     )
 }
 
+/// Hashes a binary tuple field by field into `hasher` and returns the finished hash value.
 pub fn tuple_hash_finish(desc: &TupleBinaryDesc, tuple: &[u8], hasher: &mut dyn Hasher) -> RS<u64> {
     _tuple_hash(desc, tuple, hasher)?;
     let hash_value = hasher.finish();
     Ok(hash_value)
 }
 
+/// Hashes a binary tuple field by field into `hasher`.
 pub fn tuple_hash(desc: &TupleBinaryDesc, tuple: &[u8], hasher: &mut dyn Hasher) -> RS<()> {
     _tuple_hash(desc, tuple, hasher)?;
     Ok(())

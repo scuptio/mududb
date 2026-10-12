@@ -1,19 +1,20 @@
-#![allow(missing_docs)]
-
 use crate::backend::http_api::{
     HttpApiCapabilities, LegacyHttpApi, serve_http_api_on_listener_with_stop,
 };
 use crate::backend::mudud_cfg::MuduDBCfg;
-use crate::service::runtime_impl::create_runtime_service;
-use crate::service::runtime_opt::RuntimeOpt;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_utils::notifier::{Notifier, Waiter};
+use runtime_wasm::service::runtime_impl::create_runtime_service;
+use runtime_wasm::service::runtime_opt::RuntimeOpt;
 use std::sync::Arc;
 use tracing::{error, info};
 
+/// Initializes the legacy runtime service from `cfg` and serves the
+/// management HTTP API until `stop` fires. `opt_initialized_notifier`, when
+/// given, is signalled once the runtime finishes initialization.
 pub async fn async_serve(
     cfg: MuduDBCfg,
     stop: Waiter,
@@ -22,6 +23,7 @@ pub async fn async_serve(
     let component_target = cfg.component_target();
     let enable_async = cfg.enable_async;
     let runtime_opt = RuntimeOpt {
+        invocation_limits: cfg.invocation_limits.clone(),
         component_target,
         enable_async,
         sever_mode: cfg.server_mode,

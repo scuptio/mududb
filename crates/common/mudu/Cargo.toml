@@ -33,4 +33,4 @@ toml = { workspace = true }
 path = "src/lib.rs"
 
 [features]
-test = []
+arbitrary = []

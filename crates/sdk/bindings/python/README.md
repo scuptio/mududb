@@ -1,20 +1,24 @@
 # mududb Python bindings
 
-The `mududb` Python package has two roles:
+The `mududb` Python package supports three uses:
 
 1. **Guest SDK** — write stored procedures in Python against the canonical
    facade (`mududb.db` / `mududb.sql` / `mududb.result` / `mududb.fs` /
    `mududb.sys`, operation-aligned with the AssemblyScript, C#, and Rust
    guests) and compile them to a WASM component with componentize-py; see
-   `crates/sdk/example/wallet-py` for the full pipeline and
+   `example/mpk/wallet-py` for the full pipeline and
    `doc/dev/binding_api_surface.md` for the canonical surface.
-2. **Tooling / corpus verification** — the generated MSSP codecs and the
+2. **Native adapter applications** — use [`mududb.adapter`](mududb/adapter.py)
+   with a separately installed adapter runtime. See [SDK execution modes](../../../../doc/dev/sdk_distribution.md#language-and-execution-modes) for the build and runtime requirements.
+3. **Tooling / corpus verification** — the generated MSSP codecs and the
    canonical MessagePack rules are validated byte-exact against the
    host-side Rust codec (`crates/common/mudu_binding/src/codec/
    syscall_payload/`, rmp_serde 1.3.x) with the shared cross-language
    golden fixtures.
 
-Pure stdlib, Python 3.9+, zero install for the test entries: every test entry
+The codec and facade package uses the Python 3.9+ standard library. Guest builds
+add componentize-py; native adapter applications need the adapter runtime.
+For the test entries, every script
 bootstraps `sys.path` itself, so nothing needs `pip install`. As a package it
 is `pip install mududb` and then the canonical import paths are
 `mududb.types`, `mududb.codec.mpack`, `mududb.generated.*`, and the facade
@@ -98,8 +102,7 @@ codec path above when the schema changes.
 
 ## Running the tests
 
-From this directory (or anywhere — the scripts locate the repo fixtures by
-walking up):
+From this directory (the corpus scripts locate the repository fixtures automatically):
 
 ```sh
 python3 -m unittest discover tests -v   # mpack unit tests

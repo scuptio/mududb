@@ -1,0 +1,20 @@
+[package]
+name = "mudu_raft"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Raft consensus for MuduDB replication; a vendored port of scuptio/scupt-raft (Apache-2.0) restructured onto mudu/mudu_sys"
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_sys = { workspace = true }
+serde = { workspace = true }
+rmp-serde = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

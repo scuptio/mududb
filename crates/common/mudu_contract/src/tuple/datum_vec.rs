@@ -1,5 +1,4 @@
-//! `tuple::datum_vec` module.
-#![allow(missing_docs)]
+//! Conversions between datum trait object vectors and value/binary vectors.
 
 use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
@@ -33,6 +32,7 @@ fn datum_vec_to<T, F: Fn(&dyn DatumDyn, &DatumDesc) -> RS<T>>(
     Ok(vec)
 }
 
+/// Converts datum trait objects into per-field binary values typed by `desc`.
 pub fn datum_vec_to_bin_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<Vec<Vec<u8>>> {
     let f = |datum: &dyn DatumDyn, datum_desc: &DatumDesc| {
         let dat: DataBinary = datum.to_binary(datum_desc.data_type()).map_err(|e| {
@@ -47,6 +47,7 @@ pub fn datum_vec_to_bin_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<V
     datum_vec_to(param, desc, &f)
 }
 
+/// Converts datum trait objects into per-field memory values typed by `desc`.
 pub fn datum_vec_to_value_vec(param: &[&dyn DatumDyn], desc: &[DatumDesc]) -> RS<Vec<DataValue>> {
     let f = |datum: &dyn DatumDyn, datum_desc: &DatumDesc| {
         let dat: DataValue = datum.to_value(datum_desc.data_type()).map_err(|e| {

@@ -6,22 +6,27 @@ use std::time::Duration;
 pub struct SystemTime(pub(crate) std::time::SystemTime);
 
 impl SystemTime {
+    /// Returns the current wall-clock system time.
     pub fn now() -> Self {
         Self(std::time::SystemTime::now())
     }
 
+    /// Wraps a [`std::time::SystemTime`].
     pub fn from_std(st: std::time::SystemTime) -> Self {
         Self(st)
     }
 
+    /// Unwraps into the underlying [`std::time::SystemTime`].
     pub fn into_std(self) -> std::time::SystemTime {
         self.0
     }
 
+    /// Returns `self + duration`, or `None` on overflow.
     pub fn checked_add(&self, duration: Duration) -> Option<SystemTime> {
         self.0.checked_add(duration).map(SystemTime)
     }
 
+    /// Returns `self - duration`, or `None` on overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<SystemTime> {
         self.0.checked_sub(duration).map(SystemTime)
     }

@@ -1,0 +1,12 @@
+lang = "assemblyscript"
+async = false
+
+[patterns]
+include = [
+    "**/*.ts",
+]
+exclude = [
+    "**/*.test.ts",
+    "**/node_modules/**",
+    "**/build/**",
+]

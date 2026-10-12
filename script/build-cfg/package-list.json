@@ -1,10 +1,9 @@
 {
   "packages": [
-    "crates/sdk/example/game-backend",
-    "crates/sdk/example/key-value",
-    "crates/sdk/example/tpcc",
-    "crates/sdk/example/vote",
-    "crates/sdk/example/wallet",
-    "crates/sdk/example/ycsb"
+    "example/mpk/key-value",
+    "example/mpk/tpcc",
+    "example/mpk/vote",
+    "example/mpk/wallet",
+    "example/mpk/ycsb"
   ]
 }

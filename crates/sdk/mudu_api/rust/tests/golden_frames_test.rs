@@ -68,7 +68,11 @@ fn query_argv() -> UniQueryArgv {
         query: UniSqlStmt {
             sql_string: "select 1".to_string(),
         },
-        param_list: UniSqlParam { params: Vec::new() },
+        param_list: UniSqlParam {
+            params: Vec::new(),
+            param_names: None,
+        },
+        param_desc: None,
     }
 }
 
@@ -78,7 +82,11 @@ fn command_argv() -> UniCommandArgv {
         command: UniSqlStmt {
             sql_string: "update t set a = 1".to_string(),
         },
-        param_list: UniSqlParam { params: Vec::new() },
+        param_list: UniSqlParam {
+            params: Vec::new(),
+            param_names: None,
+        },
+        param_desc: None,
     }
 }
 
@@ -88,7 +96,11 @@ fn batch_argv() -> UniCommandArgv {
         command: UniSqlStmt {
             sql_string: "insert into t values (1)".to_string(),
         },
-        param_list: UniSqlParam { params: Vec::new() },
+        param_list: UniSqlParam {
+            params: Vec::new(),
+            param_names: None,
+        },
+        param_desc: None,
     }
 }
 
@@ -149,9 +161,342 @@ fn assert_request(frame: &[u8], kind: u32, serialized: Vec<u8>) {
     );
 }
 
+/// Verifies the kind-1 `query` request/response pair.
+fn verify_query_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[0],
+        1,
+        mudu_sys::serialize_query(&query_argv()).unwrap(),
+    );
+    match mudu_sys::deserialize_query_result(segments[1]).unwrap() {
+        UniQueryReturn::Ok(result) => {
+            assert_eq!(result.tuple_desc.record_name, "");
+            assert!(result.tuple_desc.record_fields.is_empty());
+            assert!(!result.result_set.eof);
+            assert!(result.result_set.row_set.is_empty());
+            assert!(result.result_set.cursor.is_empty());
+        }
+        UniQueryReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-2 `command` request/response pair.
+fn verify_command_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[2],
+        2,
+        mudu_sys::serialize_command(&command_argv()).unwrap(),
+    );
+    match mudu_sys::deserialize_command_result(segments[3]).unwrap() {
+        UniCommandReturn::Ok(result) => assert_eq!(result.affected_rows, 3),
+        UniCommandReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-3 `batch` request/response pair.
+fn verify_batch_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[4],
+        3,
+        mudu_sys::batch::serialize_batch(&batch_argv()).unwrap(),
+    );
+    match mudu_sys::batch::deserialize_batch_result(segments[5]).unwrap() {
+        UniCommandReturn::Ok(result) => assert_eq!(result.affected_rows, 2),
+        UniCommandReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-4/5 `open-session`/`close-session` pairs.
+fn verify_session_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[6],
+        4,
+        mudu_sys::session::serialize_open(&oid(4)).unwrap(),
+    );
+    match mudu_sys::session::deserialize_open_result(segments[7]).unwrap() {
+        Ok(session) => assert_eq!((session.h, session.l), (0, 4)),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[8],
+        5,
+        mudu_sys::session::serialize_close(&oid(5)).unwrap(),
+    );
+    assert!(
+        mudu_sys::session::deserialize_close_result(segments[9])
+            .unwrap()
+            .is_ok()
+    );
+}
+
+/// Verifies the kind-6..9 `get`/`put`/`delete`/`range` pairs.
+fn verify_kv_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[10],
+        6,
+        mudu_sys::kv::serialize_get(&oid(6), b"k1").unwrap(),
+    );
+    match mudu_sys::kv::deserialize_get_result(segments[11]).unwrap() {
+        Ok(value) => assert_eq!(value, Some(b"v1".to_vec())),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[12],
+        7,
+        mudu_sys::kv::serialize_put(&oid(7), b"k1", b"v1").unwrap(),
+    );
+    assert!(
+        mudu_sys::kv::deserialize_put_result(segments[13])
+            .unwrap()
+            .is_ok()
+    );
+
+    assert_request(
+        segments[14],
+        8,
+        mudu_sys::kv::serialize_delete(&oid(8), b"k1").unwrap(),
+    );
+    assert!(
+        mudu_sys::kv::deserialize_delete_result(segments[15])
+            .unwrap()
+            .is_ok()
+    );
+
+    assert_request(
+        segments[16],
+        9,
+        mudu_sys::kv::serialize_range(&oid(9), b"a", b"z").unwrap(),
+    );
+    match mudu_sys::kv::deserialize_range_result(segments[17]).unwrap() {
+        Ok(items) => assert_eq!(
+            items,
+            vec![
+                (b"a".to_vec(), b"1".to_vec()),
+                (b"b".to_vec(), b"2".to_vec())
+            ]
+        ),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-10/11 `fs-open`/`fs-close` pairs.
+fn verify_fs_open_close_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[18],
+        10,
+        mudu_sys::fs::serialize_fs_open(&fs_open_argv()).unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_open_result(segments[19]).unwrap() {
+        Ok(fd) => assert_eq!(fd, 9),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[20],
+        11,
+        mudu_sys::fs::serialize_fs_close(3).unwrap(),
+    );
+    assert!(
+        mudu_sys::fs::deserialize_fs_close_result(segments[21])
+            .unwrap()
+            .is_ok()
+    );
+}
+
+/// Verifies the kind-12..16 `fs-read`/`fs-write`/`fs-pread`/`fs-pwrite`/
+/// `fs-lseek` pairs.
+fn verify_fs_read_write_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[22],
+        12,
+        mudu_sys::fs::serialize_fs_read(3, 4).unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_read_result(segments[23]).unwrap() {
+        Ok(data) => assert_eq!(data, b"hi"),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[24],
+        13,
+        mudu_sys::fs::serialize_fs_write(3, b"hi").unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_write_result(segments[25]).unwrap() {
+        Ok(written) => assert_eq!(written, 2),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[26],
+        14,
+        mudu_sys::fs::serialize_fs_pread(3, 8, 4).unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_pread_result(segments[27]).unwrap() {
+        Ok(data) => assert_eq!(data, b"hi"),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[28],
+        15,
+        mudu_sys::fs::serialize_fs_pwrite(3, 8, b"hi").unwrap(),
+    );
+    assert!(
+        mudu_sys::fs::deserialize_fs_pwrite_result(segments[29])
+            .unwrap()
+            .is_ok()
+    );
+
+    assert_request(
+        segments[30],
+        16,
+        mudu_sys::fs::serialize_fs_lseek(3, -2, 1).unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_lseek_result(segments[31]).unwrap() {
+        Ok(position) => assert_eq!(position, 6),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-17..20 `fs-fstat`/`fs-stat`/`fs-fsync`/`fs-readdir`
+/// pairs.
+fn verify_fs_metadata_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[32],
+        17,
+        mudu_sys::fs::serialize_fs_fstat(3).unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_fstat_result(segments[33]).unwrap() {
+        Ok(stat) => {
+            let expected = fs_stat();
+            assert_eq!((stat.oid.h, stat.oid.l), (expected.oid.h, expected.oid.l));
+            assert_eq!(stat.generation, expected.generation);
+            assert_eq!(stat.entry, expected.entry);
+            assert_eq!(stat.length, expected.length);
+            assert_eq!(stat.state, expected.state);
+        }
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[34],
+        18,
+        mudu_sys::fs::serialize_fs_stat(&oid(18), "a").unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_stat_result(segments[35]).unwrap() {
+        Ok(stat) => assert_eq!((stat.oid.l, stat.length), (5, 100)),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[36],
+        19,
+        mudu_sys::fs::serialize_fs_fsync(3).unwrap(),
+    );
+    assert!(
+        mudu_sys::fs::deserialize_fs_fsync_result(segments[37])
+            .unwrap()
+            .is_ok()
+    );
+
+    assert_request(
+        segments[38],
+        20,
+        mudu_sys::fs::serialize_fs_readdir(&oid(20), "d").unwrap(),
+    );
+    match mudu_sys::fs::deserialize_fs_readdir_result(segments[39]).unwrap() {
+        Ok(entries) => {
+            let expected = fs_dirents();
+            assert_eq!(entries.len(), expected.len());
+            for (entry, expected) in entries.iter().zip(expected.iter()) {
+                assert_eq!(entry.name, expected.name);
+                assert_eq!(entry.is_dir, expected.is_dir);
+                assert_eq!(entry.length, expected.length);
+            }
+        }
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+}
+
+/// Verifies the kind-21..23 `relation-get`/`relation-update`/
+/// `relation-insert` pairs.
+fn verify_relation_frames(segments: &[&[u8]]) {
+    assert_request(
+        segments[40],
+        21,
+        mudu_sys::relation::serialize_relation_get(&oid(21), "t", &relation_get_key(), &[3, 4])
+            .unwrap(),
+    );
+    match mudu_sys::relation::deserialize_relation_get_result(segments[41]).unwrap() {
+        Ok(row) => assert_eq!(row, Some(vec![Some(vec![0x0A]), None])),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[42],
+        22,
+        mudu_sys::relation::serialize_relation_update(
+            &oid(22),
+            "t",
+            &relation_key(),
+            &relation_values(),
+            &[UniRelationDelta::add(3, vec![0x05])],
+        )
+        .unwrap(),
+    );
+    match mudu_sys::relation::deserialize_relation_update_result(segments[43]).unwrap() {
+        Ok(affected) => assert_eq!(affected, 1),
+        Err(error) => panic!("unexpected error: {}", error.err_msg),
+    }
+
+    assert_request(
+        segments[44],
+        23,
+        mudu_sys::relation::serialize_relation_insert(
+            &oid(23),
+            "t",
+            &relation_key(),
+            &relation_values(),
+        )
+        .unwrap(),
+    );
+    assert!(
+        mudu_sys::relation::deserialize_relation_insert_result(segments[45])
+            .unwrap()
+            .is_ok()
+    );
+}
+
+/// Verifies the trailing UniError frame: a `get` result carrying the host's
+/// NotFound error. The host encodes UniError as
+/// `[2, "no such entry", "\"None\"", "", []]` — err_src is the JSON form of
+/// ErrorSource::None and err_details is a MessagePack ARRAY, not a bin.
+fn verify_trailing_error_frame(segments: &[&[u8]]) {
+    assert_eq!(header_kind(segments[46]), 6);
+    match mudu_sys::kv::deserialize_get_result(segments[46]).unwrap() {
+        Ok(_) => panic!("expected error variant"),
+        Err(error) => {
+            assert_eq!(error.err_code, 2);
+            assert_eq!(error.err_msg, "no such entry");
+            assert_eq!(error.err_src, "\"None\"");
+            assert_eq!(error.err_loc, "");
+            assert!(error.err_details.is_empty());
+        }
+    }
+}
+
 #[test]
 fn golden_corpus_matches_sdk_codec_for_all_kinds() {
-    let bytes = std::fs::read(GOLDEN_PATH)
+    let local = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/golden/v1/syscall_payload_v1_all.bin");
+    let path = if local.exists() {
+        local
+    } else {
+        GOLDEN_PATH.into()
+    };
+    let bytes = std::fs::read(path)
         .expect("missing golden corpus; run generate_golden_v1_fixtures in the testing crate");
     let segments = unpack_segments(&bytes);
     assert_eq!(segments.len(), SEGMENT_COUNT);
@@ -185,320 +530,14 @@ fn golden_corpus_matches_sdk_codec_for_all_kinds() {
         assert_eq!(redecoded, value, "segment {index} body roundtrip");
     }
 
-    // 1 query.
-    assert_request(
-        segments[0],
-        1,
-        mudu_sys::serialize_query(&query_argv()).unwrap(),
-    );
-    match mudu_sys::deserialize_query_result(segments[1]).unwrap() {
-        UniQueryReturn::Ok(result) => {
-            assert_eq!(result.tuple_desc.record_name, "");
-            assert!(result.tuple_desc.record_fields.is_empty());
-            assert!(!result.result_set.eof);
-            assert!(result.result_set.row_set.is_empty());
-            assert!(result.result_set.cursor.is_empty());
-        }
-        UniQueryReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 2 command.
-    assert_request(
-        segments[2],
-        2,
-        mudu_sys::serialize_command(&command_argv()).unwrap(),
-    );
-    match mudu_sys::deserialize_command_result(segments[3]).unwrap() {
-        UniCommandReturn::Ok(result) => assert_eq!(result.affected_rows, 3),
-        UniCommandReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 3 batch.
-    assert_request(
-        segments[4],
-        3,
-        mudu_sys::batch::serialize_batch(&batch_argv()).unwrap(),
-    );
-    match mudu_sys::batch::deserialize_batch_result(segments[5]).unwrap() {
-        UniCommandReturn::Ok(result) => assert_eq!(result.affected_rows, 2),
-        UniCommandReturn::Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 4 open-session.
-    assert_request(
-        segments[6],
-        4,
-        mudu_sys::session::serialize_open(&oid(4)).unwrap(),
-    );
-    match mudu_sys::session::deserialize_open_result(segments[7]).unwrap() {
-        Ok(session) => assert_eq!((session.h, session.l), (0, 4)),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 5 close-session.
-    assert_request(
-        segments[8],
-        5,
-        mudu_sys::session::serialize_close(&oid(5)).unwrap(),
-    );
-    assert!(
-        mudu_sys::session::deserialize_close_result(segments[9])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 6 get.
-    assert_request(
-        segments[10],
-        6,
-        mudu_sys::kv::serialize_get(&oid(6), b"k1").unwrap(),
-    );
-    match mudu_sys::kv::deserialize_get_result(segments[11]).unwrap() {
-        Ok(value) => assert_eq!(value, Some(b"v1".to_vec())),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 7 put.
-    assert_request(
-        segments[12],
-        7,
-        mudu_sys::kv::serialize_put(&oid(7), b"k1", b"v1").unwrap(),
-    );
-    assert!(
-        mudu_sys::kv::deserialize_put_result(segments[13])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 8 delete.
-    assert_request(
-        segments[14],
-        8,
-        mudu_sys::kv::serialize_delete(&oid(8), b"k1").unwrap(),
-    );
-    assert!(
-        mudu_sys::kv::deserialize_delete_result(segments[15])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 9 range.
-    assert_request(
-        segments[16],
-        9,
-        mudu_sys::kv::serialize_range(&oid(9), b"a", b"z").unwrap(),
-    );
-    match mudu_sys::kv::deserialize_range_result(segments[17]).unwrap() {
-        Ok(items) => assert_eq!(
-            items,
-            vec![
-                (b"a".to_vec(), b"1".to_vec()),
-                (b"b".to_vec(), b"2".to_vec())
-            ]
-        ),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 10 fs-open.
-    assert_request(
-        segments[18],
-        10,
-        mudu_sys::fs::serialize_fs_open(&fs_open_argv()).unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_open_result(segments[19]).unwrap() {
-        Ok(fd) => assert_eq!(fd, 9),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 11 fs-close.
-    assert_request(
-        segments[20],
-        11,
-        mudu_sys::fs::serialize_fs_close(3).unwrap(),
-    );
-    assert!(
-        mudu_sys::fs::deserialize_fs_close_result(segments[21])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 12 fs-read.
-    assert_request(
-        segments[22],
-        12,
-        mudu_sys::fs::serialize_fs_read(3, 4).unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_read_result(segments[23]).unwrap() {
-        Ok(data) => assert_eq!(data, b"hi"),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 13 fs-write.
-    assert_request(
-        segments[24],
-        13,
-        mudu_sys::fs::serialize_fs_write(3, b"hi").unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_write_result(segments[25]).unwrap() {
-        Ok(written) => assert_eq!(written, 2),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 14 fs-pread.
-    assert_request(
-        segments[26],
-        14,
-        mudu_sys::fs::serialize_fs_pread(3, 8, 4).unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_pread_result(segments[27]).unwrap() {
-        Ok(data) => assert_eq!(data, b"hi"),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 15 fs-pwrite.
-    assert_request(
-        segments[28],
-        15,
-        mudu_sys::fs::serialize_fs_pwrite(3, 8, b"hi").unwrap(),
-    );
-    assert!(
-        mudu_sys::fs::deserialize_fs_pwrite_result(segments[29])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 16 fs-lseek.
-    assert_request(
-        segments[30],
-        16,
-        mudu_sys::fs::serialize_fs_lseek(3, -2, 1).unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_lseek_result(segments[31]).unwrap() {
-        Ok(position) => assert_eq!(position, 6),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 17 fs-fstat.
-    assert_request(
-        segments[32],
-        17,
-        mudu_sys::fs::serialize_fs_fstat(3).unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_fstat_result(segments[33]).unwrap() {
-        Ok(stat) => {
-            let expected = fs_stat();
-            assert_eq!((stat.oid.h, stat.oid.l), (expected.oid.h, expected.oid.l));
-            assert_eq!(stat.generation, expected.generation);
-            assert_eq!(stat.entry, expected.entry);
-            assert_eq!(stat.length, expected.length);
-            assert_eq!(stat.state, expected.state);
-        }
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 18 fs-stat.
-    assert_request(
-        segments[34],
-        18,
-        mudu_sys::fs::serialize_fs_stat(&oid(18), "a").unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_stat_result(segments[35]).unwrap() {
-        Ok(stat) => assert_eq!((stat.oid.l, stat.length), (5, 100)),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 19 fs-fsync.
-    assert_request(
-        segments[36],
-        19,
-        mudu_sys::fs::serialize_fs_fsync(3).unwrap(),
-    );
-    assert!(
-        mudu_sys::fs::deserialize_fs_fsync_result(segments[37])
-            .unwrap()
-            .is_ok()
-    );
-
-    // 20 fs-readdir.
-    assert_request(
-        segments[38],
-        20,
-        mudu_sys::fs::serialize_fs_readdir(&oid(20), "d").unwrap(),
-    );
-    match mudu_sys::fs::deserialize_fs_readdir_result(segments[39]).unwrap() {
-        Ok(entries) => {
-            let expected = fs_dirents();
-            assert_eq!(entries.len(), expected.len());
-            for (entry, expected) in entries.iter().zip(expected.iter()) {
-                assert_eq!(entry.name, expected.name);
-                assert_eq!(entry.is_dir, expected.is_dir);
-                assert_eq!(entry.length, expected.length);
-            }
-        }
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 21 relation-get.
-    assert_request(
-        segments[40],
-        21,
-        mudu_sys::relation::serialize_relation_get(&oid(21), "t", &relation_get_key(), &[3, 4])
-            .unwrap(),
-    );
-    match mudu_sys::relation::deserialize_relation_get_result(segments[41]).unwrap() {
-        Ok(row) => assert_eq!(row, Some(vec![Some(vec![0x0A]), None])),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 22 relation-update.
-    assert_request(
-        segments[42],
-        22,
-        mudu_sys::relation::serialize_relation_update(
-            &oid(22),
-            "t",
-            &relation_key(),
-            &relation_values(),
-            &[UniRelationDelta::add(3, vec![0x05])],
-        )
-        .unwrap(),
-    );
-    match mudu_sys::relation::deserialize_relation_update_result(segments[43]).unwrap() {
-        Ok(affected) => assert_eq!(affected, 1),
-        Err(error) => panic!("unexpected error: {}", error.err_msg),
-    }
-
-    // 23 relation-insert.
-    assert_request(
-        segments[44],
-        23,
-        mudu_sys::relation::serialize_relation_insert(
-            &oid(23),
-            "t",
-            &relation_key(),
-            &relation_values(),
-        )
-        .unwrap(),
-    );
-    assert!(
-        mudu_sys::relation::deserialize_relation_insert_result(segments[45])
-            .unwrap()
-            .is_ok()
-    );
-
-    // Trailing UniError frame: a `get` result carrying the host's NotFound
-    // error. The host encodes UniError as
-    // [2, "no such entry", "\"None\"", "", []] — err_src is the JSON form of
-    // ErrorSource::None and err_details is a MessagePack ARRAY, not a bin.
-    assert_eq!(header_kind(segments[46]), 6);
-    match mudu_sys::kv::deserialize_get_result(segments[46]).unwrap() {
-        Ok(_) => panic!("expected error variant"),
-        Err(error) => {
-            assert_eq!(error.err_code, 2);
-            assert_eq!(error.err_msg, "no such entry");
-            assert_eq!(error.err_src, "\"None\"");
-            assert_eq!(error.err_loc, "");
-            assert!(error.err_details.is_empty());
-        }
-    }
+    verify_query_frames(&segments);
+    verify_command_frames(&segments);
+    verify_batch_frames(&segments);
+    verify_session_frames(&segments);
+    verify_kv_frames(&segments);
+    verify_fs_open_close_frames(&segments);
+    verify_fs_read_write_frames(&segments);
+    verify_fs_metadata_frames(&segments);
+    verify_relation_frames(&segments);
+    verify_trailing_error_frame(&segments);
 }

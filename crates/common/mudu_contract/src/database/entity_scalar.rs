@@ -1,5 +1,3 @@
-//! `database::entity_scalar` module.
-//!
 //! Scalar [`Entity`] implementations: a scalar value is treated as a
 //! single-column row, so `mudu_query::<i64>` and friends decode the first
 //! column of each result row directly.
@@ -9,7 +7,6 @@
 //! `field_<type>` (e.g. `field_i64`). User SQL may rely on these names with
 //! `AS field_i64`-style aliases, though decoding is positional and does not
 //! check column names.
-#![allow(missing_docs)]
 
 use crate::database::entity::{
     Entity, expect_field_count, field_from_tuple_binary, field_to_tuple_binary,

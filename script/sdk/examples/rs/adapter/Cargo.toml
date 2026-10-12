@@ -1,0 +1,10 @@
+[package]
+name = "wallet-adapter"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+[workspace]
+[dependencies]
+wallet_rs = { path = "../mpk" }
+mududb = { package = "mudu_api_rust", path = "../../.." }
+tokio = { version = "1", features = ["rt", "macros"] }

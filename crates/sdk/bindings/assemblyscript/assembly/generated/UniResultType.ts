@@ -31,7 +31,7 @@ export class UniResultTypeCodec {
             if (opt === null) {
                 writer.writeNil();
             } else {
-                UniDataTypeCodec.encode(opt!, writer);
+                UniDataTypeCodec.encode(opt, writer);
             }
         }
         }
@@ -47,7 +47,7 @@ export class UniResultTypeCodec {
             if (opt === null) {
                 writer.writeNil();
             } else {
-                UniDataTypeCodec.encode(opt!, writer);
+                UniDataTypeCodec.encode(opt, writer);
             }
         }
         }

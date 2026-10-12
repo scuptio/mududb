@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use mudu::common::result::RS;
     use mudu_sys_contract::perf::{TraceContext, TxnStage};
 
     #[test]
@@ -222,13 +223,32 @@ mod tests {
             (11, MessageType::ProcedureInvoke),
             (12, MessageType::SessionCreate),
             (13, MessageType::SessionClose),
+            (14, MessageType::ReplSubscribe),
+            (15, MessageType::ReplBatch),
+            (16, MessageType::ReplAck),
+            (17, MessageType::ReplHealFetch),
+            (18, MessageType::ReplHealResp),
+            (19, MessageType::RaftPreVoteReq),
+            (20, MessageType::RaftPreVoteResp),
+            (21, MessageType::RaftVoteReq),
+            (22, MessageType::RaftVoteResp),
+            (23, MessageType::RaftAppendReq),
+            (24, MessageType::RaftAppendResp),
+            (25, MessageType::RaftApplyReq),
+            (26, MessageType::RaftApplyResp),
+            (27, MessageType::RaftUpdateConfReq),
+            (28, MessageType::RaftUpdateConfResp),
+            (29, MessageType::ReplSnapshotOffer),
+            (30, MessageType::ReplSnapshotFetch),
+            (31, MessageType::ReplSnapshotResp),
+            (32, MessageType::ReplSubscribeAccept),
         ];
         for (value, expected) in cases {
             assert_eq!(MessageType::try_from(value).unwrap(), expected);
             assert_eq!(u32::from(expected), value);
         }
         assert!(MessageType::try_from(0).is_err());
-        assert!(MessageType::try_from(14).is_err());
+        assert!(MessageType::try_from(33).is_err());
     }
 
     #[test]
@@ -481,5 +501,373 @@ mod tests {
         let from_err = ErrorResponse::from_merror(&err);
         assert_eq!(from_err.source(), err.err_src().to_json_str());
         assert_eq!(from_err.location(), err.loc().to_string());
+    }
+
+    /// Encodes `message` with `encode`, decodes the resulting frame, asserts
+    /// the frame carries `expected` as its message type, and decodes the
+    /// payload back with `decode`.
+    fn roundtrip_message<M>(
+        request_id: u64,
+        message: &M,
+        expected: MessageType,
+        encode: fn(u64, &M) -> RS<Vec<u8>>,
+        decode: fn(&Frame) -> RS<M>,
+    ) -> M {
+        let encoded = encode(request_id, message).unwrap();
+        let frame = Frame::decode(&encoded).unwrap();
+        assert_eq!(frame.header().message_type(), expected);
+        decode(&frame).unwrap()
+    }
+
+    #[test]
+    fn repl_messages_roundtrip() {
+        for case in [
+            repl_subscribe_roundtrip,
+            repl_subscribe_accept_roundtrip,
+            repl_batch_roundtrip,
+            repl_ack_roundtrip,
+            repl_heal_fetch_roundtrip,
+            repl_heal_response_roundtrip,
+            repl_snapshot_offer_roundtrip,
+            repl_snapshot_fetch_roundtrip,
+            repl_snapshot_response_roundtrip,
+        ] {
+            case();
+        }
+    }
+
+    fn repl_subscribe_roundtrip() {
+        let subscribe = roundtrip_message(
+            1,
+            &ReplSubscribeReq::new_with_epoch(7, 2, 1024, 5),
+            MessageType::ReplSubscribe,
+            encode_repl_subscribe_request,
+            decode_repl_subscribe_request,
+        );
+        assert_eq!(subscribe.src_node_id(), 7);
+        assert_eq!(subscribe.worker_id(), 2);
+        assert_eq!(subscribe.from_lsn(), 1024);
+        assert_eq!(subscribe.src_epoch(), 5);
+    }
+
+    fn repl_subscribe_accept_roundtrip() {
+        let accept = roundtrip_message(
+            2,
+            &ReplSubscribeAcceptFrame::new(9, 2, 6),
+            MessageType::ReplSubscribeAccept,
+            encode_repl_subscribe_accept_frame,
+            decode_repl_subscribe_accept_frame,
+        );
+        assert_eq!(accept.node_id(), 9);
+        assert_eq!(accept.worker_id(), 2);
+        assert_eq!(accept.epoch(), 6);
+    }
+
+    fn repl_batch_roundtrip() {
+        let batch = roundtrip_message(
+            2,
+            &ReplBatchFrame::new_with_epoch(3, 2048, vec![b"f1".to_vec(), b"f2".to_vec()], 6),
+            MessageType::ReplBatch,
+            encode_repl_batch_frame,
+            decode_repl_batch_frame,
+        );
+        assert_eq!(batch.worker_id(), 3);
+        assert_eq!(batch.lsn_lo(), 2048);
+        assert_eq!(batch.epoch(), 6);
+        assert_eq!(batch.frames(), &[b"f1".to_vec(), b"f2".to_vec()]);
+        assert_eq!(batch.into_frames(), vec![b"f1".to_vec(), b"f2".to_vec()]);
+    }
+
+    fn repl_ack_roundtrip() {
+        let ack = roundtrip_message(
+            3,
+            &ReplAckFrame::new(4, 4096),
+            MessageType::ReplAck,
+            encode_repl_ack_frame,
+            decode_repl_ack_frame,
+        );
+        assert_eq!(ack.worker_id(), 4);
+        assert_eq!(ack.stored_lsn(), 4096);
+    }
+
+    fn repl_heal_fetch_roundtrip() {
+        let heal_fetch = roundtrip_message(
+            4,
+            &ReplHealFetchReq::new(5, 100, 200),
+            MessageType::ReplHealFetch,
+            encode_repl_heal_fetch_request,
+            decode_repl_heal_fetch_request,
+        );
+        assert_eq!(heal_fetch.worker_id(), 5);
+        assert_eq!(heal_fetch.lsn_lo(), 100);
+        assert_eq!(heal_fetch.lsn_hi(), 200);
+    }
+
+    fn repl_heal_response_roundtrip() {
+        let heal_resp = roundtrip_message(
+            5,
+            &ReplHealRespFrame::new(6, vec![b"g1".to_vec(), b"g2".to_vec()]),
+            MessageType::ReplHealResp,
+            encode_repl_heal_response_frame,
+            decode_repl_heal_response_frame,
+        );
+        assert_eq!(heal_resp.worker_id(), 6);
+        assert_eq!(heal_resp.frames(), &[b"g1".to_vec(), b"g2".to_vec()]);
+        assert_eq!(
+            heal_resp.into_frames(),
+            vec![b"g1".to_vec(), b"g2".to_vec()]
+        );
+    }
+
+    fn repl_snapshot_offer_roundtrip() {
+        let manifest = ReplSnapshotManifest {
+            version: 1,
+            worker_index: 2,
+            committed_lsn: 4095,
+            seg_hash: [7u8; 32],
+            raft_term: 3,
+            raft_index: 42,
+            taken_at_ms: 123456,
+            files: vec![
+                ReplSnapshotFileEntry {
+                    path: "kv.mp".to_string(),
+                    len: 100,
+                    crc64: 111,
+                },
+                ReplSnapshotFileEntry {
+                    path: "relation/0.1.0.dat".to_string(),
+                    len: 4096,
+                    crc64: 222,
+                },
+            ],
+        };
+        assert_eq!(manifest.resume_lsn(), 4096);
+        let offer = roundtrip_message(
+            6,
+            &ReplSnapshotOfferFrame::new(2, manifest.clone()),
+            MessageType::ReplSnapshotOffer,
+            encode_repl_snapshot_offer_frame,
+            decode_repl_snapshot_offer_frame,
+        );
+        assert_eq!(offer.worker_id(), 2);
+        assert_eq!(offer.manifest(), &manifest);
+        assert_eq!(offer.into_manifest(), manifest);
+    }
+
+    fn repl_snapshot_fetch_roundtrip() {
+        let fetch = roundtrip_message(
+            7,
+            &ReplSnapshotFetchReq::new(2, 4095, "kv.mp".to_string(), 64, 4096),
+            MessageType::ReplSnapshotFetch,
+            encode_repl_snapshot_fetch_request,
+            decode_repl_snapshot_fetch_request,
+        );
+        assert_eq!(fetch.worker_id(), 2);
+        assert_eq!(fetch.snapshot_lsn(), 4095);
+        assert_eq!(fetch.path(), "kv.mp");
+        assert_eq!(fetch.offset(), 64);
+        assert_eq!(fetch.len(), 4096);
+    }
+
+    fn repl_snapshot_response_roundtrip() {
+        let resp = roundtrip_message(
+            7,
+            &ReplSnapshotRespFrame::new(2, "kv.mp".to_string(), 64, b"data".to_vec()),
+            MessageType::ReplSnapshotResp,
+            encode_repl_snapshot_resp_frame,
+            decode_repl_snapshot_resp_frame,
+        );
+        assert_eq!(resp.worker_id(), 2);
+        assert_eq!(resp.path(), "kv.mp");
+        assert_eq!(resp.offset(), 64);
+        assert_eq!(resp.data(), b"data");
+        assert_eq!(resp.into_data(), b"data".to_vec());
+    }
+
+    #[test]
+    fn raft_messages_roundtrip() {
+        for case in [
+            raft_pre_vote_request_roundtrip,
+            raft_pre_vote_response_roundtrip,
+            raft_vote_request_roundtrip,
+            raft_vote_response_roundtrip,
+            raft_append_request_roundtrip,
+            raft_append_response_roundtrip,
+            raft_apply_request_roundtrip,
+            raft_apply_response_roundtrip,
+        ] {
+            case();
+        }
+    }
+
+    fn raft_pre_vote_request_roundtrip() {
+        let pre_vote = roundtrip_message(
+            1,
+            &RaftPreVoteReqFrame::new(7, 3, 2, 42),
+            MessageType::RaftPreVoteReq,
+            encode_raft_pre_vote_request,
+            decode_raft_pre_vote_request,
+        );
+        assert_eq!(pre_vote.src_node_id(), 7);
+        assert_eq!(pre_vote.request_term(), 3);
+        assert_eq!(pre_vote.last_log_term(), 2);
+        assert_eq!(pre_vote.last_log_index(), 42);
+    }
+
+    fn raft_pre_vote_response_roundtrip() {
+        let pre_vote_resp = roundtrip_message(
+            2,
+            &RaftPreVoteRespFrame::new(8, 3, true),
+            MessageType::RaftPreVoteResp,
+            encode_raft_pre_vote_response,
+            decode_raft_pre_vote_response,
+        );
+        assert_eq!(pre_vote_resp.src_node_id(), 8);
+        assert_eq!(pre_vote_resp.request_term(), 3);
+        assert!(pre_vote_resp.vote_granted());
+    }
+
+    fn raft_vote_request_roundtrip() {
+        let vote = roundtrip_message(
+            3,
+            &RaftVoteReqFrame::new(9, 4, 2, 43),
+            MessageType::RaftVoteReq,
+            encode_raft_vote_request,
+            decode_raft_vote_request,
+        );
+        assert_eq!(vote.src_node_id(), 9);
+        assert_eq!(vote.term(), 4);
+        assert_eq!(vote.last_log_term(), 2);
+        assert_eq!(vote.last_log_index(), 43);
+    }
+
+    fn raft_vote_response_roundtrip() {
+        let vote_resp = roundtrip_message(
+            4,
+            &RaftVoteRespFrame::new(10, 4, false),
+            MessageType::RaftVoteResp,
+            encode_raft_vote_response,
+            decode_raft_vote_response,
+        );
+        assert_eq!(vote_resp.src_node_id(), 10);
+        assert_eq!(vote_resp.term(), 4);
+        assert!(!vote_resp.vote_granted());
+    }
+
+    fn raft_append_request_roundtrip() {
+        let entries = vec![
+            RaftLogEntryWire::new(4, 44, b"e1".to_vec()),
+            RaftLogEntryWire::new(4, 45, b"e2".to_vec()),
+        ];
+        let append = roundtrip_message(
+            5,
+            &RaftAppendReqFrame::new(11, 4, 43, 2, entries.clone(), 40),
+            MessageType::RaftAppendReq,
+            encode_raft_append_request,
+            decode_raft_append_request,
+        );
+        assert_eq!(append.src_node_id(), 11);
+        assert_eq!(append.term(), 4);
+        assert_eq!(append.prev_log_index(), 43);
+        assert_eq!(append.prev_log_term(), 2);
+        assert_eq!(append.commit_index(), 40);
+        assert_eq!(append.entries(), entries.as_slice());
+        assert_eq!(append.into_entries(), entries);
+    }
+
+    fn raft_append_response_roundtrip() {
+        let append_resp = roundtrip_message(
+            6,
+            &RaftAppendRespFrame::new(12, 4, true, 40, 45, 0),
+            MessageType::RaftAppendResp,
+            encode_raft_append_response,
+            decode_raft_append_response,
+        );
+        assert_eq!(append_resp.src_node_id(), 12);
+        assert_eq!(append_resp.term(), 4);
+        assert!(append_resp.append_success());
+        assert_eq!(append_resp.commit_index(), 40);
+        assert_eq!(append_resp.match_index(), 45);
+        assert_eq!(append_resp.next_index(), 0);
+    }
+
+    fn raft_apply_request_roundtrip() {
+        let apply = roundtrip_message(
+            7,
+            &RaftApplyReqFrame::new(13, 5, "snap-1".to_string(), 1, 50, 50, 4),
+            MessageType::RaftApplyReq,
+            encode_raft_apply_request,
+            decode_raft_apply_request,
+        );
+        assert_eq!(apply.src_node_id(), 13);
+        assert_eq!(apply.term(), 5);
+        assert_eq!(apply.id(), "snap-1");
+        assert_eq!(apply.begin_index(), 1);
+        assert_eq!(apply.end_index(), 50);
+        assert_eq!(apply.snapshot_index(), 50);
+        assert_eq!(apply.snapshot_term(), 4);
+    }
+
+    fn raft_apply_response_roundtrip() {
+        let apply_resp = roundtrip_message(
+            8,
+            &RaftApplyRespFrame::new(14, 5, 50, "snap-1".to_string()),
+            MessageType::RaftApplyResp,
+            encode_raft_apply_response,
+            decode_raft_apply_response,
+        );
+        assert_eq!(apply_resp.src_node_id(), 14);
+        assert_eq!(apply_resp.term(), 5);
+        assert_eq!(apply_resp.match_index(), 50);
+        assert_eq!(apply_resp.id(), "snap-1");
+    }
+
+    #[test]
+    fn raft_log_entry_wire_accessors() {
+        let entry = RaftLogEntryWire::new(3, 17, b"payload".to_vec());
+        assert_eq!(entry.term(), 3);
+        assert_eq!(entry.index(), 17);
+        assert_eq!(entry.payload(), b"payload");
+        assert_eq!(entry.into_payload(), b"payload".to_vec());
+    }
+
+    #[test]
+    fn error_response_leader_hint_roundtrip() {
+        let hint = LeaderHint::new("primary.internal", 5440);
+        assert_eq!(hint.host(), "primary.internal");
+        assert_eq!(hint.port(), 5440);
+
+        let error = ErrorResponse::new("not the leader").with_leader_hint(hint.clone());
+        let payload = rmp_serde::to_vec(&error).unwrap();
+        let frame = Frame::new(MessageType::Error, 7, payload);
+        let decoded = decode_error_response(&frame).unwrap();
+        assert_eq!(decoded.leader_hint(), Some(&hint));
+
+        let without_hint = ErrorResponse::new("boom");
+        assert_eq!(without_hint.leader_hint(), None);
+        let payload = rmp_serde::to_vec(&without_hint).unwrap();
+        let frame = Frame::new(MessageType::Error, 8, payload);
+        let decoded = decode_error_response(&frame).unwrap();
+        assert_eq!(decoded.leader_hint(), None);
+    }
+
+    #[test]
+    fn error_response_decodes_legacy_payload_without_leader_hint() {
+        // Payloads encoded before the `leader_hint` field existed hold only
+        // (code, name, message, source, location); the serde default must fill
+        // `leader_hint` with `None`.
+        let legacy_payload = rmp_serde::to_vec(&(
+            ErrorCode::Parse.to_u32(),
+            "Parse".to_string(),
+            "bad request".to_string(),
+            String::new(),
+            String::new(),
+        ))
+        .unwrap();
+        let frame = Frame::new(MessageType::Error, 9, legacy_payload);
+        let decoded = decode_error_response(&frame).unwrap();
+        assert_eq!(decoded.code(), ErrorCode::Parse.to_u32());
+        assert_eq!(decoded.message(), "bad request");
+        assert_eq!(decoded.leader_hint(), None);
     }
 }

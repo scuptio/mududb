@@ -7,6 +7,7 @@ use mudu::data_type::time::TimeValue;
 use mudu::data_type::timestamp::TimestampValue;
 use mudu::data_type::timestamptz::TimestampTzValue;
 
+/// A value paired with its data type.
 #[derive(Clone, Debug)]
 pub struct DataTyped {
     data_type: DataType,
@@ -14,6 +15,7 @@ pub struct DataTyped {
 }
 
 impl DataTyped {
+    /// Creates a typed value holding an `i32`.
     pub fn from_i32(val: i32) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::I32),
@@ -21,6 +23,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding an `i64`.
     pub fn from_i64(val: i64) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::I64),
@@ -28,6 +31,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding an `i128`.
     pub fn from_i128(val: i128) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::I128),
@@ -35,6 +39,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding an OID (`u128`).
     pub fn from_oid(val: u128) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::U128),
@@ -42,6 +47,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding an `f32`.
     pub fn from_f32(val: f32) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::F32),
@@ -49,6 +55,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding an `f64`.
     pub fn from_f64(val: f64) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::F64),
@@ -56,6 +63,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a string.
     pub fn from_string(val: String) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::String),
@@ -63,6 +71,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a numeric.
     pub fn from_numeric(val: Numeric) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::Numeric),
@@ -70,6 +79,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a date.
     pub fn from_date(val: DateValue) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::Date),
@@ -77,6 +87,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a time.
     pub fn from_time(val: TimeValue) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::Time),
@@ -84,6 +95,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a timestamp.
     pub fn from_timestamp(val: TimestampValue) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::Timestamp),
@@ -91,6 +103,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value holding a timestamp with time zone.
     pub fn from_timestamptz(val: TimestampTzValue) -> Self {
         Self::new(
             DataType::default_for(TypeFamily::TimestampTz),
@@ -98,6 +111,7 @@ impl DataTyped {
         )
     }
 
+    /// Creates a typed value from an explicit data type and value.
     pub fn new(data_type: DataType, data_internal: DataValue) -> Self {
         Self {
             data_type,
@@ -105,10 +119,12 @@ impl DataTyped {
         }
     }
 
+    /// Returns the data type of the value.
     pub fn data_type(&self) -> &DataType {
         &self.data_type
     }
 
+    /// Returns the untyped value.
     pub fn data_internal(&self) -> &DataValue {
         &self.data_internal
     }

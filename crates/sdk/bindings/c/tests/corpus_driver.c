@@ -25,7 +25,7 @@
  * as {"h","l"}, unit as {"unit": true}) and string-compared against the
  * re-serialized sidecar `expect` object.
  *
- * Native program (libc/POSIX); not part of the binding's public surface.
+ * Native program (libc); not part of the binding's public surface.
  * Exit code 0 when every check passes.
  */
 #include <stdint.h>
@@ -33,7 +33,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define getcwd _getcwd
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
+#else
 #include <unistd.h>
+#endif
 
 #include "mini_json.h"
 #include "mududb/codec/mpack.h"
@@ -107,9 +115,21 @@ static int find_fixture_dir(void) {
     if (!getcwd(dir, sizeof(dir))) {
         return -1;
     }
+    /* Windows accepts forward slashes; normalize before walking parents. */
+#ifdef _WIN32
+    for (char *p = dir; *p; ++p) {
+        if (*p == '\\') *p = '/';
+    }
+#endif
     for (;;) {
         struct stat st;
         int n = snprintf(g_fixture_dir, sizeof(g_fixture_dir),
+                         "%s/tests/fixtures/golden/v1", dir);
+        if (n > 0 && (size_t)n < sizeof(g_fixture_dir) && stat(g_fixture_dir, &st) == 0
+            && S_ISDIR(st.st_mode)) {
+            return 0;
+        }
+        n = snprintf(g_fixture_dir, sizeof(g_fixture_dir),
                          "%s/crates/db-kernel/testing/fixtures/golden/v1", dir);
         if (n > 0 && (size_t)n < sizeof(g_fixture_dir) && stat(g_fixture_dir, &st) == 0
             && S_ISDIR(st.st_mode)) {

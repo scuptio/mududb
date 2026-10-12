@@ -1,5 +1,4 @@
-//! `tuple::field_desc` module.
-#![allow(missing_docs)]
+//! Per-field storage layout descriptor of a binary tuple.
 
 use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
@@ -36,6 +35,13 @@ impl FieldDesc {
         Self::new_with_nullability(slot, data_type, is_fixed_len, false, None)
     }
 
+    /// Constructs a `FieldDesc` with explicit nullability.
+    /// # Arguments
+    /// * `slot` - Storage slot information
+    /// * `data_type` - Data type of the field
+    /// * `is_fixed_len` - Whether the type has fixed-length storage
+    /// * `nullable` - Whether the field may hold SQL NULL
+    /// * `null_bit_idx` - Index of the field's bit in the null bitmap
     pub fn new_with_nullability(
         slot: Slot,
         data_type: DataType,
@@ -94,10 +100,12 @@ impl FieldDesc {
         self.is_fixed_len
     }
 
+    /// Returns whether the field may hold SQL NULL.
     pub fn nullable(&self) -> bool {
         self.nullable
     }
 
+    /// Returns the index of the field's bit in the null bitmap, if nullable.
     pub fn null_bit_idx(&self) -> Option<u16> {
         self.null_bit_idx
     }

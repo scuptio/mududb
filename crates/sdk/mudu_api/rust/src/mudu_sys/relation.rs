@@ -2,7 +2,7 @@
 //! `relation-update`, `relation-insert`.
 //!
 //! Thin adapter over the `mudu_gen`-generated codec in
-//! [`super::generated::uni_syscall`]: key/value column lists are arrays of
+//! `super::generated::uni_syscall`: key/value column lists are arrays of
 //! `[attr, datum]` pairs with the datum as a MessagePack bin,
 //! `relation-update` deltas are `[attr, op, datum]` triples, and results are
 //! `[0, value]` / `[1, UniError]` (unit results as `[0, 0]`).
@@ -208,8 +208,15 @@ pub async fn sys_relation_insert(
     deserialize_relation_insert_result(&response)
 }
 
+/// Dispatches a pre-encoded `relation-get` request frame to the configured
+/// backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn relation_get_raw(relation_get_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("relation_get", &relation_get_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::relation_get_raw(relation_get_in).await;
@@ -230,8 +237,15 @@ pub async fn relation_get_raw(relation_get_in: Vec<u8>) -> Result<Vec<u8>, ApiEr
     ))
 }
 
+/// Dispatches a pre-encoded `relation-update` request frame to the
+/// configured backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn relation_update_raw(relation_update_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("relation_update", &relation_update_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::relation_update_raw(relation_update_in).await;
@@ -252,8 +266,15 @@ pub async fn relation_update_raw(relation_update_in: Vec<u8>) -> Result<Vec<u8>,
     ))
 }
 
+/// Dispatches a pre-encoded `relation-insert` request frame to the
+/// configured backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn relation_insert_raw(relation_insert_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("relation_insert", &relation_insert_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::relation_insert_raw(relation_insert_in).await;

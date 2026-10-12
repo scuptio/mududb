@@ -20,7 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("crates")
         .join("tools")
         .join("mudu_gen")
-        .join("ts_const_gen")
+        .join("src")
+        .join("ts_const")
         .join("grammar.md5.txt");
 
     ts_const_generate(

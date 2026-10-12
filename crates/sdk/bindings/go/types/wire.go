@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/ybbh/mududb_p/bindings/go/codec"
+	"github.com/mududb/mududb-go/codec"
 )
 
 // typeError reports a wire value of an unexpected shape.

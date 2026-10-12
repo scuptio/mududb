@@ -1,5 +1,4 @@
-//! `tuple::tuple_field_desc` module.
-#![allow(missing_docs)]
+//! Description of a tuple's fields.
 
 use crate::tuple::{datum_desc::DatumDesc, tuple_binary_desc::TupleBinaryDesc};
 use mudu::common::result::RS;
@@ -22,6 +21,7 @@ impl TupleFieldDesc {
         Self { fields }
     }
 
+    /// Consumes `self` and returns the field descriptions.
     pub fn into(self) -> Vec<DatumDesc> {
         self.fields
     }
@@ -30,6 +30,7 @@ impl TupleFieldDesc {
         &self.fields
     }
 
+    /// Consumes `self` and returns the field descriptions.
     pub fn into_fields(self) -> Vec<DatumDesc> {
         self.fields
     }
@@ -87,16 +88,19 @@ impl TupleFieldDesc {
         Ok((binary_desc, index_mapping))
     }
 
+    /// Serializes the description into a size-prefixed byte vector.
     pub fn serialize_to(&self) -> RS<Vec<u8>> {
         let vec = serde_utils::serialize_sized_to_vec(self)?;
         Ok(vec)
     }
 
+    /// Deserializes a description from its size-prefixed byte form.
     pub fn deserialize_from(slice: &[u8]) -> RS<Self> {
         let (d, _) = serde_utils::deserialize_sized_from::<Self>(slice)?;
         Ok(d)
     }
 
+    /// Converts the field descriptions into a record data type named `name`.
     pub fn to_record_type(&self, name: String) -> RS<DataType> {
         let mut vec = Vec::with_capacity(self.fields.len());
         for d in self.fields.iter() {

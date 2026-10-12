@@ -1,5 +1,4 @@
-//! `protocol::format::latest` module.
-#![allow(missing_docs)]
+//! Encoding of the current protocol frame format version.
 
 use super::super::{Frame, FrameHeader, MessageType};
 use mudu::common::result::RS;
@@ -8,7 +7,9 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys_contract::perf::TraceContext;
 
+/// Length in bytes of the fixed-size frame header.
 pub const HEADER_LEN: usize = 40;
+/// Frame format magic number (`"MSFM"`).
 pub const MAGIC: u32 = 0x4D53_464D; // "MSFM"
 /// Current version of the protocol frame format.
 pub const FRAME_VERSION: u32 = PROTOCOL_FRAME_CURRENT_VERSION;
@@ -16,6 +17,7 @@ pub const FRAME_VERSION: u32 = PROTOCOL_FRAME_CURRENT_VERSION;
 /// Bit 0 of `flags` carries the trace sampling flag.
 pub const FLAG_SAMPLED: u64 = 0x0000_0000_0000_0001;
 
+/// Encodes a frame into its wire byte form.
 pub fn encode(frame: &Frame) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_LEN + frame.payload.len());
     let trace_context = frame.header.trace_context;
@@ -31,6 +33,7 @@ pub fn encode(frame: &Frame) -> Vec<u8> {
     out
 }
 
+/// Decodes a frame from its wire byte form.
 pub fn decode(buf: &[u8]) -> RS<Frame> {
     if buf.len() < HEADER_LEN {
         return Err(mudu_error!(ErrorCode::Parse, "frame header is incomplete"));
@@ -44,6 +47,7 @@ pub fn decode(buf: &[u8]) -> RS<Frame> {
     Frame::from_parts(header, buf[HEADER_LEN..total_len].to_vec())
 }
 
+/// Decodes a frame header from its wire byte form.
 pub fn decode_header_bytes(buf: &[u8]) -> RS<FrameHeader> {
     if buf.len() < HEADER_LEN {
         return Err(mudu_error!(ErrorCode::Parse, "frame header is incomplete"));

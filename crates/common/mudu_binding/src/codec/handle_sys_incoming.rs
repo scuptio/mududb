@@ -5,9 +5,8 @@ use crate::universal::uni_query_argv::UniQueryArgv;
 use crate::universal::uni_record_type::UniRecordType;
 use crate::universal::uni_sql_param::UniSqlParam;
 use crate::universal::uni_sql_stmt::UniSqlStmt;
-use crate::universal::uni_type_compat::{
-    param_type_compatible, param_type_tag_of_value, uni_data_type_name,
-};
+use crate::universal::uni_type_compat::{param_type_compatible, uni_data_type_name};
+use crate::universal::uni_type_compat_impl::param_type_tag_of_value;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;

@@ -38,11 +38,11 @@ use mudu_contract::protocol::{
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
 use mudu_sys::task::sync::{SJoinHandle, spawn_thread};
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::reserve_port;
@@ -104,22 +104,49 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
         .session_id();
     assert_ne!(session, 0);
 
-    // 1. Fs type DDL and duplicate detection.
+    create_fs_types_and_product_table(&runtime, &mut client, session)?;
+    let oid1 = insert_rows_and_check_oid_assignment(&runtime, &mut client, session)?;
+    check_batch_rollback(&runtime, &mut client, session)?;
+    let session2 = check_committed_insert_visible_from_second_session(&runtime, &mut client, oid1)?;
+    check_sessionless_ddl_denied(&runtime, &mut client)?;
+    check_drop_type_rules(&runtime, &mut client, session)?;
+
+    assert!(
+        runtime
+            .block_on(client.close_session(SessionCloseRequest::new(session)))?
+            .closed()
+    );
+    assert!(
+        runtime
+            .block_on(client.close_session(SessionCloseRequest::new(session2)))?
+            .closed()
+    );
+    drop(server);
+    Ok(())
+}
+
+// 1. Fs type DDL and duplicate detection; the table with an FS column; 5. an
+// unknown fs type name in `CREATE TABLE` is rejected.
+fn create_fs_types_and_product_table(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    session: u128,
+) -> RS<()> {
     exec(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "CREATE TYPE FILESYSTEM FILE photo_fs",
     )?;
     exec(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "CREATE TYPE FILESYSTEM DIRECTORY asset_fs",
     )?;
     let err = exec_err(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "CREATE TYPE FILESYSTEM FILE photo_fs",
     );
@@ -131,15 +158,15 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
 
     // 2. Table with an FS column; object ids are system assigned on INSERT.
     exec(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "CREATE TABLE product (id BIGINT PRIMARY KEY, photo photo_fs)",
     )?;
     // 5. An unknown fs type name is rejected.
     let err = exec_err(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "CREATE TABLE bad_product (id BIGINT PRIMARY KEY, nope nope_fs)",
     );
@@ -148,29 +175,38 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
         ErrorCode::EntityNotFound,
         "unknown fs type: {err}"
     );
+    Ok(())
+}
 
-    // FS column omitted and explicitly NULL both auto-assign an object id.
+// FS column omitted and explicitly NULL both auto-assign an object id; an
+// explicit FS column value is rejected and nothing is inserted. Returns the
+// first row's object id for the cross-session visibility check.
+fn insert_rows_and_check_oid_assignment(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    session: u128,
+) -> RS<u128> {
     exec(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "INSERT INTO product (id) VALUES (1)",
     )?;
     exec(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "INSERT INTO product VALUES (2, NULL)",
     )?;
     let oid1 = query_one_oid(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "SELECT photo FROM product WHERE id = 1",
     )?;
     let oid2 = query_one_oid(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "SELECT photo FROM product WHERE id = 2",
     )?;
@@ -186,10 +222,9 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
     );
     assert_ne!(oid1, oid2);
 
-    // An explicit FS column value is rejected and nothing is inserted.
     let err = exec_err(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "INSERT INTO product VALUES (3, 123)",
     );
@@ -200,28 +235,35 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
     );
     assert_eq!(
         query_rows(
-            &runtime,
-            &mut client,
+            runtime,
+            client,
             session,
             "SELECT photo FROM product WHERE id = 3"
         )?
         .len(),
         0
     );
+    Ok(oid1)
+}
 
-    // 3. A multi-statement batch is one transaction: the failing second
-    // statement rolls the first insert back.
+// 3. A multi-statement batch is one transaction: the failing second
+// statement rolls the first insert back.
+fn check_batch_rollback(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    session: u128,
+) -> RS<()> {
     let err = batch_err(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session,
         "INSERT INTO product (id) VALUES (10); INSERT INTO missing_table (id) VALUES (1);",
     );
     assert_eq!(err.ec(), ErrorCode::EntityNotFound, "batch abort: {err}");
     assert_eq!(
         query_rows(
-            &runtime,
-            &mut client,
+            runtime,
+            client,
             session,
             "SELECT photo FROM product WHERE id = 10"
         )?
@@ -229,20 +271,34 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
         0,
         "a rolled-back insert must not be visible"
     );
+    Ok(())
+}
 
-    // A committed INSERT is visible from a second session.
+// A committed INSERT is visible from a second session; returns the second
+// session id so the caller can close both sessions at the end.
+fn check_committed_insert_visible_from_second_session(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    oid1: u128,
+) -> RS<u128> {
     let session2 = runtime
         .block_on(client.create_session(SessionCreateRequest::new(None)))?
         .session_id();
     let oid1_from_s2 = query_one_oid(
-        &runtime,
-        &mut client,
+        runtime,
+        client,
         session2,
         "SELECT photo FROM product WHERE id = 1",
     )?;
     assert_eq!(oid1_from_s2, oid1);
+    Ok(session2)
+}
 
-    // 6. Sessionless requests are not admin and cannot run fs type DDL.
+// 6. Sessionless requests are not admin and cannot run fs type DDL.
+fn check_sessionless_ddl_denied(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+) -> RS<()> {
     let err = runtime
         .block_on(client.execute(ClientRequest::new(
             APP_NAME,
@@ -254,36 +310,31 @@ fn run_filesystem_sql_e2e(server_mode: ServerMode) -> RS<()> {
         ErrorCode::PermissionDenied,
         "non-admin DDL: {err}"
     );
+    Ok(())
+}
 
-    // 4. DROP TYPE is refused while referenced, allowed after DROP TABLE.
-    let err = exec_err(&runtime, &mut client, session, "DROP TYPE photo_fs");
+// 4. DROP TYPE is refused while referenced, allowed after DROP TABLE.
+fn check_drop_type_rules(
+    runtime: &tokio::runtime::Runtime,
+    client: &mut AsyncClientImpl,
+    session: u128,
+) -> RS<()> {
+    let err = exec_err(runtime, client, session, "DROP TYPE photo_fs");
     assert_eq!(
         err.ec(),
         ErrorCode::InvalidState,
         "referenced fs type: {err}"
     );
     // An unreferenced fs type drops immediately.
-    exec(&runtime, &mut client, session, "DROP TYPE asset_fs")?;
-    exec(&runtime, &mut client, session, "DROP TABLE product")?;
-    exec(&runtime, &mut client, session, "DROP TYPE photo_fs")?;
-    let err = exec_err(&runtime, &mut client, session, "DROP TYPE photo_fs");
+    exec(runtime, client, session, "DROP TYPE asset_fs")?;
+    exec(runtime, client, session, "DROP TABLE product")?;
+    exec(runtime, client, session, "DROP TYPE photo_fs")?;
+    let err = exec_err(runtime, client, session, "DROP TYPE photo_fs");
     assert_eq!(
         err.ec(),
         ErrorCode::EntityNotFound,
         "missing fs type: {err}"
     );
-
-    assert!(
-        runtime
-            .block_on(client.close_session(SessionCloseRequest::new(session)))?
-            .closed()
-    );
-    assert!(
-        runtime
-            .block_on(client.close_session(SessionCloseRequest::new(session2)))?
-            .closed()
-    );
-    drop(server);
     Ok(())
 }
 

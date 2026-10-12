@@ -1,5 +1,4 @@
-//! `tuple::tuple_datum` module.
-#![allow(missing_docs)]
+//! Rust tuple to/from binary and value conversions.
 
 use crate::tuple::datum_convert::datum_from_value;
 use crate::tuple::datum_desc::DatumDesc;
@@ -27,8 +26,11 @@ For a tuple (i32, String)
 ```
 **/
 pub trait TupleDatum: EnumerableDatum + Sized + 'static {
+    /// Decodes a tuple from per-field memory values typed by `desc`.
     fn from_value(vec_value: &[DataValue], desc: &[DatumDesc]) -> RS<Self>;
+    /// Decodes a tuple from per-field binary values typed by `desc`.
     fn from_binary(vec_bin: &[Vec<u8>], desc: &[DatumDesc]) -> RS<Self>;
+    /// Builds the tuple field description using `field_name` for the field names.
     fn tuple_desc_static(field_name: &[String]) -> TupleFieldDesc;
 }
 
@@ -102,6 +104,7 @@ where
         Ok(Self::tuple_desc_static(field_name))
     }
 }
+/// Marker for datum types usable as a single-element tuple datum.
 pub trait TupleDatumMarker {}
 
 impl<T: Datum> TupleDatumMarker for Vec<T> {}

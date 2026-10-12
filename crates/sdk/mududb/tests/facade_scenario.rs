@@ -21,24 +21,15 @@ fn text(s: &str) -> DataValue {
     DataValue::from_string(s.to_string())
 }
 
-#[test]
-fn facade_scenario() {
-    // 1. open (default worker)
-    let db = Database::open().unwrap();
-
-    // Harness cleanup: the standalone adapter keeps its SQLite state across
-    // runs, so re-runs must start idempotently (not part of the canonical
-    // scenario).
-    db.command(&"DROP TABLE IF EXISTS t", &no_params()).unwrap();
-
-    // 2. create table
+/// Steps 2-3: create the table and insert two rows with positional
+/// parameters, one affected row each.
+fn create_table_and_insert_rows(db: &Database) {
     db.command(
         &"CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
         &no_params(),
     )
     .unwrap();
 
-    // 3. two inserts with positional parameters, one affected row each
     let affected = db
         .command(
             &"INSERT INTO t (id, name) VALUES (?, ?)",
@@ -53,8 +44,10 @@ fn facade_scenario() {
         )
         .unwrap();
     assert_eq!(affected, 1);
+}
 
-    // 4. query: columns, values by index and by name, eof
+/// Step 4: query columns, values by index and by name, eof.
+fn query_rows_by_index_and_name(db: &Database) {
     let mut rs = db
         .query(&"SELECT id, name FROM t ORDER BY id", &no_params())
         .unwrap();
@@ -79,8 +72,10 @@ fn facade_scenario() {
 
     assert!(!rs.next());
     assert!(rs.eof());
+}
 
-    // 5. update with a named parameter, one affected row
+/// Step 5: update with a named parameter, one affected row.
+fn update_with_named_parameter(db: &Database) {
     let affected = db
         .command(
             &"UPDATE t SET name = :name WHERE id = :id",
@@ -104,8 +99,11 @@ fn facade_scenario() {
             .as_str(),
         "carol"
     );
+}
 
-    // 6. fs roundtrip: write "hello", seek back, read/pread, fstat, readdir
+/// Step 6: fs roundtrip — write "hello", seek back, read/pread, fstat,
+/// readdir.
+fn fs_roundtrip(db: &Database) {
     let session = db.id();
     let fs_oid = 7;
     let fd = fs_open(session, fs_oid, "docs/hello.txt", FS_O_WRONLY).unwrap();
@@ -126,6 +124,22 @@ fn facade_scenario() {
 
     let entries = fs_readdir(session, fs_oid, "docs").unwrap();
     assert!(entries.iter().any(|e| e.name == "hello.txt" && !e.is_dir));
+}
+
+#[test]
+fn facade_scenario() {
+    // 1. open (default worker)
+    let db = Database::open().unwrap();
+
+    // Harness cleanup: the standalone adapter keeps its SQLite state across
+    // runs, so re-runs must start idempotently (not part of the canonical
+    // scenario).
+    db.command(&"DROP TABLE IF EXISTS t", &no_params()).unwrap();
+
+    create_table_and_insert_rows(&db);
+    query_rows_by_index_and_name(&db);
+    update_with_named_parameter(&db);
+    fs_roundtrip(&db);
 
     // 7. close
     db.close().unwrap();

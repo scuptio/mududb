@@ -1,3 +1,8 @@
+//! MessagePack and JSON (de)serialization helpers.
+//!
+//! The sized variants prefix the MessagePack payload with an 8-byte
+//! big-endian length header so readers can bound the input before decoding.
+
 use crate::common::endian;
 use crate::common::result::RS;
 use crate::error::ErrorCode;
@@ -9,17 +14,22 @@ use serde_json;
 use std::io;
 use std::io::{Cursor, Write};
 
+/// Returns the size in bytes of the length prefix used by the sized serializers.
 pub const fn header_size_len() -> u64 {
     SIZE_LEN as u64
 }
 const INIT_LENGTH: usize = 256usize;
 
+/// Deserializes a MessagePack value from the start of `deserialize`,
+/// returning the value and the number of bytes consumed.
 pub fn deserialize_from<D: Serialize + DeserializeOwned + 'static>(
     deserialize: &[u8],
 ) -> RS<(D, u64)> {
     _deserialize_from::<D>(deserialize)
 }
 
+/// Serializes `serialize` as MessagePack into `out_buf`, returning the number
+/// of bytes written.
 pub fn serialize_to<S: Serialize + DeserializeOwned + 'static>(
     serialize: &S,
     out_buf: &mut [u8],
@@ -27,16 +37,24 @@ pub fn serialize_to<S: Serialize + DeserializeOwned + 'static>(
     _serialize_to::<S>(serialize, out_buf)
 }
 
+/// Serializes `serialize` as MessagePack into a newly allocated vector.
 pub fn serialize_to_vec<S: Serialize + DeserializeOwned + 'static>(serialize: &S) -> RS<Vec<u8>> {
     _serialize_to_vec::<S>(serialize)
 }
 
+/// Deserializes a length-prefixed MessagePack value from `deserialize`,
+/// returning the value and the payload length (excluding the length prefix).
 pub fn deserialize_sized_from<D: Serialize + DeserializeOwned + 'static>(
     deserialize: &[u8],
 ) -> RS<(D, u64)> {
     __deserialize_sized_from::<D, false>(deserialize)
 }
 
+/// Serializes `serialize` as length-prefixed MessagePack into `out_buf`.
+///
+/// Returns `Ok((true, size))` when the payload fit in the buffer, or
+/// `Ok((false, size))` when it did not; `size` is the payload length in bytes
+/// excluding the length prefix.
 pub fn serialize_sized_to<S: Serialize + DeserializeOwned + 'static>(
     serialize: &S,
     out_buf: &mut [u8],
@@ -44,12 +62,15 @@ pub fn serialize_sized_to<S: Serialize + DeserializeOwned + 'static>(
     __serialize_sized_to::<S, false>(serialize, out_buf)
 }
 
+/// Serializes `serialize` as length-prefixed MessagePack into a newly
+/// allocated vector.
 pub fn serialize_sized_to_vec<S: Serialize + DeserializeOwned + 'static>(
     serialize: &S,
 ) -> RS<Vec<u8>> {
     __serialize_sized_to_vec::<S, false>(serialize)
 }
 
+/// Deserializes a value from a JSON string.
 pub fn deserialize_from_json<S: DeserializeOwned>(json: &str) -> RS<S> {
     _deserialize_from_json(json)
 }
@@ -165,6 +186,8 @@ pub(crate) fn __debug_serialize_helper<S: Serialize + DeserializeOwned + 'static
     };
 }
 
+/// Serializes `serialize` as length-prefixed MessagePack into a newly
+/// allocated vector, printing debug output when `TEST` is true.
 pub fn __serialize_sized_to_vec<S: Serialize + DeserializeOwned + 'static, const TEST: bool>(
     serialize: &S,
 ) -> RS<Vec<u8>> {
@@ -182,11 +205,13 @@ pub fn __serialize_sized_to_vec<S: Serialize + DeserializeOwned + 'static, const
 
 const SIZE_LEN: usize = size_of::<u64>();
 
+/// A `Write` adapter over a mutable byte slice, tracking the write position.
 pub struct Writer<'a> {
     inner: &'a mut [u8],
     position: usize,
 }
 
+/// A `Write` sink that only counts the bytes written to it.
 pub struct Sizer {
     size: usize,
 }
@@ -212,10 +237,12 @@ impl Default for Sizer {
 }
 
 impl Sizer {
+    /// Creates a new sizer with a zero byte count.
     pub fn new() -> Self {
         Self { size: 0 }
     }
 
+    /// Returns the number of bytes counted so far.
     pub fn size(&self) -> usize {
         self.size
     }
@@ -251,6 +278,7 @@ impl Write for Sizer {
     }
 }
 
+/// Serializes a value to a pretty-printed JSON string.
 pub fn serialize_to_json<S: Serialize>(serialize: &S) -> RS<String> {
     let string = serde_json::to_string_pretty(serialize)
         .map_err(|e| mudu_error!(ErrorCode::Encode, "serialize to json string error", e))?;

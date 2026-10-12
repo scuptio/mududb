@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 //! SQL-like data type definitions.
 
 pub mod date;

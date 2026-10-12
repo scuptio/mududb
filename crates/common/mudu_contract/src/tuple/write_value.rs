@@ -1,5 +1,4 @@
-//! `tuple::write_value` module.
-#![allow(missing_docs)]
+//! Writing of values and slots into a binary tuple.
 
 use crate::tuple::field_desc::FieldDesc;
 use crate::tuple::slot::Slot;
@@ -9,6 +8,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
+/// Writes a slot locating a value at `value_offset` of `value_size` bytes into `buf`.
 pub fn write_slot_to_buf(value_offset: usize, value_size: usize, buf: &mut [u8]) -> RS<()> {
     let slot = Slot::new(value_offset as u32, value_size as u32);
     if Slot::size_of() > buf.len() {
@@ -18,6 +18,8 @@ pub fn write_slot_to_buf(value_offset: usize, value_size: usize, buf: &mut [u8])
     Ok(())
 }
 
+/// Writes the slot of a variable-length field into `tuple`; a no-op for
+/// fixed-length fields.
 pub fn write_slot_to_tuple(
     field: &FieldDesc,
     value_offset: usize,
@@ -46,6 +48,8 @@ pub fn write_slot_to_tuple(
     Ok(())
 }
 
+/// Writes `value` into `buf`, returning the written size, or
+/// `Err(required_size)` if `buf` is too small.
 pub fn write_value_to_buf(
     _desc: &FieldDesc,
     value: &Buf,
@@ -58,6 +62,8 @@ pub fn write_value_to_buf(
     Ok(Ok(value.len()))
 }
 
+/// Writes `value` into `tuple` at `value_offset`, returning the written size,
+/// or `Err(required_size)` if the remaining tuple space is too small.
 pub fn write_value_to_tuple(
     desc: &FieldDesc,
     value_offset: usize,
@@ -67,6 +73,8 @@ pub fn write_value_to_tuple(
     write_value_to_tuple_with_max_size_opt(desc, value_offset, None, value, tuple)
 }
 
+/// Writes `value` into `tuple` at `value_offset`, capping the writable slice
+/// at `value_opt_max_size` bytes when given.
 pub fn write_value_to_tuple_with_max_size_opt(
     desc: &FieldDesc,
     value_offset: usize,

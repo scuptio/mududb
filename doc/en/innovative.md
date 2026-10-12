@@ -1,106 +1,27 @@
-# MuduDB Innovative Features
+# MuduDB execution model and tooling
 
-MuduDB rethinks the boundary between application and database. Instead of treating the database as a passive storage tier, MuduDB lets developers write ordinary procedures in general-purpose languages, run them inside the database kernel, and deploy them as versioned packages. The result is a system that combines the ergonomics of modern application development with the performance and correctness characteristics of co-located execution.
+MuduDB groups queries, computation and updates into procedures that execute inside the database. This can reduce client round trips for multi-step operations. The benefit depends on data volume, procedure overhead and transaction contention; measure it with the intended workload.
 
----
+## Procedures and execution modes
 
-## 1. AI-Assisted Database Engineering
+Procedures compile to WebAssembly components and access the host database through system calls. Applications can also run outside the database process through a native adapter. These modes have different entry points and dependencies. See the [SDK capability table](../dev/sdk_distribution.md#language-and-execution-modes) for languages and examples.
 
-MuduDB uses large language models to accelerate database engineering. It can generate ER diagrams, DDL scripts, and procedure code from high-level descriptions. Because the generated code is written in typed, general-purpose languages, it goes through compile-time validation before it ever reaches the server, reducing the risk of runtime errors in AI-generated logic.
+The [procedure guide](procedure.md) uses the Rust facade to explain queries, parameter binding and transactions. Third-party libraries must support the chosen target and runtime; a native library is not necessarily usable in a Wasm guest.
 
-**Highlights**
+## Type and SQL checks
 
-- Generate ER diagrams from natural-language requirements
-- Generate DDL scripts and table definitions
-- Generate stored procedures and helper functions
-- Validate AI-generated code at compile time
+The `Entity` trait maps query results to Rust structs. `mgen` generates entity code from DDL, and the build's `mgen check-sql` step validates supported SQL against that DDL.
 
-## 2. Mudu Procedure (MP)
+These checks catch some type and query errors. Business rules, permissions, transaction conflicts and returned results still need tests. See the [supported SQL subset](../dev/sql_subset.md).
 
-[Mudu Procedure](procedure.md) is the central programming model of MuduDB. A single function written in Rust or AssemblyScript can be invoked interactively during development and then deployed as a server-side procedure in production. The transpiler takes synchronous-looking source code and produces the async wrappers that the WebAssembly runtime needs, so developers do not have to manage async state machines by hand.
+## Packaging and installation
 
-**Highlights**
+An `.mpk` archive contains WebAssembly modules, DDL, descriptors and optional initial data. `mcli app-install` installs it in a running server. See [Your first MPK](your_first_mpk.md) for prerequisites and a complete invocation example.
 
-- One codebase for interactive development and production deployment
-- Procedures run close to the data inside the database kernel
-- Synchronous developer experience with async runtime execution
-- Supports both ad-hoc transactions and structured workflows
+## Kernel and runtime
 
-## 3. Modern Hardware-Optimized Architecture
+The kernel owns storage, transactions and scheduling; the runtime hosts WebAssembly components. Per-core workers and the Linux `io_uring` path aim to reduce cross-thread sharing and I/O waits. See [runtime design](modern_hardware.md) for the mechanisms and constraints.
 
-MuduDB is designed for modern multi-core servers and NVMe storage. It uses Linux [io_uring](modern_hardware.md) as the unified async I/O model, assigns one worker thread to each CPU core, and keeps connections, queues, and state local to that worker whenever possible. User procedures are written in a sequential style but execute as continuations resumed by io_uring completion events.
+## AI-assisted development
 
-**Highlights**
-
-- Per-core workers with explicit ownership boundaries
-- Unified network and file I/O through `io_uring`
-- Lock-free or low-lock structures on the hot path
-- Continuation-driven execution without blocking worker threads
-
-## 4. Microkernel Architecture Design
-
-MuduDB keeps the core engine small and focused on essentials: storage, ACID transactions, query parsing, and query execution. Everything else lives in a plugin ecosystem that can evolve independently. This separation makes the kernel easier to reason about and test, while still leaving room for extensions such as JSON/graph support, external runtime modules, and custom storage engines.
-
-**Highlights**
-
-- Small, focused core engine
-- Plugin ecosystem for extensions and custom runtimes
-- Custom storage engines can be added without kernel changes
-- Clearer ownership and a smaller trusted computing base
-
-## 5. Write Procedures in General-Purpose Languages
-
-MuduDB procedures are ordinary functions in Rust or AssemblyScript, marked with a `/**mudu-proc**/` directive. Developers keep their existing editors, debuggers, test frameworks, and package managers. There is no proprietary stored-procedure language to learn, and no vendor lock-in.
-
-**Highlights**
-
-- Rust and AssemblyScript support today
-- Use familiar tooling: Cargo, crates, language servers, debuggers
-- Reusable libraries and standard version-control workflows
-- No need to learn PL/pgSQL or T-SQL
-
-## 6. Built-in ORM and Type Safety
-
-MuduDB provides first-class support for mapping query results to language types. The `Entity` trait turns SQL rows into Rust structs, and `mgen check-sql` statically validates SQL statements in procedure sources against the DDL at build time. The `mgen` tool can also generate entity types directly from DDL, reducing boilerplate without adding a heavy external ORM.
-
-**Highlights**
-
-- Automatic relation-to-object mapping via the `Entity` trait
-- Build-time SQL validation against the DDL with `mgen check-sql`
-- `mgen` generates typed entities from DDL
-- Early detection of schema and query mismatches
-
-## 7. WebAssembly + MPK Packaging
-
-Procedures compile to WebAssembly components and are packaged into `.mpk` files. An MPK is a self-contained archive that bundles DDL, optional initial data, procedure descriptors, and one or more WASM modules. Installing an app is a single `mcli app-install` command, which makes deployments reproducible and versioned.
-
-**Highlights**
-
-- Compile procedures to portable WebAssembly components
-- Package schema, data, and logic into one `.mpk` file
-- Install or upgrade apps with a single CLI command
-- Versioned deployments that keep schema and code in sync
-
-## 8. Data Proximity Processing
-
-Because MuduDB procedures run inside the database kernel, data transformations happen next to the data rather than across the network. A procedure can query multiple rows, compute results, and update state within a single transactional boundary, without repeatedly serializing intermediate data to a remote client.
-
-**Highlights**
-
-- Business logic executes close to the data
-- Fewer network round-trips for multi-step operations
-- Simpler transaction semantics for complex workflows
-- Higher throughput for data-intensive tasks
-
----
-
-## At a Glance
-
-| Dimension | Traditional Approach | MuduDB |
-|---|---|---|
-| Where business logic runs | Application server | Inside the database kernel |
-| Stored-procedure language | PL/pgSQL, T-SQL, etc. | Rust, AssemblyScript |
-| Development vs. production | Different code or patterns | Same Mudu Procedure code |
-| AI-generated code validation | Mostly runtime | Compile-time type checking |
-| I/O and concurrency model | Thread pool + blocking I/O | `io_uring` + per-core workers |
-| Deployment artifact | SQL migrations + app binaries | Single `.mpk` package |
+The repository's [AI tools](../../ai_tool/) assist with design and code generation. Generated output must pass the same compilation, SQL checks and tests as handwritten code. These tools do not guarantee correctness and are not required to run MuduDB.

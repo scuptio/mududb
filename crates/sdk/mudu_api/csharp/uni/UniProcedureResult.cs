@@ -82,7 +82,7 @@ public class UniProcedureResultFormatter : IMessagePackFormatter<UniProcedureRes
             var __l1 = new List<UniDataValue>(__c1);
             for (var __i1 = 0; __i1 < __c1; __i1++)
             {
-                __l1.Add(new UniDataValueFormatter().Deserialize(ref reader, options));
+                __l1.Add(new UniDataValueFormatter().Deserialize(ref reader, options)!);
             }
             value.ReturnList = __l1;
         }

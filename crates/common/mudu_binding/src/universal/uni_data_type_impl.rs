@@ -394,37 +394,11 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
     }
 
     // Step 1: Collect all nodes from both keys and values
-    let mut all_nodes = HashSet::new();
-
-    // Add all nodes that appear as keys
-    for &node in dependency.keys() {
-        all_nodes.insert(node);
-    }
-
-    // Add all nodes that appear as dependencies
-    for deps in dependency.values() {
-        for &node in deps {
-            all_nodes.insert(node);
-        }
-    }
+    let all_nodes = collect_all_nodes(&dependency);
 
     // Step 2: Compute in-degree for each node
-    let mut in_degree: HashMap<u64, usize> = HashMap::new();
-
-    // Initialize all in-degrees to 0
-    for &node in &all_nodes {
-        in_degree.insert(node, 0);
-    }
-
-    // Calculate actual in-degrees
     let reserve_dependency = reverse_adj(&dependency);
-    for (node, deps) in &reserve_dependency {
-        for dep in deps {
-            *in_degree.entry(*dep).or_insert(0) += 1;
-        }
-        // Ensure the key node itself is in the map (with its current in-degree or 0)
-        in_degree.entry(*node).or_insert(0);
-    }
+    let mut in_degree = compute_in_degree(&all_nodes, &reserve_dependency);
 
     // Step 3: Initialize queue with nodes having zero in-degree
     let mut queue: VecDeque<u64> = VecDeque::new();
@@ -438,8 +412,62 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
     }
 
     // Step 4: Process nodes in topological order
+    let result = process_queue(&mut queue, &mut in_degree, reserve_dependency);
+
+    // Step 5: Check if topological ordering includes all nodes
+    if result.len() == all_nodes.len() {
+        result
+    } else {
+        // Cycle detected
+        Vec::new()
+    }
+}
+
+fn collect_all_nodes(dependency: &HashMap<u64, HashSet<u64>>) -> HashSet<u64> {
+    let mut all_nodes = HashSet::new();
+
+    // Add all nodes that appear as keys
+    for &node in dependency.keys() {
+        all_nodes.insert(node);
+    }
+
+    // Add all nodes that appear as dependencies
+    for deps in dependency.values() {
+        for &node in deps {
+            all_nodes.insert(node);
+        }
+    }
+    all_nodes
+}
+
+fn compute_in_degree(
+    all_nodes: &HashSet<u64>,
+    reserve_dependency: &HashMap<u64, HashSet<u64>>,
+) -> HashMap<u64, usize> {
+    let mut in_degree: HashMap<u64, usize> = HashMap::new();
+
+    // Initialize all in-degrees to 0
+    for &node in all_nodes {
+        in_degree.insert(node, 0);
+    }
+
+    // Calculate actual in-degrees
+    for (node, deps) in reserve_dependency {
+        for dep in deps {
+            *in_degree.entry(*dep).or_insert(0) += 1;
+        }
+        // Ensure the key node itself is in the map (with its current in-degree or 0)
+        in_degree.entry(*node).or_insert(0);
+    }
+    in_degree
+}
+
+fn process_queue(
+    queue: &mut VecDeque<u64>,
+    in_degree: &mut HashMap<u64, usize>,
+    mut remaining_deps: HashMap<u64, HashSet<u64>>,
+) -> Vec<u64> {
     let mut result = Vec::new();
-    let mut remaining_deps = reserve_dependency;
 
     while let Some(current) = queue.pop_front() {
         result.push(current);
@@ -465,14 +493,7 @@ fn topological_sort(dependency: HashMap<u64, HashSet<u64>>) -> Vec<u64> {
             }
         }
     }
-
-    // Step 5: Check if topological ordering includes all nodes
-    if result.len() == all_nodes.len() {
-        result
-    } else {
-        // Cycle detected
-        Vec::new()
-    }
+    result
 }
 
 #[cfg(test)]

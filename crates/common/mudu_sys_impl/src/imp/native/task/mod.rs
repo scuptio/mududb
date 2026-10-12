@@ -1,12 +1,16 @@
-#![allow(missing_docs)]
+/// Async task spawning, runtime builders, and task-id tracking.
 pub mod async_;
+/// Per-task tracing context registry.
 pub mod context;
+/// Task id type and generator.
 pub mod id;
 mod join_handle;
 mod runtime;
 mod spawn;
 mod spawn_local;
+/// Blocking thread-based task helpers.
 pub mod sync;
+/// Task tracing (async backtrace watch points).
 pub mod trace;
 
 pub use async_::{
@@ -29,14 +33,18 @@ use crate::imp::sync::async_::Waiter;
 use mudu::common::result::RS;
 use std::future::Future;
 
+/// Async task subsystem - native implementation over Tokio.
 #[derive(Default)]
 pub struct SysTasks;
 
 impl SysTasks {
+    /// Creates the async task subsystem handle.
     pub fn new() -> Self {
         Self
     }
 
+    /// Spawns `future` as a named background task with a fresh cancellation
+    /// notifier; the join handle resolves to `None` if cancelled.
     pub fn spawn<F>(&self, name: &str, future: F) -> RS<TaskJoinHandle<Option<F::Output>>>
     where
         F: Future + Send + 'static,
@@ -46,6 +54,8 @@ impl SysTasks {
         self.spawn_with_waiter(cancel_waiter, name, future)
     }
 
+    /// Spawns `future` as a named background task cancelled via
+    /// `cancel_waiter`.
     pub fn spawn_with_waiter<F>(
         &self,
         cancel_waiter: Waiter,
@@ -59,6 +69,7 @@ impl SysTasks {
         spawn_task(cancel_waiter, name, future)
     }
 
+    /// Spawns a `!Send` future on the current thread's local task set.
     pub fn spawn_local<F>(&self, name: &str, future: F) -> RS<TaskJoinHandle<Option<F::Output>>>
     where
         F: Future + 'static,
@@ -68,6 +79,8 @@ impl SysTasks {
         self.spawn_local_with_waiter(cancel_waiter, name, future)
     }
 
+    /// Spawns a `!Send` future on the current thread's local task set,
+    /// cancelled via `cancel_waiter`.
     pub fn spawn_local_with_waiter<F>(
         &self,
         cancel_waiter: Waiter,
@@ -81,6 +94,8 @@ impl SysTasks {
         spawn_local_task(cancel_waiter, name, future)
     }
 
+    /// Runs the blocking closure `f` on the blocking thread pool and awaits
+    /// its result.
     pub async fn spawn_blocking<F, R>(&self, f: F) -> RS<R>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -89,18 +104,24 @@ impl SysTasks {
         spawn_blocking(f).await
     }
 
+    /// Builds a new current-thread Tokio runtime.
     pub fn build_current_thread_runtime(&self) -> RS<TaskRuntime> {
         build_current_thread_runtime()
     }
 
+    /// Builds a new multi-thread Tokio runtime.
     pub fn build_multi_thread_runtime(&self) -> RS<TaskRuntime> {
         build_multi_thread_runtime()
     }
 
+    /// Returns `true` if called from within a Tokio runtime context.
     pub fn has_tokio_runtime(&self) -> bool {
         has_tokio_runtime()
     }
 
+    /// Blocks until Ctrl-C/SIGTERM (Unix) or Ctrl-C (other platforms) is
+    /// received or `stop` is notified, then notifies `stop` so dependents
+    /// shut down.
     pub fn wait_for_shutdown_signal(&self, stop: crate::imp::sync::async_::Notifier) {
         wait_for_shutdown_signal(stop)
     }

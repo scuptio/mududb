@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 //! Error types and codes used by the workspace.
 
 mod ec;

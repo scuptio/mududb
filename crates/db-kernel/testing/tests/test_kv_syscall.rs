@@ -13,20 +13,18 @@
 use mudu::common::result::RS;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all, sync_copy};
 use mudu_sys::net::sync::{SStdTcpStream, StdTcpListener};
 use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
 use tracing::info;
-
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 // These integration tests start a full mudud backend server, which performs
 // foreign-function calls and network I/O that Miri cannot emulate. They are
@@ -205,7 +203,7 @@ impl TestContext {
         // The ready barrier fires only after the deferred initdb drain has
         // completed, so a ready server implies auto-loaded packages are
         // installed.
-        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         Ok(RunningServer {
             stop,
             http_port: self.http_port,
@@ -395,7 +393,7 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
 }
 
 fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + BACKEND_STARTUP_TIMEOUT;
+    let deadline = mudu_sys::time::instant_now() + backend_startup_timeout();
     while mudu_sys::time::instant_now() < deadline {
         if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());

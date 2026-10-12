@@ -14,48 +14,59 @@ pub struct Utc;
 pub struct DateTime<Tz = Utc>(chrono::DateTime<chrono::Utc>, std::marker::PhantomData<Tz>);
 
 impl DateTime<Utc> {
+    /// Returns the current UTC date-time.
     pub fn now() -> Self {
         Self(chrono::Utc::now(), std::marker::PhantomData)
     }
 }
 
 impl<Tz> DateTime<Tz> {
+    /// Wraps a chrono UTC date-time.
     pub fn from_utc(dt: chrono::DateTime<chrono::Utc>) -> Self {
         Self(dt, std::marker::PhantomData)
     }
 
+    /// Unwraps into the underlying chrono UTC date-time.
     pub fn into_utc(self) -> chrono::DateTime<chrono::Utc> {
         self.0
     }
 
+    /// Returns the number of seconds since the Unix epoch.
     pub fn timestamp(&self) -> i64 {
         self.0.timestamp()
     }
 
+    /// Returns the number of milliseconds since the Unix epoch.
     pub fn timestamp_millis(&self) -> i64 {
         self.0.timestamp_millis()
     }
 
+    /// Returns the number of microseconds since the Unix epoch.
     pub fn timestamp_micros(&self) -> i64 {
         self.0.timestamp_micros()
     }
 
+    /// Returns the number of nanoseconds since the Unix epoch, saturating at
+    /// `i64::MAX` on overflow.
     pub fn timestamp_nanos(&self) -> i64 {
         self.0.timestamp_nanos_opt().unwrap_or(i64::MAX)
     }
 
+    /// Returns `self + duration`, or `None` on overflow.
     pub fn checked_add_signed(&self, duration: Duration) -> Option<Self> {
         self.0
             .checked_add_signed(chrono::Duration::from_std(duration).ok()?)
             .map(Self::from_utc)
     }
 
+    /// Returns `self - duration`, or `None` on overflow.
     pub fn checked_sub_signed(&self, duration: Duration) -> Option<Self> {
         self.0
             .checked_sub_signed(chrono::Duration::from_std(duration).ok()?)
             .map(Self::from_utc)
     }
 
+    /// Returns the signed duration from `rhs` to `self`.
     pub fn signed_duration_since<Tz2>(&self, rhs: DateTime<Tz2>) -> chrono::Duration {
         self.0.signed_duration_since(rhs.0)
     }

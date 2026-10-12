@@ -1,11 +1,11 @@
-//! `database::sql_stmt_text` module.
-#![allow(missing_docs)]
+//! SQL statement text wrapper.
 
 use mudu_type::data_type::DataType;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::database::sql_stmt::SQLStmt;
 
+/// An SQL statement carried as plain text.
 #[derive(Clone)]
 pub struct SQLStmtText {
     text: String,
@@ -13,14 +13,17 @@ pub struct SQLStmtText {
 
 #[allow(unused)]
 impl SQLStmtText {
+    /// Consumes `self` and returns the SQL text.
     pub fn into(self) -> String {
         self.text
     }
 
+    /// Creates a statement from SQL text.
     pub fn new(text: String) -> SQLStmtText {
         Self { text }
     }
 
+    /// Returns the types of the statement's placeholders.
     pub fn param_ty(&self) -> &[DataType] {
         // Placeholder: placeholder type parsing is not yet implemented.
         &[]

@@ -10,6 +10,11 @@ use tracing::trace;
 use super::async_::TASK_ID;
 use super::{id, TaskContext, TaskJoinHandle};
 
+/// Spawns `future` as a named background task on the current Tokio runtime.
+///
+/// The task is registered in the task context registry for tracing, and the
+/// join handle resolves to `None` if `cancel_waiter` fires before the future
+/// completes.
 pub fn spawn_task<F>(
     cancel_waiter: Waiter,
     name: &str,
@@ -31,6 +36,8 @@ where
     ))))
 }
 
+/// Spawns `future` as a named background task whose cancellation notifier
+/// is discarded (the task runs to completion).
 pub fn spawn_task_detached<F>(name: &str, future: F) -> RS<TaskJoinHandle<Option<F::Output>>>
 where
     F: Future + Send + 'static,
@@ -40,6 +47,8 @@ where
     spawn_task(cancel_waiter, name, future)
 }
 
+/// Runs the blocking closure `f` on the Tokio blocking thread pool and
+/// awaits its result.
 pub async fn spawn_blocking<F, T>(f: F) -> RS<T>
 where
     F: FnOnce() -> T + Send + 'static,

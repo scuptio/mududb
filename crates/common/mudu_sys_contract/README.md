@@ -13,7 +13,7 @@ Defines the system-level async I/O contracts and performance-tracing primitives 
 
 - Concrete OS/runtime implementations (e.g. Tokio/io_uring backends) belong in [`mudu_sys_impl`](../mudu_sys_impl) and [`mudu_sys_wasm`](../mudu_sys_wasm).
 - The target-selecting facade crate is [`mudu_sys`](../mudu_sys).
-- Database engine logic, storage formats and SQL processing belong in crates such as [`mudu`](../mudu), [`mudu_kernel`](../mudu_kernel) and [`sql_parser`](../sql_parser).
+- Database engine logic, storage formats and SQL processing belong in crates such as [`mudu`](../mudu), [`mudu_kernel`](../../db-kernel/mudu_kernel) and [`sql_parser`](../sql_parser).
 
 ## Main public entry points
 

@@ -118,130 +118,139 @@ where
                 .help("Enable verbose output"),
         )
         // Subcommands
-        .subcommand(
-            Command::new("entity")
-                .about("Generate entity class from DDL SQL/wit")
-                .arg(
-                    Arg::new("input-source-files")
-                        .short('i')
-                        .long("input-source-files")
-                        .value_name("FILE")
-                        .required(true)
-                        .num_args(1..)
-                        .help("Input file path(s), can specify multiple"),
-                )
-                .arg(
-                    Arg::new("output-source-folder")
-                        .short('o')
-                        .long("output-source-folder")
-                        .value_name("FOLDER")
-                        .required(true)
-                        .help("Output source file folder path"),
-                )
-                .arg(
-                    Arg::new("type-desc")
-                        .short('t')
-                        .long("type-desc")
-                        .value_name("FILE")
-                        .required(true)
-                        .help("output type description file path"),
-                )
-                .arg(
-                    Arg::new("lang")
-                        .short('l')
-                        .long("lang")
-                        .value_name("LANG")
-                        .required(true)
-                        .help("Generate language"),
-                ),
+        .subcommand(entity_subcommand())
+        .subcommand(message_subcommand())
+        .subcommand(check_sql_subcommand());
+    matches_or_exit(command.try_get_matches_from(args))
+}
+
+fn entity_subcommand() -> Command {
+    Command::new("entity")
+        .about("Generate entity class from DDL SQL/wit")
+        .arg(
+            Arg::new("input-source-files")
+                .short('i')
+                .long("input-source-files")
+                .value_name("FILE")
+                .required(true)
+                .num_args(1..)
+                .help("Input file path(s), can specify multiple"),
         )
-        .subcommand(
-            Command::new("message")
-                .alias("msg")
-                .about("Message data type for serialize/deserialize")
-                .arg(
-                    Arg::new("input-wit-file")
-                        .short('i')
-                        .long("input-wit-file")
-                        .value_name("FILE")
-                        .required(true)
-                        .help("Input .wit file path"),
-                )
-                .arg(
-                    Arg::new("output-source-file")
-                        .short('o')
-                        .long("output-source-file")
-                        .value_name("FILE")
-                        .required(true)
-                        .help("Output file path"),
-                )
-                .arg(
-                    Arg::new("lang")
-                        .short('l')
-                        .long("lang")
-                        .value_name("LANG")
-                        .global(false)
-                        .required(true)
-                        .help("Generate language"),
-                )
-                .arg(
-                    Arg::new("namespace")
-                        .short('n')
-                        .long("namespace")
-                        .value_name("NAME")
-                        .global(false)
-                        .help("Namespace"),
-                )
-                .arg(
-                    Arg::new("with-func-codec")
-                        .long("with-func-codec")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .global(false)
-                        .help("Generate MSSP syscall frame/func codecs for WIT func items"),
-                )
-                .arg(
-                    Arg::new("type-desc")
-                        .short('t')
-                        .long("type-desc")
-                        .value_name("FILE")
-                        .required(false)
-                        .global(false)
-                        .help("Output syscall schema description JSON file path"),
-                ),
+        .arg(
+            Arg::new("output-source-folder")
+                .short('o')
+                .long("output-source-folder")
+                .value_name("FOLDER")
+                .required(true)
+                .help("Output source file folder path"),
         )
-        .subcommand(
-            Command::new("check-sql")
-                .about(
-                    "Statically check SQL string literals in guest sources against the DDL schema",
-                )
-                .arg(
-                    Arg::new("lang")
-                        .short('l')
-                        .long("lang")
-                        .value_name("LANG")
-                        .required(true)
-                        .help("Source language: rust | as | cs | py | c | go"),
-                )
-                .arg(
-                    Arg::new("ddl")
-                        .short('d')
-                        .long("ddl")
-                        .value_name("FILE")
-                        .required(true)
-                        .num_args(1..)
-                        .help("DDL SQL file(s) providing the schema"),
-                )
-                .arg(
-                    Arg::new("input")
-                        .short('i')
-                        .long("input")
-                        .value_name("PATH")
-                        .required(true)
-                        .help("Source file or directory to check"),
-                ),
-        );
-    let r_matches = command.try_get_matches_from(args);
+        .arg(
+            Arg::new("type-desc")
+                .short('t')
+                .long("type-desc")
+                .value_name("FILE")
+                .required(true)
+                .help("output type description file path"),
+        )
+        .arg(
+            Arg::new("lang")
+                .short('l')
+                .long("lang")
+                .value_name("LANG")
+                .required(true)
+                .help("Generate language"),
+        )
+}
+
+fn message_subcommand() -> Command {
+    Command::new("message")
+        .alias("msg")
+        .about("Message data type for serialize/deserialize")
+        .arg(
+            Arg::new("input-wit-file")
+                .short('i')
+                .long("input-wit-file")
+                .value_name("FILE")
+                .required(true)
+                .help("Input .wit file path"),
+        )
+        .arg(
+            Arg::new("output-source-file")
+                .short('o')
+                .long("output-source-file")
+                .value_name("FILE")
+                .required(true)
+                .help("Output file path"),
+        )
+        .arg(
+            Arg::new("lang")
+                .short('l')
+                .long("lang")
+                .value_name("LANG")
+                .global(false)
+                .required(true)
+                .help("Generate language"),
+        )
+        .arg(
+            Arg::new("namespace")
+                .short('n')
+                .long("namespace")
+                .value_name("NAME")
+                .global(false)
+                .help("Namespace"),
+        )
+        .arg(
+            Arg::new("with-func-codec")
+                .long("with-func-codec")
+                .action(ArgAction::SetTrue)
+                .required(false)
+                .global(false)
+                .help("Generate MSSP syscall frame/func codecs for WIT func items"),
+        )
+        .arg(
+            Arg::new("type-desc")
+                .short('t')
+                .long("type-desc")
+                .value_name("FILE")
+                .required(false)
+                .global(false)
+                .help("Output syscall schema description JSON file path"),
+        )
+}
+
+fn check_sql_subcommand() -> Command {
+    Command::new("check-sql")
+        .about("Statically check SQL string literals in guest sources against the DDL schema")
+        .arg(
+            Arg::new("lang")
+                .short('l')
+                .long("lang")
+                .value_name("LANG")
+                .required(true)
+                .help("Source language: rust | as | cs | py | c | go"),
+        )
+        .arg(
+            Arg::new("ddl")
+                .short('d')
+                .long("ddl")
+                .value_name("FILE")
+                .required(true)
+                .num_args(1..)
+                .help("DDL SQL file(s) providing the schema"),
+        )
+        .arg(
+            Arg::new("input")
+                .short('i')
+                .long("input")
+                .value_name("PATH")
+                .required(true)
+                .help("Source file or directory to check"),
+        )
+}
+
+/// Exit with code 0 after printing help/version; otherwise propagate parse
+/// errors as an [`RS`] error.
+fn matches_or_exit(r_matches: Result<ArgMatches, clap::error::Error>) -> RS<ArgMatches> {
     let matches = match r_matches {
         Ok(matches) => matches,
         Err(e) => {
@@ -259,7 +268,6 @@ where
             }
         }
     };
-
     Ok(matches)
 }
 

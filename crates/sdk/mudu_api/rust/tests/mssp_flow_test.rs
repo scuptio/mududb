@@ -23,7 +23,11 @@ fn command_argv(sql: &str, params: Vec<UniDataValue>) -> UniCommandArgv {
         command: UniSqlStmt {
             sql_string: sql.to_string(),
         },
-        param_list: UniSqlParam { params },
+        param_list: UniSqlParam {
+            params,
+            param_names: None,
+        },
+        param_desc: None,
     }
 }
 
@@ -63,7 +67,9 @@ async fn command_and_query_roundtrip_through_mssp_frames() {
         },
         param_list: UniSqlParam {
             params: vec![UniDataValue::Scalar(UniScalarValue::I64(1))],
+            param_names: None,
         },
+        param_desc: None,
     };
     let request = Mudu::serialize_query(&query).unwrap();
     assert_eq!(&request[0..4], b"MSSP");

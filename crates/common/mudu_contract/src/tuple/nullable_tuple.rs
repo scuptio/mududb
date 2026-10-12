@@ -1,5 +1,4 @@
-//! `tuple::nullable_tuple` module.
-#![allow(missing_docs)]
+//! Nullable-aware building of and reading from binary tuples.
 
 use crate::tuple::bitmap::Bitmap;
 use crate::tuple::slot::Slot;
@@ -10,21 +9,27 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_type::data_value::DataValue;
 
+/// A field value that may be SQL NULL.
 #[derive(Clone, Debug)]
 pub enum NullableValue {
+    /// The field is SQL NULL.
     Null,
+    /// The field holds a value.
     Value(DataValue),
 }
 
+/// Builder writing nullable field values into a binary tuple.
 pub struct TupleBuilder<'a> {
     desc: &'a TupleBinaryDesc,
 }
 
 impl<'a> TupleBuilder<'a> {
+    /// Creates a builder for tuples laid out by `desc`.
     pub fn new(desc: &'a TupleBinaryDesc) -> Self {
         Self { desc }
     }
 
+    /// Builds a binary tuple from per-field nullable values.
     pub fn build(&self, values: &[NullableValue]) -> RS<TupleBinary> {
         if values.len() != self.desc.field_count() {
             return Err(mudu_error!(
@@ -84,6 +89,7 @@ impl<'a> TupleBuilder<'a> {
     }
 }
 
+/// Reads field `col_idx` of `tuple` as a nullable value, honoring the null bitmap.
 pub fn read_value(
     tuple: &TupleBinary,
     schema: &TupleBinaryDesc,

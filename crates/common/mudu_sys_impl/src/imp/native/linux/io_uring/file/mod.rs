@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use std::any::Any;
 #[cfg(target_os = "linux")]
 use std::ffi::CString;
@@ -76,6 +75,8 @@ async fn wait_op<T>(state: &Arc<OpState<T>>) -> RS<T> {
     poll_fn(|cx| poll_op(state, cx)).await
 }
 
+/// Opens the file at `path` with open(2)-style `flags` and creation `mode`
+/// through the current worker ring (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn open<P: AsRef<Path>>(path: P, flags: i32, mode: u32) -> RS<IoFile> {
     scoped_task_trace!();
@@ -86,28 +87,37 @@ pub async fn open<P: AsRef<Path>>(path: P, flags: i32, mode: u32) -> RS<IoFile> 
     Ok(IoFile::from_raw_fd(fd))
 }
 
+/// Closes `file` through the current worker ring (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn close(file: IoFile) -> RS<()> {
     assert_worker_ring()?;
     FileCloseFuture::new(file.fd).await
 }
 
+/// Reads exactly `len` bytes from `file` at absolute `offset` through the
+/// current worker ring (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn read(file: &IoFile, len: usize, offset: u64) -> RS<Vec<u8>> {
     assert_worker_ring()?;
     FileReadFuture::new(file.fd, len, offset).await
 }
 
+/// Returns the length of `file` in bytes through the current worker ring
+/// (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn file_len(file: &IoFile) -> RS<u64> {
     assert_worker_ring()?;
     FileLenFuture::new(file.fd).await
 }
 
+/// Returns the length in bytes of the file at `path` through the default IO
+/// provider's async filesystem.
 pub async fn metadata_len<P: AsRef<Path>>(path: P) -> RS<u64> {
     crate::fs::async_::metadata_len(path.as_ref()).await
 }
 
+/// Writes `data` to `file` at absolute `offset` through the current worker
+/// ring, returning the number of bytes written (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn write(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<usize> {
     assert_worker_ring()?;
@@ -116,6 +126,8 @@ pub async fn write(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<usize> {
         .await
 }
 
+/// Writes `data` to `file` at absolute `offset` with explicit write
+/// `option`s, returning the number of bytes written (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn write_option(
     file: &IoFile,
@@ -129,11 +141,16 @@ pub async fn write_option(
         .await
 }
 
+/// Submits a write of `data` at absolute `offset` on raw descriptor `fd`
+/// without awaiting it; await the returned handle for the byte count
+/// (Linux only).
 #[cfg(target_os = "linux")]
 pub fn write_submit_fd(fd: RawFd, data: Vec<u8>, offset: u64) -> RS<WriteHandle> {
     write_submit_option_fd(fd, data, offset, OptionWrite::default())
 }
 
+/// Submits a write on raw descriptor `fd` with explicit write `option`s
+/// without awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn write_submit_option_fd(
     fd: RawFd,
@@ -145,11 +162,15 @@ pub fn write_submit_option_fd(
     write_submit_option_iouring(fd, data, offset, option)
 }
 
+/// Submits a write of `data` at absolute `offset` on `file` without
+/// awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn write_submit(file: &IoFile, data: Vec<u8>, offset: u64) -> RS<WriteHandle> {
     write_submit_fd(file.fd(), data, offset)
 }
 
+/// Submits a write on `file` with explicit write `option`s without
+/// awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn write_submit_option(
     file: &IoFile,
@@ -194,28 +215,37 @@ fn write_submit_option_iouring(
     Ok(WriteHandle { state })
 }
 
+/// Flushes (fsync) `file` through the current worker ring (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn flush(file: &IoFile) -> RS<()> {
     assert_worker_ring()?;
     flush_submit(file)?.wait().await
 }
 
+/// Flushes (fsync) `file`, carrying the `ready_lsn` list through the
+/// completion so the caller gets it back once durable (Linux only).
 #[cfg(target_os = "linux")]
 pub async fn flush_lsn(file: &IoFile, ready_lsn: Vec<u64>) -> RS<Vec<u64>> {
     assert_worker_ring()?;
     flush_submit_lsn(file, ready_lsn)?.wait().await
 }
 
+/// Submits an fsync of raw descriptor `fd` without awaiting it (Linux
+/// only).
 #[cfg(target_os = "linux")]
 pub fn flush_submit_fd(fd: RawFd) -> RS<FlushHandle<()>> {
     flush_submit_payload_fd(fd, ())
 }
 
+/// Submits an fsync of raw descriptor `fd` carrying `ready_lsn` through the
+/// completion, without awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn flush_submit_lsn_fd(fd: RawFd, ready_lsn: Vec<u64>) -> RS<FlushHandle<Vec<u64>>> {
     flush_submit_payload_fd(fd, ready_lsn)
 }
 
+/// Submits an fsync of raw descriptor `fd` carrying an arbitrary `payload`
+/// through the completion, without awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn flush_submit_payload_fd<P>(fd: RawFd, payload: P) -> RS<FlushHandle<P>>
 where
@@ -225,11 +255,14 @@ where
     flush_submit_payload_iouring(fd, payload)
 }
 
+/// Submits an fsync of `file` without awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn flush_submit(file: &IoFile) -> RS<FlushHandle<()>> {
     flush_submit_fd(file.fd())
 }
 
+/// Submits an fsync of `file` carrying `ready_lsn` through the completion,
+/// without awaiting it (Linux only).
 #[cfg(target_os = "linux")]
 pub fn flush_submit_lsn(file: &IoFile, ready_lsn: Vec<u64>) -> RS<FlushHandle<Vec<u64>>> {
     flush_submit_lsn_fd(file.fd(), ready_lsn)

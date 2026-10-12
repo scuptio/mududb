@@ -100,7 +100,7 @@ format:
 | Position | record | enum | option<T> | list<T> | nested record | variant |
 |---|---|---|---|---|---|---|
 | Parameter | ✓ | ✓ (as i32 ordinal) | ✓ (AS: string/record only; C#: not yet) | ✓ | ✓ | ✗ |
-| Return value | ✓ | C#/Go-parity (AS/Go/py/c rejected) | ✓ (same per-language limits) | ✓ | ✓ | ✗ |
+| Return value | ✓ | ✓ C# only; ✗ AS/Go/py/c (v1: enum parameters only) | ✓ (same per-language limits) | ✓ | ✓ | ✗ |
 
 - Field types may be: any WIT scalar, `string`, `blob`, `option<T>`,
   `list<T>`, or another record from the same registry (no cycles).
@@ -131,7 +131,8 @@ live; its meaning is per-language:
 | C | `-o gentypes/Types.h` (one self-contained header per WIT file, arena-decoded) | include specifier, e.g. `gentypes/Types.h` | `bindings/c/mududb/codec/record_bridge.{h,c}` |
 | AssemblyScript | `-o gentypes` (generated `.ts`, importing `./mpack` — the template adds a re-export shim) | import specifier, e.g. `./gentypes` | `bindings/assemblyscript/assembly/record.ts` |
 
-The adapter call shape follows the Go reference (commit `e609f3c6`):
+The adapter call shape follows
+[the Go reference front-end](../../crates/tools/mudu_transpiler/src/go/render.rs):
 params decode as `TFromValue(RecordFieldValues(p.Params[i]))` and returns
 encode as `RecordFromFieldValues(TToValue(result))`, with the exact
 spelling per language in the mpm-crate templates. Type syntax in
@@ -159,7 +160,7 @@ Notes:
 
 ## Reference example
 
-`crates/sdk/example/wallet-go` carries the full vertical: `wit/types.wit`
+`example/mpk/wallet-go` carries the full vertical: `wit/types.wit`
 (address + profile), the `update_profile` procedure, the flattened
 `profile` / `profile_tags` tables, and the e2e assertions in
 `crates/db-kernel/testing/tests/linux/wallet_go_mpk.rs`.

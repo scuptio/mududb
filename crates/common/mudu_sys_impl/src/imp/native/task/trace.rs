@@ -6,10 +6,14 @@ use super::context::TaskContext;
 pub use super::async_::this_task_id;
 use super::async_::{current_poll_task_id, try_this_task_id};
 
+/// Active task tracer: records source locations and watched key/value pairs
+/// into the current task's [`TaskContext`]; dropping it pops the location
+/// and removes all watch points it added.
 pub struct TaskTrace {
     watch: HashSet<String>,
 }
 
+/// No-op tracer used when the `debug_trace` feature is disabled.
 pub struct NoopTaskTrace;
 
 impl Default for NoopTaskTrace {
@@ -19,14 +23,18 @@ impl Default for NoopTaskTrace {
 }
 
 impl NoopTaskTrace {
+    /// Creates a no-op tracer.
     pub fn new() -> Self {
         Self
     }
 
+    /// Does nothing.
     pub fn watch(&self, _key: &str, _value: &str) {}
 }
 
 impl TaskTrace {
+    /// Creates a tracer for the current task and pushes `location` onto its
+    /// async backtrace.
     pub fn new(location: BtLoc) -> Self {
         Self::enter(location);
         Self {
@@ -44,6 +52,8 @@ impl TaskTrace {
         }
     }
 
+    /// Records a key/value pair on the current task's context; the pair is
+    /// removed when this tracer drops.
     pub fn watch(&self, key: &str, value: &str) {
         let Some(_id) = current_debug_task_id() else {
             return;
@@ -79,6 +89,8 @@ impl TaskTrace {
         }
     }
 
+    /// Renders the current task's async backtrace, thread backtrace, and
+    /// watch data; empty if there is no current task context.
     pub fn backtrace() -> String {
         let Some(_id) = current_debug_task_id() else {
             return "".to_string();
@@ -90,6 +102,8 @@ impl TaskTrace {
         }
     }
 
+    /// Renders the contexts of all registered tasks (kind, name, id, and
+    /// backtrace) as text.
     pub fn dump_task_trace() -> String {
         TaskContext::dump_task_trace()
     }

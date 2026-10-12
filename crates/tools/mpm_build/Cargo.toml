@@ -22,3 +22,7 @@ mudu_utils = { workspace = true }
 [[bin]]
 name = "mpm-build"
 path = "src/main.rs"
+
+[[bin]]
+name = "mpm"
+path = "src/mpm.rs"

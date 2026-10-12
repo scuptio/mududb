@@ -1,7 +1,7 @@
 //! Frame codecs for the `mudu_fs_*` filesystem syscall family.
 //!
 //! Thin adapter over the `mudu_gen`-generated codec in
-//! [`super::generated::uni_syscall`]: requests are positional MessagePack
+//! `super::generated::uni_syscall`: requests are positional MessagePack
 //! arrays (byte blobs as bin), results are `[0, value]` / `[1, UniError]`
 //! with unit results as `[0, 0]`.
 //!
@@ -418,6 +418,8 @@ pub async fn sys_fs_readdir(
 
 macro_rules! fs_raw {
     ($name:ident, $param:ident, $mock:ident, $wasm:ident) => {
+        /// Dispatches a pre-encoded fs request frame to the configured
+        /// backend and returns the raw response frame.
         #[allow(unused_variables)]
         pub async fn $name($param: Vec<u8>) -> Result<Vec<u8>, ApiError> {
             #[cfg(feature = "mock-sqlite")]

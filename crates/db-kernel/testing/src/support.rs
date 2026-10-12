@@ -5,13 +5,13 @@ use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::sync::SMutex;
 use mudu_sys::task::sync::spawn_thread;
+use mudu_type::data_value::DataValue;
 use mudu_utils::debug::debug_serve;
 use mudu_utils::notifier::{NotifyWait, Waiter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
-
 /// Returns `true` when the current host can run a backend in the requested mode.
 pub fn supports_server_mode(server_mode: ServerMode) -> bool {
     match server_mode {
@@ -26,6 +26,25 @@ pub fn is_permission_denied(e: &mudu::error::MuduError) -> bool {
     e.source()
         .and_then(|s| s.downcast_ref::<std::io::Error>())
         .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::PermissionDenied)
+}
+
+/// Returns `true` when the test binary runs under sanitizer instrumentation:
+/// the CI sanitizer job (nightly-checks.yaml) exports ASAN_OPTIONS and
+/// LSAN_OPTIONS alongside RUSTFLAGS="-Z sanitizer=address".
+pub fn sanitizer_runtime_detected() -> bool {
+    mudu_sys::env_var::var("ASAN_OPTIONS").is_some()
+        || mudu_sys::env_var::var("LSAN_OPTIONS").is_some()
+}
+
+/// Startup budget for booting a full backend server: 30 s on regular builds,
+/// 10 min under sanitizer instrumentation, which slows wasmtime component
+/// compilation during mpk auto-load down ~15-25x.
+pub fn backend_startup_timeout() -> Duration {
+    if sanitizer_runtime_detected() {
+        Duration::from_secs(600)
+    } else {
+        Duration::from_secs(30)
+    }
 }
 
 /// Blocks until the backend signals logical readiness or the timeout expires.
@@ -229,6 +248,21 @@ impl BlockingAsyncClient {
         )
     }
 
+    /// Executes a parameterized SQL statement within the given session;
+    /// `params` bind to the `?` placeholders of `sql` in order.
+    pub fn execute_with_oid_params(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        block_on_client(
+            self.client
+                .execute(ClientRequest::new_with_oid(oid, app_name, sql).with_params(params)),
+        )
+    }
+
     /// Executes a SQL query within the given session and returns the server
     /// response.
     pub fn query_with_oid(
@@ -242,6 +276,21 @@ impl BlockingAsyncClient {
                 .query(ClientRequest::new_with_oid(oid, app_name, sql)),
         )
     }
+
+    /// Executes a parameterized SQL query within the given session; `params`
+    /// bind to the `?` placeholders of `sql` in order.
+    pub fn query_with_oid_params(
+        &mut self,
+        oid: u128,
+        app_name: impl Into<String>,
+        sql: impl Into<String>,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        block_on_client(
+            self.client
+                .query(ClientRequest::new_with_oid(oid, app_name, sql).with_params(params)),
+        )
+    }
 }
 
 /// Starts the debug server on the given port in a background thread.
@@ -250,4 +299,96 @@ pub fn start_debug_server(port: u16) -> RS<()> {
         debug_serve(NotifyWait::new(), port);
     })?;
     Ok(())
+}
+
+/// One node's replication topology as reported by `/mudu/server/topology`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReplicationTopologyView {
+    /// Cluster node id of the server.
+    pub node_id: u64,
+    /// Current raft role ("Leader", "Follower", "Candidate", "Learner").
+    pub role: String,
+    /// Current raft term.
+    pub term: u64,
+    /// Currently known raft leader node id, if any.
+    pub leader_node_id: Option<u64>,
+    /// Whether the server currently accepts client writes (serving leader).
+    pub serving: bool,
+    /// Current raft commit index.
+    pub commit_index: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ServerTopologyView {
+    replication: Option<ReplicationTopologyView>,
+}
+
+/// Fetches the replication topology of the server on `http_port`.
+/// Returns `Ok(None)` when the server is single-node (no replication
+/// section) or the endpoint cannot be reached yet.
+pub fn fetch_replication_topology(http_port: u16) -> RS<Option<ReplicationTopologyView>> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "build http client error",
+                e
+            )
+        })?;
+        let url = format!("http://127.0.0.1:{http_port}/mudu/server/topology");
+        let response = client.get(url).send().await.map_err(|e| {
+            mudu::mudu_error!(mudu::error::ErrorCode::Network, "GET topology error", e)
+        })?;
+        let value = response.json::<serde_json::Value>().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
+                "decode topology response error",
+                e
+            )
+        })?;
+        let data = value
+            .get("data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let view: ServerTopologyView = match serde_json::from_value(data.clone()) {
+            Ok(view) => view,
+            Err(e) => {
+                tracing::warn!("topology view parse failed: {e}; body: {data}");
+                return Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Decode,
+                    "decode topology view error",
+                    e
+                ));
+            }
+        };
+        Ok(view.replication)
+    })
+}
+
+/// Polls the given nodes' topology endpoints until one reports a serving
+/// raft leader, returning its node id. Fails after `timeout`.
+pub fn wait_until_leader_serving(nodes: &[(u64, u16)], timeout: Duration) -> RS<u64> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    loop {
+        for (_node_id, http_port) in nodes {
+            if let Ok(Some(view)) = fetch_replication_topology(*http_port)
+                && view.serving
+                && view.role == "Leader"
+            {
+                return Ok(view.node_id);
+            }
+        }
+        if mudu_sys::time::instant_now() >= deadline {
+            let nodes: Vec<u64> = nodes.iter().map(|(node_id, _)| *node_id).collect();
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::TimedOut,
+                format!(
+                    "no serving raft leader within {:?} (nodes {:?})",
+                    timeout, nodes
+                )
+            ));
+        }
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
+    }
 }

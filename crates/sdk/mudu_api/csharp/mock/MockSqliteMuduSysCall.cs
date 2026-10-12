@@ -297,9 +297,12 @@ public static class MockSqliteMuduSysCall
             global::System.IO.Directory.CreateDirectory(directory);
         }
 
+        // No pooling: a pooled connection stays in the pool after Dispose and
+        // keeps the database file handle open, which makes File.Delete fail on Windows.
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = fullPath,
+            Pooling = false,
         }.ToString());
         connection.Open();
         return connection;

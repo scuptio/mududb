@@ -31,7 +31,7 @@ Mudu Procedure 是运行在 MuduDB 引擎内部、贴近数据执行的用户自
 - 过程描述符（procedure descriptors）。
 - 一个或多个编译后的 WebAssembly 组件模块。
 
-使用 `mpm-build create` 命令创建 MPK，再用 `mcli app-install` 将其安装到运行中的 `mudud` 服务器。
+使用 `mpm-build create` 命令创建 MPK，再用 `mcli app-install` 将其安装到运行中的 `mudud` 服务器。对于本地包，`mpm-install` 是 `mcli app-install` 所用 HTTP 端点的轻量封装，使用更便捷。
 
 ## App、Module 与 Procedure
 
@@ -60,7 +60,9 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 | `mgen` | 源码生成器。根据 SQL DDL 生成 Rust 实体类型，并对照 DDL 静态检查过程源码中的 SQL（`check-sql`）。 | 应用有 SQL 表且希望查询结果带类型、SQL 在构建期得到校验时。 |
 | `mtp` | 转译器。将 Rust/AssemblyScript 源码转换为 Mudu Procedure 格式，并生成异步包装代码。 | 编写或修改 `/**mudu-proc**/` 函数时。 |
 | `mpm-build` | 包构建器。根据 DDL、描述符和 WASM 模块生成 `.mpk` 文件。 | 将应用部署到 `mudud` 之前。 |
-| `mudup` | 发布版安装器。下载并激活发布二进制。 | 日常使用或服务器部署，不想从源码构建时。**暂时 not stable；推荐源码构建。** |
+| `mpm-install` | 包安装器。将本地 `.mpk` 上传到运行中的服务器，是 `mcli app-install` HTTP 端点的轻量封装。 | 将构建好的 `.mpk` 安装到 `mudud` 时。 |
+| `mpm-crate` | 项目脚手架。从模板创建新的 `.mpk` 应用项目（类似 `cargo new`）。 | 新建应用项目，而不是复制示例时。 |
+| `mudup` | 发布版安装器。下载并激活发布二进制。 | 日常使用或服务器部署，不想从源码构建时。**计划中（设计提案），尚不可用；请从源码构建。** |
 
 ## 系统调用接口
 

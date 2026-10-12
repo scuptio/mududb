@@ -1,5 +1,4 @@
-//! `tuple::update_tuple` module.
-#![allow(missing_docs)]
+//! In-place update of a field in a binary tuple, producing update deltas.
 
 use crate::tuple::read_datum::{read_binary_data, read_slot};
 use crate::tuple::slot::Slot;
@@ -11,6 +10,8 @@ use mudu::common::update_delta::UpdateDelta;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
+/// Appends to `delta` the update deltas replacing field `index` of `tuple`
+/// (laid out by `tuple_desc`) with the binary `value`.
 pub fn update_tuple(
     index: usize,
     value: &Buf,

@@ -5,6 +5,9 @@ use std::task::{Context, Poll};
 
 use tokio::sync::{futures::Notified, Notify as TokioNotify};
 
+/// Async notification with a sticky signaled flag: once
+/// [`ANotify::notify_waiters`] has been called, futures created by
+/// [`ANotify::notified`] resolve immediately.
 pub struct ANotify {
     inner: TokioNotify,
     /// Set to `true` once `notify_waiters()` has been called. This lets
@@ -12,12 +15,15 @@ pub struct ANotify {
     signaled: AtomicBool,
 }
 
+/// Future resolving when its [`ANotify`] is notified (or immediately if the
+/// sticky signaled flag is already set).
 pub struct ANotified<'a> {
     inner: Pin<Box<Notified<'a>>>,
     notify: &'a ANotify,
 }
 
 impl ANotify {
+    /// Creates a new, un-signaled notify.
     pub fn new() -> Self {
         Self {
             inner: TokioNotify::new(),
@@ -25,6 +31,8 @@ impl ANotify {
         }
     }
 
+    /// Returns a future that resolves on the next [`ANotify::notify_waiters`]
+    /// call, or immediately if the sticky flag is already set.
     pub fn notified(&self) -> ANotified<'_> {
         ANotified {
             inner: Box::pin(self.inner.notified()),
@@ -32,6 +40,8 @@ impl ANotify {
         }
     }
 
+    /// Wakes all waiting [`ANotified`] futures and sets the sticky signaled
+    /// flag so later waiters resolve immediately.
     pub fn notify_waiters(&self) {
         self.signaled.store(true, Ordering::Release);
         self.inner.notify_waiters();

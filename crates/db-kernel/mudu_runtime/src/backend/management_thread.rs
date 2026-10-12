@@ -3,10 +3,11 @@ use crate::backend::http_api::{
     HttpApiCapabilities, KernelHttpApi, serve_http_api_on_listener_with_stop,
 };
 use crate::backend::mudud_cfg::MuduDBCfg;
+use ::worker::worker_registry::WorkerRegistry;
+use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_kernel::server::worker_registry::WorkerRegistry;
 use mudu_sys::task::sync::spawn_thread_named;
 use mudu_utils::notifier::Waiter;
 use mudu_utils::task_async::build_current_thread_runtime;
@@ -18,6 +19,7 @@ pub fn spawn_management_thread(
     cfg: MuduDBCfg,
     app_mgr: Arc<dyn AppMgr>,
     worker_registry: Arc<WorkerRegistry>,
+    server_instance_id: OID,
     stop: Waiter,
 ) -> RS<()> {
     let (startup_tx, startup_rx) = mpsc::channel();
@@ -53,7 +55,9 @@ pub fn spawn_management_thread(
             }
         };
         runtime.block_on(async move {
-            let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry).await {
+            let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry, server_instance_id)
+                .await
+            {
                 Ok(api) => Arc::new(api),
                 Err(e) => {
                     let _ = startup_tx.send(Err(e));

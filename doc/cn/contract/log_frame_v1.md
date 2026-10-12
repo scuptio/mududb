@@ -79,7 +79,7 @@ Tailer 共 8 字节，大端序：
 
 ## 参考
 
-- 实现：[mudu_kernel/src/wal/format/latest.rs](../../../mudu_kernel/src/wal/format/latest.rs)
-- XL 记录：[mudu_kernel/src/wal/xl_entry.rs](../../../mudu_kernel/src/wal/xl_entry.rs)
-- PL 记录：[mudu_kernel/src/wal/pl_entry.rs](../../../mudu_kernel/src/wal/pl_entry.rs)
-- Chunk 布局：[mudu_kernel/src/wal/worker_wal_backend/layout.rs](../../../mudu_kernel/src/wal/worker_wal_backend/layout.rs)
+- 实现：[mudu_kernel/src/wal/format/latest.rs](../../../crates/db-kernel/mudu_kernel/src/wal/format/latest.rs)
+- XL 记录：[mudu_kernel/src/wal/xl_entry.rs](../../../crates/db-kernel/mudu_kernel/src/wal/xl_entry.rs)
+- PL 记录：[mudu_kernel/src/wal/pl_entry.rs](../../../crates/db-kernel/mudu_kernel/src/wal/pl_entry.rs)
+- Chunk 布局：[mudu_kernel/src/wal/worker_wal_backend/layout.rs](../../../crates/db-kernel/mudu_kernel/src/wal/worker_wal_backend/layout.rs)

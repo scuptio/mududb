@@ -215,7 +215,9 @@ mod tests {
         assert!(text.contains("err_test.rs"));
 
         let debug = format!("{:?}", error);
-        assert!(debug.contains("MuduError"));
+        assert!(debug.contains("missing"));
+        assert!(debug.contains("(code 2)"));
+        assert!(debug.contains("err_test.rs"));
     }
 
     #[test]
@@ -396,6 +398,31 @@ mod tests {
         assert!(text.contains("no bt (code 50000)"));
         assert!(text.contains("\n  at custom:loc"));
         assert!(!text.contains("backtrace:"));
+    }
+
+    #[test]
+    fn display_omits_backtrace_debug_includes_it() {
+        let _guard = backtrace_test_lock();
+        MuduError::set_capture_backtrace(true);
+
+        let inner = MuduError::new_with_ec_msg(ErrorCode::NotFound, "inner");
+        let outer = inner.context("outer");
+        let display = format!("{}", outer);
+        assert!(display.contains("outer (code 2)"));
+        assert!(display.contains(": inner (code 2)"));
+        assert!(display.contains("\n  at "));
+        assert!(!display.contains("backtrace:"));
+
+        let debug = format!("{:?}", outer);
+        assert!(debug.contains("outer (code 2)"));
+        // Both the outer error and the MuduError source print their backtraces.
+        // Match whole lines: backtrace frame symbols can themselves contain the
+        // substring "backtrace:" (e.g. std::backtrace::Backtrace) depending on
+        // the RUST_BACKTRACE mode.
+        let labels = debug.lines().filter(|line| *line == "backtrace:").count();
+        assert_eq!(labels, 2);
+
+        MuduError::set_capture_backtrace(cfg!(debug_assertions));
     }
 
     #[test]

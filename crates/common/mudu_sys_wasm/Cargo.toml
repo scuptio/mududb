@@ -7,8 +7,8 @@ license = "Apache-2.0"
 publish = false
 
 [lints.clippy]
-disallowed-types = "allow"
-disallowed-methods = "allow"
+disallowed_types = "allow"
+disallowed_methods = "allow"
 
 [dependencies]
 chrono = { workspace = true }

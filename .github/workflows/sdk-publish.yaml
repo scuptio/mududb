@@ -1,0 +1,227 @@
+name: SDK Publish
+
+# No push, pull_request, or schedule trigger: every run is explicit.
+on:
+  workflow_dispatch:
+    inputs:
+      languages:
+        description: 'SDK languages (comma-separated: as,py,cs,go,c,rs)'
+        required: true
+        default: 'as,py,cs,go,c,rs'
+        type: string
+      with_adapter_runtime:
+        description: 'Build separate native adapter runtime attachments on all platforms'
+        default: false
+        type: boolean
+      with_examples:
+        description: 'Verify native Wallets on all platforms and MPKs on Linux (includes runtime)'
+        default: false
+        type: boolean
+      publish:
+        description: 'Publish verified SDKs to mududb GitHub repositories'
+        default: false
+        type: boolean
+      create_repos:
+        description: 'Create missing public distribution repositories'
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
+env:
+  SDK_LANGS: ${{ inputs.languages }}
+
+jobs:
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yaml
+
+  build:
+    needs: secret-scan
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: python
+    env:
+      SDK_PYTHON: python
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /opt/cabal /usr/local/.ghcup \
+            /usr/share/swift /usr/local/julia* /opt/az /usr/local/share/powershell \
+            /usr/share/powershell /opt/microsoft
+          docker image prune --all --force
+          df -h /
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate SDK selection
+        run: |
+          import os, sys
+          sys.path.insert(0, 'script/sdk')
+          from sdk_build import languages
+          languages(os.environ['SDK_LANGS'])
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          import subprocess
+          subprocess.run(['sudo', 'apt-get', 'update'], check=True)
+          subprocess.run(['sudo', 'apt-get', 'install', '-y', 'build-essential', 'liburing-dev', 'clang', 'libclang-dev', 'llvm-dev'], check=True)
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Install pinned Rust and WASI target
+        run: |
+          import subprocess, tomllib
+          from pathlib import Path
+          toolchain = tomllib.loads(Path('rust-toolchain.toml').read_text(encoding='utf-8'))['toolchain']['channel']
+          subprocess.run(['rustup', 'toolchain', 'install', toolchain, '--profile', 'minimal', '--component', 'clippy,rustfmt', '--target', 'wasm32-wasip2'], check=True)
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - uses: actions/setup-node@v4
+        if: contains(format(',{0},', inputs.languages), ',as,') || inputs.with_adapter_runtime || inputs.with_examples
+        with:
+          node-version: '22'
+      - name: Install Python packaging tools
+        if: contains(format(',{0},', inputs.languages), ',py,')
+        run: |
+          import subprocess, sys
+          subprocess.run([sys.executable, '-m', 'pip', 'install', 'build'], check=True)
+      - uses: actions/setup-dotnet@v4
+        if: contains(format(',{0},', inputs.languages), ',cs,')
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-go@v5
+        if: contains(format(',{0},', inputs.languages), ',go,')
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Install Linux guest build tools
+        if: runner.os == 'Linux' && inputs.with_examples
+        run: |
+          import subprocess, sys
+          subprocess.run([sys.executable, 'script/sdk/setup_examples.py'], check=True)
+      - name: Test SDK distribution tooling (local Git and fake API only)
+        run: |
+          import subprocess, sys
+          subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'script/sdk/tests', '-v'], check=True)
+      - name: Build and verify SDK distributions
+        env:
+          BUILD_EXAMPLES: ${{ inputs.with_examples }}
+          BUILD_RUNTIME: ${{ inputs.with_adapter_runtime }}
+        run: |
+          import os, subprocess
+          args = ['cargo', 'make', 'build-sdk']
+          if os.environ['BUILD_EXAMPLES'] == 'true':
+              args += ['--with-examples', '--example-mode', 'both' if os.environ['RUNNER_OS'] == 'Linux' else 'adapter']
+          elif os.environ['BUILD_RUNTIME'] == 'true':
+              args += ['--with-adapter-runtime']
+          subprocess.run(args, check=True)
+      - name: Verify native adapters with PostgreSQL, MySQL and Mudud
+        if: runner.os == 'Linux' && inputs.with_examples
+        run: |
+          import json, os, subprocess, sys
+          from pathlib import Path
+          root = Path('target/sdk-dist')
+          manifest = next((root / 'adapter-runtime').glob('*/runtime.json'))
+          library = manifest.parent / json.loads(manifest.read_text())['library']
+          subprocess.run([sys.executable, 'script/sdk/backend_smoke.py', '--dist', str(root), '--library', str(library.resolve()), '--languages', os.environ['SDK_LANGS']], check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-distributions-${{ runner.os }}
+          path: target/sdk-dist/
+          if-no-files-found: error
+          include-hidden-files: true
+      - uses: actions/upload-artifact@v4
+        if: inputs.with_adapter_runtime || inputs.with_examples
+        with:
+          name: adapter-runtime-${{ runner.os }}
+          path: |
+            target/sdk-dist/adapter-runtime/*.tar.gz
+            target/sdk-dist/adapter-runtime/*.sha256
+          if-no-files-found: error
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-distributions-Linux
+          path: target/sdk-dist/
+      - name: Publish SDK repositories and Releases
+        env:
+          SDK_PUBLISH_TOKEN: ${{ secrets.SDK_PUBLISH_TOKEN }}
+          SDK_CREATE_REPOS: ${{ inputs.create_repos }}
+          SDK_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export SDK_GITHUB_TOKEN_FILE
+          SDK_GITHUB_TOKEN_FILE="$(mktemp "$RUNNER_TEMP/sdk-token.XXXXXX")"
+          trap 'rm -f "$SDK_GITHUB_TOKEN_FILE"' EXIT
+          printf '%s' "$SDK_PUBLISH_TOKEN" > "$SDK_GITHUB_TOKEN_FILE"
+          unset SDK_PUBLISH_TOKEN
+          args=()
+          if [[ "$SDK_CREATE_REPOS" == true ]]; then args+=(--create-repos); fi
+          python3 script/sdk/publish.py --dist target/sdk-dist \
+            --expected-commit "$SDK_SOURCE_COMMIT" "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-publish-report
+          path: target/sdk-dist/publish-report.json
+          if-no-files-found: ignore
+
+  publish-runtime:
+    if: inputs.publish && (inputs.with_adapter_runtime || inputs.with_examples)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: adapter-runtime-*
+          path: runtime-assets
+          merge-multiple: true
+      - name: Publish separate adapter runtime Release
+        shell: python
+        env:
+          RUNTIME_TOKEN: ${{ github.token }}
+        run: |
+          import os, subprocess, sys, tempfile
+          from pathlib import Path
+          with tempfile.TemporaryDirectory() as directory:
+              token = Path(directory) / 'token'
+              token.write_text(os.environ.pop('RUNTIME_TOKEN'), encoding='utf-8')
+              token.chmod(0o600)
+              env = os.environ.copy()
+              env['SDK_GITHUB_TOKEN_FILE'] = str(token)
+              subprocess.run([sys.executable, 'script/sdk/publish_runtime.py', '--artifacts', 'runtime-assets'], env=env, check=True)

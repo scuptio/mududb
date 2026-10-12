@@ -1,10 +1,10 @@
-//! `tuple::bitmap` module.
-#![allow(missing_docs)]
+//! Bitmap utilities for the tuple null-bitmap.
 
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
+/// A fixed-size bitmap backed by a byte vector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bitmap {
     bits: usize,
@@ -12,6 +12,7 @@ pub struct Bitmap {
 }
 
 impl Bitmap {
+    /// Creates a bitmap of `bits` bits, all cleared.
     pub fn new(bits: usize) -> Self {
         Self {
             bits,
@@ -19,6 +20,7 @@ impl Bitmap {
         }
     }
 
+    /// Creates a bitmap of `bits` bits from existing bytes.
     pub fn from_bytes(bits: usize, bytes: &[u8]) -> RS<Self> {
         let expected = aligned_byte_len(bits);
         if bytes.len() < expected {
@@ -38,11 +40,13 @@ impl Bitmap {
         })
     }
 
+    /// Returns the value of bit `bit_idx`.
     pub fn get(&self, bit_idx: usize) -> RS<bool> {
         self.check_index(bit_idx)?;
         Ok((self.bytes[bit_idx / 8] & (1u8 << (bit_idx % 8))) != 0)
     }
 
+    /// Sets bit `bit_idx` to `value`.
     pub fn set(&mut self, bit_idx: usize, value: bool) -> RS<()> {
         self.check_index(bit_idx)?;
         let mask = 1u8 << (bit_idx % 8);
@@ -54,14 +58,17 @@ impl Bitmap {
         Ok(())
     }
 
+    /// Returns the backing bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Returns the number of bits.
     pub fn bits(&self) -> usize {
         self.bits
     }
 
+    /// Returns the length of the backing bytes.
     pub fn byte_len(&self) -> usize {
         self.bytes.len()
     }
@@ -77,6 +84,7 @@ impl Bitmap {
     }
 }
 
+/// Returns the byte length holding `bits` bits, aligned up to 8 bytes.
 pub fn aligned_byte_len(bits: usize) -> usize {
     let bytes = bits.div_ceil(8);
     align_up(bytes, 8)

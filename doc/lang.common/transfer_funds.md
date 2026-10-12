@@ -1,6 +1,6 @@
 <!--
 quote_begin
-content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
+content="[Transfer](../../example/mpk/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
 ```rust

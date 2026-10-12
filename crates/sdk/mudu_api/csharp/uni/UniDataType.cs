@@ -497,7 +497,7 @@ public class UniDataTypeFormatter : IMessagePackFormatter<UniDataType?>
                     var __l1 = new List<UniDataType>(__c1);
                     for (var __i1 = 0; __i1 < __c1; __i1++)
                     {
-                        __l1.Add(new UniDataTypeFormatter().Deserialize(ref reader, options));
+                        __l1.Add(new UniDataTypeFormatter().Deserialize(ref reader, options)!);
                     }
                     tupleInner = __l1;
                 }

@@ -62,5 +62,5 @@
 
 ## 参考
 
-- 解析器：[mudu_runtime/src/backend/mudud_cfg.rs](../../../mudu_runtime/src/backend/mudud_cfg.rs)
-- 示例配置：[doc/cfg/mudud.cfg](../../cfg/mudud.cfg)
+- 解析器：[mudu_runtime/src/backend/mudud_cfg.rs](../../../crates/db-kernel/mudu_runtime/src/backend/mudud_cfg.rs)
+- 示例配置：[`mudud init-cfg`](../running_mudud.cn.md)

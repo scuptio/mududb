@@ -4,7 +4,6 @@ use crate::backend::mudud_cfg::ServerMode;
 use crate::backend::session_handle_task::SessionHandleTask;
 use crate::backend::tokio_backend::TokioBackend;
 use crate::backend::web_handle_task::WebHandleTask;
-use crate::service::service::Service;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -12,6 +11,7 @@ use mudu_sys::sync::async_::async_task::TaskWrapper;
 use mudu_sys::tokio::sync::mpsc;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
 use mudu_utils::task_async::LocalTaskSet;
+use runtime_wasm::service::service::Service;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use tracing::info;
@@ -47,6 +47,12 @@ impl Backend {
             tcp_listen_port = cfg.tcp_listen_port,
             "starting mudud backend"
         );
+        if cfg.replication.is_some() && !cfg.uses_mududb_kernel() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "replication requires the mududb kernel (server_mode \"Tokio\"); the legacy backend does not support replication"
+            ));
+        }
         if cfg.server_mode == ServerMode::IOUring {
             info!("selected io_uring backend");
             // The new backend is isolated behind a dedicated mode so the

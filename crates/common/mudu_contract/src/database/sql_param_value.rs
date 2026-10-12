@@ -1,11 +1,12 @@
-//! `database::sql_param_value` module.
-#![allow(missing_docs)]
+//! SQL parameter set backed by data values.
 
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 
 use crate::database::sql_params::SQLParams;
 
+/// SQL parameters carried as a vector of data values, with optional
+/// named-placeholder names.
 #[derive(Debug)]
 pub struct SQLParamValue {
     param: Vec<DataValue>,
@@ -28,13 +29,17 @@ impl SQLParams for SQLParamValue {
 }
 
 impl SQLParamValue {
+    /// Consumes `self` and returns the parameter values.
     pub fn into(self) -> Vec<DataValue> {
         self.param
     }
 
+    /// Returns the parameter values.
     pub fn params(&self) -> &[DataValue] {
         &self.param
     }
+
+    /// Creates a positional parameter set from a vector of values.
     pub fn from_vec(vec: Vec<DataValue>) -> Self {
         Self {
             param: vec,

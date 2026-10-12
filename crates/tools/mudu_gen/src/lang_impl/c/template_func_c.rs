@@ -14,7 +14,7 @@ use crate::lang_impl::c::c_codec::{
     C_STYLE_FUNC, CMapEntry, CollectingCNamer, c_decode_stmts, c_encode_stmts, c_ident, c_join,
     c_map_decode_loop, c_type,
 };
-use crate::lang_impl::lang::func_info::{FuncResult, FuncSig, analyze_func};
+use crate::lang_impl::lang::func_info::{FuncParam, FuncResult, FuncSig, analyze_func};
 use crate::lang_impl::lang::lang_kind::LangKind;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use crate::src_gen::wit_def::WitFuncDef;
@@ -186,195 +186,10 @@ impl FuncRenderC {
         let _ = LangKind::C;
 
         // ---- request side ----
-        let mut signature = Vec::with_capacity(sig.params.len());
-        let mut encode_lines = Vec::new();
-        let mut map_entries = Vec::new();
-        let mut holder_fields = Vec::new();
-        let mut req_decode_out_ty = String::new();
-        let multi = sig.params.len() > 1;
-        let req_holder_name = format!("{}_{}_request", prefix, func_snake);
-        for (index, param) in sig.params.iter().enumerate() {
-            let param_name = c_ident(&to_snake_case(&param.param_name));
-            let base = format!("{}_{}_{}", prefix, func_snake, param_name);
-            namer.begin(base.clone());
-            let ty = c_type(&param.param_type, &mut namer)?;
-            let by_ref = param_by_ref(&param.param_type, cfg);
-            if by_ref {
-                signature.push(format!("const {} *{}", ty, param_name));
-            } else {
-                signature.push(format!("{} {}", ty, param_name));
-            }
-            let expr = if by_ref {
-                format!("(*{})", param_name)
-            } else {
-                param_name.clone()
-            };
-            encode_lines.push(format!("    mpw_u64(w, {}u);", index + 1));
-            c_encode_stmts(
-                C_STYLE_FUNC,
-                &param.param_type,
-                &expr,
-                4,
-                0,
-                &mut encode_lines,
-            )?;
-            let target = if multi {
-                format!("out->{}", param_name)
-            } else {
-                "(*out)".to_string()
-            };
-            namer.begin(base);
-            let mut dec = Vec::new();
-            c_decode_stmts(
-                C_STYLE_FUNC,
-                &param.param_type,
-                &target,
-                0,
-                0,
-                &mut dec,
-                &mut namer,
-            )?;
-            let dec = dec
-                .iter()
-                .map(|line| {
-                    if line.is_empty() {
-                        line.clone()
-                    } else {
-                        format!("                    {}", line)
-                    }
-                })
-                .collect::<Vec<_>>();
-            map_entries.push(CMapEntry {
-                number: (index + 1) as u32,
-                decode_stmts: c_join(&dec),
-            });
-            if multi {
-                holder_fields.push(CHolderField {
-                    decl: format!("    {} {};", ty, param_name),
-                });
-            } else {
-                req_decode_out_ty = ty;
-            }
-        }
-        let mut req_encode_body = vec![format!("    {}_write_header(w, {});", prefix, kind_const)];
-        if !sig.params.is_empty() {
-            req_encode_body.push(format!("    mpw_map_header(w, {}u);", sig.params.len()));
-            req_encode_body.extend(encode_lines);
-        }
-        req_encode_body.push("    return mpw_ok(w) ? 0 : -1;".to_string());
-
-        let mut req_decode_body = vec![
-            format!("    {}_message_kind kind;", prefix),
-            "    (void)a;".to_string(),
-            format!("    if ({}_decode_header(r, &kind) != 0) {{", prefix),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-            format!("    if (kind != {}) {{", kind_const),
-            "        mpr_fail(r);".to_string(),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-        ];
-        if sig.params.is_empty() {
-            req_decode_body.push("    if (!mpr_done(r)) {".to_string());
-            req_decode_body.push("        mpr_fail(r);".to_string());
-            req_decode_body.push("        return -1;".to_string());
-            req_decode_body.push("    }".to_string());
-            req_decode_body.push("    return 0;".to_string());
-        } else {
-            req_decode_body.push("    memset(out, 0, sizeof(*out));".to_string());
-            req_decode_body.push(c_map_decode_loop(&map_entries, 4));
-            req_decode_body.push("    if (!mpr_done(r)) {".to_string());
-            req_decode_body.push("        mpr_fail(r);".to_string());
-            req_decode_body.push("        return -1;".to_string());
-            req_decode_body.push("    }".to_string());
-            req_decode_body.push("    return mpr_ok(r) ? 0 : -1;".to_string());
-        }
-        if multi {
-            req_decode_out_ty = req_holder_name.clone();
-        }
+        let req = request_side_c(sig, cfg, &prefix, &func_snake, &kind_const, &mut namer)?;
 
         // ---- result side ----
-        let err_ty_raw = match &sig.result {
-            FuncResult::Unit { err } => err.clone(),
-            FuncResult::Value { err, .. } => err.clone(),
-        };
-        namer.begin(format!("{}_{}_err", prefix, func_snake));
-        let err_ty = c_type(&err_ty_raw, &mut namer)?;
-        let res_holder_name = format!("{}_{}_result", prefix, func_snake);
-        let (result_is_unit, res_value_decl, ok_encode_lines, ok_decode_lines) = match &sig.result {
-            FuncResult::Unit { .. } => (true, String::new(), None, None),
-            FuncResult::Value { ok, .. } => {
-                namer.begin(format!("{}_{}_result", prefix, func_snake));
-                let ok_ty = c_type(ok, &mut namer)?;
-                let mut enc = Vec::new();
-                c_encode_stmts(C_STYLE_FUNC, ok, "res->value", 8, 0, &mut enc)?;
-                namer.begin(format!("{}_{}_result", prefix, func_snake));
-                let mut dec = Vec::new();
-                c_decode_stmts(C_STYLE_FUNC, ok, "out->value", 12, 0, &mut dec, &mut namer)?;
-                (false, format!("    {} value;", ok_ty), Some(enc), Some(dec))
-            }
-        };
-        let mut res_encode_body = vec![
-            format!("    {}_write_header(w, {});", prefix, kind_const),
-            "    mpw_array_header(w, 2u);".to_string(),
-            "    if (res->is_err) {".to_string(),
-            "        mpw_u64(w, 1u);".to_string(),
-            format!("        {}_encode(w, &(res->err));", err_ty),
-            "    } else {".to_string(),
-            "        mpw_u64(w, 0u);".to_string(),
-        ];
-        match &ok_encode_lines {
-            Some(lines) => res_encode_body.extend(lines.iter().cloned()),
-            None => {
-                // unit success: the `0u8` placeholder payload
-                res_encode_body.push("        mpw_u64(w, 0u);".to_string())
-            }
-        }
-        res_encode_body.push("    }".to_string());
-        res_encode_body.push("    return mpw_ok(w) ? 0 : -1;".to_string());
-
-        let mut res_decode_body = vec![
-            format!("    {}_message_kind kind;", prefix),
-            "    (void)a;".to_string(),
-            format!("    if ({}_decode_header(r, &kind) != 0) {{", prefix),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-            format!("    if (kind != {}) {{", kind_const),
-            "        mpr_fail(r);".to_string(),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-            "    memset(out, 0, sizeof(*out));".to_string(),
-            "    if (mpr_array_header(r) != 2u) {".to_string(),
-            "        mpr_fail(r);".to_string(),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-            "    {".to_string(),
-            "        uint64_t tag = mpr_u64(r);".to_string(),
-            "        if (tag == 0u) {".to_string(),
-            "            out->is_err = 0;".to_string(),
-        ];
-        match &ok_decode_lines {
-            Some(lines) => res_decode_body.extend(lines.iter().cloned()),
-            None => {
-                // consume the `0u8` placeholder payload
-                res_decode_body.push("            (void)mpr_u64(r);".to_string())
-            }
-        }
-        res_decode_body.extend([
-            "        } else if (tag == 1u) {".to_string(),
-            "            out->is_err = 1;".to_string(),
-            format!("            {}_decode(r, a, &(out->err));", err_ty),
-            "        } else {".to_string(),
-            "            mpr_fail(r);".to_string(),
-            "            return -1;".to_string(),
-            "        }".to_string(),
-            "    }".to_string(),
-            "    if (!mpr_done(r)) {".to_string(),
-            "        mpr_fail(r);".to_string(),
-            "        return -1;".to_string(),
-            "    }".to_string(),
-            "    return mpr_ok(r) ? 0 : -1;".to_string(),
-        ]);
+        let res = result_side_c(sig, &prefix, &func_snake, &kind_const, &mut namer)?;
 
         let holder_decls = namer.holders().iter().map(|h| h.decl()).collect();
         Ok(Self {
@@ -383,20 +198,322 @@ impl FuncRenderC {
             func_snake,
             param_count: sig.params.len(),
             holder_decls,
-            req_holder_name,
-            req_holder_fields: holder_fields,
-            req_signature: signature.join(", "),
-            req_encode_body: c_join(&req_encode_body),
-            req_decode_out_ty,
-            req_decode_body: c_join(&req_decode_body),
-            result_is_unit,
-            res_holder_name,
-            res_value_decl,
-            err_ty,
-            res_encode_body: c_join(&res_encode_body),
-            res_decode_body: c_join(&res_decode_body),
+            req_holder_name: req.req_holder_name,
+            req_holder_fields: req.holder_fields,
+            req_signature: req.signature.join(", "),
+            req_encode_body: c_join(&req.req_encode_body),
+            req_decode_out_ty: req.req_decode_out_ty,
+            req_decode_body: c_join(&req.req_decode_body),
+            result_is_unit: res.result_is_unit,
+            res_holder_name: res.res_holder_name,
+            res_value_decl: res.res_value_decl,
+            err_ty: res.err_ty,
+            res_encode_body: c_join(&res.res_encode_body),
+            res_decode_body: c_join(&res.res_decode_body),
         })
     }
+}
+
+/// Request-side render data of one WIT function.
+struct RequestSideC {
+    /// Encoder parameter list entries (`const uni_oid *oid` / `mp_bin key`).
+    signature: Vec<String>,
+    /// Request holder struct name (`uni_syscall_get_request`).
+    req_holder_name: String,
+    /// Request holder struct fields (when `param_count > 1`).
+    holder_fields: Vec<CHolderField>,
+    /// Request decode output type: the holder name for `param_count > 1`,
+    /// the bare parameter type for one parameter; empty for none.
+    req_decode_out_ty: String,
+    /// Request encode function body lines.
+    req_encode_body: Vec<String>,
+    /// Request decode function body lines.
+    req_decode_body: Vec<String>,
+}
+
+fn request_side_c(
+    sig: &FuncSig,
+    cfg: &CodegenCfg,
+    prefix: &str,
+    func_snake: &str,
+    kind_const: &str,
+    namer: &mut CollectingCNamer,
+) -> RS<RequestSideC> {
+    let mut signature = Vec::with_capacity(sig.params.len());
+    let mut encode_lines = Vec::new();
+    let mut map_entries = Vec::new();
+    let mut holder_fields = Vec::new();
+    let mut req_decode_out_ty = String::new();
+    let multi = sig.params.len() > 1;
+    let req_holder_name = format!("{}_{}_request", prefix, func_snake);
+    for (index, param) in sig.params.iter().enumerate() {
+        let plan = plan_param_c(index, param, cfg, prefix, func_snake, multi, namer)?;
+        signature.push(plan.signature_entry);
+        encode_lines.extend(plan.encode_lines);
+        map_entries.push(plan.map_entry);
+        if let Some(field) = plan.holder_field {
+            holder_fields.push(field);
+        }
+        if let Some(out_ty) = plan.single_out_ty {
+            req_decode_out_ty = out_ty;
+        }
+    }
+    let mut req_encode_body = vec![format!("    {}_write_header(w, {});", prefix, kind_const)];
+    if !sig.params.is_empty() {
+        req_encode_body.push(format!("    mpw_map_header(w, {}u);", sig.params.len()));
+        req_encode_body.extend(encode_lines);
+    }
+    req_encode_body.push("    return mpw_ok(w) ? 0 : -1;".to_string());
+
+    let mut req_decode_body = vec![
+        format!("    {}_message_kind kind;", prefix),
+        "    (void)a;".to_string(),
+        format!("    if ({}_decode_header(r, &kind) != 0) {{", prefix),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+        format!("    if (kind != {}) {{", kind_const),
+        "        mpr_fail(r);".to_string(),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+    ];
+    if sig.params.is_empty() {
+        req_decode_body.push("    if (!mpr_done(r)) {".to_string());
+        req_decode_body.push("        mpr_fail(r);".to_string());
+        req_decode_body.push("        return -1;".to_string());
+        req_decode_body.push("    }".to_string());
+        req_decode_body.push("    return 0;".to_string());
+    } else {
+        req_decode_body.push("    memset(out, 0, sizeof(*out));".to_string());
+        req_decode_body.push(c_map_decode_loop(&map_entries, 4));
+        req_decode_body.push("    if (!mpr_done(r)) {".to_string());
+        req_decode_body.push("        mpr_fail(r);".to_string());
+        req_decode_body.push("        return -1;".to_string());
+        req_decode_body.push("    }".to_string());
+        req_decode_body.push("    return mpr_ok(r) ? 0 : -1;".to_string());
+    }
+    if multi {
+        req_decode_out_ty = req_holder_name.clone();
+    }
+    Ok(RequestSideC {
+        signature,
+        req_holder_name,
+        holder_fields,
+        req_decode_out_ty,
+        req_encode_body,
+        req_decode_body,
+    })
+}
+
+/// Per-parameter request-side render data.
+struct ParamPlanC {
+    /// Encoder parameter list entry (`const uni_oid *oid` / `mp_bin key`).
+    signature_entry: String,
+    /// Encode statement lines for this parameter (the number write plus the
+    /// payload encode).
+    encode_lines: Vec<String>,
+    /// The map-loop decode entry for this parameter.
+    map_entry: CMapEntry,
+    /// Holder field (multi-parameter requests only).
+    holder_field: Option<CHolderField>,
+    /// Bare decode output type (single-parameter requests only).
+    single_out_ty: Option<String>,
+}
+
+/// Compute the signature entry, encode statements and map-decode entry of
+/// one request parameter.
+fn plan_param_c(
+    index: usize,
+    param: &FuncParam,
+    cfg: &CodegenCfg,
+    prefix: &str,
+    func_snake: &str,
+    multi: bool,
+    namer: &mut CollectingCNamer,
+) -> RS<ParamPlanC> {
+    let param_name = c_ident(&to_snake_case(&param.param_name));
+    let base = format!("{}_{}_{}", prefix, func_snake, param_name);
+    namer.begin(base.clone());
+    let ty = c_type(&param.param_type, namer)?;
+    let by_ref = param_by_ref(&param.param_type, cfg);
+    let signature_entry = if by_ref {
+        format!("const {} *{}", ty, param_name)
+    } else {
+        format!("{} {}", ty, param_name)
+    };
+    let expr = if by_ref {
+        format!("(*{})", param_name)
+    } else {
+        param_name.clone()
+    };
+    let mut encode_lines = vec![format!("    mpw_u64(w, {}u);", index + 1)];
+    c_encode_stmts(
+        C_STYLE_FUNC,
+        &param.param_type,
+        &expr,
+        4,
+        0,
+        &mut encode_lines,
+    )?;
+    let target = if multi {
+        format!("out->{}", param_name)
+    } else {
+        "(*out)".to_string()
+    };
+    namer.begin(base);
+    let mut dec = Vec::new();
+    c_decode_stmts(
+        C_STYLE_FUNC,
+        &param.param_type,
+        &target,
+        0,
+        0,
+        &mut dec,
+        namer,
+    )?;
+    let dec = dec
+        .iter()
+        .map(|line| {
+            if line.is_empty() {
+                line.clone()
+            } else {
+                format!("                    {}", line)
+            }
+        })
+        .collect::<Vec<_>>();
+    let (holder_field, single_out_ty) = if multi {
+        (
+            Some(CHolderField {
+                decl: format!("    {} {};", ty, param_name),
+            }),
+            None,
+        )
+    } else {
+        (None, Some(ty))
+    };
+    Ok(ParamPlanC {
+        signature_entry,
+        encode_lines,
+        map_entry: CMapEntry {
+            number: (index + 1) as u32,
+            decode_stmts: c_join(&dec),
+        },
+        holder_field,
+        single_out_ty,
+    })
+}
+
+/// Result-side render data of one WIT function.
+struct ResultSideC {
+    /// Whether the result is a unit result (`result<_, E>`).
+    result_is_unit: bool,
+    /// Result holder struct name (`uni_syscall_get_result`).
+    res_holder_name: String,
+    /// Result ok-value member declaration; empty for unit results.
+    res_value_decl: String,
+    /// Wire error type name (`uni_error`).
+    err_ty: String,
+    /// Result encode function body lines.
+    res_encode_body: Vec<String>,
+    /// Result decode function body lines.
+    res_decode_body: Vec<String>,
+}
+
+fn result_side_c(
+    sig: &FuncSig,
+    prefix: &str,
+    func_snake: &str,
+    kind_const: &str,
+    namer: &mut CollectingCNamer,
+) -> RS<ResultSideC> {
+    let err_ty_raw = match &sig.result {
+        FuncResult::Unit { err } => err.clone(),
+        FuncResult::Value { err, .. } => err.clone(),
+    };
+    namer.begin(format!("{}_{}_err", prefix, func_snake));
+    let err_ty = c_type(&err_ty_raw, namer)?;
+    let res_holder_name = format!("{}_{}_result", prefix, func_snake);
+    let (result_is_unit, res_value_decl, ok_encode_lines, ok_decode_lines) = match &sig.result {
+        FuncResult::Unit { .. } => (true, String::new(), None, None),
+        FuncResult::Value { ok, .. } => {
+            namer.begin(format!("{}_{}_result", prefix, func_snake));
+            let ok_ty = c_type(ok, namer)?;
+            let mut enc = Vec::new();
+            c_encode_stmts(C_STYLE_FUNC, ok, "res->value", 8, 0, &mut enc)?;
+            namer.begin(format!("{}_{}_result", prefix, func_snake));
+            let mut dec = Vec::new();
+            c_decode_stmts(C_STYLE_FUNC, ok, "out->value", 12, 0, &mut dec, namer)?;
+            (false, format!("    {} value;", ok_ty), Some(enc), Some(dec))
+        }
+    };
+    let mut res_encode_body = vec![
+        format!("    {}_write_header(w, {});", prefix, kind_const),
+        "    mpw_array_header(w, 2u);".to_string(),
+        "    if (res->is_err) {".to_string(),
+        "        mpw_u64(w, 1u);".to_string(),
+        format!("        {}_encode(w, &(res->err));", err_ty),
+        "    } else {".to_string(),
+        "        mpw_u64(w, 0u);".to_string(),
+    ];
+    match &ok_encode_lines {
+        Some(lines) => res_encode_body.extend(lines.iter().cloned()),
+        None => {
+            // unit success: the `0u8` placeholder payload
+            res_encode_body.push("        mpw_u64(w, 0u);".to_string())
+        }
+    }
+    res_encode_body.push("    }".to_string());
+    res_encode_body.push("    return mpw_ok(w) ? 0 : -1;".to_string());
+
+    let mut res_decode_body = vec![
+        format!("    {}_message_kind kind;", prefix),
+        "    (void)a;".to_string(),
+        format!("    if ({}_decode_header(r, &kind) != 0) {{", prefix),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+        format!("    if (kind != {}) {{", kind_const),
+        "        mpr_fail(r);".to_string(),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+        "    memset(out, 0, sizeof(*out));".to_string(),
+        "    if (mpr_array_header(r) != 2u) {".to_string(),
+        "        mpr_fail(r);".to_string(),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+        "    {".to_string(),
+        "        uint64_t tag = mpr_u64(r);".to_string(),
+        "        if (tag == 0u) {".to_string(),
+        "            out->is_err = 0;".to_string(),
+    ];
+    match &ok_decode_lines {
+        Some(lines) => res_decode_body.extend(lines.iter().cloned()),
+        None => {
+            // consume the `0u8` placeholder payload
+            res_decode_body.push("            (void)mpr_u64(r);".to_string())
+        }
+    }
+    res_decode_body.extend([
+        "        } else if (tag == 1u) {".to_string(),
+        "            out->is_err = 1;".to_string(),
+        format!("            {}_decode(r, a, &(out->err));", err_ty),
+        "        } else {".to_string(),
+        "            mpr_fail(r);".to_string(),
+        "            return -1;".to_string(),
+        "        }".to_string(),
+        "    }".to_string(),
+        "    if (!mpr_done(r)) {".to_string(),
+        "        mpr_fail(r);".to_string(),
+        "        return -1;".to_string(),
+        "    }".to_string(),
+        "    return mpr_ok(r) ? 0 : -1;".to_string(),
+    ]);
+    Ok(ResultSideC {
+        result_is_unit,
+        res_holder_name,
+        res_value_decl,
+        err_ty,
+        res_encode_body,
+        res_decode_body,
+    })
 }
 
 #[cfg(test)]

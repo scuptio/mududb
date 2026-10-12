@@ -35,7 +35,7 @@ On PATH:
 Builds run **offline**: the wit-bindgen-go output under `binding/` is
 checked in and both Go module dependencies are vendored under `vendor/` —
 the `go.bytecodealliance.org/cm v0.3.0` component-model runtime and the
-`github.com/ybbh/mududb_p/bindings/go` wire library (packages `types` +
+`github.com/mududb/mududb-go` wire library (packages `types` +
 `codec`: the Uni* types/MSSP codecs and the record bridge) — so no module
 ever downloads. The bindings were produced with `wit-bindgen-go` v0.7.0
 (`go run go.bytecodealliance.org/cmd/wit-bindgen-go@v0.7.0`).

@@ -8,6 +8,7 @@ members = [
     "mudu_cli",
     "mudu_gen",
     "mudu_transpiler",
+    "dev/mudu_metrics",
 ]
 
 [workspace.package]
@@ -18,7 +19,7 @@ future_incompatible = { level = "allow", priority = -1 }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 
 [workspace.lints.clippy]
-disallowed-types = "deny"
+disallowed_types = "deny"
 
 [profile.release]
 panic = "abort"
@@ -37,6 +38,7 @@ mpm_crate = { path = "mpm_crate" }
 mpm_install = { path = "mpm_install" }
 mudu_cli = { path = "mudu_cli" }
 mudu_gen = { path = "mudu_gen" }
+mudu_metrics = { path = "dev/mudu_metrics" }
 mudu_transpiler = { path = "mudu_transpiler" }
 
 # Crates from the sibling common workspace.
@@ -51,6 +53,9 @@ mudu_type = { path = "../common/mudu_type" }
 mudu_utils = { path = "../common/mudu_utils" }
 sql_parser = { path = "../common/sql_parser" }
 tree-sitter-wit = { path = "../common/tree-sitter-wit" }
+
+# Crates from the sibling db-kernel workspace (offline restore).
+backup = { path = "../db-kernel/backup" }
 
 # External dependencies.
 anyhow = { version = "1.0.103" }
@@ -72,4 +77,4 @@ tree-sitter-rust = { version = "0.24.0" }
 tree-sitter-typescript = { version = "0.23.2" }
 unicode-width = { version = "0.2.0" }
 wit-parser = { version = "0.252.0" }
-zip = { version = "8.4.0" }
+zip = { version = "9.0.1" }

@@ -1,0 +1,21 @@
+lang = "rust"
+async = true
+
+[translate]
+mode = "refactor"
+src_mod = "rust"
+dst_mod = "generated"
+
+[patterns]
+include = [
+    "**/*.rs",
+]
+exclude = [
+    "**/*_test.rs",
+    "**/test_*.rs",
+    "**/tests/**",
+    # The async YCSB procedures are the native-only variant used by the
+    # benchmark binary; the wasm package ships the sync variant, so exporting
+    # both would define the same procedure names twice.
+    "**/procedure_async.rs",
+]

@@ -1,6 +1,8 @@
-#![allow(missing_docs)]
+/// Datetime and calendar types.
 pub mod datetime;
+/// Monotonic instant type.
 pub mod instant;
+/// Wall-clock system time type.
 pub mod system_time;
 
 pub use datetime::{DateTime, Utc};
@@ -11,6 +13,7 @@ use mudu::common::result::RS;
 use std::future::Future;
 use std::time::Duration;
 
+/// Time subsystem - native implementation.
 pub struct SysTime;
 
 /// CPU time consumed by the calling thread, read from
@@ -51,30 +54,37 @@ impl Default for SysTime {
 }
 
 impl SysTime {
+    /// Creates the time subsystem handle.
     pub fn new() -> Self {
         Self
     }
 
+    /// Returns the current monotonic instant.
     pub fn instant_now(&self) -> Instant {
         Instant::now()
     }
 
+    /// Returns the current wall-clock system time.
     pub fn system_time_now(&self) -> SystemTime {
         SystemTime::now()
     }
 
+    /// Returns the current UTC date-time.
     pub fn utc_now(&self) -> DateTime<Utc> {
         DateTime::now()
     }
 
+    /// Blocks the current thread for at least `dur`.
     pub fn sleep_blocking(&self, dur: Duration) {
         super::task::TaskSync::sleep_blocking(dur)
     }
 
+    /// Sleeps for at least `dur` without blocking the executor.
     pub async fn sleep(&self, dur: Duration) -> RS<()> {
         super::task::TaskAsync::sleep(dur).await
     }
 
+    /// Awaits `fut`, returning `None` if `dur` elapses first.
     pub async fn timeout<F>(&self, dur: Duration, fut: F) -> Option<F::Output>
     where
         F: Future,

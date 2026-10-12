@@ -25,22 +25,19 @@ lazy_static! {
         let mut v: Vec<(&'static str, FuzzRun)> = vec![
             (
                 "_de_en_x_l_up_tuple",
-                crate::contract::xl_d_up_tuple::_fuzz::_de_en_x_l_up_tuple,
+                ::catalog::contract::xl_d_up_tuple::_fuzz::_de_en_x_l_up_tuple,
             ),
             (
                 "_delta_apply",
-                crate::common::test_delta_apply::_fuzz::_fuzz_delta_apply,
+                ::catalog::common::test_delta_apply::_fuzz::_fuzz_delta_apply,
             ),
-            (
-                "_de_en_x_l_batch",
-                crate::wal::xl_batch::_fuzz::_de_en_x_l_batch,
-            ),
+            ("_de_en_x_l_batch", ::wal::xl_batch::_fuzz::_de_en_x_l_batch),
             ("_gen_order_csv", crate::test::fuzz_gen_csv::_gen_order_csv),
             ("_type_convert", _unimplemented_fuzz),
             ("_x_log_append", _unimplemented_fuzz),
         ];
         #[cfg(any(test, fuzzing))]
-        v.push(("_schema_table", crate::contract::_schema_table));
+        v.push(("_schema_table", ::catalog::contract::_schema_table));
         v
     };
     static ref FUZZ_RUN: HashMap<&'static str, FuzzRun> = {

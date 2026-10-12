@@ -1,5 +1,4 @@
-//! `tuple::slot` module.
-#![allow(missing_docs)]
+//! Offset/length slot pointing into a binary tuple.
 
 use byteorder::ByteOrder;
 use mudu::common::buf::Buf;
@@ -9,6 +8,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use serde::{Deserialize, Serialize};
 
+/// An `(offset, length)` pair locating a field within a binary tuple.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Slot {
     off: u32,
@@ -16,6 +16,7 @@ pub struct Slot {
 }
 
 impl Slot {
+    /// Decodes a slot from its binary form.
     pub fn from_binary(binary: &[u8]) -> RS<Self> {
         if binary.len() < Self::size_of() {
             return Err(mudu_error!(
@@ -32,6 +33,7 @@ impl Slot {
         Ok(Self::new(off, len))
     }
 
+    /// Encodes the slot into `binary`.
     pub fn to_binary(&self, binary: &mut [u8]) -> RS<()> {
         if binary.len() < Self::size_of() {
             return Err(mudu_error!(
@@ -48,6 +50,7 @@ impl Slot {
         Ok(())
     }
 
+    /// Encodes the slot into a freshly allocated buffer.
     pub fn to_binary_buf(&self) -> RS<Buf> {
         let mut buf: Buf = vec![0; Self::size_of()];
         Endian::write_u32(&mut buf, self.off);
@@ -55,18 +58,22 @@ impl Slot {
         Ok(buf)
     }
 
+    /// Creates a slot from an offset and a length.
     pub fn new(off: u32, len: u32) -> Self {
         Self { off, len }
     }
 
+    /// Returns the offset of the field within the tuple.
     pub fn offset(&self) -> usize {
         self.off as usize
     }
 
+    /// Returns the length of the field in bytes.
     pub fn length(&self) -> usize {
         self.len as usize
     }
 
+    /// Returns the binary size of a slot in bytes.
     pub fn size_of() -> usize {
         size_of::<u32>() + size_of::<u32>()
     }

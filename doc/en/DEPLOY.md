@@ -1,55 +1,27 @@
-# MuduDB One-Click Deployment Guide
+# Local build and verification on Ubuntu
 
-This guide walks you through installing dependencies, building, starting, and testing MuduDB on a clean Ubuntu 24.04 environment.
+This page describes the repository's build and test scripts. `run_test.sh` starts a temporary server and cleans up after the test. These scripts do not install a persistent service or cover production access control, backups and upgrades.
 
-## Quick Start
-
-```bash
-# 1. Install system dependencies and Rust toolchains
-bash script/shell/install_deps.sh
-
-# 2. Build all components and package the example app
-bash script/shell/build_all.sh
-
-# 3. Start the server and run CRUD tests
-bash script/shell/run_test.sh
-```
-
-If all three steps pass, the deployment is successful.
+For a first run, follow [environment setup](how_to_start.md), then [Your first MPK](your_first_mpk.md) to start and invoke the example manually. Run the scripts below from the repository root and check each script's paths and prerequisites first.
 
 ## Requirements
 
 - Ubuntu 24.04 LTS (x86_64)
-- Linux kernel 5.1+ with `CONFIG_IO_URING=y`
+- A Linux kernel and security policy compatible with the selected I/O mode
 - 8GB+ RAM, 20GB+ disk
 - Internet access (to download Rust toolchains and dependencies)
 
-### Checking io_uring support
+### Inspect the runtime environment
+
+From the repository root:
 
 ```bash
-# Kernel version
-uname -r  # must be >= 5.1
-
-# Is io_uring available?
-grep io_uring /proc/filesystems && echo "io_uring OK" || echo "NOT supported"
-
-# memlock limit (io_uring needs locked memory)
-ulimit -l  # recommended >= 65536 or unlimited
+bash script/build/inspect_iouring_env.sh
 ```
 
-### Docker environment
+The script reports kernel toggles, seccomp status and container settings for diagnosis; it is not a complete functional test. `io_uring` is not a filesystem and cannot be detected through `/proc/filesystems`.
 
-When running inside Docker, use `--privileged` so the container can access the host kernel's io_uring:
-
-```bash
-docker run --privileged -v /path/to/repo:/mududb:ro ubuntu:24.04 ...
-```
-
-Or use finer-grained capabilities:
-
-```bash
-docker run --cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1 ...
-```
+Containers also depend on the host kernel and security policy. See [local act setup](../../.github/run-actions-locally.md) for the CI container options and [Running mudud](running_mudud.md) for persistent server configuration.
 
 ## Script reference
 
@@ -71,8 +43,8 @@ Installs all dependencies required to run MuduDB:
 Builds and installs all components:
 
 1. `cargo build --release` in each of the four group workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`) — builds all crates
-2. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mudud, mcli, mpm-build, mgen, mtp)
-3. `cargo make` in `crates/sdk/example/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
+2. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mpm-build, mpm-crate, mpm-install, mgen, mtp, mudud, mcli)
+3. `cargo make` in `example/mpk/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
 
 The wallet `Makefile.toml` reinstalls the workspace CLI tools from source before generating code, so the package is always built with the current commit's toolchain.
 

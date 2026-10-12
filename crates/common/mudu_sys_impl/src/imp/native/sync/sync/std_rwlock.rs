@@ -8,14 +8,18 @@ use std::sync::{
     RwLockWriteGuard as StdRwLockWriteGuard,
 };
 
+/// Blocking read-write lock over [`std::sync::RwLock`]; lock poisoning is
+/// reported as an error instead of a panic.
 pub struct SRwLock<T: ?Sized> {
     inner: StdRwLock<T>,
 }
 
+/// RAII guard holding a shared read lock; releases on drop.
 pub struct SRwLockReadGuard<'a, T: ?Sized + 'a> {
     inner: StdRwLockReadGuard<'a, T>,
 }
 
+/// RAII guard holding the exclusive write lock; releases on drop.
 pub struct SRwLockWriteGuard<'a, T: ?Sized + 'a> {
     inner: StdRwLockWriteGuard<'a, T>,
 }
@@ -30,6 +34,7 @@ unsafe impl<T: ?Sized + Sync> Sync for SRwLockWriteGuard<'_, T> {}
 unsafe impl<T: ?Sized + Send> Send for SRwLockWriteGuard<'_, T> {}
 
 impl<T> SRwLock<T> {
+    /// Creates a new read-write lock protecting `t`.
     pub const fn new(t: T) -> SRwLock<T> {
         Self {
             inner: StdRwLock::new(t),
@@ -38,6 +43,8 @@ impl<T> SRwLock<T> {
 }
 
 impl<T: ?Sized> SRwLock<T> {
+    /// Acquires a shared read lock, blocking until no writer holds or
+    /// awaits the lock; fails if the lock is poisoned.
     pub fn read(&self) -> RS<SRwLockReadGuard<'_, T>> {
         let r = self.inner.read();
         match r {
@@ -46,6 +53,8 @@ impl<T: ?Sized> SRwLock<T> {
         }
     }
 
+    /// Acquires the exclusive write lock, blocking until no other reader or
+    /// writer holds it; fails if the lock is poisoned.
     pub fn write(&self) -> RS<SRwLockWriteGuard<'_, T>> {
         let r = self.inner.write();
         match r {
@@ -54,6 +63,8 @@ impl<T: ?Sized> SRwLock<T> {
         }
     }
 
+    /// Attempts to acquire a read lock without blocking; returns `None` if
+    /// it is locked or poisoned.
     pub fn try_read(&self) -> Option<SRwLockReadGuard<'_, T>> {
         let r = self.inner.try_read();
         match r {
@@ -62,6 +73,8 @@ impl<T: ?Sized> SRwLock<T> {
         }
     }
 
+    /// Attempts to acquire the write lock without blocking; returns `None`
+    /// if it is locked or poisoned.
     pub fn try_write(&self) -> Option<SRwLockWriteGuard<'_, T>> {
         let r = self.inner.try_write();
         match r {
@@ -72,6 +85,8 @@ impl<T: ?Sized> SRwLock<T> {
 }
 
 impl<T> SRwLock<T> {
+    /// Consumes the lock and returns the protected value; fails if the lock
+    /// is poisoned.
     pub fn into_inner(self) -> RS<T> {
         let r = self.inner.into_inner();
         match r {

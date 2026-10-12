@@ -41,16 +41,9 @@ const SEEK_SET: u32 = 0;
 const SEEK_CUR: u32 = 1;
 const SEEK_END: u32 = 2;
 
-#[test]
-#[cfg_attr(miri, ignore)]
-fn sync_standalone_fs_file_roundtrip() {
-    let _guard = lock_tests();
-    use_temp_db("file_roundtrip");
-
-    let session_id = sync_api::mudu_open().unwrap();
-    let oid: u128 = 0xF500_0000_0000_0000_0000_0000_0000_0001;
-
-    // Write-open creates the content file; sequential writes advance the cursor.
+// Write phase: write-open creates the content file, sequential writes
+// advance the cursor, and a positional write past EOF leaves a sparse hole.
+fn assert_write_phase(session_id: u128, oid: u128) {
     let fd = sync_api::mudu_fs_open(session_id, oid, "", O_WRONLY).unwrap();
     assert_eq!(
         sync_api::mudu_fs_write(session_id, fd, b"hello ").unwrap(),
@@ -61,7 +54,6 @@ fn sync_standalone_fs_file_roundtrip() {
         5
     );
 
-    // Positional write past EOF leaves a sparse hole and grows the length.
     sync_api::mudu_fs_pwrite(session_id, fd, 1024, b"sparse").unwrap();
     sync_api::mudu_fs_fsync(session_id, fd).unwrap();
 
@@ -86,8 +78,11 @@ fn sync_standalone_fs_file_roundtrip() {
         1030
     );
     sync_api::mudu_fs_close(session_id, fd).unwrap();
+}
 
-    // Read-open requires an existing file and anchors to the same content.
+// Read phase: read-open requires an existing file and anchors to the same
+// content; pread does not move the cursor, and reads clamp at EOF.
+fn assert_read_phase(session_id: u128, oid: u128) {
     let fd = sync_api::mudu_fs_open(session_id, oid, "", O_RDONLY).unwrap();
     assert_eq!(
         sync_api::mudu_fs_read(session_id, fd, 11).unwrap(),
@@ -143,6 +138,20 @@ fn sync_standalone_fs_file_roundtrip() {
     assert_eq!(stat.state, 1);
 
     sync_api::mudu_fs_close(session_id, fd).unwrap();
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn sync_standalone_fs_file_roundtrip() {
+    let _guard = lock_tests();
+    use_temp_db("file_roundtrip");
+
+    let session_id = sync_api::mudu_open().unwrap();
+    let oid: u128 = 0xF500_0000_0000_0000_0000_0000_0000_0001;
+
+    assert_write_phase(session_id, oid);
+    assert_read_phase(session_id, oid);
+
     sync_api::mudu_close(session_id).unwrap();
 }
 

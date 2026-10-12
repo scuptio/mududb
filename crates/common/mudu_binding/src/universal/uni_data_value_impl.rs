@@ -15,121 +15,7 @@ use mudu_type::type_family::TypeFamily;
 impl UniDataValue {
     pub fn uni_to(self) -> RS<DataValue> {
         let value = match self {
-            UniDataValue::Scalar(value) => match value {
-                UniScalarValue::Bool(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar bool is not supported"
-                    ));
-                }
-                UniScalarValue::U8(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar u8 is not supported"
-                    ));
-                }
-                UniScalarValue::I8(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar i8 is not supported"
-                    ));
-                }
-                UniScalarValue::U16(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar u16 is not supported"
-                    ));
-                }
-                UniScalarValue::I16(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar i16 is not supported"
-                    ));
-                }
-                UniScalarValue::U32(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar u32 is not supported"
-                    ));
-                }
-                UniScalarValue::I32(v) => DataValue::from_i32(v),
-                UniScalarValue::U64(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar u64 is not supported"
-                    ));
-                }
-                UniScalarValue::U128(v) => {
-                    let bytes: [u8; 16] = v.as_slice().try_into().map_err(|_| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            "u128 payload must be 16 bytes"
-                        )
-                    })?;
-                    DataValue::from_u128(u128::from_be_bytes(bytes))
-                }
-                UniScalarValue::I64(v) => DataValue::from_i64(v),
-                UniScalarValue::I128(v) => {
-                    let bytes: [u8; 16] = v.as_slice().try_into().map_err(|_| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            "i128 payload must be 16 bytes"
-                        )
-                    })?;
-                    DataValue::from_i128(i128::from_be_bytes(bytes))
-                }
-                UniScalarValue::F32(v) => DataValue::from_f32(v),
-                UniScalarValue::F64(v) => DataValue::from_f64(v),
-                UniScalarValue::Char(_) => {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidType,
-                        "scalar char is not supported"
-                    ));
-                }
-                UniScalarValue::String(v) => DataValue::from_string(v),
-                UniScalarValue::Blob(v) => DataValue::from_binary(v),
-                UniScalarValue::Numeric(v) => {
-                    DataValue::from_numeric(Numeric::parse(v.as_str()).map_err(|e| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            format!("invalid numeric {}", e)
-                        )
-                    })?)
-                }
-                UniScalarValue::Date(v) => {
-                    DataValue::from_date(DateValue::parse(v.as_str()).map_err(|e| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            format!("invalid date {}", e)
-                        )
-                    })?)
-                }
-                UniScalarValue::Time(v) => {
-                    DataValue::from_time(TimeValue::parse(v.as_str()).map_err(|e| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            format!("invalid time {}", e)
-                        )
-                    })?)
-                }
-                UniScalarValue::Timestamp(v) => {
-                    DataValue::from_timestamp(TimestampValue::parse(v.as_str()).map_err(|e| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            format!("invalid timestamp {}", e)
-                        )
-                    })?)
-                }
-                UniScalarValue::TimestampTz(v) => DataValue::from_timestamptz(
-                    TimestampTzValue::parse(v.as_str()).map_err(|e| {
-                        mudu_error!(
-                            ErrorCode::TypeConversionFailed,
-                            format!("invalid timestamptz {}", e)
-                        )
-                    })?,
-                ),
-                UniScalarValue::Null => DataValue::null(),
-            },
+            UniDataValue::Scalar(value) => scalar_to_data_value(value)?,
             UniDataValue::Array(inner) => {
                 let mut vec = Vec::with_capacity(inner.len());
                 for mu_v in inner {
@@ -230,6 +116,105 @@ impl UniDataValue {
         };
         Ok(mu_v)
     }
+}
+
+fn scalar_to_data_value(value: UniScalarValue) -> RS<DataValue> {
+    match value {
+        UniScalarValue::Bool(_) => unsupported_scalar("bool"),
+        UniScalarValue::U8(_) => unsupported_scalar("u8"),
+        UniScalarValue::I8(_) => unsupported_scalar("i8"),
+        UniScalarValue::U16(_) => unsupported_scalar("u16"),
+        UniScalarValue::I16(_) => unsupported_scalar("i16"),
+        UniScalarValue::U32(_) => unsupported_scalar("u32"),
+        UniScalarValue::I32(v) => Ok(DataValue::from_i32(v)),
+        UniScalarValue::U64(_) => unsupported_scalar("u64"),
+        UniScalarValue::U128(v) => u128_to_data_value(&v),
+        UniScalarValue::I64(v) => Ok(DataValue::from_i64(v)),
+        UniScalarValue::I128(v) => i128_to_data_value(&v),
+        UniScalarValue::F32(v) => Ok(DataValue::from_f32(v)),
+        UniScalarValue::F64(v) => Ok(DataValue::from_f64(v)),
+        UniScalarValue::Char(_) => unsupported_scalar("char"),
+        UniScalarValue::String(v) => Ok(DataValue::from_string(v)),
+        UniScalarValue::Blob(v) => Ok(DataValue::from_binary(v)),
+        UniScalarValue::Numeric(v) => Ok(DataValue::from_numeric(parse_numeric(&v)?)),
+        UniScalarValue::Date(v) => Ok(DataValue::from_date(parse_date(&v)?)),
+        UniScalarValue::Time(v) => Ok(DataValue::from_time(parse_time(&v)?)),
+        UniScalarValue::Timestamp(v) => Ok(DataValue::from_timestamp(parse_timestamp(&v)?)),
+        UniScalarValue::TimestampTz(v) => Ok(DataValue::from_timestamptz(parse_timestamptz(&v)?)),
+        UniScalarValue::Null => Ok(DataValue::null()),
+    }
+}
+
+fn unsupported_scalar(name: &str) -> RS<DataValue> {
+    Err(mudu_error!(
+        ErrorCode::InvalidType,
+        format!("scalar {} is not supported", name)
+    ))
+}
+
+fn u128_to_data_value(v: &[u8]) -> RS<DataValue> {
+    let bytes: [u8; 16] = v.try_into().map_err(|_| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "u128 payload must be 16 bytes"
+        )
+    })?;
+    Ok(DataValue::from_u128(u128::from_be_bytes(bytes)))
+}
+
+fn i128_to_data_value(v: &[u8]) -> RS<DataValue> {
+    let bytes: [u8; 16] = v.try_into().map_err(|_| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            "i128 payload must be 16 bytes"
+        )
+    })?;
+    Ok(DataValue::from_i128(i128::from_be_bytes(bytes)))
+}
+
+fn parse_numeric(s: &str) -> RS<Numeric> {
+    Numeric::parse(s).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("invalid numeric {}", e)
+        )
+    })
+}
+
+fn parse_date(s: &str) -> RS<DateValue> {
+    DateValue::parse(s).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("invalid date {}", e)
+        )
+    })
+}
+
+fn parse_time(s: &str) -> RS<TimeValue> {
+    TimeValue::parse(s).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("invalid time {}", e)
+        )
+    })
+}
+
+fn parse_timestamp(s: &str) -> RS<TimestampValue> {
+    TimestampValue::parse(s).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("invalid timestamp {}", e)
+        )
+    })
+}
+
+fn parse_timestamptz(s: &str) -> RS<TimestampTzValue> {
+    TimestampTzValue::parse(s).map_err(|e| {
+        mudu_error!(
+            ErrorCode::TypeConversionFailed,
+            format!("invalid timestamptz {}", e)
+        )
+    })
 }
 
 #[cfg(test)]

@@ -354,10 +354,10 @@ function direntsJson(entries: Array<UniFsDirent>): string {
 
 function relationRowJson(row: Array<Uint8Array | null> | null): string {
   if (row === null) return "null";
-  const cells = new Array<string>(row!.length);
-  for (let i = 0; i < row!.length; i++) {
-    const cell = row![i];
-    cells[i] = cell === null ? "null" : "\"" + hexOf(cell!) + "\"";
+  const cells = new Array<string>(row.length);
+  for (let i = 0; i < row.length; i++) {
+    const cell = row[i];
+    cells[i] = cell === null ? "null" : "\"" + hexOf(cell) + "\"";
   }
   return "[" + joinJson(cells) + "]";
 }
@@ -659,7 +659,7 @@ export function decodeResponseJson(kind: i32, frame: Uint8Array): string {
       if (v === null) {
         throw new Error("absent get value serialization not covered by the sidecar conventions");
       }
-      return "{\"value_hex\":\"" + hexOf(v!) + "\"}";
+      return "{\"value_hex\":\"" + hexOf(v) + "\"}";
     }
     case MessageKind.Put: {
       const r = decodePutResult(frame);
@@ -798,7 +798,7 @@ export function decodeGetErrJson(frame: Uint8Array): string {
   const r = decodeGetResult(frame);
   const err = r.error;
   if (r.isOk || err === null) throw new Error("expected err get result");
-  return errJson(err!);
+  return errJson(err);
 }
 
 export function reencodeGetErrResponse(frame: Uint8Array): Uint8Array {

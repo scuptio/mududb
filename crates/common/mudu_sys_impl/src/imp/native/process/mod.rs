@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 /// Process subsystem - native implementation.
 pub struct SysProcess;
 
@@ -9,10 +8,12 @@ impl Default for SysProcess {
 }
 
 impl SysProcess {
+    /// Creates the process subsystem handle.
     pub fn new() -> Self {
         Self
     }
 
+    /// Terminates the current process with exit code `code`.
     pub fn exit(&self, code: i32) -> ! {
         std::process::exit(code)
     }

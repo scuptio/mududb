@@ -29,6 +29,8 @@ use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_scalar::UniScalar;
 use std::collections::HashMap;
 
+mod from_value;
+
 /// Func-signature context: `list<u8>`/`blob` encode as a MessagePack bin.
 pub const GO_FUNC_BIN: bool = true;
 
@@ -38,7 +40,7 @@ pub const GO_RECORD_BIN: bool = false;
 /// Import path of the hand-written MessagePack/MSSP runtime package the
 /// generated code references (mirrors the Python binding's
 /// `mududb.codec.mpack` import).
-pub const GO_CODEC_IMPORT: &str = "github.com/ybbh/mududb_p/bindings/go/codec";
+pub const GO_CODEC_IMPORT: &str = "github.com/mududb/mududb-go/codec";
 
 /// The Go package clause for a message-generation namespace.
 ///
@@ -317,39 +319,7 @@ fn to_value_at(
     lines: &mut Vec<String>,
 ) -> RS<()> {
     match ty {
-        UniDataType::Scalar(scalar) => match scalar {
-            UniScalar::Bool
-            | UniScalar::U8
-            | UniScalar::U16
-            | UniScalar::U32
-            | UniScalar::U64
-            | UniScalar::I8
-            | UniScalar::I16
-            | UniScalar::I32
-            | UniScalar::I64
-            | UniScalar::F64
-            | UniScalar::Char
-            | UniScalar::String
-            | UniScalar::Numeric
-            | UniScalar::Date
-            | UniScalar::Time
-            | UniScalar::Timestamp
-            | UniScalar::TimestampTz => {
-                lines.push(format!("{ind}{dst} = {src}"));
-            }
-            UniScalar::F32 => {
-                // the F32 marker makes the generic writer emit f32 (0xCA)
-                lines.push(format!("{ind}{dst} = codec.F32({src})"));
-            }
-            UniScalar::Blob => {
-                to_value_blob(src, dst, ind, func_bin, lines, "");
-            }
-            UniScalar::U128 | UniScalar::I128 => {
-                // the 16-byte big-endian form; a bin at func level, an int
-                // array in the record context
-                to_value_blob(src, dst, ind, func_bin, lines, "[:]");
-            }
-        },
+        UniDataType::Scalar(scalar) => to_value_scalar(scalar, src, dst, ind, func_bin, lines),
         UniDataType::Binary => {
             to_value_blob(src, dst, ind, func_bin, lines, "");
         }
@@ -365,20 +335,7 @@ fn to_value_at(
             lines.push(format!("{ind}{dst} = _c{n}"));
         }
         UniDataType::Array(inner) => {
-            let n = next_tmp(tmp);
-            lines.push(format!("{ind}_v{n} := make([]any, len({src}))"));
-            lines.push(format!("{ind}for _i{n}, _e{n} := range {src} {{"));
-            to_value_at(
-                inner,
-                &format!("_e{n}"),
-                &format!("_v{n}[_i{n}]"),
-                tmp,
-                &format!("{ind}\t"),
-                func_bin,
-                lines,
-            )?;
-            lines.push(format!("{ind}}}"));
-            lines.push(format!("{ind}{dst} = _v{n}"));
+            to_value_array(inner, src, dst, tmp, ind, func_bin, lines)?;
         }
         UniDataType::Option(inner) => {
             // Absent options assign nothing: record map keys stay omitted
@@ -397,23 +354,7 @@ fn to_value_at(
             lines.push(format!("{ind}}}"));
         }
         UniDataType::Tuple(elems) => {
-            let n = next_tmp(tmp);
-            lines.push(format!("{ind}_v{n} := make([]any, {})", elems.len()));
-            for (i, elem) in elems.iter().enumerate() {
-                // tuple surfaces are []any: elements arrive as `any` holding
-                // the typed value, so they convert through the checked
-                // any-to-wire path
-                wire_from_any_at(
-                    elem,
-                    &format!("{src}[{i}]"),
-                    &format!("_v{n}[{i}]"),
-                    tmp,
-                    ind,
-                    func_bin,
-                    lines,
-                )?;
-            }
-            lines.push(format!("{ind}{dst} = _v{n}"));
+            to_value_tuple(elems, src, dst, tmp, ind, func_bin, lines)?;
         }
         UniDataType::Box(inner) => {
             to_value_at(inner, src, dst, tmp, ind, func_bin, lines)?;
@@ -425,6 +366,107 @@ fn to_value_at(
             ));
         }
     }
+    Ok(())
+}
+
+/// Scalar conversion: plain assignment for most scalars (the typed value is
+/// already the wire value); F32 wraps for the marker, Blob/128-bit go
+/// through the blob form.
+fn to_value_scalar(
+    scalar: &UniScalar,
+    src: &str,
+    dst: &str,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) {
+    match scalar {
+        UniScalar::Bool
+        | UniScalar::U8
+        | UniScalar::U16
+        | UniScalar::U32
+        | UniScalar::U64
+        | UniScalar::I8
+        | UniScalar::I16
+        | UniScalar::I32
+        | UniScalar::I64
+        | UniScalar::F64
+        | UniScalar::Char
+        | UniScalar::String
+        | UniScalar::Numeric
+        | UniScalar::Date
+        | UniScalar::Time
+        | UniScalar::Timestamp
+        | UniScalar::TimestampTz => {
+            lines.push(format!("{ind}{dst} = {src}"));
+        }
+        UniScalar::F32 => {
+            // the F32 marker makes the generic writer emit f32 (0xCA)
+            lines.push(format!("{ind}{dst} = codec.F32({src})"));
+        }
+        UniScalar::Blob => {
+            to_value_blob(src, dst, ind, func_bin, lines, "");
+        }
+        UniScalar::U128 | UniScalar::I128 => {
+            // the 16-byte big-endian form; a bin at func level, an int
+            // array in the record context
+            to_value_blob(src, dst, ind, func_bin, lines, "[:]");
+        }
+    }
+}
+
+fn to_value_array(
+    inner: &UniDataType,
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) -> RS<()> {
+    let n = next_tmp(tmp);
+    lines.push(format!("{ind}_v{n} := make([]any, len({src}))"));
+    lines.push(format!("{ind}for _i{n}, _e{n} := range {src} {{"));
+    to_value_at(
+        inner,
+        &format!("_e{n}"),
+        &format!("_v{n}[_i{n}]"),
+        tmp,
+        &format!("{ind}\t"),
+        func_bin,
+        lines,
+    )?;
+    lines.push(format!("{ind}}}"));
+    lines.push(format!("{ind}{dst} = _v{n}"));
+    Ok(())
+}
+
+fn to_value_tuple(
+    elems: &[UniDataType],
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) -> RS<()> {
+    let n = next_tmp(tmp);
+    lines.push(format!("{ind}_v{n} := make([]any, {})", elems.len()));
+    for (i, elem) in elems.iter().enumerate() {
+        // tuple surfaces are []any: elements arrive as `any` holding
+        // the typed value, so they convert through the checked
+        // any-to-wire path
+        wire_from_any_at(
+            elem,
+            &format!("{src}[{i}]"),
+            &format!("_v{n}[{i}]"),
+            tmp,
+            ind,
+            func_bin,
+            lines,
+        )?;
+    }
+    lines.push(format!("{ind}{dst} = _v{n}"));
     Ok(())
 }
 
@@ -458,134 +500,8 @@ pub fn go_from_value(
     err_ret: &str,
 ) -> RS<String> {
     let mut lines = Vec::new();
-    from_value_at(ty, src, dst, tmp, indent, err_ret, &mut lines)?;
+    from_value::from_value_at(ty, src, dst, tmp, indent, err_ret, &mut lines)?;
     Ok(lines.join("\n"))
-}
-
-fn from_value_at(
-    ty: &UniDataType,
-    src: &str,
-    dst: &str,
-    tmp: &mut usize,
-    ind: &str,
-    err_ret: &str,
-    lines: &mut Vec<String>,
-) -> RS<()> {
-    match ty {
-        UniDataType::Scalar(scalar) => {
-            let helper = match scalar {
-                UniScalar::Bool => "boolChecked",
-                UniScalar::U8 => "u8Checked",
-                UniScalar::U16 => "u16Checked",
-                UniScalar::U32 => "u32Checked",
-                UniScalar::U64 => "u64Checked",
-                UniScalar::U128 => "u128FromValue",
-                UniScalar::I8 => "i8Checked",
-                UniScalar::I16 => "i16Checked",
-                UniScalar::I32 => "i32Checked",
-                UniScalar::I64 => "i64Checked",
-                UniScalar::I128 => "i128FromValue",
-                UniScalar::F32 => "f32FromValue",
-                UniScalar::F64 => "f64Checked",
-                UniScalar::Char => "charChecked",
-                UniScalar::String
-                | UniScalar::Numeric
-                | UniScalar::Date
-                | UniScalar::Time
-                | UniScalar::Timestamp
-                | UniScalar::TimestampTz => "strChecked",
-                // Both the bin and the array-of-u8 form are accepted on
-                // decode in either context (lenient).
-                UniScalar::Blob => "blobFromValue",
-            };
-            lines.push(format!("{ind}{dst}, err = {helper}({src})"));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\t{err_ret}"));
-            lines.push(format!("{ind}}}"));
-        }
-        UniDataType::Binary => {
-            lines.push(format!("{ind}{dst}, err = blobFromValue({src})"));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\t{err_ret}"));
-            lines.push(format!("{ind}}}"));
-        }
-        UniDataType::Identifier(name) => {
-            lines.push(format!(
-                "{ind}{dst}, err = {}FromValue({src})",
-                to_pascal_case(name)
-            ));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\t{err_ret}"));
-            lines.push(format!("{ind}}}"));
-        }
-        UniDataType::Array(inner) => {
-            let n = next_tmp(tmp);
-            lines.push(format!("{ind}_l{n}, err := expectList({src})"));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\t{err_ret}"));
-            lines.push(format!("{ind}}}"));
-            lines.push(format!(
-                "{ind}_v{n} := make([]{}, len(_l{n}))",
-                go_type_name(inner)?
-            ));
-            lines.push(format!("{ind}for _i{n}, _e{n} := range _l{n} {{"));
-            from_value_at(
-                inner,
-                &format!("_e{n}"),
-                &format!("_v{n}[_i{n}]"),
-                tmp,
-                &format!("{ind}\t"),
-                err_ret,
-                lines,
-            )?;
-            lines.push(format!("{ind}}}"));
-            lines.push(format!("{ind}{dst} = _v{n}"));
-        }
-        UniDataType::Option(inner) => {
-            let n = next_tmp(tmp);
-            lines.push(format!("{ind}if {src} != nil {{"));
-            lines.push(format!("{ind}\tvar _t{n} {}", go_type_name(inner)?));
-            from_value_at(
-                inner,
-                src,
-                &format!("_t{n}"),
-                tmp,
-                &format!("{ind}\t"),
-                err_ret,
-                lines,
-            )?;
-            lines.push(format!("{ind}\t{dst} = &_t{n}"));
-            lines.push(format!("{ind}}}"));
-        }
-        UniDataType::Tuple(elems) => {
-            let n = next_tmp(tmp);
-            lines.push(format!(
-                "{ind}_s{n}, err := expectSeq({src}, {})",
-                elems.len()
-            ));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\t{err_ret}"));
-            lines.push(format!("{ind}}}"));
-            let mut parts = Vec::with_capacity(elems.len());
-            for (i, elem) in elems.iter().enumerate() {
-                let var = format!("_t{n}_{i}");
-                lines.push(format!("{ind}var {var} {}", go_type_name(elem)?));
-                from_value_at(elem, &format!("_s{n}[{i}]"), &var, tmp, ind, err_ret, lines)?;
-                parts.push(var);
-            }
-            lines.push(format!("{ind}{dst} = []any{{{}}}", parts.join(", ")));
-        }
-        UniDataType::Box(inner) => {
-            from_value_at(inner, src, dst, tmp, ind, err_ret, lines)?;
-        }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
-            return Err(mudu_error!(
-                ErrorCode::NotImplemented,
-                format!("Go wire conversion for {ty:?} is not implemented")
-            ));
-        }
-    }
-    Ok(())
 }
 
 /// Emit the statements converting an `any` place holding a TYPED value (a
@@ -617,70 +533,76 @@ fn wire_from_any_at(
 ) -> RS<()> {
     match ty {
         UniDataType::Scalar(scalar) => {
-            let n = next_tmp(tmp);
-            let helper = match scalar {
-                UniScalar::Bool => "boolChecked",
-                UniScalar::U8 => "u8Checked",
-                UniScalar::U16 => "u16Checked",
-                UniScalar::U32 => "u32Checked",
-                UniScalar::U64 => "u64Checked",
-                UniScalar::U128 => "u128FromValue",
-                UniScalar::I8 => "i8Checked",
-                UniScalar::I16 => "i16Checked",
-                UniScalar::I32 => "i32Checked",
-                UniScalar::I64 => "i64Checked",
-                UniScalar::I128 => "i128FromValue",
-                UniScalar::F32 => "f32FromValue",
-                UniScalar::F64 => "f64Checked",
-                UniScalar::Char => "charChecked",
-                UniScalar::String
-                | UniScalar::Numeric
-                | UniScalar::Date
-                | UniScalar::Time
-                | UniScalar::Timestamp
-                | UniScalar::TimestampTz => "strChecked",
-                UniScalar::Blob => {
-                    let h = if func_bin {
-                        // func-context blob: the wire form is the []byte itself
-                        "bytesChecked"
-                    } else {
-                        "blobFromValue"
-                    };
-                    lines.push(format!("{ind}_t{n}, err := {h}({src})"));
-                    lines.push(format!("{ind}if err != nil {{"));
-                    lines.push(format!("{ind}\treturn nil, err"));
-                    lines.push(format!("{ind}}}"));
-                    if func_bin {
-                        lines.push(format!("{ind}{dst} = _t{n}"));
-                    } else {
-                        lines.push(format!("{ind}{dst} = blobToArrayValue(_t{n})"));
-                    }
-                    return Ok(());
-                }
-            };
-            lines.push(format!("{ind}_t{n}, err := {helper}({src})"));
-            lines.push(format!("{ind}if err != nil {{"));
-            lines.push(format!("{ind}\treturn nil, err"));
-            lines.push(format!("{ind}}}"));
-            match scalar {
-                UniScalar::F32 => {
-                    lines.push(format!("{ind}{dst} = codec.F32(_t{n})"));
-                }
-                UniScalar::U128 | UniScalar::I128 => {
-                    if func_bin {
-                        lines.push(format!("{ind}{dst} = _t{n}[:]"));
-                    } else {
-                        lines.push(format!("{ind}{dst} = blobToArrayValue(_t{n}[:])"));
-                    }
-                }
-                _ => {
-                    lines.push(format!("{ind}{dst} = _t{n}"));
-                }
-            }
+            wire_from_any_scalar(scalar, src, dst, tmp, ind, func_bin, lines);
         }
         UniDataType::Binary => {
-            let n = next_tmp(tmp);
+            wire_from_any_binary(src, dst, tmp, ind, func_bin, lines);
+        }
+        UniDataType::Identifier(_) | UniDataType::Array(_) => {
+            wire_from_any_typed(ty, src, dst, tmp, ind, func_bin, lines)?;
+        }
+        UniDataType::Option(inner) => {
+            // WireResult.Value carries option payloads unwrapped: nil means
+            // absent, anything else is the typed inner value.
+            lines.push(format!("{ind}if {src} == nil {{"));
+            lines.push(format!("{ind}\t{dst} = nil"));
+            lines.push(format!("{ind}}} else {{"));
+            wire_from_any_at(inner, src, dst, tmp, &format!("{ind}\t"), func_bin, lines)?;
+            lines.push(format!("{ind}}}"));
+        }
+        UniDataType::Tuple(elems) => {
+            wire_from_any_tuple(elems, src, dst, tmp, ind, func_bin, lines)?;
+        }
+        UniDataType::Box(inner) => {
+            wire_from_any_at(inner, src, dst, tmp, ind, func_bin, lines)?;
+        }
+        UniDataType::Result(_) | UniDataType::Record { .. } => {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                format!("Go wire conversion for {ty:?} is not implemented")
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Scalar conversion out of an `any` place: a checked assertion into the
+/// typed value, then the plain wire assignment (with the F32 marker wrap
+/// and the 128-bit / blob array conversions where they apply).
+fn wire_from_any_scalar(
+    scalar: &UniScalar,
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) {
+    let n = next_tmp(tmp);
+    let helper = match scalar {
+        UniScalar::Bool => "boolChecked",
+        UniScalar::U8 => "u8Checked",
+        UniScalar::U16 => "u16Checked",
+        UniScalar::U32 => "u32Checked",
+        UniScalar::U64 => "u64Checked",
+        UniScalar::U128 => "u128FromValue",
+        UniScalar::I8 => "i8Checked",
+        UniScalar::I16 => "i16Checked",
+        UniScalar::I32 => "i32Checked",
+        UniScalar::I64 => "i64Checked",
+        UniScalar::I128 => "i128FromValue",
+        UniScalar::F32 => "f32FromValue",
+        UniScalar::F64 => "f64Checked",
+        UniScalar::Char => "charChecked",
+        UniScalar::String
+        | UniScalar::Numeric
+        | UniScalar::Date
+        | UniScalar::Time
+        | UniScalar::Timestamp
+        | UniScalar::TimestampTz => "strChecked",
+        UniScalar::Blob => {
             let h = if func_bin {
+                // func-context blob: the wire form is the []byte itself
                 "bytesChecked"
             } else {
                 "blobFromValue"
@@ -694,64 +616,114 @@ fn wire_from_any_at(
             } else {
                 lines.push(format!("{ind}{dst} = blobToArrayValue(_t{n})"));
             }
+            return;
         }
-        UniDataType::Identifier(_) | UniDataType::Array(_) => {
-            let n = next_tmp(tmp);
-            let go_ty = go_type_name(ty)?;
-            lines.push(format!("{ind}_t{n}, _ok{n} := {src}.({go_ty})"));
-            lines.push(format!("{ind}if !_ok{n} {{"));
-            lines.push(format!("{ind}\terr := typeError(\"{go_ty}\", {src})"));
-            lines.push(format!("{ind}\treturn nil, err"));
-            lines.push(format!("{ind}}}"));
-            to_value_at(ty, &format!("_t{n}"), dst, tmp, ind, func_bin, lines)?;
+    };
+    lines.push(format!("{ind}_t{n}, err := {helper}({src})"));
+    lines.push(format!("{ind}if err != nil {{"));
+    lines.push(format!("{ind}\treturn nil, err"));
+    lines.push(format!("{ind}}}"));
+    match scalar {
+        UniScalar::F32 => {
+            lines.push(format!("{ind}{dst} = codec.F32(_t{n})"));
         }
-        UniDataType::Option(inner) => {
-            // WireResult.Value carries option payloads unwrapped: nil means
-            // absent, anything else is the typed inner value.
-            lines.push(format!("{ind}if {src} == nil {{"));
-            lines.push(format!("{ind}\t{dst} = nil"));
-            lines.push(format!("{ind}}} else {{"));
-            wire_from_any_at(inner, src, dst, tmp, &format!("{ind}\t"), func_bin, lines)?;
-            lines.push(format!("{ind}}}"));
-        }
-        UniDataType::Tuple(elems) => {
-            let n = next_tmp(tmp);
-            lines.push(format!("{ind}_t{n}, _ok{n} := {src}.([]any)"));
-            lines.push(format!(
-                "{ind}if !_ok{n} || len(_t{n}) != {} {{",
-                elems.len()
-            ));
-            lines.push(format!(
-                "{ind}\terr := typeError(\"a {}-element array\", {src})",
-                elems.len()
-            ));
-            lines.push(format!("{ind}\treturn nil, err"));
-            lines.push(format!("{ind}}}"));
-            let m = next_tmp(tmp);
-            lines.push(format!("{ind}_v{m} := make([]any, {})", elems.len()));
-            for (i, elem) in elems.iter().enumerate() {
-                wire_from_any_at(
-                    elem,
-                    &format!("_t{n}[{i}]"),
-                    &format!("_v{m}[{i}]"),
-                    tmp,
-                    ind,
-                    func_bin,
-                    lines,
-                )?;
+        UniScalar::U128 | UniScalar::I128 => {
+            if func_bin {
+                lines.push(format!("{ind}{dst} = _t{n}[:]"));
+            } else {
+                lines.push(format!("{ind}{dst} = blobToArrayValue(_t{n}[:])"));
             }
-            lines.push(format!("{ind}{dst} = _v{m}"));
         }
-        UniDataType::Box(inner) => {
-            wire_from_any_at(inner, src, dst, tmp, ind, func_bin, lines)?;
-        }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
-            return Err(mudu_error!(
-                ErrorCode::NotImplemented,
-                format!("Go wire conversion for {ty:?} is not implemented")
-            ));
+        _ => {
+            lines.push(format!("{ind}{dst} = _t{n}"));
         }
     }
+}
+
+/// `binary` conversion out of an `any` place: a checked []byte assertion,
+/// then the bin (func context) or array-of-u8 (record context) wire form.
+fn wire_from_any_binary(
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) {
+    let n = next_tmp(tmp);
+    let h = if func_bin {
+        "bytesChecked"
+    } else {
+        "blobFromValue"
+    };
+    lines.push(format!("{ind}_t{n}, err := {h}({src})"));
+    lines.push(format!("{ind}if err != nil {{"));
+    lines.push(format!("{ind}\treturn nil, err"));
+    lines.push(format!("{ind}}}"));
+    if func_bin {
+        lines.push(format!("{ind}{dst} = _t{n}"));
+    } else {
+        lines.push(format!("{ind}{dst} = blobToArrayValue(_t{n})"));
+    }
+}
+
+/// Named-type and list conversion out of an `any` place: type-assert to the
+/// Go surface type, then flow through the typed to-wire path.
+fn wire_from_any_typed(
+    ty: &UniDataType,
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) -> RS<()> {
+    let n = next_tmp(tmp);
+    let go_ty = go_type_name(ty)?;
+    lines.push(format!("{ind}_t{n}, _ok{n} := {src}.({go_ty})"));
+    lines.push(format!("{ind}if !_ok{n} {{"));
+    lines.push(format!("{ind}\terr := typeError(\"{go_ty}\", {src})"));
+    lines.push(format!("{ind}\treturn nil, err"));
+    lines.push(format!("{ind}}}"));
+    to_value_at(ty, &format!("_t{n}"), dst, tmp, ind, func_bin, lines)?;
+    Ok(())
+}
+
+fn wire_from_any_tuple(
+    elems: &[UniDataType],
+    src: &str,
+    dst: &str,
+    tmp: &mut usize,
+    ind: &str,
+    func_bin: bool,
+    lines: &mut Vec<String>,
+) -> RS<()> {
+    let n = next_tmp(tmp);
+    lines.push(format!("{ind}_t{n}, _ok{n} := {src}.([]any)"));
+    lines.push(format!(
+        "{ind}if !_ok{n} || len(_t{n}) != {} {{",
+        elems.len()
+    ));
+    lines.push(format!(
+        "{ind}\terr := typeError(\"a {}-element array\", {src})",
+        elems.len()
+    ));
+    lines.push(format!("{ind}\treturn nil, err"));
+    lines.push(format!("{ind}}}"));
+    let m = next_tmp(tmp);
+    lines.push(format!("{ind}_v{m} := make([]any, {})", elems.len()));
+    for (i, elem) in elems.iter().enumerate() {
+        wire_from_any_at(
+            elem,
+            &format!("_t{n}[{i}]"),
+            &format!("_v{m}[{i}]"),
+            tmp,
+            ind,
+            func_bin,
+            lines,
+        )?;
+    }
+    lines.push(format!("{ind}{dst} = _v{m}"));
     Ok(())
 }
 

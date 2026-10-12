@@ -1,10 +1,10 @@
-#![allow(missing_docs)]
-
 use super::kernel_invoke_client::KernelInvokeClient;
 use super::{AsyncKernelInvokeClient, AsyncKernelInvokeClientFactory};
 use async_trait::async_trait;
 use mudu::common::result::RS;
 
+/// Factory connecting [`AsyncKernelInvokeClient`] instances to a kernel TCP
+/// address.
 pub struct KernelInvokeClientFactory;
 
 #[async_trait(?Send)]

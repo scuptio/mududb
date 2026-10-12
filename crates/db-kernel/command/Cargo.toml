@@ -1,0 +1,32 @@
+[package]
+name = "command"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Command interpreters for DDL and DML"
+
+[features]
+test = ["catalog/test", "meta/test"]
+debug_trace = ["mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+meta = { workspace = true }
+wal = { workspace = true }
+xengine = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+csv = { workspace = true }
+libc = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mudu_kernel = { workspace = true }

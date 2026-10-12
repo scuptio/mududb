@@ -1,7 +1,7 @@
 //! Frame codecs for the `batch` syscall.
 //!
 //! Thin adapter over the `mudu_gen`-generated codec in
-//! [`super::generated::uni_syscall`]: the request body is `[argv]` with a
+//! `super::generated::uni_syscall`: the request body is `[argv]` with a
 //! `UniCommandArgv` record, the result body is `[0, UniCommandResult]` or
 //! `[1, UniError]` — the same shapes as `command`, carried under the `Batch`
 //! message kind.
@@ -56,8 +56,15 @@ pub async fn sys_batch_affected_rows(argv: &UniCommandArgv) -> Result<u64, ApiEr
     }
 }
 
+/// Dispatches a pre-encoded `batch` request frame to the configured backend
+/// and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn batch_raw(batch_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("batch", &batch_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::batch_raw(batch_in).await;
@@ -92,7 +99,11 @@ mod tests {
             command: UniSqlStmt {
                 sql_string: "insert into t values (1)".to_string(),
             },
-            param_list: UniSqlParam { params: Vec::new() },
+            param_list: UniSqlParam {
+                params: Vec::new(),
+                param_names: None,
+            },
+            param_desc: None,
         }
     }
 

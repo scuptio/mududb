@@ -55,11 +55,15 @@ lazy_static! {
     static ref SERVER: HashSet<u16> = HashSet::new();
 }
 
+/// Registers `h` as the handler for the additional debug HTTP endpoint at `url`.
+///
+/// The handler is invoked with the request path and returns the response body.
 #[cfg(feature = "debug_trace")]
 pub fn register_debug_url(url: String, h: HandleURL) {
     let _ = HANDLE_URL.insert_sync(url, h);
 }
 
+/// Does nothing; debug endpoints exist only with the `debug_trace` feature.
 #[cfg(not(feature = "debug_trace"))]
 pub fn register_debug_url(_url: String, _h: fn(String) -> RS<String>) {}
 
@@ -96,11 +100,20 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
     Ok(response)
 }
 
+/// Serves the debug HTTP endpoints on `addr` until `stop` is notified.
+///
+/// `GET /task` (also `/`) returns a dump of the async task trace; other paths
+/// are dispatched to handlers registered with [`register_debug_url`].
+///
+/// Returns an error if the port is already served by another debug server in
+/// this process, or if binding or accepting on `addr` fails.
 #[cfg(feature = "debug_trace")]
 pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MuduError> {
     async_debug_serve_until_with_ready(addr, stop, None).await
 }
 
+/// Like [`async_debug_serve_until`], but notifies `ready` once the listener is
+/// bound and serving.
 #[cfg(feature = "debug_trace")]
 pub async fn async_debug_serve_until_with_ready(
     addr: SocketAddr,
@@ -173,11 +186,14 @@ async fn async_debug_serve_with_tokio_listener(
     Ok(())
 }
 
+/// Serves the debug HTTP endpoints on `addr` without a stop signal.
 #[cfg(feature = "debug_trace")]
 pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MuduError> {
     async_debug_serve_until(addr, NotifyWait::new()).await
 }
 
+/// Does nothing and returns `Ok`; the debug server exists only with the
+/// `debug_trace` feature.
 #[cfg(not(feature = "debug_trace"))]
 pub async fn async_debug_serve_until(
     _addr: SocketAddr,
@@ -186,11 +202,22 @@ pub async fn async_debug_serve_until(
     Ok(())
 }
 
+/// Does nothing and returns `Ok`; the debug server exists only with the
+/// `debug_trace` feature.
 #[cfg(not(feature = "debug_trace"))]
 pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MuduError> {
     Ok(())
 }
 
+/// Runs the debug HTTP server on `0.0.0.0:port`, blocking the current thread
+/// until `canceler` is notified.
+///
+/// The server runs on a dedicated current-thread runtime created on the
+/// calling thread.
+///
+/// # Panics
+///
+/// Panics if the runtime or the server task cannot be created.
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve(canceler: NotifyWait, port: u16) {
     let async_debug_serve = async_debug_serve_until(([0, 0, 0, 0], port).into(), canceler.clone());
@@ -204,6 +231,8 @@ pub fn debug_serve(canceler: NotifyWait, port: u16) {
     });
 }
 
+/// Like [`debug_serve`], but notifies `ready` once the listener is bound and
+/// serving.
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Notifier) {
     let async_debug_serve = async_debug_serve_until_with_ready(
@@ -221,6 +250,8 @@ pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Noti
     });
 }
 
+/// Like [`debug_serve`], but serves on the already-bound `listener` instead of
+/// binding a new socket.
 #[cfg(feature = "debug_trace")]
 pub fn debug_serve_with_listener(canceler: NotifyWait, listener: StdTcpListener, ready: Notifier) {
     let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
@@ -258,5 +289,6 @@ pub fn debug_serve_with_listener(canceler: NotifyWait, listener: StdTcpListener,
     });
 }
 
+/// Does nothing; the debug server exists only with the `debug_trace` feature.
 #[cfg(not(feature = "debug_trace"))]
 pub fn debug_serve(_canceler: NotifyWait, _port: u16) {}

@@ -5,6 +5,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use std::net::SocketAddr;
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -42,6 +43,7 @@ impl AsyncStream for AsyncTokioStream {
         self.inner.shutdown().await
     }
 
+    #[cfg(unix)]
     fn as_raw_fd(&self) -> Option<std::os::fd::RawFd> {
         Some(self.inner.as_raw_fd())
     }

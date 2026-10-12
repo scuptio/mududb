@@ -1,5 +1,4 @@
-//! `tuple::build_tuple` module.
-#![allow(missing_docs)]
+//! Building of binary tuples from per-field binary values.
 
 use crate::tuple::tuple_binary::{TupleBinary, TupleSlice};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
@@ -9,6 +8,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
+/// Writes the field values `vec` into the existing `tuple` buffer, returning
+/// the total tuple size, or `Err(required_size)` if the buffer is too small.
 pub fn build_tuple_into(
     vec: &[Buf],
     tuple_desc: &TupleBinaryDesc,
@@ -43,6 +44,7 @@ pub fn build_tuple_into(
     Ok(Ok(offset))
 }
 
+/// Builds a binary tuple from the field values `vec`, growing the buffer as needed.
 pub fn build_tuple(vec: &[Buf], tuple_desc: &TupleBinaryDesc) -> RS<TupleBinary> {
     let mut tuple = vec![0; tuple_desc.min_tuple_size()];
     tuple.resize(tuple_desc.min_tuple_size(), 0);

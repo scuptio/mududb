@@ -17,29 +17,44 @@ use std::any::Any;
 use std::clone::Clone;
 use std::fmt;
 
+/// A concrete Rust type that can be converted to and from the datum
+/// representations (binary, textual, in-memory value) of the type system.
 pub trait Datum: DatumDyn + Clone + 'static {
+    /// Returns the default data type of this Rust type.
     fn data_type() -> DataType;
 
+    /// Decodes a value of this type from its binary encoding.
     fn from_binary(binary: &[u8]) -> RS<Self>;
 
+    /// Converts an in-memory value into this type.
     fn from_value(value: &DataValue) -> RS<Self>;
 
+    /// Parses a value of this type from its textual representation.
     fn from_textual(textual: &str) -> RS<Self>;
 }
 
+/// Object-safe view of a datum: runtime conversion between the value,
+/// binary, and textual representations.
 pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
+    /// Returns the type family this datum belongs to.
     fn type_family(&self) -> RS<TypeFamily>;
 
+    /// Encodes this datum into its binary form according to `data_type`.
     fn to_binary(&self, data_type: &DataType) -> RS<DataBinary>;
 
+    /// Renders this datum in its textual form according to `data_type`.
     fn to_textual(&self, data_type: &DataType) -> RS<DataTextual>;
 
+    /// Converts this datum into an in-memory value according to `data_type`.
     fn to_value(&self, data_type: &DataType) -> RS<DataValue>;
 
+    /// Returns a boxed clone of this datum.
     fn clone_boxed(&self) -> Box<dyn DatumDyn>;
 }
 
+/// Converts a datum container into a shared `dyn DatumDyn` reference.
 pub trait AsDatumDynRef {
+    /// Returns a trait-object reference to the underlying datum.
     fn as_datum_dyn_ref(&self) -> &dyn DatumDyn;
 }
 
@@ -126,20 +141,24 @@ impl<T: AsDatumDynRef, const N: usize> AsDatumDynRef for [T; N] {
     }
 }
 
+/// Decodes a binary-encoded value into the typed datum `T`.
 pub fn binary_to_typed<T: Datum, S: AsRef<str>>(data: &[u8], _type_str: S) -> RS<T> {
     T::from_binary(data)
 }
 
+/// Encodes a typed datum into its binary form.
 pub fn binary_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<Vec<u8>> {
     let data_type = T::data_type();
     let data_bin = t.to_binary(&data_type)?;
     Ok(data_bin.into())
 }
 
+/// Converts an in-memory value into the typed datum `T`.
 pub fn value_to_typed<T: Datum, S: AsRef<str>>(data: &DataValue, _type_str: S) -> RS<T> {
     T::from_value(data)
 }
 
+/// Converts a typed datum into an in-memory value.
 pub fn value_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<DataValue> {
     let data_type = T::data_type();
     let data_bin = t.to_value(&data_type)?;

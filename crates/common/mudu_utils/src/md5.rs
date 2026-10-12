@@ -1,5 +1,6 @@
 use md5::Digest;
 
+/// Returns the MD5 digest of `bytes` as a lowercase hex string.
 pub fn calc_md5(bytes: &[u8]) -> String {
     let mut md5 = md5::Md5::new();
     md5.update(bytes);

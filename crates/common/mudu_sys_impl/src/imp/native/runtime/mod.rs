@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::common::provider_type::ProviderType;
 use crate::contract::async_io_provider::AsyncIoProvider;
 use crate::contract::async_mode::AsyncMode;
@@ -11,12 +10,16 @@ use crate::imp::native::net::async_::AsyncIoUringNet;
 use crate::imp::native::net::async_::TokioNet;
 use std::sync::Arc;
 
+/// Async IO runtime backends selectable through [`ProviderType`].
 pub enum Runtime {
+    /// Tokio-based networking and filesystem provider.
     Tokio(IoProviderBase<TokioNet, AsyncTokioFs>),
+    /// io_uring-based networking and filesystem provider (Linux only).
     #[cfg(target_os = "linux")]
     IoUring(IoProviderBase<AsyncIoUringNet, AsyncIoUringFs>),
 }
 
+/// Creates the async IO provider selected by `mode`.
 pub fn create_async_runtime(mode: ProviderType) -> Arc<dyn AsyncIoProvider> {
     Runtime::from(mode)
 }
@@ -38,6 +41,8 @@ impl Runtime {
         }
     }
 
+    /// Creates a runtime, preferring io_uring when it is functional on this
+    /// host (Linux only) and falling back to Tokio otherwise.
     pub fn new() -> Self {
         #[cfg(target_os = "linux")]
         {
@@ -56,6 +61,7 @@ impl Runtime {
         ))
     }
 
+    /// Returns which async backend this runtime uses.
     pub fn mode(&self) -> AsyncMode {
         match self {
             Runtime::Tokio(_) => AsyncMode::Tokio,

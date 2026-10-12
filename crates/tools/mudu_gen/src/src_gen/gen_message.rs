@@ -62,83 +62,109 @@ pub fn gen_message_with_cfg<I: AsRef<Path>, O: AsRef<Path>>(
         Ok,
     )?;
     if mudu_sys::fs::sync::sync_metadata(input_path.as_ref())?.is_dir() {
-        // Pre-parse every WIT file so the AssemblyScript type-kind registry
-        // covers cross-file identifier references (e.g. enum defaults).
-        let mut cfg = cfg;
-        let mut entries = Vec::new();
-        for dir_entry in mudu_sys::fs::sync::sync_read_dir_entries(input_path.as_ref())? {
-            if dir_entry.file_type()?.is_file()
-                && dir_entry.path().extension() == Some(OsStr::new("wit"))
-            {
-                entries.push(dir_entry.path());
-            }
-        }
-        let parser = crate::src_gen::wit_parser::WitParser::new();
-        let mut wit_defs: Vec<WitDef> = Vec::new();
-        for path in &entries {
-            let text = mudu_sys::fs::sync::sync_read_to_string(path)?;
-            let wit_dat = parser.parse_text(&text)?;
-            for enum_def in &wit_dat.enums {
-                cfg.type_kinds
-                    .insert(to_pascal_case(&enum_def.enum_name), "enum".to_string());
-            }
-            for variant_def in &wit_dat.variants {
-                cfg.type_kinds.insert(
-                    to_pascal_case(&variant_def.variant_name),
-                    "variant".to_string(),
-                );
-            }
-            for record_def in &wit_dat.records {
-                cfg.type_kinds.insert(
-                    to_pascal_case(&record_def.record_name),
-                    "record".to_string(),
-                );
-            }
-            wit_defs.push(wit_dat);
-        }
-        let mut stems: Vec<String> = Vec::new();
-        for path in entries {
-            let stem = file_stem(&path)?;
-            stems.push(stem);
-            _gen_message(
-                path,
-                output_path.as_ref(),
-                lang,
-                namespace.clone(),
-                cfg.clone(),
-                true,
-            )?
-        }
-        if !stems.is_empty() {
-            write_module_index(output_path.as_ref(), lang, &stems)?;
-        }
-        if lang == LangKind::Go {
-            emit_go_wire_helpers(output_path.as_ref(), &resolve_go_package(&namespace))?;
-        }
-        if let Some(desc_path) = type_desc {
-            write_schema_desc(&wit_defs, desc_path)?;
-        }
+        gen_message_dir(input_path, output_path, lang, namespace, cfg, type_desc)
     } else {
+        gen_message_file(input_path, output_path, lang, namespace, cfg, type_desc)
+    }
+}
+
+/// Generate from a directory of WIT files: pre-parse every file so the
+/// AssemblyScript type-kind registry covers cross-file identifier
+/// references (e.g. enum defaults), then generate one source file per stem
+/// plus the module index.
+fn gen_message_dir<I: AsRef<Path>, O: AsRef<Path>>(
+    input_path: I,
+    output_path: O,
+    lang: LangKind,
+    namespace: Option<String>,
+    cfg: CodegenCfg,
+    type_desc: Option<String>,
+) -> RS<()> {
+    let mut cfg = cfg;
+    let mut entries = Vec::new();
+    for dir_entry in mudu_sys::fs::sync::sync_read_dir_entries(input_path.as_ref())? {
+        if dir_entry.file_type()?.is_file()
+            && dir_entry.path().extension() == Some(OsStr::new("wit"))
+        {
+            entries.push(dir_entry.path());
+        }
+    }
+    let parser = crate::src_gen::wit_parser::WitParser::new();
+    let mut wit_defs: Vec<WitDef> = Vec::new();
+    for path in &entries {
+        let text = mudu_sys::fs::sync::sync_read_to_string(path)?;
+        let wit_dat = parser.parse_text(&text)?;
+        for enum_def in &wit_dat.enums {
+            cfg.type_kinds
+                .insert(to_pascal_case(&enum_def.enum_name), "enum".to_string());
+        }
+        for variant_def in &wit_dat.variants {
+            cfg.type_kinds.insert(
+                to_pascal_case(&variant_def.variant_name),
+                "variant".to_string(),
+            );
+        }
+        for record_def in &wit_dat.records {
+            cfg.type_kinds.insert(
+                to_pascal_case(&record_def.record_name),
+                "record".to_string(),
+            );
+        }
+        wit_defs.push(wit_dat);
+    }
+    let mut stems: Vec<String> = Vec::new();
+    for path in entries {
+        let stem = file_stem(&path)?;
+        stems.push(stem);
         _gen_message(
-            input_path.as_ref(),
+            path,
             output_path.as_ref(),
             lang,
             namespace.clone(),
-            cfg,
-            false,
-        )?;
-        if lang == LangKind::Go {
-            let output_dir = output_path
-                .as_ref()
-                .parent()
-                .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "get parent error"))?;
-            emit_go_wire_helpers(output_dir, &resolve_go_package(&namespace))?;
-        }
-        if let Some(desc_path) = type_desc {
-            let text = mudu_sys::fs::sync::sync_read_to_string(input_path.as_ref())?;
-            let wit_dat = crate::src_gen::wit_parser::WitParser::new().parse_text(&text)?;
-            write_schema_desc(&[wit_dat], desc_path)?;
-        }
+            cfg.clone(),
+            true,
+        )?
+    }
+    if !stems.is_empty() {
+        write_module_index(output_path.as_ref(), lang, &stems)?;
+    }
+    if lang == LangKind::Go {
+        emit_go_wire_helpers(output_path.as_ref(), &resolve_go_package(&namespace))?;
+    }
+    if let Some(desc_path) = type_desc {
+        write_schema_desc(&wit_defs, desc_path)?;
+    }
+    Ok(())
+}
+
+/// Generate from a single WIT input file.
+fn gen_message_file<I: AsRef<Path>, O: AsRef<Path>>(
+    input_path: I,
+    output_path: O,
+    lang: LangKind,
+    namespace: Option<String>,
+    cfg: CodegenCfg,
+    type_desc: Option<String>,
+) -> RS<()> {
+    _gen_message(
+        input_path.as_ref(),
+        output_path.as_ref(),
+        lang,
+        namespace.clone(),
+        cfg,
+        false,
+    )?;
+    if lang == LangKind::Go {
+        let output_dir = output_path
+            .as_ref()
+            .parent()
+            .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "get parent error"))?;
+        emit_go_wire_helpers(output_dir, &resolve_go_package(&namespace))?;
+    }
+    if let Some(desc_path) = type_desc {
+        let text = mudu_sys::fs::sync::sync_read_to_string(input_path.as_ref())?;
+        let wit_dat = crate::src_gen::wit_parser::WitParser::new().parse_text(&text)?;
+        write_schema_desc(&[wit_dat], desc_path)?;
     }
     Ok(())
 }
@@ -189,10 +215,13 @@ fn write_module_index(output_dir: &Path, lang: LangKind, stems: &[String]) -> RS
     if !mudu_sys::fs::sync::sync_path_exists(output_dir) {
         mudu_sys::fs::sync::sync_create_dir_all(output_dir)?;
     }
+    // Filesystem enumeration order differs across checkouts and filesystems.
+    let mut stems = stems.to_vec();
+    stems.sort();
     let index_content = match lang {
         LangKind::Rust => {
-            let mut s = String::new();
-            for stem in stems {
+            let mut s = String::from("// Generated by mudu_gen. Do not edit manually.\n");
+            for stem in &stems {
                 s.push_str(&format!("pub mod {};\n", to_snake_case(stem)));
             }
             s
@@ -202,15 +231,15 @@ fn write_module_index(output_dir: &Path, lang: LangKind, stems: &[String]) -> RS
             String::new()
         }
         LangKind::AssemblyScript => {
-            let mut s = String::new();
-            for stem in stems {
+            let mut s = String::from("// Generated by mudu_gen. Do not edit manually.\n");
+            for stem in &stems {
                 s.push_str(&format!("export * from \"./{}\";\n", to_pascal_case(stem)));
             }
             s
         }
         LangKind::Python => {
             let mut s = String::from("# Generated by mudu_gen. Do not edit manually.\n");
-            for stem in stems {
+            for stem in &stems {
                 s.push_str(&format!("from . import {}\n", to_snake_case(stem)));
             }
             s

@@ -1,22 +1,27 @@
 use mudu::common::result::RS;
 use mudu::error::others::network_error_with_message;
 use std::net::SocketAddr;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
+/// Tokio-based async TCP stream implementing [`AsyncRead`] and
+/// [`AsyncWrite`].
 pub struct TokioTcpStream {
     inner: tokio::net::TcpStream,
 }
 
 impl TokioTcpStream {
+    /// Converts a blocking standard-library stream into a Tokio stream.
     pub fn from_std(stream: std::net::TcpStream) -> RS<Self> {
         tokio::net::TcpStream::from_std(stream)
             .map_err(|e| network_error_with_message(e, "convert std stream to tokio error"))
             .map(Self::new)
     }
 
+    /// Opens an async TCP connection to `addr` with `TCP_NODELAY` enabled.
     pub async fn connect(addr: SocketAddr) -> RS<Self> {
         tokio::net::TcpStream::connect(addr)
             .await
@@ -27,6 +32,7 @@ impl TokioTcpStream {
             })
     }
 
+    /// Wraps an existing [`tokio::net::TcpStream`].
     pub fn new(inner: tokio::net::TcpStream) -> Self {
         Self::from_inner(inner)
     }
@@ -35,34 +41,40 @@ impl TokioTcpStream {
         Self { inner }
     }
 
+    /// Enables or disables `TCP_NODELAY` (Nagle's algorithm).
     pub fn set_nodelay(&self, nodelay: bool) -> RS<()> {
         self.inner
             .set_nodelay(nodelay)
             .map_err(|e| network_error_with_message(e, "set tokio tcp nodelay error"))
     }
 
+    /// Returns the local address of this connection.
     pub fn local_addr(&self) -> RS<SocketAddr> {
         self.inner
             .local_addr()
             .map_err(|e| network_error_with_message(e, "read tokio tcp local addr error"))
     }
 
+    /// Returns the remote peer address of this connection.
     pub fn peer_addr(&self) -> RS<SocketAddr> {
         self.inner
             .peer_addr()
             .map_err(|e| network_error_with_message(e, "read tokio tcp peer addr error"))
     }
 
+    /// Shuts down the write half of the connection.
     pub async fn shutdown(&mut self) -> RS<()> {
         AsyncWriteExt::shutdown(&mut self.inner)
             .await
             .map_err(|e| network_error_with_message(e, "shutdown tokio tcp stream error"))
     }
 
+    /// Unwraps into the underlying [`tokio::net::TcpStream`].
     pub fn into_inner(self) -> tokio::net::TcpStream {
         self.inner
     }
 
+    /// Converts back into a blocking [`std::net::TcpStream`].
     pub fn into_std(self) -> std::io::Result<std::net::TcpStream> {
         self.inner.into_std()
     }
@@ -96,6 +108,7 @@ impl AsyncWrite for TokioTcpStream {
     }
 }
 
+#[cfg(unix)]
 impl AsRawFd for TokioTcpStream {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_raw_fd()

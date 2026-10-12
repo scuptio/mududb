@@ -1,0 +1,15 @@
+package mududb:wallet-as;
+
+world wallet-as {
+    import mududb:api/system;
+
+    export mp2-create-user: func(param: list<u8>) -> list<u8>;
+
+    export mp2-deposit: func(param: list<u8>) -> list<u8>;
+
+    export mp2-withdraw: func(param: list<u8>) -> list<u8>;
+
+    export mp2-transfer-funds: func(param: list<u8>) -> list<u8>;
+
+    export mp2-balance: func(param: list<u8>) -> list<u8>;
+}

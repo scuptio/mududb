@@ -1,6 +1,6 @@
-//! `protocol::format::mod` module.
-#![allow(missing_docs)]
+//! Protocol frame wire encoding and decoding, with version migration.
 
+/// Encoding of the current (latest) frame format version.
 pub mod latest;
 
 use super::{Frame, FrameHeader};
@@ -13,6 +13,7 @@ use std::borrow::Cow;
 
 pub use latest::HEADER_LEN;
 
+/// Encodes a frame using the latest format version.
 pub fn encode_latest(frame: &Frame) -> Vec<u8> {
     latest::encode(frame)
 }
@@ -26,6 +27,7 @@ fn ensure_latest_protocol_frame(buf: &[u8], version: u32) -> RS<Cow<'_, [u8]>> {
         .map_err(|e| e.into_mudu_error())
 }
 
+/// Decodes a frame, migrating older format versions to the current one.
 pub fn decode(buf: &[u8]) -> RS<Frame> {
     let (magic, version) = peek_magic_and_version(buf)?;
     compat::check_magic_and_version(FormatKind::ProtocolFrame, magic, version)?;
@@ -33,6 +35,7 @@ pub fn decode(buf: &[u8]) -> RS<Frame> {
     latest::decode(&migrated)
 }
 
+/// Decodes a frame header, migrating older format versions to the current one.
 pub fn decode_header_bytes(buf: &[u8]) -> RS<FrameHeader> {
     let (magic, version) = peek_magic_and_version(buf)?;
     compat::check_magic_and_version(FormatKind::ProtocolFrame, magic, version)?;
