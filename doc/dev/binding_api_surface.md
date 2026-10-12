@@ -4,31 +4,106 @@ This document is the anchor for keeping the MuduDB language bindings uniform:
 same logical module paths, same capabilities, minimal per-language
 hand-written code.
 
-Bindings exist for AssemblyScript (guest), C# (guest/standalone), Python
-(guest/tool), C (types/codec + corpus verification), Go (types/codec +
-corpus verification), and Rust (app-facing facade).
+This reference describes facade and codec module names. For the supported languages, runtime modes and guest examples, use the [SDK capability table](sdk_distribution.md#language-and-execution-modes). The repository Rust facade and the standalone Rust SDK are separate packages.
 
 ## Canonical module paths
 
 Every binding is rooted at `mududb` and uses the same segment names. On npm
 the org scope makes the root `@mududb/mududb`; in Go the module is
-`github.com/ybbh/mududb_p/bindings/go` with packages `types`/`codec`; the
+`github.com/mududb/mududb-go` with packages `types`/`codec`; the
 subpaths below are identical across languages.
 
-| Logical path | Content | AS (`@mududb/mududb`) | C# (`mududb` nupkg) | Python (`mududb`) | C (`bindings/c`) | Go (`bindings/go`) | Rust (`mududb` crate) |
-|---|---|---|---|---|---|---|---|
-| `mududb.types` | Generated Uni* value types (Oid, Value, UniError, UniMessage, …) | `/types` | `mududb.types` | `mududb.types` | `mududb/types/Uni*.h` | `types` | `mududb::types` |
-| `mududb.codec` | MessagePack runtime + MSSP frame codec (`uni_syscall`) | `/codec` | `mududb.codec` | `mududb.codec` | `mududb/codec/mpack.h` (+ generated frame helpers in `UniSyscall.h`) | `codec` | `mududb::codec` (alias of `binding`) |
-| `mududb.sql` | SqlStmt / params / ValueList | `/sql` | — (UniSqlStmt lives in `types`) | `mududb.sql` | — | — | `mududb::sql` (alias of `contract`) |
-| `mududb.db` | Database entry (`Database.open`, query/command) | `/db` | `mududb.Mudu` (low-level), `mududb.db.Database` | `mududb.db.Database` | — | — | `mududb::db.Database` |
-| `mududb.fs` | Filesystem facade | `/fs` | `mududb.fs.MuduFileSystem` | `mududb.fs` | — | — | `mududb::fs` |
-| `mududb.result` | Result / ResultSet / Row | `/result` | `mududb.result` | `mududb.result` | in `types` | in `types` | `mududb::result` |
-| `mududb.sys` | Low-level syscall API | `/sys` | `mududb.sys.MuduSysCallApi` | `mududb.sys` | — | — | `mududb::sys` |
-| `mududb.mock` | SQLite-backed mock backend | — | `mududb.mock` | — | — | — | — |
+Use the module path for the language you are working in. A dash means this facade segment is not provided by that binding. Native adapter entry points are documented separately in [SDK distributions](sdk_distribution.md#language-and-execution-modes).
 
-The root entry (`@mududb/mududb`, `using mududb;`, `import mududb`,
-`mududb::…`) re-exports the full public surface in every language, so
-generated code only ever imports the root.
+The purpose of each logical segment is identical in every per-language table
+below:
+
+- `mududb.types` — Generated Uni* value types (Oid, Value, UniError, UniMessage, …)
+- `mududb.codec` — MessagePack runtime + MSSP frame codec (`uni_syscall`)
+- `mududb.sql` — SqlStmt / params / ValueList
+- `mududb.db` — Database entry (`Database.open`, query/command)
+- `mududb.fs` — Filesystem facade
+- `mududb.result` — Result / ResultSet / Row
+- `mududb.sys` — Low-level syscall API
+- `mududb.mock` — SQLite-backed mock backend
+
+### AS (`@mududb/mududb`)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `/types` |
+| `mududb.codec` | `/codec` |
+| `mududb.sql` | `/sql` |
+| `mududb.db` | `/db` |
+| `mududb.fs` | `/fs` |
+| `mududb.result` | `/result` |
+| `mududb.sys` | `/sys` |
+| `mududb.mock` | — (not provided by this binding) |
+
+### C# (`mududb` nupkg)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `mududb.types` |
+| `mududb.codec` | `mududb.codec` |
+| `mududb.sql` | — (UniSqlStmt lives in `types`) |
+| `mududb.db` | `mududb.Mudu` (low-level), `mududb.db.Database` |
+| `mududb.fs` | `mududb.fs.MuduFileSystem` |
+| `mududb.result` | `mududb.result` |
+| `mududb.sys` | `mududb.sys.MuduSysCallApi` |
+| `mududb.mock` | `mududb.mock` |
+
+### Python (`mududb`)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `mududb.types` |
+| `mududb.codec` | `mududb.codec` |
+| `mududb.sql` | `mududb.sql` |
+| `mududb.db` | `mududb.db.Database` |
+| `mududb.fs` | `mududb.fs` |
+| `mududb.result` | `mududb.result` |
+| `mududb.sys` | `mududb.sys` |
+| `mududb.mock` | — (not provided by this binding) |
+
+### C (`bindings/c`)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `mududb/types/Uni*.h` |
+| `mududb.codec` | `mududb/codec/mpack.h` (+ generated frame helpers in `UniSyscall.h`) |
+| `mududb.sql` | — (not provided by this binding) |
+| `mududb.db` | — (not provided by this binding) |
+| `mududb.fs` | — (not provided by this binding) |
+| `mududb.result` | in `types` |
+| `mududb.sys` | — (not provided by this binding) |
+| `mududb.mock` | — (not provided by this binding) |
+
+### Go (`bindings/go`)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `types` |
+| `mududb.codec` | `codec` |
+| `mududb.sql` | — (not provided by this binding) |
+| `mududb.db` | — (not provided by this binding) |
+| `mududb.fs` | — (not provided by this binding) |
+| `mududb.result` | in `types` |
+| `mududb.sys` | — (not provided by this binding) |
+| `mududb.mock` | — (not provided by this binding) |
+
+### Rust (`mududb` crate)
+
+| Logical path | Import or entry |
+|---|---|
+| `mududb.types` | `mududb::types` |
+| `mududb.codec` | `mududb::codec` (alias of `binding`) |
+| `mududb.sql` | `mududb::sql` (alias of `contract`) |
+| `mududb.db` | `mududb::db.Database` |
+| `mududb.fs` | `mududb::fs` |
+| `mududb.result` | `mududb::result` |
+| `mududb.sys` | `mududb::sys` |
+| `mududb.mock` | — (not provided by this binding) |
 
 ## Layers and the single source of truth
 
@@ -68,7 +143,7 @@ Guest-authoring languages align on the same capability set, operation
 semantics and names; syntax stays idiomatic (Rust returns `RS<T>`, AS throws,
 C# throws). AssemblyScript is the reference implementation. The Python
 facade is live since the componentize-py guest toolchain landed (see
-`crates/sdk/example/wallet-py`): it ships in the `mududb` package
+`example/mpk/wallet-py`): it ships in the `mududb` package
 (`mududb.db` / `mududb.sql` / `mududb.result` / `mududb.fs` / `mududb.sys`)
 and runs inside CPython-in-WASM guests.
 
@@ -154,8 +229,7 @@ the wallet-as example (and Python end-to-end by `wallet-py` +
 
 - Pipeline: `procedures.py` → `mtp ... python` (adapter + world WIT + desc)
   → `componentize-py` → `wasm-tools validate` → `mpm-build` (see
-  `crates/sdk/example/wallet-py/Makefile.toml`; minimal spike:
-  `crates/sdk/example/py-spike`).
+  `example/mpk/wallet-py/Makefile.toml`).
 - The mtp Python front-end discovers `# mudu-proc` top-level functions; the
   first parameter named `session` is bound from `UniProcedureParam.session`
   (mirroring the AS `id: Oid` rule) and the remaining positional parameters
@@ -216,3 +290,29 @@ cp /tmp/mgen_c/Uni*.h ../sdk/bindings/c/mududb/types/
 files match a fresh regen byte-for-byte (CI runs it on every PR touching the
 binding sources). Then run every language's corpus tests against the golden
 fixtures — that is the capability-parity gate.
+
+## Native adapter transport
+
+The optional native adapter transport uses the versioned C ABI in
+`crates/bindings/mudu_adapter_ffi/include/mudu_adapter.h`. It carries existing
+MSSP frames; it does not introduce another wire format. Python exposes
+`mududb.adapter.use_adapter`, and other language transports use the same ABI.
+The runtime is distributed separately from pure-language SDK source. Select a
+library explicitly with `MUDU_ADAPTER_LIBRARY` and a backend with
+`MUDU_CONNECTION` before starting the process. Mock backends remain distinct.
+
+Native adapter selection is explicit and takes precedence over mock selection:
+
+| SDK | Native entry point |
+| --- | --- |
+| Python | `mududb.adapter.use_adapter(path=None)` |
+| C# | `mududb.sys.NativeAdapter.Use(path = null)` |
+| Rust | `mududb::adapter::use_adapter(path)` (native targets only) |
+| Go | `adapter.Open(path)` then `Client.Call(operation, frame)` and `Close()` |
+| C | `mududb/adapter/native.h`: load, call, release result, unload |
+| AS/Node | `adapter/index.mjs`: `useAdapter(path)` returns a byte-pipe callable |
+
+The v1 native ABI implements `open`, `close`, `query`, `command`, and `batch`.
+Query responses are materialized with EOF set; unsupported operations return an
+explicit error. It adds no new Uni types or WIT schema. The C ABI result buffer
+must be freed by the same library, never by a language runtime allocator.

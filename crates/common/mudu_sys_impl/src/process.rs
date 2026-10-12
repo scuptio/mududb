@@ -1,8 +1,8 @@
-#![allow(missing_docs)]
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::{Child, ExitStatus, Output, Stdio};
 
+/// Terminates the current process with exit code `code`.
 pub fn exit(code: i32) -> ! {
     crate::default_env().process().exit(code)
 }
@@ -15,6 +15,8 @@ pub struct Command {
 }
 
 impl Command {
+    /// Creates a command that will run `program`, with no arguments and
+    /// inheriting the current environment and working directory.
     #[allow(clippy::disallowed_methods)]
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         Self {
@@ -22,11 +24,13 @@ impl Command {
         }
     }
 
+    /// Appends one argument to the command line.
     pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Self {
         self.inner.arg(arg);
         self
     }
 
+    /// Appends multiple arguments to the command line.
     pub fn args<I, S>(&mut self, args: I) -> &mut Self
     where
         I: IntoIterator<Item = S>,
@@ -36,6 +40,7 @@ impl Command {
         self
     }
 
+    /// Sets an environment variable for the child process.
     pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Self
     where
         K: AsRef<OsStr>,
@@ -45,44 +50,55 @@ impl Command {
         self
     }
 
+    /// Removes an explicitly set environment variable for the child process.
     pub fn env_remove<K: AsRef<OsStr>>(&mut self, key: K) -> &mut Self {
         self.inner.env_remove(key);
         self
     }
 
+    /// Clears all explicitly set environment variables for the child
+    /// process; the child still inherits the parent environment unless
+    /// `env_clear` semantics of [`std::process::Command`] apply.
     pub fn env_clear(&mut self) -> &mut Self {
         self.inner.env_clear();
         self
     }
 
+    /// Sets the working directory of the child process.
     pub fn current_dir<P: AsRef<Path>>(&mut self, dir: P) -> &mut Self {
         self.inner.current_dir(dir);
         self
     }
 
+    /// Configures the child process's standard input.
     pub fn stdin(&mut self, cfg: Stdio) -> &mut Self {
         self.inner.stdin(cfg);
         self
     }
 
+    /// Configures the child process's standard output.
     pub fn stdout(&mut self, cfg: Stdio) -> &mut Self {
         self.inner.stdout(cfg);
         self
     }
 
+    /// Configures the child process's standard error.
     pub fn stderr(&mut self, cfg: Stdio) -> &mut Self {
         self.inner.stderr(cfg);
         self
     }
 
+    /// Runs the command to completion, capturing its stdout and stderr.
     pub fn output(&mut self) -> std::io::Result<Output> {
         self.inner.output()
     }
 
+    /// Runs the command to completion and returns its exit status.
     pub fn status(&mut self) -> std::io::Result<ExitStatus> {
         self.inner.status()
     }
 
+    /// Spawns the command as a child process without waiting for it.
     pub fn spawn(&mut self) -> std::io::Result<Child> {
         self.inner.spawn()
     }

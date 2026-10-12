@@ -157,12 +157,14 @@ macro_rules! impl_data_value_methods {
 }
 
 impl DataValue {
+    /// Creates the NULL value.
     pub fn null() -> Self {
         Self {
             inner: ValueKind::Null,
         }
     }
 
+    /// Returns true if this value is NULL.
     pub fn is_null(&self) -> bool {
         matches!(self.inner, ValueKind::Null)
     }
@@ -179,22 +181,27 @@ impl DataValue {
         *self.expect_f32()
     }
 
+    /// Returns the contained `f64`; panics if the value is not an `F64`.
     pub fn to_f64(&self) -> f64 {
         *self.expect_f64()
     }
 
+    /// Returns the contained `i32`; panics if the value is not an `I32`.
     pub fn to_i32(&self) -> i32 {
         *self.expect_i32()
     }
 
+    /// Returns the contained `i64`; panics if the value is not an `I64`.
     pub fn to_i64(&self) -> i64 {
         *self.expect_i64()
     }
 
+    /// Returns the contained `i128`; panics if the value is not an `I128`.
     pub fn to_i128(&self) -> i128 {
         *self.expect_i128()
     }
 
+    /// Returns the contained OID (`u128`); panics if the value is not a `U128`.
     pub fn to_oid(&self) -> u128 {
         *self.expect_u128()
     }

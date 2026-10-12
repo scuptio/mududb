@@ -1,12 +1,20 @@
+#[cfg(unix)]
 use super::fd::RawFd;
+#[cfg(unix)]
 use mudu::common::result::RS;
+#[cfg(unix)]
 use mudu::error::ErrorCode;
+#[cfg(unix)]
 use mudu::mudu_error;
+#[cfg(target_os = "linux")]
 use std::net::SocketAddr;
 
 #[cfg(target_os = "linux")]
 use crate::imp::native::linux::io_uring::iouring::SockAddrBuf;
 
+/// Sets `TCP_NODELAY` (disables Nagle's algorithm) on the socket referred
+/// to by raw file descriptor `fd`.
+#[cfg(unix)]
 pub fn set_tcp_nodelay(fd: RawFd) -> RS<()> {
     let flag: libc::c_int = 1;
     let rc = unsafe {
@@ -28,6 +36,8 @@ pub fn set_tcp_nodelay(fd: RawFd) -> RS<()> {
     Ok(())
 }
 
+/// Converts a [`SocketAddr`] into a raw `sockaddr_storage` buffer suitable
+/// for io_uring socket operations (Linux only).
 #[cfg(target_os = "linux")]
 pub fn socket_addr_to_storage(addr: SocketAddr) -> RS<SockAddrBuf> {
     match addr {
@@ -77,6 +87,8 @@ pub fn socket_addr_to_storage(addr: SocketAddr) -> RS<SockAddrBuf> {
     }
 }
 
+/// Converts a raw `sockaddr_storage` buffer back into a [`SocketAddr`]
+/// (Linux only). Supports IPv4 and IPv6; other families return an error.
 #[cfg(target_os = "linux")]
 pub fn sockaddr_to_socket_addr(addr: &SockAddrBuf) -> RS<SocketAddr> {
     match addr.raw().ss_family as i32 {

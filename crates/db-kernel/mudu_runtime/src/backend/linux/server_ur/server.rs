@@ -1,26 +1,26 @@
-#![allow(missing_docs)]
-
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::initdb_drain::spawn_initdb_drain_thread;
 use crate::backend::management_thread::spawn_management_thread;
 use crate::backend::mudu_app_mgr::MuduAppMgr;
 use crate::backend::mudud_cfg::MuduDBCfg;
-use crate::service::runtime_opt::RuntimeOpt;
-use mudu::common::result::RS;
-use mudu_kernel::mudu_conn::mudu_conn_async::{
+use ::conn::mudu_conn_async::{
     clear_default_remote_if_current, set_default_remote_addr, set_default_remote_async_runtime,
     set_default_remote_worker_id,
 };
-use mudu_kernel::server::routing::RoutingMode;
-use mudu_kernel::server::server::WorkerTcpBackend as KernelWorkerTcpBackend;
-use mudu_kernel::server::server_cfg::ServerCfg;
-use mudu_kernel::server::server_launch::ServerLaunch;
-use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
+use ::server::server::WorkerTcpBackend as KernelWorkerTcpBackend;
+use ::server::server_launch::ServerLaunch;
+use ::server::server_runtime_deps::ServerRuntimeDeps;
+use ::worker::routing::RoutingMode;
+use ::worker::server_cfg::ServerCfg;
+use mudu::common::result::RS;
 use mudu_sys::sync::SMutex;
 use mudu_sys::task::async_ as task_async;
 use mudu_utils::notifier::{Notifier, Waiter, notify_wait};
+use runtime_wasm::service::runtime_opt::RuntimeOpt;
 use std::sync::{Arc, OnceLock};
 
+/// Kernel server backend running the io_uring worker TCP server plus the
+/// management HTTP service thread.
 pub struct IoUringBackend;
 
 fn default_remote_scope_lock() -> &'static SMutex<()> {
@@ -29,15 +29,20 @@ fn default_remote_scope_lock() -> &'static SMutex<()> {
 }
 
 impl IoUringBackend {
+    /// Serves the kernel server until process exit (no external stop
+    /// signal).
     pub fn sync_serve(cfg: MuduDBCfg) -> RS<()> {
         let (_stop_notifier, stop_waiter) = notify_wait();
         Self::sync_serve_with_stop(cfg, stop_waiter)
     }
 
+    /// Serves the kernel server until `stop` fires.
     pub fn sync_serve_with_stop(cfg: MuduDBCfg, stop: Waiter) -> RS<()> {
         Self::sync_serve_with_stop_and_ready(cfg, stop, None)
     }
 
+    /// Serves the kernel server until `stop` fires, signalling `ready` once
+    /// the workers are RPC-ready and deferred package initdb has drained.
     pub fn sync_serve_with_stop_and_ready(
         mut cfg: MuduDBCfg,
         stop: Waiter,
@@ -49,6 +54,12 @@ impl IoUringBackend {
                 "default remote scope lock poisoned"
             )
         })?;
+        if cfg.replication.is_some() {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::NotImplemented,
+                "primary-replica replication is not supported with server_mode \"IOUring\" in this release; use server_mode \"Tokio\""
+            ));
+        }
         let worker_count = cfg.effective_worker_threads();
         if worker_count > 1 {
             cfg.tcp_multi_port = true;
@@ -100,7 +111,13 @@ impl IoUringBackend {
         let listeners = base_server_cfg.prebind_worker_listeners()?;
         let server_launch =
             ServerLaunch::new(base_server_cfg, server_deps).with_prebound_listeners(listeners);
-        spawn_management_thread(cfg.clone(), app_mgr.clone(), worker_registry, stop.clone())?;
+        spawn_management_thread(
+            cfg.clone(),
+            app_mgr.clone(),
+            worker_registry,
+            server_launch.cfg().server_instance_id(),
+            stop.clone(),
+        )?;
         // Wrap the caller's ready signal: the kernel reports RPC-ready on the
         // internal notifier, the drain thread applies deferred package initdb
         // against the now-listening server, and only then does the caller's

@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 use mudu::common::result::RS;
 use mudu_sys::sync::async_::async_task::{AsyncLocalTask, Task};
 use mudu_utils::notifier::{Notifier, Waiter};
@@ -8,6 +6,8 @@ use crate::backend::mudud_cfg::MuduDBCfg;
 use crate::backend::web_serve;
 
 impl WebHandleTask {
+    /// Creates the task; `opt_db_init_notifier`, when given, is signalled
+    /// once the runtime finishes initialization.
     pub fn new(
         cfg: MuduDBCfg,
         name: String,
@@ -23,6 +23,8 @@ impl WebHandleTask {
     }
 }
 
+/// Async task running the legacy management HTTP service
+/// ([`web_serve::async_serve`]) until the waiter fires.
 pub struct WebHandleTask {
     cfg: MuduDBCfg,
     name: String,

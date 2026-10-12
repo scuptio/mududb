@@ -9,3 +9,7 @@
 --container-options
 --security-opt=apparmor=unconfined
 --env ACT=true
+--bind=false
+--concurrent-jobs=1
+--reuse=true
+--rm=false

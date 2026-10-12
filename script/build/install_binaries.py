@@ -12,6 +12,7 @@ def run(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
 
 
 SUPPORTED_BINS: List[Dict[str, str]] = [
+    {"package": "mpm_build", "bin": "mpm", "description": "portable project builder"},
     {
         "package": "mpm_build",
         "bin": "mpm-build",

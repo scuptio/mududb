@@ -2,13 +2,21 @@ use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
 use paste::paste;
 
+/// A typed, homogeneous array of values.
 pub enum DataValueArray {
+    /// Array of `i32` values.
     I32(Vec<i32>),
+    /// Array of `i64` values.
     I64(Vec<i64>),
+    /// Array of `f32` values.
     F32(Vec<f32>),
+    /// Array of `f64` values.
     F64(Vec<f64>),
+    /// Array of string values.
     String(Vec<String>),
+    /// Array of record values, each record being a vector of field values.
     Record(Vec<Vec<DataValue>>),
+    /// Array of nested arrays.
     Array(Vec<Vec<DataValueArray>>),
 }
 
@@ -20,6 +28,7 @@ macro_rules! impl_data_value_array_methods {
      )),+
     $(,)?) => {
         impl DataValueArray {
+            /// Returns the type family of the array elements.
             pub fn get_type_family(&self) -> TypeFamily {
                 match self {
                     $(

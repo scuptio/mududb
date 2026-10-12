@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::contract::file_options::FileOptions;
 use crate::env::default_env;
 use crate::scoped_task_trace;
@@ -7,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use super::sys_file::SysFile;
 
+/// Opens the file at `path` with open(2)-style `flags` and creation `mode`
+/// through the default IO provider.
 pub async fn open(path: impl AsRef<Path>, flags: i32, mode: u32) -> RS<SysFile> {
     let file = default_env()
         .provider()
@@ -16,36 +17,44 @@ pub async fn open(path: impl AsRef<Path>, flags: i32, mode: u32) -> RS<SysFile> 
     Ok(SysFile::new(file))
 }
 
+/// Reads exactly `len` bytes from `file` starting at absolute byte `offset`.
 pub async fn read_exact_at(file: &SysFile, len: usize, offset: u64) -> RS<Vec<u8>> {
     file.read_exact_at(offset, len).await
 }
 
+/// Writes all of `payload` to `file` starting at absolute byte `offset`.
 pub async fn write_all_at(file: &SysFile, payload: &[u8], offset: u64) -> RS<()> {
     file.write_all_at(offset, payload).await
 }
 
+/// Flushes the file's contents and metadata to stable storage.
 pub async fn fsync(file: &SysFile) -> RS<()> {
     file.fsync().await
 }
 
+/// Closes the file.
 pub async fn close(file: SysFile) -> RS<()> {
     file.close().await
 }
 
+/// Creates `path` and all missing parent directories.
 pub async fn create_dir_all(path: &Path) -> RS<()> {
     scoped_task_trace!();
     default_env().provider().fs().create_dir_all(path).await
 }
 
+/// Lists the paths of all entries in the directory at `path`.
 pub async fn read_dir(path: &Path) -> RS<Vec<PathBuf>> {
     scoped_task_trace!();
     default_env().provider().fs().read_dir(path).await
 }
 
+/// Returns the length in bytes of the file at `path`.
 pub async fn metadata_len(path: &Path) -> RS<u64> {
     default_env().provider().fs().metadata_len(path).await
 }
 
+/// Removes the file at `path`; succeeds silently if it does not exist.
 pub async fn remove_file_if_exists(path: &Path) -> RS<()> {
     default_env()
         .provider()
@@ -54,6 +63,7 @@ pub async fn remove_file_if_exists(path: &Path) -> RS<()> {
         .await
 }
 
+/// Reads the entire contents of the file at `path`.
 pub async fn read_all(path: &Path) -> RS<Vec<u8>> {
     default_env().provider().fs().read_all(path).await
 }

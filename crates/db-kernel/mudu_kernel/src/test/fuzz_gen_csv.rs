@@ -5,7 +5,7 @@
     clippy::todo,
     clippy::unimplemented
 )]
-use crate::meta::_fuzz::{fuzz_printable, write_data_to_csv};
+use ::meta::_fuzz::{fuzz_printable, write_data_to_csv};
 use arbitrary::Unstructured;
 use std::path::PathBuf;
 

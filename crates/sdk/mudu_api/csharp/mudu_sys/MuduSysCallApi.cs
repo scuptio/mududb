@@ -32,6 +32,7 @@ public static class MuduSysCallApi
 
     public static byte[] QueryRaw(byte[] queryIn)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("query", queryIn);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.QueryRaw(queryIn)
             : WasmMuduSysCall.QueryRaw(queryIn);
@@ -39,6 +40,7 @@ public static class MuduSysCallApi
 
     public static byte[] QueryRaw(global::System.ReadOnlyMemory<byte> queryIn)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("query", queryIn);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.QueryRaw(queryIn)
             : WasmMuduSysCall.QueryRaw(queryIn);
@@ -46,6 +48,7 @@ public static class MuduSysCallApi
 
     public static byte[] CommandRaw(byte[] commandIn)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("command", commandIn);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.CommandRaw(commandIn)
             : WasmMuduSysCall.CommandRaw(commandIn);
@@ -53,6 +56,7 @@ public static class MuduSysCallApi
 
     public static byte[] CommandRaw(global::System.ReadOnlyMemory<byte> commandIn)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("command", commandIn);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.CommandRaw(commandIn)
             : WasmMuduSysCall.CommandRaw(commandIn);
@@ -62,6 +66,7 @@ public static class MuduSysCallApi
     // unchanged (no 16-byte header is added or stripped here).
     public static byte[] FetchRaw(byte[] queryResult)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fetch", queryResult);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FetchRaw(queryResult)
             : WasmMuduSysCall.FetchRaw(queryResult);
@@ -69,6 +74,7 @@ public static class MuduSysCallApi
 
     public static byte[] FetchRaw(global::System.ReadOnlyMemory<byte> queryResult)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fetch", queryResult);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FetchRaw(queryResult)
             : WasmMuduSysCall.FetchRaw(queryResult);
@@ -76,6 +82,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsOpenRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_open", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsOpenRaw(frame)
             : WasmMuduSysCall.FsOpenRaw(frame);
@@ -83,6 +90,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsCloseRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_close", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsCloseRaw(frame)
             : WasmMuduSysCall.FsCloseRaw(frame);
@@ -90,6 +98,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsReadRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_read", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsReadRaw(frame)
             : WasmMuduSysCall.FsReadRaw(frame);
@@ -97,6 +106,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsWriteRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_write", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsWriteRaw(frame)
             : WasmMuduSysCall.FsWriteRaw(frame);
@@ -104,6 +114,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsPreadRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_pread", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsPreadRaw(frame)
             : WasmMuduSysCall.FsPreadRaw(frame);
@@ -111,6 +122,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsPwriteRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_pwrite", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsPwriteRaw(frame)
             : WasmMuduSysCall.FsPwriteRaw(frame);
@@ -118,6 +130,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsLseekRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_lseek", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsLseekRaw(frame)
             : WasmMuduSysCall.FsLseekRaw(frame);
@@ -125,6 +138,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsFstatRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_fstat", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsFstatRaw(frame)
             : WasmMuduSysCall.FsFstatRaw(frame);
@@ -132,6 +146,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsStatRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_stat", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsStatRaw(frame)
             : WasmMuduSysCall.FsStatRaw(frame);
@@ -139,6 +154,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsFsyncRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_fsync", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsFsyncRaw(frame)
             : WasmMuduSysCall.FsFsyncRaw(frame);
@@ -146,6 +162,7 @@ public static class MuduSysCallApi
 
     public static byte[] FsReaddirRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("fs_readdir", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.FsReaddirRaw(frame)
             : WasmMuduSysCall.FsReaddirRaw(frame);
@@ -153,6 +170,7 @@ public static class MuduSysCallApi
 
     public static byte[] BatchRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("batch", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.BatchRaw(frame)
             : WasmMuduSysCall.BatchRaw(frame);
@@ -160,6 +178,7 @@ public static class MuduSysCallApi
 
     public static byte[] OpenRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("open", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.OpenRaw(frame)
             : WasmMuduSysCall.OpenRaw(frame);
@@ -167,6 +186,7 @@ public static class MuduSysCallApi
 
     public static byte[] CloseRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("close", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.CloseRaw(frame)
             : WasmMuduSysCall.CloseRaw(frame);
@@ -174,6 +194,7 @@ public static class MuduSysCallApi
 
     public static byte[] GetRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("get", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.GetRaw(frame)
             : WasmMuduSysCall.GetRaw(frame);
@@ -181,6 +202,7 @@ public static class MuduSysCallApi
 
     public static byte[] PutRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("put", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.PutRaw(frame)
             : WasmMuduSysCall.PutRaw(frame);
@@ -188,6 +210,7 @@ public static class MuduSysCallApi
 
     public static byte[] DeleteRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("delete", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.DeleteRaw(frame)
             : WasmMuduSysCall.DeleteRaw(frame);
@@ -195,6 +218,7 @@ public static class MuduSysCallApi
 
     public static byte[] RangeRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("range", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.RangeRaw(frame)
             : WasmMuduSysCall.RangeRaw(frame);
@@ -202,6 +226,7 @@ public static class MuduSysCallApi
 
     public static byte[] RelationGetRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("relation_get", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.RelationGetRaw(frame)
             : WasmMuduSysCall.RelationGetRaw(frame);
@@ -209,6 +234,7 @@ public static class MuduSysCallApi
 
     public static byte[] RelationUpdateRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("relation_update", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.RelationUpdateRaw(frame)
             : WasmMuduSysCall.RelationUpdateRaw(frame);
@@ -216,6 +242,7 @@ public static class MuduSysCallApi
 
     public static byte[] RelationInsertRaw(byte[] frame)
     {
+        if (NativeAdapter.Enabled) return NativeAdapter.Call("relation_insert", frame);
         return UseMockBackend
             ? mududb.mock.MockSqliteMuduSysCall.RelationInsertRaw(frame)
             : WasmMuduSysCall.RelationInsertRaw(frame);

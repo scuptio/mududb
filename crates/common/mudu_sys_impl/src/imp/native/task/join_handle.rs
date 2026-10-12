@@ -2,17 +2,22 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+/// Error of awaiting a [`TaskJoinHandle`]: the task was cancelled or
+/// panicked.
 pub struct TaskJoinError(tokio::task::JoinError);
 
 impl TaskJoinError {
+    /// Unwraps into the underlying [`tokio::task::JoinError`].
     pub fn into_external(self) -> tokio::task::JoinError {
         self.0
     }
 
+    /// Returns `true` if the task was cancelled (aborted).
     pub fn is_cancelled(&self) -> bool {
         self.0.is_cancelled()
     }
 
+    /// Returns `true` if the task panicked.
     pub fn is_panic(&self) -> bool {
         self.0.is_panic()
     }
@@ -38,21 +43,28 @@ impl From<tokio::task::JoinError> for TaskJoinError {
     }
 }
 
+/// Awaitable handle to a spawned task; awaiting yields the task output or a
+/// [`TaskJoinError`].
 pub struct TaskJoinHandle<T>(tokio::task::JoinHandle<T>);
 
 impl<T> TaskJoinHandle<T> {
+    /// Wraps a [`tokio::task::JoinHandle`].
     pub fn new(inner: tokio::task::JoinHandle<T>) -> Self {
         Self(inner)
     }
 
+    /// Aborts the task; awaiting the handle then yields a cancelled
+    /// [`TaskJoinError`].
     pub fn abort(&self) {
         self.0.abort();
     }
 
+    /// Returns `true` if the task has finished.
     pub fn is_finished(&self) -> bool {
         self.0.is_finished()
     }
 
+    /// Unwraps into the underlying [`tokio::task::JoinHandle`].
     pub fn into_external(self) -> tokio::task::JoinHandle<T> {
         self.0
     }

@@ -15,13 +15,13 @@ use crate::lang_impl::c::c_codec::{
     C_STYLE_RECORD, CollectingCNamer, c_decode_stmts, c_encode_stmts, c_ident, c_join, c_type,
 };
 use crate::lang_impl::lang::lang_kind::LangKind;
-use crate::lang_impl::lang::variant_info::VariantInfo;
+use crate::lang_impl::lang::variant_info::{VariantCaseInfo, VariantInfo};
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case, to_snake_case_upper};
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_def::UniVariantDef;
+use mudu_binding::universal::uni_def::{UniVariantDef, VariantCase};
 
 /// One case of the generated variant kind enum.
 pub struct CKindCase {
@@ -112,58 +112,16 @@ impl TemplateVariantC {
             .iter()
             .zip(variant_def.variant_cases.iter())
         {
-            let case_name = c_ident(&to_snake_case(&case_def.vc_case_name));
-            let const_name = format!(
-                "{}_{}",
-                const_prefix,
-                to_snake_case_upper(&case_def.vc_case_name)
-            );
-            kind_cases.push(CKindCase {
-                comments: case.vc_comments.clone(),
-                const_name: const_name.clone(),
-                number: case.vc_number,
-            });
-            let base = format!("{}_{}", name, case_name);
-            enc_lines.push(format!("    case {}:", const_name));
-            dec_lines.push(format!("        case {}u:", case.vc_number));
-            if let Some(case_ty) = &case_def.vc_case_type {
+            let plan = plan_case_c(case, case_def, &name, &const_prefix, &cfg, &mut namer)?;
+            if plan.has_payload {
                 has_union = true;
-                let repr = payload_repr(case_ty, &cfg);
-                namer.begin(base.clone());
-                let ty = c_type(&repr, &mut namer)?;
-                union_members.push(format!("        {} {};", ty, case_name));
-                c_encode_stmts(
-                    C_STYLE_RECORD,
-                    &repr,
-                    &format!("value->as.{}", case_name),
-                    8,
-                    0,
-                    &mut enc_lines,
-                )?;
-                dec_lines.push(format!("            value->kind = {};", const_name));
-                namer.begin(base);
-                c_decode_stmts(
-                    C_STYLE_RECORD,
-                    &repr,
-                    &format!("value->as.{}", case_name),
-                    12,
-                    0,
-                    &mut dec_lines,
-                    &mut namer,
-                )?;
-            } else {
-                enc_lines.push(
-                    "        /* payload-less case: the `0u8` placeholder (NOT nil), matching"
-                        .to_string(),
-                );
-                enc_lines.push("         * the Rust host's variant serde. */".to_string());
-                enc_lines.push("        mpw_u64(w, 0u);".to_string());
-                dec_lines.push(format!("            value->kind = {};", const_name));
-                dec_lines.push("            /* consume the `0u8` placeholder */".to_string());
-                dec_lines.push("            (void)mpr_u64(r);".to_string());
             }
-            enc_lines.push("        break;".to_string());
-            dec_lines.push("            break;".to_string());
+            kind_cases.push(plan.kind_case);
+            if let Some(member) = plan.union_member {
+                union_members.push(member);
+            }
+            enc_lines.extend(plan.enc_lines);
+            dec_lines.extend(plan.dec_lines);
         }
         let mut encode_body = vec![
             "    mpw_array_header(w, 2u);".to_string(),
@@ -213,6 +171,92 @@ impl TemplateVariantC {
             decode_body: c_join(&decode_body),
         })
     }
+}
+
+/// Precomputed codec data of one variant case.
+struct CasePlanC {
+    /// The kind-enum entry of the case.
+    kind_case: CKindCase,
+    /// Rendered union member declaration (payload-carrying cases only).
+    union_member: Option<String>,
+    /// Encode `switch` lines for this case.
+    enc_lines: Vec<String>,
+    /// Decode `switch` lines for this case.
+    dec_lines: Vec<String>,
+    /// Whether the case carries a payload.
+    has_payload: bool,
+}
+
+/// Compute the kind-enum entry, union member and encode/decode `switch`
+/// lines of one variant case.
+fn plan_case_c(
+    case: &VariantCaseInfo,
+    case_def: &VariantCase,
+    name: &str,
+    const_prefix: &str,
+    cfg: &CodegenCfg,
+    namer: &mut CollectingCNamer,
+) -> RS<CasePlanC> {
+    let case_name = c_ident(&to_snake_case(&case_def.vc_case_name));
+    let const_name = format!(
+        "{}_{}",
+        const_prefix,
+        to_snake_case_upper(&case_def.vc_case_name)
+    );
+    let kind_case = CKindCase {
+        comments: case.vc_comments.clone(),
+        const_name: const_name.clone(),
+        number: case.vc_number,
+    };
+    let base = format!("{}_{}", name, case_name);
+    let mut enc_lines = vec![format!("    case {}:", const_name)];
+    let mut dec_lines = vec![format!("        case {}u:", case.vc_number)];
+    let mut union_member = None;
+    let mut has_payload = false;
+    if let Some(case_ty) = &case_def.vc_case_type {
+        has_payload = true;
+        let repr = payload_repr(case_ty, cfg);
+        namer.begin(base.clone());
+        let ty = c_type(&repr, namer)?;
+        union_member = Some(format!("        {} {};", ty, case_name));
+        c_encode_stmts(
+            C_STYLE_RECORD,
+            &repr,
+            &format!("value->as.{}", case_name),
+            8,
+            0,
+            &mut enc_lines,
+        )?;
+        dec_lines.push(format!("            value->kind = {};", const_name));
+        namer.begin(base);
+        c_decode_stmts(
+            C_STYLE_RECORD,
+            &repr,
+            &format!("value->as.{}", case_name),
+            12,
+            0,
+            &mut dec_lines,
+            namer,
+        )?;
+    } else {
+        enc_lines.push(
+            "        /* payload-less case: the `0u8` placeholder (NOT nil), matching".to_string(),
+        );
+        enc_lines.push("         * the Rust host's variant serde. */".to_string());
+        enc_lines.push("        mpw_u64(w, 0u);".to_string());
+        dec_lines.push(format!("            value->kind = {};", const_name));
+        dec_lines.push("            /* consume the `0u8` placeholder */".to_string());
+        dec_lines.push("            (void)mpr_u64(r);".to_string());
+    }
+    enc_lines.push("        break;".to_string());
+    dec_lines.push("            break;".to_string());
+    Ok(CasePlanC {
+        kind_case,
+        union_member,
+        enc_lines,
+        dec_lines,
+        has_payload,
+    })
 }
 
 #[cfg(test)]

@@ -425,6 +425,11 @@ fn desc_json_snapshot_record_typed_param() -> Result<(), Box<dyn Error>> {
 
     let json_text = mudu_sys::fs::sync::sync_read_to_string(&desc_path)?;
     let value: serde_json::Value = serde_json::from_str(&json_text)?;
+    assert_eq!(value, expected_snapshot_json());
+    Ok(())
+}
+
+fn expected_snapshot_json() -> serde_json::Value {
     let string_type = serde_json::json!({
         "id": "String",
         "param": { "String": { "length": 65536 } }
@@ -464,7 +469,7 @@ fn desc_json_snapshot_record_typed_param() -> Result<(), Box<dyn Error>> {
             }
         }
     });
-    let expected = serde_json::json!({
+    serde_json::json!({
         "modules": {
             "wallet": [
                 {
@@ -491,7 +496,5 @@ fn desc_json_snapshot_record_typed_param() -> Result<(), Box<dyn Error>> {
                 }
             ]
         }
-    });
-    assert_eq!(value, expected);
-    Ok(())
+    })
 }

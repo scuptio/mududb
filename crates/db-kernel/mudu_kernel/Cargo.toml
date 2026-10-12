@@ -6,8 +6,8 @@ rust-version.workspace = true
 license = "Apache-2.0"
 
 [features]
-test = ["mudu/test", "mudu_type/test", "dep:test_utils", "dep:arbitrary"]
-debug_trace = ["mudu_sys/debug_trace", "mudu_utils/debug_trace", "dep:async-backtrace"]
+test = ["catalog/test", "meta/test", "mudu/arbitrary", "mudu_type/arbitrary", "dep:test_utils", "dep:arbitrary"]
+debug_trace = ["catalog/debug_trace", "mudu_sys/debug_trace", "mudu_utils/debug_trace", "dep:async-backtrace"]
 # Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
 # Tests that exercise real-OS semantics the simulator cannot provide are
 # gated with `#[cfg(not(feature = "ds"))]`.
@@ -18,6 +18,21 @@ workspace = true
 
 [dependencies]
 
+catalog = { workspace = true }
+backup = { workspace = true }
+index = { workspace = true }
+wal = { workspace = true }
+xengine = { workspace = true }
+xcontract = { workspace = true }
+server = { workspace = true }
+repl = { workspace = true }
+worker = { workspace = true }
+meta = { workspace = true }
+sql = { workspace = true }
+command = { workspace = true }
+conn = { workspace = true }
+storage = { workspace = true }
+
 mudu = { workspace = true }
 mudu_binding = { workspace = true }
 mudu_compat_migrate = { workspace = true }
@@ -25,11 +40,13 @@ mudu_sys = { workspace = true }
 
 mudu_type = { workspace = true }
 mudu_contract = { workspace = true }
+mudu_raft = { workspace = true }
 uuid = { workspace = true }
 short-uuid = { workspace = true }
 
 serde = { workspace = true }
 rmp-serde = { workspace = true }
+zip = { workspace = true }
 
 lazy_static = { workspace = true }
 
@@ -41,10 +58,8 @@ arbitrary = { workspace = true, optional = true }
 bigdecimal = { workspace = true }
 tracing = { workspace = true }
 
-pgwire = { workspace = true }
 futures = { workspace = true }
 scc = { workspace = true }
-project-root = { workspace = true }
 
 csv = { workspace = true }
 libc = { workspace = true }
@@ -57,9 +72,12 @@ crossbeam-queue = { workspace = true }
 byteorder = { workspace = true }
 
 [dev-dependencies]
+catalog = { workspace = true, features = ["test"] }
+meta = { workspace = true, features = ["test"] }
+wal = { workspace = true, features = ["test"] }
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
-mudu = { workspace = true, features = ["test"] }
-mudu_type = { workspace = true, features = ["test"] }
+mudu = { workspace = true, features = ["arbitrary"] }
+mudu_type = { workspace = true, features = ["arbitrary"] }
 test_utils = { workspace = true }
 arbitrary = { workspace = true }

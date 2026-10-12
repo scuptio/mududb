@@ -1,0 +1,11 @@
+[package]
+name = "wallet_rs"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+[workspace]
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+mududb = { package = "mudu_api_rust", path = "../../..", features = ["wasm-async"] }
+wit-bindgen = "0.58.0"

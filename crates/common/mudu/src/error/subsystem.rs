@@ -11,9 +11,23 @@ use std::fmt;
 /// Errors originating from the catalog subsystem.
 #[derive(Debug, Clone)]
 pub enum CatalogError {
-    TableNotFound { name: String },
-    ColumnNotFound { table: String, column: String },
-    CorruptedMetadata { detail: String },
+    /// The named table does not exist.
+    TableNotFound {
+        /// Name of the missing table.
+        name: String,
+    },
+    /// The named column does not exist in the table.
+    ColumnNotFound {
+        /// Name of the table.
+        table: String,
+        /// Name of the missing column.
+        column: String,
+    },
+    /// Catalog metadata failed integrity checks.
+    CorruptedMetadata {
+        /// Description of the corruption.
+        detail: String,
+    },
 }
 
 impl fmt::Display for CatalogError {

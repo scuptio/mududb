@@ -8,17 +8,28 @@
     <AssemblyName>mududb</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Keep available XML docs, without requiring full documentation of generated
+         interop/DTO members. Set EnforceCompleteXmlDocumentation=true to audit coverage. -->
+    <NoWarn Condition="'$(EnforceCompleteXmlDocumentation)' != 'true'">$(NoWarn);CS1591</NoWarn>
     <PackageId>mududb</PackageId>
     <Version>0.1.0</Version>
     <Authors>mududb</Authors>
     <Description>C# bindings for MuduDB: syscall API, universal DTOs and MSSP frame codec, with a SQLite-backed mock backend</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ybbh/mududb_p</RepositoryUrl>
+    <RepositoryUrl>https://github.com/scuptio/mududb</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Deterministic>true</Deterministic>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- Exported snapshots have no original Git tree or matching source paths.
+       Embed their sources in symbols instead of emitting invalid SourceLink data. -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/sdk-source.json')">
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+    <EmbedAllSources>true</EmbedAllSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="examples\**\*.cs" />
     <Compile Remove="demo\**\*.cs" />
     <EmbeddedResource Remove="demo\**\*" />
     <None Remove="demo\**\*" />

@@ -1,16 +1,16 @@
 [env]
 WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/../../.."
-WALLET_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet"
+WALLET_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet"
 WALLET_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet.mpk"
-WALLET_AS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-as"
+WALLET_AS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet-as"
 WALLET_AS_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet-as.mpk"
-WALLET_CS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-cs"
+WALLET_CS_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet-cs"
 WALLET_CS_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/wasm32-wasip2/release/wallet-cs.mpk"
-WALLET_PY_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-py"
+WALLET_PY_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet-py"
 WALLET_PY_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/py-guest/wallet-py.mpk"
-WALLET_GO_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-go"
+WALLET_GO_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet-go"
 WALLET_GO_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/go-guest/wallet-go.mpk"
-WALLET_C_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../sdk/example/wallet-c"
+WALLET_C_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../example/mpk/wallet-c"
 WALLET_C_MPK = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/c-guest/wallet-c.mpk"
 TESTING_MPK_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/mpk"
 TESTING_WALLET_MPK = "${TESTING_MPK_DIR}/wallet.mpk"
@@ -40,7 +40,7 @@ args = ["make", "package"]
 cwd = "${WALLET_AS_DIR}"
 
 # The wallet-cs build chain needs the .NET 10 SDK at ~/.dotnet (see
-# crates/sdk/example/wallet-cs/readme.md).
+# example/mpk/wallet-cs/readme.md).
 [tasks.build-wallet-cs-mpk]
 command = "cargo"
 args = ["make", "package"]
@@ -54,14 +54,14 @@ args = ["make", "package"]
 cwd = "${WALLET_PY_DIR}"
 
 # The wallet-go build chain needs TinyGo 0.42 and the Go 1.27 toolchain on
-# PATH (see example/wallet-go/readme.md) plus wasm-tools.
+# PATH (see example/mpk/wallet-go/readme.md) plus wasm-tools.
 [tasks.build-wallet-go-mpk]
 command = "cargo"
 args = ["make", "package"]
 cwd = "${WALLET_GO_DIR}"
 
 # The wallet-c build chain needs a clang targeting wasm32 freestanding
-# (wasi-sdk 29 at ~/.wasi-sdk by default; see example/wallet-c/readme.md)
+# (wasi-sdk 29 at ~/.wasi-sdk by default; see example/mpk/wallet-c/readme.md)
 # plus wasm-tools.
 [tasks.build-wallet-c-mpk]
 command = "cargo"

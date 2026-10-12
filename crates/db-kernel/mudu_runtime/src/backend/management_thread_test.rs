@@ -4,14 +4,14 @@ use super::{MuduDBCfg, spawn_management_thread};
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudu_app_mgr::ListOption;
 use crate::backend::mudud_cfg::{RoutingMode, ServerMode};
-use crate::service::app_list::AppList;
+use ::conn::worker_local::WorkerLocalRef;
+use ::worker::async_func_runtime::AsyncFuncInvoker;
+use ::worker::worker_registry::WorkerRegistry;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
-use mudu_kernel::server::worker_local::WorkerLocalRef;
-use mudu_kernel::server::worker_registry::WorkerRegistry;
 use mudu_utils::notifier::notify_wait;
+use runtime_wasm::service::app_list::AppList;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -84,7 +84,7 @@ fn spawn_management_thread_rejects_invalid_address() {
     let (stop_tx, stop_rx) = notify_wait();
     let registry = Arc::new(WorkerRegistry::new(vec![]).unwrap());
 
-    let err = spawn_management_thread(cfg, Arc::new(MockAppMgr), registry, stop_rx)
+    let err = spawn_management_thread(cfg, Arc::new(MockAppMgr), registry, 0, stop_rx)
         .err()
         .unwrap();
     assert_eq!(err.ec(), mudu::error::ErrorCode::Parse);
@@ -99,7 +99,7 @@ fn spawn_management_thread_starts_and_stops() {
     let (stop_tx, stop_rx) = notify_wait();
     let registry = Arc::new(WorkerRegistry::new(vec![]).unwrap());
 
-    spawn_management_thread(cfg, Arc::new(MockAppMgr), registry, stop_rx).unwrap();
+    spawn_management_thread(cfg, Arc::new(MockAppMgr), registry, 0, stop_rx).unwrap();
 
     stop_tx.notify_all();
 }

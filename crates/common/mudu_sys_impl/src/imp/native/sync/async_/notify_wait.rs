@@ -6,16 +6,20 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot::{channel, Receiver, Sender};
 use tokio::sync::Notify as TokioNotify;
 
+/// Creates a one-shot notify/wait pair that can carry a value of type `T`.
 pub fn create_notify_wait<T: Send + Sync + Clone + 'static>() -> (Notify<T>, Wait<T>) {
     let (sender, receiver) = channel();
     (Notify::new(sender), Wait::new(receiver))
 }
 
+/// Notifying half of a [`create_notify_wait`] pair.
 #[derive(Clone)]
 pub struct Notify<T: Send + Sync + Clone + 'static> {
     inner: Arc<Mutex<Option<Sender<T>>>>,
 }
 
+/// Waiting half of a [`create_notify_wait`] pair; multiple clones observe
+/// the same single result.
 #[derive(Clone)]
 pub struct Wait<T: Send + Sync + Clone + 'static> {
     inner: Arc<AMutex<WaitInner<T>>>,
@@ -34,6 +38,8 @@ impl<T: Send + Sync + Clone + 'static> Notify<T> {
         }
     }
 
+    /// Delivers `value` to the waiters; returns `true` if a receiver was
+    /// still present. Only the first call across all clones can succeed.
     pub fn notify(&self, value: T) -> RS<bool> {
         let sender = self
             .inner
@@ -51,6 +57,9 @@ impl<T: Send + Sync + Clone + 'static> Wait<T> {
         }
     }
 
+    /// Waits for the notified value; `Ok(None)` means the notifier was
+    /// dropped without notifying. All clones of this waiter observe the
+    /// same result.
     pub async fn wait(&self) -> RS<Option<T>> {
         loop {
             enum Action<T> {

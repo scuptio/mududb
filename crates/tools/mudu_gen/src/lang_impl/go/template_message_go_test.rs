@@ -144,7 +144,7 @@ fn go_message_renders_func_codecs() -> RS<()> {
     );
     // the runtime import is pulled in when func codecs reference it
     assert!(
-        src.contains("\"github.com/ybbh/mududb_p/bindings/go/codec\""),
+        src.contains("\"github.com/mududb/mududb-go/codec\""),
         "{src}"
     );
     Ok(())

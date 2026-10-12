@@ -220,7 +220,7 @@ public class UniRecordFieldFormatter : IMessagePackFormatter<UniRecordField>
             var __l1 = new List<UniFieldAttr>(__c1);
             for (var __i1 = 0; __i1 < __c1; __i1++)
             {
-                __l1.Add(new UniFieldAttrFormatter().Deserialize(ref reader, options));
+                __l1.Add(new UniFieldAttrFormatter().Deserialize(ref reader, options)!);
             }
             value.FieldAttrs = __l1;
         }
@@ -336,7 +336,7 @@ public class UniRecordTypeFormatter : IMessagePackFormatter<UniRecordType>
             var __l1 = new List<UniRecordField>(__c1);
             for (var __i1 = 0; __i1 < __c1; __i1++)
             {
-                __l1.Add(new UniRecordFieldFormatter().Deserialize(ref reader, options));
+                __l1.Add(new UniRecordFieldFormatter().Deserialize(ref reader, options)!);
             }
             value.RecordFields = __l1;
         }

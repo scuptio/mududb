@@ -11,6 +11,7 @@
 #   cargo make check      # fmt + clippy + test compilation (delegates to check_all.sh)
 #   cargo make test       # cargo test --workspace for every workspace
 #   cargo make test-e2e   # end-to-end tests with wallet/wallet-as/wallet-cs/wallet-py/wallet-go/wallet-c mpk packages
+#   cargo make build-sdk     # standalone SDK distributions; no publishing
 #   cargo make install-tools  # install mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli
 
 [env]
@@ -20,6 +21,8 @@ GROUP_DB_KERNEL = "${REPO_ROOT}/crates/db-kernel"
 GROUP_SDK = "${REPO_ROOT}/crates/sdk"
 GROUP_TOOLS = "${REPO_ROOT}/crates/tools"
 MUDU_API_RUST = "${GROUP_SDK}/mudu_api/rust"
+MUDU_ADAPTER_FFI = "${REPO_ROOT}/crates/bindings/mudu_adapter_ffi"
+GROUP_EXAMPLE = "${REPO_ROOT}/example/mpk"
 
 # ---------------------------------------------------------------------------
 # build
@@ -61,8 +64,18 @@ command = "cargo"
 args = ["build", "--release"]
 cwd = "${MUDU_API_RUST}"
 
+# Standalone cdylib workspace for the versioned native adapter ABI. Its local
+# `.cargo/config.toml` redirects artifacts to its own `target-ffi/` instead of
+# the shared repository-root `target/`. The SDK runtime builds it via
+# `script/sdk/adapter_runtime.py`; this task is a direct-build convenience.
+[tasks.build-adapter-ffi]
+command = "cargo"
+args = ["build", "--release"]
+cwd = "${MUDU_ADAPTER_FFI}"
+
 # Reinstall the workspace CLI tools from source (mgen, mtp, mpm-build,
-# mpm-install, mudud, mcli) so the toolchain cannot drift from the commit.
+# mpm-crate, mpm-install, mudud, mcli) so the toolchain cannot drift from
+# the commit.
 [tasks.install-tools]
 command = "python3"
 args = ["${REPO_ROOT}/script/build/install_binaries.py", "--profile", "release"]
@@ -72,45 +85,45 @@ cwd = "${REPO_ROOT}"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet"
+cwd = "${GROUP_EXAMPLE}/wallet"
 
 # Optional: needs Node.js/npm on PATH (asc compiler).
 [tasks.package-wallet-as]
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet-as"
+cwd = "${GROUP_EXAMPLE}/wallet-as"
 
-# Optional: needs the .NET 10 SDK at ~/.dotnet (see example/wallet-cs/readme.md).
+# Optional: needs the .NET 10 SDK at ~/.dotnet (see example/mpk/wallet-cs/readme.md).
 [tasks.package-wallet-cs]
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet-cs"
+cwd = "${GROUP_EXAMPLE}/wallet-cs"
 
 # Optional: needs componentize-py on PATH (pipx install componentize-py==0.25.1)
-# plus wasm-tools (see example/wallet-py/readme.md).
+# plus wasm-tools (see example/mpk/wallet-py/readme.md).
 [tasks.package-wallet-py]
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet-py"
+cwd = "${GROUP_EXAMPLE}/wallet-py"
 
 # Optional: needs TinyGo 0.42 and the Go 1.27 toolchain on PATH plus
-# wasm-tools (see example/wallet-go/readme.md).
+# wasm-tools (see example/mpk/wallet-go/readme.md).
 [tasks.package-wallet-go]
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet-go"
+cwd = "${GROUP_EXAMPLE}/wallet-go"
 
 # Optional: needs a clang targeting wasm32 freestanding (wasi-sdk 29 at
-# ~/.wasi-sdk by default; see example/wallet-c/readme.md) plus wasm-tools.
+# ~/.wasi-sdk by default; see example/mpk/wallet-c/readme.md) plus wasm-tools.
 [tasks.package-wallet-c]
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
-cwd = "${GROUP_SDK}/example/wallet-c"
+cwd = "${GROUP_EXAMPLE}/wallet-c"
 
 # All guest example packages (requires the full external toolchain set).
 [tasks.package-examples]
@@ -199,3 +212,13 @@ clear = true
 command = "cargo"
 args = ["clean"]
 cwd = "${REPO_ROOT}"
+
+# Build standalone language SDK distributions without publishing them.
+[tasks.build-sdk]
+env = { SDK_PYTHON = { value = "python3", condition = { env_not_set = ["SDK_PYTHON"] } } }
+command = "${SDK_PYTHON}"
+args = ["${REPO_ROOT}/script/sdk/sdk_build.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
+[tasks.build-sdk.windows]
+env = { SDK_PYTHON = { value = "python", condition = { env_not_set = ["SDK_PYTHON"] } } }

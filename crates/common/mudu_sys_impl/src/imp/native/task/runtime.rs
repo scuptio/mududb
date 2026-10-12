@@ -22,6 +22,8 @@ impl TaskRuntime {
         &self.inner
     }
 
+    /// Runs `future` to completion on this runtime, blocking the current
+    /// thread.
     pub fn block_on<F>(&self, future: F) -> F::Output
     where
         F: Future,
@@ -29,6 +31,8 @@ impl TaskRuntime {
         self.inner.block_on(future)
     }
 
+    /// Enters the runtime context (so Tokio APIs work) until the returned
+    /// guard drops.
     pub fn enter(&self) -> TaskRuntimeEnterGuard<'_> {
         TaskRuntimeEnterGuard {
             _guard: self.inner.enter(),
@@ -44,6 +48,7 @@ use mudu::mudu_error;
 use tokio::task::LocalSet;
 use tracing::{error, info};
 
+/// Builds a current-thread Tokio runtime with all features enabled.
 pub fn build_current_thread_runtime() -> RS<TaskRuntime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -52,6 +57,7 @@ pub fn build_current_thread_runtime() -> RS<TaskRuntime> {
         .map_err(|e| mudu_error!(ErrorCode::Tokio, "create current thread runtime error", e))
 }
 
+/// Builds a multi-thread Tokio runtime with all features enabled.
 pub fn build_multi_thread_runtime() -> RS<TaskRuntime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -60,12 +66,15 @@ pub fn build_multi_thread_runtime() -> RS<TaskRuntime> {
         .map_err(|e| mudu_error!(ErrorCode::Tokio, "create multi thread runtime error", e))
 }
 
+/// A current-thread Tokio runtime paired with a [`LocalTaskSet`] for
+/// running `!Send` futures.
 pub struct CurrentThreadTaskRuntime {
     runtime: TaskRuntime,
     local: LocalTaskSet,
 }
 
 impl CurrentThreadTaskRuntime {
+    /// Creates a current-thread runtime and its local task set.
     pub fn new() -> RS<Self> {
         Ok(Self {
             runtime: build_current_thread_runtime()?,
@@ -73,10 +82,14 @@ impl CurrentThreadTaskRuntime {
         })
     }
 
+    /// Returns the local task set for spawning `!Send` futures.
     pub fn local(&self) -> &LocalTaskSet {
         &self.local
     }
 
+    /// Runs `future` to completion on the local task set, blocking the
+    /// current thread. Spawn failures panic; task join errors are
+    /// propagated through the future's output type by the caller.
     #[expect(
         clippy::unwrap_used,
         reason = "CurrentThreadTaskRuntime::block_on returns F::Output directly; errors are propagated through the task join handle"
@@ -90,6 +103,8 @@ impl CurrentThreadTaskRuntime {
     }
 }
 
+/// Runs `future` on a freshly built current-thread runtime with a fresh
+/// local set, blocking the current thread.
 pub fn block_on_tokio_current_thread<F>(fut: F) -> RS<F::Output>
 where
     F: Future + 'static,
@@ -100,6 +115,9 @@ where
     __block_on_tokio_current_thread_runtime(&runtime, &ls, fut)
 }
 
+/// Runs `fut` on `runtime` inside local set `ls` (internal helper shared by
+/// the `block_on` entry points).
+#[doc(hidden)]
 pub fn __block_on_tokio_current_thread_runtime<F>(
     runtime: &TaskRuntime,
     ls: &LocalSet,
@@ -122,6 +140,8 @@ where
     }
 }
 
+/// Runs `fut` on a freshly built current-thread runtime, blocking the
+/// current thread; panics if the runtime cannot be built or the task fails.
 #[expect(
     clippy::unwrap_used,
     reason = "block_on_async_current returns F::Output directly; errors are propagated through the task join handle"
@@ -134,6 +154,9 @@ where
     block_on_tokio_current_thread(fut).unwrap()
 }
 
+/// Blocks until Ctrl-C/SIGTERM (Unix) or Ctrl-C (other platforms) is
+/// received or `stop` is notified, then notifies `stop` so dependents shut
+/// down. Runs its own temporary current-thread runtime.
 pub fn wait_for_shutdown_signal(stop: Notifier) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -199,6 +222,7 @@ pub fn wait_for_shutdown_signal(stop: Notifier) {
     });
 }
 
+/// Returns `true` if called from within a Tokio runtime context.
 pub fn has_tokio_runtime() -> bool {
     tokio::runtime::Handle::try_current().is_ok()
 }

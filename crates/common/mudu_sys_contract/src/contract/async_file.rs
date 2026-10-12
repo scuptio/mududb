@@ -22,6 +22,7 @@ pub trait AsyncFile: Send + Sync {
     }
 
     /// Return the raw file descriptor, if one exists.
+    #[cfg(unix)]
     fn as_raw_fd(&self) -> Option<std::os::fd::RawFd> {
         None
     }
@@ -82,6 +83,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn as_raw_fd_default_returns_none() {
         assert!(MockFile.as_raw_fd().is_none());
     }
@@ -166,6 +168,7 @@ mod tests {
     fn default_methods_work_through_trait_object() {
         let file: Box<dyn AsyncFile> = Box::new(MockFile);
         assert!(block_on(file.close()).is_ok());
+        #[cfg(unix)]
         assert!(file.as_raw_fd().is_none());
     }
 }

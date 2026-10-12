@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ybbh/mududb_p/bindings/go/codec"
+	"github.com/mududb/mududb-go/codec"
 )
 
 // f32Truncate truncates a float64 to single precision; e.g. 0.1 ->

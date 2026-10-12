@@ -1,32 +1,40 @@
+//! Timestamp values with a time zone.
+
 use crate::data_type::temporal::{
     format_fractional_micros, parse_fixed_offset_timestamp, validate_precision,
 };
 use chrono::{DateTime, FixedOffset, Offset, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
+/// A timestamp with time zone stored as microseconds since the Unix epoch in UTC.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimestampTzValue {
     epoch_micros_utc: i64,
 }
 
 impl TimestampTzValue {
+    /// Creates a value from microseconds since the Unix epoch in UTC.
     pub fn from_epoch_micros_utc(epoch_micros_utc: i64) -> Self {
         Self { epoch_micros_utc }
     }
 
+    /// Returns the microseconds since the Unix epoch in UTC.
     pub fn epoch_micros_utc(&self) -> i64 {
         self.epoch_micros_utc
     }
 
+    /// Parses an RFC 3339 timestamp string with an offset.
     pub fn parse(s: &str) -> Result<Self, String> {
         let timestamp = parse_fixed_offset_timestamp(s)?;
         Ok(Self::from_epoch_micros_utc(timestamp.timestamp_micros()))
     }
 
+    /// Formats the value in UTC with `precision` fractional digits.
     pub fn format(&self, precision: u8) -> Result<String, String> {
         self.format_with_offset(precision, Utc.fix())
     }
 
+    /// Formats the value at the given UTC offset with `precision` fractional digits.
     pub fn format_with_offset(&self, precision: u8, offset: FixedOffset) -> Result<String, String> {
         validate_precision(precision)?;
         let dt = self.to_utc_datetime()?.with_timezone(&offset);
@@ -39,6 +47,7 @@ impl TimestampTzValue {
         ))
     }
 
+    /// Truncates the value to the given fractional-second precision.
     pub fn truncate_precision(&self, precision: u8) -> Result<Self, String> {
         validate_precision(precision)?;
         let factor = match precision {
@@ -55,6 +64,7 @@ impl TimestampTzValue {
         ))
     }
 
+    /// Converts this value into a UTC [`DateTime`].
     pub fn to_utc_datetime(&self) -> Result<DateTime<Utc>, String> {
         DateTime::<Utc>::from_timestamp_micros(self.epoch_micros_utc)
             .ok_or_else(|| "timestamp with time zone micros out of range".to_string())

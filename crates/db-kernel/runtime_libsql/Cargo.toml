@@ -1,0 +1,36 @@
+[package]
+name = "runtime_libsql"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "libsql-based database connector and drivers"
+
+[features]
+# Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
+# Tests that exercise real-OS semantics the simulator cannot provide (e.g.
+# libsql's real file IO) are gated with `#[cfg(not(feature = "ds"))]`.
+ds = ["mudu_sys/ds"]
+
+[lints]
+workspace = true
+
+[dependencies]
+conn = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+as-slice = { version = "0.2.1" }
+async-trait = { workspace = true }
+lazy_static = { workspace = true }
+libsql = { workspace = true }
+scc = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }

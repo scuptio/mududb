@@ -79,7 +79,7 @@ Version `1` may be deprecated only after:
 
 ## References
 
-- Implementation: [`mudu_kernel/src/wal/format/latest.rs`](../../../mudu_kernel/src/wal/format/latest.rs)
-- XL records: [`mudu_kernel/src/wal/xl_entry.rs`](../../../mudu_kernel/src/wal/xl_entry.rs)
-- PL records: [`mudu_kernel/src/wal/pl_entry.rs`](../../../mudu_kernel/src/wal/pl_entry.rs)
-- Chunk layout: [`mudu_kernel/src/wal/worker_wal_backend/layout.rs`](../../../mudu_kernel/src/wal/worker_wal_backend/layout.rs)
+- Implementation: [`mudu_kernel/src/wal/format/latest.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/format/latest.rs)
+- XL records: [`mudu_kernel/src/wal/xl_entry.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/xl_entry.rs)
+- PL records: [`mudu_kernel/src/wal/pl_entry.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/pl_entry.rs)
+- Chunk layout: [`mudu_kernel/src/wal/worker_wal_backend/layout.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/worker_wal_backend/layout.rs)

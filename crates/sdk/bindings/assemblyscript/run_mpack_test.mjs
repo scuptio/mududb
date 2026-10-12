@@ -15,7 +15,7 @@ const expectedHex = readFileSync(join(here, "assembly", "__tests__", "mpack_expe
 const expected = Buffer.from(expectedHex, "hex");
 
 const out = join(mkdtempSync(join(tmpdir(), "mpack-test-")), "mpack_test.wasm");
-execFileSync("npx", ["asc", "assembly/__tests__/mpack_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
+execFileSync(process.execPath, [join(here, "node_modules/assemblyscript/bin/asc.js"), "assembly/__tests__/mpack_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
   cwd: here,
   stdio: "inherit",
 });

@@ -37,7 +37,7 @@ jobs:
           mkdir -p logs
           set -o pipefail
           {
-            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+            for group in crates/common crates/db-kernel crates/sdk example/mpk crates/tools; do
               echo "=== cargo fmt --check: ${group} ==="
               (cd "${group}" && cargo fmt -- --check)
             done
@@ -50,7 +50,7 @@ jobs:
       matrix:
         # Each group workspace has its own Cargo.lock and must be checked
         # separately; deny.toml stays at the repository root.
-        group: [ common, db-kernel, sdk, tools ]
+        group: [ crates/common, crates/db-kernel, crates/sdk, example/mpk, crates/tools ]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
@@ -62,11 +62,42 @@ jobs:
         run: cargo install cargo-deny --version 0.19.9 --locked
 
       - name: Run cargo-deny
-        working-directory: crates/${{ matrix.group }}
+        working-directory: ${{ matrix.group }}
         run: |
-          mkdir -p ${{ github.workspace }}/logs
+          mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
-          cargo deny check --config ${{ github.workspace }}/deny.toml bans licenses advisories sources 2>&1 | tee ${{ github.workspace }}/logs/hardening-deny-${{ matrix.group }}.log
+          cargo deny check --config ${{ github.workspace }}/deny.toml bans licenses advisories sources 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/hardening-deny.log
+
+  workspace-invariants:
+    name: workspace-invariants
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup pinned stable Rust
+        uses: ./.github/actions/rust-stable-setup
+
+      # versions.toml is the single source of truth for shared external deps;
+      # check_arch.py enforces the ARCHITECTURE.md crate layering.
+      - name: Check workspace invariants
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          python3 script/ci/sync_workspace_deps.py --check 2>&1 | tee logs/hardening-deps.log
+          python3 script/ci/check_arch.py 2>&1 | tee logs/hardening-arch.log
+
+      # code_metrics.toml caps file / class / struct / function lengths;
+      # mudu_metrics walks crates/**/*.rs and example/**/*.rs (skipping
+      # generated code).
+      - name: Check code metrics
+        run: |
+          mkdir -p logs
+          set -o pipefail
+          cargo run --manifest-path crates/tools/Cargo.toml -p mudu_metrics -- \
+            --root crates --config code_metrics.toml 2>&1 | tee logs/hardening-metrics.log
+          cargo run --manifest-path crates/tools/Cargo.toml -p mudu_metrics -- \
+            --root example --config code_metrics.toml 2>&1 | tee logs/hardening-metrics-example.log
 
   cargo-hack:
     name: cargo-hack
@@ -90,7 +121,7 @@ jobs:
           mkdir -p logs
           set -o pipefail
           {
-            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+            for group in crates/common crates/db-kernel crates/sdk example/mpk crates/tools; do
               echo "=== cargo hack: ${group} ==="
               (cd "${group}" && cargo hack check --workspace --each-feature --no-dev-deps)
             done
@@ -117,9 +148,11 @@ jobs:
           mkdir -p logs
           set -o pipefail
           {
-            for group in crates/common crates/db-kernel crates/sdk crates/tools; do
+            for group in crates/common crates/db-kernel crates/sdk example/mpk crates/tools; do
               echo "=== cargo outdated: ${group} ==="
-              (cd "${group}" && cargo outdated --workspace --root-deps-only)
+              # Keep temporary workspaces beside the groups so cross-group
+              # paths such as ../../common/mudu still resolve after copying.
+              (cd "${group}" && TMPDIR="$(cd .. && pwd)" cargo outdated --workspace --root-deps-only)
             done
           } 2>&1 | tee logs/hardening-outdated.log
         continue-on-error: true

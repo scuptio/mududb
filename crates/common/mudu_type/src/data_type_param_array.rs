@@ -7,6 +7,8 @@ use mudu::utils;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// The parameter of the `Array` type: the element data type and an optional
+/// maximum size.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataTypeParamArray {
     data_type: DataType,
@@ -14,6 +16,8 @@ pub struct DataTypeParamArray {
 }
 
 impl DataTypeParamArray {
+    /// Creates an array parameter with element type `data_type` and no
+    /// maximum size.
     pub fn new(data_type: DataType) -> DataTypeParamArray {
         Self {
             data_type,
@@ -21,10 +25,12 @@ impl DataTypeParamArray {
         }
     }
 
+    /// Returns the element data type.
     pub fn data_type(&self) -> &DataType {
         &self.data_type
     }
 
+    /// Consumes the parameter and returns the element data type.
     pub fn into_data_type(self) -> DataType {
         self.data_type
     }

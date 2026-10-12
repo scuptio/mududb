@@ -3,6 +3,7 @@ use crate::contract::file_options::FileOptions;
 use crate::imp::fs::async_tokio::TokioFile;
 use async_trait::async_trait;
 use mudu::common::result::RS;
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::path::Path;
 

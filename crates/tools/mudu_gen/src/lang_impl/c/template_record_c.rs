@@ -12,13 +12,13 @@ use crate::lang_impl::c::c_codec::{
     c_map_decode_loop, c_type,
 };
 use crate::lang_impl::lang::lang_kind::LangKind;
-use crate::lang_impl::lang::record_info::RecordInfo;
+use crate::lang_impl::lang::record_info::{RecordFieldInfo, RecordInfo};
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::utils::case_convert::to_snake_case;
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_def::UniRecordDef;
+use mudu_binding::universal::uni_def::{RecordField, UniRecordDef};
 
 /// Precomputed rendering data for one record field.
 pub struct CField {
@@ -79,86 +79,13 @@ impl TemplateRecordC {
             .iter()
             .zip(record_def.record_fields.iter())
         {
-            let field_name = c_ident(&to_snake_case(&field.rf_name));
-            let base = format!("{}_{}", name, field_name);
-            let is_option = matches!(field_def.rf_type, UniDataType::Option(_));
-            // The value type of an option field is its inner type; presence
-            // rides on the `<name>_is_null` flag.
-            let value_ty = match &field_def.rf_type {
-                UniDataType::Option(inner) => inner.as_ref().clone(),
-                other => other.clone(),
-            };
-            namer.begin(base.clone());
-            let ty = c_type(&value_ty, &mut namer)?;
-            let access = format!("value->{}", field_name);
-            let enc_indent = if is_option { 8 } else { 4 };
-            let mut enc = Vec::new();
-            c_encode_stmts(C_STYLE_RECORD, &value_ty, &access, enc_indent, 0, &mut enc)?;
-            let key_write = format!(
-                "{}mpw_u64(w, {}u);",
-                " ".repeat(enc_indent),
-                field.rf_number
-            );
-            if is_option {
-                enc_lines.push(format!("    if (!value->{}_is_null) {{", field_name));
-                enc_lines.push(key_write);
-                enc_lines.extend(enc);
-                enc_lines.push("    }".to_string());
-                option_inits.push(format!("    out->{}_is_null = 1;", field_name));
-            } else {
-                enc_lines.push(key_write);
-                enc_lines.extend(enc);
+            let plan = plan_field_c(field, field_def, &name, &mut namer)?;
+            enc_lines.extend(plan.enc_lines);
+            if let Some(init) = plan.option_init {
+                option_inits.push(init);
             }
-            namer.begin(base);
-            let target = format!("out->{}", field_name);
-            let mut dec = Vec::new();
-            if is_option {
-                dec.push("if (mpr_try_nil(r)) {".to_string());
-                dec.push(format!("    {}_is_null = 1;", target));
-                dec.push("} else {".to_string());
-                dec.push(format!("    {}_is_null = 0;", target));
-                c_decode_stmts(
-                    C_STYLE_RECORD,
-                    &value_ty,
-                    &target,
-                    4,
-                    0,
-                    &mut dec,
-                    &mut namer,
-                )?;
-                dec.push("}".to_string());
-            } else {
-                c_decode_stmts(
-                    C_STYLE_RECORD,
-                    &value_ty,
-                    &target,
-                    0,
-                    0,
-                    &mut dec,
-                    &mut namer,
-                )?;
-            }
-            // Re-indent the branch body for the map loop (indent + 16).
-            let dec = dec
-                .iter()
-                .map(|line| {
-                    if line.is_empty() {
-                        line.clone()
-                    } else {
-                        format!("                    {}", line)
-                    }
-                })
-                .collect::<Vec<_>>();
-            map_entries.push(CMapEntry {
-                number: field.rf_number,
-                decode_stmts: c_join(&dec),
-            });
-            fields.push(CField {
-                comments: field.rf_comments.clone(),
-                name: field_name,
-                ty,
-                is_option,
-            });
+            map_entries.push(plan.map_entry);
+            fields.push(plan.field);
         }
 
         let map_header = map_header_expr(fields.len(), &fields);
@@ -187,6 +114,98 @@ impl TemplateRecordC {
             decode_body: c_join(&decode_body),
         })
     }
+}
+
+/// Precomputed codec data of one record field.
+struct FieldPlanC {
+    /// The rendered field entry.
+    field: CField,
+    /// Encode statement lines for this field.
+    enc_lines: Vec<String>,
+    /// The `out-><name>_is_null = 1;` initializer (option fields only).
+    option_init: Option<String>,
+    /// The map-loop decode entry for this field.
+    map_entry: CMapEntry,
+}
+
+/// Compute the encode/decode statements and the rendered field entry of one
+/// record field.
+fn plan_field_c(
+    field: &RecordFieldInfo,
+    field_def: &RecordField,
+    name: &str,
+    namer: &mut CollectingCNamer,
+) -> RS<FieldPlanC> {
+    let field_name = c_ident(&to_snake_case(&field.rf_name));
+    let base = format!("{}_{}", name, field_name);
+    let is_option = matches!(field_def.rf_type, UniDataType::Option(_));
+    // The value type of an option field is its inner type; presence
+    // rides on the `<name>_is_null` flag.
+    let value_ty = match &field_def.rf_type {
+        UniDataType::Option(inner) => inner.as_ref().clone(),
+        other => other.clone(),
+    };
+    namer.begin(base.clone());
+    let ty = c_type(&value_ty, namer)?;
+    let access = format!("value->{}", field_name);
+    let enc_indent = if is_option { 8 } else { 4 };
+    let mut enc = Vec::new();
+    c_encode_stmts(C_STYLE_RECORD, &value_ty, &access, enc_indent, 0, &mut enc)?;
+    let key_write = format!(
+        "{}mpw_u64(w, {}u);",
+        " ".repeat(enc_indent),
+        field.rf_number
+    );
+    let mut enc_lines = Vec::new();
+    let mut option_init = None;
+    if is_option {
+        enc_lines.push(format!("    if (!value->{}_is_null) {{", field_name));
+        enc_lines.push(key_write);
+        enc_lines.extend(enc);
+        enc_lines.push("    }".to_string());
+        option_init = Some(format!("    out->{}_is_null = 1;", field_name));
+    } else {
+        enc_lines.push(key_write);
+        enc_lines.extend(enc);
+    }
+    namer.begin(base);
+    let target = format!("out->{}", field_name);
+    let mut dec = Vec::new();
+    if is_option {
+        dec.push("if (mpr_try_nil(r)) {".to_string());
+        dec.push(format!("    {}_is_null = 1;", target));
+        dec.push("} else {".to_string());
+        dec.push(format!("    {}_is_null = 0;", target));
+        c_decode_stmts(C_STYLE_RECORD, &value_ty, &target, 4, 0, &mut dec, namer)?;
+        dec.push("}".to_string());
+    } else {
+        c_decode_stmts(C_STYLE_RECORD, &value_ty, &target, 0, 0, &mut dec, namer)?;
+    }
+    // Re-indent the branch body for the map loop (indent + 16).
+    let dec = dec
+        .iter()
+        .map(|line| {
+            if line.is_empty() {
+                line.clone()
+            } else {
+                format!("                    {}", line)
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(FieldPlanC {
+        field: CField {
+            comments: field.rf_comments.clone(),
+            name: field_name,
+            ty,
+            is_option,
+        },
+        enc_lines,
+        option_init,
+        map_entry: CMapEntry {
+            number: field.rf_number,
+            decode_stmts: c_join(&dec),
+        },
+    })
 }
 
 /// The encoded-map-count expression: the field count minus the option

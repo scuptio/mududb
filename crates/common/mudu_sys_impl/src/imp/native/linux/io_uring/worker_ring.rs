@@ -27,19 +27,43 @@ thread_local! {
         const { UnsafeCell::new(None) };
 }
 
+/// A user IO operation queued on the worker ring, awaiting submission.
 pub enum WorkerRingOp {
+    /// File operation (open/close/read/write/flush/len).
     File(FileIoRequest),
+    /// Path operation (mkdir/statx/unlink).
     Path(PathIoRequest),
+    /// Socket operation (open/connect/accept/recv/send/shutdown/close).
     Socket(SocketIoRequest),
 }
 
+/// A user IO operation submitted to the ring and awaiting its CQE.
 pub enum UserIoInflight {
-    File { op_id: u64, op: FileInflightOp },
-    Path { op_id: u64, op: PathInflightOp },
-    Socket { op_id: u64, op: SocketInflightOp },
+    /// In-flight file operation.
+    File {
+        /// Id assigned by the ring when the op was registered.
+        op_id: u64,
+        /// The operation state kept alive until completion.
+        op: FileInflightOp,
+    },
+    /// In-flight path operation.
+    Path {
+        /// Id assigned by the ring when the op was registered.
+        op_id: u64,
+        /// The operation state kept alive until completion.
+        op: PathInflightOp,
+    },
+    /// In-flight socket operation.
+    Socket {
+        /// Id assigned by the ring when the op was registered.
+        op_id: u64,
+        /// The operation state kept alive until completion.
+        op: SocketInflightOp,
+    },
 }
 
 impl UserIoInflight {
+    /// Returns the id assigned by the ring when the op was registered.
     pub fn op_id(&self) -> u64 {
         match self {
             Self::File { op_id, .. } => *op_id,
@@ -48,6 +72,7 @@ impl UserIoInflight {
         }
     }
 
+    /// Returns a short static name of the operation kind for tracing.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::File { op, .. } => op.kind(),
@@ -57,6 +82,9 @@ impl UserIoInflight {
     }
 }
 
+/// Per-worker-thread io_uring state: the queue of user IO ops waiting for
+/// submission, the worker task registry, and the timeout heap that backs
+/// `sleep`/`timeout` on worker threads.
 pub struct WorkerLocalRing {
     worker_tasks: WorkerTaskRegistry,
     next_op_id: AtomicU64,
@@ -74,10 +102,13 @@ impl Default for WorkerLocalRing {
 }
 
 impl WorkerLocalRing {
+    /// Creates a worker ring with no external task wake fd.
     pub fn new() -> Self {
         Self::new_with_task_wake_fd(None)
     }
 
+    /// Creates a worker ring whose task registry additionally notifies
+    /// `wake_fd` (an eventfd) when tasks become ready.
     pub fn new_with_task_wake_fd(wake_fd: Option<i32>) -> Self {
         Self {
             worker_tasks: WorkerTaskRegistry::new_with_wake_fd(wake_fd),
@@ -90,10 +121,12 @@ impl WorkerLocalRing {
         }
     }
 
+    /// Returns the registry of worker tasks driven by this ring.
     pub fn worker_task_registry(&self) -> &WorkerTaskRegistry {
         &self.worker_tasks
     }
 
+    /// Queues `op` for submission and returns its assigned op id.
     pub fn register(&self, op: WorkerRingOp) -> RS<u64> {
         let op_id = self.next_op_id.fetch_add(1, Ordering::Relaxed);
         let op_kind = match &op {
@@ -123,6 +156,8 @@ impl WorkerLocalRing {
         Ok(op_id)
     }
 
+    /// Puts `op` back at the front of the pending queue under the same
+    /// `op_id` (used to resubmit a short write).
     pub fn requeue_front(&self, op_id: u64, op: WorkerRingOp) -> RS<()> {
         self.ops
             .lock()
@@ -135,6 +170,8 @@ impl WorkerLocalRing {
         Ok(())
     }
 
+    /// Pops the oldest queued op for submission, or `None` if the queue is
+    /// empty.
     pub fn take_pending(&self) -> RS<Option<(u64, WorkerRingOp)>> {
         let Some(op_id) = self
             .pending
@@ -158,10 +195,12 @@ impl WorkerLocalRing {
         Ok(Some((op_id, op)))
     }
 
+    /// Returns the task that registered op `op_id`, if known.
     pub fn task_for_op(&self, op_id: u64) -> Option<TaskID> {
         self.op_tasks.lock().ok()?.get(&op_id).copied()
     }
 
+    /// Drops the op-to-task association for `op_id` after the op completed.
     pub fn finish_op(&self, op_id: u64) {
         if let Ok(mut guard) = self.op_tasks.lock() {
             guard.remove(&op_id);
@@ -189,6 +228,7 @@ impl WorkerLocalRing {
         Ok(id)
     }
 
+    /// Removes the timeout registration `(deadline, id)`.
     pub fn remove_timeout(&self, deadline: Instant, id: u64) -> RS<()> {
         self.timeouts
             .lock()
@@ -215,6 +255,7 @@ impl WorkerLocalRing {
         Ok(expired)
     }
 
+    /// Returns the nearest pending timeout deadline, if any.
     pub fn next_timeout_deadline(&self) -> RS<Option<Instant>> {
         let guard = self
             .timeouts
@@ -224,6 +265,7 @@ impl WorkerLocalRing {
     }
 }
 
+/// Installs `ring` as the worker ring of the current thread.
 pub fn set_current_worker_ring(ring: Arc<WorkerLocalRing>) {
     CURRENT_WORKER_RING.with(|slot| {
         // Safety: this slot is thread-local and only accessed through these helpers.
@@ -233,6 +275,7 @@ pub fn set_current_worker_ring(ring: Arc<WorkerLocalRing>) {
     });
 }
 
+/// Removes the worker ring installed on the current thread.
 pub fn unset_current_worker_ring() {
     CURRENT_WORKER_RING.with(|slot| {
         // Safety: this slot is thread-local and only accessed through these helpers.
@@ -242,6 +285,7 @@ pub fn unset_current_worker_ring() {
     });
 }
 
+/// Returns `true` if the current thread has a worker ring installed.
 pub fn has_current_worker_ring() -> bool {
     CURRENT_WORKER_RING.with(|slot| {
         // Safety: shared reads are confined to the current thread-local slot.
@@ -249,6 +293,8 @@ pub fn has_current_worker_ring() -> bool {
     })
 }
 
+/// Calls `f` with the current thread's worker ring; fails with
+/// `EntityNotFound` if none is installed.
 pub fn with_current_ring<F, R>(f: F) -> RS<R>
 where
     F: FnOnce(&Arc<WorkerLocalRing>) -> RS<R>,
@@ -263,6 +309,8 @@ where
     })
 }
 
+/// Prepares the SQE for a queued op and returns the inflight op keeping
+/// request-owned buffers alive.
 pub fn submit_user_ring_op(
     op_id: u64,
     op: WorkerRingOp,
@@ -284,6 +332,8 @@ pub fn submit_user_ring_op(
     }
 }
 
+/// Completes an inflight op from its CQE result; ops that report done have
+/// their task association dropped from `ring`.
 pub fn complete_user_ring_op(op: UserIoInflight, result: i32, ring: &WorkerLocalRing) -> RS<()> {
     let (op_id, done) = match op {
         UserIoInflight::File { op_id, op } => (op_id, complete_file_io(op_id, op, result, ring)?),

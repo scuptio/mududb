@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Note: GROUPS is a special bash variable (the user's group IDs) and cannot be
 # assigned to, so this array uses a different name.
-WS_GROUPS=(crates/common crates/db-kernel crates/sdk crates/tools)
+WS_GROUPS=(crates/common crates/db-kernel crates/sdk example/mpk crates/tools)
 
 for group in "${WS_GROUPS[@]}"; do
     echo "=================================================================="
@@ -25,5 +25,28 @@ for group in "${WS_GROUPS[@]}"; do
     (cd "${REPO_ROOT}/${group}" && cargo test --no-run --workspace)
 done
 
+echo "=================================================================="
+echo "=== workspace dependency consistency (versions.toml)"
+echo "=================================================================="
+python3 "${REPO_ROOT}/script/ci/sync_workspace_deps.py" --check
+
+echo "=================================================================="
+echo "=== crate layering (ARCHITECTURE.md)"
+echo "=================================================================="
+python3 "${REPO_ROOT}/script/ci/check_arch.py"
+
+echo "=================================================================="
+echo "=== test feature kept out of production dependencies"
+echo "=================================================================="
+python3 "${REPO_ROOT}/script/ci/check_test_feature.py"
+
+echo "=================================================================="
+echo "=== code metrics (file / class / struct / function line limits)"
+echo "=================================================================="
+(cd "${REPO_ROOT}" && cargo run --manifest-path crates/tools/Cargo.toml -p mudu_metrics -- --root crates --config code_metrics.toml)
+
+echo "=== code metrics (example tree)"
+(cd "${REPO_ROOT}" && cargo run --manifest-path crates/tools/Cargo.toml -p mudu_metrics -- --root example --config code_metrics.toml)
+
 echo ""
-echo "All group workspaces passed fmt, clippy, and test compilation."
+echo "All group workspaces passed fmt, clippy, test compilation, dependency consistency, layering, and code-metrics checks."

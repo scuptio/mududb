@@ -1,71 +1,38 @@
-# Interactive vs. Procedural: Which Should You Choose?
+# Mudu Procedure specification and development guide
+
+## Background
 
 Interactive and procedural approaches are two distinct ways to build database applications.
 
-## Interactive Approach
-
 With the interactive approach, users execute SQL statements directly through command-line tools, GUI tools, client
-libraries, or ORM frameworks.
-
-**Advantages**:
-
-- **Immediate feedback**: View results instantly.
-
-- **Rapid prototyping**: Ideal for exploration and debugging.
-
-- **Simple workflow**: Minimal setup required.
-
-- **Beginner-friendly**: Gentle learning curve.
-
-**Disadvantages**:
-
-- **Poor performance**: Communication overhead between DB client and server.
-
-- **Correctness challenges**: Vulnerable transaction semantics.
-
-## Procedural Approach
+libraries, or ORM frameworks. It gives immediate feedback, suits rapid prototyping and debugging, needs minimal
+setup, and is beginner-friendly; in exchange it pays communication overhead between the DB client and server, and
+its transaction semantics are vulnerable to correctness mistakes.
 
 With the procedural approach, developers implement business logic with stored procedures, functions, and triggers.
+It reduces network overhead, centralizes business logic, improves transaction control (better ACID compliance), and
+reduces SQL injection risk; in exchange it requires database-specific procedural languages, is harder to debug,
+risks vendor lock-in, and complicates version control.
 
-**Advantages**:
+## Mudu Procedure (MP): Unified Interactive and Procedural Execution
 
-- **Performance optimization**: Reduced network overhead.
+MP is designed to combine the strengths of both approaches while avoiding their typical drawbacks. The same code
+can run in both interactive and procedural modes. You can write Mudu Procedures in most modern languages, without
+relying on database-specific procedural syntax such as PostgreSQL PL/pgSQL or MySQL stored procedures. During
+development, Mudu Procedures run interactively, much like code built on top of an ORM framework.
 
-- **Code reusability**: Centralized business logic.
+### Guest languages
 
-- **Transaction control**: Better ACID compliance.
+Mudu Procedures are compiled to WASM components, and the runtime hosts six guest languages: Rust, AssemblyScript,
+C#, Python, C, and Go. This guide uses the Rust facade, the reference implementation of the procedure API; the
+other languages are covered by the [binding API surface](../dev/binding_api_surface.md) and the
+[SDK distribution guide](../dev/sdk_distribution.md).
 
-- **Enhanced security**: Reduced SQL injection risks.
+A Rust-based procedure uses the following function signature:
 
-**Disadvantages**:
+### Procedure specification
 
-- **Steep learning curve**: Requires DB-specific procedural languages.
-
-- **Debugging difficulties**: Harder to troubleshoot.
-
-- **Vendor lock-in**: Limited portability between DBMS.
-
-- **Version control challenges**: Requires specialized tools.
-
----
-
-# Mudu Procedure (MP): Unified Interactive and Procedural Execution
-
-The same code can run in both interactive and procedural modes.
-
-MP is designed to combine the strengths of both approaches while avoiding their typical drawbacks. You can write
-Mudu Procedures in most modern languages, without relying on database-specific procedural syntax such as PostgreSQL
-PL/pgSQL or MySQL stored procedures.
-
-During development, Mudu Procedures run interactively, much like code built on top of an ORM framework.
-
-## Current Implementation (Rust)
-
-Mudu Runtime currently supports Rust. A Rust-based procedure uses the following function signature:
-
-## Procedure specification
-
-``` 
+```text
 /**mudu-proc**/
 fn {procedure_name}(
     oid: OID,
@@ -73,33 +40,34 @@ fn {procedure_name}(
 ) -> RS<{return_value_type}>
 ```
 
-### {procedure_name}:
+#### Procedure name:
 
 A valid Rust function name.
 
-### Marker `/**mudu-proc**/`:
+#### Marker `/**mudu-proc**/`:
 
-Marks the following function as a Mudu procedure for the transpiler.
+Marks the following function as a Mudu Procedure for the transpiler.
 
-### Parameters:
+#### Parameters:
 
-#### oid:
+##### oid:
 
 The current system session ID passed into the procedure.
 
-### {argument_list...}:
+#### {argument_list...}:
 
 Input arguments must be representable by Mudu's datum / tuple conversion system.
 
 Commonly used supported forms include scalar values such as `i32`, `i64`, `String`, `f32`, and `f64`, as well as
 container forms used by current examples such as `Vec<String>`.
 
-The exact supported surface is defined by the current `mudu_type` conversion and transpiler implementation rather than a fixed
-short whitelist in this document.
+The exact supported surface is defined by the current
+[`mudu_type` conversion](../../crates/common/mudu_type/src/datum.rs) and transpiler implementation rather than a
+fixed short whitelist in this document.
 
-### Return value:
+#### Return value:
 
-#### {return_value_type}:
+##### {return_value_type}:
 
 The return value must also be representable by Mudu's datum / tuple conversion system.
 In current implementations this includes scalar values, tuple return values, and `Vec<T>` style result containers.
@@ -113,13 +81,13 @@ pub type RS<X> = Result<X, MError>;
 
 Inside a procedure, the runtime can call [system calls](syscall.md), such as SQL system calls (`mudu_query` / `mudu_command` / `mudu_batch`) or key/value system calls (`mudu_get` / `mudu_put` / `mudu_range`).
 
-## CRUD (Create/Read/Update/Delete) Operations in Mudu Procedures
+### CRUD (Create/Read/Update/Delete) Operations in Mudu Procedures
 
-There are two key APIs that a Mudu procedure can invoke.
+There are two key APIs that a Mudu Procedure can invoke.
 For stable imports, handwritten synchronous procedure code should use `sys_interface::sync_api`, while generated async
 procedure code should use `sys_interface::async_api`.
 
-### 1. `query`
+#### 1. `query`
 
 `query` is used for `SELECT` statements.
 
@@ -153,7 +121,7 @@ pub async fn mudu_query_async<R: Entity>(
 `query` automatically performs R2O (relation-to-object) mapping and returns a result set of objects that implement
 the `Entity` trait.
 
-### 2. `command`
+#### 2. `command`
 
 `command` is used for `INSERT`, `UPDATE`, and `DELETE` statements.
 
@@ -184,7 +152,7 @@ pub async fn mudu_command_async(
 
 <!--quote_end-->
 
-### 3. `batch`
+#### 3. `batch`
 
 `batch` is the SQL batch variant of `command`. It keeps the same API surface and return shape, but it is intended for
 raw batch SQL text executed by the runtime through `libsql::execute_batch`.
@@ -215,22 +183,22 @@ pub async fn mudu_batch_async(
 ```
 <!--quote_end-->
 
-### Parameters for Both
+#### Parameters for Both
 
-#### oid:
+##### oid:
 
 The current system session identifier passed into the procedure.
 
-#### sql:
+##### sql:
 
 An SQL statement that uses `?` as parameter placeholders.
 
-#### params:
+##### params:
 
 The parameter list.
 For `batch`, the current libsql-backed implementation requires this list to be empty.
 
-### Generated entity bindings (`mgen entity`)
+#### Generated entity bindings (`mgen entity`)
 
 For each table in `sql/ddl.sql`, `mgen entity` generates a Rust module containing:
 
@@ -270,7 +238,7 @@ content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L23-L44)"
+content="[Entity](../../crates/common/mudu_contract/src/database/entity.rs#L23-L44)"
 lang="rust"
 -->
 
@@ -295,7 +263,7 @@ pub trait Entity: Datum {
 
 <!--
 quote_begin
-content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L6-L10)"
+content="[SQLStmt](../../crates/common/mudu_contract/src/database/sql_stmt.rs#L6-L10)"
 lang="rust"
 -->
 
@@ -313,7 +281,7 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
 
 <!--
 quote_begin
-content="[DatumDyn](../../mudu_type/src/datum.rs#L20-L40)"
+content="[DatumDyn](../../crates/common/mudu_type/src/datum.rs#L20-L40)"
 lang="rust"
 -->
 
@@ -344,7 +312,7 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
 <!--quote_end-->
 <!--quote_end-->
 
-## Example: A Wallet App Transfer Procedure
+### Example: A Wallet App Transfer Procedure
 
 <!--
 quote_begin
@@ -352,7 +320,7 @@ content="[Example](../lang.common/transfer_funds.md#L-L)"
 -->
 <!--
 quote_begin
-content="[Transfer](../../example/wallet/src/rust/procedures.rs#L23-L104)"
+content="[Transfer](../../example/mpk/wallet/src/rust/procedures.rs#L23-L104)"
 lang="rust"
 -->
 ```rust
@@ -442,11 +410,11 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
 <!--quote_end-->
 <!--quote_end-->
 
-## MP and Transactions
+### MP and Transactions
 
-Mudu procedures support two transaction execution modes:
+Mudu Procedures support two transaction execution modes:
 
-### Automatic Mode
+#### Automatic Mode
 
 Each procedure runs as an independent transaction. The transaction:
 
@@ -454,112 +422,33 @@ Each procedure runs as an independent transaction. The transaction:
 
 - Rolls back automatically if the procedure returns `Err`
 
-### Manual Mode
+#### Manual Mode
 
-Pass a shared session identifier (`oid`) across multiple Mudu procedures for explicit transaction control.
+Passing a shared session identifier (`oid`) across multiple Mudu Procedures for explicit transaction control is a
+planned capability. The current procedure API exposes no `commit` / `rollback`: each procedure invocation runs as
+an independent transaction, which the runtime commits when the procedure returns `Ok` and rolls back when it
+returns `Err` (see Automatic Mode above). The pseudocode below is illustrative only.
 
-#### Example:
+##### Example (illustrative pseudocode):
 
-```
+```text
 procedure1(oid);
 procedure2(oid);
 commit(oid); // Explicit commit
 // or rollback(oid) for explicit rollback
 ```
 
-# Benefits of Using Mudu Procedures
+## Development constraints
 
-## 1. Single Codebase for Both Modes
+`Entity` maps query results to Rust structs. The build's `mgen check-sql` step checks SQL against DDL, and the language compiler checks parameter and return types. These checks catch some errors but do not establish correct transaction logic, permissions or runtime behavior. Both handwritten and AI-generated procedures need tests.
 
-"Develop once!"
+Moving several operations into a procedure can reduce client round trips. Performance still depends on query cost, data volume and procedure execution overhead; measure it with the intended workload.
 
-Mudu Procedures use the exact same code for both interactive development and production deployment. This eliminates
-context switching between tools and ensures consistency across environments.
+Procedures can reuse Rust crates that support `wasm32-wasip2` and the host interface. Check compatibility separately for libraries that depend on native system calls or shared libraries. Access operations such as randomness and time through the interfaces provided by `mududb::sys`.
 
-## 2. Native ORM Support
+## How MuduDB Treats the Interactive and Procedural Approach Uniformly
 
-Seamless object-relational mapping.
-The framework provides built-in ORM capabilities through the `Entity` trait. It automatically maps query results to
-Rust structs, eliminating boilerplate conversion code while preserving type safety.
-
-## 3. Static Analysis Friendly
-
-Better validation for AI-generated code.
-
-Mudu's strongly-typed API enables:
-
-1. Compile-time checks for SQL syntax via the `sql_stmt!` macro
-
-2. Type validation of parameters and return values
-
-3. Early error detection for AI-generated code, which is critical for reliability
-
-## 4. Data Proximity Processing
-
-Major efficiency gains.
-
-Execute data transformations directly in the database.
-One example is preparing AI training datasets without export/import steps.
-
-```rust
-// Prepare AI training dataset without export/import
-/**mudu-proc**/
-fn prepare_training_data(oid: OID) -> RS<()> {
-    mudu_command(oid,
-        sql_stmt!("..."),
-        sql_params!(&()))?;
-    // Further processing...
-}
-```
-
-Benefit: Faster processing for large datasets by avoiding network transfer.
-
-## 5. Extended Database Capabilities
-
-Leverage full programming ecosystems.
-You can use any Rust crate today, and potentially other language ecosystems in the future.
-
-For example, use the system random and time helpers exported by `mududb`:
-
-```rust
-/**mudu-proc**/
-fn create_order(oid: OID, user_id: i32) -> RS<String> {
-    // Do something ....
-
-    let order_id = mududb::sys::random::next_uuid_v4_string();
-    let created_at = mududb::sys::time::utc_now().timestamp();
-    
-    mudu_command(oid,
-        sql_stmt!("INSERT INTO orders (id, user_id, created_at) 
-                   VALUES (?, ?, ?)"),
-        sql_params!(&(order_id.clone(), user_id, created_at)))?;
-    
-    // Do something ....
-
-    Ok(order_id)
-}
-```
-
-Advantages:
-
-1. Use specialized libraries such as UUID, datetime, and geospatial libraries
-
-2. Implement complex logic that is difficult or impossible in pure SQL
-
-3. Manage dependencies through familiar tools such as Cargo, npm, or pip
-
-# Key Technical Advantages
-
-| Feature         | Traditional Approach       | MP Advantage              |
-|:----------------|:---------------------------|:--------------------------|
-| Dev-Prod Parity | Different code for CLI/SPs | Identical codebase        |
-| Type Safety     | Runtime SQL errors         | Compile-time validation   |
-| Data Movement   | ETL pipelines required     | In-database processing    |
-| Extensibility   | DB-specific extensions     | General-purpose libraries |
-
-# How MuduDB Treats the Interactive and Procedural Approach Uniformly
-
-Unlike traditional monolithic databases, MuduDB is split into two components: Mudu Runtime and the DB Kernel.
+MuduDB is split into two components: Mudu Runtime and the DB Kernel.
 
 The kernel provides the core foundations, transaction management, and storage capabilities.
 The runtime supports a multi-language ecosystem.
@@ -570,7 +459,7 @@ To illustrate this, consider the following example.
 Suppose a procedure executes queries `Q1` and `Q2`, a command `C1`, and functions `T1` and `T2`, which are written in
 a high-level language and compiled to bytecode.
 
-```
+```text
 procedure {
     query Q1
     do something T1

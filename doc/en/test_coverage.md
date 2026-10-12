@@ -208,4 +208,3 @@ The first run installs the pinned nightly, `llvm-tools-preview`, and `cargo-llvm
 - `script/coverage/run_coverage.sh`: local coverage entry point.
 - `.github/workflows/nightly-checks.yaml`: CI coverage job.
 - `.github/scripts/summarize_coverage.py`: coverage summary script.
-- `doc/cn/todo/coverage-tracking.md`: coverage mechanism design document (Chinese).

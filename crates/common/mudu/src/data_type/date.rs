@@ -1,36 +1,45 @@
+//! Calendar date values.
+
 use crate::data_type::temporal::unix_epoch_date;
 use chrono::{NaiveDate, TimeDelta};
 use serde::{Deserialize, Serialize};
 
+/// A calendar date stored as days since the Unix epoch.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DateValue {
     days_since_epoch: i32,
 }
 
 impl DateValue {
+    /// Creates a date from a day offset relative to the Unix epoch.
     pub fn from_days_since_epoch(days_since_epoch: i32) -> Self {
         Self { days_since_epoch }
     }
 
+    /// Returns the day offset relative to the Unix epoch.
     pub fn days_since_epoch(&self) -> i32 {
         self.days_since_epoch
     }
 
+    /// Parses a date from a `YYYY-MM-DD` string.
     pub fn parse(s: &str) -> Result<Self, String> {
         let date =
             NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| format!("invalid date {}", s))?;
         Ok(Self::from_naive_date(date))
     }
 
+    /// Formats the date as `YYYY-MM-DD`.
     pub fn format(&self) -> String {
         self.to_naive_date().format("%Y-%m-%d").to_string()
     }
 
+    /// Converts a [`NaiveDate`] into a `DateValue`.
     pub fn from_naive_date(date: NaiveDate) -> Self {
         let days = date.signed_duration_since(unix_epoch_date()).num_days() as i32;
         Self::from_days_since_epoch(days)
     }
 
+    /// Converts this value into a [`NaiveDate`].
     pub fn to_naive_date(&self) -> NaiveDate {
         unix_epoch_date()
             .checked_add_signed(TimeDelta::days(self.days_since_epoch as i64))

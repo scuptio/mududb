@@ -209,4 +209,3 @@ script/coverage/run_coverage.sh
 - `script/coverage/run_coverage.sh`：本地覆盖率入口脚本。
 - `.github/workflows/nightly-checks.yaml`：CI 覆盖率 job。
 - `.github/scripts/summarize_coverage.py`：覆盖率摘要脚本。
-- `doc/cn/todo/coverage-tracking.md`：覆盖率机制设计文档。

@@ -8,6 +8,8 @@ use std::time::Duration;
 use tokio::task_local;
 
 task_local! {
+    /// Task id of the currently executing Tokio task (set by `spawn_task`
+    /// and friends).
     pub static TASK_ID: TaskID;
 }
 
@@ -15,6 +17,11 @@ thread_local! {
     static CURRENT_POLL_TASK_ID: Cell<Option<TaskID>> = const { Cell::new(None) };
 }
 
+/// RAII guard that records the task id currently being polled on this
+/// thread; restores the previous value on drop.
+///
+/// Used by custom executors (the io_uring worker loop) where Tokio
+/// task-locals do not apply.
 pub struct PollTaskIdGuard(Option<TaskID>);
 
 impl Drop for PollTaskIdGuard {
@@ -24,6 +31,7 @@ impl Drop for PollTaskIdGuard {
 }
 
 impl PollTaskIdGuard {
+    /// Sets the poll task id for the current thread until the guard drops.
     pub fn enter(task_id: TaskID) -> PollTaskIdGuard {
         PollTaskIdGuard(CURRENT_POLL_TASK_ID.with(|f| f.replace(Some(task_id))))
     }
@@ -49,9 +57,14 @@ pub fn current_poll_task_id() -> Option<TaskID> {
     CURRENT_POLL_TASK_ID.with(|f| f.get())
 }
 
+/// Namespace for async sleep/timeout helpers.
+///
+/// On io_uring worker threads these are driven by the worker-local ring
+/// timeout heap instead of the Tokio timer, which is never advanced there.
 pub struct TaskAsync;
 
 impl TaskAsync {
+    /// Sleeps for at least `dur` without blocking the executor.
     pub async fn sleep(dur: Duration) -> RS<()> {
         if crate::io::worker_ring::has_current_worker_ring() {
             // On io_uring worker threads the tokio timer is never driven, so
@@ -64,6 +77,7 @@ impl TaskAsync {
         Ok(())
     }
 
+    /// Awaits `fut`, returning `None` if `dur` elapses first.
     pub async fn timeout<F>(dur: Duration, fut: F) -> Option<F::Output>
     where
         F: Future,
@@ -130,10 +144,12 @@ impl<F: Future> Future for RingTimeout<F> {
     }
 }
 
+/// Sleeps for at least `dur` without blocking the executor.
 pub async fn sleep(dur: Duration) -> RS<()> {
     TaskAsync::sleep(dur).await
 }
 
+/// Awaits `fut`, returning `None` if `dur` elapses first.
 pub async fn timeout<F>(dur: Duration, fut: F) -> Option<F::Output>
 where
     F: Future,

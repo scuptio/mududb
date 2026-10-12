@@ -306,6 +306,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "backup"
+version = "0.0.1"
+dependencies = [
+ "catalog",
+ "command",
+ "meta",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "repl",
+ "rmp-serde",
+ "serde",
+ "short-uuid",
+ "sql",
+ "tracing",
+ "uuid",
+ "wal",
+ "worker",
+ "xengine",
+ "zip",
+]
+
+[[package]]
 name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -316,6 +341,12 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "basic-toml"
@@ -488,6 +519,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "catalog"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,6 +692,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "command"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "csv",
+ "libc",
+ "meta",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "serde_json",
+ "tracing",
+ "wal",
+ "xengine",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -657,6 +723,25 @@ dependencies = [
  "rustversion",
  "ryu",
  "static_assertions",
+]
+
+[[package]]
+name = "conn"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "futures",
+ "mudu",
+ "mudu_binding",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "serde_json",
+ "sql",
+ "sql_parser",
+ "xengine",
 ]
 
 [[package]]
@@ -878,6 +963,27 @@ checksum = "eb2a7d3066da2de787b7f032c736763eb7ae5d355f81a68bab2675a96008b0bf"
 dependencies = [
  "lab",
  "phf",
+]
+
+[[package]]
+name = "csv"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52cd9d68cf7efc6ddfaaee42e7288d3a99d613d4b50f76ce9827ae0c6e14f938"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde_core",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -1386,7 +1492,7 @@ version = "7.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f49d1053f4708f0af3cf9fc5bffc7e68a914a3c45becb231c80068c9c3f78bea"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "byteorder",
  "flate2",
  "nom 8.0.0",
@@ -1539,7 +1645,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -1696,6 +1802,16 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "index"
+version = "0.0.1"
+dependencies = [
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
 ]
 
 [[package]]
@@ -1970,9 +2086,9 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lzma-rust2"
-version = "0.16.5"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca93e534d1142d1d0dcca6d25fe302508a5dfb40b302802904577725ea0b695b"
+checksum = "fde178a3caf126c440fa15628147772d8ee590a39477d711353fbe2e58a73a5b"
 dependencies = [
  "sha2 0.11.0",
 ]
@@ -2031,6 +2147,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "meta"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "rmp-serde",
+ "scc",
+ "serde",
+ "serde_json",
+ "storage",
+ "tracing",
 ]
 
 [[package]]
@@ -2158,6 +2293,7 @@ name = "mudu_cli"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "backup",
  "clap",
  "crossterm",
  "mudu",
@@ -2177,7 +2313,7 @@ name = "mudu_client"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64",
+ "base64 0.23.1",
  "mudu",
  "mudu_binding",
  "mudu_contract",
@@ -2244,6 +2380,31 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-typescript",
  "tree-sitter-wit",
+]
+
+[[package]]
+name = "mudu_metrics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "glob",
+ "mudu_sys",
+ "proc-macro2",
+ "serde",
+ "syn 2.0.119",
+ "toml",
+]
+
+[[package]]
+name = "mudu_raft"
+version = "0.1.0"
+dependencies = [
+ "mudu",
+ "mudu_sys",
+ "rmp-serde",
+ "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -3083,12 +3244,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "repl"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "mudu",
+ "mudu_contract",
+ "mudu_raft",
+ "mudu_sys",
+ "mudu_utils",
+ "rmp-serde",
+ "serde",
+ "storage",
+ "tokio",
+ "tracing",
+ "wal",
+ "worker",
+ "xcontract",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -3211,9 +3393,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -3524,6 +3706,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "short-uuid"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5cb9a7452a33ab94fd48d5f533d181a400bf56ec5a55cf788c470ad430f52a5"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3605,6 +3796,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sql"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "bigdecimal",
+ "catalog",
+ "command",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "sql_parser",
+ "tracing",
+ "xengine",
+]
+
+[[package]]
 name = "sql_parser"
 version = "0.1.0"
 dependencies = [
@@ -3634,6 +3843,31 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "storage"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "byteorder",
+ "catalog",
+ "futures",
+ "index",
+ "libc",
+ "mudu",
+ "mudu_compat_migrate",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "rmp-serde",
+ "scc",
+ "serde",
+ "tokio",
+ "tracing",
+ "wal",
+ "xengine",
+]
 
 [[package]]
 name = "streaming-iterator"
@@ -3802,7 +4036,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4676b37242ccbd1aabf56edb093a4827dc49086c0ffd764a5705899e0f35f8f7"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "bitflags 2.13.1",
  "fancy-regex",
  "filedescriptor",
@@ -4056,7 +4290,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
  "axum",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "h2",
  "http",
@@ -4414,6 +4648,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d9b2acfb050df409c972a37d3b8e08cdea3bddb0c09db9d53137e504cfabed0"
 dependencies = [
  "utf8parse",
+]
+
+[[package]]
+name = "wal"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "futures",
+ "libc",
+ "mudu",
+ "mudu_compat_migrate",
+ "mudu_sys",
+ "mudu_utils",
+ "rmp-serde",
+ "serde",
+ "short-uuid",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4901,10 +5154,74 @@ dependencies = [
 ]
 
 [[package]]
+name = "worker"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "conn",
+ "meta",
+ "mudu",
+ "mudu_binding",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "scc",
+ "serde",
+ "serde_json",
+ "sql",
+ "storage",
+ "tokio",
+ "tracing",
+ "wal",
+ "xcontract",
+ "xengine",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "xcontract"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "futures",
+ "index",
+ "meta",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "rmp-serde",
+ "scc",
+ "serde",
+ "storage",
+ "tracing",
+ "wal",
+ "xengine",
+]
+
+[[package]]
+name = "xengine"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "catalog",
+ "mudu",
+ "mudu_contract",
+ "mudu_sys",
+ "mudu_type",
+ "mudu_utils",
+ "tracing",
+ "wal",
+]
 
 [[package]]
 name = "yansi-term"
@@ -5000,9 +5317,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.6.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+checksum = "e49ade69c4434c55dd651d36fe05f38e0578db948b773cbc01c48c4b5e560692"
 dependencies = [
  "aes",
  "bzip2",
@@ -5015,6 +5332,7 @@ dependencies = [
  "indexmap",
  "lzma-rust2",
  "memchr",
+ "nix 0.31.3",
  "pbkdf2",
  "ppmd-rust",
  "sha1",

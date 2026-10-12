@@ -6,13 +6,16 @@ use mudu::utils;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// The parameter of the `numeric` type: precision and scale.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataTypeParamNumeric {
     precision: u8,
     scale: u8,
 }
 
+/// Maximum precision of the `numeric` type.
 pub const NUMERIC_MAX_PRECISION: u8 = 38;
+/// Maximum scale of the `numeric` type.
 pub const NUMERIC_MAX_SCALE: u8 = 38;
 
 impl Default for DataTypeParamNumeric {
@@ -25,24 +28,30 @@ impl Default for DataTypeParamNumeric {
 }
 
 impl DataTypeParamNumeric {
+    /// Creates a numeric parameter with the given precision and scale.
     pub fn new(precision: u8, scale: u8) -> Self {
         Self { precision, scale }
     }
 
+    /// Returns the precision (total number of decimal digits).
     pub fn precision(&self) -> u8 {
         self.precision
     }
 
+    /// Returns the scale (number of decimal digits after the point).
     pub fn scale(&self) -> u8 {
         self.scale
     }
 
+    /// Orders by precision, then by scale.
     pub fn compare(&self, other: &Self) -> Ordering {
         self.precision
             .cmp(&other.precision)
             .then(self.scale.cmp(&other.scale))
     }
 
+    /// Validates precision and scale against the numeric limits; returns an
+    /// error message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if self.precision == 0 {
             return Err("numeric precision must be greater than zero".to_string());

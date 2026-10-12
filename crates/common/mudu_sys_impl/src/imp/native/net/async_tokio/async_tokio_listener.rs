@@ -7,6 +7,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use std::net::SocketAddr;
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ impl AsyncListener for AsyncTokioListener {
         Ok((Box::new(AsyncTokioStream::new(stream)), addr))
     }
 
+    #[cfg(unix)]
     fn as_raw_fd(&self) -> Option<std::os::fd::RawFd> {
         Some(self.inner.as_raw_fd())
     }

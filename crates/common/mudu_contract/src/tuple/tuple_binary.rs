@@ -1,5 +1,4 @@
-//! `tuple::tuple_binary` module.
-#![allow(missing_docs)]
+//! Binary tuple byte layout types.
 
 use mudu::common::buf::Buf;
 
@@ -12,4 +11,5 @@ use mudu::common::buf::Buf;
 ///     | -- variable length data    -- |
 pub type TupleSlice = [u8];
 
+/// Owned binary form of a tuple.
 pub type TupleBinary = Buf;

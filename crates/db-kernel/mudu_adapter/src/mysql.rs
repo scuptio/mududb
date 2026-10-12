@@ -501,7 +501,7 @@ fn build_desc(row: Option<&Row>) -> TupleFieldDesc {
                     _ => TypeFamily::String,
                 },
             };
-            DatumDesc::new(format!("field_{}", idx), datum_type_for_id(ty))
+            DatumDesc::new(column.name_str().into_owned(), datum_type_for_id(ty))
         })
         .collect();
     TupleFieldDesc::new(fields)
@@ -553,7 +553,7 @@ fn build_async_desc(row: Option<&AsyncRow>) -> TupleFieldDesc {
                         _ => TypeFamily::String,
                     },
                 };
-                DatumDesc::new(format!("field_{}", idx), datum_type_for_id(ty))
+                DatumDesc::new(column.name_str().into_owned(), datum_type_for_id(ty))
             })
             .collect();
     TupleFieldDesc::new(fields)

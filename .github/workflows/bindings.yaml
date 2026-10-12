@@ -3,7 +3,7 @@ name: Bindings
 # Cross-language binding consistency gate + per-language package publishing.
 #
 # Consistency (PRs/pushes touching the binding sources):
-#   - regen-clean check (script/ci/check_bindings_regen.sh): WIT or mgen
+#   - regen-clean check (script/ci/check_bindings_regen.py): WIT or mgen
 #     template changes must ship regenerated codecs in the same commit.
 #   - the golden-fixture corpus tests of every language binding must stay green.
 #
@@ -19,7 +19,9 @@ on:
       - 'crates/tools/mudu_gen/**'
       - 'crates/sdk/bindings/**'
       - 'crates/sdk/mudu_api/csharp/**'
-      - 'script/ci/check_bindings_regen.sh'
+      - 'script/ci/check_bindings_regen.py'
+      - 'script/sdk/tooling.py'
+      - '.gitattributes'
       - '.github/workflows/bindings.yaml'
     tags:
       - 'as-v*'
@@ -32,7 +34,9 @@ on:
       - 'crates/tools/mudu_gen/**'
       - 'crates/sdk/bindings/**'
       - 'crates/sdk/mudu_api/csharp/**'
-      - 'script/ci/check_bindings_regen.sh'
+      - 'script/ci/check_bindings_regen.py'
+      - 'script/sdk/tooling.py'
+      - '.gitattributes'
       - '.github/workflows/bindings.yaml'
   workflow_dispatch:
 
@@ -66,7 +70,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: regen-clean check
-        run: bash script/ci/check_bindings_regen.sh
+        run: python3 script/ci/check_bindings_regen.py
 
       - name: Python corpus + unit tests
         working-directory: crates/sdk/bindings/python
@@ -76,15 +80,18 @@ jobs:
           python3 run_syscall_corpus_test.py
           python3 run_lenient_decode_test.py
 
-      - name: Install cargo-make
+      - name: Install guest build tools
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-make
+          tool: cargo-make,wasm-tools@1.252.0
+
+      - name: Verify wasm-tools
+        run: wasm-tools --version
 
       - name: Python guest component build (wallet-py)
         run: |
           pipx install componentize-py==0.25.1
-          cd crates/sdk/example/wallet-py && cargo make package
+          cd example/mpk/wallet-py && cargo make package
 
       - name: AssemblyScript corpus tests
         working-directory: crates/sdk/bindings/assemblyscript
@@ -156,11 +163,13 @@ jobs:
         run: dotnet pack -c Release crates/sdk/mudu_api/csharp/Mudu.Api.csproj
 
       - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: >-
           dotnet nuget push
           crates/sdk/mudu_api/csharp/bin/Release/mududb.*.nupkg
           --source https://api.nuget.org/v3/index.json
-          --api-key ${{ secrets.NUGET_API_KEY }}
+          --api-key "$NUGET_API_KEY"
 
   publish-pypi:
     name: publish mududb (PyPI)

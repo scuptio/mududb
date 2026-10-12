@@ -7,9 +7,11 @@ use crate::ast::expr_name::ExprName;
 use crate::ast::expression::ExprType;
 use crate::ast::parser::SQLParser;
 use crate::ast::select_term::SelectField;
+use crate::ast::stmt_delete::StmtDelete;
+use crate::ast::stmt_insert::StmtInsert;
 use crate::ast::stmt_select::StmtSelect;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
-use crate::ast::stmt_update::AssignedValue;
+use crate::ast::stmt_update::{AssignedValue, StmtUpdate};
 use crate::check::diagnostic::{SqlDiagnostic, SqlSeverity};
 use mudu::error::ErrorCode;
 use mudu_binding::table::column_def::ColumnDef;
@@ -257,119 +259,155 @@ fn check_stmt(
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
     match stmt {
-        StmtType::Select(select) => {
-            let Some(table_def) = check_table(
-                select.get_table_reference().name(),
-                schema,
-                sql,
-                diagnostics,
-            ) else {
-                return;
-            };
-            for term in select.get_select_term_list() {
-                match term.field() {
-                    SelectField::Column(name) => {
-                        if !name.name().is_empty() {
-                            check_column_ref(
-                                name,
-                                select.get_table_reference().name(),
-                                table_def,
-                                sql,
-                                diagnostics,
-                            );
-                        }
-                    }
-                    SelectField::Function(function) => {
-                        if let FunctionArg::Column(name) = function.arg() {
-                            check_column_ref(
-                                name,
-                                select.get_table_reference().name(),
-                                table_def,
-                                sql,
-                                diagnostics,
-                            );
-                        }
-                    }
+        StmtType::Select(select) => check_select(select, schema, sql, diagnostics),
+        StmtType::Command(command) => check_command(command, schema, sql, diagnostics),
+    }
+}
+
+fn check_select(
+    select: &StmtSelect,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(table_def) = check_table(
+        select.get_table_reference().name(),
+        schema,
+        sql,
+        diagnostics,
+    ) else {
+        return;
+    };
+    for term in select.get_select_term_list() {
+        match term.field() {
+            SelectField::Column(name) => {
+                if !name.name().is_empty() {
+                    check_column_ref(
+                        name,
+                        select.get_table_reference().name(),
+                        table_def,
+                        sql,
+                        diagnostics,
+                    );
                 }
             }
-            for predicate in select.get_where_predicate() {
-                check_compare(
-                    predicate,
-                    select.get_table_reference().name(),
-                    table_def,
-                    sql,
-                    diagnostics,
-                );
+            SelectField::Function(function) => {
+                if let FunctionArg::Column(name) = function.arg() {
+                    check_column_ref(
+                        name,
+                        select.get_table_reference().name(),
+                        table_def,
+                        sql,
+                        diagnostics,
+                    );
+                }
             }
         }
-        StmtType::Command(command) => match command {
-            StmtCommand::Insert(insert) => {
-                let Some(table_def) = check_table(insert.table_name(), schema, sql, diagnostics)
-                else {
-                    return;
-                };
-                for column in insert.columns() {
-                    check_column_ref_name(column, insert.table_name(), table_def, sql, diagnostics);
-                }
-            }
-            StmtCommand::Update(update) => {
-                let Some(table_def) = check_table(
-                    update.get_table_reference().name(),
-                    schema,
-                    sql,
-                    diagnostics,
-                ) else {
-                    return;
-                };
-                for assignment in update.get_set_values() {
-                    check_column_ref_name(
-                        assignment.get_column_reference(),
-                        update.get_table_reference().name(),
-                        table_def,
-                        sql,
-                        diagnostics,
-                    );
-                    if let AssignedValue::Expression(expr) = assignment.get_set_value() {
-                        check_expr(
-                            expr,
-                            update.get_table_reference().name(),
-                            table_def,
-                            sql,
-                            diagnostics,
-                        );
-                    }
-                }
-                for predicate in update.get_where_predicate() {
-                    check_compare(
-                        predicate,
-                        update.get_table_reference().name(),
-                        table_def,
-                        sql,
-                        diagnostics,
-                    );
-                }
-            }
-            StmtCommand::Delete(delete) => {
-                let Some(table_def) = check_table(
-                    delete.get_table_reference().name(),
-                    schema,
-                    sql,
-                    diagnostics,
-                ) else {
-                    return;
-                };
-                for predicate in delete.get_where_predicate() {
-                    check_compare(
-                        predicate,
-                        delete.get_table_reference().name(),
-                        table_def,
-                        sql,
-                        diagnostics,
-                    );
-                }
-            }
-            _ => {}
-        },
+    }
+    for predicate in select.get_where_predicate() {
+        check_compare(
+            predicate,
+            select.get_table_reference().name(),
+            table_def,
+            sql,
+            diagnostics,
+        );
+    }
+}
+
+fn check_command(
+    command: &StmtCommand,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    match command {
+        StmtCommand::Insert(insert) => check_insert(insert, schema, sql, diagnostics),
+        StmtCommand::Update(update) => check_update(update, schema, sql, diagnostics),
+        StmtCommand::Delete(delete) => check_delete(delete, schema, sql, diagnostics),
+        _ => {}
+    }
+}
+
+fn check_insert(
+    insert: &StmtInsert,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(table_def) = check_table(insert.table_name(), schema, sql, diagnostics) else {
+        return;
+    };
+    for column in insert.columns() {
+        check_column_ref_name(column, insert.table_name(), table_def, sql, diagnostics);
+    }
+}
+
+fn check_update(
+    update: &StmtUpdate,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(table_def) = check_table(
+        update.get_table_reference().name(),
+        schema,
+        sql,
+        diagnostics,
+    ) else {
+        return;
+    };
+    for assignment in update.get_set_values() {
+        check_column_ref_name(
+            assignment.get_column_reference(),
+            update.get_table_reference().name(),
+            table_def,
+            sql,
+            diagnostics,
+        );
+        if let AssignedValue::Expression(expr) = assignment.get_set_value() {
+            check_expr(
+                expr,
+                update.get_table_reference().name(),
+                table_def,
+                sql,
+                diagnostics,
+            );
+        }
+    }
+    for predicate in update.get_where_predicate() {
+        check_compare(
+            predicate,
+            update.get_table_reference().name(),
+            table_def,
+            sql,
+            diagnostics,
+        );
+    }
+}
+
+fn check_delete(
+    delete: &StmtDelete,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(table_def) = check_table(
+        delete.get_table_reference().name(),
+        schema,
+        sql,
+        diagnostics,
+    ) else {
+        return;
+    };
+    for predicate in delete.get_where_predicate() {
+        check_compare(
+            predicate,
+            delete.get_table_reference().name(),
+            table_def,
+            sql,
+            diagnostics,
+        );
     }
 }
 

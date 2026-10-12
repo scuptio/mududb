@@ -58,7 +58,7 @@ export class UniCommandArgvCodec {
             if (opt === null) {
                 writer.writeNil();
             } else {
-                UniRecordTypeCodec.encode(opt!, writer);
+                UniRecordTypeCodec.encode(opt, writer);
             }
         }
         }

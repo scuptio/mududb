@@ -364,7 +364,7 @@ export function encodeGetResult(result: GetResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        MuErrorCodec.encode(error!, writer);
+        MuErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             {
@@ -372,7 +372,7 @@ export function encodeGetResult(result: GetResult): Uint8Array {
                 if (opt === null) {
                     writer.writeNil();
                 } else {
-                    writer.writeBin(opt!);
+                    writer.writeBin(opt);
                 }
             }
     }
@@ -484,7 +484,7 @@ export function encodePutResult(result: PutResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        MuErrorCodec.encode(error!, writer);
+        MuErrorCodec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -598,7 +598,7 @@ export function encodeScanResult(result: ScanResult): Uint8Array {
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        MuErrorCodec.encode(error!, writer);
+        MuErrorCodec.encode(error, writer);
     } else {
         writer.writeU64(0);
             writer.writeArrayHeader(result.value.length);

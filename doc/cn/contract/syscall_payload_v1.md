@@ -6,13 +6,13 @@
 
 该线格式保留 Phase 1 引入的 16 字节头部，并用 **MessagePack** 编码消息体。
 MessagePack 布局是**项目可控的**：它派生自
-[`mudu_binding/wit/`](../../../mudu_binding/wit/) 中的权威 WIT 定义，由 `mgen`
+[`mudu_binding/wit/`](../../../crates/common/mudu_binding/wit) 中的权威 WIT 定义，由 `mgen`
 生成到 Rust 的自定义 `serde` 实现以及 C# 的自定义 MessagePack formatter。
 实现仅把 `rmp_serde`（或 C#/AssemblyScript/Python 端的等效 MessagePack 运行时）作为底层编解码器；
 **不**使用默认的 `rmp_serde` derive 行为，因为后者会把 Rust 枚举变体序列化成 map 或字符串，
 无法在不同 guest 语言之间保持稳定。
 
-权威的 syscall 边界是 [`uni-syscall.wit`](../../../mudu_binding/wit/uni-syscall.wit)
+权威的 syscall 边界是 [`uni-syscall.wit`](../../../crates/common/mudu_binding/wit/uni-syscall.wit)
 中声明的 WIT 函数接口。本文所述的头部与 MessagePack 消息体是运行时内部对那些 WIT 函数调用的
 序列化；guest 代码应直接调用 WIT 函数，由生成的绑定处理线格式。
 
@@ -39,7 +39,7 @@ workspace Rust guest、独立 Rust SDK、C# SDK、AssemblyScript（直连 byte-p
 | 魔数 | `0x4D53_5350`（ASCII `MSSP`） |
 | 当前版本 | `1` |
 | 支持范围 | `[1, 1]` |
-| 注册表 | [`mudu/src/compat/mod.rs`](../../../mudu/src/compat/mod.rs) |
+| 注册表 | [`mudu/src/compat/mod.rs`](../../../crates/common/mudu/src/compat/mod.rs) |
 
 运行时只解码当前版本。遇到不支持的版本时以 `ErrorCode::UnsupportedFormatVersion`
 快速失败。格式版本变更时，MPK 包会针对匹配的运行时重新构建；运行时**不**保留旧版解码器。
@@ -104,7 +104,7 @@ schema 一旦随发布落地，演进**只追加**：
 | 0 | 4 | `magic` | 魔数 `0x4D53_5350`（ASCII `MSSP`）。 |
 | 4 | 4 | `version` | 负载格式版本。当前值：`1`。 |
 | 8 | 4 | `flags` | 保留。必须为 `0`；解码器拒绝任何非零值。 |
-| 12 | 4 | `message_kind` | 消息类型判别值。线头部仍保留该字段用于路由，但合法取值集合由 [`uni-syscall.wit`](../../../mudu_binding/wit/uni-syscall.wit) 定义，而非本文档。 |
+| 12 | 4 | `message_kind` | 消息类型判别值。线头部仍保留该字段用于路由，但合法取值集合由 [`uni-syscall.wit`](../../../crates/common/mudu_binding/wit/uni-syscall.wit) 定义，而非本文档。 |
 
 `version` 是**负载格式版本**，而非 WIT 接口版本。它只在**编码规则本身**变化时
 递增——例如整数语义、帧头布局、map/数组结构规则的变化。schema 演进（追加字段、
@@ -211,7 +211,7 @@ relation 系统调用中，`key` 是标识主键的 `(列序号, 列值)` 对列
 
 ### 权威来源
 
-权威模式是 [`mudu_binding/wit/`](../../../mudu_binding/wit/) 下的 WIT 文件集合：
+权威模式是 [`mudu_binding/wit/`](../../../crates/common/mudu_binding/wit) 下的 WIT 文件集合：
 
 | WIT 文件 | Rust 生成类型 |
 |----------|--------------|
@@ -237,8 +237,8 @@ relation 系统调用中，`key` 是标识主键的 `(列序号, 列值)` 对列
 | `uni-syscall.wit` | syscall 函数接口 |
 
 `mgen` 读取这些 WIT 文件并输出语言相关的源文件。Rust 使用
-[`mudu_gen/templates/rust/`](../../../mudu_gen/templates/rust/) 中的模板；C# 使用
-[`mudu_gen/templates/csharp/`](../../../mudu_gen/templates/csharp/) 中的模板。
+[`mudu_gen/templates/rust/`](../../../crates/tools/mudu_gen/templates/rust) 中的模板；C# 使用
+[`mudu_gen/templates/csharp/`](../../../crates/tools/mudu_gen/templates/csharp) 中的模板。
 
 在编解码器生成的落地过程中，WIT 模式本身也按已部署的线值做了修正：`uni-syscall.wit`
 重排为 `relation-*` 函数跟在 `fs-*` 函数之后（声明顺序**即**线上 `message_kind`
@@ -249,8 +249,8 @@ case（标签 8）。这些钉死规则以及确切的重新生成命令记录�
 [Rust SDK 的 `REGENERATE.md`](../../../crates/sdk/mudu_api/rust/REGENERATE.md)、
 [C# SDK `README.md`](../../../crates/sdk/mudu_api/csharp/README.md) 的 regen 小节，以及
 [AssemblyScript 生成代码的 `README`](../../../crates/sdk/bindings/assemblyscript/assembly/generated/README.md)。
-旧的校验和文件 `mudu_binding/wit/contract.md5.txt` 早于这些修正，内容已过期，且不再被任何
-构建任务引用。
+生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.sh` 强制保证：重新生成的
+代码必须与仓库中的版本逐字节一致。
 
 ### MessagePack 编码规则
 
@@ -285,7 +285,7 @@ OID 重建为 `((h as u128) << 64) | (l as u128)`。
 
 ### 变体标签表
 
-以下标签派生自 [`mudu_binding/wit/`](../../../mudu_binding/wit/) 中的 WIT 声明。
+以下标签派生自 [`mudu_binding/wit/`](../../../crates/common/mudu_binding/wit) 中的 WIT 声明。
 此处列出仅为方便查阅，WIT 文件仍是权威来源。
 
 **`UniScalarValue`** — `variant` 标签：
@@ -404,7 +404,7 @@ Phase 2 工作已完成。
 | Workspace Rust | 经 `sys_interface` → `mudu_binding` 自动获得：universal 类型与按函数编解码器（`codec/syscall_payload/generated/uni_syscall.rs`）均由 **mgen 从 WIT 生成**；`mod.rs`/`router.rs` 只是薄的 `MuduError` 适配层。重新生成见 [`REGENERATE.md`](../../../crates/common/mudu_binding/src/codec/syscall_payload/REGENERATE.md)。 | 全部 23 种 |
 | 独立 Rust SDK（[`crates/sdk/mudu_api/rust`](../../../crates/sdk/mudu_api/rust/)，包名 `mudu_api_rust`） | **mgen 生成**的 universal DTO 加上 `src/mudu_sys/generated/uni_syscall.rs`（与宿主同一份 WIT、同一个生成器——该 crate 是独立 workspace，不依赖 `mudu_binding`），带类型化的异步 `Mudu` 封装与 `mock-sqlite` 内存 mock。重新生成见 crate 根目录 `REGENERATE.md`。 | 全部 23 种 |
 | C# SDK（[`crates/sdk/mudu_api/csharp`](../../../crates/sdk/mudu_api/csharp/)） | **mgen 生成**的 `uni/*.cs`（22 个 DTO）加上 `mudu_sys/UniSyscall.cs`（命名空间改写为 `Mudu.Api.MuduSys`）；默认路径 resolver-free，可运行于 wasi-wasm NativeAOT 目标；标量标签由 `Mudu.Api.Tests/UniScalarTagTests.cs` 与宿主钉死；`MockSqliteMuduSysCall` 提供 KV/relation/fs 模拟；xunit 测试在 `Mudu.Api.Tests/`。重新生成见 crate `README.md`。 | 全部 23 种 |
-| AssemblyScript | **mgen 生成**的编解码器位于 [`crates/sdk/bindings/assemblyscript/assembly/generated/`](../../../crates/sdk/bindings/assemblyscript/assembly/generated/)（24 个文件），运行时为 `assembly/mpack.ts`；guest 直接 import `mududb:api/system` 并在语言内完成 MSSP 成帧（与 C# guest 相同的直连 byte-pipe 架构），经 `wasm-tools component embed/new` 构建（见 [`crates/sdk/example/wallet-as/Makefile.toml`](../../../crates/sdk/example/wallet-as/Makefile.toml)）。 | 全部 23 种 |
+| AssemblyScript | **mgen 生成**的编解码器位于 [`crates/sdk/bindings/assemblyscript/assembly/generated/`](../../../crates/sdk/bindings/assemblyscript/assembly/generated/)（24 个文件），运行时为 `assembly/mpack.ts`；guest 直接 import `mududb:api/system` 并在语言内完成 MSSP 成帧（与 C# guest 相同的直连 byte-pipe 架构），经 `wasm-tools component embed/new` 构建（见 [`example/mpk/wallet-as/Makefile.toml`](../../../example/mpk/wallet-as/Makefile.toml)）。 | 全部 23 种 |
 | Python（工具/测试验证，[`crates/sdk/bindings/python`](../../../crates/sdk/bindings/python/)） | **mgen 生成**的编解码器位于 `mududb/generated/`（24 个文件，含 `uni_syscall.py`），运行时为手写的纯 stdlib `mududb/codec/mpack.py`（`F32` marker 类发出 f32）；角色是工具/测试验证而非 guest 路径，已由三套语料验证：`run_mp_corpus_test.py`（132 项检查）、`run_syscall_corpus_test.py`（188 项检查）、`run_lenient_decode_test.py`（16 项检查），外加 `tests/test_mpack.py` 单元测试。重新生成见包 `README.md`。 | 全部 23 种 |
 | `fetch` | 宿主 WIT 函数，不经 MSSP 路由；已实现为原始 `mp_wire` 字节（见[消息类型](#消息类型)）。 | 不适用 |
 
@@ -522,7 +522,7 @@ cargo test -p mudu_binding --test syscall_payload_bench -- --nocapture --test-th
   约 3 倍。除头部校验与类型路由外，带帧解码器还做尾部字节拒绝与逐类型的值转换，
   而基线只对动态值解码。其绝对代价是每帧固定的亚微秒到微秒级成本，相对任何真实
   系统调用工作都可忽略。
-- 设计方案（`doc/cn/todo/project-controlled-guest-host-abi.md` 第 4 节）原本假设
+- 早期设计原本假设
   使用大端标签（BE-tagged）的消息体编码，并计划将其与 MessagePack 基线对比测试。
   该带标签消息体从未实现——v1 消息体是项目自控的 MessagePack（经 `mp_wire`
   运行时编码）——因此基准改为测量实际落地的帧封装 + 路由相对于原始 `mp_wire`
@@ -569,18 +569,18 @@ cargo test -p mudu_binding --test syscall_payload_bench -- --nocapture --test-th
 ## 参考
 
 - 集成指南：[doc/cn/abi/guest_host_abi.cn.md](../abi/guest_host_abi.cn.md)
-- 注册表：[mudu/src/compat/mod.rs](../../../mudu/src/compat/mod.rs)
-- WIT 模式源：[mudu_binding/wit/](../../../mudu_binding/wit/)
-- Syscall 函数接口：[mudu_binding/wit/uni-syscall.wit](../../../mudu_binding/wit/uni-syscall.wit)
+- 注册表：[mudu/src/compat/mod.rs](../../../crates/common/mudu/src/compat/mod.rs)
+- WIT 模式源：[mudu_binding/wit/](../../../crates/common/mudu_binding/wit)
+- Syscall 函数接口：[mudu_binding/wit/uni-syscall.wit](../../../crates/common/mudu_binding/wit/uni-syscall.wit)
 - 宿主带帧编解码器（权威）：[mudu_binding/src/codec/syscall_payload/](../../../crates/common/mudu_binding/src/codec/syscall_payload/)
-- `mgen` Rust 模板：[mudu_gen/templates/rust/](../../../mudu_gen/templates/rust/)
-- `mgen` C# 模板：[mudu_gen/templates/csharp/](../../../mudu_gen/templates/csharp/)
-- `universal` 类型族（Rust）：[mudu_binding/src/universal/](../../../mudu_binding/src/universal/)
+- `mgen` Rust 模板：[mudu_gen/templates/rust/](../../../crates/tools/mudu_gen/templates/rust)
+- `mgen` C# 模板：[mudu_gen/templates/csharp/](../../../crates/tools/mudu_gen/templates/csharp)
+- `universal` 类型族（Rust）：[mudu_binding/src/universal/](../../../crates/common/mudu_binding/src/universal)
 - 旧版手写 KV 编解码器：[mudu_binding/src/codec/handle_sys_session.rs](../../../crates/common/mudu_binding/src/codec/handle_sys_session.rs)
-- SQL 请求/响应编解码器：[mudu_binding/src/codec/handle_sys_incoming.rs](../../../mudu_binding/src/codec/handle_sys_incoming.rs)、[handle_sys_outcoming.rs](../../../mudu_binding/src/codec/handle_sys_outcoming.rs)
-- 宿主系统调用入口：[mudu_runtime/src/interface/kernel_sync.rs](../../../mudu_runtime/src/interface/kernel_sync.rs)、[kernel_async.rs](../../../mudu_runtime/src/interface/kernel_async.rs)
+- SQL 请求/响应编解码器：[mudu_binding/src/codec/handle_sys_incoming.rs](../../../crates/common/mudu_binding/src/codec/handle_sys_incoming.rs)、[handle_sys_outcoming.rs](../../../crates/common/mudu_binding/src/codec/handle_sys_outcoming.rs)
+- 宿主系统调用入口：[mudu_runtime/src/interface/kernel_sync.rs](../../../crates/db-kernel/mudu_runtime/src/interface/kernel_sync.rs)、[kernel_async.rs](../../../crates/db-kernel/mudu_runtime/src/interface/kernel_async.rs)
 - Golden 语料：[testing/fixtures/golden/v1/syscall_payload_v1_all.bin](../../../crates/db-kernel/testing/fixtures/golden/v1/syscall_payload_v1_all.bin)
 - 独立 Rust SDK：[crates/sdk/mudu_api/rust/](../../../crates/sdk/mudu_api/rust/)
 - C# SDK：[crates/sdk/mudu_api/csharp/](../../../crates/sdk/mudu_api/csharp/)
-- Python 绑定（工具/测试验证）：[crates/sdk/bindings/python/](../../../crates/sdk/bindings/python/)
-- 设计方案：[doc/cn/todo/project-controlled-guest-host-abi.md](../todo/project-controlled-guest-host-abi.md)
+- Python 绑定（guest、adapter 与编解码测试）：[crates/sdk/bindings/python/](../../../crates/sdk/bindings/python/)
+- 设计方案：[Guest/Host ABI](../abi/guest_host_abi.cn.md)

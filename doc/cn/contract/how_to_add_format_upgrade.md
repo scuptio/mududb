@@ -182,5 +182,5 @@ let decoded = PageHeader::decode(&migrated)?;
 - [ ] `cargo test --workspace` 全量通过。
 - [ ] CI 兼容性检查通过。
 
-[`MigrateHandler`]: ../../../mudu_compat_migrate/src/handler.rs
-[`CompatibilityRouter`]: ../../../mudu_compat_migrate/src/router.rs
+[`MigrateHandler`]: ../../../crates/common/mudu_compat_migrate/src/handler.rs
+[`CompatibilityRouter`]: ../../../crates/common/mudu_compat_migrate/src/router.rs

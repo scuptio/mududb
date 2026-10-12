@@ -1,5 +1,12 @@
 # MuduDB Filesystem 类型设计
 
+本文面向内核和 guest API 维护者，说明 filesystem 对象的设计与实现约束，不是安装教程。
+
+- 使用接口：先看下方“核心使用模型”，再查[系统调用 ABI](abi/guest_host_abi.cn.md)和[语言 API](../dev/binding_api_surface.md)。
+- 实现依据：[filesystem 集成测试](../../crates/db-kernel/testing/tests/test_filesystem.rs)覆盖 DDL 与对象行为；线格式以 WIT 和契约文档为准。
+- 存储方案对比移到文末附录。分期、测试计划和文件清单属于维护记录；标为未来或可扩展的内容不表示已经实现。
+
+
 本文档描述为 MuduDB 新增 **filesystem 类型** 的设计：一种由 DDL 注册、由 DB 组织与管理存储的 **fs object 类型**。该类型对象的全部文件都由 DB 组织——fs object 以 OID 唯一标识，内容是不可变 generation 文件，元数据 `_fs_object` 与普通表共享同一套并发控制（CC）与日志（WAL）机制。Mudu Procedure（WASM guest）通过一组 POSIX 风格系统调用访问对象，每个 IO 操作对应一个 MuduDB 内部系统调用，并封装为各 guest 语言的原生风格 API（替代对应语言 std library 的文件 API）。guest 不能绕过 DB 直接创建文件，filesystem 也不映射任何用户可见的宿主目录。
 
 核心使用模型：
@@ -103,18 +110,7 @@ host 处理流程：
 
 ### 3.2 业界参考设计
 
-| 设计 | 列值物理存储 | 对象标识 | 生命周期归属 | 事务性 | 行间关系（模型） |
-|---|---|---|---|---|---|
-| Oracle BFILE | locator（DIRECTORY 对象 + 文件名） | 目录 + 路径字符串 | 外部文件系统，DB 不管内容 | 无（只读） | 无约束，可撞名/共享（M2） |
-| SQL Server FILESTREAM | varbinary(max) + ROWGUIDCOL | 系统 GUID 派生文件路径 | DB 管理，tombstone + GC | 有（走事务日志） | 严格 1 行 1 文件（M1） |
-| PostgreSQL Large Object | oid 列 | 全局 OID | 对象独立存在，vacuumlo 清孤儿 | 有 | 可多行共享 OID（M1/M4） |
-| SQL/MED DATALINK（SQL:1999 标准，DB2 实现） | URL + LINK CONTROL 选项 | URL | 可选 FILE LINK CONTROL：DB 托管完整性；ON UNLINK RESTORE/DELETE | 可选 RECOVERY | 链接语义（M2/M4） |
-| MongoDB GridFS | fs.files + fs.chunks 两个集合 | 文档 _id | 应用/驱动管理 | 集合级 | 1 文件 = N 块文档，文件间独立（M1） |
-
-要点提炼：
-
-- 业界只有两种基本语义——**引用语义**（DB 存 locator，内容生命周期在外部：BFILE、DATALINK）与**拥有语义**（DB 管理对象生死，对象与所属行同生共死：FILESTREAM、Large Object、GridFS）。
-- 文件内容是否纳入事务是第二个正交维度，仅 FILESTREAM 与 Large Object 做到（前者走事务日志，后者内容本身就存在系统表里）。
+此节为设计背景，见文末[业界参考设计](#附录-a业界参考设计)。
 
 ### 3.3 mududb 的关系模型决策（已定）
 
@@ -156,58 +152,11 @@ host 处理流程：
 
 ### 3.5 FILESTREAM 式的优势与代价
 
-优势：
-
-- 大二进制不进入 page / record 存储，存储引擎页不膨胀；WAL 只记 `_fs_object` 元数据（每次操作几十字节），体积小；
-- 1:1 行拥有语义，无共享计数，GC 规则简单确定（对比 PostgreSQL Large Object 的孤儿问题需要 `vacuumlo` 外部清理）；
-- 对象内容是 DB 数据目录内的普通文件（append-only 的 generation 文件）：备份、迁移、离线处理可用 rsync 等普通文件工具；单对象大小不受行大小限制（对应 FILESTREAM 突破 varbinary 2GB 上限的卖点）；
-- 流式通道性能：`pread` / `pwrite` 定位 IO 直接落宿主文件，绕过记录层序列化，io_uring provider 下有 per-worker ring 亲和；
-- 与内核机制完全自洽：只增加「OID 命名 + `_fs_object` 元数据事务 + generation GC」，复用普通表的 CC / WAL 与既有 fd 模型；
-- OID 命名使行键与文件名解耦。
-
-代价：
-
-- 小对象（小于页大小量级）不如内联 `Binary` 列高效（多次系统调用 + 文件系统开销）——小对象仍建议用 `Binary` 列；
-- 写是 generation 级整体替换（见 §3.7），频繁部分写的对象需要 segment 扩展；
-- 需要 `_fs_object` 系统表、GC worker、启动恢复扫描三套基础设施。
-
-另一条路线——把内容存入 DB 内部 page 布局——的完整评估见 §3.6。
+此节为设计背景，见文末[FILESTREAM 式的优势与代价](#附录-bfilestream-式的优势与代价)。
 
 ### 3.6 存储位置评估：内容放入 DB 内部 page 布局
 
-一个自然的追问是：既然 mududb 自己就是带 page 存储引擎的数据库，为什么不把全部 fs object 的内容直接存进 DB 内部的 page 布局？本节给出可用技术、成熟产品参照与问题清单。
-
-**方案定义**：fs object 内容不存宿主文件，而是作为 chunk 存进 DB 自身的 page 存储——逻辑上是一个 `(oid, seq_no) -> chunk` 的内部关系（复用 `mudu_kernel/src/storage/page/` 的定长 page + slot 布局），列值仍存 OID。内容因此自动获得 WAL、缓冲池与事务语义。
-
-**可用技术与成熟产品**：
-
-| 技术路线 | 代表产品 | 做法 |
-|---|---|---|
-| 溢出页链 | InnoDB | `ROW_FORMAT=DYNAMIC` 的大字段 off-page 存储，记录内仅留 20 字节指针 |
-| 溢出页链 + 增量 IO | SQLite | b-tree cell 放不下的部分进 overflow page 链，另提供增量 blob IO API 支持定位读写 |
-| 分块行表 | PostgreSQL TOAST | 大字段值压缩后切成约 2KB chunk 存入旁表，PLAIN/EXTENDED/EXTERNAL/MAIN 四种存储策略 |
-| 分块行表 | PostgreSQL Large Object | `pg_largeobject` 按 `(loid, pageno)` 存约 2KB 的页，支持 `lo_lseek` 定位 |
-| 分块文档 | MongoDB GridFS | 文件切成固定大小（约 255KB）chunk 文档，存入普通集合 |
-| LOB 段 + 块索引 | Oracle SecureFiles | CHUNK 取块大小的倍数，LOB index 把逻辑偏移映射到物理块，行内阈值内联，CACHE/NOCACHE 控制缓存 |
-| LOB 分配单元 | SQL Server | LOB_DATA 分配单元 + IAM 页链管理大对象页 |
-| KV 分离（反向实践） | WiscKey 论文、RocksDB BlobDB、TiKV Titan、Badger | 把大 value 移出主存储结构（LSM 外追加写 value log + 指针），专为降低写放大 |
-
-最后一行值得注意：KV 分离是近年存储界的**反向**实践——把大 value 从主结构里搬出去。它与 FILESTREAM 的外移动机一致，说明「大对象不入 page」是工业界的收敛方向。
-
-**这样做的问题**：
-
-1. **WAL 放大**：内容既进日志又进数据页，同一字节写两遍；大对象使日志体积与 checkpoint 压力激增——这正是当年 SQL Server 把 FILESTREAM 移出页存储的首要动机。
-2. **缓冲池污染与双重缓冲**：大文件顺序读会把热的关系页挤出 buffer pool；同时 DB buffer 与 OS page cache 双份缓存浪费内存（除非全链路 direct IO，而 page 布局恰恰是为 buffer pool 设计的）。
-3. **部分写退化为 read-modify-write**：`fs-pwrite` 落到非 chunk 对齐偏移时，必须先读出整个 chunk 再改写写回——POSIX 定位写语义在 page 布局下变成写放大。
-4. **访问路径变长、零拷贝失效**：每次 `fs-pread` 要经 chunk 索引（B-tree / LOB index）定位若干 chunk 再逐页装配，无法 sendfile / mmap；既定设计里 io_uring 定位 IO 直落宿主文件的优势全部丧失，POSIX fd 语义还需要一层厚实的状态机在记录层上模拟。
-5. **空间碎片与回收复杂**：删除对象留下空洞，需要空闲页管理 / vacuum / reorg 配合回收（PG 靠 vacuum，InnoDB 靠 purge 与表重建），在线收缩困难。
-6. **备份粒度丧失**：对象不再是普通文件，不能 rsync / 文件级快照，只能逻辑备份，体积与时间膨胀；PITR 必须带着全部 blob 内容。
-7. **并发粒度变粗**：同一对象不同 offset 的并发写可能撞在同一个 chunk 的行锁 / 页闩上；宿主文件的无锁定位 IO 没有这个问题。
-8. **存储引擎侵入面大**（mududb 具体情况）：需要新增 chunk 关系类型、页格式变体、WAL 记录类型，牵动 checkpoint、崩溃恢复与 fuzz 确定性测试。相比之下，「外部宿主文件 + 元数据事务 + GC」侵入的是引擎外围而非核心。
-
-**收益（如实列出）**：内容级 ACID（对象内容与行同事务提交/回滚）；单一备份制品；无孤儿问题、不需要 journal/GC；权限与加密随库统一；复制与 HA 自动覆盖文件内容。
-
-**结论与建议**：维持既定的 M1 + 外部宿主文件方案为默认。page 布局适合的是**小对象**——后续可以做阈值式分层：小对象内联 `Binary` 列或 TOAST 式 chunk 表，大对象走外部宿主文件，这与 PG / InnoDB 的 inline 阈值策略一致；业界大对象趋势（FILESTREAM 外移、BlobDB / Titan KV 分离）也支持这一分层。
+此节为设计背景，见文末[内容放入 DB page 的取舍](#附录-c内容放入-db-page-的取舍)。
 
 ### 3.7 与普通表共享 CC 和日志机制（参考 PostgreSQL）
 
@@ -258,8 +207,8 @@ mududb 的 partition 机制（见 `doc/cn/partition.cn.md`）把表数据按 RAN
 2. **OID 位段（MVP 偏差）**：实现的 fs 对象 OID 位段为 `{8-bit tag = 0xF5, 120-bit random}`（`gen_fs_oid`，`mudu_kernel/src/meta/fs_object.rs`）——partition 身份内嵌暂未实现，列为后续项；MVP 下 resolve 仅在本 worker 查 `_fs_object`，跨 worker 访问由客户端 port sharding（item 3 的既定立场）。random 位段保持不可猜测性（§7 的 OID 即能力不受影响）。
 3. **内容文件**：写在行所在 worker 的存储根（§2.3 的布局是该 worker 的本地路径）；读取由客户端按行 partition 复用 port sharding（`partition-route` + `server-topology`）直连目标 worker（MVP 下 OID 不内嵌路由身份，见 item 2）。
 4. **类型 catalog 不分区**：name → fs_id 的映射是全局元数据，与 partition rule catalog 同款（固定 table id、全局可见）。
-5. **GC / 恢复 / 复制全部 per worker 对齐**：各 worker 只扫描自己的 storage root（§5.6）；复制通道（见 `doc/cn/todo/filesystem_todo.md` W11）按 partition 对齐拉取 generation 文件。
-6. **限制（如实）**：placement 变更（rebalance）初版不自动迁移 generation 文件（由管理员迁移，或 GC 清理后重建）；行 UPDATE 跨 partition 迁移时对象随行迁移 = 「新 partition PENDING + 旧 partition tombstone」两步，其跨 worker 原子性受限于系统当前无分布式 2PC——与 partition 文档声明的现状一致，本设计不新增承诺；FS 列的 INSERT/UPDATE/DELETE 仅支持行 partition 属本 worker——经 partition RPC 路由到远程 worker 的行，整个 DML 报 `NotImplemented`（不静默丢对象）。
+5. **GC / 恢复 / 复制全部 per worker 对齐**：各 worker 只扫描自己的 storage root（§5.6）；复制通道为后续项，设计按 partition 对齐拉取 generation 文件。
+6. **当前限制**：placement 变更（rebalance）初版不自动迁移 generation 文件（由管理员迁移，或 GC 清理后重建）；行 UPDATE 跨 partition 迁移时对象随行迁移 = 「新 partition PENDING + 旧 partition tombstone」两步，其跨 worker 原子性受限于系统当前无分布式 2PC——与 partition 文档声明的现状一致，本设计不新增承诺；FS 列的 INSERT/UPDATE/DELETE 仅支持行 partition 属本 worker——经 partition RPC 路由到远程 worker 的行，整个 DML 报 `NotImplemented`（不静默丢对象）。
 
 ## 4. 系统调用接口层
 
@@ -302,7 +251,7 @@ mududb 的 partition 机制（见 `doc/cn/partition.cn.md`）把表数据按 RAN
 
 - `mudu_binding/wit/` 新增 `uni-fs-open-argv.wit`、`uni-fs-stat.wit`、`uni-fs-dirent.wit` 等类型定义；
 - `mudu_binding/wit/uni-syscall.wit` 的 `interface universal` 中声明对应的类型化函数签名（如 `fs-open: func(argv: uni-fs-open-argv) -> result<u64, uni-error>`）；
-- 该 schema 由 `mgen`（`mudu_binding/makefile.toml` 的 `generate` / `generate-csharp` 任务）生成 Rust / C# / AssemblyScript 类型，并为将来纳入 SyscallPayload v1 路由器（`doc/cn/todo/project-controlled-guest-host-abi.md` Phase 3）做好准备。
+- 该 schema 由 `mgen`（`mudu_binding/makefile.toml` 的 `generate` / `generate-csharp` 任务）生成 Rust / C# / AssemblyScript 类型，并已纳入 SyscallPayload v1 路由器（见 `doc/cn/contract/syscall_payload_v1.md`）。
 
 ### 4.4 host 处理链
 
@@ -390,9 +339,9 @@ struct FdEntry {
 
 ### 5.6 GC 与恢复扫描（fs_gc.rs）
 
-- **恢复扫描**（`recover_worker_log_*` 之后，tokio 与 io_uring 两个后端同位置）：各 worker 只扫描自己的 storage root——按前缀规则枚举（宿主条目名 `== "{oidhex}.{gen}"` 或以 `"{oidhex}.{gen}."` 开头，点号边界避免 gen 1 误配 gen 12），对照 `_fs_object` 可见行与 xl generation 描述记录（见 `doc/cn/todo/filesystem_todo.md` W11），删除无任何引用的 generation；扫描完成后才允许 GC loop 启动。
+- **恢复扫描**（`recover_worker_log_*` 之后，tokio 与 io_uring 两个后端同位置）：各 worker 只扫描自己的 storage root——按前缀规则枚举（宿主条目名 `== "{oidhex}.{gen}"` 或以 `"{oidhex}.{gen}."` 开头，点号边界避免 gen 1 误配 gen 12），对照 `_fs_object` 可见行与 xl generation 描述记录（xl 描述记录为后续项），删除无任何引用的 generation；扫描完成后才允许 GC loop 启动。
 - **GC loop**（首个周期后台任务）：周期间隔取 oldest snapshot horizon，对「行版本已不可见且越过 horizon」的对象按前缀规则删除过期 generation 的全部宿主路径。两个后端的驱动方式不同：tokio 后端是 `spawn_local_task` + `stop_channel` 的常驻 GC loop（干净退出）；io_uring 后端无法睡眠，由 service loop 每轮检查间隔并 re-spawn 单轮 GC 任务（`submit_fs_gc_round_if_due`）。
-- horizon 含副本协调：取所有副本 oldest snapshot 的最小值（同上，见 todo W11）。
+- horizon 含副本协调（后续项）：取所有副本 oldest snapshot 的最小值。
 
 ### 5.7 并发与错误
 
@@ -494,7 +443,7 @@ pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEnt
 - **DDL 权限**：已实现——`CREATE TYPE FILESYSTEM` / `DROP TYPE` 仅 admin 会话可执行：client 协议会话（`session_create` / `open_session_with_config`）为 admin，procedure 内部会话非 admin；`MuduConnCore::execute_inner` 校验，非 admin 报 `PermissionDenied`。
 - **资源限额**（后续可选）：每会话 fd 上限、单类型对象数上限、单次读写字节上限、每类型总容量配额。
 
-## 8. 测试计划
+## 8. 测试计划（维护记录）
 
 - **codec 单测**：`handle_sys_fs_test.rs`，覆盖每个系统调用的参数/结果/错误帧往返。
 - **catalog 与 DDL 单测**：注册两种 kind、重名（`AlreadyExists`）、`DROP TYPE` 引用校验、未知 OID。
@@ -504,7 +453,7 @@ pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEnt
 - **安全负例**：伪造 / 穷举 OID 访问。
 - **端到端**：example 级 WASM 过程完成「INSERT 行 → SELECT 得 OID → open 写 → fsync → close → 提交 → 重开读 → stat」全流程。
 
-## 9. 涉及文件清单
+## 9. 涉及文件清单（维护记录）
 
 新增：
 
@@ -530,3 +479,73 @@ pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEnt
 - `mudu_kernel/src/command/{insert,update,delete}_key_value.rs`（FS 列 DML 钩子：对象绑定 / 解绑随行进 `_fs_object` 事务）
 - `mudu_adapter/src/local_fs.rs`（standalone 路径的本地文件模拟，sqlite/postgres/mysql 驱动共享；mudud 驱动返回 `NotImplemented`）
 - `bindings/assemblyscript/assembly/{syscall,fs}.ts`（Phase 2，guest 侧 fs 封装）
+
+## 附录 A：业界参考设计
+
+| 设计 | 列值物理存储 | 对象标识 | 生命周期归属 | 事务性 | 行间关系（模型） |
+|---|---|---|---|---|---|
+| Oracle BFILE | locator（DIRECTORY 对象 + 文件名） | 目录 + 路径字符串 | 外部文件系统，DB 不管内容 | 无（只读） | 无约束，可撞名/共享（M2） |
+| SQL Server FILESTREAM | varbinary(max) + ROWGUIDCOL | 系统 GUID 派生文件路径 | DB 管理，tombstone + GC | 有（走事务日志） | 严格 1 行 1 文件（M1） |
+| PostgreSQL Large Object | oid 列 | 全局 OID | 对象独立存在，vacuumlo 清孤儿 | 有 | 可多行共享 OID（M1/M4） |
+| SQL/MED DATALINK（SQL:1999 标准，DB2 实现） | URL + LINK CONTROL 选项 | URL | 可选 FILE LINK CONTROL：DB 托管完整性；ON UNLINK RESTORE/DELETE | 可选 RECOVERY | 链接语义（M2/M4） |
+| MongoDB GridFS | fs.files + fs.chunks 两个集合 | 文档 _id | 应用/驱动管理 | 集合级 | 1 文件 = N 块文档，文件间独立（M1） |
+
+要点提炼：
+
+- 业界只有两种基本语义——**引用语义**（DB 存 locator，内容生命周期在外部：BFILE、DATALINK）与**拥有语义**（DB 管理对象生死，对象与所属行同生共死：FILESTREAM、Large Object、GridFS）。
+- 文件内容是否纳入事务是第二个正交维度，仅 FILESTREAM 与 Large Object 做到（前者走事务日志，后者内容本身就存在系统表里）。
+
+## 附录 B：FILESTREAM 式的优势与代价
+
+优势：
+
+- 大二进制不进入 page / record 存储，存储引擎页不膨胀；WAL 只记 `_fs_object` 元数据（每次操作几十字节），体积小；
+- 1:1 行拥有语义，无共享计数，GC 规则简单确定（对比 PostgreSQL Large Object 的孤儿问题需要 `vacuumlo` 外部清理）；
+- 对象内容是 DB 数据目录内的普通文件（append-only 的 generation 文件）：备份、迁移、离线处理可用 rsync 等普通文件工具；单对象大小不受行大小限制（对应 FILESTREAM 突破 varbinary 2GB 上限的卖点）；
+- 流式通道性能：`pread` / `pwrite` 定位 IO 直接落宿主文件，绕过记录层序列化，io_uring provider 下有 per-worker ring 亲和；
+- 与内核机制完全自洽：只增加「OID 命名 + `_fs_object` 元数据事务 + generation GC」，复用普通表的 CC / WAL 与既有 fd 模型；
+- OID 命名使行键与文件名解耦。
+
+代价：
+
+- 小对象（小于页大小量级）不如内联 `Binary` 列高效（多次系统调用 + 文件系统开销）——小对象仍建议用 `Binary` 列；
+- 写是 generation 级整体替换（见 §3.7），频繁部分写的对象需要 segment 扩展；
+- 需要 `_fs_object` 系统表、GC worker、启动恢复扫描三套基础设施。
+
+另一条路线——把内容存入 DB 内部 page 布局——的完整评估见 §3.6。
+
+## 附录 C：内容放入 DB page 的取舍
+
+一个自然的追问是：既然 mududb 自己就是带 page 存储引擎的数据库，为什么不把全部 fs object 的内容直接存进 DB 内部的 page 布局？本节给出可用技术、成熟产品参照与问题清单。
+
+**方案定义**：fs object 内容不存宿主文件，而是作为 chunk 存进 DB 自身的 page 存储——逻辑上是一个 `(oid, seq_no) -> chunk` 的内部关系（复用 `mudu_kernel/src/storage/page/` 的定长 page + slot 布局），列值仍存 OID。内容因此自动获得 WAL、缓冲池与事务语义。
+
+**可用技术与成熟产品**：
+
+| 技术路线 | 代表产品 | 做法 |
+|---|---|---|
+| 溢出页链 | InnoDB | `ROW_FORMAT=DYNAMIC` 的大字段 off-page 存储，记录内仅留 20 字节指针 |
+| 溢出页链 + 增量 IO | SQLite | b-tree cell 放不下的部分进 overflow page 链，另提供增量 blob IO API 支持定位读写 |
+| 分块行表 | PostgreSQL TOAST | 大字段值压缩后切成约 2KB chunk 存入旁表，PLAIN/EXTENDED/EXTERNAL/MAIN 四种存储策略 |
+| 分块行表 | PostgreSQL Large Object | `pg_largeobject` 按 `(loid, pageno)` 存约 2KB 的页，支持 `lo_lseek` 定位 |
+| 分块文档 | MongoDB GridFS | 文件切成固定大小（约 255KB）chunk 文档，存入普通集合 |
+| LOB 段 + 块索引 | Oracle SecureFiles | CHUNK 取块大小的倍数，LOB index 把逻辑偏移映射到物理块，行内阈值内联，CACHE/NOCACHE 控制缓存 |
+| LOB 分配单元 | SQL Server | LOB_DATA 分配单元 + IAM 页链管理大对象页 |
+| KV 分离（反向实践） | WiscKey 论文、RocksDB BlobDB、TiKV Titan、Badger | 把大 value 移出主存储结构（LSM 外追加写 value log + 指针），专为降低写放大 |
+
+最后一行值得注意：KV 分离是近年存储界的**反向**实践——把大 value 从主结构里搬出去。它与 FILESTREAM 的外移动机一致，说明「大对象不入 page」是工业界的收敛方向。
+
+**这样做的问题**：
+
+1. **WAL 放大**：内容既进日志又进数据页，同一字节写两遍；大对象使日志体积与 checkpoint 压力激增——这正是当年 SQL Server 把 FILESTREAM 移出页存储的首要动机。
+2. **缓冲池污染与双重缓冲**：大文件顺序读会把热的关系页挤出 buffer pool；同时 DB buffer 与 OS page cache 双份缓存浪费内存（除非全链路 direct IO，而 page 布局恰恰是为 buffer pool 设计的）。
+3. **部分写退化为 read-modify-write**：`fs-pwrite` 落到非 chunk 对齐偏移时，必须先读出整个 chunk 再改写写回——POSIX 定位写语义在 page 布局下变成写放大。
+4. **访问路径变长、零拷贝失效**：每次 `fs-pread` 要经 chunk 索引（B-tree / LOB index）定位若干 chunk 再逐页装配，无法 sendfile / mmap；既定设计里 io_uring 定位 IO 直落宿主文件的优势全部丧失，POSIX fd 语义还需要一层厚实的状态机在记录层上模拟。
+5. **空间碎片与回收复杂**：删除对象留下空洞，需要空闲页管理 / vacuum / reorg 配合回收（PG 靠 vacuum，InnoDB 靠 purge 与表重建），在线收缩困难。
+6. **备份粒度丧失**：对象不再是普通文件，不能 rsync / 文件级快照，只能逻辑备份，体积与时间膨胀；PITR 必须带着全部 blob 内容。
+7. **并发粒度变粗**：同一对象不同 offset 的并发写可能撞在同一个 chunk 的行锁 / 页闩上；宿主文件的无锁定位 IO 没有这个问题。
+8. **存储引擎侵入面大**（mududb 具体情况）：需要新增 chunk 关系类型、页格式变体、WAL 记录类型，牵动 checkpoint、崩溃恢复与 fuzz 确定性测试。相比之下，「外部宿主文件 + 元数据事务 + GC」侵入的是引擎外围而非核心。
+
+**收益（如实列出）**：内容级 ACID（对象内容与行同事务提交/回滚）；单一备份制品；无孤儿问题、不需要 journal/GC；权限与加密随库统一；复制与 HA 自动覆盖文件内容。
+
+**结论与建议**：维持既定的 M1 + 外部宿主文件方案为默认。page 布局适合的是**小对象**——后续可以做阈值式分层：小对象内联 `Binary` 列或 TOAST 式 chunk 表，大对象走外部宿主文件，这与 PG / InnoDB 的 inline 阈值策略一致；业界大对象趋势（FILESTREAM 外移、BlobDB / Titan KV 分离）也支持这一分层。

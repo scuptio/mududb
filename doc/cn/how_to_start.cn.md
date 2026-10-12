@@ -1,9 +1,9 @@
 # 如何开始
 
-本指南提供两种上手方式：
+本页用于配置开发环境。本指南提供两种上手方式：
 
-- **[从源码开发 MuduDB](#从源码开发-mududb)** – 使用固定工具链从源码构建（推荐）。
-- **[使用 `mudup` 安装 MuduDB](#使用-mudup-安装-mududb)** – 通过 `mudup` 安装发布产物，无需源码构建（暂时不稳定）。
+- **[从源码开发 MuduDB](#从源码开发-mududb)** – 使用固定工具链从源码构建（推荐）。源码路径提供三种配置选项：首次使用建议选择方式 A，然后按[第一个 MPK](your_first_mpk.cn.md)构建、安装并调用钱包示例。方式 B、C 是替代安装方法，无需全部执行。
+- **[使用 `mudup` 安装 MuduDB](#使用-mudup-安装-mududb)** – 通过 `mudup` 安装发布产物，无需源码构建（计划中，尚不可用）。
 
 ---
 
@@ -124,6 +124,7 @@ python script/build/install_binaries.py
 
 - `mpm-build`：打包构建工具
 - `mpm-crate`：项目脚手架工具
+- `mpm-install`：包安装工具
 - `mgen`：源码生成工具
 - `mtp`：转译器
 - `mudud`：MuduDB 服务器
@@ -139,9 +140,9 @@ python script/build/install_binaries.py --all-workspace-bins
 
 ## 使用 `mudup` 安装 MuduDB
 
-> **注意：** `mudup` 安装路径暂时 not stable，建议优先使用[从源码开发](#从源码开发-mududb)方式。
+> **注意：** `mudup` 是计划中的安装器，设计仍在调整中，详见[设计提案](../en/mudup.md)（英文）。下列命令目前尚不可用；现阶段可用的安装路径是从源码构建：运行 `cargo make`，或按[安装开发构建的工具与 MuduDB Server](#安装开发构建的工具与-mududb-server)一节运行 `python script/build/install_binaries.py`。
 
-该路径用于服务器部署和日常使用。
+该路径发布后将用于服务器部署和日常使用。
 
 ### 1. 安装 `mudup`
 
@@ -156,7 +157,7 @@ mudup --help
 mudup install
 ```
 
-该命令会安装并激活最新版本：`mudud`、`mcli`、`mpm-build`、`mgen`、`mtp`。
+该命令将安装并激活最新版本：`mpm-build`、`mpm-crate`、`mpm-install`、`mgen`、`mtp`、`mudud`、`mcli`。
 
 ### 3. 验证安装
 
@@ -165,13 +166,7 @@ mudud --version
 mcli --version
 ```
 
-安装完成后，在当前目录生成默认服务端配置文件：
-
-```bash
-mudud init-cfg
-```
-
-该命令会写入 `./mudud.cfg`。服务端启动时**不会**自动创建该文件。
+然后按[启动 mudud](running_mudud.cn.md)创建配置文件并启动服务端。
 
 ---
 
@@ -222,37 +217,13 @@ stable 与 nightly 工具链升级必须分别提交独立的 Pull Request：
 
 ## 配置文件
 
-`mudud` 按以下顺序查找配置文件：
-
-1. `--cfg` / `-c` 指定的路径（如果提供）。该路径会被直接使用。
-2. 当前工作目录下的 `./mudud.cfg`。
-3. 用户主目录下的 `~/.mududb/mudud.cfg`。
-
-第一个存在的文件会被加载。如果都不存在，`mudud` 返回 `NotFound` 错误并退出，不会自动创建文件。
-
 在不启动服务端的情况下，在当前目录生成默认的 `./mudud.cfg`：
 
 ```bash
 mudud init-cfg
 ```
 
-不要创建空的 `mudud.cfg`：服务端只要发现文件存在，就会把它当作用户配置解析。
-
-使用其他位置的配置文件：
-
-```bash
-mudud serve --cfg /path/to/mudud.cfg
-# 或简写
-mudud serve -c /path/to/mudud.cfg
-```
-
-使用示例配置：
-
-```bash
-cp doc/cfg/mudud.cfg ./mudud.cfg
-```
-
-另见：[mudud.cfg 示例](../cfg/mudud.cfg)。
+`mudud` 会加载查找到的第一个配置文件，不会自动创建。完整的查找顺序、配置字段说明以及自定义 `--cfg` / `-c` 路径见[启动 mudud](running_mudud.cn.md)。
 
 ---
 
@@ -276,7 +247,7 @@ mudud
 启动后可以用下面的命令确认实际生效的限制：
 
 ```bash
-cat /proc/$(pgrep -x mudud)/limits | rg 'open files'
+cat /proc/$(pgrep -x mudud)/limits | grep 'open files'
 ```
 
 ### 2. 使用 `mcli` 交互式执行 CRUD
@@ -317,80 +288,7 @@ Shell 说明：
 
 ### 3. 构建、安装和使用 wallet 应用
 
-#### 构建 wallet `.mpk` 包
-
-```bash
-cd example/wallet
-cargo make
-```
-
-生成的包路径为：
-
-```bash
-target/wasm32-wasip2/release/wallet.mpk
-```
-
-#### 使用 `mcli` 安装 wallet 包
-
-```bash
-mcli --http-addr 127.0.0.1:8300 app-install --mpk target/wasm32-wasip2/release/wallet.mpk
-```
-
-安装后，可通过 HTTP 管理命令确认状态：
-
-```bash
-mcli --http-addr 127.0.0.1:8300 app-list
-mcli --http-addr 127.0.0.1:8300 app-detail --app wallet
-mcli --http-addr 127.0.0.1:8300 app-detail --app wallet --module wallet --proc create_user
-mcli --http-addr 127.0.0.1:8300 server-topology
-```
-
-#### 调用 wallet 过程
-
-创建两个用户：
-
-```bash
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc create_user --json '{
-  "user_id": 1001,
-  "name": "Alice",
-  "email": "alice@example.com"
-}'
-
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc create_user --json '{
-  "user_id": 1002,
-  "name": "Bob",
-  "email": "bob@example.com"
-}'
-```
-
-说明：`app-invoke` 通过 TCP 调用过程；当前命令仍需要 `--http-addr` 来获取过程描述信息。
-
-充值并转账：
-
-```bash
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc deposit --json '{
-  "user_id": 1001,
-  "amount": 5000
-}'
-
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc transfer --json '{
-  "from_user_id": 1001,
-  "to_user_id": 1002,
-  "amount": 1200
-}'
-```
-
-在 shell 中验证钱包余额：
-
-```bash
-mcli --addr 127.0.0.1:9527 shell --app wallet
-```
-
-```sql
-SELECT user_id, balance FROM wallets WHERE user_id IN (1001, 1002);
-```
-
----
+完整步骤集中在[第一个 MPK](your_first_mpk.cn.md)，包括包路径、配置初始化、安装命令和预期结果。请从仓库根目录开始，避免将示例目录的相对路径与根目录的 `target/` 混用。
 
 ## 常见问题 / 故障排查
 
@@ -399,9 +297,11 @@ SELECT user_id, balance FROM wallets WHERE user_id IN (1001, 1002);
 MuduDB 需要 Linux 内核 5.1+ 并启用 `CONFIG_IO_URING=y`。检查：
 
 ```bash
-uname -r                          # 必须 >= 5.1
-grep io_uring /proc/filesystems   # 应列出 io_uring
+uname -r                                # 必须 >= 5.1
+bash script/build/inspect_iouring_env.sh
 ```
+
+该脚本会列出内核开关、seccomp 状态和容器环境。`io_uring` 不是文件系统，不能通过 `/proc/filesystems` 判断是否可用；环境详情见 [DEPLOY.md](DEPLOY.md)。
 
 如果在 Docker 中运行，需加 `--privileged`，或添加 `--cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1`。
 

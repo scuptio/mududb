@@ -1,3 +1,3 @@
-module github.com/ybbh/mududb_p/bindings/go
+module github.com/mududb/mududb-go
 
 go 1.24

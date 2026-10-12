@@ -1,5 +1,3 @@
-//! `database::test_object` module.
-//!
 //! Hand-written reference implementation of the entity shape that `mgen`
 //! generates from DDL. It mirrors this schema:
 //!
@@ -12,8 +10,8 @@
 //!     i_im_id INT
 //! );
 //! ```
-#![allow(missing_docs)]
 
+/// The `item` table entity used by tests.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::expect_used)]
@@ -38,20 +36,31 @@ pub mod object {
 
     /// Column name constants.
     pub mod columns {
+        /// Primary key column `i_id`.
         pub const I_ID: &str = "i_id";
+        /// Column `i_name`.
         pub const I_NAME: &str = "i_name";
+        /// Column `i_price`.
         pub const I_PRICE: &str = "i_price";
+        /// Column `i_data`.
         pub const I_DATA: &str = "i_data";
+        /// Column `i_im_id`.
         pub const I_IM_ID: &str = "i_im_id";
     }
 
     // entity struct definition
+    /// Row of the `item` table.
     #[derive(Debug, Clone, Default)]
     pub struct Item {
+        /// Primary key `i_id`.
         pub i_id: i32,
+        /// Column `i_name`.
         pub i_name: Option<String>,
+        /// Column `i_price`.
         pub i_price: f64,
+        /// Column `i_data`.
         pub i_data: Option<String>,
+        /// Column `i_im_id`.
         pub i_im_id: Option<i32>,
     }
 
@@ -70,6 +79,7 @@ pub mod object {
         /// Delete one row by primary key.
         pub const SQL_DELETE_BY_PK: &'static str = "DELETE FROM item WHERE i_id = ?";
 
+        /// Creates an `Item` row from all column values in declaration order.
         pub fn new(
             i_id: i32,
             i_name: Option<String>,
@@ -105,13 +115,18 @@ pub mod object {
     /// For a nullable column, `Set(None)` writes SQL NULL.
     #[derive(Debug, Clone, Default)]
     pub struct ItemChange {
+        /// Change for column `i_name`.
         pub i_name: FieldChange<Option<String>>,
+        /// Change for column `i_price`.
         pub i_price: FieldChange<f64>,
+        /// Change for column `i_data`.
         pub i_data: FieldChange<Option<String>>,
+        /// Change for column `i_im_id`.
         pub i_im_id: FieldChange<Option<i32>>,
     }
 
     impl ItemChange {
+        /// Returns whether no column is marked for update.
         pub fn is_empty(&self) -> bool {
             self.i_name.is_unchanged()
                 && self.i_price.is_unchanged()

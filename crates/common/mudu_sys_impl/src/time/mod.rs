@@ -1,17 +1,20 @@
 //! Public time, instant, and datetime helpers.
-#![allow(missing_docs)]
 pub use crate::imp::time::{DateTime, Instant, SystemTime, Utc};
 
 use std::time::Duration;
 
+/// Returns the current monotonic instant from the default system environment.
 pub fn instant_now() -> Instant {
     crate::default_env().time().instant_now()
 }
 
+/// Returns the current wall-clock system time from the default system
+/// environment.
 pub fn system_time_now() -> SystemTime {
     crate::default_env().time().system_time_now()
 }
 
+/// Returns the current UTC date-time from the default system environment.
 pub fn utc_now() -> DateTime<Utc> {
     crate::default_env().time().utc_now()
 }

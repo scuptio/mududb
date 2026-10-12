@@ -140,7 +140,7 @@ internal static class MockKvEmulation
     }
 
     /// <summary>
-    /// Unsigned lexicographic byte order, matching the host's `&[u8]`
+    /// Unsigned lexicographic byte order, matching the host's <c>&amp;[u8]</c>
     /// comparisons (`&lt;` on slices).
     /// </summary>
     internal sealed class ByteArrayComparer : global::System.Collections.Generic.IComparer<byte[]>

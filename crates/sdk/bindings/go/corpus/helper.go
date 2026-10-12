@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/ybbh/mududb_p/bindings/go/types"
+	"github.com/mududb/mududb-go/types"
 )
 
 // ---- fixture location ----
@@ -39,6 +39,10 @@ func findFixtureDir(tb testing.TB) string {
 	}
 	d := filepath.Dir(thisFile)
 	for {
+		local := filepath.Join(d, "tests", "fixtures", "golden", "v1")
+		if info, err := os.Stat(local); err == nil && info.IsDir() {
+			return local
+		}
 		candidate := filepath.Join(d, rel)
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			return candidate

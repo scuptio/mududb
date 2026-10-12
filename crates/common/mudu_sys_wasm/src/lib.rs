@@ -1,7 +1,10 @@
 //! Minimal system services available to WebAssembly applications.
 
+#![warn(missing_docs)]
+
 /// Random value and UUID generation.
 pub mod random {
+    /// The UUID type.
     pub use uuid::Uuid;
 
     /// Generates a random version 4 UUID.
@@ -78,7 +81,9 @@ pub mod sync {
 
 /// Time types and clocks supplied by WASI.
 pub mod time {
+    /// Date-time and UTC timezone types.
     pub use chrono::{DateTime, Utc};
+    /// Monotonic instant and system time types.
     pub use std::time::{Instant, SystemTime};
 
     /// Returns the current monotonic instant.

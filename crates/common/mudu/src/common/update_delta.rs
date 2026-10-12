@@ -1,6 +1,12 @@
+//! In-place tuple edit records.
+//!
+//! An [`UpdateDelta`] describes a single splice into a tuple buffer: it
+//! replaces a range of bytes with new data, and applying it produces the
+//! compensating delta that undoes the change.
+
 use crate::common::buf::Buf;
 use crate::common::codec::{DecErr, Decode, Decoder, EncErr, Encode, Encoder};
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 use arbitrary::{Arbitrary, Unstructured};
 use std::cell::RefCell;
 
@@ -10,6 +16,7 @@ thread_local! {
     static  TUPLE_MAX_LEN:RefCell<usize> = const { RefCell::new(TUPLE_MAX_LEN_DEFAULT) };
 }
 
+/// An in-place edit to a tuple buffer: replaces `size` bytes at `offset` with `data`.
 #[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub struct UpdateDelta {
     offset: u32,
@@ -18,11 +25,13 @@ pub struct UpdateDelta {
 }
 
 impl UpdateDelta {
+    /// Sets the maximum tuple length used when generating arbitrary values.
     pub fn arb_set_tuple_max_len(len: usize) {
         assert!(len > 0);
         TUPLE_MAX_LEN.replace(len);
     }
 
+    /// Resets the tuple length limit so the next access restores the default.
     #[cfg(test)]
     pub fn test_reset_tuple_max_len_to_zero() {
         TUPLE_MAX_LEN.with(|cell| {
@@ -30,6 +39,8 @@ impl UpdateDelta {
         });
     }
 
+    /// Returns the current maximum tuple length used when generating
+    /// arbitrary values, restoring the default after a reset.
     pub fn tuple_max_len() -> usize {
         let mut n = TUPLE_MAX_LEN.take();
         if n == 0 {
@@ -39,23 +50,28 @@ impl UpdateDelta {
         n
     }
 
+    /// Creates a delta that replaces `size` bytes at `offset` with `data`.
     pub fn new(offset: u32, size: u32, data: Buf) -> Self {
         Self { offset, size, data }
     }
 
+    /// Returns the size in bytes of the replaced region.
     pub fn to_up_size(&self) -> u32 {
         self.size
     }
 
+    /// Returns the byte offset at which the replacement starts.
     pub fn offset(&self) -> u32 {
         self.offset
     }
 
+    /// Returns the replacement bytes.
     pub fn delta(&self) -> &Buf {
         &self.data
     }
 
-    // apply and return the compensation operation
+    /// Applies this delta to `buf` and returns the compensation operation
+    /// that undoes the change.
     pub fn apply_to(&self, buf: &mut Buf) -> Self {
         if buf.len() < (self.offset + self.size) as usize {
             panic!(
@@ -74,14 +90,17 @@ impl UpdateDelta {
         }
     }
 
+    /// Returns the size in bytes of the replaced region.
     pub fn to_replace_size(&self) -> usize {
         self.size as usize
     }
 
+    /// Returns the byte offset at which the replacement starts.
     pub fn to_replace_start(&self) -> usize {
         self.offset as usize
     }
 
+    /// Returns the byte offset at which the replacement ends.
     pub fn to_replace_end(&self) -> usize {
         (self.offset + self.size) as usize
     }
@@ -117,9 +136,9 @@ impl Decode for UpdateDelta {
     }
 }
 
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 impl Arbitrary<'_> for UpdateDelta {
-    #[cfg(any(test, feature = "test"))]
+    #[cfg(any(test, feature = "arbitrary"))]
     fn arbitrary(u: &mut Unstructured) -> arbitrary::Result<Self> {
         let len = Self::tuple_max_len() as u32;
         let begin = u32::arbitrary(u)? % len;

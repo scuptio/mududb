@@ -9,7 +9,7 @@ rust-version.workspace = true
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sim)'] }
 
 [lints.clippy]
-disallowed-types = "allow"
+disallowed_types = "allow"
 
 [features]
 debug_trace = []

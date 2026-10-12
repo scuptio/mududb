@@ -1,6 +1,6 @@
 # 你的第一个 MPK
 
-本教程以现有的 `example/wallet` 项目为例，带你完成第一个 MuduDB 应用包（`.mpk`）的构建与安装。学完后，你会了解如何将编译好的 WebAssembly 过程打包并安装到 `mudud` 中，然后通过 `mcli` 调用。
+本教程以现有的 `example/mpk/wallet` 项目为例，带你完成第一个 MuduDB 应用包（`.mpk`）的构建与安装。学完后，你会了解如何将编译好的 WebAssembly 过程打包并安装到 `mudud` 中，然后通过 `mcli` 调用。
 
 ## 你将学到什么
 
@@ -15,16 +15,16 @@
 
 ## 1. wallet 示例
 
-`example/wallet` 是一个完整的 Rust 项目，定义了 `create_user`、`deposit`、`transfer_funds` 等 Mudu Procedure。源码位于 `example/wallet/src/rust/procedures.rs`，schema 位于 `example/wallet/sql/ddl.sql`。
+`example/mpk/wallet` 是一个完整的 Rust 项目，定义了 `create_user`、`deposit`、`transfer_funds` 等 Mudu Procedure。源码位于 `example/mpk/wallet/src/rust/procedures.rs`，schema 位于 `example/mpk/wallet/sql/ddl.sql`。
 
 如果你想了解如何手写 procedure，请参阅 [`procedure.cn.md`](procedure.cn.md)。本教程重点介绍如何打包和安装已有项目。
 
 ## 2. 构建应用包
 
-在 `example/wallet` 目录下执行：
+在仓库根目录执行：
 
 ```bash
-cargo make package
+(cd example/mpk/wallet && cargo make package)
 ```
 
 这一条命令会跑完整流程：
@@ -41,16 +41,17 @@ cargo make package
 
 ## 3. 启动服务器
 
-在一个终端启动 `mudud`：
+在一个终端的仓库根目录启动 `mudud`。首次运行时生成配置，已有配置时跳过 `init-cfg`：
 
 ```bash
 ulimit -n 65535
-mudud
+mudud init-cfg
+mudud serve
 ```
 
 ## 4. 安装应用包
 
-在另一个终端使用 `mpm-install` 安装 `.mpk`：
+在另一个终端的仓库根目录使用 `mpm-install` 安装 `.mpk`：
 
 ```bash
 mpm-install target/wasm32-wasip2/release/wallet.mpk
@@ -61,6 +62,8 @@ mpm-install target/wasm32-wasip2/release/wallet.mpk
 ```bash
 mpm-install --server 192.168.1.100:8300 target/wasm32-wasip2/release/wallet.mpk
 ```
+
+`mpm-install` 是 `mcli app-install` 所用 HTTP 端点的轻量封装。如需集群或拓扑感知的安装工作流，请直接使用 `mcli`——参见 [`mcli_admin.cn.md`](mcli_admin.cn.md)。
 
 ## 5. 确认安装成功
 
@@ -148,5 +151,5 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 
 - 阅读 [`concepts.cn.md`](concepts.cn.md) 了解上述术语。
 - 阅读 [`procedure.cn.md`](procedure.cn.md) 学习如何编写自己的 procedure。
-- 尝试 [`example/key-value`](../example/key-value/README.md) 示例，它展示了更小巧的键值 API 用法。
+- 尝试 [`example/key-value`](../../example/mpk/key-value/README.md) 示例，它展示了更小巧的键值 API 用法。
 - 想为新编程语言添加 guest 支持？请参阅 [`dev/new_guest_language.md`](../dev/new_guest_language.md)（英文）。

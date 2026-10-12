@@ -8,37 +8,37 @@ MGEN="$ROOT/target/debug/mgen"
 
 # wallet: entities only (procedures.rs / tests are hand-written)
 "$MGEN" entity \
-    --input-source-files "$ROOT/crates/sdk/example/wallet/sql/ddl.sql" \
-    --output-source-folder "$ROOT/crates/sdk/example/wallet/src/rust" \
-    --type-desc "$ROOT/crates/sdk/example/wallet/package/type.desc.json" \
+    --input-source-files "$ROOT/example/mpk/wallet/sql/ddl.sql" \
+    --output-source-folder "$ROOT/example/mpk/wallet/src/rust" \
+    --type-desc "$ROOT/example/mpk/wallet/package/type.desc.json" \
     --lang rust
 
 # app1: hand-maintained wallets entity mirrors the wallet schema
 "$MGEN" entity \
-    --input-source-files "$ROOT/crates/sdk/example/wallet/sql/ddl.sql" \
+    --input-source-files "$ROOT/example/mpk/wallet/sql/ddl.sql" \
     --output-source-folder "$ROOT/target/tmp/app1_entity" \
     --type-desc "$ROOT/target/tmp/app1_entity/type.desc.json" \
     --lang rust
-cp "$ROOT/target/tmp/app1_entity/wallets.rs" "$ROOT/crates/sdk/example/app1/src/rust/wallets.rs"
+cp "$ROOT/target/tmp/app1_entity/wallets.rs" "$ROOT/example/mpk/app1/src/rust/wallets.rs"
 
 # tpcc
 "$MGEN" entity \
-    --input-source-files "$ROOT/crates/sdk/example/tpcc/sql/ddl.sql" \
-    --output-source-folder "$ROOT/crates/sdk/example/tpcc/src/rust" \
-    --type-desc "$ROOT/crates/sdk/example/tpcc/package/type.desc.json" \
+    --input-source-files "$ROOT/example/mpk/tpcc/sql/ddl.sql" \
+    --output-source-folder "$ROOT/example/mpk/tpcc/src/rust" \
+    --type-desc "$ROOT/example/mpk/tpcc/package/type.desc.json" \
     --lang rust
 
 # vote
 "$MGEN" entity \
-    --input-source-files "$ROOT/crates/sdk/example/vote/sql/ddl.sql" \
-    "$ROOT/crates/sdk/example/vote/sql/type.sql" \
-    --output-source-folder "$ROOT/crates/sdk/example/vote/src/rust" \
-    --type-desc "$ROOT/crates/sdk/example/vote/package/type.desc.json" \
+    --input-source-files "$ROOT/example/mpk/vote/sql/ddl.sql" \
+    "$ROOT/example/mpk/vote/sql/type.sql" \
+    --output-source-folder "$ROOT/example/mpk/vote/src/rust" \
+    --type-desc "$ROOT/example/mpk/vote/package/type.desc.json" \
     --lang rust
 
 transpile() {
     local example="$1" wasm="$2"
-    (cd "$ROOT/crates/sdk/example/$example" && python3 "$ROOT/script/build/transpiler.py" \
+    (cd "$ROOT/example/mpk/$example" && python3 "$ROOT/script/build/transpiler.py" \
         --config build-cfg/transpiler-cfg.toml \
         --source src/rust \
         --target src/generated \

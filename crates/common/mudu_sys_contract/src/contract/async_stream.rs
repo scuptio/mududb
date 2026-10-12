@@ -11,6 +11,7 @@ pub trait AsyncStream: Send + Sync + Unpin {
     /// Shut down the stream.
     async fn shutdown(&mut self) -> RS<()>;
     /// Return the raw file descriptor, if available.
+    #[cfg(unix)]
     fn as_raw_fd(&self) -> Option<std::os::fd::RawFd>;
     /// Disable Nagle's algorithm on the underlying socket.
     fn set_nodelay(&self) -> RS<()>;

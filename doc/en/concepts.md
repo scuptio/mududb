@@ -31,7 +31,7 @@ An **MPK** file (`.mpk`) is a MuduDB application package. It is a ZIP archive th
 - Procedure descriptors.
 - One or more compiled WebAssembly component modules.
 
-You create an MPK with the `mpm-build create` command and install it into a running `mudud` server with `mcli app-install`.
+You create an MPK with the `mpm-build create` command and install it into a running `mudud` server with `mcli app-install`. For local packages, `mpm-install` is a convenient thin wrapper over the same HTTP endpoint that `mcli app-install` uses.
 
 ## App, Module, and Procedure
 
@@ -60,7 +60,9 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 | `mgen` | Source generator. Creates Rust entity types from SQL DDL, and statically checks SQL in procedure sources against the DDL (`check-sql`). | When your application has SQL tables and wants typed query results and build-time SQL validation. |
 | `mtp` | Transpiler. Transforms Rust/AssemblyScript source into Mudu procedure format and generates async wrappers. | Whenever you write or change a `/**mudu-proc**/` function. |
 | `mpm-build` | Package builder. Produces `.mpk` files from DDL, descriptors, and WASM modules. | Before deploying an application to `mudud`. |
-| `mudup` | Release installer. Downloads and activates released binaries. | For daily use or server deployment without building from source. **Not stable yet; source build recommended.** |
+| `mpm-install` | Package installer. Uploads a local `.mpk` to a running server; a thin wrapper over `mcli app-install`'s HTTP endpoint. | To install a built `.mpk` into `mudud`. |
+| `mpm-crate` | Project scaffolder. Creates a new `.mpk` application project from a template (like `cargo new`). | When starting a new application instead of copying an example. |
+| `mudup` | Release installer. Downloads and activates released binaries. | For daily use or server deployment without building from source. **Planned (design proposal); not available yet — build from source.** |
 
 ## System Call Interface
 

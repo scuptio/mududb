@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 mod async_io_uring_listener;
 mod async_io_uring_net;
 mod async_io_uring_stream;

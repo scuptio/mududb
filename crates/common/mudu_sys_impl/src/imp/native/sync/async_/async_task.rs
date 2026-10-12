@@ -8,22 +8,32 @@ use mudu::error::MuduError;
 use mudu::mudu_error;
 use std::any::Any;
 use std::future::Future;
+/// Base trait for named background tasks.
 pub trait Task: Any {}
 
+/// A background task that can run on any Send executor thread.
 pub trait AsyncTask: Task + Send + Sync {
+    /// Returns a notifier used to signal cancellation to the task.
     fn cancel_notifier(&self) -> Notifier;
 
+    /// Returns the task name used for tracing.
     fn name(&self) -> String;
 
+    /// Runs the task body to completion.
     fn async_run(self) -> impl Future<Output = RS<()>> + Send;
 }
 
+/// A background task that must run on a [`LocalTaskSet`] (its future is not
+/// `Send`).
 // A-synchronized task run in local thread
 pub trait AsyncLocalTask: Task {
+    /// Returns the waiter the task observes for cancellation.
     fn waiter(&self) -> Waiter;
 
+    /// Returns the task name used for tracing.
     fn name(&self) -> String;
 
+    /// Runs the task body to completion on the local task set.
     fn async_run_local(self) -> impl Future<Output = RS<()>>;
 }
 
@@ -103,28 +113,37 @@ impl<T: AsyncTask + 'static> AsyncWrapper for AsyncTaskWrapper<T> {
         self.task_name()
     }
 }
+/// Type-erased spawnable wrapper around an [`AsyncTask`] or
+/// [`AsyncLocalTask`].
 pub struct TaskWrapper {
     inner: Box<dyn AsyncWrapper>,
 }
 
+/// Handle to a spawned task: the join handle resolves to `None` if the task
+/// was cancelled via its notifier, `Some(result)` otherwise.
 pub struct AsyncResult {
     opt_local: Option<LocalTaskSet>,
     join_handle: TaskJoinHandle<Option<RS<()>>>,
 }
 
 impl TaskWrapper {
+    /// Wraps a Send-capable task, ready to be spawned with
+    /// [`TaskWrapper::async_run`].
     pub fn spawn_async<T: AsyncTask + 'static>(t: T) -> Self {
         Self {
             inner: Box::new(AsyncTaskWrapper::new(t)),
         }
     }
 
+    /// Wraps a `!Send` task bound to the local task set `ls`, ready to be
+    /// spawned with [`TaskWrapper::async_run`].
     pub fn spawn_async_local<T: AsyncLocalTask + 'static>(ls: LocalTaskSet, t: T) -> Self {
         Self {
             inner: Box::new(AsyncLocalTaskWrapper::new(ls, t)),
         }
     }
 
+    /// Spawns the wrapped task and returns its result handle.
     pub fn async_run(&self) -> RS<AsyncResult> {
         let (opt_local, join_handle) = self.inner.async_run()?;
         Ok(AsyncResult {
@@ -133,6 +152,8 @@ impl TaskWrapper {
         })
     }
 
+    /// Waits for all spawned tasks to finish; fails if any task's join
+    /// fails.
     pub async fn join_all(result: Vec<AsyncResult>) -> RS<()> {
         let futures = result.into_iter().map(|r| async move {
             let AsyncResult {
@@ -161,6 +182,7 @@ impl TaskWrapper {
         Ok(())
     }
 
+    /// Returns the name of the wrapped task, if it is still held.
     pub fn name(&self) -> Option<String> {
         self.inner.name()
     }

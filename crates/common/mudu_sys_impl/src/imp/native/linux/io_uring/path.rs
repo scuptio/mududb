@@ -21,21 +21,33 @@ type PendingTaskTrace = crate::task::trace::TaskTrace;
 #[cfg(not(feature = "debug_trace"))]
 type PendingTaskTrace = crate::task::trace::NoopTaskTrace;
 
+/// A path operation queued for submission to the worker ring.
 pub enum PathIoRequest {
+    /// mkdirat for one path segment.
     CreateDir(PathCreateDirRequest),
+    /// statx to test path existence.
     PathExists(PathExistsRequest),
+    /// statx to read the file length.
     MetadataLen(PathMetadataLenRequest),
+    /// unlinkat to remove a file.
     RemoveFile(PathRemoveFileRequest),
 }
 
+/// A path operation submitted to the ring and not yet completed; keeps
+/// request-owned buffers alive until the CQE arrives.
 pub enum PathInflightOp {
+    /// In-flight mkdirat.
     CreateDir(Box<PathCreateDirRequest>),
+    /// In-flight statx existence check.
     PathExists(Box<PathExistsRequest>),
+    /// In-flight statx length query.
     MetadataLen(Box<PathMetadataLenRequest>),
+    /// In-flight unlinkat.
     RemoveFile(Box<PathRemoveFileRequest>),
 }
 
 impl PathIoRequest {
+    /// Returns a short static name of the operation kind for tracing.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::CreateDir(_) => "path.mkdir",
@@ -47,6 +59,7 @@ impl PathIoRequest {
 }
 
 impl PathInflightOp {
+    /// Returns a short static name of the operation kind for tracing.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::CreateDir(_) => "path.mkdir",
@@ -57,24 +70,28 @@ impl PathInflightOp {
     }
 }
 
+/// Request to create one directory via mkdirat.
 pub struct PathCreateDirRequest {
     path: CString,
     mode: u32,
     state: Arc<OpState<()>>,
 }
 
+/// Request to test a path's existence via statx.
 pub struct PathExistsRequest {
     path: CString,
     statx: Box<libc::statx>,
     state: Arc<OpState<bool>>,
 }
 
+/// Request to read a file's length via statx.
 pub struct PathMetadataLenRequest {
     path: CString,
     statx: Box<libc::statx>,
     state: Arc<OpState<u64>>,
 }
 
+/// Request to remove a file via unlinkat.
 pub struct PathRemoveFileRequest {
     path: CString,
     state: Arc<OpState<()>>,
@@ -380,6 +397,9 @@ impl Future for PathRemoveFileFuture {
     }
 }
 
+/// Creates `path` and all missing parent directories. Uses the current
+/// worker ring when one is installed (mkdirat per segment), otherwise falls
+/// back to the default IO provider.
 pub async fn create_dir_all(path: &Path) -> RS<()> {
     if !has_current_worker_ring() {
         return crate::fs::async_::create_dir_all(path).await;
@@ -392,6 +412,8 @@ pub async fn create_dir_all(path: &Path) -> RS<()> {
     Ok(())
 }
 
+/// Returns `true` if a filesystem object exists at `path` (statx on the
+/// worker ring, or a synchronous metadata probe off-ring).
 pub async fn path_exists(path: &Path) -> RS<bool> {
     if !has_current_worker_ring() {
         return Ok(std::fs::metadata(path).is_ok());
@@ -399,6 +421,8 @@ pub async fn path_exists(path: &Path) -> RS<bool> {
     PathExistsFuture::new(path_to_cstring(path)?).await
 }
 
+/// Returns the length in bytes of the file at `path` (statx on the worker
+/// ring, or the default IO provider off-ring).
 pub async fn metadata_len(path: &Path) -> RS<u64> {
     if !has_current_worker_ring() {
         return crate::fs::async_::metadata_len(path).await;
@@ -406,6 +430,8 @@ pub async fn metadata_len(path: &Path) -> RS<u64> {
     PathMetadataLenFuture::new(path_to_cstring(path)?).await
 }
 
+/// Removes the file at `path`; succeeds silently if it does not exist
+/// (unlinkat on the worker ring, or the default IO provider off-ring).
 pub async fn remove_file_if_exists(path: &Path) -> RS<()> {
     if !has_current_worker_ring() {
         return crate::fs::async_::remove_file_if_exists(path).await;
@@ -413,6 +439,8 @@ pub async fn remove_file_if_exists(path: &Path) -> RS<()> {
     PathRemoveFileFuture::new(path_to_cstring(path)?).await
 }
 
+/// Prepares the SQE for a queued path request and returns the inflight op
+/// keeping request-owned buffers alive.
 pub fn submit_path_io(
     request: PathIoRequest,
     sqe: &mut crate::imp::native::linux::io_uring::iouring::SubmissionQueueEntry<'_>,
@@ -451,6 +479,8 @@ pub fn submit_path_io(
     }
 }
 
+/// Completes an inflight path operation from its CQE result, delivering the
+/// outcome to the waiting task. Returns `Ok(true)` when the op is done.
 pub fn complete_path_io(
     _op_id: u64,
     op: PathInflightOp,

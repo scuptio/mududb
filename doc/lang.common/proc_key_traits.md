@@ -4,7 +4,7 @@
 
 <!--
 quote_begin
-content="[Entity](../../mudu_contract/src/database/entity.rs#L23-L44)"
+content="[Entity](../../crates/common/mudu_contract/src/database/entity.rs#L23-L44)"
 lang="rust"
 -->
 ```rust
@@ -27,7 +27,7 @@ pub trait Entity: Datum {
 
 <!--
 quote_begin
-content="[SQLStmt](../../mudu_contract/src/database/sql_stmt.rs#L6-L10)"
+content="[SQLStmt](../../crates/common/mudu_contract/src/database/sql_stmt.rs#L6-L10)"
 lang="rust"
 -->
 ```rust
@@ -43,7 +43,7 @@ pub trait SQLStmt: fmt::Debug + fmt::Display + Sync + Send {
 
 <!--
 quote_begin
-content="[DatumDyn](../../mudu_type/src/datum.rs#L20-L40)"
+content="[DatumDyn](../../crates/common/mudu_type/src/datum.rs#L20-L40)"
 lang="rust"
 -->
 ```rust
@@ -82,7 +82,7 @@ untouched.
 
 <!--
 quote_begin
-content="[FieldChange](../../mudu_contract/src/database/field_change.rs#L15-L22)"
+content="[FieldChange](../../crates/common/mudu_contract/src/database/field_change.rs#L15-L22)"
 lang="rust"
 -->
 ```rust

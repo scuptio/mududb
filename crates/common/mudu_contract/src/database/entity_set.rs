@@ -1,5 +1,4 @@
-//! `database::entity_set` module.
-#![allow(missing_docs)]
+//! A set of entities produced by a query.
 
 use crate::database::entity::Entity;
 use crate::database::result_set::ResultSet;
@@ -11,6 +10,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+/// A query result set whose rows decode into entities of type `R`.
 pub struct EntitySet<R: Entity> {
     phantom: PhantomData<R>,
     _desc: Arc<TupleFieldDesc>,
@@ -18,6 +18,7 @@ pub struct EntitySet<R: Entity> {
 }
 
 impl<R: Entity> EntitySet<R> {
+    /// Creates an entity set from a result set and its row description.
     pub fn new(result_set: Arc<dyn ResultSet>, desc: Arc<TupleFieldDesc>) -> Self {
         Self {
             phantom: PhantomData,
@@ -41,6 +42,7 @@ impl<R: Entity> fmt::Debug for EntitySet<R> {
 }
 
 impl<R: Entity> EntitySet<R> {
+    /// Fetches the next row decoded as an entity, or `None` at the end of the set.
     pub fn next_record(&self) -> RS<Option<R>> {
         let opt = self.result_set.next()?;
         if let Some(row) = opt {

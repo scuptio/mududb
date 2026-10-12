@@ -1,0 +1,15 @@
+[package]
+name = "index"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "B-tree index implementation and key encodings"
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }

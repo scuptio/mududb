@@ -13,14 +13,23 @@ use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// The parameter object of a parameterized data type, one variant per
+/// parameterized type family.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DataTypeParamKind {
+    /// Parameter of the `String` (`varchar`) family.
     String(Box<DataTypeParamString>),
+    /// Parameter of the `Numeric` family.
     Numeric(Box<DataTypeParamNumeric>),
+    /// Parameter of the `Time` family.
     Time(Box<DataTypeParamTime>),
+    /// Parameter of the `Timestamp` family.
     Timestamp(Box<DataTypeParamTimestamp>),
+    /// Parameter of the `TimestampTz` family.
     TimestampTz(Box<DataTypeParamTimestampTz>),
+    /// Parameter of the `Record` family.
     Record(Box<DataTypeParamRecord>),
+    /// Parameter of the `Array` family.
     Array(Box<DataTypeParamArray>),
 }
 
@@ -45,18 +54,22 @@ macro_rules! impl_dtp_kind_methods {
                     }
                 }
 
+                /// Returns the type family this parameter belongs to.
                 pub fn type_family(&self) -> TypeFamily {
                     match self {
                         $(DataTypeParamKind::$variant_upper(_) => { TypeFamily::$variant_upper })*
                     }
                 }
 
+                /// Returns the parameter object as a `dyn DataTypeParamDyn`.
                 pub fn as_dtp_dyn(&self) -> & dyn DataTypeParamDyn {
                     match self {
                         $(DataTypeParamKind::$variant_upper(p) => { p.as_ref() })*
                     }
                 }
 
+                /// Compares two parameters; parameters of different families
+                /// order by their type family.
                 pub fn compare(&self, other: &Self) -> RS<Ordering> {
                     let ord = match (self, other) {
                         $((DataTypeParamKind::$variant_upper(l), DataTypeParamKind::$variant_upper(r)) => { l.cmp_ord(r)? })*
@@ -65,6 +78,7 @@ macro_rules! impl_dtp_kind_methods {
                     Ok(ord)
                 }
 
+                /// Returns the SQL display name of the parameterized type.
                 pub fn name(&self) -> String {
                     let name = match self {
                         $(

@@ -4,10 +4,13 @@ use mudu::mudu_error;
 use std::sync::mpsc;
 use std::time::Duration;
 
+/// Sending half of an unbounded blocking MPSC channel.
 pub struct ChannelSender<T> {
     inner: mpsc::Sender<T>,
 }
 
+/// Receiving half of a blocking MPSC channel (shared by the unbounded and
+/// bounded channel flavors).
 pub struct SyncReceiver<T> {
     inner: mpsc::Receiver<T>,
 }
@@ -26,12 +29,14 @@ impl<T> Clone for ChannelSender<T> {
     }
 }
 
+/// Creates an unbounded blocking MPSC channel.
 pub fn unbounded_channel<T>() -> (ChannelSender<T>, SyncReceiver<T>) {
     let (tx, rx) = mpsc::channel();
     (ChannelSender { inner: tx }, SyncReceiver { inner: rx })
 }
 
 impl<T> ChannelSender<T> {
+    /// Sends `value`; fails if the receiver was dropped.
     pub fn send(&self, value: T) -> RS<()> {
         match self.inner.send(value) {
             Ok(()) => Ok(()),
@@ -41,12 +46,16 @@ impl<T> ChannelSender<T> {
 }
 
 impl<T> SyncReceiver<T> {
+    /// Blocks until a message is received; fails once all senders are
+    /// dropped and the queue is empty.
     pub fn recv(&self) -> RS<T> {
         self.inner
             .recv()
             .map_err(|e| mudu_error!(ErrorCode::ChannelClosed, "channel recv failed", e))
     }
 
+    /// Returns the next queued message, `None` if the queue is empty, and an
+    /// error once all senders are dropped.
     pub fn try_recv(&self) -> RS<Option<T>> {
         match self.inner.try_recv() {
             Ok(v) => Ok(Some(v)),
@@ -59,6 +68,8 @@ impl<T> SyncReceiver<T> {
         }
     }
 
+    /// Blocks up to `dur` for a message; returns `None` on timeout and an
+    /// error once all senders are dropped.
     pub fn recv_timeout(&self, dur: Duration) -> RS<Option<T>> {
         match self.inner.recv_timeout(dur) {
             Ok(v) => Ok(Some(v)),

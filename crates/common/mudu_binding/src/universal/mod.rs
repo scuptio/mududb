@@ -64,4 +64,5 @@ pub mod uni_sql_stmt_impl;
 pub mod uni_tuple_row;
 pub mod uni_tuple_row_impl;
 pub mod uni_type_compat;
+pub mod uni_type_compat_impl;
 pub mod uni_type_desc;

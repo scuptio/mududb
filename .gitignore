@@ -33,10 +33,6 @@ crates/sdk/bindings/python/dist/
 crates/sdk/bindings/python/*.egg-info/
 crates/sdk/bindings/python/build/
 
-# py-spike guest build artifacts (rebuild with build.sh)
-crates/sdk/example/py-spike/spike.wasm
-crates/sdk/example/py-spike/spike.mpk
-
 # AssemblyScript binding local artifacts
 bindings/assemblyscript/node_modules/
 bindings/assemblyscript/build/
@@ -50,3 +46,36 @@ logs/
 bench*results
 bench_cross_db_work/
 nohup*
+
+# Local SDK publishing credentials (never included in SDK distributions).
+.secrets/
+
+# Local environment credentials at any directory depth.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Local credential stores and private key material.
+.aws/
+.ssh/
+.azure/
+.kube/
+.npmrc
+.pypirc
+.netrc
+_netrc
+credentials.json
+service-account*.json
+*.token
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519

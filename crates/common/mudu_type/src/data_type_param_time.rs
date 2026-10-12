@@ -6,8 +6,10 @@ use mudu::utils;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// Maximum fractional-second precision of the temporal types.
 pub const TEMPORAL_MAX_PRECISION: u8 = 6;
 
+/// The parameter of the `Time` type: fractional-second precision.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataTypeParamTime {
     precision: u8,
@@ -20,14 +22,18 @@ impl Default for DataTypeParamTime {
 }
 
 impl DataTypeParamTime {
+    /// Creates a time parameter with the given fractional-second precision.
     pub fn new(precision: u8) -> Self {
         Self { precision }
     }
 
+    /// Returns the fractional-second precision.
     pub fn precision(&self) -> u8 {
         self.precision
     }
 
+    /// Validates the precision against [`TEMPORAL_MAX_PRECISION`]; returns
+    /// an error message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if self.precision > TEMPORAL_MAX_PRECISION {
             return Err(format!(

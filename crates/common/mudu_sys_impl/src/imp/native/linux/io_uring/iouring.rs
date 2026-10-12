@@ -14,11 +14,14 @@ mod linux {
         libc::syscall(libc::SYS_io_uring_register, fd, opcode, arg, nr_args) as i32
     }
 
+    /// Owned io_uring instance; closes the ring on drop.
     pub struct IoUring {
         raw: rliburing::io_uring,
         exited: bool,
     }
 
+    /// Owned copy of a `sockaddr_storage` with its length, for passing
+    /// socket addresses to io_uring operations.
     #[derive(Clone, Copy)]
     pub struct SockAddrBuf {
         raw: rliburing::sockaddr_storage,
@@ -26,6 +29,9 @@ mod linux {
     }
 
     impl IoUring {
+        /// Creates a ring with a submission queue of `_entries` entries;
+        /// returns the raw (negative) setup error code on failure. Always
+        /// fails under Miri, which does not support the io_uring syscalls.
         pub fn new(_entries: u32) -> Result<Self, i32> {
             // Miri does not support the io_uring syscalls/FFI used by this
             // backend (e.g. `io_uring_queue_init_params`). Report the ring as
@@ -49,15 +55,19 @@ mod linux {
             }
         }
 
+        /// Returns the next free submission queue entry, or `None` if the
+        /// queue is full.
         pub fn next_sqe(&mut self) -> Option<SubmissionQueueEntry<'_>> {
             let sqe = unsafe { rliburing::io_uring_get_sqe(&mut self.raw) };
             (!sqe.is_null()).then_some(SubmissionQueueEntry::new(sqe))
         }
 
+        /// Submits all prepared SQEs; returns the raw io_uring_submit result.
         pub fn submit(&mut self) -> i32 {
             unsafe { rliburing::io_uring_submit(&mut self.raw) }
         }
 
+        /// Blocks until a completion is available and returns it.
         pub fn wait(&mut self) -> Result<Completion, i32> {
             let mut cqe_ptr: *mut rliburing::io_uring_cqe = std::ptr::null_mut();
             let rc = unsafe { rliburing::io_uring_wait_cqe(&mut self.raw, &mut cqe_ptr) };
@@ -67,6 +77,8 @@ mod linux {
             Ok(self.take_completion(cqe_ptr))
         }
 
+        /// Blocks up to `timeout` for a completion; returns the raw
+        /// (negative) error code on failure, including `-ETIME` on timeout.
         pub fn wait_timeout(&mut self, timeout: Duration) -> Result<Completion, i32> {
             let mut cqe_ptr: *mut rliburing::io_uring_cqe = std::ptr::null_mut();
             let mut ts = rliburing::__kernel_timespec {
@@ -82,6 +94,8 @@ mod linux {
             Ok(self.take_completion(cqe_ptr))
         }
 
+        /// Returns a completion without blocking, or `None` if none is
+        /// ready.
         pub fn peek(&mut self) -> Result<Option<Completion>, i32> {
             let mut cqe_ptr: *mut rliburing::io_uring_cqe = std::ptr::null_mut();
             let rc = unsafe { rliburing::io_uring_peek_cqe(&mut self.raw, &mut cqe_ptr) };
@@ -149,6 +163,7 @@ mod linux {
             }
         }
 
+        /// Tears down the ring; idempotent and also called on drop.
         pub fn exit(&mut self) {
             if self.exited {
                 return;
@@ -172,6 +187,7 @@ mod linux {
     }
 
     impl SockAddrBuf {
+        /// Creates a zeroed buffer sized for a full `sockaddr_storage`.
         pub fn new_empty() -> Self {
             Self {
                 raw: unsafe { std::mem::zeroed() },
@@ -179,10 +195,12 @@ mod linux {
             }
         }
 
+        /// Returns the length of the stored address in bytes.
         pub fn len(&self) -> usize {
             self.len as usize
         }
 
+        /// Returns `true` if no address is stored.
         pub fn is_empty(&self) -> bool {
             self.len == 0
         }

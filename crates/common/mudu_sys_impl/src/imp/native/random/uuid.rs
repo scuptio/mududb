@@ -6,22 +6,27 @@ use std::ops::Deref;
 pub struct Uuid(::uuid::Uuid);
 
 impl Uuid {
+    /// Generates a random version-4 UUID.
     pub fn new_v4() -> Self {
         Self(::uuid::Uuid::new_v4())
     }
 
+    /// Wraps an UUID from the `uuid` crate.
     pub fn from_external(uuid: ::uuid::Uuid) -> Self {
         Self(uuid)
     }
 
+    /// Unwraps into the underlying `uuid` crate UUID.
     pub fn into_external(self) -> ::uuid::Uuid {
         self.0
     }
 
+    /// Creates a UUID from its 128-bit integer representation.
     pub fn from_u128(value: u128) -> Self {
         Self(::uuid::Uuid::from_u128(value))
     }
 
+    /// Returns the 128-bit integer representation of this UUID.
     pub fn as_u128(&self) -> u128 {
         self.0.as_u128()
     }

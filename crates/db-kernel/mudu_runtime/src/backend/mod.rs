@@ -30,8 +30,11 @@ mod session_handle_task;
 mod session_test;
 #[cfg(all(test, target_os = "linux"))]
 mod sql_async_client_test;
+/// Tokio kernel server backend.
 pub mod tokio_backend;
+/// Async task running the legacy management HTTP service.
 pub mod web_handle_task;
+/// Legacy management HTTP service startup.
 pub mod web_serve;
 
 #[cfg(target_os = "linux")]

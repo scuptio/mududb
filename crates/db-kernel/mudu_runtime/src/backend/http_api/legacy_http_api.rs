@@ -1,10 +1,7 @@
-#![allow(missing_docs)]
-
 use super::{
     HttpApi, legacy_invoke_async_proc, legacy_invoke_sync_proc, parse_json_object_body,
     runtime_get_app_and_desc,
 };
-use crate::service::runtime::Runtime;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -12,14 +9,18 @@ use mudu::mudu_error;
 use mudu::utils::json::JsonValue;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_utils::oid::gen_oid;
+use runtime_wasm::service::runtime::Runtime;
 use serde_json::Value;
 use std::sync::Arc;
 
+/// [`HttpApi`] implementation backed by the in-process legacy runtime
+/// service.
 pub struct LegacyHttpApi {
     service: Arc<dyn Runtime>,
 }
 
 impl LegacyHttpApi {
+    /// Creates the API over a legacy runtime service.
     pub fn new(service: Arc<dyn Runtime>) -> Self {
         Self { service }
     }

@@ -1,0 +1,40 @@
+[package]
+name = "xcontract"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Cross-contract transaction execution and worker storage"
+
+[features]
+test = ["catalog/test", "meta/test", "sql/test"]
+debug_trace = ["mudu_utils/debug_trace"]
+ds = ["mudu_sys/ds"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+index = { workspace = true }
+meta = { workspace = true }
+storage = { workspace = true }
+wal = { workspace = true }
+xengine = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+rmp-serde = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+sql = { workspace = true }
+sql_parser = { workspace = true }
+catalog-testing = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

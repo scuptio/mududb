@@ -393,3 +393,37 @@ fn gen_message_matches_golden_func_fixtures() -> RS<()> {
     let _ = mudu_sys::fs::sync::sync_remove_file(&plain_output);
     Ok(())
 }
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn module_indexes_are_sorted_independently_of_file_creation_order() -> RS<()> {
+    let root = mudu_sys::env_var::temp_dir().join("mudu_gen_sorted_module_indexes");
+    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&root);
+    for (directory, names) in [
+        ("forward", ["alpha", "zulu"]),
+        ("reverse", ["zulu", "alpha"]),
+    ] {
+        let input = root.join(directory);
+        mudu_sys::fs::sync::sync_create_dir_all(&input)?;
+        for name in names {
+            mudu_sys::fs::sync::sync_copy(contract_wit_path(), input.join(format!("{name}.wit")))?;
+        }
+        for (language, index) in [("Python", "__init__.py"), ("AssemblyScript", "index.ts")] {
+            let output = root.join(format!("{directory}-{language}"));
+            gen_message(&input, &output, language.to_string(), None)?;
+            let source = mudu_sys::fs::sync::sync_read_to_string(output.join(index))?;
+            let lines: Vec<_> = source.lines().skip(1).collect();
+            let mut sorted = lines.clone();
+            sorted.sort();
+            assert_eq!(lines, sorted);
+            if directory == "reverse" {
+                let original = mudu_sys::fs::sync::sync_read_to_string(
+                    root.join(format!("forward-{language}")).join(index),
+                )?;
+                assert_eq!(source, original);
+            }
+        }
+    }
+    mudu_sys::fs::sync::sync_remove_dir_all(root)?;
+    Ok(())
+}

@@ -182,5 +182,5 @@ let decoded = PageHeader::decode(&migrated)?;
 - [ ] `cargo test --workspace` passes.
 - [ ] CI compatibility gate passes.
 
-[`MigrateHandler`]: ../../../mudu_compat_migrate/src/handler.rs
-[`CompatibilityRouter`]: ../../../mudu_compat_migrate/src/router.rs
+[`MigrateHandler`]: ../../../crates/common/mudu_compat_migrate/src/handler.rs
+[`CompatibilityRouter`]: ../../../crates/common/mudu_compat_migrate/src/router.rs

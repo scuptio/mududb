@@ -1,7 +1,10 @@
+//! Conversions from `std::io::Error` into [`MuduError`].
+
 use crate::error::ErrorCode;
 use crate::error::MuduError;
 use crate::mudu_error;
 
+/// Converts a `std::io::Error` into a [`MuduError`] with a generic message.
 #[track_caller]
 pub fn io_error(err: std::io::Error) -> MuduError {
     io_error_with_message(err, "io error")
@@ -12,6 +15,7 @@ pub fn io_error_code(err: &std::io::Error) -> ErrorCode {
     ErrorCode::from(err)
 }
 
+/// Converts a `std::io::Error` into a [`MuduError`] with the given message.
 #[track_caller]
 pub fn io_error_with_message<S: AsRef<str>>(err: std::io::Error, message: S) -> MuduError {
     mudu_error!(io_error_code(&err), message, err)
@@ -22,6 +26,7 @@ pub fn network_error_code(err: &std::io::Error) -> ErrorCode {
     ErrorCode::from(err)
 }
 
+/// Converts a network `std::io::Error` into a [`MuduError`] with the given message.
 #[track_caller]
 pub fn network_error_with_message<S: AsRef<str>>(err: std::io::Error, message: S) -> MuduError {
     mudu_error!(network_error_code(&err), message, err)

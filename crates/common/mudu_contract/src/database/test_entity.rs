@@ -1,5 +1,4 @@
-//! `database::test_entity` module.
-#![allow(missing_docs)]
+//! Tests for entity-to-value/binary/textual round trips.
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

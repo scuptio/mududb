@@ -5,7 +5,7 @@ edition = "2024"
 rust-version.workspace = true
 license = "Apache-2.0"
 description = "App-facing facade crate for MuduDB: aggregates the public interfaces (types, contract, binding, sys) behind feature flags"
-repository = "https://github.com/ybbh/mududb_p"
+repository = "https://github.com/scuptio/mududb"
 
 [lints]
 workspace = true

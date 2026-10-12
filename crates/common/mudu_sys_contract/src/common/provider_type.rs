@@ -3,6 +3,7 @@
 pub enum ProviderType {
     /// Tokio-based provider.
     Tokio,
-    /// io_uring-based provider.
+    /// Linux io_uring-based provider.
+    #[cfg(target_os = "linux")]
     IoUring,
 }

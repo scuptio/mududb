@@ -248,6 +248,31 @@ fn report<A, B, C, D>(
     );
 }
 
+/// Runs one bench workload: sanity-checks that the raw baseline body encodes
+/// byte-identical to the MSSP frame body, then times MSSP and raw
+/// encode/decode with `report`.
+fn bench_case<A, B>(
+    name: &str,
+    iters: usize,
+    frame: &[u8],
+    body: &Value,
+    mssp_enc: impl FnMut() -> A,
+    mssp_dec: impl FnMut() -> B,
+) {
+    assert_eq!(encode_value(body), &frame[HEADER_LEN..]);
+    let raw_body = &frame[HEADER_LEN..];
+    report(
+        name,
+        iters,
+        iters / 10,
+        frame.len(),
+        mssp_enc,
+        mssp_dec,
+        || black_box(encode_value(black_box(body))),
+        || black_box(decode_value(black_box(raw_body)).unwrap()),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Workloads
 // ---------------------------------------------------------------------------
@@ -331,173 +356,159 @@ fn bench_kv() {
     let pairs: Vec<(Vec<u8>, Vec<u8>)> = (0..100).map(|i| (kv_key(i), kv_value(i))).collect();
     let iters = 20_000usize;
 
-    // get request: body {1: oid, 2: key}
-    let frame = encode_get_request(oid.clone(), &key);
+    bench_kv_get_req(&oid, &key, iters);
+    bench_kv_get_result(&value, iters);
+    bench_kv_put_req(&oid, &key, &value, iters);
+    bench_kv_put_result(iters);
+    bench_kv_delete_req(&oid, &key, iters);
+    bench_kv_delete_result(iters);
+    bench_kv_range_req(&oid, &key, iters);
+    bench_kv_range_result(&pairs, iters);
+}
+
+// get request: body {1: oid, 2: key}
+fn bench_kv_get_req(oid: &UniOid, key: &[u8], iters: usize) {
+    let frame = encode_get_request(oid.clone(), key);
     let (d_oid, d_key) = decode_get_request(&frame).unwrap();
-    assert_eq!((d_oid.h, d_oid.l, d_key), (oid.h, oid.l, key.clone()));
-    let body = kv_req_body(&oid, &[&key]);
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    assert_eq!((d_oid.h, d_oid.l, d_key), (oid.h, oid.l, key.to_vec()));
+    bench_case(
         "kv_get_req",
         iters,
-        iters / 10,
-        frame.len(),
-        || black_box(encode_get_request(black_box(oid.clone()), black_box(&key))),
+        &frame,
+        &kv_req_body(oid, &[key]),
+        || black_box(encode_get_request(black_box(oid.clone()), black_box(key))),
         || black_box(decode_get_request(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // get result: body [0, value]
-    let get_result: RS<Option<Vec<u8>>> = Ok(Some(value.clone()));
+// get result: body [0, value]
+fn bench_kv_get_result(value: &[u8], iters: usize) {
+    let get_result: RS<Option<Vec<u8>>> = Ok(Some(value.to_vec()));
     let frame = encode_get_result(&get_result);
-    assert_eq!(decode_get_result(&frame).unwrap(), Some(value.clone()));
-    let body = ok_body(Value::Bin(value.clone()));
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    assert_eq!(decode_get_result(&frame).unwrap(), Some(value.to_vec()));
+    bench_case(
         "kv_get_result",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &ok_body(Value::Bin(value.to_vec())),
         || black_box(encode_get_result(black_box(&get_result))),
         || black_box(decode_get_result(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // put request: body {1: oid, 2: key, 3: value}
-    let frame = encode_put_request(oid.clone(), &key, &value);
+// put request: body {1: oid, 2: key, 3: value}
+fn bench_kv_put_req(oid: &UniOid, key: &[u8], value: &[u8], iters: usize) {
+    let frame = encode_put_request(oid.clone(), key, value);
     let (d_oid, d_key, d_value) = decode_put_request(&frame).unwrap();
     assert_eq!(
         (d_oid.h, d_oid.l, d_key, d_value),
-        (oid.h, oid.l, key.clone(), value.clone())
+        (oid.h, oid.l, key.to_vec(), value.to_vec())
     );
-    let body = kv_req_body(&oid, &[&key, &value]);
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    bench_case(
         "kv_put_req",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &kv_req_body(oid, &[key, value]),
         || {
             black_box(encode_put_request(
                 black_box(oid.clone()),
-                black_box(&key),
-                black_box(&value),
+                black_box(key),
+                black_box(value),
             ))
         },
         || black_box(decode_put_request(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // put result: body [0, 0]
+// put result: body [0, 0]
+fn bench_kv_put_result(iters: usize) {
     let unit: RS<()> = Ok(());
     let frame = encode_put_result(&unit);
     decode_put_result(&frame).unwrap();
-    let body = unit_body();
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    bench_case(
         "kv_put_result",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &unit_body(),
         || black_box(encode_put_result(black_box(&unit))),
         || decode_put_result(black_box(&frame)).unwrap(),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // delete request: body {1: oid, 2: key}
-    let frame = encode_delete_request(oid.clone(), &key);
+// delete request: body {1: oid, 2: key}
+fn bench_kv_delete_req(oid: &UniOid, key: &[u8], iters: usize) {
+    let frame = encode_delete_request(oid.clone(), key);
     let (d_oid, d_key) = decode_delete_request(&frame).unwrap();
-    assert_eq!((d_oid.h, d_oid.l, d_key), (oid.h, oid.l, key.clone()));
-    let body = kv_req_body(&oid, &[&key]);
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    assert_eq!((d_oid.h, d_oid.l, d_key), (oid.h, oid.l, key.to_vec()));
+    bench_case(
         "kv_delete_req",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &kv_req_body(oid, &[key]),
         || {
             black_box(encode_delete_request(
                 black_box(oid.clone()),
-                black_box(&key),
+                black_box(key),
             ))
         },
         || black_box(decode_delete_request(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // delete result: body [0, 0]
+// delete result: body [0, 0]
+fn bench_kv_delete_result(iters: usize) {
+    let unit: RS<()> = Ok(());
     let frame = encode_delete_result(&unit);
     decode_delete_result(&frame).unwrap();
-    let body = unit_body();
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    bench_case(
         "kv_delete_result",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &unit_body(),
         || black_box(encode_delete_result(black_box(&unit))),
         || decode_delete_result(black_box(&frame)).unwrap(),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // range request: body {1: oid, 2: start, 3: end}
+// range request: body {1: oid, 2: start, 3: end}
+fn bench_kv_range_req(oid: &UniOid, key: &[u8], iters: usize) {
     let end = kv_key(999);
-    let frame = encode_range_request(oid.clone(), &key, &end);
+    let frame = encode_range_request(oid.clone(), key, &end);
     let (d_oid, d_start, d_end) = decode_range_request(&frame).unwrap();
     assert_eq!(
         (d_oid.h, d_oid.l, d_start, d_end),
-        (oid.h, oid.l, key.clone(), end.clone())
+        (oid.h, oid.l, key.to_vec(), end.clone())
     );
-    let body = kv_req_body(&oid, &[&key, &end]);
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    bench_case(
         "kv_range_req",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &kv_req_body(oid, &[key, &end]),
         || {
             black_box(encode_range_request(
                 black_box(oid.clone()),
-                black_box(&key),
+                black_box(key),
                 black_box(&end),
             ))
         },
         || black_box(decode_range_request(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
+}
 
-    // range result: body [0, [[key, value], ...]] with 100 pairs
-    let range_result: RS<Vec<(Vec<u8>, Vec<u8>)>> = Ok(pairs.clone());
+// range result: body [0, [[key, value], ...]] with 100 pairs
+fn bench_kv_range_result(pairs: &[(Vec<u8>, Vec<u8>)], iters: usize) {
+    let range_result: RS<Vec<(Vec<u8>, Vec<u8>)>> = Ok(pairs.to_vec());
     let frame = encode_range_result(&range_result);
     assert_eq!(decode_range_result(&frame).unwrap(), pairs);
-    let body = ok_body(to_array(&pairs, |pair| {
-        to_tuple2(pair, |k| Value::Bin(k.clone()), |v| Value::Bin(v.clone()))
-    }));
-    assert_eq!(encode_value(&body), &frame[HEADER_LEN..]);
-    let raw_body = &frame[HEADER_LEN..];
-    report(
+    bench_case(
         "kv_range_result_100",
         iters,
-        iters / 10,
-        frame.len(),
+        &frame,
+        &ok_body(to_array(pairs, |pair| {
+            to_tuple2(pair, |k| Value::Bin(k.clone()), |v| Value::Bin(v.clone()))
+        })),
         || black_box(encode_range_result(black_box(&range_result))),
         || black_box(decode_range_result(black_box(&frame)).unwrap()),
-        || black_box(encode_value(black_box(&body))),
-        || black_box(decode_value(black_box(raw_body)).unwrap()),
     );
 }
 

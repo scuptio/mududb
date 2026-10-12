@@ -2,39 +2,50 @@ use mudu::common::result::RS;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+/// Stateless environment variable operations over `std::env`.
 pub struct EnvVar;
 
 impl EnvVar {
+    /// Returns the value of environment variable `key`, or `None` if it is
+    /// not set or not valid Unicode.
     pub fn var(key: &str) -> Option<String> {
         std::env::var(key).ok()
     }
 
+    /// Returns the raw [`OsString`] value of environment variable `key`, or
+    /// `None` if it is not set.
     pub fn var_os(key: &str) -> Option<OsString> {
         std::env::var_os(key)
     }
 
+    /// Sets environment variable `key` to `value` for the current process.
     pub fn set_var(key: &str, value: &str) {
         std::env::set_var(key, value);
     }
 
+    /// Removes environment variable `key` from the current process.
     pub fn remove_var(key: &str) {
         std::env::remove_var(key);
     }
 
+    /// Returns the path of the system temporary directory.
     pub fn temp_dir() -> PathBuf {
         std::env::temp_dir()
     }
 
+    /// Returns the current working directory of the process.
     pub fn current_dir() -> RS<PathBuf> {
         std::env::current_dir().map_err(|e| {
             mudu::mudu_error!(mudu::error::ErrorCode::from(&e), "get current dir error", e)
         })
     }
 
+    /// Returns the home directory of the current user (`$HOME`), if set.
     pub fn home_dir() -> Option<PathBuf> {
         std::env::var("HOME").ok().map(PathBuf::from)
     }
 
+    /// Returns the command-line arguments the process was started with.
     pub fn args_os() -> Vec<OsString> {
         std::env::args_os().collect()
     }

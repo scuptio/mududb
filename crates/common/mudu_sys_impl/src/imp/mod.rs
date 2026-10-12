@@ -1,4 +1,4 @@
 //! Concrete native implementations of the system contracts.
-#![allow(missing_docs)]
+/// Native (Linux/Unix) backend.
 pub mod native;
 pub use native::*;

@@ -1,0 +1,14 @@
+# Generator templates must retain LF on Windows and Unix.
+crates/tools/mudu_gen/templates/** text eol=lf
+
+# WIT comments are preserved verbatim in generated bindings.
+*.wit text eol=lf
+
+# Preserve byte-exact generated bindings across Windows and Unix checkouts.
+crates/sdk/bindings/assemblyscript/assembly/generated/*.ts text eol=lf
+crates/sdk/bindings/python/mududb/generated/* text eol=lf
+crates/sdk/bindings/go/types/*.go text eol=lf
+crates/sdk/bindings/c/mududb/types/*.h text eol=lf
+crates/sdk/mudu_api/csharp/uni/*.cs text eol=lf
+crates/sdk/mudu_api/csharp/mudu_sys/UniSyscall.cs text eol=lf
+crates/common/mudu_binding/src/codec/syscall_payload/syscall_schema.desc.json text eol=lf

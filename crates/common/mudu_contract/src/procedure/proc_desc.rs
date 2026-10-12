@@ -1,5 +1,4 @@
-//! `procedure::proc_desc` module.
-#![allow(missing_docs)]
+//! Description of a procedure's interface: module, name, parameters, and return type.
 
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
@@ -47,6 +46,7 @@ impl ProcDesc {
         &self.module_name
     }
 
+    /// Returns whether the procedure is asynchronous (always `false`).
     pub fn is_async(&self) -> bool {
         false
     }

@@ -110,7 +110,7 @@ export function encode{{ func.pascal }}Result(result: {{ func.res_holder_name }}
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        {{ func.err_type_name }}Codec.encode(error!, writer);
+        {{ func.err_type_name }}Codec.encode(error, writer);
     } else {
         // unit success: the `0u8` placeholder payload
         writer.writeU64(0);
@@ -150,7 +150,7 @@ export function encode{{ func.pascal }}Result(result: {{ func.res_holder_name }}
     const error = result.error;
     if (error !== null) {
         writer.writeU64(1);
-        {{ func.err_type_name }}Codec.encode(error!, writer);
+        {{ func.err_type_name }}Codec.encode(error, writer);
     } else {
         writer.writeU64(0);
 {{ func.res_encode_stmts }}

@@ -1,9 +1,9 @@
 # How to Start
 
-This guide covers two ways to get started:
+Use this page to prepare a development environment. This guide covers two ways to get started:
 
-- **[Develop MuduDB from source](#develop-mududb-from-source)** – build from source with a reproducible, pinned toolchain (recommended).
-- **[Use MuduDB with `mudup`](#use-mududb-with-mudup)** – install released binaries with `mudup` (not stable yet).
+- **[Develop MuduDB from source](#develop-mududb-from-source)** – build from source with a reproducible, pinned toolchain (recommended). The source path offers three setup options: start with option A, then follow [Your first MPK](your_first_mpk.md) to build, install and invoke the wallet example. Options B and C are alternative setup methods; you do not need to run all three.
+- **[Use MuduDB with `mudup`](#use-mududb-with-mudup)** – install released binaries with `mudup` (planned; not available yet).
 
 ---
 
@@ -124,6 +124,7 @@ Default installed tools:
 
 - `mpm-build`: package builder
 - `mpm-crate`: project scaffolder
+- `mpm-install`: package installer
 - `mgen`: source generator
 - `mtp`: transpiler
 - `mudud`: MuduDB server
@@ -139,9 +140,9 @@ python script/build/install_binaries.py --all-workspace-bins
 
 ## Use MuduDB with `mudup`
 
-> **Note:** The `mudup` install path is not stable yet. We recommend [developing from source](#develop-mududb-from-source) for now.
+> **Note:** `mudup` is a planned installer whose design is still settling — see the [design proposal](mudup.md). The commands below are not available yet. The working install path today is building from source with `cargo make`, or running `python script/build/install_binaries.py` as described in [Install development binaries](#install-development-binaries).
 
-For server deployment or daily use, install the release artifacts through `mudup`.
+Once released, `mudup` will install the release artifacts for server deployment or daily use.
 
 ### 1. Install `mudup`
 
@@ -156,7 +157,7 @@ mudup --help
 mudup install
 ```
 
-This installs and activates the latest release binaries: `mudud`, `mcli`, `mpm-build`, `mgen`, `mtp`.
+This will install and activate the latest release binaries: `mpm-build`, `mpm-crate`, `mpm-install`, `mgen`, `mtp`, `mudud`, `mcli`.
 
 ### 3. Verify installation
 
@@ -165,13 +166,7 @@ mudud --version
 mcli --version
 ```
 
-After installation, generate a default server configuration in the current directory:
-
-```bash
-mudud init-cfg
-```
-
-This writes `./mudud.cfg` with default values. The server does **not** create this file automatically on startup.
+Then create a configuration file and start the server as described in [Running mudud](running_mudud.md).
 
 ---
 
@@ -222,37 +217,13 @@ Both upgrades are explicit commits; no floating toolchain channels are used in C
 
 ## Configuration file
 
-`mudud` searches for the configuration file in the following order:
-
-1. The path given by `--cfg` / `-c` (if supplied). This path is used exactly as given.
-2. `./mudud.cfg` in the current working directory.
-3. `~/.mududb/mudud.cfg` in the user's home directory.
-
-The first file that exists is loaded. If none of them exist, `mudud` returns a `NotFound` error and does not start.
-
 Generate a default `./mudud.cfg` in the current directory without starting the server:
 
 ```bash
 mudud init-cfg
 ```
 
-Do not create an empty `mudud.cfg`: the server treats an existing file as user configuration and parses it.
-
-Use a custom path:
-
-```bash
-mudud serve --cfg /path/to/mudud.cfg
-# or short form
-mudud serve -c /path/to/mudud.cfg
-```
-
-Use the example configuration:
-
-```bash
-cp doc/cfg/mudud.cfg ./mudud.cfg
-```
-
-See also: [mudud.cfg example](../cfg/mudud.cfg).
+`mudud` loads the first configuration file it finds and does not create one automatically. The full search order, configuration fields and custom `--cfg` / `-c` paths are documented in [Running mudud](running_mudud.md).
 
 ---
 
@@ -276,7 +247,7 @@ If `mudud` is launched by `systemd` or another supervisor, configure the service
 Verify the live limit after startup:
 
 ```bash
-cat /proc/$(pgrep -x mudud)/limits | rg 'open files'
+cat /proc/$(pgrep -x mudud)/limits | grep 'open files'
 ```
 
 ### 2. Use `mcli` interactive shell for CRUD
@@ -317,80 +288,7 @@ Shell notes:
 
 ### 3. Build, install, and use the wallet app
 
-#### Build the wallet `.mpk` package
-
-```bash
-cd example/wallet
-cargo make
-```
-
-The package target is generated at:
-
-```bash
-target/wasm32-wasip2/release/wallet.mpk
-```
-
-#### Install wallet with `mcli`
-
-```bash
-mcli --http-addr 127.0.0.1:8300 app-install --mpk target/wasm32-wasip2/release/wallet.mpk
-```
-
-Verify installation:
-
-```bash
-mcli --http-addr 127.0.0.1:8300 app-list
-mcli --http-addr 127.0.0.1:8300 app-detail --app wallet
-mcli --http-addr 127.0.0.1:8300 app-detail --app wallet --module wallet --proc create_user
-mcli --http-addr 127.0.0.1:8300 server-topology
-```
-
-#### Invoke wallet procedures
-
-Create two users:
-
-```bash
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc create_user --json '{
-  "user_id": 1001,
-  "name": "Alice",
-  "email": "alice@example.com"
-}'
-
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc create_user --json '{
-  "user_id": 1002,
-  "name": "Bob",
-  "email": "bob@example.com"
-}'
-```
-
-Note: `app-invoke` sends the procedure call over TCP; it still needs `--http-addr` to fetch procedure metadata.
-
-Deposit and transfer:
-
-```bash
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc deposit --json '{
-  "user_id": 1001,
-  "amount": 5000
-}'
-
-mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke --app wallet --module wallet --proc transfer --json '{
-  "from_user_id": 1001,
-  "to_user_id": 1002,
-  "amount": 1200
-}'
-```
-
-Check wallet balances in shell:
-
-```bash
-mcli --addr 127.0.0.1:9527 shell --app wallet
-```
-
-```sql
-SELECT user_id, balance FROM wallets WHERE user_id IN (1001, 1002);
-```
-
----
+Follow [Your first MPK](your_first_mpk.md) for the package path, configuration, installation commands and expected results. Start at the repository root so that the shared `target/` path resolves correctly.
 
 ## Troubleshooting / FAQ
 
@@ -399,9 +297,11 @@ SELECT user_id, balance FROM wallets WHERE user_id IN (1001, 1002);
 MuduDB requires Linux kernel 5.1+ with `CONFIG_IO_URING=y`. Check:
 
 ```bash
-uname -r                          # must be >= 5.1
-grep io_uring /proc/filesystems   # should list io_uring
+uname -r                                # must be >= 5.1
+bash script/build/inspect_iouring_env.sh
 ```
+
+The inspect script reports kernel toggles, seccomp status and container settings. `io_uring` is not a filesystem, so it cannot be detected through `/proc/filesystems`; see [DEPLOY.md](DEPLOY.md) for environment details.
 
 If you are running inside Docker, use `--privileged` or add `--cap-add CAP_SYS_ADMIN --ulimit memlock=-1:-1`.
 

@@ -16,6 +16,10 @@ macro_rules! this_file {
     };
 }
 
+/// Implementation backing the [`this_file!`](crate::this_file!) macro.
+///
+/// Resolves the `file!()` path reported by `rustc` to an absolute path under
+/// the caller crate's manifest directory; not intended for direct use.
 pub fn __this_file(file: &str) -> String {
     let file_path = PathBuf::from(file);
     if file_path.is_absolute() {

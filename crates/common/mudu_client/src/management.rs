@@ -121,6 +121,41 @@ pub struct ServerTopology {
     pub tcp_base_listen_port: u16,
     /// Per-worker topology entries.
     pub workers: Vec<WorkerTopology>,
+    /// Raft/replication view of the node; absent on a single-node server.
+    #[serde(default)]
+    pub replication: Option<ReplicationTopology>,
+}
+
+/// Raft/replication view of one cluster node (as reported by the
+/// server topology endpoint).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplicationTopology {
+    /// Cluster node id of this server.
+    pub node_id: u64,
+    /// Current raft role ("Leader", "Follower", "Candidate", "Learner").
+    pub role: String,
+    /// Current raft term.
+    pub term: u64,
+    /// Currently known raft leader node id, if any.
+    pub leader_node_id: Option<u64>,
+    /// Whether this node currently serves client writes.
+    pub serving: bool,
+    /// Current raft commit index.
+    pub commit_index: u64,
+    /// Latest known committed vector: per-worker `(lsn, seg_hash)`.
+    #[serde(default)]
+    pub commit_vec: Vec<CommitVecTopology>,
+}
+
+/// One worker's committed point in the topology view.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommitVecTopology {
+    /// Worker index.
+    pub worker_index: u32,
+    /// Highest raft-committed LSN of the worker's stream.
+    pub lsn: u64,
+    /// Segment hash at `lsn`, lowercase hex.
+    pub seg_hash: String,
 }
 
 impl ServerTopology {
@@ -182,6 +217,59 @@ pub async fn fetch_server_topology(http_addr: &str) -> AppResult<ServerTopology>
     let response = get_http_json(http_addr, "/mudu/server/topology").await?;
     let data = extract_http_api_data(response)?;
     serde_json::from_value(data).map_err(|e| format!("decode server topology failed: {}", e))
+}
+
+/// Fetch the replication status from the HTTP management API (raw JSON;
+/// a single-node server answers `mode = "none"`).
+pub async fn fetch_server_replication(http_addr: &str) -> AppResult<Value> {
+    let response = get_http_json(http_addr, "/mudu/server/replication").await?;
+    extract_http_api_data(response)
+}
+
+/// Take a base backup labelled `label` through the HTTP management API.
+pub async fn backup_create(http_addr: &str, label: &str) -> AppResult<Value> {
+    let payload = json!({ "label": label });
+    let response = post_http_json(http_addr, "/mudu/backup", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// List the labels of every valid base backup.
+pub async fn backup_list(http_addr: &str) -> AppResult<Value> {
+    let response = get_http_json(http_addr, "/mudu/backup/list").await?;
+    extract_http_api_data(response)
+}
+
+/// Verify a base backup by label.
+pub async fn backup_verify(http_addr: &str, label: &str) -> AppResult<Value> {
+    let payload = json!({ "label": label });
+    let response = post_http_json(http_addr, "/mudu/backup/verify", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// Delete a base backup by label; returns the JSON boolean result.
+pub async fn backup_delete(http_addr: &str, label: &str) -> AppResult<Value> {
+    let payload = json!({ "label": label });
+    let response = post_http_json(http_addr, "/mudu/backup/delete", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// Take a full-database logical dump into `dir` under `label`.
+pub async fn dump_logical(http_addr: &str, label: &str, dir: &str) -> AppResult<Value> {
+    let payload = json!({ "label": label, "dir": dir });
+    let response = post_http_json(http_addr, "/mudu/dump", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// Restore a full-database logical dump from `dir` under `label`.
+pub async fn restore_logical(
+    http_addr: &str,
+    label: &str,
+    dir: &str,
+    drop_existing: bool,
+) -> AppResult<Value> {
+    let payload = json!({ "label": label, "dir": dir, "drop_existing": drop_existing });
+    let response = post_http_json(http_addr, "/mudu/restore-logical", payload).await?;
+    extract_http_api_data(response)
 }
 
 /// List installed apps from the HTTP management API.
@@ -274,6 +362,95 @@ pub async fn route_partition(
     let response = post_http_json(http_addr, "/mudu/partition/route", payload).await?;
     let data = extract_http_api_data(response)?;
     serde_json::from_value(data).map_err(|e| format!("decode partition route failed: {}", e))
+}
+
+/// Redirect cap of the membership client (not-the-leader hops).
+const MEMBERSHIP_MAX_REDIRECTS: usize = 4;
+
+/// Promote the node at `http_addr` to stream primary. `fencing_ok` is the
+/// operator's confirmation that the old primary is fenced; the endpoint
+/// refuses without it (HTTP 400).
+pub async fn repl_promote(http_addr: &str, fencing_ok: bool) -> AppResult<Value> {
+    let payload = json!({ "fencing_ok": fencing_ok });
+    let response = post_http_json(http_addr, "/mudu/repl/promote", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// Point the node at `http_addr` at a new stream primary.
+pub async fn repl_follow(
+    http_addr: &str,
+    primary_node_id: u64,
+    primary_host: &str,
+    primary_port: u16,
+) -> AppResult<Value> {
+    let payload = json!({
+        "primary_node_id": primary_node_id,
+        "primary_host": primary_host,
+        "primary_port": primary_port,
+    });
+    let response = post_http_json(http_addr, "/mudu/repl/follow", payload).await?;
+    extract_http_api_data(response)
+}
+
+/// Apply one raft membership change through the replication admin
+/// endpoint. `action` is `add_voter` | `add_learner` | `remove` |
+/// `promote_learner`; `host`/`port` are required for the add actions.
+///
+/// When the contacted node is not the raft leader, the endpoint answers
+/// with a `leader_hint` in the error envelope and the request is re-issued
+/// against the hinted HTTP address (bounded by
+/// [`MEMBERSHIP_MAX_REDIRECTS`]).
+pub async fn repl_membership(
+    http_addr: &str,
+    action: &str,
+    node_id: u64,
+    host: Option<String>,
+    port: Option<u16>,
+) -> AppResult<Value> {
+    let payload = json!({
+        "action": action,
+        "node_id": node_id,
+        "host": host,
+        "port": port,
+    });
+    let mut addr = http_addr.to_string();
+    let mut redirects = 0usize;
+    loop {
+        let url = format!("http://{}{}", addr, "/mudu/repl/membership");
+        let client = http_client()?;
+        let response =
+            send_json_request("POST", &url, || client.post(&url).json(&payload).send()).await?;
+        let ok = response
+            .get("ok")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| "membership response missing ok flag".to_string())?;
+        if ok {
+            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+        }
+        let error = response.get("error").cloned().unwrap_or(Value::Null);
+        let hint = error.get("leader_hint");
+        let hinted_addr = hint.and_then(|hint| {
+            let host = hint.get("host").and_then(Value::as_str)?;
+            let http_port = hint.get("http_port").and_then(Value::as_u64)?;
+            Some(format!("{host}:{http_port}"))
+        });
+        if let Some(hinted_addr) = hinted_addr {
+            redirects += 1;
+            if redirects > MEMBERSHIP_MAX_REDIRECTS {
+                return Err(format!(
+                    "membership request redirected more than {MEMBERSHIP_MAX_REDIRECTS} times (last hint {hinted_addr})"
+                ));
+            }
+            addr = hinted_addr;
+            continue;
+        }
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .or_else(|| response.get("message").and_then(Value::as_str))
+            .unwrap_or("replication membership request failed");
+        return Err(format!("{}: {}", message, error));
+    }
 }
 
 async fn get_http_json(http_addr: &str, path: &str) -> AppResult<Value> {
@@ -505,6 +682,7 @@ mod tests {
                     partitions: vec![],
                 },
             ],
+            replication: None,
         };
         assert_eq!(
             topology.worker_addr_by_index("127.0.0.1", 1),

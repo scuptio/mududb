@@ -16,8 +16,16 @@ use generated::uni_syscall as gen_codec;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-async"))]
 mod wasm_async;
 
+/// Dispatches a pre-encoded `query` request frame to the configured backend
+/// (native adapter, `mock-sqlite`, or the wasm32 host import) and returns
+/// the raw response frame.
 #[allow(unused_variables)]
 pub async fn query_raw(query_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("query", &query_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::query_raw(query_in).await;
@@ -38,8 +46,15 @@ pub async fn query_raw(query_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a pre-encoded `command` request frame to the configured
+/// backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn command_raw(command_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("command", &command_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::command_raw(command_in).await;
@@ -60,8 +75,15 @@ pub async fn command_raw(command_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a `fetch` continuation (the cursor bytes of a previous query
+/// result) to the configured backend and returns the raw response.
 #[allow(unused_variables)]
 pub async fn fetch_raw(query_result: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("fetch", &query_result);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::fetch_raw(query_result).await;
@@ -178,7 +200,17 @@ pub(crate) fn encode_command_response(result: &UniCommandReturn) -> Result<Vec<u
     )))
 }
 
+/// Runs a `command` syscall: serializes `argv`, dispatches it to the
+/// configured backend and deserializes the result frame.
 pub async fn sys_command(argv: &UniCommandArgv) -> Result<UniCommandReturn, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return deserialize_command_result(&crate::adapter::call(
+            "command",
+            &serialize_command(argv)?,
+        )?);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return Ok(crate::mock::MockSqliteMuduSysCall::sys_command(argv.clone()).await);
@@ -195,7 +227,14 @@ pub async fn sys_command(argv: &UniCommandArgv) -> Result<UniCommandReturn, ApiE
     Err(ApiError::backend_unavailable("unreachable backend branch"))
 }
 
+/// Runs a `query` syscall: serializes `argv`, dispatches it to the
+/// configured backend and deserializes the result frame.
 pub async fn sys_query(argv: &UniQueryArgv) -> Result<UniQueryReturn, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return deserialize_query_result(&crate::adapter::call("query", &serialize_query(argv)?)?);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return Ok(crate::mock::MockSqliteMuduSysCall::sys_query(argv.clone()).await);
@@ -212,6 +251,8 @@ pub async fn sys_query(argv: &UniQueryArgv) -> Result<UniQueryReturn, ApiError> 
     Err(ApiError::backend_unavailable("unreachable backend branch"))
 }
 
+/// Runs a `command` syscall and flattens the result to the affected row
+/// count.
 pub async fn sys_command_affected_rows(argv: &UniCommandArgv) -> Result<u64, ApiError> {
     match sys_command(argv).await? {
         UniCommandReturn::Ok(UniCommandResult { affected_rows }) => Ok(affected_rows),
@@ -219,6 +260,8 @@ pub async fn sys_command_affected_rows(argv: &UniCommandArgv) -> Result<u64, Api
     }
 }
 
+/// Runs a `query` syscall and flattens the result to the success value,
+/// mapping a wire-level `UniError` to [`ApiError::Decode`].
 pub async fn sys_query_ok(argv: &UniQueryArgv) -> Result<UniQueryResult, ApiError> {
     match sys_query(argv).await? {
         UniQueryReturn::Ok(result) => Ok(result),
@@ -243,6 +286,7 @@ mod tests {
                 params: Vec::new(),
                 param_names: None,
             },
+            param_desc: None,
         }
     }
 
@@ -268,6 +312,7 @@ mod tests {
                 params: Vec::new(),
                 param_names: None,
             },
+            param_desc: None,
         })
         .unwrap();
         assert!(decode_command_request(&query_frame).is_err());
@@ -311,6 +356,7 @@ mod tests {
                 params: Vec::new(),
                 param_names: None,
             },
+            param_desc: None,
         };
         let frame = serialize_query(&argv).unwrap();
         assert_eq!(

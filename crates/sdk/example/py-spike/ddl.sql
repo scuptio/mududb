@@ -1,1 +1,0 @@
--- py spike: no schema

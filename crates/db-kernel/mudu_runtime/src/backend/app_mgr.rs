@@ -1,9 +1,9 @@
 use crate::backend::mudu_app_mgr::ListOption;
 use crate::backend::mudud_cfg::MuduDBCfg;
-use crate::service::app_list::AppList;
+use ::worker::async_func_runtime::AsyncFuncInvoker;
 use async_trait::async_trait;
 use mudu::common::result::RS;
-use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
+use runtime_wasm::service::app_list::AppList;
 use std::sync::Arc;
 
 /// Trait implemented by application managers.

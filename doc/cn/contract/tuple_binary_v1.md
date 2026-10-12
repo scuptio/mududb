@@ -142,8 +142,8 @@ Slot 按 schema 顺序为所有变长字段依次存储。
 - Log frame：[log_frame_v1.md](log_frame_v1.md)
 - File layout：[file_layout_v1.md](file_layout_v1.md)
 - 实现：
-  - [mudu_contract/src/tuple/tuple_binary.rs](../../../mudu_contract/src/tuple/tuple_binary.rs)
-  - [mudu_contract/src/tuple/tuple_binary_desc.rs](../../../mudu_contract/src/tuple/tuple_binary_desc.rs)
-  - [mudu_contract/src/tuple/slot.rs](../../../mudu_contract/src/tuple/slot.rs)
-  - [mudu_contract/src/tuple/bitmap.rs](../../../mudu_contract/src/tuple/bitmap.rs)
-  - [mudu_contract/src/tuple/nullable_tuple.rs](../../../mudu_contract/src/tuple/nullable_tuple.rs)
+  - [mudu_contract/src/tuple/tuple_binary.rs](../../../crates/common/mudu_contract/src/tuple/tuple_binary.rs)
+  - [mudu_contract/src/tuple/tuple_binary_desc.rs](../../../crates/common/mudu_contract/src/tuple/tuple_binary_desc.rs)
+  - [mudu_contract/src/tuple/slot.rs](../../../crates/common/mudu_contract/src/tuple/slot.rs)
+  - [mudu_contract/src/tuple/bitmap.rs](../../../crates/common/mudu_contract/src/tuple/bitmap.rs)
+  - [mudu_contract/src/tuple/nullable_tuple.rs](../../../crates/common/mudu_contract/src/tuple/nullable_tuple.rs)

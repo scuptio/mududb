@@ -1,3 +1,5 @@
+//! Timestamp values without a time zone.
+
 use crate::data_type::temporal::{
     format_fractional_micros, micros_from_naive_timestamp, parse_naive_timestamp,
     validate_precision,
@@ -5,25 +7,31 @@ use crate::data_type::temporal::{
 use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
+/// A timestamp without time zone stored as microseconds since the Unix epoch.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimestampValue {
     epoch_micros: i64,
 }
 
 impl TimestampValue {
+    /// Creates a timestamp from microseconds since the Unix epoch.
     pub fn from_epoch_micros(epoch_micros: i64) -> Self {
         Self { epoch_micros }
     }
 
+    /// Returns the microseconds since the Unix epoch.
     pub fn epoch_micros(&self) -> i64 {
         self.epoch_micros
     }
 
+    /// Parses a timestamp string without a time zone.
     pub fn parse(s: &str) -> Result<Self, String> {
         let timestamp = parse_naive_timestamp(s)?;
         Self::from_naive_datetime(timestamp)
     }
 
+    /// Formats the timestamp as `YYYY-MM-DD HH:MM:SS` with `precision`
+    /// fractional digits.
     pub fn format(&self, precision: u8) -> Result<String, String> {
         validate_precision(precision)?;
         let dt = self.to_naive_datetime()?;
@@ -35,6 +43,7 @@ impl TimestampValue {
         ))
     }
 
+    /// Truncates the value to the given fractional-second precision.
     pub fn truncate_precision(&self, precision: u8) -> Result<Self, String> {
         validate_precision(precision)?;
         let factor = match precision {
@@ -51,12 +60,14 @@ impl TimestampValue {
         ))
     }
 
+    /// Converts a [`NaiveDateTime`] into a `TimestampValue`.
     pub fn from_naive_datetime(timestamp: NaiveDateTime) -> Result<Self, String> {
         Ok(Self::from_epoch_micros(micros_from_naive_timestamp(
             timestamp,
         )?))
     }
 
+    /// Converts this value into a [`NaiveDateTime`].
     pub fn to_naive_datetime(&self) -> Result<NaiveDateTime, String> {
         DateTime::<Utc>::from_timestamp_micros(self.epoch_micros)
             .map(|dt| dt.naive_utc())

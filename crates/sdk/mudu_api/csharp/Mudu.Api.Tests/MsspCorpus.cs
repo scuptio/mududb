@@ -41,6 +41,11 @@ internal static class MsspCorpus
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
+            var local = Path.Combine(dir.FullName, "tests/fixtures/golden/v1", name);
+            if (File.Exists(local))
+            {
+                return local;
+            }
             var candidate = Path.Combine(dir.FullName, relative, name);
             if (File.Exists(candidate))
             {

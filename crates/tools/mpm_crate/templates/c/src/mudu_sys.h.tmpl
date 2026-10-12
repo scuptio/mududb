@@ -148,6 +148,15 @@ void *mudu_arena_alloc(size_t size, size_t align);
  * initializers, loop idioms); provided here because the build has no libc.
  * `-fno-builtin` in Makefile.toml stops the compiler from recognizing these
  * loops and rewriting them into calls of themselves. */
+/* Apple <string.h> (pulled in via the binding headers) maps these to
+ * function-like fortify macros (secure/_string.h); drop the macro versions so
+ * the declarations below survive preprocessing in native builds. No-op where
+ * the macros are undefined (glibc, MSVC, freestanding wasm). */
+#undef memcpy
+#undef memmove
+#undef memset
+#undef memcmp
+#undef strlen
 void *memcpy(void *dst, const void *src, size_t n);
 void *memmove(void *dst, const void *src, size_t n);
 void *memset(void *dst, int c, size_t n);

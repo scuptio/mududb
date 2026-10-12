@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 
-# The repository has no root cargo workspace: crates/{common,db-kernel,sdk,tools}
-# are four independent workspaces, checked one at a time.
-$Groups = @("crates/common", "crates/db-kernel", "crates/sdk", "crates/tools")
+# The repository has no root cargo workspace: crates/{common,db-kernel,sdk,
+# tools} and example/mpk are independent workspaces, checked one at a time.
+$Groups = @("crates/common", "crates/db-kernel", "crates/sdk", "example/mpk", "crates/tools")
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 Write-Host "Running cargo fmt --check (per group workspace)..."

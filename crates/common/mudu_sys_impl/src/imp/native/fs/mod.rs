@@ -1,8 +1,12 @@
-#![allow(missing_docs)]
+/// Async filesystem facade functions operating through the default system
+/// environment's IO provider.
 pub mod async_;
+/// Synchronous filesystem operations.
 pub mod sync;
+/// Async file handle shared across IO providers.
 pub mod sys_file;
 
+#[cfg(target_os = "linux")]
 pub(crate) mod async_io_uring;
 pub(crate) mod async_tokio;
 

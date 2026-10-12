@@ -222,7 +222,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
 
     let adapter = render_adapter_source(&procedures, "shop_go", Some("shop_go/gentypes"))?;
     assert!(adapter.contains("gentypes \"shop_go/gentypes\""));
-    assert!(adapter.contains("\"github.com/ybbh/mududb_p/bindings/go/types\""));
+    assert!(adapter.contains("\"github.com/mududb/mududb-go/types\""));
     // record parameter: the record bridge feeds the generated codec
     assert!(adapter.contains("profileFields, err := types.RecordFieldValues(p.Params[1])"));
     assert!(adapter.contains("profile, err := gentypes.ProfileFromValue(profileFields)"));
@@ -313,11 +313,11 @@ fn transpiles_custom_types_and_generates_all_artifacts() -> Result<(), Box<dyn E
     assert_go_syntax(&go)?;
     assert_wit_syntax(&wit)?;
     assert!(wit.contains("export mp2-update-profile: func(param: list<u8>) -> list<u8>;"));
+    assert_shop_custom_desc(&desc)?;
+    Ok(())
+}
 
-    let desc_json = serde_json::from_str::<serde_json::Value>(&desc)?;
-    let proc_desc = &desc_json["modules"]["shop_go"][0];
-    assert_eq!(proc_desc["proc_name"], "update_profile");
-
+fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
     let string_type = serde_json::json!({
         "id": "String",
         "param": { "String": { "length": 65536 } }
@@ -358,6 +358,15 @@ fn transpiles_custom_types_and_generates_all_artifacts() -> Result<(), Box<dyn E
             }
         }
     });
+    (string_type, i32_type, profile_type)
+}
+
+fn assert_shop_custom_desc(desc: &str) -> Result<(), Box<dyn Error>> {
+    let desc_json = serde_json::from_str::<serde_json::Value>(desc)?;
+    let proc_desc = &desc_json["modules"]["shop_go"][0];
+    assert_eq!(proc_desc["proc_name"], "update_profile");
+
+    let (string_type, i32_type, profile_type) = shop_desc_type_jsons();
     assert_eq!(
         proc_desc["param_desc"]["fields"][0],
         serde_json::json!({

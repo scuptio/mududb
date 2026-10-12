@@ -6,7 +6,7 @@ edition = "2021"
 rust-version.workspace = true
 
 [lints.clippy]
-disallowed-types = "allow"
+disallowed_types = "allow"
 
 [features]
 default = []

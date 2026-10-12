@@ -1,0 +1,1 @@
+-- Start empty. The adapter scenario creates its own accounts.

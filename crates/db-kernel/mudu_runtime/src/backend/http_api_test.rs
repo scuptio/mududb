@@ -16,8 +16,8 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::sync::Arc;
 
-    use crate::service::app_inst::AppInst;
-    use crate::service::runtime::Runtime;
+    use runtime_wasm::service::app_inst::AppInst;
+    use runtime_wasm::service::runtime::Runtime;
 
     fn sample_desc() -> ProcDesc {
         ProcDesc::new(
@@ -65,7 +65,7 @@ mod tests {
             _mod_name: &str,
             _proc_name: &str,
             _param: ProcedureParam,
-            _worker_local: Option<mudu_kernel::server::worker_local::WorkerLocalRef>,
+            _worker_local: Option<::conn::worker_local::WorkerLocalRef>,
         ) -> RS<ProcedureResult> {
             let desc = sample_desc();
             Ok(ProcedureResult::from(Ok((42i32,)), desc.return_desc())?)
@@ -77,7 +77,7 @@ mod tests {
             _mod_name: &str,
             _proc_name: &str,
             _param: ProcedureParam,
-            _worker_local: Option<mudu_kernel::server::worker_local::WorkerLocalRef>,
+            _worker_local: Option<::conn::worker_local::WorkerLocalRef>,
         ) -> RS<ProcedureResult> {
             let desc = sample_desc();
             Ok(ProcedureResult::from(Ok((42i32,)), desc.return_desc())?)
@@ -542,6 +542,7 @@ mod tests {
         let disabled = HttpApiCapabilities {
             enable_invoke: false,
             enable_uninstall: false,
+            enable_repl_admin: false,
         };
         let app = actix_test::init_service(
             App::new()
@@ -555,6 +556,60 @@ mod tests {
         let req = actix_test::TestRequest::post()
             .uri("/mudu/app/invoke/app1/mod1/proc1")
             .set_payload(r#"{"value":1}"#)
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[actix_web::test]
+    async fn http_repl_membership_not_supported_on_legacy_api() {
+        if cfg!(miri) {
+            return;
+        }
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(HttpApiContext {
+                    api: legacy_http_api(),
+                }))
+                .configure(|cfg| configure_routes(cfg, HttpApiCapabilities::IOURING)),
+        )
+        .await;
+        let req = actix_test::TestRequest::post()
+            .uri("/mudu/repl/membership")
+            .set_payload(r#"{"action":"remove","node_id":4}"#)
+            .to_request();
+        let resp: Value = actix_test::call_and_read_body_json(&app, req).await;
+        assert!(!resp["ok"].as_bool().unwrap());
+        assert!(
+            resp["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not supported"),
+            "unexpected response: {resp}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn http_repl_membership_disabled_by_capabilities() {
+        if cfg!(miri) {
+            return;
+        }
+        let disabled = HttpApiCapabilities {
+            enable_invoke: true,
+            enable_uninstall: true,
+            enable_repl_admin: false,
+        };
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(HttpApiContext {
+                    api: legacy_http_api(),
+                }))
+                .configure(|cfg| configure_routes(cfg, disabled)),
+        )
+        .await;
+        let req = actix_test::TestRequest::post()
+            .uri("/mudu/repl/membership")
+            .set_payload(r#"{"action":"remove","node_id":4}"#)
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);

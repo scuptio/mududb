@@ -126,6 +126,9 @@ from mududb.generated.uni_syscall import (
 
 
 def find_fixture_dir():
+    local = os.path.join(_PACKAGE_ROOT, "tests", "fixtures", "golden", "v1")
+    if os.path.isdir(local):
+        return local
     rel = os.path.join("crates", "db-kernel", "testing", "fixtures", "golden", "v1")
     d = _PACKAGE_ROOT
     while True:

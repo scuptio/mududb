@@ -95,6 +95,6 @@ Version `1` may be deprecated only after:
 
 ## References
 
-- Frame format: [`mudu_contract/src/protocol/format/latest.rs`](../../../mudu_contract/src/protocol/format/latest.rs)
-- Message types and payloads: [`mudu_contract/src/protocol/mod.rs`](../../../mudu_contract/src/protocol/mod.rs)
-- Handshake handler: [`mudu_kernel/src/server/handlers/handshake.rs`](../../../mudu_kernel/src/server/handlers/handshake.rs)
+- Frame format: [`mudu_contract/src/protocol/format/latest.rs`](../../../crates/common/mudu_contract/src/protocol/format/latest.rs)
+- Message types and payloads: [`mudu_contract/src/protocol/mod.rs`](../../../crates/common/mudu_contract/src/protocol/mod.rs)
+- Handshake handler: [`mudu_kernel/src/server/handlers/handshake.rs`](../../../crates/db-kernel/mudu_kernel/src/server/handlers/handshake.rs)

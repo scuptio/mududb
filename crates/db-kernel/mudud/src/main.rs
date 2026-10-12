@@ -39,7 +39,7 @@ fn main() {
     match r {
         Ok(_) => {}
         Err(e) => {
-            error!("mududb run error: {}", e);
+            error!("mududb run error: {:?}", e);
             // Exit non-zero so supervisors and benchmark harnesses can tell a
             // startup failure (e.g. listen port already in use) apart from a
             // clean shutdown.

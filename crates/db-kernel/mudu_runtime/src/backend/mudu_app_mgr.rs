@@ -1,10 +1,7 @@
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudud_cfg::{MuduDBCfg, ServerMode};
-use crate::service::app_list::{AppList, AppListItem};
-use crate::service::app_package::AppPackage;
-use crate::service::runtime::Runtime;
-use crate::service::runtime_impl::create_runtime_service;
-use crate::service::runtime_opt::RuntimeOpt;
+use ::conn::worker_local::WorkerLocalRef;
+use ::worker::async_func_runtime::AsyncFuncInvoker;
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
@@ -12,11 +9,14 @@ use mudu::common::xid::INVALID_OID;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::procedure::procedure_invoke;
-use mudu_kernel::server::async_func_runtime::AsyncFuncInvoker;
-use mudu_kernel::server::worker_local::WorkerLocalRef;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::SMutex;
 use mudu_sys::sync::SRwLock;
+use runtime_wasm::service::app_list::{AppList, AppListItem};
+use runtime_wasm::service::app_package::AppPackage;
+use runtime_wasm::service::runtime::Runtime;
+use runtime_wasm::service::runtime_impl::create_runtime_service;
+use runtime_wasm::service::runtime_opt::RuntimeOpt;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
@@ -73,6 +73,12 @@ impl AsyncFuncInvoker for MuduProcInvoker {
         procedure_parameters: Vec<u8>,
         worker_local: WorkerLocalRef,
     ) -> RS<Vec<u8>> {
+        if procedure_parameters.len() > self.cfg.invocation_limits.max_input_bytes {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "procedure input exceeds server limit"
+            ));
+        }
         let (app_name, mod_name, proc_name) = parse_procedure_name(procedure_name)?;
         let runtime = self.runtime.read()?.clone();
         let app = runtime.app(app_name.clone()).await.ok_or_else(|| {
@@ -276,6 +282,7 @@ async fn create_runtime_from_cfg(
         &cfg.db_path,
         None,
         RuntimeOpt {
+            invocation_limits: cfg.invocation_limits.clone(),
             component_target,
             enable_async,
             sever_mode: cfg.server_mode,

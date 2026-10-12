@@ -1,5 +1,4 @@
-//! `database::test_command_in` module.
-#![allow(missing_docs)]
+//! Tests for `DatumDesc` serialization round trips.
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

@@ -1,2 +1,2 @@
-#![allow(missing_docs)]
+/// io_uring-based IO primitives.
 pub mod io_uring;

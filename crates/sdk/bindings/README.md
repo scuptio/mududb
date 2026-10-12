@@ -1,30 +1,28 @@
-# MuduDB Language Bindings
+# MuduDB language bindings
 
-This directory is the proposed home for generated bindings and thin language wrappers.
+This directory contains the AssemblyScript, Python, C and Go bindings. C# and Rust SDKs are under [`../mudu_api/`](../mudu_api/).
 
-Rules:
+For supported execution modes, see [Languages and execution modes](../../../doc/dev/sdk_distribution.md#language-and-execution-modes). Python supports componentize-py guests as well as native adapter applications and codec tests.
 
-- Wasm/component bindings should derive from `wit/`.
-- Native bindings should remain explicitly separated from component bindings.
-- Language wrappers should stay thin and must not reimplement core database logic.
+| Binding | Reference |
+|---|---|
+| AssemblyScript | [Package and codec tests](assemblyscript/README.md) |
+| Python | [Guest API and tests](python/README.md) |
+| C | [Types, codecs and memory ownership](c/README.md) |
+| Go | [Packages and tests](go/README.md) |
 
-## Contents
+## Generated and handwritten code
 
-- `assemblyscript/` — the npm package `@mududb/mududb`: the `assembly/mpack.ts`
-  MessagePack runtime plus the mgen-generated MSSP codec in
-  `assembly/generated/`, with Node.js corpus runners
-  (`run_*_test.mjs`) verifying byte parity against the golden fixtures. The
-  `assembly/` DX layer (database/sql/result/fs/syscall/procedure) lets
-  AssemblyScript guests import `mududb:api/system` directly and frame MSSP
-  in-language — the same direct byte-pipe architecture as the C# guest (see
-  `crates/sdk/example/wallet-as`). Canonical subpath entries
-  (`@mududb/mududb/types`, `/codec`, `/db`, …) mirror the other languages'
-  `mududb.<seg>` paths; see `doc/dev/binding_api_surface.md`.
-- `python/` — the PyPI package `mududb` (pure stdlib, zero-dependency)
-  counterpart of the AssemblyScript package for tooling/test verification:
-  handwritten `mududb/codec/mpack.py` MessagePack runtime (`F32` marker
-  class), mgen-generated MSSP codec in `mududb/generated/`
-  (`-l python --with-func-codec`), `unittest` suite in `tests/`, and three
-  corpus runners (`run_mp_corpus_test.py`, `run_syscall_corpus_test.py`,
-  `run_lenient_decode_test.py`). Not a guest path; see `python/README.md` for
-  regen and test commands.
+The shared types and wire formats come from [`mudu_binding/wit`](../../common/mudu_binding/wit/). Change the WIT or generator and regenerate bindings; do not edit generated files directly. Handwritten facades provide language-specific database, filesystem and adapter entry points. Naming and API conventions are in [Binding API surface](../../../doc/dev/binding_api_surface.md).
+
+## Build distributions
+
+From the repository root:
+
+```bash
+cargo make build-sdk
+# Build only selected languages:
+SDK_LANGS=py,go cargo make build-sdk
+```
+
+Builds compile and test the selected SDKs. Install their [prerequisites](../../../doc/dev/sdk_distribution.md#prerequisites) first. For GitHub Releases, follow the [manual publishing workflow](../../../doc/dev/sdk_distribution.md#manual-github-action).

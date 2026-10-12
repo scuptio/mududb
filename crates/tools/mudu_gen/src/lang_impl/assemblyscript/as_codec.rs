@@ -263,7 +263,8 @@ pub fn as_encode_stmts(
             out.push(format!("{}    if (opt === null) {{", pad));
             out.push(format!("{}        writer.writeNil();", pad));
             out.push(format!("{}    }} else {{", pad));
-            as_encode_stmts(style, inner, "opt!", indent + 8, out)?;
+            // The local is narrowed by the null guard; a non-null assertion emits AS210.
+            as_encode_stmts(style, inner, "opt", indent + 8, out)?;
             out.push(format!("{}    }}", pad));
             out.push(format!("{}}}", pad));
         }
@@ -319,38 +320,7 @@ pub fn as_decode_stmts(
     let pad = " ".repeat(indent);
     match ty {
         UniDataType::Scalar(scalar) => {
-            let stmt = match scalar {
-                UniScalar::Bool => format!("{} = reader.readBool();", target),
-                UniScalar::U8 => format!("{} = reader.readU64() as u8;", target),
-                UniScalar::U16 => format!("{} = reader.readU64() as u16;", target),
-                UniScalar::U32 => format!("{} = reader.readU64() as u32;", target),
-                UniScalar::U64 => format!("{} = reader.readU64();", target),
-                UniScalar::I8 => format!("{} = reader.readI64() as i8;", target),
-                UniScalar::I16 => format!("{} = reader.readI64() as i16;", target),
-                UniScalar::I32 => format!("{} = reader.readI64() as i32;", target),
-                UniScalar::I64 => format!("{} = reader.readI64();", target),
-                UniScalar::F32 => format!("{} = reader.readF32();", target),
-                UniScalar::F64 => format!("{} = reader.readF64();", target),
-                UniScalar::Char
-                | UniScalar::String
-                | UniScalar::Numeric
-                | UniScalar::Date
-                | UniScalar::Time
-                | UniScalar::Timestamp
-                | UniScalar::TimestampTz => {
-                    format!("{} = reader.readString();", target)
-                }
-                UniScalar::Blob => {
-                    return as_decode_bin(style, target, indent, out);
-                }
-                UniScalar::U128 | UniScalar::I128 => {
-                    return Err(mudu_error!(
-                        ErrorCode::NotImplemented,
-                        "AssemblyScript codec does not support 128-bit integers"
-                    ));
-                }
-            };
-            out.push(format!("{}{}", pad, stmt));
+            as_decode_scalar(style, scalar, target, indent, out)?;
         }
         UniDataType::Binary => {
             return as_decode_bin(style, target, indent, out);
@@ -364,33 +334,7 @@ pub fn as_decode_stmts(
             ));
         }
         UniDataType::Array(inner) => {
-            out.push(format!("{}{{", pad));
-            out.push(format!(
-                "{}    const n = reader.readArrayHeader() as i32;",
-                pad
-            ));
-            out.push(format!(
-                "{}    const arr = new Array<{}>(n);",
-                pad,
-                as_codec_type(inner, namer)?
-            ));
-            out.push(format!("{}    for (let i = 0; i < n; i++) {{", pad));
-            if let UniDataType::Tuple(elems) = inner.as_ref() {
-                // Array elements of reference type start as `null`; decode
-                // into a fresh holder before storing.
-                out.push(format!(
-                    "{}        const item = new {}();",
-                    pad,
-                    namer.tuple_name(elems)?
-                ));
-                as_decode_tuple_body(style, elems, "item", indent + 8, out, namer)?;
-                out.push(format!("{}        arr[i] = item;", pad));
-            } else {
-                as_decode_stmts(style, inner, "arr[i]", indent + 8, out, namer)?;
-            }
-            out.push(format!("{}    }}", pad));
-            out.push(format!("{}    {} = arr;", pad, target));
-            out.push(format!("{}}}", pad));
+            as_decode_array(style, inner, target, indent, out, namer)?;
         }
         UniDataType::Option(inner) => {
             out.push(format!("{}if (reader.tryNil()) {{", pad));
@@ -415,6 +359,88 @@ pub fn as_decode_stmts(
             ));
         }
     }
+    Ok(())
+}
+
+fn as_decode_scalar(
+    style: AsCodecStyle,
+    scalar: &UniScalar,
+    target: &str,
+    indent: usize,
+    out: &mut Vec<String>,
+) -> RS<()> {
+    let pad = " ".repeat(indent);
+    let stmt = match scalar {
+        UniScalar::Bool => format!("{} = reader.readBool();", target),
+        UniScalar::U8 => format!("{} = reader.readU64() as u8;", target),
+        UniScalar::U16 => format!("{} = reader.readU64() as u16;", target),
+        UniScalar::U32 => format!("{} = reader.readU64() as u32;", target),
+        UniScalar::U64 => format!("{} = reader.readU64();", target),
+        UniScalar::I8 => format!("{} = reader.readI64() as i8;", target),
+        UniScalar::I16 => format!("{} = reader.readI64() as i16;", target),
+        UniScalar::I32 => format!("{} = reader.readI64() as i32;", target),
+        UniScalar::I64 => format!("{} = reader.readI64();", target),
+        UniScalar::F32 => format!("{} = reader.readF32();", target),
+        UniScalar::F64 => format!("{} = reader.readF64();", target),
+        UniScalar::Char
+        | UniScalar::String
+        | UniScalar::Numeric
+        | UniScalar::Date
+        | UniScalar::Time
+        | UniScalar::Timestamp
+        | UniScalar::TimestampTz => {
+            format!("{} = reader.readString();", target)
+        }
+        UniScalar::Blob => {
+            return as_decode_bin(style, target, indent, out);
+        }
+        UniScalar::U128 | UniScalar::I128 => {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "AssemblyScript codec does not support 128-bit integers"
+            ));
+        }
+    };
+    out.push(format!("{}{}", pad, stmt));
+    Ok(())
+}
+
+fn as_decode_array(
+    style: AsCodecStyle,
+    inner: &UniDataType,
+    target: &str,
+    indent: usize,
+    out: &mut Vec<String>,
+    namer: &mut dyn AsTupleNamer,
+) -> RS<()> {
+    let pad = " ".repeat(indent);
+    out.push(format!("{}{{", pad));
+    out.push(format!(
+        "{}    const n = reader.readArrayHeader() as i32;",
+        pad
+    ));
+    out.push(format!(
+        "{}    const arr = new Array<{}>(n);",
+        pad,
+        as_codec_type(inner, namer)?
+    ));
+    out.push(format!("{}    for (let i = 0; i < n; i++) {{", pad));
+    if let UniDataType::Tuple(elems) = inner {
+        // Array elements of reference type start as `null`; decode
+        // into a fresh holder before storing.
+        out.push(format!(
+            "{}        const item = new {}();",
+            pad,
+            namer.tuple_name(elems)?
+        ));
+        as_decode_tuple_body(style, elems, "item", indent + 8, out, namer)?;
+        out.push(format!("{}        arr[i] = item;", pad));
+    } else {
+        as_decode_stmts(style, inner, "arr[i]", indent + 8, out, namer)?;
+    }
+    out.push(format!("{}    }}", pad));
+    out.push(format!("{}    {} = arr;", pad, target));
+    out.push(format!("{}}}", pad));
     Ok(())
 }
 
@@ -518,6 +544,23 @@ mod tests {
     fn func_context_binary_encodes_as_bin() {
         let lines = encode(AS_STYLE_FUNC, &UniDataType::Binary);
         assert_eq!(lines, vec!["    writer.writeBin(value.x);".to_string()]);
+    }
+
+    #[test]
+    fn option_encoding_uses_narrowed_local_without_assertion() {
+        for inner in [
+            UniDataType::Array(Box::new(UniDataType::Scalar(UniScalar::String))),
+            UniDataType::Identifier("uni-record-type".to_string()),
+            UniDataType::Binary,
+        ] {
+            for style in [AS_STYLE_RECORD, AS_STYLE_FUNC] {
+                let source =
+                    encode(style, &UniDataType::Option(Box::new(inner.clone()))).join("\n");
+                assert!(source.contains("if (opt === null)"));
+                assert!(source.contains("writer.writeNil();"));
+                assert!(!source.contains("opt!"));
+            }
+        }
     }
 
     #[test]

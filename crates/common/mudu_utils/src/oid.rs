@@ -1,9 +1,11 @@
 use mudu::common::id::OID;
 
+/// Generates a new random object ID (a UUID v4 viewed as `u128`).
 pub fn gen_oid() -> OID {
     mudu_sys::random::uuid_v4().as_u128()
 }
 
+/// Generates a new random transaction ID (a UUID v4 viewed as `u128`).
 pub fn new_xid() -> OID {
     mudu_sys::random::uuid_v4().as_u128()
 }

@@ -1,0 +1,34 @@
+[package]
+name = "catalog"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Kernel catalog: contracts, value types, and shared id types"
+
+[features]
+test = ["mudu/arbitrary", "mudu_type/arbitrary", "dep:test_utils", "dep:arbitrary"]
+debug_trace = ["mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+arbitrary = { workspace = true, optional = true }
+test_utils = { workspace = true, optional = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+rmp-serde = { workspace = true }
+futures = { workspace = true }
+mudu = { workspace = true, features = ["arbitrary"] }
+mudu_type = { workspace = true, features = ["arbitrary"] }
+test_utils = { workspace = true }
+arbitrary = { workspace = true }

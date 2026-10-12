@@ -18,7 +18,9 @@ use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-/// Data type param object
+/// A concrete data type: a type family paired with an optional parameter
+/// object (for example `varchar(42)` is family `String` with a string
+/// parameter).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataType {
     id: TypeFamily,
@@ -30,6 +32,9 @@ unsafe impl Send for DataType {}
 unsafe impl Sync for DataType {}
 
 impl DataType {
+    /// Creates the type of family `id` with its default parameter.
+    ///
+    /// Panics if `id` is not a scalar type.
     pub fn default_for(id: TypeFamily) -> DataType {
         if !id.is_scalar_type() {
             panic!("DataType::default_for({:?})", id);
@@ -48,18 +53,22 @@ impl DataType {
         }
     }
 
+    /// Returns the type family of this type.
     pub fn type_family(&self) -> TypeFamily {
         self.id
     }
 
+    /// Creates a type of family `id` without a parameter object.
     pub fn new_no_param(id: TypeFamily) -> DataType {
         Self { id, param: None }
     }
 
+    /// Returns true if this type carries no parameter object.
     pub fn has_no_param(&self) -> bool {
         self.param.is_none()
     }
 
+    /// Parses a type from its serializable descriptor.
     pub fn from_info(info: &DataTypeInfo) -> Result<Self, TyErr> {
         let opt_param = get_fn_param(info.id.to_u32());
         if let Some(fn_param) = opt_param {
@@ -72,10 +81,12 @@ impl DataType {
         }
     }
 
+    /// Alias of [`DataType::from_info`].
     pub fn new(info: &DataTypeInfo) -> Result<Self, TyErr> {
         Self::from_info(info)
     }
 
+    /// Creates a type from a type family and an explicit parameter object.
     pub fn from_id_param(type_family: TypeFamily, param: Option<DataTypeParamKind>) -> Self {
         Self {
             id: type_family,
@@ -83,6 +94,7 @@ impl DataType {
         }
     }
 
+    /// Returns the SQL name of this type (for example `varchar`).
     pub fn name(&self) -> String {
         if self.id.is_scalar_type() {
             self.id.name().to_string()
@@ -94,6 +106,7 @@ impl DataType {
         }
     }
 
+    /// Consumes the type and returns its serializable descriptor.
     pub fn into_info(self) -> DataTypeInfo {
         DataTypeInfo {
             id: self.id,
@@ -103,6 +116,7 @@ impl DataType {
         }
     }
 
+    /// Returns the serializable descriptor of this type.
     pub fn to_info(&self) -> DataTypeInfo {
         DataTypeInfo {
             id: self.id,

@@ -23,7 +23,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ybbh/mududb_p.git",
+    "url": "https://github.com/scuptio/mududb.git",
     "directory": "crates/sdk/bindings/assemblyscript"
   },
   "sideEffects": false,

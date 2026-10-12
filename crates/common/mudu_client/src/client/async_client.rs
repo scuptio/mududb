@@ -50,12 +50,22 @@ pub trait AsyncClient: Send {
 /// Async TCP client implementation using io_uring.
 pub struct AsyncClientImpl {
     stream: AsyncTcpStream,
+    addr: String,
     next_request_id: u64,
 }
 
 impl AsyncClientImpl {
     /// Connect to `addr` and return a new client.
     pub async fn connect(addr: &str) -> RS<Self> {
+        let stream = Self::connect_stream(addr).await?;
+        Ok(Self {
+            stream,
+            addr: addr.to_string(),
+            next_request_id: 1,
+        })
+    }
+
+    async fn connect_stream(addr: &str) -> RS<AsyncTcpStream> {
         let stream = AsyncTcpStream::connect(addr).await.map_err(|e| {
             mudu_error!(
                 ErrorCode::Network,
@@ -70,10 +80,7 @@ impl AsyncClientImpl {
                 e
             )
         })?;
-        Ok(Self {
-            stream,
-            next_request_id: 1,
-        })
+        Ok(stream)
     }
 
     fn take_request_id(&mut self) -> u64 {
@@ -83,6 +90,36 @@ impl AsyncClientImpl {
     }
 
     async fn send_and_receive(&mut self, payload: &[u8], trace_id: u64) -> RS<Frame> {
+        let frame = self.roundtrip(payload, trace_id).await?;
+        // A leader hint means the peer is not the serving raft leader:
+        // reconnect to the hinted leader and replay the request once. Note
+        // that session-bound requests may need a fresh session on the new
+        // leader (sessions are server-local); the caller sees the session
+        // error and can act on it.
+        if frame.header().message_type() == MessageType::Error {
+            let hinted_addr = decode_error_response(&frame)
+                .ok()
+                .and_then(|error| {
+                    error
+                        .leader_hint()
+                        .map(|hint| (hint.host().to_string(), hint.port()))
+                })
+                .map(|(host, port)| format!("{host}:{port}"));
+            if let Some(addr) = hinted_addr
+                && addr != self.addr
+            {
+                self.stream = Self::connect_stream(&addr).await?;
+                self.addr = addr;
+                let frame = self.roundtrip(payload, trace_id).await?;
+                self.ensure_success_frame(&frame)?;
+                return Ok(frame);
+            }
+        }
+        self.ensure_success_frame(&frame)?;
+        Ok(frame)
+    }
+
+    async fn roundtrip(&mut self, payload: &[u8], trace_id: u64) -> RS<Frame> {
         {
             let _send = PerfSpan::new(TxnStage::ClientNetworkSend, trace_id);
             self.stream
@@ -114,7 +151,6 @@ impl AsyncClientImpl {
             }
             Frame::decode(&frame_bytes)?
         };
-        self.ensure_success_frame(&frame)?;
         Ok(frame)
     }
 
@@ -417,6 +453,135 @@ mod tests {
         .unwrap();
     }
 
+    fn server_exchange<Req, Resp>(
+        socket: &mut mudu_sys::net::sync::SStdTcpStream,
+        decode: fn(&Frame) -> RS<Req>,
+        check: impl FnOnce(&Req),
+        response: Resp,
+        encode: fn(u64, &Resp) -> RS<Vec<u8>>,
+    ) {
+        let frame = read_frame(socket);
+        let request = decode(&frame).unwrap();
+        check(&request);
+        socket
+            .write_all(&encode(frame.header().request_id(), &response).unwrap())
+            .unwrap();
+    }
+
+    fn run_kv_invoke_server(listener: StdTcpListener) {
+        let (mut socket, _) = listener.accept().unwrap();
+
+        server_exchange(
+            &mut socket,
+            decode_session_create_request,
+            |create| assert_eq!(create.config_json(), Some("{\"worker_id\":1}")),
+            SessionCreateResponse::new(88),
+            encode_session_create_response,
+        );
+
+        server_exchange(
+            &mut socket,
+            decode_put_request,
+            |put| {
+                assert_eq!(put.session_id(), 88);
+                assert_eq!(put.key(), b"key");
+                assert_eq!(put.value(), b"value");
+            },
+            PutResponse::new(true),
+            encode_put_response,
+        );
+
+        server_exchange(
+            &mut socket,
+            decode_get_request,
+            |get| {
+                assert_eq!(get.session_id(), 88);
+                assert_eq!(get.key(), b"key");
+            },
+            GetResponse::new(Some(b"value".to_vec())),
+            encode_get_response,
+        );
+
+        server_exchange(
+            &mut socket,
+            decode_range_scan_request,
+            |range| {
+                assert_eq!(range.start_key(), b"a");
+                assert_eq!(range.end_key(), b"z");
+            },
+            RangeScanResponse::new(vec![KeyValue::new(b"a".to_vec(), b"1".to_vec())]),
+            encode_range_scan_response,
+        );
+
+        server_exchange(
+            &mut socket,
+            decode_procedure_invoke_request,
+            |invoke| {
+                assert_eq!(invoke.session_id(), 88);
+                assert_eq!(invoke.procedure_name(), "app/mod/proc");
+                assert_eq!(invoke.procedure_parameters(), b"payload");
+            },
+            ProcedureInvokeResponse::new(br#"{"ok":true}"#.to_vec()),
+            encode_procedure_invoke_response,
+        );
+
+        server_exchange(
+            &mut socket,
+            decode_session_close_request,
+            |close| assert_eq!(close.session_id(), 88),
+            SessionCloseResponse::new(true),
+            encode_session_close_response,
+        );
+    }
+
+    async fn run_kv_invoke_client(addr: &str) {
+        let mut client = AsyncClientImpl::connect(addr).await.unwrap();
+        let create = client
+            .create_session(SessionCreateRequest::new(Some(
+                "{\"worker_id\":1}".to_string(),
+            )))
+            .await
+            .unwrap();
+        assert_eq!(create.session_id(), 88);
+
+        let put = client
+            .put(PutRequest::new(88, b"key".to_vec(), b"value".to_vec()))
+            .await
+            .unwrap();
+        assert!(put.ok());
+
+        let get = client
+            .get(GetRequest::new(88, b"key".to_vec()))
+            .await
+            .unwrap();
+        assert_eq!(get.into_value(), Some(b"value".to_vec()));
+
+        let range = client
+            .range_scan(RangeScanRequest::new(88, b"a".to_vec(), b"z".to_vec()))
+            .await
+            .unwrap();
+        assert_eq!(
+            range.into_items(),
+            vec![KeyValue::new(b"a".to_vec(), b"1".to_vec())]
+        );
+
+        let invoke = client
+            .invoke_procedure(ProcedureInvokeRequest::new(
+                88,
+                "app/mod/proc",
+                b"payload".to_vec(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invoke.into_result(), br#"{"ok":true}"#.to_vec());
+
+        let close = client
+            .close_session(SessionCloseRequest::new(88))
+            .await
+            .unwrap();
+        assert!(close.closed());
+    }
+
     #[test]
     fn tokio_client_supports_kv_and_invoke_roundtrip() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async {
@@ -424,143 +589,8 @@ mod tests {
                 return;
             };
             let addr = listener.local_addr().unwrap();
-            let server = spawn_thread(move || {
-                let (mut socket, _) = listener.accept().unwrap();
-
-                let create_frame = read_frame(&mut socket);
-                let create_request = decode_session_create_request(&create_frame).unwrap();
-                assert_eq!(create_request.config_json(), Some("{\"worker_id\":1}"));
-                socket
-                    .write_all(
-                        &encode_session_create_response(
-                            create_frame.header().request_id(),
-                            &SessionCreateResponse::new(88),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-
-                let put_frame = read_frame(&mut socket);
-                let put_request = decode_put_request(&put_frame).unwrap();
-                assert_eq!(put_request.session_id(), 88);
-                assert_eq!(put_request.key(), b"key");
-                assert_eq!(put_request.value(), b"value");
-                socket
-                    .write_all(
-                        &encode_put_response(
-                            put_frame.header().request_id(),
-                            &PutResponse::new(true),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-
-                let get_frame = read_frame(&mut socket);
-                let get_request = decode_get_request(&get_frame).unwrap();
-                assert_eq!(get_request.session_id(), 88);
-                assert_eq!(get_request.key(), b"key");
-                socket
-                    .write_all(
-                        &encode_get_response(
-                            get_frame.header().request_id(),
-                            &GetResponse::new(Some(b"value".to_vec())),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-
-                let range_frame = read_frame(&mut socket);
-                let range_request = decode_range_scan_request(&range_frame).unwrap();
-                assert_eq!(range_request.start_key(), b"a");
-                assert_eq!(range_request.end_key(), b"z");
-                socket
-                    .write_all(
-                        &encode_range_scan_response(
-                            range_frame.header().request_id(),
-                            &RangeScanResponse::new(vec![KeyValue::new(
-                                b"a".to_vec(),
-                                b"1".to_vec(),
-                            )]),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-
-                let invoke_frame = read_frame(&mut socket);
-                let invoke_request = decode_procedure_invoke_request(&invoke_frame).unwrap();
-                assert_eq!(invoke_request.session_id(), 88);
-                assert_eq!(invoke_request.procedure_name(), "app/mod/proc");
-                assert_eq!(invoke_request.procedure_parameters(), b"payload");
-                socket
-                    .write_all(
-                        &encode_procedure_invoke_response(
-                            invoke_frame.header().request_id(),
-                            &ProcedureInvokeResponse::new(br#"{"ok":true}"#.to_vec()),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-
-                let close_frame = read_frame(&mut socket);
-                let close_request = decode_session_close_request(&close_frame).unwrap();
-                assert_eq!(close_request.session_id(), 88);
-                socket
-                    .write_all(
-                        &encode_session_close_response(
-                            close_frame.header().request_id(),
-                            &SessionCloseResponse::new(true),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-            });
-
-            let mut client = AsyncClientImpl::connect(&addr.to_string()).await.unwrap();
-            let create = client
-                .create_session(SessionCreateRequest::new(Some(
-                    "{\"worker_id\":1}".to_string(),
-                )))
-                .await
-                .unwrap();
-            assert_eq!(create.session_id(), 88);
-
-            let put = client
-                .put(PutRequest::new(88, b"key".to_vec(), b"value".to_vec()))
-                .await
-                .unwrap();
-            assert!(put.ok());
-
-            let get = client
-                .get(GetRequest::new(88, b"key".to_vec()))
-                .await
-                .unwrap();
-            assert_eq!(get.into_value(), Some(b"value".to_vec()));
-
-            let range = client
-                .range_scan(RangeScanRequest::new(88, b"a".to_vec(), b"z".to_vec()))
-                .await
-                .unwrap();
-            assert_eq!(
-                range.into_items(),
-                vec![KeyValue::new(b"a".to_vec(), b"1".to_vec())]
-            );
-
-            let invoke = client
-                .invoke_procedure(ProcedureInvokeRequest::new(
-                    88,
-                    "app/mod/proc",
-                    b"payload".to_vec(),
-                ))
-                .await
-                .unwrap();
-            assert_eq!(invoke.into_result(), br#"{"ok":true}"#.to_vec());
-
-            let close = client
-                .close_session(SessionCloseRequest::new(88))
-                .await
-                .unwrap();
-            assert!(close.closed());
-
+            let server = spawn_thread(move || run_kv_invoke_server(listener));
+            run_kv_invoke_client(&addr.to_string()).await;
             server.unwrap().join().unwrap();
         })
         .unwrap();

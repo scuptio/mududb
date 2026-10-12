@@ -34,12 +34,12 @@ use mudu_client::client::client::SyncClient;
 use mudu_client::management::{fetch_app_list, http_timeout};
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, read, remove_dir_all};
 use mudu_sys::net::sync::SStdTcpStream;
 use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
 use mudu_utils::log::log_setup;
 use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -76,6 +76,15 @@ fn app_namespace_isolation_iouring() -> RS<()> {
 }
 
 fn run_app_namespace_isolation(server_mode: ServerMode) -> RS<()> {
+    // Sanitizer builds slow wasmtime component compilation down ~15-25x:
+    // installing the wallet-py CPython component takes ~15-20 min, and the
+    // restart auto-load recompiles both packages before the HTTP listener
+    // binds, blowing far past the boot waits. The CI sanitizer job sets
+    // LSAN_OPTIONS, so skip there instead of tripping the timeouts.
+    if sanitizer_runtime_detected() {
+        eprintln!("skip app namespace test: sanitizer runtime detected");
+        return Ok(());
+    }
     let go_mpk = mpk_path("wallet-go.mpk");
     let py_mpk = mpk_path("wallet-py.mpk");
     if !go_mpk.is_file() || !py_mpk.is_file() {
@@ -104,143 +113,11 @@ fn run_app_namespace_isolation(server_mode: ServerMode) -> RS<()> {
     );
     {
         let server = ctx.start_server()?;
-
-        // Before per-app schemas this second install failed: both packages
-        // define `users` (and `wallets`, `profile`, ...) and the second
-        // initdb hit EntityAlreadyExists in the global namespace.
-        ctx.install_mpk(&go_mpk)?;
-        ctx.install_mpk(&py_mpk)?;
-        assert_eq!(
-            ctx.app_list()?,
-            vec![APP_GO.to_string(), APP_PY.to_string()]
-        );
-
-        // Same procedure name and same user id, different data per app.
-        let create_go = ctx.invoke(
-            APP_GO,
-            MODULE_GO,
-            "create_user",
-            json!({
-                "user_id": 3,
-                "name": "CarolGo",
-                "email": "carol-go@example.com",
-            }),
-        )?;
-        assert_return_i64(&create_go, 3);
-        let create_py = ctx.invoke(
-            APP_PY,
-            MODULE_PY,
-            "create_user",
-            json!({
-                "user_id": 3,
-                "name": "CarolPy",
-                "email": "carol-py@example.com",
-            }),
-        )?;
-        assert_return_i64(&create_py, 3);
-
-        // init.sql seeds users 1 and 2 with a balance of 10000 each in both
-        // apps; deposit different amounts so the balances diverge per app.
-        let deposit_go = ctx.invoke(
-            APP_GO,
-            MODULE_GO,
-            "deposit",
-            json!({ "user_id": 1, "amount": 250 }),
-        )?;
-        assert_return_i64(&deposit_go, 10250);
-        let deposit_py = ctx.invoke(
-            APP_PY,
-            MODULE_PY,
-            "deposit",
-            json!({ "user_id": 1, "amount": 500 }),
-        )?;
-        assert_return_i64(&deposit_py, 10500);
-
+        install_both_apps(&ctx, &go_mpk, &py_mpk)?;
+        create_divergent_rows_per_app(&ctx)?;
         assert_isolated(&ctx)?;
-
-        // update_profile exercises a user-defined record type end to end;
-        // storing different records per app proves procedure writes are
-        // schema-scoped too. `vip` is a bool in WIT but crosses the JSON/desc
-        // surface as i32 0/1 (the host has no boolean data-type family).
-        let update_go = ctx.invoke(
-            APP_GO,
-            MODULE_GO,
-            "update_profile",
-            json!({
-                "user_id": 1,
-                "profile": {
-                    "display-name": "GoDev",
-                    "level": 7,
-                    "vip": 1,
-                    "tags": ["go-a", "go-b"],
-                    "home": { "city": "sh", "zip": "200" },
-                }
-            }),
-        )?;
-        assert_return_profile(
-            &update_go,
-            &json!({
-                "display-name": "GoDev",
-                "level": 7,
-                "vip": 1,
-                "tags": ["go-a", "go-b"],
-                "home": { "city": "sh", "zip": "200" },
-            }),
-            false,
-        );
-        let update_py = ctx.invoke(
-            APP_PY,
-            MODULE_PY,
-            "update_profile",
-            json!({
-                "user_id": 1,
-                "profile": {
-                    "display-name": "PyDev",
-                    "level": 3,
-                    "vip": 0,
-                    "tags": ["py-x"],
-                    "home": { "city": "bj", "zip": "100" },
-                }
-            }),
-        )?;
-        assert_return_profile(
-            &update_py,
-            &json!({
-                "display-name": "PyDev",
-                "level": 3,
-                "vip": 0,
-                "tags": ["py-x"],
-                "home": { "city": "bj", "zip": "100" },
-            }),
-            true,
-        );
-
-        assert_eq!(
-            ctx.profile_row(APP_GO, 1)?,
-            Some((
-                "GoDev".to_string(),
-                7,
-                1,
-                "sh".to_string(),
-                "200".to_string()
-            ))
-        );
-        assert_eq!(
-            ctx.profile_row(APP_PY, 1)?,
-            Some((
-                "PyDev".to_string(),
-                3,
-                0,
-                "bj".to_string(),
-                "100".to_string()
-            ))
-        );
-        assert_eq!(
-            ctx.profile_tags(APP_GO, 1)?,
-            vec!["go-a".to_string(), "go-b".to_string()]
-        );
-        assert_eq!(ctx.profile_tags(APP_PY, 1)?, vec!["py-x".to_string()]);
-
+        update_profiles_per_app(&ctx)?;
+        assert_profiles_stored_per_app(&ctx)?;
         drop(server);
     }
 
@@ -250,61 +127,210 @@ fn run_app_namespace_isolation(server_mode: ServerMode) -> RS<()> {
     println!("Step 2: Restart with the same dirs (catalog reload keeps schema ownership)");
     {
         let server = ctx.start_server()?;
-
-        // The HTTP install wrote both packages into mpk_path, so startup
-        // auto-load picks them up again; the lock sentinels short-circuit
-        // initdb and the persisted data stays.
-        assert!(
-            mudu_sys::fs::sync::sync_path_exists(ctx.initdb_lock_path(APP_GO)),
-            "initdb lock sentinel missing for {APP_GO} after restart"
-        );
-        assert!(
-            mudu_sys::fs::sync::sync_path_exists(ctx.initdb_lock_path(APP_PY)),
-            "initdb lock sentinel missing for {APP_PY} after restart"
-        );
-        assert_eq!(
-            ctx.app_list()?,
-            vec![APP_GO.to_string(), APP_PY.to_string()]
-        );
-
-        assert_isolated(&ctx)?;
-        assert_eq!(
-            ctx.profile_row(APP_GO, 1)?,
-            Some((
-                "GoDev".to_string(),
-                7,
-                1,
-                "sh".to_string(),
-                "200".to_string()
-            ))
-        );
-        assert_eq!(
-            ctx.profile_row(APP_PY, 1)?,
-            Some((
-                "PyDev".to_string(),
-                3,
-                0,
-                "bj".to_string(),
-                "100".to_string()
-            ))
-        );
-
-        // Writes still land in the caller's own schema after the restart.
-        let deposit_go = ctx.invoke(
-            APP_GO,
-            MODULE_GO,
-            "deposit",
-            json!({ "user_id": 1, "amount": 100 }),
-        )?;
-        assert_return_i64(&deposit_go, 10350);
-        let balance_go = ctx.invoke(APP_GO, MODULE_GO, "balance", json!({ "user_id": 1 }))?;
-        assert_return_i64(&balance_go, 10350);
-        let balance_py = ctx.invoke(APP_PY, MODULE_PY, "balance", json!({ "user_id": 1 }))?;
-        assert_return_i64(&balance_py, 10500);
-
+        verify_restart_preserves_isolation(&ctx)?;
         drop(server);
     }
 
+    Ok(())
+}
+
+// Before per-app schemas this second install failed: both packages define
+// `users` (and `wallets`, `profile`, ...) and the second initdb hit
+// EntityAlreadyExists in the global namespace.
+fn install_both_apps(ctx: &TestContext, go_mpk: &Path, py_mpk: &Path) -> RS<()> {
+    ctx.install_mpk(go_mpk)?;
+    ctx.install_mpk(py_mpk)?;
+    assert_eq!(
+        ctx.app_list()?,
+        vec![APP_GO.to_string(), APP_PY.to_string()]
+    );
+    Ok(())
+}
+
+// Same procedure name and same user id, different data per app. init.sql
+// seeds users 1 and 2 with a balance of 10000 each in both apps; deposit
+// different amounts so the balances diverge per app.
+fn create_divergent_rows_per_app(ctx: &TestContext) -> RS<()> {
+    let create_go = ctx.invoke(
+        APP_GO,
+        MODULE_GO,
+        "create_user",
+        json!({
+            "user_id": 3,
+            "name": "CarolGo",
+            "email": "carol-go@example.com",
+        }),
+    )?;
+    assert_return_i64(&create_go, 3);
+    let create_py = ctx.invoke(
+        APP_PY,
+        MODULE_PY,
+        "create_user",
+        json!({
+            "user_id": 3,
+            "name": "CarolPy",
+            "email": "carol-py@example.com",
+        }),
+    )?;
+    assert_return_i64(&create_py, 3);
+
+    let deposit_go = ctx.invoke(
+        APP_GO,
+        MODULE_GO,
+        "deposit",
+        json!({ "user_id": 1, "amount": 250 }),
+    )?;
+    assert_return_i64(&deposit_go, 10250);
+    let deposit_py = ctx.invoke(
+        APP_PY,
+        MODULE_PY,
+        "deposit",
+        json!({ "user_id": 1, "amount": 500 }),
+    )?;
+    assert_return_i64(&deposit_py, 10500);
+    Ok(())
+}
+
+// update_profile exercises a user-defined record type end to end; storing
+// different records per app proves procedure writes are schema-scoped too.
+// `vip` is a bool in WIT but crosses the JSON/desc surface as i32 0/1 (the
+// host has no boolean data-type family).
+fn update_profiles_per_app(ctx: &TestContext) -> RS<()> {
+    let update_go = ctx.invoke(
+        APP_GO,
+        MODULE_GO,
+        "update_profile",
+        json!({
+            "user_id": 1,
+            "profile": {
+                "display-name": "GoDev",
+                "level": 7,
+                "vip": 1,
+                "tags": ["go-a", "go-b"],
+                "home": { "city": "sh", "zip": "200" },
+            }
+        }),
+    )?;
+    assert_return_profile(
+        &update_go,
+        &json!({
+            "display-name": "GoDev",
+            "level": 7,
+            "vip": 1,
+            "tags": ["go-a", "go-b"],
+            "home": { "city": "sh", "zip": "200" },
+        }),
+        false,
+    );
+    let update_py = ctx.invoke(
+        APP_PY,
+        MODULE_PY,
+        "update_profile",
+        json!({
+            "user_id": 1,
+            "profile": {
+                "display-name": "PyDev",
+                "level": 3,
+                "vip": 0,
+                "tags": ["py-x"],
+                "home": { "city": "bj", "zip": "100" },
+            }
+        }),
+    )?;
+    assert_return_profile(
+        &update_py,
+        &json!({
+            "display-name": "PyDev",
+            "level": 3,
+            "vip": 0,
+            "tags": ["py-x"],
+            "home": { "city": "bj", "zip": "100" },
+        }),
+        true,
+    );
+    Ok(())
+}
+
+fn assert_profiles_stored_per_app(ctx: &TestContext) -> RS<()> {
+    assert_eq!(
+        ctx.profile_row(APP_GO, 1)?,
+        Some((
+            "GoDev".to_string(),
+            7,
+            1,
+            "sh".to_string(),
+            "200".to_string()
+        ))
+    );
+    assert_eq!(
+        ctx.profile_row(APP_PY, 1)?,
+        Some((
+            "PyDev".to_string(),
+            3,
+            0,
+            "bj".to_string(),
+            "100".to_string()
+        ))
+    );
+    assert_eq!(
+        ctx.profile_tags(APP_GO, 1)?,
+        vec!["go-a".to_string(), "go-b".to_string()]
+    );
+    assert_eq!(ctx.profile_tags(APP_PY, 1)?, vec!["py-x".to_string()]);
+    Ok(())
+}
+
+// The HTTP install wrote both packages into mpk_path, so startup auto-load
+// picks them up again; the lock sentinels short-circuit initdb and the
+// persisted data stays.
+fn verify_restart_preserves_isolation(ctx: &TestContext) -> RS<()> {
+    assert!(
+        mudu_sys::fs::sync::sync_path_exists(ctx.initdb_lock_path(APP_GO)),
+        "initdb lock sentinel missing for {APP_GO} after restart"
+    );
+    assert!(
+        mudu_sys::fs::sync::sync_path_exists(ctx.initdb_lock_path(APP_PY)),
+        "initdb lock sentinel missing for {APP_PY} after restart"
+    );
+    assert_eq!(
+        ctx.app_list()?,
+        vec![APP_GO.to_string(), APP_PY.to_string()]
+    );
+
+    assert_isolated(ctx)?;
+    assert_eq!(
+        ctx.profile_row(APP_GO, 1)?,
+        Some((
+            "GoDev".to_string(),
+            7,
+            1,
+            "sh".to_string(),
+            "200".to_string()
+        ))
+    );
+    assert_eq!(
+        ctx.profile_row(APP_PY, 1)?,
+        Some((
+            "PyDev".to_string(),
+            3,
+            0,
+            "bj".to_string(),
+            "100".to_string()
+        ))
+    );
+
+    // Writes still land in the caller's own schema after the restart.
+    let deposit_go = ctx.invoke(
+        APP_GO,
+        MODULE_GO,
+        "deposit",
+        json!({ "user_id": 1, "amount": 100 }),
+    )?;
+    assert_return_i64(&deposit_go, 10350);
+    let balance_go = ctx.invoke(APP_GO, MODULE_GO, "balance", json!({ "user_id": 1 }))?;
+    assert_return_i64(&balance_go, 10350);
+    let balance_py = ctx.invoke(APP_PY, MODULE_PY, "balance", json!({ "user_id": 1 }))?;
+    assert_return_i64(&balance_py, 10500);
     Ok(())
 }
 

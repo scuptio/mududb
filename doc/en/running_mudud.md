@@ -170,3 +170,32 @@ If the commands return JSON output, the server is running and reachable.
 - [mcli management interface](mcli_admin.md) — install, list, and invoke application packages.
 - [Your first MPK package](your_first_mpk.md) — build and install a complete example.
 - [Core concepts](concepts.md) — learn about Mudu Procedures, MPK packages, and the runtime model.
+
+## WASM procedure resource limits
+
+Append this table to `mudud.cfg`. Omitted fields use these defaults; changes require a restart. Values must be positive, per-app concurrency must not exceed global concurrency, and per-call memory must not exceed total reserved memory.
+
+```toml
+[invocation_limits]
+memory_bytes = 134217728
+fuel = 1000000000
+timeout_ms = 30000
+max_input_bytes = 8388608
+max_output_bytes = 8388608
+max_host_calls = 10000
+max_resources = 256
+table_elements = 100000
+max_concurrent = 4
+max_concurrent_per_app = 2
+total_memory_bytes = 536870912
+```
+
+`memory_bytes` caps aggregate guest linear memory, including initialization; `table_elements` caps aggregate table elements. `fuel` bounds Wasm execution. `timeout_ms` starts at admission and includes transaction and instance setup. A shared epoch clock ticks every 10 ms, and asynchronous Wasm execution yields periodically.
+
+Input/output sizes, host-call counts, and open session/file handles are bounded separately. SQL results are charged row by row, and requested file-read sizes are checked before allocation. Admission checks global concurrency, concurrency per application name, and reserved guest memory before opening a transaction. Each call reserves its full memory budget. Exhaustion returns `ResourceBusy` immediately. The synchronous executor has four threads and four queue slots. Legacy/SQLite transactions are serialized per application.
+
+Each invocation creates a fresh Store, Instance, and WASI context. Only compiled and linked code is shared. Guest memory, globals, and handles do not survive between calls; persist business state in the database.
+
+Dropping a request future signals cancellation. An independent lifecycle task waits for execution to stop, closes resources opened by the call, rolls back its own transaction, and then releases admission. Failure in a borrowed transaction marks it unusable until rollback. Cancellation before the commit boundary causes rollback; cancellation after that boundary waits for the actual commit outcome. A commit error may mean an unknown outcome and is not reported as a successful rollback.
+
+These limits are not a hard process RSS cap: database execution, WASI, compilation, and other native allocations are outside the guest-memory reservation. Fuel and epochs cannot interrupt an already-running native host operation. Cleanup waits for it to return and retains admission meanwhile, so the timeout is not a hard response deadline including cleanup. Hard termination of arbitrary blocked native code and full memory isolation require a separate worker process and OS resource limits.

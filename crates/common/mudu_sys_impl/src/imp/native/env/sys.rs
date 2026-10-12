@@ -31,6 +31,9 @@ impl Default for Sys {
 }
 
 impl Sys {
+    /// Creates a new system environment with all subsystems initialized and
+    /// the default IO context not yet selected (it falls back to Tokio until
+    /// [`Sys::setup`] is called).
     pub fn new() -> Self {
         Self {
             default_context: OnceLock::new(),
@@ -46,62 +49,81 @@ impl Sys {
         }
     }
 
+    /// Selects the async IO provider used by the default IO context.
+    ///
+    /// Only the first call takes effect; later calls are silently ignored.
     pub fn setup(&self, provider_type: ProviderType) {
         let _ = self
             .default_context
             .set(SysIoContext::with_provider(provider_type));
     }
 
+    /// Returns the default IO context, initializing it to the Tokio provider
+    /// if [`Sys::setup`] has not selected another one.
     pub fn context(&self) -> &SysIoContext {
         self.default_context
             .get_or_init(SysIoContext::tokio)
             .as_ref()
     }
 
+    /// Returns the async IO provider of the default context.
     pub fn provider(&self) -> &dyn AsyncIoProvider {
         self.context().provider()
     }
 
+    /// Returns a shared handle to the async IO provider of the default
+    /// context.
     pub fn provider_arc(&self) -> Arc<dyn AsyncIoProvider> {
         self.context().provider_arc()
     }
 
+    /// Returns the dedicated Tokio IO context (always Tokio, regardless of
+    /// the provider chosen via [`Sys::setup`]).
     pub fn tokio_context(&self) -> &SysIoContext {
         self.tokio_context.as_ref()
     }
 
+    /// Returns the async IO provider of the dedicated Tokio context.
     pub fn tokio_provider(&self) -> &dyn AsyncIoProvider {
         self.tokio_context.provider()
     }
 
+    /// Returns the time subsystem.
     pub fn time(&self) -> &SysTime {
         &self.time
     }
 
+    /// Returns the random generation subsystem.
     pub fn random(&self) -> &SysRandom {
         &self.random
     }
 
+    /// Returns the thread subsystem.
     pub fn thread(&self) -> &SysThread {
         &self.thread
     }
 
+    /// Returns the synchronization subsystem.
     pub fn sync(&self) -> &SysSync {
         &self.sync
     }
 
+    /// Returns the async task subsystem.
     pub fn tasks(&self) -> &SysTasks {
         &self.tasks
     }
 
+    /// Returns the environment variable subsystem.
     pub fn env_var(&self) -> &SysEnvVar {
         &self.env_var
     }
 
+    /// Returns the process subsystem.
     pub fn process(&self) -> &SysProcess {
         &self.process
     }
 
+    /// Returns the OS information subsystem.
     pub fn os(&self) -> &SysOs {
         &self.os
     }

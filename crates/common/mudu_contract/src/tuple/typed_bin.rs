@@ -1,5 +1,4 @@
-//! `tuple::typed_bin` module.
-#![allow(missing_docs)]
+//! A value paired with its type family, encoded to binary.
 
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -12,6 +11,7 @@ use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
 use std::fmt::{Debug, Formatter};
 
+/// A binary-encoded datum tagged with its type family.
 #[derive(Clone)]
 pub struct TypedBin {
     type_family: TypeFamily,
@@ -19,6 +19,7 @@ pub struct TypedBin {
 }
 
 impl TypedBin {
+    /// Creates a typed binary from its type family and encoded bytes.
     pub fn new(type_family: TypeFamily, bin: Vec<u8>) -> Self {
         Self { type_family, bin }
     }

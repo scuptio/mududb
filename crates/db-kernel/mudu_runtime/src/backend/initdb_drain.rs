@@ -4,7 +4,7 @@
 //! Startup auto-load registers `.mpk` packages in-process but defers their
 //! initdb DDL: running it eagerly would connect to the server's own TCP
 //! listener before that listener is bound (see
-//! [`crate::service::runtime_opt::RuntimeOpt::defer_initdb`]). This module
+//! [`runtime_wasm::service::runtime_opt::RuntimeOpt::defer_initdb`]). This module
 //! bridges the gap between the kernel's RPC-ready barrier and the caller's
 //! external ready signal.
 

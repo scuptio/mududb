@@ -31,7 +31,7 @@ public static class UniRelationDeltaOp {
 
 }
 
-/// A `SET col = col <+|-> datum` assignment of a `relation-update` call.
+/// A <c>SET col = col &lt;+|-&gt; datum</c> assignment of a `relation-update` call.
 public struct UniRelationDelta {
 
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]

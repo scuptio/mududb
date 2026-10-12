@@ -147,6 +147,6 @@ manifest 语义参见 [MPK Manifest Contract v1](mpk_manifest_v1.md)。包本身
 - MPK manifest：[mpk_manifest_v1.md](mpk_manifest_v1.md)
 - Server config：[mudud_cfg_v1.md](mudud_cfg_v1.md)
 - 实现：
-  - [mudu_kernel/src/storage/time_series/time_series_file.rs](../../../mudu_kernel/src/storage/time_series/time_series_file.rs)
-  - [mudu_kernel/src/storage/relation/relation.rs](../../../mudu_kernel/src/storage/relation/relation.rs)
-  - [mudu_kernel/src/wal/worker_wal_backend/layout.rs](../../../mudu_kernel/src/wal/worker_wal_backend/layout.rs)
+  - [mudu_kernel/src/storage/time_series/time_series_file.rs](../../../crates/db-kernel/mudu_kernel/src/storage/time_series/time_series_file.rs)
+  - [mudu_kernel/src/storage/relation/relation.rs](../../../crates/db-kernel/mudu_kernel/src/storage/relation/relation.rs)
+  - [mudu_kernel/src/wal/worker_wal_backend/layout.rs](../../../crates/db-kernel/mudu_kernel/src/wal/worker_wal_backend/layout.rs)

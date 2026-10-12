@@ -9,16 +9,17 @@
 use mudu::common::result::RS;
 #[cfg(not(feature = "ds"))]
 use mudu_client::client::client::SyncClient;
+use mudu_contract::protocol::ServerResponse;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode};
-use mudu_runtime::resolver::schema_mgr::SchemaMgr;
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
 use mudu_sys::net::sync::{SStdTcpStream, StdTcpListener};
 use mudu_sys::task::sync::{SJoinHandle, spawn_thread};
 use mudu_type::data_value::DataValue;
 use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::resolver::schema_mgr::SchemaMgr;
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
@@ -59,11 +60,116 @@ fn client_path_param_type_check_match_mismatch_and_null() -> RS<()> {
     let session = client.create_session(None)?;
     client.execute_with_oid(session, app.clone(), DDL)?;
 
-    // Match: integer and text parameters against INT and VARCHAR columns.
-    client.execute_with_oid_params(
+    insert_match_and_widened_rows(&mut client, session, &app)?;
+    assert_null_params_bypass_type_check(&mut client, session, &app)?;
+    assert_widened_row_persisted(&mut client, session, &app)?;
+    assert_column_mismatch_rejected(&mut client, session, &app)?;
+    assert_where_placeholder_mismatch_rejected(&mut client, session, &app)?;
+    unregistered_app_skips_type_check(&mut client, session)?;
+
+    SchemaMgr::remove_mgr(&app);
+    Ok(())
+}
+
+const INSERT_WALLETS: &str = "INSERT INTO wallets (user_id, balance, note) VALUES (?, ?, ?)";
+
+// The scenario helpers run against the synchronous client on the native
+// backend and the blocking async-client wrapper on the
+// deterministic-simulation backend; both expose the same call surface.
+trait ParamCheckClient {
+    fn exec_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse>;
+
+    fn exec_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse>;
+
+    fn query_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse>;
+
+    fn query_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse>;
+}
+
+#[cfg(not(feature = "ds"))]
+impl ParamCheckClient for SyncClient {
+    fn exec_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse> {
+        self.execute_with_oid(session, app, sql)
+    }
+
+    fn exec_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        self.execute_with_oid_params(session, app, sql, params)
+    }
+
+    fn query_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse> {
+        self.query_with_oid(session, app, sql)
+    }
+
+    fn query_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        self.query_with_oid_params(session, app, sql, params)
+    }
+}
+
+#[cfg(feature = "ds")]
+impl ParamCheckClient for BlockingAsyncClient {
+    fn exec_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse> {
+        self.execute_with_oid(session, app, sql)
+    }
+
+    fn exec_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        self.execute_with_oid_params(session, app, sql, params)
+    }
+
+    fn query_sql(&mut self, session: u128, app: &str, sql: &str) -> RS<ServerResponse> {
+        self.query_with_oid(session, app, sql)
+    }
+
+    fn query_params(
+        &mut self,
+        session: u128,
+        app: &str,
+        sql: &str,
+        params: Vec<DataValue>,
+    ) -> RS<ServerResponse> {
+        self.query_with_oid_params(session, app, sql, params)
+    }
+}
+
+// Match: integer and text parameters against INT and VARCHAR columns.
+fn insert_match_and_widened_rows(
+    client: &mut impl ParamCheckClient,
+    session: u128,
+    app: &str,
+) -> RS<()> {
+    client.exec_params(
         session,
-        app.clone(),
-        "INSERT INTO wallets (user_id, balance, note) VALUES (?, ?, ?)",
+        app,
+        INSERT_WALLETS,
         vec![
             DataValue::from_i32(1),
             DataValue::from_i32(100),
@@ -71,25 +177,32 @@ fn client_path_param_type_check_match_mismatch_and_null() -> RS<()> {
         ],
     )?;
     // Integer widening: an i64 value fits the I32 column.
-    client.execute_with_oid_params(
+    client.exec_params(
         session,
-        app.clone(),
-        "INSERT INTO wallets (user_id, balance, note) VALUES (?, ?, ?)",
+        app,
+        INSERT_WALLETS,
         vec![
             DataValue::from_i32(3),
             DataValue::from_i64(100),
             DataValue::from_string("y".to_string()),
         ],
     )?;
+    Ok(())
+}
 
-    // NULL fits every column at the type-check level, so the statement
-    // passes the pre-flight check; the template engine then rejects the
-    // NULL parameter with a clean error (no worker panic).
+// NULL fits every column at the type-check level, so the statement passes
+// the pre-flight check; the template engine then rejects the NULL parameter
+// with a clean error (no worker panic).
+fn assert_null_params_bypass_type_check(
+    client: &mut impl ParamCheckClient,
+    session: u128,
+    app: &str,
+) -> RS<()> {
     let err = client
-        .execute_with_oid_params(
+        .exec_params(
             session,
-            app.clone(),
-            "INSERT INTO wallets (user_id, balance, note) VALUES (?, ?, ?)",
+            app,
+            INSERT_WALLETS,
             vec![DataValue::from_i32(2), DataValue::null(), DataValue::null()],
         )
         .unwrap_err();
@@ -102,21 +215,35 @@ fn client_path_param_type_check_match_mismatch_and_null() -> RS<()> {
         !message.contains("is not compatible with column"),
         "NULL must not fail the type check: {message}"
     );
+    Ok(())
+}
 
-    let response = client.query_with_oid(
+fn assert_widened_row_persisted(
+    client: &mut impl ParamCheckClient,
+    session: u128,
+    app: &str,
+) -> RS<()> {
+    let response = client.query_sql(
         session,
-        app.clone(),
+        app,
         "SELECT user_id, balance, note FROM wallets WHERE user_id = 3",
     )?;
     assert_eq!(response.rows().len(), 1);
     assert_eq!(response.rows()[0].values()[1].to_i32(), 100);
+    Ok(())
+}
 
-    // Mismatch: a text parameter against the INT `balance` column.
+// Mismatch: a text parameter against the INT `balance` column.
+fn assert_column_mismatch_rejected(
+    client: &mut impl ParamCheckClient,
+    session: u128,
+    app: &str,
+) -> RS<()> {
     let err = client
-        .execute_with_oid_params(
+        .exec_params(
             session,
-            app.clone(),
-            "INSERT INTO wallets (user_id, balance, note) VALUES (?, ?, ?)",
+            app,
+            INSERT_WALLETS,
             vec![
                 DataValue::from_i32(4),
                 DataValue::from_string("abc".to_string()),
@@ -127,34 +254,42 @@ fn client_path_param_type_check_match_mismatch_and_null() -> RS<()> {
     let message = err.to_string();
     assert!(message.contains("balance"), "unexpected error: {message}");
     assert!(message.contains("I32"), "unexpected error: {message}");
+    Ok(())
+}
 
-    // Mismatch in a WHERE placeholder is caught the same way.
+// Mismatch in a WHERE placeholder is caught the same way.
+fn assert_where_placeholder_mismatch_rejected(
+    client: &mut impl ParamCheckClient,
+    session: u128,
+    app: &str,
+) -> RS<()> {
     let err = client
-        .query_with_oid_params(
+        .query_params(
             session,
-            app.clone(),
+            app,
             "SELECT balance FROM wallets WHERE user_id = ?",
             vec![DataValue::from_string("abc".to_string())],
         )
         .unwrap_err();
     let message = err.to_string();
     assert!(message.contains("user_id"), "unexpected error: {message}");
+    Ok(())
+}
 
-    // An app without a registered schema skips the check entirely.
+// An app without a registered schema skips the check entirely.
+fn unregistered_app_skips_type_check(client: &mut impl ParamCheckClient, session: u128) -> RS<()> {
     let unregistered = format!("ptc_skip_{}", mudu_sys::random::uuid_v4());
-    client.execute_with_oid(
+    client.exec_sql(
         session,
-        unregistered.clone(),
+        &unregistered,
         "CREATE TABLE t (id INT PRIMARY KEY, v INT);",
     )?;
-    client.execute_with_oid_params(
+    client.exec_params(
         session,
-        unregistered.clone(),
+        &unregistered,
         "INSERT INTO t (id, v) VALUES (?, ?)",
         vec![DataValue::from_i32(1), DataValue::from_i32(1)],
     )?;
-
-    SchemaMgr::remove_mgr(&app);
     Ok(())
 }
 

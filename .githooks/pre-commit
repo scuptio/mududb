@@ -1,15 +1,16 @@
 #!/bin/sh
 set -e
 
-# The repository has no root cargo workspace: crates/{common,db-kernel,sdk,tools}
-# are four independent workspaces, checked one at a time.
-GROUPS="crates/common crates/db-kernel crates/sdk crates/tools"
+# The repository has no root cargo workspace: crates/{common,db-kernel,sdk,
+# tools} and example/mpk are independent workspaces, checked one at a time.
+GROUPS="crates/common crates/db-kernel crates/sdk example/mpk crates/tools"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Running cargo fmt --check (per group workspace)..."
 
 for group in $GROUPS; do
     echo "  [fmt] $group"
-    if ! (cd "$group" && cargo fmt -- --check) 2>&1; then
+    if ! (cd "$REPO_ROOT/$group" && cargo fmt -- --check) 2>&1; then
         echo ""
         echo "Formatting check failed in $group. Run 'cargo fmt' and try again."
         exit 1
@@ -22,7 +23,7 @@ echo "Running cargo clippy --workspace --all-targets (per group workspace)..."
 
 for group in $GROUPS; do
     echo "  [clippy] $group"
-    if ! (cd "$group" && cargo clippy --workspace --all-targets -- -D warnings) 2>&1; then
+    if ! (cd "$REPO_ROOT/$group" && cargo clippy --workspace --all-targets -- -D warnings) 2>&1; then
         echo ""
         echo "Clippy check failed in $group. Commit aborted."
         exit 1
@@ -35,7 +36,7 @@ echo "Running cargo deny check bans licenses advisories sources (per group works
 
 for group in $GROUPS; do
     echo "  [deny] $group"
-    if ! (cd "$group" && cargo deny check --config ../../deny.toml bans licenses advisories sources) 2>&1; then
+    if ! (cd "$REPO_ROOT/$group" && cargo deny check --config "$REPO_ROOT/deny.toml" bans licenses advisories sources) 2>&1; then
         echo ""
         echo "Cargo deny check failed in $group. Commit aborted."
         exit 1

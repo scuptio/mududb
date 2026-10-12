@@ -23,7 +23,11 @@ fn command_argv(sql: &str) -> UniCommandArgv {
         command: UniSqlStmt {
             sql_string: sql.to_string(),
         },
-        param_list: UniSqlParam { params: Vec::new() },
+        param_list: UniSqlParam {
+            params: Vec::new(),
+            param_names: None,
+        },
+        param_desc: None,
     }
 }
 

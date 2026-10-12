@@ -547,68 +547,20 @@ fn relation_update_blocking(
     let columns = relation_table_columns(&conn, table)?;
     let mut assignments = Vec::with_capacity(values.len() + deltas.len());
     let mut params = Vec::with_capacity(values.len() + deltas.len() + key.len());
-    let mut index = 1;
     for (attr, datum) in values {
         let column = relation_column(&columns, table, *attr)?;
-        assignments.push(format!("{} = ?{}", quote_ident(&column.name), index));
+        assignments.push(format!(
+            "{} = ?{}",
+            quote_ident(&column.name),
+            params.len() + 1
+        ));
         params.push(datum_binary_to_sqlite_value(datum, &column.data_type)?);
-        index += 1;
     }
     for delta in deltas {
-        let column = relation_column(&columns, table, delta.attr)?;
-        match delta.op {
-            RELATION_DELTA_OP_ADD | RELATION_DELTA_OP_ADD_DEFERRED => {
-                assignments.push(format!(
-                    "{} = {} + ?{}",
-                    quote_ident(&column.name),
-                    quote_ident(&column.name),
-                    index
-                ));
-                params.push(datum_binary_to_sqlite_value(
-                    &delta.datum,
-                    &column.data_type,
-                )?);
-                index += 1;
-            }
-            RELATION_DELTA_OP_SUB | RELATION_DELTA_OP_SUB_DEFERRED => {
-                assignments.push(format!(
-                    "{} = {} - ?{}",
-                    quote_ident(&column.name),
-                    quote_ident(&column.name),
-                    index
-                ));
-                params.push(datum_binary_to_sqlite_value(
-                    &delta.datum,
-                    &column.data_type,
-                )?);
-                index += 1;
-            }
-            RELATION_DELTA_OP_SUB_WRAP_DEFERRED => {
-                // SQLite supports CASE, so the conditional restock stays one
-                // statement: `col = col - q; if col < floor { col + wrap }`.
-                let (quantity, floor, wrap) = decode_sub_wrap_datum(&delta.datum)?;
-                let quoted = quote_ident(&column.name);
-                assignments.push(format!(
-                    "{quoted} = CASE WHEN {quoted} - ?{iq1} < ?{ifloor} THEN {quoted} - ?{iq2} + ?{iwrap} ELSE {quoted} - ?{iq3} END",
-                    quoted = quoted,
-                    iq1 = index,
-                    ifloor = index + 1,
-                    iq2 = index + 2,
-                    iwrap = index + 3,
-                    iq3 = index + 4,
-                ));
-                for operand in [quantity, floor, quantity, wrap, quantity] {
-                    params.push(rusqlite::types::Value::Integer(operand));
-                }
-                index += 5;
-            }
-            other => {
-                return Err(mudu_error!(
-                    ErrorCode::Decode,
-                    format!("unknown relation delta op {other}")
-                ));
-            }
-        }
+        let (assignment, delta_params) =
+            relation_delta_assignment(&columns, table, delta, params.len() + 1)?;
+        assignments.push(assignment);
+        params.extend(delta_params);
     }
     if assignments.is_empty() {
         return Err(mudu_error!(
@@ -616,7 +568,7 @@ fn relation_update_blocking(
             format!("relation {table} update has no assignments")
         ));
     }
-    let (predicate, key_params) = relation_key_predicate(&columns, table, key, index)?;
+    let (predicate, key_params) = relation_key_predicate(&columns, table, key, params.len() + 1)?;
     params.extend(key_params);
     let sql = format!(
         "UPDATE {} SET {} WHERE {}",
@@ -634,6 +586,63 @@ fn relation_update_blocking(
             )
         })?;
     Ok(changed as u64)
+}
+
+/// Builds the `SET` assignment fragment and bind parameters of one delta op,
+/// with placeholders numbered from `index`.
+fn relation_delta_assignment(
+    columns: &[RelationColumn],
+    table: &str,
+    delta: &UniRelationDelta,
+    index: usize,
+) -> RS<(String, Vec<rusqlite::types::Value>)> {
+    let column = relation_column(columns, table, delta.attr)?;
+    match delta.op {
+        RELATION_DELTA_OP_ADD | RELATION_DELTA_OP_ADD_DEFERRED => {
+            let assignment = format!(
+                "{} = {} + ?{}",
+                quote_ident(&column.name),
+                quote_ident(&column.name),
+                index
+            );
+            let value = datum_binary_to_sqlite_value(&delta.datum, &column.data_type)?;
+            Ok((assignment, vec![value]))
+        }
+        RELATION_DELTA_OP_SUB | RELATION_DELTA_OP_SUB_DEFERRED => {
+            let assignment = format!(
+                "{} = {} - ?{}",
+                quote_ident(&column.name),
+                quote_ident(&column.name),
+                index
+            );
+            let value = datum_binary_to_sqlite_value(&delta.datum, &column.data_type)?;
+            Ok((assignment, vec![value]))
+        }
+        RELATION_DELTA_OP_SUB_WRAP_DEFERRED => {
+            // SQLite supports CASE, so the conditional restock stays one
+            // statement: `col = col - q; if col < floor { col + wrap }`.
+            let (quantity, floor, wrap) = decode_sub_wrap_datum(&delta.datum)?;
+            let quoted = quote_ident(&column.name);
+            let assignment = format!(
+                "{quoted} = CASE WHEN {quoted} - ?{iq1} < ?{ifloor} THEN {quoted} - ?{iq2} + ?{iwrap} ELSE {quoted} - ?{iq3} END",
+                quoted = quoted,
+                iq1 = index,
+                ifloor = index + 1,
+                iq2 = index + 2,
+                iwrap = index + 3,
+                iq3 = index + 4,
+            );
+            let params = [quantity, floor, quantity, wrap, quantity]
+                .into_iter()
+                .map(rusqlite::types::Value::Integer)
+                .collect();
+            Ok((assignment, params))
+        }
+        other => Err(mudu_error!(
+            ErrorCode::Decode,
+            format!("unknown relation delta op {other}")
+        )),
+    }
 }
 
 /// Unpacks a conditional-restock delta datum (`[q, floor, wrap]`, three

@@ -3,7 +3,7 @@ package types
 
 import (
 	"fmt"
-	"github.com/ybbh/mududb_p/bindings/go/codec"
+	"github.com/mududb/mududb-go/codec"
 )
 
 // MessageKind carries the syscall message kinds in the MSSP header's

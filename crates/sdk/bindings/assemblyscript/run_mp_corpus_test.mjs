@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 // Runs the shared MessagePack primitive corpus tests: compiles
 // assembly/__tests__/mp_corpus_test.ts with the local asc into a temp dir,
 // then for every vector of the cross-language corpus
@@ -14,7 +15,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = join(here, "..", "..", "..", "db-kernel", "testing", "fixtures", "golden", "v1");
+const localFixtures = join(here, "tests", "fixtures", "golden", "v1");
+const fixtureDir = existsSync(localFixtures) ? localFixtures : join(here, "..", "..", "..", "db-kernel", "testing", "fixtures", "golden", "v1");
 const corpus = readFileSync(join(fixtureDir, "mp_primitives_v1.bin"));
 const sidecar = JSON.parse(readFileSync(join(fixtureDir, "mp_primitives_v1.json"), "utf8"));
 
@@ -38,7 +40,7 @@ function patternBin(length) {
 }
 
 const out = join(mkdtempSync(join(tmpdir(), "mp-corpus-test-")), "mp_corpus_test.wasm");
-execFileSync("npx", ["asc", "assembly/__tests__/mp_corpus_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
+execFileSync(process.execPath, [join(here, "node_modules/assemblyscript/bin/asc.js"), "assembly/__tests__/mp_corpus_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
   cwd: here,
   stdio: "inherit",
 });

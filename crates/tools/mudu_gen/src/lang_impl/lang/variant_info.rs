@@ -10,7 +10,7 @@ use crate::lang_impl::python::py_codec::{
 use mudu::common::result::RS;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_def::UniVariantDef;
+use mudu_binding::universal::uni_def::{UniVariantDef, VariantCase};
 use mudu_binding::universal::uni_scalar::UniScalar;
 use std::collections::HashMap;
 
@@ -75,106 +75,7 @@ impl VariantInfo {
         let name = to_pascal_case(&variant_def.variant_name);
         let mut variants = Vec::with_capacity(variant_def.variant_cases.len());
         for (i, v) in variant_def.variant_cases.into_iter().enumerate() {
-            let case_ty = v
-                .vc_case_type
-                .clone()
-                .unwrap_or(UniDataType::Scalar(UniScalar::U8));
-            let (vc_has_inner_type, vc_inner_type_name) = match &v.vc_case_type {
-                Some(ty) => (true, uni_data_type_to_name(ty, &lang)?),
-                None => (
-                    false,
-                    uni_data_type_to_name(&UniDataType::Scalar(UniScalar::U8), &lang)?,
-                ),
-            };
-            let (vc_inner_required, vc_inner_default_value, vc_inner_deserialize_suffix) =
-                match lang {
-                    LangKind::CSharp => {
-                        let is_reference = csharp_is_reference_type(&case_ty);
-                        (
-                            is_reference,
-                            csharp_default_value_expr(&case_ty, type_kinds)?,
-                            if is_reference {
-                                "!".to_string()
-                            } else {
-                                String::new()
-                            },
-                        )
-                    }
-                    LangKind::AssemblyScript => (
-                        false,
-                        assemblyscript_default_value_expr(&case_ty)?,
-                        String::new(),
-                    ),
-                    LangKind::Rust => (false, String::new(), String::new()),
-                    LangKind::Python => (
-                        false,
-                        py_field_default(&case_ty, type_kinds)?,
-                        String::new(),
-                    ),
-                    LangKind::C | LangKind::Go => (false, String::new(), String::new()),
-                };
-            // Resolver-free C# read/write statements for the case inner
-            // value; other languages leave these empty.
-            let (vc_inner_serialize, vc_inner_deserialize) =
-                if lang == LangKind::CSharp && vc_has_inner_type {
-                    let mut tmp = 0;
-                    let inner_expr =
-                        format!("(({}{})value).Inner", name, to_pascal_case(&v.vc_case_name));
-                    let local = format!("{}Inner", to_snake_case(&v.vc_case_name));
-                    (
-                        codec_expr_cs::serialize_stmts(
-                            &case_ty,
-                            &inner_expr,
-                            "                ",
-                            &mut tmp,
-                            type_kinds,
-                        )?,
-                        codec_expr_cs::deserialize_local(
-                            &case_ty,
-                            &vc_inner_type_name,
-                            &local,
-                            vc_inner_required,
-                            "                ",
-                            &mut tmp,
-                        )?,
-                    )
-                } else {
-                    (String::new(), String::new())
-                };
-            // Wire-runtime conversion expressions for the case inner value;
-            // other languages and unit cases leave these empty. Rust converts
-            // the `inner` binding (`&T`) through the `mp_wire` `Value` model;
-            // Python converts the typed `x.inner` place (encode) and the
-            // payload slot `v[1]` (decode) through the native value model.
-            let (vc_to_value, vc_from_value) = if lang == LangKind::Rust && vc_has_inner_type {
-                (
-                    crate::lang_impl::rust::value_expr_rs::rust_to_value(&case_ty, "inner", false)?,
-                    crate::lang_impl::rust::value_expr_rs::rust_from_value(&case_ty, "&items[1]")?,
-                )
-            } else if lang == LangKind::Python && vc_has_inner_type {
-                (
-                    py_to_value(&case_ty, "x.inner", PY_RECORD_BIN)?,
-                    py_from_value(&case_ty, "v[1]")?,
-                )
-            } else {
-                (String::new(), String::new())
-            };
-            let vc = VariantCaseInfo {
-                vc_number: i as _,
-                vc_comments: v.vc_comments,
-                vc_case_name: to_pascal_case(&v.vc_case_name),
-                vc_case_name_snake: to_snake_case(&v.vc_case_name),
-                vc_has_inner_type,
-                vc_inner_type_name,
-                vc_inner_required,
-                vc_inner_default_value,
-                vc_inner_deserialize_suffix,
-                vc_inner_serialize,
-                vc_inner_deserialize,
-                vc_to_value,
-                vc_from_value,
-            };
-            variants.push(vc)
+            variants.push(case_info_at(i, v, &name, &lang, type_kinds)?);
         }
         let variant = VariantInfo {
             variant_comments: variant_def.variant_comments,
@@ -182,6 +83,148 @@ impl VariantInfo {
             variant_cases: variants,
         };
         Ok(variant)
+    }
+}
+
+/// Build the language-normalized [`VariantCaseInfo`] of one variant case.
+fn case_info_at(
+    i: usize,
+    v: VariantCase,
+    name: &str,
+    lang: &LangKind,
+    type_kinds: &HashMap<String, String>,
+) -> RS<VariantCaseInfo> {
+    let case_ty = v
+        .vc_case_type
+        .clone()
+        .unwrap_or(UniDataType::Scalar(UniScalar::U8));
+    let (vc_has_inner_type, vc_inner_type_name) = match &v.vc_case_type {
+        Some(ty) => (true, uni_data_type_to_name(ty, lang)?),
+        None => (
+            false,
+            uni_data_type_to_name(&UniDataType::Scalar(UniScalar::U8), lang)?,
+        ),
+    };
+    let (vc_inner_required, vc_inner_default_value, vc_inner_deserialize_suffix) =
+        case_defaults(&case_ty, lang, type_kinds)?;
+    // Resolver-free C# read/write statements for the case inner
+    // value; other languages leave these empty.
+    let (vc_inner_serialize, vc_inner_deserialize) =
+        if *lang == LangKind::CSharp && vc_has_inner_type {
+            case_ser_de_cs(
+                &case_ty,
+                name,
+                &v.vc_case_name,
+                &vc_inner_type_name,
+                vc_inner_required,
+                type_kinds,
+            )?
+        } else {
+            (String::new(), String::new())
+        };
+    let (vc_to_value, vc_from_value) = case_wire_exprs(&case_ty, vc_has_inner_type, lang)?;
+    Ok(VariantCaseInfo {
+        vc_number: i as _,
+        vc_comments: v.vc_comments,
+        vc_case_name: to_pascal_case(&v.vc_case_name),
+        vc_case_name_snake: to_snake_case(&v.vc_case_name),
+        vc_has_inner_type,
+        vc_inner_type_name,
+        vc_inner_required,
+        vc_inner_default_value,
+        vc_inner_deserialize_suffix,
+        vc_inner_serialize,
+        vc_inner_deserialize,
+        vc_to_value,
+        vc_from_value,
+    })
+}
+
+/// Per-language `(inner-required, inner default-value expression, inner
+/// deserialize suffix)` of a variant case payload.
+fn case_defaults(
+    case_ty: &UniDataType,
+    lang: &LangKind,
+    type_kinds: &HashMap<String, String>,
+) -> RS<(bool, String, String)> {
+    Ok(match lang {
+        LangKind::CSharp => {
+            let is_reference = csharp_is_reference_type(case_ty);
+            (
+                is_reference,
+                csharp_default_value_expr(case_ty, type_kinds)?,
+                if is_reference {
+                    "!".to_string()
+                } else {
+                    String::new()
+                },
+            )
+        }
+        LangKind::AssemblyScript => (
+            false,
+            assemblyscript_default_value_expr(case_ty)?,
+            String::new(),
+        ),
+        LangKind::Rust => (false, String::new(), String::new()),
+        LangKind::Python => (false, py_field_default(case_ty, type_kinds)?, String::new()),
+        LangKind::C | LangKind::Go => (false, String::new(), String::new()),
+    })
+}
+
+/// C# resolver-free serialize/deserialize statements of a payload-carrying
+/// case's inner value.
+fn case_ser_de_cs(
+    case_ty: &UniDataType,
+    name: &str,
+    case_name: &str,
+    inner_type_name: &str,
+    inner_required: bool,
+    type_kinds: &HashMap<String, String>,
+) -> RS<(String, String)> {
+    let mut tmp = 0;
+    let inner_expr = format!("(({}{})value).Inner", name, to_pascal_case(case_name));
+    let local = format!("{}Inner", to_snake_case(case_name));
+    Ok((
+        codec_expr_cs::serialize_stmts(
+            case_ty,
+            &inner_expr,
+            "                ",
+            &mut tmp,
+            type_kinds,
+        )?,
+        codec_expr_cs::deserialize_local(
+            case_ty,
+            inner_type_name,
+            &local,
+            inner_required,
+            "                ",
+            &mut tmp,
+        )?,
+    ))
+}
+
+/// Wire-runtime conversion expressions for the case inner value;
+/// other languages and unit cases leave these empty. Rust converts
+/// the `inner` binding (`&T`) through the `mp_wire` `Value` model;
+/// Python converts the typed `x.inner` place (encode) and the
+/// payload slot `v[1]` (decode) through the native value model.
+fn case_wire_exprs(
+    case_ty: &UniDataType,
+    has_inner_type: bool,
+    lang: &LangKind,
+) -> RS<(String, String)> {
+    if *lang == LangKind::Rust && has_inner_type {
+        Ok((
+            crate::lang_impl::rust::value_expr_rs::rust_to_value(case_ty, "inner", false)?,
+            crate::lang_impl::rust::value_expr_rs::rust_from_value(case_ty, "&items[1]")?,
+        ))
+    } else if *lang == LangKind::Python && has_inner_type {
+        Ok((
+            py_to_value(case_ty, "x.inner", PY_RECORD_BIN)?,
+            py_from_value(case_ty, "v[1]")?,
+        ))
+    } else {
+        Ok((String::new(), String::new()))
     }
 }
 

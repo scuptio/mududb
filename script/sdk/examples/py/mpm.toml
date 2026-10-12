@@ -1,0 +1,3 @@
+[build]
+script = "build.py"
+args = ["py"]

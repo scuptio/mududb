@@ -7,6 +7,9 @@ thread_local! {
     static THREAD_TASK_ID: Cell<Option<TaskID>> = const { Cell::new(None) };
 }
 
+/// Returns the task id assigned to the current thread by
+/// [`Thread::spawn_named`](crate::imp::thread::Thread), or `None` if the
+/// current thread was not spawned through this crate.
 pub fn try_this_thread_task_id() -> Option<TaskID> {
     THREAD_TASK_ID.with(Cell::get)
 }

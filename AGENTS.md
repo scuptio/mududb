@@ -5,29 +5,42 @@ This file contains conventions and checklists for AI agents working on the `mudu
 ## Repository Layout
 
 The repository root is **not** a cargo workspace. Crates are grouped under
-`crates/` into four independent cargo workspaces, each with its own
+`crates/` into independent cargo workspaces, each with its own
 `Cargo.toml` / `Cargo.lock`:
 
 - `crates/common` — foundation (`mudu`), sys abstraction (`mudu_sys*`), types,
   bindings, contract, SQL parser, client
-- `crates/db-kernel` — `mudu_kernel`, `mudu_runtime`, `mudud`, `mudu_adapter`,
-  `testing`
-- `crates/sdk` — `mududb` SDK, `example/*`, `bindings/*`, `mudu_api*`
+- `crates/db-kernel` — the kernel is split into `mudu_kernel` (thin facade) +
+  fourteen kernel crates (`catalog`, `index`, `wal`,
+  `xengine`, `storage`, `meta`, `command`,
+  `sql`, `conn`, `xcontract`, `worker`,
+  `repl`, `backup`, `server`), plus `mudu_runtime`
+  (pgwire/HTTP serving backend), `runtime_wasm` (WASM procedure host),
+  `runtime_libsql` (libsql connector),
+  `mudud`, `mudu_adapter`, `mudu_raft` (Raft consensus, a vendored port of
+  scuptio/scupt-raft), `testing`, `catalog-testing` (catalog test fixtures)
+- `crates/sdk` — `mududb` SDK, `bindings/*`, `mudu_api*`
+- `example/mpk` — separate consumer workspace for the guest-SDK examples
+  (`app1`, `wallet`, `vote`, `key-value`, `ycsb`, `tpcc`)
 - `crates/tools` — `mudu_cli`, `mudu_gen`, `mudu_transpiler`, `mpm_build`,
   `mpm_crate`, `mpm_install`
+- `crates/bindings` — standalone cdylib workspace `mudu_adapter_ffi` (native
+  adapter ABI), isolated from the shared `target/`
+- `script/` — build/CI/bench automation; `script/ai_tool/` holds AI-assisted
+  development prompts and helpers (not part of any build)
 
-Cross-group path dependencies use the `../../<group>/<crate>` form. All four
+Cross-group path dependencies use the `../../<group>/<crate>` form. All
 workspaces share the repository-root `target/` directory (root
 `.cargo/config.toml` sets `[build] target-dir = "target"`). Run cargo commands
-per group workspace, e.g. `cd crates/db-kernel && cargo test --workspace`.
+per workspace, e.g. `cd crates/db-kernel && cargo test --workspace`.
 
 Whole-project orchestration lives in the root `Makefile.toml` (cargo-make):
 
-- `cargo make` / `cargo make build` — release build of all four group
+- `cargo make` / `cargo make build` — release build of all group/example
   workspaces plus the standalone `crates/sdk/mudu_api/rust` workspace, then
   `install-tools` (mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli into
   `~/.cargo/bin`) and the `wallet.mpk` example package
-- `cargo make check` — fmt + clippy + test compilation across the four groups
+- `cargo make check` — fmt + clippy + test compilation across all workspaces
   (delegates to `script/shell/check_all.sh`)
 - `cargo make test` — `cargo test --workspace` for every workspace
 - `cargo make test-e2e` — end-to-end suite via `crates/db-kernel/testing`
@@ -47,10 +60,6 @@ find crate") in a self-perpetuating ping-pong. `sys_interface` and
 `uniffi-bindings` workflow ever needs the cdylib back, isolate that build's
 target dir instead of re-adding cdylib to the shared one.
 
-Known issue: `doc/**/*.md` still contains crate links of the form
-`../../../<crate>` that predate the `crates/<group>/` layout and are stale;
-fixing them is tracked as a separate batch task.
-
 ## Before You Change Code
 
 1. Read `ARCHITECTURE.md` for crate layering and dependency rules.
@@ -58,7 +67,7 @@ fixing them is tracked as a separate batch task.
 3. Run `cargo clippy --workspace --all-targets -- -D warnings` per group before and after changes.
 4. Run `cargo test --no-run --workspace` per group to ensure all test targets compile.
 5. Or simply run `bash script/shell/check_all.sh`, which executes steps 2–4
-   (in check mode) sequentially across all four group workspaces.
+   (in check mode) sequentially across all group/example workspaces.
 6. When you change the mgen entity template or SQL in example procedure
    sources, run `cargo make check-sql` in the affected examples to validate
    SQL literals against `sql/ddl.sql` (see `doc/dev/sql_subset.md`).
@@ -77,7 +86,7 @@ Do not raise these limits without re-measuring peak memory.
 
 - The entire workspace is formatted with `cargo fmt` using the default Rust style.
 - The pre-commit hook (`.githooks/pre-commit` / `.githooks/pre-commit.ps1`) runs `cargo fmt -- --check` per group workspace first; commits are blocked if formatting is off.
-- CI also enforces formatting with a dedicated `cargo-fmt` job that loops over the four groups.
+- CI also enforces formatting with a dedicated `cargo-fmt` job that loops over all workspaces.
 
 ## Lint Rules
 
@@ -116,6 +125,20 @@ Do **not** add module-level `#![allow(clippy::disallowed_methods)]` or `#![allow
 - Reuse helpers from `testing::support` instead of duplicating them in each integration test file.
 - Keep `TestContext` / `RunningServer` local to a test file if they have file-specific behavior.
 - All integration tests must still pass `cargo clippy -p testing --all-targets -- -D warnings`.
+- Do not add a dev-dependency on the `mudu_kernel` facade for unit tests;
+  depend on the narrow crate under test (or the `catalog-testing` fixture
+  crate for meta-mgr fixtures). `command` is the one grandfathered exception: its
+  fs-type tests need a `conn`-level fixture, and a direct `conn` dev-dep
+  would violate the rank layering.
+- Production dependencies (`[dependencies]` / `[build-dependencies]`) must
+  never enable any crate's `test` feature; the fuzz workspace
+  (`crates/db-kernel/mudu_kernel/fuzz`) is the only whitelisted exception.
+  This is enforced by `script/ci/check_test_feature.py` (wired into
+  `script/shell/check_all.sh`). Share test-only helper code via a dedicated
+  `*-testing` crate consumed through dev-dependencies (e.g.
+  `catalog-testing`), or via the `testing` crate's public API. A crate's own
+  `test` feature is reserved for what cannot move out: orphan-rule-bound
+  items (`Arbitrary` impls) and fuzz targets.
 
 ## CI / Tooling
 
@@ -128,6 +151,17 @@ each runs once per group workspace (`crates/common`, `crates/db-kernel`,
 - `cargo udeps --workspace --all-targets`
 - `cargo hack check --workspace --each-feature --no-dev-deps` (non-blocking: pre-existing feature-interaction issues in external crates)
 - `cargo outdated --workspace --root-deps-only` (non-blocking)
+
+Repository-wide invariants also run in the `workspace-invariants` job:
+
+- `python3 script/ci/sync_workspace_deps.py --check` — versions.toml is the
+  single source of truth for shared external deps.
+- `python3 script/ci/check_arch.py` — ARCHITECTURE.md crate layering plus
+  dependency-cycle detection over the normal (non-dev/build) dependency graph.
+- `cargo run -p mudu_metrics -- --root crates --config code_metrics.toml` —
+  file / class / struct / function line limits (`crates/tools/dev/mudu_metrics`).
+  `code_metrics.toml` configures the limits and the `exclude` list; generated
+  files carrying the `Generated by ... Do not edit manually.` header are skipped.
 
 When adding a new crate, always include a `license = "..."` field and prefer workspace dependencies.
 
@@ -147,7 +181,7 @@ way (full details: `doc/dev/binding_api_surface.md`).
   `sql` / `db` / `fs` / `result` / `sys` / `mock` exist where the language
   carries that capability. npm and the Go module are exceptions in form
   only: the org scope makes the npm root `@mududb/mududb`, and the Go
-  module is `github.com/ybbh/mududb_p/bindings/go` with packages
+  module is `github.com/mududb/mududb-go` with packages
   `types`/`codec`; the C binding carries the canonical names literally as
   include paths (`mududb/types/Uni*.h`, `mududb/codec/mpack.h`) — identical
   subpaths.
@@ -161,9 +195,8 @@ way (full details: `doc/dev/binding_api_surface.md`).
   first when adding a facade capability. The facade exists in all four
   guest languages: AS (reference), C#, Rust (`mududb::db/fs/result`), and
   Python (`mududb.db/sql/result/fs/sys`, running in componentize-py
-  guests — pipeline and examples: `crates/sdk/example/wallet-py`,
-  `crates/sdk/example/py-spike`; mtp front-end: `mudu_transpiler`'s
-  `python` subcommand).
+  guests — pipeline and example: `example/mpk/wallet-py`; mtp front-end:
+  `mudu_transpiler`'s `python` subcommand).
 - **Consistency gates**: `bash script/ci/check_bindings_regen.sh` (regen
   must be byte-clean) plus each language's golden-corpus tests
   (`crates/db-kernel/testing/fixtures/golden/v1/`, produced by the Rust host

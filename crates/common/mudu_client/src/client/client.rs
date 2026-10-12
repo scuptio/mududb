@@ -23,21 +23,34 @@ use std::net::SocketAddr;
 /// Synchronous blocking TCP client for MuduDB.
 pub struct SyncClient {
     stream: SStdTcpStream,
+    addr: SocketAddr,
     next_request_id: u64,
 }
 
 impl SyncClient {
     /// Connect to `addr` and return a new synchronous client.
     pub fn connect(addr: SocketAddr) -> RS<Self> {
+        let stream = Self::connect_stream(addr)?;
+        Ok(Self {
+            stream,
+            addr,
+            next_request_id: 1,
+        })
+    }
+
+    fn connect_stream(addr: SocketAddr) -> RS<SStdTcpStream> {
         let stream = connect_tcp(addr)
             .map_err(|e| mudu_error!(ErrorCode::Network, "connect io_uring tcp server error", e))?;
         stream
             .set_nodelay(true)
             .map_err(|e| mudu_error!(ErrorCode::Network, "set tcp nodelay error", e))?;
-        Ok(Self {
-            stream,
-            next_request_id: 1,
-        })
+        Ok(stream)
+    }
+
+    /// The address this client is currently connected to (changes after a
+    /// leader-hint redirect).
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
     }
 
     /// Execute a SQL query and return the server response.
@@ -306,6 +319,33 @@ impl SyncClient {
     }
 
     fn send_and_receive(&mut self, payload: &[u8]) -> RS<Frame> {
+        let frame = self.roundtrip(payload)?;
+        if frame.header().message_type() != MessageType::Error {
+            return Ok(frame);
+        }
+        // A leader hint means the peer is not the serving raft leader:
+        // reconnect to the hinted leader and replay the request once. Note
+        // that session-bound requests may need a fresh session on the new
+        // leader (sessions are server-local); the caller sees the session
+        // error and can act on it.
+        let Ok(error) = decode_error_response(&frame) else {
+            return Ok(frame);
+        };
+        let Some(hint) = error.leader_hint() else {
+            return Ok(frame);
+        };
+        let Ok(addr) = format!("{}:{}", hint.host(), hint.port()).parse::<SocketAddr>() else {
+            return Ok(frame);
+        };
+        if addr == self.addr {
+            return Ok(frame);
+        }
+        self.stream = Self::connect_stream(addr)?;
+        self.addr = addr;
+        self.roundtrip(payload)
+    }
+
+    fn roundtrip(&mut self, payload: &[u8]) -> RS<Frame> {
         self.stream
             .write_all(payload)
             .map_err(|e| mudu_error!(ErrorCode::Network, "write request frame error", e))?;

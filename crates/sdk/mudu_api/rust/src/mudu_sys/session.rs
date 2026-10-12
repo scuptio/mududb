@@ -1,7 +1,7 @@
 //! Frame codecs for the `open-session` and `close-session` syscalls.
 //!
 //! Thin adapter over the `mudu_gen`-generated codec in
-//! [`super::generated::uni_syscall`]: `open-session` request `[worker_id]` /
+//! `super::generated::uni_syscall`: `open-session` request `[worker_id]` /
 //! result `[0, UniOid]` or `[1, UniError]`; `close-session` request `[oid]` /
 //! result `[0, 0]` or `[1, UniError]`.
 
@@ -71,8 +71,15 @@ pub async fn sys_close(oid: &UniOid) -> Result<UniReturn<()>, ApiError> {
     deserialize_close_result(&response)
 }
 
+/// Dispatches a pre-encoded `open-session` request frame to the configured
+/// backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn open_raw(open_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("open", &open_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::open_raw(open_in).await;
@@ -93,8 +100,15 @@ pub async fn open_raw(open_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
     ))
 }
 
+/// Dispatches a pre-encoded `close-session` request frame to the configured
+/// backend and returns the raw response frame.
 #[allow(unused_variables)]
 pub async fn close_raw(close_in: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::adapter::enabled() {
+        return crate::adapter::call("close", &close_in);
+    }
+
     #[cfg(feature = "mock-sqlite")]
     {
         return crate::mock::MockSqliteMuduSysCall::close_raw(close_in).await;

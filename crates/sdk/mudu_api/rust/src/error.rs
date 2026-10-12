@@ -1,15 +1,25 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+/// Error produced while configuring a backend or encoding/decoding MSSP
+/// frames.
+///
+/// Business errors reported by the host are *not* `ApiError`s: they travel
+/// inside result frames as `UniError` values.
 #[derive(Debug)]
 pub enum ApiError {
+    /// No backend is configured (or the selected adapter is unusable).
     BackendUnavailable(&'static str),
+    /// A request could not be encoded into an MSSP frame.
     Encode(String),
+    /// A response frame was malformed or carried an error status.
     Decode(String),
+    /// A blocking mock task failed to join.
     Join(String),
 }
 
 impl ApiError {
+    /// Builds an [`ApiError::BackendUnavailable`] with a static message.
     pub fn backend_unavailable(message: &'static str) -> Self {
         Self::BackendUnavailable(message)
     }

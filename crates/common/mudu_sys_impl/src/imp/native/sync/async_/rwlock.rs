@@ -6,14 +6,17 @@ use tokio::sync::{
     RwLockWriteGuard as TokioRwLockWriteGuard,
 };
 
+/// Async read-write lock backed by `tokio::sync::RwLock`.
 pub struct ARwLock<T: ?Sized> {
     inner: TokioRwLock<T>,
 }
 
+/// RAII guard holding a shared read lock; releases on drop.
 pub struct ARwLockReadGuard<'a, T: ?Sized> {
     inner: TokioRwLockReadGuard<'a, T>,
 }
 
+/// RAII guard holding the exclusive write lock; releases on drop.
 pub struct ARwLockWriteGuard<'a, T: ?Sized> {
     inner: TokioRwLockWriteGuard<'a, T>,
 }
@@ -22,6 +25,7 @@ unsafe impl<T> Send for ARwLock<T> where T: ?Sized + Send + Sync {}
 unsafe impl<T> Sync for ARwLock<T> where T: ?Sized + Send + Sync {}
 
 impl<T: ?Sized> ARwLock<T> {
+    /// Creates a new async read-write lock protecting `t`.
     pub fn new(t: T) -> Self
     where
         T: Sized,
@@ -31,18 +35,23 @@ impl<T: ?Sized> ARwLock<T> {
         }
     }
 
+    /// Acquires a shared read lock, waiting asynchronously until no writer
+    /// holds or precedes this request.
     pub async fn read(&self) -> ARwLockReadGuard<'_, T> {
         ARwLockReadGuard {
             inner: self.inner.read().await,
         }
     }
 
+    /// Acquires the exclusive write lock, waiting asynchronously until no
+    /// other reader or writer holds it.
     pub async fn write(&self) -> ARwLockWriteGuard<'_, T> {
         ARwLockWriteGuard {
             inner: self.inner.write().await,
         }
     }
 
+    /// Consumes the lock and returns the protected value.
     pub fn into_inner(self) -> T
     where
         T: Sized,

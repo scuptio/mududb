@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../../Mudu.Api.csproj" /><Compile Include="../mpk/src/Procedures.cs" Link="Procedures.cs" /></ItemGroup>
+  <ItemGroup><None Include="../mpk/sql/ddl.sql" Link="ddl.sql" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

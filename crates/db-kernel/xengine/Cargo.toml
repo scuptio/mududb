@@ -1,0 +1,23 @@
+[package]
+name = "xengine"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Cross-engine API and the main MuduEngine implementation"
+
+[features]
+debug_trace = ["mudu_utils/debug_trace"]
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+wal = { workspace = true }
+mudu = { workspace = true }
+mudu_contract = { workspace = true }
+mudu_sys = { workspace = true }
+mudu_type = { workspace = true }
+mudu_utils = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }

@@ -1,5 +1,5 @@
-#![allow(missing_docs)]
 mod async_tokio_file;
+/// `AsyncFs` implementation backed by Tokio.
 pub mod async_tokio_fs;
 mod testing_async_tokio;
 mod tokio_file;

@@ -1,0 +1,16 @@
+[package]
+name = "catalog-testing"
+version = "0.0.1"
+edition = "2021"
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Test fixtures for the kernel catalog: in-memory meta-mgr and schema builders"
+
+[lints]
+workspace = true
+
+[dependencies]
+catalog = { workspace = true }
+mudu = { workspace = true }
+mudu_sys = { workspace = true }
+async-trait = { workspace = true }

@@ -6,9 +6,11 @@
 //! `from_value`) and the canonical MessagePack runtime. The impls in this
 //! file exist only for the remaining serde consumers, which are all JSON:
 //!
-//! - the `syscall_schema` descriptor ([`UniSchemaDesc`], serialized by
-//!   `mgen -t`), embedding [`UniDataType`];
-//! - [`UniTypeDesc`] (type-description JSON documents);
+//! - the `syscall_schema` descriptor
+//!   ([`UniSchemaDesc`](crate::universal::uni_schema_desc::UniSchemaDesc),
+//!   serialized by `mgen -t`), embedding [`UniDataType`];
+//! - [`UniTypeDesc`](crate::universal::uni_type_desc::UniTypeDesc)
+//!   (type-description JSON documents);
 //! - `mudu_client`'s JSON client, which stores [`UniDataValue`] as JSON
 //!   bytes and embeds [`UniOid`] in its HTTP request/response JSON;
 //! - the management API, which embeds [`UniOid`] in topology JSON;

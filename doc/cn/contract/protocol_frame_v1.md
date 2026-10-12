@@ -95,6 +95,6 @@ Header 所有字段均为大端序。
 
 ## 参考
 
-- 帧格式：[mudu_contract/src/protocol/format/latest.rs](../../../mudu_contract/src/protocol/format/latest.rs)
-- 消息类型与 payload：[mudu_contract/src/protocol/mod.rs](../../../mudu_contract/src/protocol/mod.rs)
-- 握手处理：[mudu_kernel/src/server/handlers/handshake.rs](../../../mudu_kernel/src/server/handlers/handshake.rs)
+- 帧格式：[mudu_contract/src/protocol/format/latest.rs](../../../crates/common/mudu_contract/src/protocol/format/latest.rs)
+- 消息类型与 payload：[mudu_contract/src/protocol/mod.rs](../../../crates/common/mudu_contract/src/protocol/mod.rs)
+- 握手处理：[mudu_kernel/src/server/handlers/handshake.rs](../../../crates/db-kernel/mudu_kernel/src/server/handlers/handshake.rs)

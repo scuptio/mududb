@@ -27,7 +27,7 @@ This guide shows how to run the `mududb` GitHub Actions workflows on your own ma
 If you already have Docker and `act` installed, run the main build workflow with:
 
 ```bash
-act -W .github/workflows/build.yaml -j build
+bash script/ci/act.sh -W .github/workflows/build.yaml -j build
 ```
 
 This command:
@@ -35,6 +35,30 @@ This command:
 - Uses the settings in `.actrc`.
 - Runs the `build` job from `.github/workflows/build.yaml`.
 - Reuses the local Docker image by default (see [Why we need a custom `.actrc`](#why-we-need-a-custom-actrc)).
+
+Both `.actrc` and the wrapper use `--bind=false`: act copies source files into
+its container workspace instead of mounting your checkout. Builds write to the
+container's `target/`, leaving your local `target/` untouched. Gitignored files,
+including the host `target/`, are excluded from the copy by default.
+
+The existing image and containers are reused (`--pull=false`, `--reuse=true`,
+`--rm=false`). This preserves container build caches without building or pulling
+a new runner image each time. Removing the container and its workspace storage
+loses those caches. The wrapper captures console output in local `logs/`;
+workflow-generated files stay inside the container.
+
+Before starting any job, the wrapper checks that tracked and non-ignored
+untracked source files are readable and their directories accessible. It also
+checks Docker for retained act containers whose bind mounts overlap this checkout.
+Failures stop the run early and list the affected paths or containers; the
+checks never change permissions or remove containers. Python 3, Git, and access
+to the Docker daemon are required for these checks.
+
+When upgrading from the old bind configuration, first follow
+[Switch from bound containers](#switch-from-bound-containers). Existing containers
+retain their original mounts. The wrapper rejects bind-enabling arguments and
+forces `--bind=false`. Direct `act` commands bypass these preflight checks;
+use the wrapper for normal runs.
 
 To verify everything is wired correctly first, run a dry check:
 
@@ -106,6 +130,10 @@ This repository contains a `.actrc` file in the project root. `act` automaticall
 --container-options --security-opt=seccomp=unconfined
 --container-options --security-opt=apparmor=unconfined
 --env ACT=true
+--bind=false
+--concurrent-jobs=1
+--reuse=true
+--rm=false
 ```
 
 What each option does:
@@ -119,11 +147,15 @@ What each option does:
 | `--privileged` | Grant the container the privileges required by `io_uring`. |
 | `--container-options --security-opt=seccomp=unconfined` | Disable seccomp filtering so `io_uring` syscalls are allowed. |
 | `--container-options --security-opt=apparmor=unconfined` | Disable AppArmor so `io_uring` can initialize. |
+| `--bind=false` | Copy source into an isolated container workspace; leave host build files untouched. |
+| `--reuse=true`, `--rm=false` | Retain containers and their build state between runs. |
+| `--concurrent-jobs=1` | Run one job at a time to limit resource usage. |
 | `--env ACT=true` | Expose `env.ACT` so workflows can skip CI-only steps (e.g. disk cleanup) during local runs. |
 
 > **Important:** The `--privileged` and `--security-opt` flags are required for the `io_uring` tests. Without them, you will see errors such as `io_uring_queue_init_params error -1`.
 
-If you override flags on the command line, `act` may stop reading `.actrc`. In that case, pass the settings explicitly or rely on the defaults in the file for normal runs.
+Direct act command-line flags can override `.actrc` settings. The wrapper keeps
+`--bind=false` as the final argument and rejects attempts to enable bind mode.
 
 ---
 
@@ -131,35 +163,35 @@ If you override flags on the command line, `act` may stop reading `.actrc`. In t
 
 ### Helper script
 
-The repository provides `script/ci/run-local.sh`, which wraps `act` and captures logs for each workflow or job in a single place. It is the easiest way to run actions locally without losing errors in long output.
+The repository provides `script/ci/act.sh`, which wraps `act` and captures logs for each workflow or job in a single place. It is the easiest way to run actions locally without losing errors in long output.
 
 ```bash
 # Run the main build workflow and capture a summary
-./script/ci/run-local.sh
+./script/ci/act.sh
 
 # Run a specific workflow
-./script/ci/run-local.sh .github/workflows/nightly-checks.yaml
+./script/ci/act.sh .github/workflows/nightly-checks.yaml
 
 # Run one or more jobs individually
-./script/ci/run-local.sh -j cargo-deny
-./script/ci/run-local.sh -j build -j rustdoc
+./script/ci/act.sh -j cargo-deny
+./script/ci/act.sh -j build -j rustdoc
 
 # Show help
-./script/ci/run-local.sh --help
+./script/ci/act.sh --help
 ```
 
 For each run, the script writes a log file under `logs/` and prints a final summary. If anything failed, it extracts the last matching error lines so you do not have to scroll through the full `act` output.
 
 ### Log files from workflow steps
 
-The CI workflows also write per-step log files inside the container. When `act` uses `--bind` (the default in many setups), these files appear in your local checkout at:
+The CI workflows also write per-step log files inside the container workspace:
 
 - `logs/build-*.log` — `build.yaml` steps (check, clippy, test, etc.)
 - `logs/hardening-*.log` — `ci-hardening.yaml` steps (fmt, deny, hack, outdated)
 - `logs/nightly-*.log` — `nightly-checks.yaml` steps (udeps, fuzz, asan, coverage) and `miri.yaml` steps (`nightly-miri.log`)
 - `logs/compat-*.log` — `compatibility.yaml` steps
 
-Because each heavy step uses `set -o pipefail | tee`, the original exit code is preserved and the log file survives after the container exits.
+Steps use `set -o pipefail` with `tee` to preserve failures. These files remain in the retained container workspace; use the [export procedure](#export-container-artifacts-and-logs) to copy them to the host. The wrapper’s local console logs remain available without exporting.
 
 ### Main build workflow
 
@@ -181,15 +213,21 @@ Run with verbose logging:
 act -W .github/workflows/build.yaml -j build -v
 ```
 
-Reuse the same container between runs (faster, but only after security settings are confirmed good):
+The repository `.actrc` retains containers between runs (`--reuse=true` and
+`--rm=false`). This avoids Docker container-removal timeouts during local job
+cleanup, but preserves container state and consumes disk space between runs.
+It does not repair an unresponsive Docker daemon.
+
+To request fresh containers and cleanup after failures for a run:
 
 ```bash
-act -W .github/workflows/build.yaml -j build --reuse
+act -W .github/workflows/build.yaml -j build --reuse=false --rm=true
 ```
 
 ### Build workflow inputs
 
-Trigger a manual build with `cargo clean` enabled:
+`cargo clean` is disabled by default, including for push and pull-request runs.
+Enable it explicitly for a manual build:
 
 ```bash
 act workflow_dispatch -W .github/workflows/build.yaml -j build --input clean_cargo=true
@@ -222,30 +260,29 @@ act workflow_dispatch \
 
 > **Warning:** A real token will create or update a real GitHub release. Use this only when you intend to publish.
 
-#### Keep release artifacts in your local checkout
+#### Export container artifacts and logs
 
-By default, `act` runs inside a copied container workspace. Generated files, including release tarballs, can stay inside the container. Use `--bind` to write them back to your local checkout:
+Release output remains under `target/release-artifacts/<version>/` in the
+container workspace. Export only the files you need after the job completes.
+Identify the container for the desired job and inspect its workspace path:
 
 ```bash
-act workflow_dispatch \
-  -W .github/workflows/build-release.yaml \
-  -j build-release \
-  --bind
+docker ps -a --filter name=act- --format '{{.ID}} {{.Names}} {{.Status}}'
+docker inspect <container_id> --format '{{.Config.WorkingDir}}'
 ```
 
-With `--bind`, artifacts are written to:
+Substitute that workspace path below. Run these commands as your normal host
+user, without `sudo` or `docker cp -a`, so copied files belong to your host user:
 
-```text
-target/release-artifacts/<version>/<version>/bin/
-target/release-artifacts/<version>/<version>/lib/
-target/release-artifacts/<version>/<version>/lib/lib-list.txt
-target/release-artifacts/<version>/<version>/manifest.txt
-target/release-artifacts/<version>/mududb-<version>-x86_64-unknown-linux-gnu.tar.gz
-target/release-artifacts/<version>/mududb-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256
-target/release-artifacts/<version>/CHANGELOG_RELEASE.md
+```bash
+mkdir -p logs/act-export/release-artifacts logs/act-export/steps
+docker cp <container_id>:<workspace_path>/target/release-artifacts/. logs/act-export/release-artifacts/
+docker cp <container_id>:<workspace_path>/logs/. logs/act-export/steps/
 ```
 
-When the `act` job runs as root with `--bind`, the workflow resets ownership of the generated `target/release-artifacts/<version>` directory to the local checkout owner and group, and mirrors owner permissions to group/other users.
+The exported release directory contains the binaries, libraries, manifest,
+archive, checksum, and changelog. This export does not populate the host's Cargo
+build cache.
 
 ### Other workflows
 
@@ -292,21 +329,70 @@ Run the compatibility workflow:
 act -W .github/workflows/compatibility.yaml
 ```
 
-### Optional: share local Rust caches
+### Build cache reuse
 
-To reuse your host's Rust toolchain and crate cache, export the standard directories before running `act`:
-
-```bash
-export CARGO_HOME="$HOME/.cargo"
-export RUSTUP_HOME="$HOME/.rustup"
-act -W .github/workflows/build.yaml -j build
-```
-
-This avoids re-downloading dependencies inside the container on every run.
+Keep `--reuse=true` and `--rm=false`, and leave `clean_cargo` disabled for normal
+runs. Each retained job workspace keeps its own `target/`; it does not share the
+host's Cargo target directory. Cargo registry caching is also configured by the
+workflows. Exporting host `CARGO_HOME` or `RUSTUP_HOME` alone does not mount those
+directories into act containers.
 
 ---
 
 ## Troubleshooting
+
+### Unreadable source files during checkout
+
+Copy mode reads source files as the host user. Files left by earlier root bind
+builds can therefore fail checkout even when the container runs as root. The
+wrapper reports these before starting any workflow and never prints contents.
+Gitignored build caches are excluded from this source check.
+
+Inspect the listed paths in a host terminal. If a file belongs to the wrong
+user, restore only that file's owner to the checkout owner, for example:
+
+```bash
+stat -c '%a %U:%G %n' example/mpk/wallet-cs/nuget.config
+sudo chown --reference=. -- example/mpk/wallet-cs/nuget.config
+test -r example/mpk/wallet-cs/nuget.config
+```
+
+This preserves its permission bits, including `600`; there is no need to make
+the file readable by everyone. Directories also require read and search access.
+If ownership is already correct, inspect the reported directory modes or ACLs
+instead. Rerun the wrapper after repairing the reported paths.
+
+### Switch from bound containers
+
+Stop any act run before migrating. List containers and inspect their mounts:
+
+```bash
+docker ps -a --filter name=act- --format '{{.ID}} {{.Names}} {{.Status}}'
+docker inspect <container_id> --format '{{json .Mounts}}'
+```
+
+For each old container whose bind mount points to this checkout, export any
+needed artifacts first, then remove that specific container. Do not remove
+unrelated containers, images, or volumes:
+
+```bash
+docker stop <old_act_container_id>  # only if it is still running
+docker rm <old_act_container_id>
+```
+
+The next run creates a container with the isolated workspace using the existing
+image; no image rebuild or pull is required. Inspect its mounts to confirm the
+checkout is no longer bound. Docker socket mounts are separate from workspace
+mounts.
+
+If earlier runs left the host `target/` owned by root, repair it once from the
+repository root in a host terminal, after all builds have stopped:
+
+```bash
+sudo chown -R -- "$(id -u):$(id -g)" target
+```
+
+Neither container removal nor this ownership repair is performed automatically.
 
 ### `io_uring_queue_init_params error -1`
 
@@ -366,7 +452,7 @@ act -W .github/workflows/build.yaml -j build --pull=true
 ### Build is slow
 
 - Use `--reuse` after confirming the container security settings are correct.
-- Export `CARGO_HOME` and `RUSTUP_HOME` to reuse host caches.
+- Leave `clean_cargo` disabled to retain the container workspace’s build cache.
 - Set `CARGO_INCREMENTAL=0` is already done in the workflow; do not override it.
 
 ---
@@ -385,6 +471,11 @@ act -W .github/workflows/build.yaml -j build --pull=true
   --privileged
   --container-options --security-opt=seccomp=unconfined
   --container-options --security-opt=apparmor=unconfined
+  --env ACT=true
+  --bind=false
+  --concurrent-jobs=1
+  --reuse=true
+  --rm=false
   ```
 
 ---
@@ -393,16 +484,16 @@ act -W .github/workflows/build.yaml -j build --pull=true
 
 | Goal | Command |
 |------|---------|
-| Run build workflow with log summary | `./script/ci/run-local.sh` |
-| Run a specific workflow with summary | `./script/ci/run-local.sh .github/workflows/nightly-checks.yaml` |
-| Run a single job | `./script/ci/run-local.sh -j cargo-deny` |
+| Run build workflow with log summary | `./script/ci/act.sh` |
+| Run a specific workflow with summary | `./script/ci/act.sh .github/workflows/nightly-checks.yaml` |
+| Run a single job | `./script/ci/act.sh -j cargo-deny` |
 | Dry run | `act -W .github/workflows/build.yaml -j build --dryrun` |
 | First run / refresh image | `act -W .github/workflows/build.yaml -j build --pull=true` |
 | Normal build | `act -W .github/workflows/build.yaml -j build` |
 | Verbose build | `act -W .github/workflows/build.yaml -j build -v` |
 | Fast reuse | `act -W .github/workflows/build.yaml -j build --reuse` |
 | With `cargo clean` | `act workflow_dispatch -W .github/workflows/build.yaml -j build --input clean_cargo=true` |
-| Release (no publish) | `act workflow_dispatch -W .github/workflows/build-release.yml -j build-release --bind` |
-| Release (publish) | `act workflow_dispatch -W .github/workflows/build-release.yml -j build-release -s GITHUB_TOKEN=ghp_xxx --bind` |
+| Release (no publish) | `act workflow_dispatch -W .github/workflows/build-release.yaml -j build-release` |
+| Release (publish) | `act workflow_dispatch -W .github/workflows/build-release.yaml -j build-release -s GITHUB_TOKEN=ghp_xxx` |
 | Nightly checks | `act -W .github/workflows/nightly-checks.yaml` |
 | Miri (manual-only) | `act workflow_dispatch -W .github/workflows/miri.yaml` |

@@ -28,6 +28,11 @@ jobs:
   cargo-udeps:
     name: cargo-udeps - ${{ matrix.group }}
     runs-on: ubuntu-latest
+    env:
+      # Accommodate slow registry responses without retrying indefinitely.
+      CARGO_HTTP_TIMEOUT: '120'
+      CARGO_NET_RETRY: '5'
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
     strategy:
       matrix:
         # Each group workspace has its own Cargo.lock and is checked separately.
@@ -39,25 +44,45 @@ jobs:
       - name: Setup pinned nightly tooling Rust
         uses: ./.github/actions/rust-nightly-setup
 
+      - name: Cache Cargo dependency downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+            ~/.cargo/git/checkouts
+          key: udeps-deps-${{ runner.os }}-${{ matrix.group }}-${{ hashFiles('crates/**/Cargo.lock', '.rust-nightly-version') }}
+          restore-keys: |
+            udeps-deps-${{ runner.os }}-${{ matrix.group }}-
+
       - name: Install cargo-udeps
         run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked
+
+      - name: Fetch locked workspace dependencies
+        timeout-minutes: 15
+        working-directory: crates/${{ matrix.group }}
+        run: cargo +${NIGHTLY_TOOLCHAIN} fetch --locked
 
       - name: Run cargo-udeps
         working-directory: crates/${{ matrix.group }}
         run: |
-          mkdir -p ${{ github.workspace }}/logs
+          mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets 2>&1 | tee ${{ github.workspace }}/logs/nightly-udeps-${{ matrix.group }}.log
+          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets --locked --offline 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/nightly-udeps.log
 
       - name: Local reproduction command
         if: failure()
         run: |
           echo "To reproduce locally:"
+          echo "  export CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=5 CARGO_NET_GIT_FETCH_WITH_CLI=true"
           echo "  NIGHTLY_TOOLCHAIN=\"$(tr -d '[:space:]' < .rust-nightly-version)\""
           echo "  rustup toolchain install \"\${NIGHTLY_TOOLCHAIN}\" --profile minimal"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked"
           echo "  cd crates/${{ matrix.group }}"
-          echo "  cargo +\${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} fetch --locked"
+          echo "  cargo +\${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets --locked --offline"
 
   cargo-fuzz:
     name: cargo-fuzz

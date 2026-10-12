@@ -12,53 +12,65 @@
 #![warn(clippy::todo)]
 #![warn(clippy::unimplemented)]
 
-/// Shared helpers used across the kernel.
-mod common;
-
 /// Kernel compatibility helpers and global router installation.
 pub mod compat;
 #[cfg(test)]
 mod compat_test;
 
 /// Kernel-facing contracts and value types exchanged between subsystems.
-pub mod contract;
+///
+/// Re-exported from `catalog` (the extracted catalog/contract crate) to
+/// preserve the historical `mudu_kernel::contract::*` paths.
+pub mod contract {
+    pub use ::catalog::contract::*;
+}
 
 /// Fuzzing harnesses and golden-corpus helpers.
 #[cfg(any(test, feature = "test", fuzzing))]
 pub mod fuzz;
 
 /// B-tree index implementation and key encoding.
-pub mod index;
+pub mod index {
+    pub use ::index::*;
+}
 
 /// In-memory catalog managers for schemas, partitions, and placements.
-pub mod meta;
+pub mod meta {
+    pub use ::meta::*;
+}
 
 /// Async connection and prepared-statement wrappers exposed to clients.
-pub mod mudu_conn;
+pub mod mudu_conn {
+    pub use ::conn::*;
+}
 
 /// SQL parsing, binding, planning, and statement execution.
-pub mod sql;
+pub mod sql {
+    pub use ::sql::*;
+}
 
 /// Write-ahead log format, serialization, and backend workers.
-pub mod wal;
-
-/// Command interpreters for DDL and DML.
-mod command;
-
-/// Plan executors for scans, indexes, and mutations.
-mod executor;
+pub mod wal {
+    pub use ::wal::*;
+}
 
 /// Internal test utilities and fixture generation.
 #[cfg(any(test, feature = "test", fuzzing))]
 mod test;
 
 /// Network server, protocol handlers, and worker runtime.
-pub mod server;
+pub mod server {
+    pub use ::server::*;
+}
 
 /// On-disk page and relation storage implementations.
-pub mod storage;
+pub mod storage {
+    pub use ::storage::*;
+}
 
 /// Public cross-engine API and the main `MuduEngine` implementation.
-pub mod x_engine;
+pub mod x_engine {
+    pub use ::xengine::*;
+}
 
 pub use mudu_sys::tokio;

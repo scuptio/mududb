@@ -1,5 +1,4 @@
-//! `tuple::vec_dyn_datum` module.
-#![allow(missing_docs)]
+//! [`EnumerableDatum`] implementation for slices of datum trait objects.
 
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;
@@ -11,6 +10,7 @@ use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 
+/// Marker for slices of datum trait objects usable as an enumerable datum.
 pub trait VecDynDatum: EnumerableDatum {}
 
 impl EnumerableDatum for [&dyn DatumDyn] {

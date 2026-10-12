@@ -9,8 +9,11 @@ use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Custom error type with error code, message, and optional source
-#[derive(Debug, Clone)]
+/// Custom error type with error code, message, and optional source.
+///
+/// `Display` (`{}`) prints the short form (message, code, source chain,
+/// location); `Debug` (`{:?}`) additionally prints the captured backtrace.
+#[derive(Clone)]
 pub struct MuduError {
     ec: ErrorCode,
     msg: String,
@@ -26,6 +29,10 @@ impl MuduError {
         format!("{}:{}", loc.file(), loc.line())
     }
 
+    /// Captures a backtrace when backtrace capture is enabled.
+    ///
+    /// Capture is enabled by default in debug builds and disabled in release
+    /// builds to keep release overhead low.
     pub fn capture_backtrace() -> Option<Arc<Backtrace>> {
         // Capture backtraces in debug builds to keep release overhead low.
         if SHOULD_CAPTURE.load(Ordering::Relaxed) {
@@ -35,6 +42,7 @@ impl MuduError {
         }
     }
 
+    /// Enables or disables backtrace capture.
     #[cfg(test)]
     pub fn set_capture_backtrace(enabled: bool) {
         SHOULD_CAPTURE.store(enabled, Ordering::Relaxed);
@@ -44,6 +52,7 @@ impl MuduError {
 static SHOULD_CAPTURE: AtomicBool = AtomicBool::new(cfg!(debug_assertions));
 
 impl MuduError {
+    /// Creates an error from an error code, using the code's default message.
     #[track_caller]
     pub fn new_with_ec(ec: ErrorCode) -> Self {
         Self::new(
@@ -55,6 +64,7 @@ impl MuduError {
         )
     }
 
+    /// Creates an error from an error code and a message.
     #[track_caller]
     pub fn new_with_ec_msg<S: AsRef<str>>(ec: ErrorCode, msg: S) -> Self {
         Self::new(
@@ -66,6 +76,7 @@ impl MuduError {
         )
     }
 
+    /// Creates an error from an error code, a message, and a source error.
     #[track_caller]
     pub fn new_with_ec_msg_src<S: AsRef<str>, E: Into<Box<dyn Error + Send + Sync + 'static>>>(
         ec: ErrorCode,
@@ -81,6 +92,7 @@ impl MuduError {
         )
     }
 
+    /// Creates an error from an error code, a message, and an optional source error.
     #[track_caller]
     pub fn new_with_ec_msg_opt_src<S: AsRef<str>>(
         ec: ErrorCode,
@@ -96,6 +108,8 @@ impl MuduError {
         )
     }
 
+    /// Creates an error from all of its parts: code, message, optional source,
+    /// source location, and optional backtrace.
     pub fn new<S: AsRef<str>>(
         ec: ErrorCode,
         msg: S,
@@ -112,26 +126,32 @@ impl MuduError {
         }
     }
 
+    /// Returns the error code.
     pub fn ec(&self) -> ErrorCode {
         self.ec
     }
 
+    /// Returns the error message.
     pub fn message(&self) -> &str {
         &self.msg
     }
 
+    /// Returns the source location where the error was created.
     pub fn loc(&self) -> &str {
         &self.loc
     }
 
+    /// Returns the severity classification of the error code.
     pub fn severity(&self) -> Severity {
         self.ec.severity()
     }
 
+    /// Returns the backtrace captured at creation time, if any.
     pub fn backtrace(&self) -> Option<&Backtrace> {
         self.backtrace.as_deref()
     }
 
+    /// Replaces the error message.
     pub fn set_message(&mut self, msg: String) {
         self.msg = msg;
     }
@@ -148,6 +168,7 @@ impl MuduError {
         self.ec == other.ec && self.msg == other.msg
     }
 
+    /// Returns the source error in its serializable [`ErrorSource`] form.
     pub fn err_src(&self) -> ErrorSource {
         match &self.src {
             Some(src) => match src.downcast_ref::<MuduError>() {
@@ -175,6 +196,20 @@ impl std::fmt::Display for MuduError {
         write!(f, "{} (code {})", self.msg, self.ec.to_u32())?;
         if let Some(src) = &self.src {
             write!(f, ": {}", src)?;
+        }
+        write!(f, "\n  at {}", self.loc)?;
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for MuduError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (code {})", self.msg, self.ec.to_u32())?;
+        if let Some(src) = &self.src {
+            match src.downcast_ref::<MuduError>() {
+                Some(merr) => write!(f, ": {:?}", merr)?,
+                None => write!(f, ": {}", src)?,
+            }
         }
         if let Some(bt) = &self.backtrace {
             write!(f, "\n  at {}\nbacktrace:\n{}", self.loc, bt)?;
@@ -278,6 +313,8 @@ impl From<serde_json::Error> for MuduError {
 }
 
 // Macros for convenient error creation
+/// Creates a [`MuduError`] from an error code, an optional message, and an
+/// optional source error.
 #[macro_export]
 macro_rules! mudu_error {
     ($ec:expr) => {
@@ -373,14 +410,19 @@ impl std::fmt::Display for StringError {
 
 impl Error for StringError {}
 
+/// Serializable form of a [`MuduError`] source.
 #[derive(Serialize, Deserialize)]
 pub enum ErrorSource {
+    /// The source is another [`MuduError`].
     MuduError(MuduError),
+    /// The source is an error rendered as a message string.
     Other(String),
+    /// The error has no source.
     None,
 }
 
 impl ErrorSource {
+    /// Converts into the boxed source error stored in [`MuduError`].
     pub fn into_error_source(self) -> Option<Arc<dyn Error + Send + Sync + 'static>> {
         match self {
             Self::MuduError(err) => Some(Arc::new(err)),
@@ -389,11 +431,13 @@ impl ErrorSource {
         }
     }
 
+    /// Deserializes from a JSON string, returning [`ErrorSource::None`] on failure.
     pub fn from_json_str(s: &str) -> Self {
         let s = serde_utils::deserialize_from_json::<Self>(s);
         s.unwrap_or_else(|_| Self::None)
     }
 
+    /// Serializes to a JSON string, returning an empty string on failure.
     pub fn to_json_str(&self) -> String {
         let s = serde_utils::serialize_to_json(self);
         s.unwrap_or_default()

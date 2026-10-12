@@ -1,8 +1,12 @@
+//! Fuzz helpers that round-trip arbitrary values through the codec.
+
 use crate::common::codec::{Decode, Encode};
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "arbitrary"))]
 use arbitrary::{Arbitrary, Unstructured};
 use std::fmt::Debug;
 
+/// Feeds arbitrary instances of `T` through an encode/decode round-trip,
+/// asserting that encoding size, decoded size, and the value itself match.
 pub fn _fuzz_decode_and_encode<'a, T: Arbitrary<'a> + Decode + Encode + Eq + Debug + 'static>(
     data: &'a [u8],
 ) {

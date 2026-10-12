@@ -1,5 +1,4 @@
-//! `database::sql_params` module.
-#![allow(missing_docs)]
+//! SQL parameter set abstraction.
 
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
@@ -10,12 +9,15 @@ use mudu_type::data_type::DataType;
 use mudu_type::datum::DatumDyn;
 use paste::paste;
 
+/// Conversion to a datum trait object reference.
 pub trait ToDatum {
+    /// Returns `self` as a datum trait object reference.
     fn to_datum(&self) -> RS<&dyn DatumDyn>;
 }
 
 //pub trait DatumDyn: DatumDyn {}
 
+/// A set of SQL statement parameters.
 pub trait SQLParams: Send + Sync {
     #[doc(hidden)]
     fn size(&self) -> u64;
@@ -163,6 +165,7 @@ impl<T: DatumDyn> SQLParams for (T,) {
     }
 }
 
+/// Marker for datum types usable as a single SQL parameter.
 pub trait SQLParamMarker {}
 macro_rules! impl_sql_param_datum_marker {
     ($(

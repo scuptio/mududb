@@ -5,14 +5,18 @@ use tokio::sync::{
     MappedMutexGuard as TokioMappedMutexGuard, Mutex as TokioMutex, MutexGuard as TokioMutexGuard,
 };
 
+/// Async mutex backed by `tokio::sync::Mutex`.
 pub struct AMutex<T: ?Sized> {
     inner: TokioMutex<T>,
 }
 
+/// RAII guard holding an [`AMutex`] lock; releases on drop.
 pub struct AMutexGuard<'a, T: ?Sized> {
     inner: TokioMutexGuard<'a, T>,
 }
 
+/// RAII guard holding an [`AMutex`] lock mapped to a sub-component of the
+/// protected value.
 pub struct MappedAMutexGuard<'a, T: ?Sized> {
     inner: TokioMappedMutexGuard<'a, T>,
 }
@@ -23,6 +27,7 @@ unsafe impl<T> Sync for AMutexGuard<'_, T> where T: ?Sized + Send + Sync {}
 unsafe impl<'a, T> Sync for MappedAMutexGuard<'a, T> where T: ?Sized + Sync + 'a {}
 unsafe impl<'a, T> Send for MappedAMutexGuard<'a, T> where T: ?Sized + Send + 'a {}
 
+/// Error returned when a `try_lock` fails because the mutex is locked.
 #[derive(Debug)]
 pub struct TryLockError(pub ());
 
@@ -33,6 +38,7 @@ impl fmt::Display for TryLockError {
 }
 
 impl<T: ?Sized> AMutex<T> {
+    /// Creates a new async mutex protecting `t`.
     pub fn new(t: T) -> Self
     where
         T: Sized,
@@ -42,6 +48,7 @@ impl<T: ?Sized> AMutex<T> {
         }
     }
 
+    /// Creates a new async mutex in a const context.
     pub const fn const_new(t: T) -> Self
     where
         T: Sized,
@@ -51,12 +58,15 @@ impl<T: ?Sized> AMutex<T> {
         }
     }
 
+    /// Locks the mutex, waiting asynchronously until it is available.
     pub async fn lock(&self) -> AMutexGuard<'_, T> {
         AMutexGuard {
             inner: self.inner.lock().await,
         }
     }
 
+    /// Attempts to lock the mutex without waiting; returns `None` if it is
+    /// locked.
     pub fn try_lock(&self) -> Option<AMutexGuard<'_, T>> {
         self.inner
             .try_lock()
@@ -64,6 +74,7 @@ impl<T: ?Sized> AMutex<T> {
             .map(|inner| AMutexGuard { inner })
     }
 
+    /// Consumes the mutex and returns the protected value.
     pub fn into_inner(self) -> T
     where
         T: Sized,
@@ -94,6 +105,8 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for AMutex<T> {
 }
 
 impl<'a, T: ?Sized> AMutexGuard<'a, T> {
+    /// Maps this guard to a guard over a sub-component of the protected
+    /// value.
     pub fn map<U, F>(this: Self, f: F) -> MappedAMutexGuard<'a, U>
     where
         U: ?Sized,
@@ -104,6 +117,8 @@ impl<'a, T: ?Sized> AMutexGuard<'a, T> {
         }
     }
 
+    /// Fallible variant of [`AMutexGuard::map`]: returns the original guard
+    /// if `f` returns `None`.
     pub fn try_map<U, F>(this: Self, f: F) -> Result<MappedAMutexGuard<'a, U>, Self>
     where
         U: ?Sized,
@@ -143,6 +158,7 @@ impl<T: ?Sized + fmt::Display> fmt::Display for AMutexGuard<'_, T> {
 }
 
 impl<'a, T: ?Sized> MappedAMutexGuard<'a, T> {
+    /// Maps this guard to a guard over a further sub-component.
     pub fn map<U, F>(this: Self, f: F) -> MappedAMutexGuard<'a, U>
     where
         F: FnOnce(&mut T) -> &mut U,
@@ -152,6 +168,8 @@ impl<'a, T: ?Sized> MappedAMutexGuard<'a, T> {
         }
     }
 
+    /// Fallible variant of [`MappedAMutexGuard::map`]: returns the original
+    /// guard if `f` returns `None`.
     pub fn try_map<U, F>(this: Self, f: F) -> Result<MappedAMutexGuard<'a, U>, Self>
     where
         F: FnOnce(&mut T) -> Option<&mut U>,

@@ -49,7 +49,7 @@ Consequences:
 | SQL literal checking | `mgen check-sql` | `crates/tools/mudu_gen/src/src_check/extract_<lang>.rs` |
 | Formal binding (generated Uni\* types + hand-written codec) | `mgen message` | `crates/tools/mudu_gen/src/lang_impl/<lang>/` + `crates/sdk/bindings/<lang>/` |
 | Golden-corpus verification | per-language runner | `crates/db-kernel/testing/fixtures/golden/v1/` |
-| End-to-end guest in CI | `testing` suite | `crates/sdk/example/wallet-<lang>/` + `crates/db-kernel/testing/` |
+| End-to-end guest in CI | `testing` suite | `example/mpk/wallet-<lang>/` + `crates/db-kernel/testing/` |
 
 Pick how far to go: a minimal guest needs only the first two rows (the
 scaffold carries a self-contained codec); full alignment is all seven.
@@ -135,7 +135,9 @@ generated entity.
 
 Constraints are the backend's job to enforce at generation time (the C
 backend rejects `Blob` and U128/I128 columns; Go avoids generics for
-TinyGo). Follow the C/Go precedent (commit `552771b3`).
+TinyGo). Follow the precedent of the
+[C](../../crates/tools/mudu_gen/src/lang_impl/c/) and
+[Go](../../crates/tools/mudu_gen/src/lang_impl/go/) entity backends.
 
 ## Step 4 — mgen check-sql
 
@@ -153,7 +155,10 @@ TinyGo). Follow the C/Go precedent (commit `552771b3`).
 ## Step 5 — the formal binding + golden corpus
 
 This is the deepest step; budget accordingly (C and Go each took a focused
-session — see commit `323edec4`).
+session — see the [C](../../crates/sdk/bindings/c/) and
+[Go](../../crates/sdk/bindings/go/) binding packages and their mgen message
+backends, [c_codec.rs](../../crates/tools/mudu_gen/src/lang_impl/c/c_codec.rs)
+and [go_codec.rs](../../crates/tools/mudu_gen/src/lang_impl/go/go_codec.rs)).
 
 **mgen message backend** (`crates/tools/mudu_gen/src/lang_impl/<lang>/`):
 
@@ -188,7 +193,7 @@ in [`binding_api_surface.md`](binding_api_surface.md) and `AGENTS.md`.
 
 ## Step 6 — e2e wallet guest
 
-Clone `crates/sdk/example/wallet-py` (or `-go`) into `wallet-<lang>` with
+Clone `example/mpk/wallet-py` (or `-go`) into `wallet-<lang>` with
 identical procedure semantics, built through the mtp pipeline. Then in
 `crates/db-kernel/testing/`:
 

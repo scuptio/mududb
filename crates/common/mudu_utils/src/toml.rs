@@ -5,17 +5,27 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::path::Path;
 
+/// Serializes `object` to a pretty-printed TOML string.
+///
+/// Returns an error with code `ErrorCode::Encode` if serialization fails.
 pub fn to_toml_str<S: Serialize>(object: &S) -> RS<String> {
     toml::to_string_pretty(object)
         .map_err(|e| mudu_error!(ErrorCode::Encode, "serialize to toml error", e))
 }
 
+/// Serializes `object` to TOML and writes it to the file at `path`.
+///
+/// Returns an error if serialization or the file write fails.
 pub fn write_toml<S: Serialize, P: AsRef<Path>>(object: &S, path: P) -> RS<()> {
     let toml_string = to_toml_str(object)?;
     mudu_sys::fs::sync::write(path.as_ref(), toml_string)?;
     Ok(())
 }
 
+/// Deserializes the TOML file at `path` into `D`.
+///
+/// Returns an error if the file cannot be read or its content is not valid
+/// TOML for `D`.
 pub fn read_toml<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> RS<D> {
     let s = mudu_sys::fs::sync::read_to_string(path.as_ref())?;
     let ret: D = toml::from_str::<D>(&s)

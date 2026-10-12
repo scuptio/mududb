@@ -1,15 +1,52 @@
 use mudu::common::result::RS;
+use mudu_binding::system::{command_invoke, query_invoke};
+use mudu_contract::database::result_batch::ResultBatch;
 use sys_interface::host;
 
 pub use crate::async_impl::*;
-/// Re-export the backend-independent byte-level entry points from
-/// `sys_interface`.
-pub use sys_interface::async_api::{
-    mudu_batch_bytes, mudu_command_bytes, mudu_fetch_bytes, mudu_query_bytes,
-};
 /// Re-export the fs data types so this module exposes the same API surface as
 /// `sys_interface::async_api`.
 pub use sys_interface::fs::{FsDirEntry, FsStat};
+
+/// Execute a query from a serialized byte payload, materializing all rows.
+pub async fn mudu_query_bytes(query_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = query_invoke::deserialize_query_param(query_in)?;
+    let result = mudu_query::<String>(oid, stmt.as_ref(), params.as_ref())
+        .await
+        .and_then(|set| {
+            let (rows, desc) = set.into_parts();
+            Ok((
+                ResultBatch::from_result_set(oid, rows.as_ref())?,
+                desc.as_ref().clone(),
+            ))
+        });
+    Ok(query_invoke::serialize_query_result(result))
+}
+
+/// The adapter backend materializes query results in `mudu_query_bytes`, so
+/// there is no cursor to fetch further rows from.
+pub async fn mudu_fetch_bytes(_cursor: &[u8]) -> RS<Vec<u8>> {
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::NotImplemented,
+        "adapter backend materializes query results; no cursor to fetch"
+    ))
+}
+
+/// Execute a command from a serialized byte payload.
+pub async fn mudu_command_bytes(command_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = command_invoke::deserialize_command_param(command_in)?;
+    Ok(command_invoke::serialize_command_result(
+        mudu_command(oid, stmt.as_ref(), params.as_ref()).await,
+    ))
+}
+
+/// Execute a batch of statements from a serialized byte payload.
+pub async fn mudu_batch_bytes(batch_in: &[u8]) -> RS<Vec<u8>> {
+    let (oid, stmt, params) = command_invoke::deserialize_command_param(batch_in)?;
+    Ok(command_invoke::serialize_command_result(
+        mudu_batch(oid, stmt.as_ref(), params.as_ref()).await,
+    ))
+}
 
 /// Open a new session from a serialized byte payload.
 pub async fn mudu_open_bytes(open_in: &[u8]) -> RS<Vec<u8>> {
@@ -131,5 +168,16 @@ mod tests {
                 .unwrap_err();
             assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
         });
+    }
+
+    #[test]
+    fn mudu_fetch_bytes_reports_not_implemented() {
+        let err = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime")
+            .block_on(mudu_fetch_bytes(b""))
+            .unwrap_err();
+        assert_eq!(err.ec(), mudu::error::ErrorCode::NotImplemented);
     }
 }

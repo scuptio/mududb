@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 // Runs the MSSP lenient-decode vector tests for the mgen-generated
 // AssemblyScript codec: compiles assembly/__tests__/syscall_corpus_test.ts
 // with the local asc into a temp dir (the same entry the syscall corpus
@@ -22,7 +23,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = join(here, "..", "..", "..", "db-kernel", "testing", "fixtures", "golden", "v1");
+const localFixtures = join(here, "tests", "fixtures", "golden", "v1");
+const fixtureDir = existsSync(localFixtures) ? localFixtures : join(here, "..", "..", "..", "db-kernel", "testing", "fixtures", "golden", "v1");
 const corpus = readFileSync(join(fixtureDir, "lenient_decode_v1.bin"));
 const sidecar = JSON.parse(readFileSync(join(fixtureDir, "lenient_decode_v1.json"), "utf8"));
 
@@ -41,7 +43,7 @@ function unpackSegments(bytes) {
 // ---- compile and load the AS test module ----
 
 const out = join(mkdtempSync(join(tmpdir(), "lenient-decode-test-")), "syscall_corpus_test.wasm");
-execFileSync("npx", ["asc", "assembly/__tests__/syscall_corpus_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
+execFileSync(process.execPath, [join(here, "node_modules/assemblyscript/bin/asc.js"), "assembly/__tests__/syscall_corpus_test.ts", "--outFile", out, "--bindings", "esm", "--debug"], {
   cwd: here,
   stdio: "inherit",
 });

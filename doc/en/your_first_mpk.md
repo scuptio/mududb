@@ -1,6 +1,6 @@
 # Your First MPK
 
-This tutorial walks you through building and installing your first MuduDB package (`.mpk`) using the existing `example/wallet` project. By the end you will know how to turn a compiled WebAssembly procedure into an installed, invocable package inside `mudud`.
+This tutorial walks you through building and installing your first MuduDB package (`.mpk`) using the existing `example/mpk/wallet` project. By the end you will know how to turn a compiled WebAssembly procedure into an installed, invocable package inside `mudud`.
 
 ## What you will learn
 
@@ -15,16 +15,16 @@ Complete the environment setup from [`how_to_start.md`](how_to_start.md) and mak
 
 ## 1. The wallet example
 
-`example/wallet` is a complete Rust project that defines several Mudu Procedures such as `create_user`, `deposit`, and `transfer_funds`. The source lives in `example/wallet/src/rust/procedures.rs` and the schema lives in `example/wallet/sql/ddl.sql`.
+`example/mpk/wallet` is a complete Rust project that defines several Mudu Procedures such as `create_user`, `deposit`, and `transfer_funds`. The source lives in `example/mpk/wallet/src/rust/procedures.rs` and the schema lives in `example/mpk/wallet/sql/ddl.sql`.
 
 If you want to learn how procedures are authored, see [`procedure.md`](procedure.md). This tutorial focuses on packaging and installing the result.
 
 ## 2. Build the package
 
-From `example/wallet`:
+Run from the repository root:
 
 ```bash
-cargo make package
+(cd example/mpk/wallet && cargo make package)
 ```
 
 This single command runs the full pipeline:
@@ -41,16 +41,17 @@ You can also invoke `mpm-build create` directly if you already have the WASM fil
 
 ## 3. Start the server
 
-Start `mudud` in one terminal:
+From the repository root, start `mudud` in one terminal. Generate the config only on the first run:
 
 ```bash
 ulimit -n 65535
-mudud
+mudud init-cfg
+mudud serve
 ```
 
 ## 4. Install the package
 
-In another terminal, install the `.mpk` with `mpm-install`:
+From the repository root in another terminal, install the `.mpk` with `mpm-install`:
 
 ```bash
 mpm-install target/wasm32-wasip2/release/wallet.mpk
@@ -61,6 +62,8 @@ By default `mpm-install` sends the package to the MuduDB HTTP management endpoin
 ```bash
 mpm-install --server 192.168.1.100:8300 target/wasm32-wasip2/release/wallet.mpk
 ```
+
+`mpm-install` is a thin wrapper over the same HTTP endpoint that `mcli app-install` uses. For cluster or topology-aware install workflows, use `mcli` directly — see [`mcli_admin.md`](mcli_admin.md).
 
 ## 5. Verify the installation
 
@@ -151,5 +154,5 @@ tables and procedures.
 
 - Read [`concepts.md`](concepts.md) for the terminology used above.
 - Read [`procedure.md`](procedure.md) to learn how to write your own procedures.
-- Try the [`example/key-value`](../example/key-value/README.md) example for a smaller project that uses the key/value API.
+- Try the [`example/key-value`](../../example/mpk/key-value/README.md) example for a smaller project that uses the key/value API.
 - Adding support for a new guest language? Follow [`dev/new_guest_language.md`](../dev/new_guest_language.md).

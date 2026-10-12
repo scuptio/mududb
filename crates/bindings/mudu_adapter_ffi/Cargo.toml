@@ -1,0 +1,31 @@
+[package]
+name = "mudu_adapter_ffi"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+# Standalone workspace (a single member). It intentionally lives outside the
+# four group workspaces (crates/{common,db-kernel,sdk,tools}) because it
+# produces a `cdylib` (the versioned native adapter ABI consumed by the SDK
+# runtime), which must never share the repository-root `target/` directory with
+# the rlib-only group builds. See ARCHITECTURE.md.
+[workspace]
+
+[lib]
+# cdylib only: this crate is exported as a dynamic library (plus a C header and
+# a Node addon), never consumed as a Rust rlib. Dropping `rlib` avoids emitting
+# an unhashed `libmudu_adapter_ffi.rlib` into a shared target dir.
+crate-type = ["cdylib"]
+
+[dependencies]
+mudu = { path = "../../common/mudu" }
+mudu_binding = { path = "../../common/mudu_binding" }
+mudu_contract = { path = "../../common/mudu_contract" }
+mudu_adapter = { path = "../../db-kernel/mudu_adapter" }
+sys_interface_standalone = { path = "../../db-kernel/sys_interface_standalone" }
+
+[profile.release]
+panic = "unwind"
+
+[profile.dev]
+debug = 1

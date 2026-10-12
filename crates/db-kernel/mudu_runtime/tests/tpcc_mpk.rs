@@ -6,7 +6,7 @@
 //! These tests live in an integration-test binary (not the lib unit tests)
 //! because the install step resolves its initdb connection through the
 //! process-global default remote endpoint
-//! (`mudu_kernel::mudu_conn::mudu_conn_async::set_default_remote_addr`).
+//! (`::conn::mudu_conn_async::set_default_remote_addr`).
 //! Lib unit tests run in one shared process where other tests set/clear that
 //! global concurrently, which made these tests flaky. Here the binary only
 //! contains these two tests, and `TEST_LOCK` serializes them so they do not
@@ -19,23 +19,24 @@
 //! They run on the native backend only.
 #![cfg(not(feature = "ds"))]
 
+use ::server::server::{TokioTcpBackend, WorkerTcpBackend};
+use ::server::server_launch::ServerLaunch;
+use ::server::server_runtime_deps::ServerRuntimeDeps;
+use ::worker::server_cfg::ServerCfg;
 use mudu::common::result::RS;
 use mudu_binding::procedure::procedure_invoke;
 use mudu_client::client::client::SyncClient;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
-use mudu_kernel::server::server::{TokioTcpBackend, WorkerTcpBackend};
-use mudu_kernel::server::server_cfg::ServerCfg;
-use mudu_kernel::server::server_launch::ServerLaunch;
-use mudu_kernel::server::server_runtime_deps::ServerRuntimeDeps;
 use mudu_runtime::backend::app_mgr::AppMgr;
 use mudu_runtime::backend::mudu_app_mgr::MuduAppMgr;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
-use mudu_runtime::service::runtime_opt::ComponentTarget;
 use mudu_sys::env_var::temp_dir;
 use mudu_sys::sync::SMutex;
+use mudu_sys::task::sync::SJoinHandle;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::notify_wait;
+use mudu_utils::notifier::{Notifier, notify_wait};
+use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -161,6 +162,33 @@ fn run_tpcc_new_order_lockfree_stock(server_mode: ServerMode) -> RS<()> {
     };
     let app_mgr = MuduAppMgr::new(cfg.clone());
 
+    let (stop_notifier, server_thread) = start_tpcc_server(&cfg, &app_mgr, server_mode)?;
+
+    install_package_with_retry(&app_mgr, &package_path)?;
+
+    let test_result = run_new_order_session(port);
+
+    stop_notifier.notify_all();
+    let join_result = server_thread.join().map_err(|_| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Thread,
+            "join tpcc mpk test server error"
+        )
+    })?;
+    test_result?;
+    join_result?;
+    Ok(())
+}
+
+/// Setup stage: builds the procedure runtimes, spawns the kernel backend
+/// server thread, waits until it accepts TCP connections, then installs the
+/// process-wide default remote endpoint used by the install step's initdb
+/// connection.
+fn start_tpcc_server(
+    cfg: &MuduDBCfg,
+    app_mgr: &MuduAppMgr,
+    server_mode: ServerMode,
+) -> RS<(Notifier, SJoinHandle<RS<()>>)> {
     eprintln!("stage: create invokers");
     let runtime = mudu_sys::tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -169,7 +197,7 @@ fn run_tpcc_new_order_lockfree_stock(server_mode: ServerMode) -> RS<()> {
     let procedure_runtimes = runtime.block_on(async {
         let mut runtimes = Vec::with_capacity(cfg.effective_worker_threads());
         for _ in 0..cfg.effective_worker_threads() {
-            runtimes.push(app_mgr.create_invoker(&cfg).await?);
+            runtimes.push(app_mgr.create_invoker(cfg).await?);
         }
         Ok::<_, mudu::error::MuduError>(runtimes)
     })?;
@@ -181,7 +209,7 @@ fn run_tpcc_new_order_lockfree_stock(server_mode: ServerMode) -> RS<()> {
         cfg.tcp_listen_port,
         cfg.db_path.clone(),
         cfg.db_path.clone(),
-        mudu_kernel::server::routing::RoutingMode::ConnectionId,
+        ::worker::routing::RoutingMode::ConnectionId,
     )?
     .with_log_chunk_size(cfg.log_chunk_size)
     .with_page_size(cfg.page_size)?;
@@ -195,18 +223,25 @@ fn run_tpcc_new_order_lockfree_stock(server_mode: ServerMode) -> RS<()> {
     })?;
     eprintln!("stage: server up");
 
-    wait_until_server_ready(port);
+    wait_until_server_ready(cfg.tcp_listen_port);
 
     // Mirror the production startup: the default remote endpoint is set
     // before any off-worker connection is created (app install runs initdb
     // against the now-listening server).
-    mudu_kernel::mudu_conn::mudu_conn_async::set_default_remote_addr(Some(format!(
-        "127.0.0.1:{port}"
+    ::conn::mudu_conn_async::set_default_remote_addr(Some(format!(
+        "127.0.0.1:{}",
+        cfg.tcp_listen_port
     )));
+    Ok((stop_notifier, server_thread))
+}
+
+/// Install stage: retries until the server-side install path is ready or the
+/// 30-second deadline passes.
+fn install_package_with_retry(app_mgr: &MuduAppMgr, package_path: &Path) -> RS<()> {
     eprintln!("stage: install");
     let install_deadline = mudu_sys::time::instant_now() + Duration::from_secs(30);
-    let install_result = loop {
-        match install_package(&app_mgr, &package_path) {
+    loop {
+        match install_package(app_mgr, package_path) {
             Ok(()) => break Ok(()),
             Err(err) if mudu_sys::time::instant_now() < install_deadline => {
                 eprintln!("install not ready yet ({err}), retrying");
@@ -214,70 +249,61 @@ fn run_tpcc_new_order_lockfree_stock(server_mode: ServerMode) -> RS<()> {
             }
             Err(err) => break Err(err),
         }
-    };
-    install_result?;
+    }
+}
 
-    let test_result = (|| -> RS<()> {
-        let mut client = SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port)))?;
-        let session_id = client.create_session(None)?;
-        eprintln!("stage: session created");
+/// Invoke/assert stage: seeds one warehouse, runs new-order with deferred
+/// (lock-free) stock updates, samples stock levels, and asserts the session
+/// closes cleanly.
+fn run_new_order_session(port: u16) -> RS<()> {
+    let mut client = SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port)))?;
+    let session_id = client.create_session(None)?;
+    eprintln!("stage: session created");
 
-        // Seed: 1 warehouse, 1 district, 1 customer, 2 items, stock 100 each.
-        let _: () = invoke_and_decode(
-            &mut client,
-            session_id,
-            "tpcc/tpcc/tpcc_seed",
-            serialize_param((1_i32, 1_i32, 1_i32, 2_i32, 100_i32))?,
-        )?;
+    // Seed: 1 warehouse, 1 district, 1 customer, 2 items, stock 100 each.
+    let _: () = invoke_and_decode(
+        &mut client,
+        session_id,
+        "tpcc/tpcc/tpcc_seed",
+        serialize_param((1_i32, 1_i32, 1_i32, 2_i32, 100_i32))?,
+    )?;
 
-        // Two order lines with deferred (lock-free) stock updates.
-        let status: String = invoke_and_decode(
+    // Two order lines with deferred (lock-free) stock updates.
+    let status: String = invoke_and_decode(
+        &mut client,
+        session_id,
+        "tpcc/tpcc/tpcc_new_order",
+        serialize_param((
+            1_i32,
+            1_i32,
+            1_i32,
+            vec![1_i32, 2_i32],
+            vec![1_i32, 1_i32],
+            vec![5_i32, 95_i32],
+        ))?,
+    )?;
+    eprintln!("tpcc_new_order status: {status}");
+
+    // Stock after (5, 95): ((100 - 10 - 5) mod 91) + 10 = 95; then
+    // ((95 - 10 - 95) mod 91) + 10 = 91.
+    let mut quantities = Vec::new();
+    for _ in 0..4 {
+        let _: String = invoke_and_decode(
             &mut client,
             session_id,
             "tpcc/tpcc/tpcc_new_order",
-            serialize_param((
-                1_i32,
-                1_i32,
-                1_i32,
-                vec![1_i32, 2_i32],
-                vec![1_i32, 1_i32],
-                vec![5_i32, 95_i32],
-            ))?,
+            serialize_param((1_i32, 1_i32, 1_i32, vec![1_i32], vec![1_i32], vec![7_i32]))?,
         )?;
-        eprintln!("tpcc_new_order status: {status}");
+        quantities.push(invoke_and_decode::<i32>(
+            &mut client,
+            session_id,
+            "tpcc/tpcc/tpcc_stock_level",
+            serialize_param((1_i32, 1_i32, 90_i32))?,
+        )?);
+    }
+    eprintln!("stock_level counts: {quantities:?}");
 
-        // Stock after (5, 95): ((100 - 10 - 5) mod 91) + 10 = 95; then
-        // ((95 - 10 - 95) mod 91) + 10 = 91.
-        let mut quantities = Vec::new();
-        for _ in 0..4 {
-            let _: String = invoke_and_decode(
-                &mut client,
-                session_id,
-                "tpcc/tpcc/tpcc_new_order",
-                serialize_param((1_i32, 1_i32, 1_i32, vec![1_i32], vec![1_i32], vec![7_i32]))?,
-            )?;
-            quantities.push(invoke_and_decode::<i32>(
-                &mut client,
-                session_id,
-                "tpcc/tpcc/tpcc_stock_level",
-                serialize_param((1_i32, 1_i32, 90_i32))?,
-            )?);
-        }
-        eprintln!("stock_level counts: {quantities:?}");
-
-        assert!(client.close_session(session_id)?);
-        Ok(())
-    })();
-
-    stop_notifier.notify_all();
-    let join_result = server_thread.join().map_err(|_| {
-        mudu::mudu_error!(
-            mudu::error::ErrorCode::Thread,
-            "join tpcc mpk test server error"
-        )
-    })?;
-    test_result?;
-    join_result?;
+    assert!(client.close_session(session_id)?);
     Ok(())
 }
 

@@ -5,13 +5,17 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 
+/// Blocking TCP listener over [`std::net::TcpListener`].
 pub struct TcpListener {
     inner: std::net::TcpListener,
 }
 
 impl TcpListener {
+    /// Binds a TCP listener to `addr` with `SO_REUSEADDR` enabled and a
+    /// listen backlog of 1024.
     pub fn bind(addr: SocketAddr) -> RS<Self> {
         let domain = if addr.is_ipv4() {
             Domain::IPV4
@@ -36,10 +40,12 @@ impl TcpListener {
         Ok(Self::from_inner(std::net::TcpListener::from(socket)))
     }
 
+    /// Wraps an existing [`std::net::TcpListener`].
     pub fn from_inner(inner: std::net::TcpListener) -> Self {
         Self { inner }
     }
 
+    /// Accepts a new connection, returning the stream and peer address.
     pub fn accept(&self) -> RS<(TcpStream, SocketAddr)> {
         self.inner
             .accept()
@@ -47,18 +53,21 @@ impl TcpListener {
             .map(|(stream, addr)| (TcpStream::from_inner(stream), addr))
     }
 
+    /// Returns the local address this listener is bound to.
     pub fn local_addr(&self) -> RS<SocketAddr> {
         self.inner
             .local_addr()
             .map_err(|e| network_error_with_message(e, "read tcp listener local addr error"))
     }
 
+    /// Switches the listener between blocking and non-blocking mode.
     pub fn set_nonblocking(&self, nonblocking: bool) -> RS<()> {
         self.inner
             .set_nonblocking(nonblocking)
             .map_err(|e| network_error_with_message(e, "set tcp listener nonblocking error"))
     }
 
+    /// Creates a new handle referring to the same listener socket.
     pub fn try_clone(&self) -> RS<Self> {
         self.inner
             .try_clone()
@@ -66,15 +75,20 @@ impl TcpListener {
             .map_err(|e| network_error_with_message(e, "clone tcp listener error"))
     }
 
+    /// Unwraps into the underlying [`std::net::TcpListener`].
     pub fn into_inner(self) -> std::net::TcpListener {
         self.inner
     }
 
+    /// Consumes the listener and returns the raw file descriptor (Unix
+    /// only).
+    #[cfg(unix)]
     pub fn into_raw_fd(self) -> RawFd {
         self.inner.into_raw_fd()
     }
 }
 
+#[cfg(unix)]
 impl AsRawFd for TcpListener {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_raw_fd()

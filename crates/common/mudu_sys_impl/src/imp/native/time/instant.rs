@@ -6,34 +6,44 @@ use std::time::Duration;
 pub struct Instant(pub(crate) std::time::Instant);
 
 impl Instant {
+    /// Returns the current monotonic instant.
     pub fn now() -> Self {
         Self(std::time::Instant::now())
     }
 
+    /// Wraps a [`std::time::Instant`].
     pub fn from_std(instant: std::time::Instant) -> Self {
         Self(instant)
     }
 
+    /// Unwraps into the underlying [`std::time::Instant`].
     pub fn into_std(self) -> std::time::Instant {
         self.0
     }
 
+    /// Returns the duration from `earlier` to `self`; panics if `earlier`
+    /// is later (same semantics as [`std::time::Instant::duration_since`]).
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         self.0.duration_since(earlier.0)
     }
 
+    /// Returns the duration from `earlier` to `self`, or zero if `earlier`
+    /// is later.
     pub fn saturating_duration_since(&self, earlier: Instant) -> Duration {
         self.0.saturating_duration_since(earlier.0)
     }
 
+    /// Returns the duration elapsed since this instant.
     pub fn elapsed(&self) -> Duration {
         self.0.elapsed()
     }
 
+    /// Returns `self + duration`, or `None` on overflow.
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
         self.0.checked_add(duration).map(Instant)
     }
 
+    /// Returns `self - duration`, or `None` on overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.0.checked_sub(duration).map(Instant)
     }
