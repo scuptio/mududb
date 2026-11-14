@@ -186,4 +186,40 @@ mod tests {
         assert!(lock.try_write().is_none());
         assert!(lock.try_read().is_none());
     }
+
+    #[test]
+    fn rwlock_try_locks_formatting_default_and_into_inner() {
+        let lock = SRwLock::new(1);
+        let read = lock.read().unwrap();
+        assert_eq!(*read, 1);
+        assert!(lock.try_write().is_none());
+        assert!(lock.try_read().is_some());
+        let _ = format!("{:?}", read);
+        let _ = format!("{}", read);
+        drop(read);
+
+        let mut write = lock.write().unwrap();
+        *write = 2;
+        let _ = format!("{:?}", write);
+        let _ = format!("{}", write);
+        assert!(lock.try_read().is_none());
+        drop(write);
+
+        let default_lock = SRwLock::<u32>::default();
+        let _ = format!("{:?}", default_lock);
+        assert_eq!(default_lock.into_inner().unwrap(), 0);
+        assert_eq!(lock.into_inner().unwrap(), 2);
+    }
+
+    #[test]
+    fn poisoned_rwlock_fails_read_write_and_into_inner() {
+        let lock = SRwLock::new(0);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _write = lock.write().unwrap();
+            panic!("poison the rwlock");
+        }));
+        assert!(lock.read().is_err());
+        assert!(lock.write().is_err());
+        assert!(lock.into_inner().is_err());
+    }
 }

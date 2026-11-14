@@ -16,7 +16,7 @@ use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 pub(crate) const PARTITION_RULE_CATALOG_PARTITION_ID: OID = 0;
 pub(crate) const PARTITION_RULE_CATALOG_TABLE_ID: OID = 0x2;

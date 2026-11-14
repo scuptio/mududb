@@ -1,0 +1,2763 @@
+{
+  "benchmark": "paged-index",
+  "scale": {
+    "suite": "tasks",
+    "ops": 1000,
+    "repeats": 1,
+    "tasks": "1,4,16",
+    "keys": 4096,
+    "key_bytes": 8,
+    "page_size": 4096,
+    "frames": "4096,256,64,16",
+    "task_frames": 4096
+  },
+  "source_sha256": {
+    "crates/db-kernel/index/src/btree/btree_index.rs": "b70390dfc6bb2c61c987216ed85349dba46d819cb541336c1bd24133f206821f",
+    "crates/db-kernel/index/src/btree/btree_index_test.rs": "5b53b5c020c8961048e10b61d64eea9e5545e95377d21e6544d176bacd0bf410",
+    "crates/db-kernel/index/src/btree/mod.rs": "fb89e28ca676a541245c82e81316fde0407542c7154875e679dc959c6733ba91",
+    "crates/db-kernel/index/src/index_key/compare_context.rs": "48f297f6d890c79320abd1c1d7b4c076f3d91004ed809b9a127f0198db6b44e6",
+    "crates/db-kernel/index/src/index_key/key_tuple.rs": "dbad84cf59325d5a1d1ac9cee3b88e11fd0ebaf52d66f91ce53f4bc952ea6ddf",
+    "crates/db-kernel/index/src/index_key/mod.rs": "faf2b4385e33c1a5821c7acf1f4b61ec7978d9f51715358768ad474c5c945456",
+    "crates/db-kernel/index/src/lib.rs": "4d253da3656be1b43f9205168eea704157cd095aa1e2aa2d62cd4e80e2666230",
+    "crates/db-kernel/index/src/paged/batch_wait_tests.rs": "3222fe842f94da56d5028ca4608c302ec4a51b6a45a586c7e9e10a193e399d87",
+    "crates/db-kernel/index/src/paged/bench.rs": "6f692ff5ce6e304894a6e6787b92c1d52a779bfcef6a937a79f15082a79cc9e6",
+    "crates/db-kernel/index/src/paged/bench_matrix/allocations.rs": "7cf7f5f8d74d53a75da5befe2ca7b7738b1803b5a3b6d657001af081c3a0bf2a",
+    "crates/db-kernel/index/src/paged/bench_matrix/cache_cases.rs": "8139662fd2da15d8c16a759da501d086d0d09fcae2e77ebfdaa21d43693e3232",
+    "crates/db-kernel/index/src/paged/bench_matrix/instrumentation.rs": "3187dae6f201a5ac1288a70ef3f7f10a8db59c0a854925479a4b620b883d13d8",
+    "crates/db-kernel/index/src/paged/bench_matrix/runner.rs": "9e5383c4ab5ddee8b327bd42df08b1722041102fc02c944cf0d8e955b2ca9a8b",
+    "crates/db-kernel/index/src/paged/bench_matrix/task_cases.rs": "17e4ce6c3a6af9b9df94ff5c923fd7abc5b8317c2415295f55b9d7f2d00dd6ed",
+    "crates/db-kernel/index/src/paged/bench_matrix.rs": "58af218ae41bf22f49ff3cf288245ebf2454346a9b546f4c15319cb2792bd368",
+    "crates/db-kernel/index/src/paged/checkpoint.rs": "f868ea97c51a013e7bf4f6082c7f02dcc14705735172b31981a8d08912fb9b11",
+    "crates/db-kernel/index/src/paged/checksum_tests.rs": "9429fe989b12d3d3939a5254131853d9aeb915388065f5a87cf6f5c545ca1662",
+    "crates/db-kernel/index/src/paged/codec.rs": "d960bd7400f5f4a89475df37abb7e00436f99f4edfac2290e997dca97cd6d114",
+    "crates/db-kernel/index/src/paged/diagnostics.rs": "10474aa286ee7112a368d2c54c6501474d8cb0a77fa77886a31483c3f56836fb",
+    "crates/db-kernel/index/src/paged/fast_path_tests.rs": "dd0c37ad5987003b9515c545890d81071e9894872f96b2b52bdf41c3c4911716",
+    "crates/db-kernel/index/src/paged/images.rs": "7f3386f2bce6c3d866107f5014dbf4f39e97763e02377be0eef00a5ee9eed049",
+    "crates/db-kernel/index/src/paged/injection_tests.rs": "cec5dccfa24032a4ee44e3d2b51502067f72896aa1a5b366dcaa072e0d91bcc2",
+    "crates/db-kernel/index/src/paged/latch.rs": "8f5752d3f658837139c018445201cde7f2afac086eddc0270d39bdd3978b87a5",
+    "crates/db-kernel/index/src/paged/lexical.rs": "5e1ec5cc4a0e4ea0bcdc70a07457e70d3ecf9be2193d70d6314d5b46a47e88ee",
+    "crates/db-kernel/index/src/paged/maintenance.rs": "c87579fd0a8fd29b1b876e235b742df883a7cf5ab08538ea13b38909a157db69",
+    "crates/db-kernel/index/src/paged/maintenance_tests.rs": "52bed9f5e476ca7f64efe8da868f70728eeb6b14e87259c674edcecc0005f4e4",
+    "crates/db-kernel/index/src/paged/mod.rs": "bae84854a5dc5d9f5b8459c9a5ce82e4c5d7bacd86bb2cd239bab41a7a805b48",
+    "crates/db-kernel/index/src/paged/mutations.rs": "a5a23ba411c5dcb4fcef85d0446524970ff01d2654d2d578e9f1c40f88d21237",
+    "crates/db-kernel/index/src/paged/node.rs": "aa9668bcb2e405f4aca93b17c43a0b292a237b2acd243ebb5a0f8df372232b4b",
+    "crates/db-kernel/index/src/paged/node_cache.rs": "3f88dc40fee30f32b7649e9951520e9c148e80d8a652a4b7f18b7346402a79cd",
+    "crates/db-kernel/index/src/paged/operations.rs": "91c240fa556a41cc4c5e7a7aa5c9908c870c62240d79b5bdc261518b2eca9c88",
+    "crates/db-kernel/index/src/paged/optimization_tests.rs": "4dcb1e16d5fb9d75416e1d0c1eb890c1d4254ad573277cdaa5dcfc73344ccf8a",
+    "crates/db-kernel/index/src/paged/pages.rs": "7094c12379bd1c424a0cfac1a0dfa0047fef9ad67e5b87ffaf5dab293b6552fd",
+    "crates/db-kernel/index/src/paged/patch.rs": "4e015a7b3d9e41576edadf4d5053fda9943a5c6d486727242adb4c0fa1df4a70",
+    "crates/db-kernel/index/src/paged/resident.rs": "e46cf5ff79f42c51af6da472d338ca9aa93a757d475237485e94f2a77a484f51",
+    "crates/db-kernel/index/src/paged/resident_tests.rs": "5a5dff48afa0b7df15345d9da0e2fd88358b503dc0f21bc58376b804783f63fe",
+    "crates/db-kernel/index/src/paged/resident_write.rs": "d0f7b343a141a07b9e122ada1f243c268038bf32354e5afe48aa18bc1af5ceba",
+    "crates/db-kernel/index/src/paged/search.rs": "28f7f332b4097157302b3d668f59416f048150becea46d72334126e6e7683d8e",
+    "crates/db-kernel/index/src/paged/split.rs": "b61d5ffec5d5bc45eb8067dfef2268d18656a7f60466528429bf9ee85f72beb3",
+    "crates/db-kernel/index/src/paged/split_point.rs": "5c182cbd3e986ebc594a527a245ae3a11b1a56b32845ded479658d390aa88b8c",
+    "crates/db-kernel/index/src/paged/tests.rs": "480d838f210d6e3b003c2134fcdeefe210560b113a28983f9ffcc9343d897af9",
+    "crates/db-kernel/index/src/paged/tree.rs": "ab448caa5a1645b338806617c9e47a29b21dcb65b85f07731163f10c2329946d",
+    "crates/db-kernel/index/src/paged/view.rs": "90743bddd28ef19d9fa0b164ca75320d1dd33302ab0409842d8af90008189999",
+    "crates/db-kernel/index/src/paged/view_tests.rs": "a7de43cc647750f2e02a788f033ee672f5504d323da05b90b8cf5c08d3691073",
+    "crates/db-kernel/page_buffer/src/access.rs": "6e5b1f4977aeee4fb6b4d67654fa62fcd0cc45898d4f93a78b782372d119ebe3",
+    "crates/db-kernel/page_buffer/src/clock.rs": "0201603bec5113513d846deccaa39228f1f60c5c8caa8d69fdb919d36d772515",
+    "crates/db-kernel/page_buffer/src/edit.rs": "a8c9f53c12cc3933e94bf7ceb88cda432160b4fcbb8f132b10424d5d987aa4c8",
+    "crates/db-kernel/page_buffer/src/edit_tests.rs": "e01859ec4402364c66aa58afa3b377d35f1658c39fe03b39621415e66ae3fc30",
+    "crates/db-kernel/page_buffer/src/handles.rs": "0027c67e84802809b199c596993f5334eb2d45613e87b573afa20b80f1fbc2d1",
+    "crates/db-kernel/page_buffer/src/image.rs": "1094821e5b325e90166453183f84658ebeb7e1c1b8829e5e7edbf99b5a4536f8",
+    "crates/db-kernel/page_buffer/src/io_tests.rs": "9578aa7ffe1ad06871090932ef31addfe4a6be3bc90118516f6d423b09fb8f8a",
+    "crates/db-kernel/page_buffer/src/lib.rs": "21acc8a62ca9d551c6c32b4331b895eb5ae6746bc7d71e825c1ac2ecfb982c4d",
+    "crates/db-kernel/page_buffer/src/local_lock.rs": "33fef963eb616322b85a2f7a75ed2b4c60c12371ce24ffb24a226957e60a3d5b",
+    "crates/db-kernel/page_buffer/src/local_tests.rs": "50a93874f26d460cd7c24399b547223c74bf2f9e979e4d75dadf4d127e23a40e",
+    "crates/db-kernel/page_buffer/src/ordered_file.rs": "24bd33ba8fa45fbe1950756ce494db52c9c8f8e4d73b386d6bf1f31b1579aca1",
+    "crates/db-kernel/page_buffer/src/store.rs": "1642473c035ce72b4588b7b358c9065c71ded5b840761b7a5df39b49da2436f9",
+    "crates/db-kernel/page_buffer/src/tests.rs": "ca46bdf6cd4bf791661392f0b70e4d7965d8f2f3b3fcdc9cb368f0268308ecab"
+  },
+  "entries": {
+    "changed-update-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.935
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1198397.024
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.79
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.95
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.03
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000834
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "changed-update-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 2001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.561
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1281151.191
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.69
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.88
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.05
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.309
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000781
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "changed-update-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.926
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1255991.57
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.76
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.92
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.99
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.012739
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "changed-update-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 32001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.384
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1549287.933
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.6
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.68
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.76
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.171
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.010327
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "changed-update-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.938
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1198163.694
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.77
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.93
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.0
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.003338
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "changed-update-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 8001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 6.18
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1404024.566
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.64
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.79
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.03
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.432
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002849
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 4.146
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1810842.966
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.47
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.59
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.73
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000552
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 1022.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.41
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1339247.45
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.68
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.93
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.1
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.209
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000747
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.941
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1382955.879
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.67
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.97
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.09
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4096.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002962
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 4685.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.373
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1400378.745
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.67
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.92
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.2
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.163
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4096.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002925
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.929
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1495560.242
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.6
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.92
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.02
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002675
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "delete-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 4314.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.324
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1413660.841
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.66
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.91
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.13
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.165
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.00283
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.966
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 882622.66
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.07
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.29
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.42
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001133
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 1146.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.399
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 636020.648
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.84
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.16
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 42.54
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.167
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001572
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.926
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 937021.113
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.02
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.22
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.34
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.017075
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 45060.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.497
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 543643.755
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.9
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.23
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 46.51
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.288
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.029431
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.916
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 911188.714
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.03
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.23
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.35
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.00439
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "insert-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 7863.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.355
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 579770.391
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.82
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.17
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 46.53
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.245
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.006899
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.958
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1543524.298
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.57
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.92
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.99
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000648
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 2001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.447
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1734066.959
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.58
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.77
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.84
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.196
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000577
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 4.072
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1559538.552
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.56
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.91
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.0
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.010259
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 32001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.365
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1874313.24
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.58
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.74
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.79
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.174
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.008536
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.929
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1581281.423
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.54
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.89
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.96
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.00253
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed50-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 8001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.371
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1844588.784
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.58
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.74
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.78
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.2
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002169
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.942
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 1993306.477
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.42
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.83
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.99
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000502
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 2001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.453
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2390291.592
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.3
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.73
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.82
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.219
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000418
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.91
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2083555.254
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.41
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.8
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.92
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.007679
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 32001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.337
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2714309.125
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.29
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.72
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.79
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.173
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.005895
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.93
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2077128.992
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.41
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.79
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.93
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001926
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "mixed90-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 8001.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.398
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2660924.392
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.29
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.72
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.81
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.222
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001503
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "ratio/changed-update-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.0690540491529126
+      }
+    },
+    "ratio/changed-update-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.2335177799003858
+      }
+    },
+    "ratio/changed-update-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.171813645356542
+      }
+    },
+    "ratio/delete-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.7395712798654679
+      }
+    },
+    "ratio/delete-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.012598280440153
+      }
+    },
+    "ratio/delete-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.9452383135764049
+      }
+    },
+    "ratio/insert-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.7206031261422634
+      }
+    },
+    "ratio/insert-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.5801830369216024
+      }
+    },
+    "ratio/insert-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.6362791615963759
+      }
+    },
+    "ratio/mixed50-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.1234464927095045
+      }
+    },
+    "ratio/mixed50-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.2018383499377578
+      }
+    },
+    "ratio/mixed50-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.1665151801381783
+      }
+    },
+    "ratio/mixed90-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.1991590954931715
+      }
+    },
+    "ratio/mixed90-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.302729610740623
+      }
+    },
+    "ratio/mixed90-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.281058808696268
+      }
+    },
+    "ratio/read-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.4021688594752229
+      }
+    },
+    "ratio/read-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.3597666350042104
+      }
+    },
+    "ratio/read-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 1.3409180009665604
+      }
+    },
+    "ratio/scan256-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.6814554706941507
+      }
+    },
+    "ratio/scan256-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.6867139958301989
+      }
+    },
+    "ratio/scan256-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.6565112282093784
+      }
+    },
+    "ratio/scan32-t1": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.7376398657160073
+      }
+    },
+    "ratio/scan32-t16": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.828106967636386
+      }
+    },
+    "ratio/scan32-t4": {
+      "paged_over_baseline_ops": {
+        "gate": "band",
+        "min_ratio": 0.3,
+        "max_ratio": 3.0,
+        "value": 0.7949625258397051
+      }
+    },
+    "read-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 4.154
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2034178.263
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.4
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.48
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.54
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000492
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "read-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 2000.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.74
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2852261.415
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.29
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.35
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.37
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.338
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.000351
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "read-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.912
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2249079.037
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.41
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.49
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.54
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.007114
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "read-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 32000.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.337
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 3058222.634
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.28
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.33
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.37
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.163
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 16000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.005232
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "read-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.928
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 2262002.041
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.4
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.48
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.52
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001768
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "read-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 8000.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.454
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 3033159.255
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 0.29
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 0.34
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 0.37
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.25
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001319
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.936
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 99076.842
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 9.98
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 10.17
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 13.23
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 256000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.010093
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 7964.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.536
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 67516.456
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 14.61
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 15.14
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 20.56
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.212
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 256000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.014811
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.908
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 99619.621
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 9.91
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 10.119
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 14.379
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4096000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.160611
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 127070.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.352
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 68410.188
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 14.48
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 15.03
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 19.82
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.196
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 4096000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.233883
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.952
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 102256.376
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 9.65
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 9.86
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 13.83
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1024000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.039117
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan256-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 31816.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.396
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 67132.459
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 14.76
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 15.29
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 20.14
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.191
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 1024000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.059584
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t1/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.925
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 567828.216
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.7
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.83
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 2.05
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 32000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.001761
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t1/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 2724.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.438
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 418852.729
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 2.12
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 2.74
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 3.27
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.284
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 32000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.002387
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t16/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 3.944
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 578797.009
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.68
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.8
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.9
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 512000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.027644
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t16/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 43602.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.392
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 479305.836
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.91
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 2.48
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 2.55
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.171
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 512000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.033382
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t4/baseline": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 0.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 4.05
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 584395.216
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.66
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 1.78
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 1.86
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 128000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.006845
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    },
+    "scan32-t4/paged": {
+      "evictions": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "hint_hits": {
+        "gate": "band",
+        "min_ratio": 0.98,
+        "max_ratio": 1.02,
+        "value": 10900.0
+      },
+      "load_ms": {
+        "gate": "info",
+        "value": 5.329
+      },
+      "ops_s": {
+        "gate": "info",
+        "value": 464572.297
+      },
+      "p50_us": {
+        "gate": "info",
+        "value": 1.98
+      },
+      "p95_us": {
+        "gate": "info",
+        "value": 2.54
+      },
+      "p99_us": {
+        "gate": "info",
+        "value": 2.65
+      },
+      "preload_flush_ms": {
+        "gate": "info",
+        "value": 0.153
+      },
+      "reads": {
+        "gate": "exact",
+        "value": 0.0
+      },
+      "rows": {
+        "gate": "exact",
+        "value": 128000.0
+      },
+      "seconds": {
+        "gate": "info",
+        "value": 0.00861
+      },
+      "writes": {
+        "gate": "exact",
+        "value": 0.0
+      }
+    }
+  }
+}

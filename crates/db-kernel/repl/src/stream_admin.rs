@@ -10,7 +10,7 @@
 //! key at startup (stored wins, same philosophy as the raft stored conf).
 
 use crate::ctl::ReplModeCtl;
-use ::catalog::contract::message_bus_api::ServerInstanceId;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

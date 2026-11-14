@@ -1,10 +1,11 @@
 //! Unit tests for the `rust::customer::Customer` entity.
 
 use mududb::contract::database::entity::Entity;
+use mududb::contract::database::field_change::FieldChange;
 use mududb::mudu::data_type::numeric::Numeric;
 use mududb::types::datum::{Datum, DatumDyn};
 
-use crate::rust::customer::object::Customer;
+use crate::rust::customer::object::{Customer, CustomerChange};
 
 fn sample_customer() -> Customer {
     Customer::new(
@@ -96,4 +97,47 @@ fn customer_nullable_last_order_id_roundtrip() {
     assert!(value.values()[11].is_null());
     let from_value = Customer::from_tuple_value(&value).unwrap();
     assert_eq!(from_value.c_last_order_id, None);
+}
+
+#[test]
+fn customer_insert_params_and_change() {
+    let entity = sample_customer();
+    let params = entity.insert_params();
+    assert_eq!(params.0, 1);
+    assert_eq!(params.3, "c_first_val");
+    assert_eq!(params.10, 1);
+    assert_eq!(params.11, Some(1));
+
+    // Partial update statement over the composite primary key
+    let update = CustomerChange {
+        c_balance: FieldChange::Set(Numeric::from(2i32)),
+        c_last_order_id: FieldChange::Set(Some(7)),
+        ..CustomerChange::default()
+    };
+    let (sql, update_params) = update.update_by_pk(1, 1, 1).unwrap();
+    assert_eq!(
+        sql,
+        "UPDATE customer SET c_balance = ?, c_last_order_id = ? WHERE c_id = ? AND c_d_id = ? AND c_w_id = ?"
+    );
+    assert_eq!(update_params.len(), 5);
+    assert!(CustomerChange::default().is_empty());
+    assert!(CustomerChange::default().update_by_pk(1, 1, 1).is_none());
+
+    // Set(None) on a nullable column emits `<col> = ?` with a NULL parameter
+    let null_update = CustomerChange {
+        c_last_order_id: FieldChange::Set(None),
+        ..CustomerChange::default()
+    };
+    let (null_sql, null_params) = null_update.update_by_pk(1, 1, 1).unwrap();
+    assert_eq!(
+        null_sql,
+        "UPDATE customer SET c_last_order_id = ? WHERE c_id = ? AND c_d_id = ? AND c_w_id = ?"
+    );
+    assert_eq!(null_params.len(), 4);
+    assert!(
+        null_params[0]
+            .to_value(&i32::data_type())
+            .unwrap()
+            .is_null()
+    );
 }

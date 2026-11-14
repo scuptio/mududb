@@ -71,7 +71,7 @@ impl WorkerRingLoop {
                     correlation_id = ?envelope.correlation_id(),
                     "worker_ring_loop received bus mailbox message"
                 );
-                self.message_bus.handle_incoming(envelope)?;
+                self.worker_channel.handle_incoming(envelope)?;
                 debug!(
                     worker_id = self.worker.worker_id(),
                     "worker_ring_loop handled bus mailbox message"

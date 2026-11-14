@@ -359,3 +359,239 @@ pub struct PartitionRouteResponse {
     /// Routed partition/worker pairs.
     pub routes: Vec<PartitionRouteEntry>,
 }
+
+/// Response of the queue observability endpoint (`GET /mudu/server/queues`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerQueuesResponse {
+    /// `"ok"` when the per-queue runtime stats were read from the live
+    /// workers; `"none"` when the server hosts no queues (an explicit empty
+    /// state in the style of the replication endpoint's `mode: "none"`).
+    pub mode: String,
+    /// Per-queue status entries (empty when `mode` is `"none"`).
+    #[serde(default)]
+    pub queues: Vec<ServerQueueStatus>,
+}
+
+/// Runtime status of one queue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerQueueStatus {
+    /// Schema (namespace) of the queue.
+    pub schema: String,
+    /// Queue name.
+    pub name: String,
+    /// Queue table OID.
+    #[serde(
+        serialize_with = "serialize_oid_as_unioid",
+        deserialize_with = "deserialize_oid_from_unioid"
+    )]
+    pub queue_id: OID,
+    /// Index of the worker hosting the queue's runtime.
+    pub worker_index: u32,
+    /// Messages allocated but not yet acknowledged.
+    pub depth: u64,
+    /// Encoded payload bytes currently retained.
+    pub bytes: u64,
+    /// Enqueues rejected by capacity limits since process start.
+    pub overflow_count: u64,
+    /// Next sequence number to allocate at enqueue (aggregate across shards;
+    /// see `shards` for the per-shard values).
+    pub next_seq: u64,
+    /// Acked frontier: every `__seq` below it is acknowledged and deleted
+    /// (aggregate across shards; see `shards` for the per-shard values).
+    pub acked_frontier: u64,
+    /// Depth of the derived dead-letter queue `<name>_dlq` (absent when the
+    /// queue has no DLQ).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dlq_depth: Option<u64>,
+    /// Parked `RECEIVE ... WAIT` waiters of this queue.
+    pub waiters: u64,
+    /// Per-shard runtime counters; one entry for an unpartitioned queue.
+    #[serde(default)]
+    pub shards: Vec<ServerQueueShardStatus>,
+    /// Named consumer cursors of the queue (fan-out mode); empty while the
+    /// queue has no consumers (the default competing cursor applies).
+    #[serde(default)]
+    pub consumers: Vec<ServerQueueConsumer>,
+    /// The queue's activation registration (absent when the queue has none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<ServerQueueActivation>,
+}
+
+/// Runtime counters of one queue shard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerQueueShardStatus {
+    /// Shard index (position in the queue rule's partition list).
+    pub shard: u64,
+    /// Index of the worker hosting the shard.
+    pub worker_index: u32,
+    /// Messages allocated but not yet acknowledged on the shard.
+    pub depth: u64,
+    /// Encoded payload bytes retained by the shard.
+    pub bytes: u64,
+    /// Next per-shard local sequence to allocate.
+    pub next_seq: u64,
+    /// Per-shard acked frontier in local sequence units.
+    pub acked_frontier: u64,
+    /// Parked `RECEIVE ... WAIT` waiters of the shard.
+    pub waiters: u64,
+}
+
+/// Runtime status of one named consumer cursor of a queue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerQueueConsumer {
+    /// Consumer cursor name.
+    pub name: String,
+    /// Shard index the cursor tracks (0 for an unpartitioned queue).
+    pub shard: u64,
+    /// Cursor frontier: every local `__seq` below it on this shard is
+    /// acknowledged by this consumer (a fresh cursor starts at 0).
+    pub frontier: u64,
+    /// Messages allocated at or past the cursor frontier on this shard
+    /// (shard `next_seq` minus `frontier`): the cursor's backlog.
+    pub lag: u64,
+}
+
+/// Request of the queue activation registration endpoint (`POST
+/// /mudu/server/queue_activation`). Registrations are volatile: in-memory
+/// only, lost on restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueActivationRequest {
+    /// Name of the queue (optionally `schema.name`-qualified); a bare name
+    /// must match exactly one queue across the catalog.
+    pub queue: String,
+    /// Procedure invoked while the queue is non-empty, in
+    /// `app/module/procedure` form. The procedure takes exactly one `String`
+    /// parameter: the queue name.
+    pub procedure: String,
+    /// Consecutive invocation failures tolerated before the activation
+    /// disables itself (default 5).
+    #[serde(default)]
+    pub max_retry: Option<u64>,
+    /// Batch size hint, stored and reported only (default 32).
+    #[serde(default)]
+    pub batch: Option<u64>,
+}
+
+/// Status of one registered queue activation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServerQueueActivation {
+    /// Name of the queue.
+    pub queue: String,
+    /// Registered procedure, in `app/module/procedure` form.
+    pub procedure: String,
+    /// Whether the activation still fires (false after a failure storm
+    /// exceeded `max_retry`).
+    pub enabled: bool,
+    /// Consecutive invocation failures since the last success.
+    pub consecutive_failures: u64,
+    /// Consecutive failures tolerated before the activation disables itself.
+    pub max_retry: u64,
+    /// Stored batch size hint.
+    pub batch: u64,
+}
+
+/// Response of the queue activation list endpoint (`GET
+/// /mudu/server/queue_activations`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerQueueActivationsResponse {
+    /// `"ok"` when the per-worker registries were read; `"none"` when no
+    /// activation is registered anywhere (an explicit empty state in the
+    /// style of the queues endpoint's `mode: "none"`).
+    pub mode: String,
+    /// Registered activations (empty when `mode` is `"none"`).
+    #[serde(default)]
+    pub activations: Vec<ServerQueueActivation>,
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn worker_topology_oid_fields_roundtrip_through_json() {
+        let topology = WorkerTopology {
+            worker_index: 2,
+            tcp_listen_port: 9700,
+            worker_id: 0x0123_4567_89AB_CDEF_0123_4567_89AB_CDEF,
+            partitions: vec![11, 22, 33],
+        };
+        let json = serde_json::to_string(&topology).unwrap();
+        let back: WorkerTopology = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.worker_index, 2);
+        assert_eq!(back.tcp_listen_port, 9700);
+        assert_eq!(back.worker_id, topology.worker_id);
+        assert_eq!(back.partitions, vec![11, 22, 33]);
+    }
+
+    #[test]
+    fn server_topology_with_replication_roundtrips_through_json() {
+        let topology = ServerTopology {
+            worker_count: 1,
+            tcp_multi_port: false,
+            tcp_base_listen_port: 9600,
+            workers: vec![WorkerTopology {
+                worker_index: 0,
+                tcp_listen_port: 9600,
+                worker_id: 7,
+                partitions: vec![70],
+            }],
+            replication: Some(ReplicationTopology {
+                node_id: 1,
+                role: "Leader".to_string(),
+                term: 3,
+                leader_node_id: Some(1),
+                serving: true,
+                commit_index: 9,
+                commit_vec: vec![CommitVecTopology {
+                    worker_index: 0,
+                    lsn: 42,
+                    seg_hash: "ab".to_string(),
+                }],
+            }),
+        };
+        let json = serde_json::to_string(&topology).unwrap();
+        let back: ServerTopology = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.workers.len(), 1);
+        assert_eq!(back.workers[0].worker_id, 7);
+        let repl = back.replication.expect("replication section");
+        assert_eq!(repl.commit_vec[0].lsn, 42);
+    }
+
+    #[test]
+    fn partition_route_entry_and_queue_status_oid_roundtrip() {
+        let entry = PartitionRouteEntry {
+            partition_id: 1234,
+            worker_id: 5678,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let back: PartitionRouteEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, entry);
+
+        let status = ServerQueueStatus {
+            schema: "mududb".to_string(),
+            name: "q".to_string(),
+            queue_id: 99,
+            worker_index: 0,
+            depth: 3,
+            bytes: 30,
+            overflow_count: 1,
+            next_seq: 4,
+            acked_frontier: 1,
+            dlq_depth: Some(0),
+            waiters: 2,
+            shards: vec![],
+            consumers: vec![ServerQueueConsumer {
+                name: "c".to_string(),
+                shard: 0,
+                frontier: 1,
+                lag: 2,
+            }],
+            activation: None,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let back: ServerQueueStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.queue_id, 99);
+        assert_eq!(back.consumers.len(), 1);
+    }
+}

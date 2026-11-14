@@ -1,7 +1,7 @@
 //! Rust conversion-expression generation for the MSSP wire runtime.
 //!
 //! The generated record/variant/func codecs are thin: every typed value is
-//! converted to or from the dynamic [`Value`] model of the hand-written
+//! converted to or from the dynamic [`mudu_binding::universal::mp_wire::Value`] model of the hand-written
 //! `mp_wire` runtime (`crate::universal::mp_wire`). This module renders the
 //! per-type conversion expressions the Rust templates splice in.
 //!

@@ -120,13 +120,12 @@ pub async fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -
 
 ### 3. `batch`
 
-`batch` 通过批量 SQL 系统调用路径执行 SQL 批文本。当前 host 实现下，它在 SQLite、PostgreSQL、
-MySQL 的 standalone adapter 路径可用，并复用与 `command` 相同的序列化参数和返回结构。
+`batch` 通过批量 SQL 系统调用路径执行 SQL 批文本。当前 host 实现下，它在所有适配器路径均可用——
+SQLite、PostgreSQL、MySQL 的 standalone adapter 路径以及 `mudud` 适配器路径——并复用与 `command` 相同的序列化参数和返回结构。
 
 当前限制：
 
-- `batch` 不支持 SQL 参数
-- `mudud` 适配器路径当前仍返回 `NotImplemented`
+- 所有后端的 `batch` 均不支持 SQL 参数：参数列表非空时返回 `NotImplemented`
 - 若要跨适配器保持可移植，schema 初始化仍建议逐条使用 `command` 执行
 
 <!--
@@ -159,7 +158,7 @@ pub async fn mudu_batch(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -> 
 #### params
 
 参数列表。
-对于 `batch`，当前 host 实现要求参数列表为空，因为 `libsql::execute_batch` 执行的是原始 SQL 文本。
+对于 `batch`，所有后端均要求参数列表为空（非空列表返回 `NotImplemented`），因为批量执行提交的是原始 SQL 文本。
 
 ## KV API
 
@@ -250,7 +249,7 @@ pub async fn mudu_range(
 
 #### start_key / end_key
 
-`range` 使用的包含式范围边界。
+`range` 使用的左闭右开范围边界 `[start_key, end_key)`；`end_key` 为空表示无上限。
 
 ## 文件系统 API
 

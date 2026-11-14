@@ -19,6 +19,31 @@ def tool(name):
         raise RuntimeError(f'Missing {name}; install the prerequisite described in README.md and add it to PATH')
     return value
 
+def _resolve_wasi_sdk():
+    sysroot = 'share/wasi-sysroot/include/wasm32-wasip1'
+    def valid(root):
+        has_clang = (root / 'bin' / 'clang').is_file() or (root / 'bin' / 'clang.exe').is_file()
+        return has_clang and (root / sysroot).is_dir()
+    if os.environ.get('WASI_SDK'):
+        root = Path(os.environ['WASI_SDK'])
+        if not valid(root):
+            raise RuntimeError(f'WASI_SDK={root} does not look like a wasi-sdk (missing bin/clang or {sysroot})')
+        return root
+    if os.environ.get('CLANG'):
+        root = Path(os.environ['CLANG']).resolve().parent.parent
+        if not valid(root):
+            raise RuntimeError(f'CLANG does not look like a wasi-sdk compiler (missing bin/clang or {sysroot})')
+        return root
+    clang = shutil.which('clang')
+    if clang:
+        root = Path(clang).resolve().parent.parent
+        if valid(root):
+            return root
+    default = Path.home() / '.wasi-sdk' / 'wasi-sdk-29.0'
+    if valid(default):
+        return default
+    raise RuntimeError('wasi-sdk 29 not found: set WASI_SDK, add its bin/ to PATH, or unpack to ~/.wasi-sdk/wasi-sdk-29.0')
+
 def main(lang):
     if lang == 'cs' and (sys.platform != 'linux' or __import__('platform').machine() not in ('x86_64', 'AMD64')):
         raise RuntimeError('C# MPK currently requires Linux x64 and .NET 10; adapter mode supports native platforms')
@@ -73,9 +98,7 @@ def main(lang):
             'build/as/procedures.core.patched.wasm', '-o', 'build/embedded.wasm')
         run('wasm-tools', 'component', 'new', 'build/embedded.wasm', '--adapt', 'env=build-cfg/abort-adapter.wat', '-o', wasm)
     elif lang == 'c':
-        wasi = os.environ.get('WASI_SDK')
-        if not wasi: raise RuntimeError('Set WASI_SDK to an extracted wasi-sdk (see README.md)')
-        wasi = Path(wasi)
+        wasi = _resolve_wasi_sdk()
         compiler = wasi / 'bin' / ('clang.exe' if os.name == 'nt' else 'clang')
         run(compiler, '--target=wasm32', '-nostdlib', '-fno-builtin', '-O2', '-Wall', '-Wextra', '-Werror', '-std=c99',
             '-isystem', wasi/'share/wasi-sysroot/include/wasm32-wasip1', '-I.', '-Isrc', f'-I{SDK}',

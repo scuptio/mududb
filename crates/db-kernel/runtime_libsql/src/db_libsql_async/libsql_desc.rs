@@ -46,3 +46,59 @@ fn libsql_sqlite_decl_type_to_id(name: &str) -> RS<TypeFamily> {
     };
     Ok(id)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decl_type_to_id_mapping() {
+        assert_eq!(
+            libsql_sqlite_decl_type_to_id("TEXT").unwrap(),
+            TypeFamily::String
+        );
+        assert_eq!(
+            libsql_sqlite_decl_type_to_id("INT").unwrap(),
+            TypeFamily::I32
+        );
+        assert_eq!(
+            libsql_sqlite_decl_type_to_id("INTEGER").unwrap(),
+            TypeFamily::I32
+        );
+        assert_eq!(
+            libsql_sqlite_decl_type_to_id("BIGINT").unwrap(),
+            TypeFamily::I64
+        );
+        assert_eq!(
+            libsql_sqlite_decl_type_to_id("REAL").unwrap(),
+            TypeFamily::F64
+        );
+        assert!(libsql_sqlite_decl_type_to_id("BLOB").is_err());
+    }
+
+    #[test]
+    fn desc_projection_reads_columns_and_rejects_expression_columns() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let db = libsql::Builder::new_local(":memory:")
+                .build()
+                .await
+                .unwrap();
+            let conn = db.connect().unwrap();
+            conn.execute("CREATE TABLE t (id INTEGER, name TEXT)", ())
+                .await
+                .unwrap();
+            let stmt = conn.prepare("SELECT id, name FROM t").await.unwrap();
+            let desc = desc_projection(&stmt).await.unwrap();
+            assert_eq!(desc.len(), 2);
+
+            // Expression columns carry no declared type.
+            let expr_stmt = conn.prepare("SELECT 1 + 1").await.unwrap();
+            assert!(desc_projection(&expr_stmt).await.is_err());
+        });
+    }
+}

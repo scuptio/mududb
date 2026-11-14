@@ -404,11 +404,12 @@ impl WorkerWALBackend {
             .state
             .lock()
             .map_err(|_| mudu_error!(ErrorCode::Internal, "worker kv log lock poisoned"))?;
-        if cut_offset < layout.chunk_size() {
-            guard.reset_tail(Some(cut_sequence), cut_offset, cut_sequence + 1);
-        } else {
-            guard.reset_tail(None, 0, cut_sequence + 1);
-        }
+        let (current, size, next) =
+            super::layout::truncate_plan::reset(cut_sequence, cut_offset, layout.chunk_size())
+                .ok_or_else(|| {
+                    mudu_error!(ErrorCode::Internal, "WAL sequence exhausted at truncation")
+                })?;
+        guard.reset_tail(current, size, next);
         Ok(())
     }
 

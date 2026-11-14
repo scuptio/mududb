@@ -5,7 +5,7 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use sql_parser::ast::object_ref::ObjectRef;
-use sql_parser::ast::stmt_type::StmtType;
+use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use std::sync::Arc;
 
 /// Computes the result shape of SQL statements without executing them.
@@ -33,8 +33,26 @@ impl Describer {
     ) -> RS<TupleFieldDesc> {
         match stmt {
             StmtType::Select(stmt) => Self::describe_select(meta_mgr, stmt, current_schema).await,
+            // RECEIVE returns envelope rows (`__seq`, `__lsn`, payload).
+            StmtType::Command(StmtCommand::Receive(stmt)) => {
+                Self::describe_receive(meta_mgr, stmt, current_schema).await
+            }
             StmtType::Command(_) => Ok(TupleFieldDesc::new(Vec::new())),
         }
+    }
+
+    async fn describe_receive(
+        meta_mgr: &dyn MetaMgr,
+        stmt: &sql_parser::ast::stmt_receive::StmtReceive,
+        current_schema: &str,
+    ) -> RS<TupleFieldDesc> {
+        let queue = meta_mgr.get_queue(current_schema, stmt.name()).await?;
+        let desc = queue.ok_or_else(|| {
+            mudu_error!(ER::EntityNotFound, format!("no such queue {}", stmt.name()))
+        })?;
+        Ok(::catalog::contract::queue::queue_envelope_tuple_desc(
+            desc.as_ref(),
+        ))
     }
 
     async fn describe_select(

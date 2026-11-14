@@ -868,3 +868,27 @@ fn mysql_async_value_to_data_value(
         ))),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use mudu_contract::database::sql_stmt_text::SQLStmtText;
+
+    #[test]
+    fn session_helpers_reject_unknown_sessions_without_a_server() {
+        let err = ensure_session_exists(999_999_999).unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert!(with_session(999_999_999, |_conn| Ok(())).is_err());
+
+        // The public entry points fail the same way, before any network IO.
+        assert!(mudu_get(999_999_999, b"k").is_err());
+        assert!(mudu_put(999_999_999, b"k", b"v").is_err());
+        assert!(mudu_range(999_999_999, b"a", b"z").is_err());
+        let stmt = SQLStmtText::new("select 1".to_string());
+        assert!(mudu_command(999_999_999, &stmt, &()).is_err());
+        assert!(mudu_batch(999_999_999, &stmt, &()).is_err());
+        assert!(mudu_query::<i32>(999_999_999, &stmt, &()).is_err());
+        assert!(mudu_close(999_999_999).is_err());
+    }
+}

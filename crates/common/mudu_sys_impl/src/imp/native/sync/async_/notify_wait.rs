@@ -103,3 +103,41 @@ impl<T> WaitInner<T> {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::create_notify_wait;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn notify_delivers_one_value_to_every_waiter() {
+        let (notify, wait) = create_notify_wait::<u32>();
+        let second_waiter = wait.clone();
+        let second = tokio::spawn(async move { second_waiter.wait().await });
+
+        // Yield so the second waiter registers before the notification.
+        tokio::task::yield_now().await;
+        assert!(notify.notify(7).unwrap());
+        // Only the first notify across all clones can succeed.
+        assert!(!notify.notify(8).unwrap());
+
+        assert_eq!(second.await.unwrap().unwrap(), Some(7));
+        // The result is cached: later waits return the same value.
+        assert_eq!(wait.wait().await.unwrap(), Some(7));
+        assert_eq!(wait.wait().await.unwrap(), Some(7));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wait_returns_none_when_notifier_is_dropped() {
+        let (notify, wait) = create_notify_wait::<u32>();
+        drop(notify);
+        assert_eq!(wait.wait().await.unwrap(), None);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn notify_reports_false_after_the_receiver_is_dropped() {
+        let (notify, wait) = create_notify_wait::<u32>();
+        drop(wait);
+        assert!(!notify.notify(1).unwrap());
+    }
+}

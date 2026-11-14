@@ -41,48 +41,29 @@ impl ChunkedWorkerLog {
     }
 
     pub(crate) fn reserve_append(&mut self, payload_len: u64) -> RS<AppendReservation> {
-        if payload_len == 0 {
-            return Ok(AppendReservation {
-                path: self
-                    .layout
-                    .chunk_path(self.current_sequence.unwrap_or(self.next_sequence)),
-                offset: self.current_size,
-                flush_after_write: false,
-            });
-        }
-
-        if payload_len > self.layout.chunk_size() {
-            let sequence = self.next_sequence;
-            self.next_sequence += 1;
-            self.current_sequence = None;
-            self.current_size = 0;
-            return Ok(AppendReservation {
-                path: self.layout.chunk_path(sequence),
-                offset: 0,
-                flush_after_write: true,
-            });
-        }
-
-        if self.current_sequence.is_none()
-            || self.current_size + payload_len > self.layout.chunk_size()
-        {
-            self.current_sequence = Some(self.next_sequence);
-            self.current_size = 0;
-            self.next_sequence += 1;
-        }
-
-        #[expect(clippy::expect_used, reason = "current_sequence is set to Some above")]
-        let sequence = self.current_sequence.expect("current sequence must exist");
-        let offset = self.current_size;
-        self.current_size += payload_len;
-        if self.current_size >= self.layout.chunk_size() {
-            self.current_sequence = None;
-            self.current_size = 0;
-        }
+        let plan = super::append_plan::reserve(
+            super::append_plan::AppendState {
+                current: self.current_sequence,
+                size: self.current_size,
+                next: self.next_sequence,
+            },
+            self.layout.chunk_size(),
+            payload_len,
+        )
+        .ok_or_else(|| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Internal,
+                "WAL chunk sequence exhausted"
+            )
+        })?;
+        // Publish only a complete reservation; exhaustion leaves the cursor untouched.
+        self.current_sequence = plan.state.current;
+        self.current_size = plan.state.size;
+        self.next_sequence = plan.state.next;
         Ok(AppendReservation {
-            path: self.layout.chunk_path(sequence),
-            offset,
-            flush_after_write: false,
+            path: self.layout.chunk_path(plan.sequence),
+            offset: plan.offset,
+            flush_after_write: plan.flush,
         })
     }
 
@@ -126,5 +107,62 @@ impl ChunkedWorkerLog {
         let replaced = self.current_file.take().map(|(_, file)| file);
         self.current_file = Some((path.to_path_buf(), file));
         replaced
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::*;
+
+    #[test]
+    fn rollover_oversized_and_zero_length_reservations() -> RS<()> {
+        let layout = WorkerLogLayout::new("unused", 1, 10)?;
+        let mut log = ChunkedWorkerLog::new(
+            layout.clone(),
+            WorkerLogTail {
+                current_sequence: None,
+                current_size: 0,
+                next_sequence: 0,
+                next_lsn: 0u64.into(),
+            },
+        )?;
+        let first = log.reserve_append(6)?;
+        let second = log.reserve_append(4)?;
+        assert_eq!((first.path, first.offset), (layout.chunk_path(0), 0));
+        assert_eq!((second.path, second.offset), (layout.chunk_path(0), 6));
+        let empty = log.reserve_append(0)?;
+        assert_eq!((empty.path, empty.offset), (layout.chunk_path(1), 0));
+        let oversized = log.reserve_append(11)?;
+        assert_eq!(
+            (oversized.path, oversized.offset),
+            (layout.chunk_path(1), 0)
+        );
+        assert!(oversized.flush_after_write);
+        let next = log.reserve_append(2)?;
+        assert_eq!((next.path, next.offset), (layout.chunk_path(2), 0));
+        Ok(())
+    }
+
+    #[test]
+    fn exhausted_rollover_preserves_cursor_and_remaining_capacity() -> RS<()> {
+        let layout = WorkerLogLayout::new("unused", 1, u64::MAX)?;
+        let mut log = ChunkedWorkerLog::new(
+            layout,
+            WorkerLogTail {
+                current_sequence: Some(u64::MAX - 1),
+                current_size: u64::MAX - 4,
+                next_sequence: u64::MAX,
+                next_lsn: 0u64.into(),
+            },
+        )?;
+        assert!(log.reserve_append(5).is_err());
+        assert_eq!(log.current_sequence, Some(u64::MAX - 1));
+        assert_eq!(log.current_size, u64::MAX - 4);
+        assert_eq!(log.next_sequence, u64::MAX);
+        assert_eq!(log.reserve_append(4)?.offset, u64::MAX - 4);
+        assert!(log.reserve_append(1).is_err());
+        assert_eq!(log.current_size, 0);
+        assert_eq!(log.current_sequence, None);
+        Ok(())
     }
 }

@@ -11,3 +11,8 @@ pub mod relation;
 pub mod time_series;
 pub mod tuple_build;
 pub mod value_update;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod value_update_test;
+
+pub(crate) mod mailbox;

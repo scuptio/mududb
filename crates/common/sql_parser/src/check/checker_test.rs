@@ -327,3 +327,65 @@ fn empty_sql_produces_no_diagnostics() {
     assert!(check_sql("", &schema()).is_empty());
     assert!(check_sql("   \n  ", &schema()).is_empty());
 }
+
+#[test]
+fn queue_sql_uses_custom_parser_and_validates_declared_names() {
+    let schema = DDLParser::new().unwrap().parse("CREATE TABLE source (body TEXT); CREATE QUEUE q LIKE source; CREATE QUEUE raw (body TEXT);").unwrap();
+    for sql in [
+        "RECEIVE 10 FROM q WAIT FOREVER;",
+        "ACK q TO 3;",
+        "CREATE CONSUMER cg ON raw;",
+        "DROP CONSUMER cg ON q;",
+    ] {
+        assert!(
+            check_sql(sql, &schema).is_empty(),
+            "{sql}: {:?}",
+            check_sql(sql, &schema)
+        );
+    }
+    for sql in [
+        "RECEIVE 0 FROM q;",
+        "RECEIVE 1 FROM absent;",
+        "ACK q UNTIL 2;",
+        "RECEIVE 1 FROM q WAIT nope;",
+    ] {
+        assert!(
+            check_sql(sql, &schema)
+                .iter()
+                .any(|d| d.severity() == SqlSeverity::Error),
+            "{sql}"
+        );
+    }
+}
+
+#[test]
+fn create_queue_partition_clause_is_validated() {
+    let schema = DDLParser::new()
+        .unwrap()
+        .parse("CREATE TABLE source (id INT, body TEXT);")
+        .unwrap();
+    for sql in [
+        "CREATE QUEUE q (id INT, body TEXT) PARTITION BY GLOBAL RULE r REFERENCES (id);",
+        "CREATE QUEUE q2 LIKE source PARTITION BY GLOBAL RULE r REFERENCES (id);",
+    ] {
+        assert!(
+            check_sql(sql, &schema).is_empty(),
+            "{sql}: {:?}",
+            check_sql(sql, &schema)
+        );
+    }
+    for sql in [
+        // More than one shard key column is not supported.
+        "CREATE QUEUE q (id INT, body TEXT) PARTITION BY GLOBAL RULE r REFERENCES (id, body);",
+        // The shard key must be a declared payload column.
+        "CREATE QUEUE q (id INT, body TEXT) PARTITION BY GLOBAL RULE r REFERENCES (absent);",
+        "CREATE QUEUE q2 LIKE source PARTITION BY GLOBAL RULE r REFERENCES (absent);",
+    ] {
+        assert!(
+            check_sql(sql, &schema)
+                .iter()
+                .any(|d| d.severity() == SqlSeverity::Error),
+            "{sql}"
+        );
+    }
+}

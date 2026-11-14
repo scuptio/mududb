@@ -58,6 +58,17 @@ impl RenderAS {
         Self {}
     }
 
+    /// Render one askama template, mapping its failure into a Decode error.
+    fn render_template<T: askama::Template>(template: T, what: &str) -> RS<String> {
+        template.render().map_err(|e| {
+            mudu_error!(
+                ErrorCode::Decode,
+                format!("render assemblyscript {what} template error"),
+                e
+            )
+        })
+    }
+
     fn render_inner(&self, elements: Vec<TemplateKind>) -> RS<Vec<String>> {
         let mut code_blocks = Vec::with_capacity(elements.len());
         for element in elements {
@@ -82,73 +93,31 @@ impl RenderAS {
 
     fn render_record_as(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateRecordAS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript record template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "record")
     }
 
     fn render_variant_as(def: UniVariantDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateVariantAS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript variant template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "variant")
     }
 
     fn render_enum_as(def: UniEnumDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateEnumAS::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript enum template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "enum")
     }
 
     fn render_entity_as(table_schema: &TableDef) -> RS<String> {
         let template = TemplateEntityAS::from_table_schema(table_schema)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript entity template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "entity")
     }
 
     fn render_func_header_as(funcs: Vec<WitFuncDef>, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateFuncHeaderAS::from(funcs, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript func header template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "func header")
     }
 
     fn render_func_as(func: WitFuncDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateFuncAS::from(func, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render assemblyscript func template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "func")
     }
 }

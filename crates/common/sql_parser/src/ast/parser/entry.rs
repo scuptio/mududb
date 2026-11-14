@@ -93,6 +93,10 @@ impl SQLParser {
             )])));
         }
 
+        if let Some(stmt_list) = self.try_parse_queue_statement(normalized)? {
+            return Ok(Some(stmt_list));
+        }
+
         Ok(None)
     }
 
@@ -356,18 +360,42 @@ pub(crate) fn validate_type_name(name: &str) -> RS<()> {
     Ok(())
 }
 
+/// Parse a token as a `u64`, rejecting signs, decimals, and overflow.
+pub(crate) fn parse_u64_token(token: &str, what: &str) -> RS<u64> {
+    let valid = !token.is_empty() && token.bytes().all(|byte| byte.is_ascii_digit());
+    if !valid {
+        return Err(mudu_error!(
+            ErrorCode::Parse,
+            format!("{what} must be an unsigned integer, got {token}")
+        ));
+    }
+    token.parse::<u64>().map_err(|_| {
+        mudu_error!(
+            ErrorCode::Parse,
+            format!("{what} must be an unsigned integer, got {token}")
+        )
+    })
+}
+
 #[cfg(all(test, not(miri)))]
 #[path = "entry_test.rs"]
 mod entry_test;
 
 /// True when the SQL text contains syntax only the custom parser handles
-/// (partition DDL, filesystem types, or partitioned `CREATE TABLE`).
+/// (partition DDL, filesystem types, queue statements, or partitioned
+/// `CREATE TABLE`).
 pub(crate) fn contains_custom_statement_syntax(sql: &str) -> bool {
     let lowered = sql.to_lowercase();
     lowered.contains("create partition rule ")
         || lowered.contains("create partition placement ")
         || lowered.contains("partition by global rule ")
         || lowered.contains("create type filesystem ")
+        || lowered.contains("create queue ")
+        || lowered.contains("drop queue ")
+        || lowered.contains("create consumer ")
+        || lowered.contains("drop consumer ")
+        || lowered.contains("receive ")
+        || lowered.contains("ack ")
 }
 
 /// Split a SQL script into top-level statements on `;` boundaries, skipping

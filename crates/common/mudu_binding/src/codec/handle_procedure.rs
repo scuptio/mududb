@@ -100,6 +100,5 @@ mod test {
             de_result.is_err()
                 && de_result.as_ref().expect_err("expected error").ec() == ErrorCode::Database
         );
-        println!("{:?}", de_result)
     }
 }

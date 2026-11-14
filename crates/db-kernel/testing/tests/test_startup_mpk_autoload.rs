@@ -285,7 +285,7 @@ impl TestContext {
         // The ready barrier fires only after the deferred initdb drain has
         // completed, so a ready server implies auto-loaded packages have
         // their tables.
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         println!("  [server] Server ready.");
         Ok(RunningServer {
             stop,

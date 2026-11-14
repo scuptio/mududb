@@ -1,4 +1,4 @@
-//! Scalar [`Entity`] implementations: a scalar value is treated as a
+//! Scalar [`crate::database::entity::Entity`] implementations: a scalar value is treated as a
 //! single-column row, so `mudu_query::<i64>` and friends decode the first
 //! column of each result row directly.
 //!

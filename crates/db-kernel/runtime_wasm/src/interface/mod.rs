@@ -3,4 +3,4 @@
 pub mod kernel_async;
 pub mod kernel_sync;
 #[cfg(test)]
-mod kernel_test;
+pub(crate) mod kernel_test;

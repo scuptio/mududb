@@ -29,18 +29,20 @@ impl WorkerLogLayout {
         let path = self.chunk_path(sequence);
         let size = fs::metadata_len(&path).await?;
         let next_lsn = self.scan_next_lsn().await?;
-        if size < self.chunk_size {
+        if decision::reuse_tail(size, self.chunk_size) {
             Ok(WorkerLogTail {
                 current_sequence: Some(sequence),
                 current_size: size,
-                next_sequence: sequence + 1,
+                next_sequence: decision::successor(sequence)
+                    .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?,
                 next_lsn,
             })
         } else {
             Ok(WorkerLogTail {
                 current_sequence: None,
                 current_size: 0,
-                next_sequence: sequence + 1,
+                next_sequence: decision::successor(sequence)
+                    .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?,
                 next_lsn,
             })
         }
@@ -97,7 +99,12 @@ impl WorkerLogLayout {
                 max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
             }
         }
-        Ok(max_lsn.map_or(LSN::new(0), |lsn| lsn.saturating_add(1)))
+        decision::recovery_lsn(
+            self.gc_frontier_or_zero().lsn,
+            max_lsn.map(|lsn| lsn.as_u64()),
+        )
+        .map(LSN::new)
+        .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL LSN exhausted"))
     }
 
     /// Scans the log directory through `fs`, truncating any un-persisted or
@@ -149,19 +156,27 @@ impl WorkerLogLayout {
                 tail_size = size;
             }
         }
-        let next_lsn = max_lsn.map_or(LSN::new(0), |lsn| lsn.saturating_add(1));
-        if tail_size < self.chunk_size {
+        let next_lsn = LSN::new(
+            decision::recovery_lsn(
+                self.gc_frontier_or_zero().lsn,
+                max_lsn.map(|lsn| lsn.as_u64()),
+            )
+            .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL LSN exhausted"))?,
+        );
+        if decision::reuse_tail(tail_size, self.chunk_size) {
             Ok(WorkerLogTail {
                 current_sequence: Some(sequence),
                 current_size: tail_size,
-                next_sequence: sequence + 1,
+                next_sequence: decision::successor(sequence)
+                    .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?,
                 next_lsn,
             })
         } else {
             Ok(WorkerLogTail {
                 current_sequence: None,
                 current_size: 0,
-                next_sequence: sequence + 1,
+                next_sequence: decision::successor(sequence)
+                    .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?,
                 next_lsn,
             })
         }
@@ -197,7 +212,8 @@ impl WorkerLogLayout {
                 break;
             }
             sequences.push(sequence);
-            sequence = sequence.saturating_add(1);
+            sequence = decision::successor(sequence)
+                .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?;
         }
         trace.watch("wal.layout.sequences", &sequences.len().to_string());
         Ok(sequences)

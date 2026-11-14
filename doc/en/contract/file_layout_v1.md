@@ -18,7 +18,7 @@ A MuduDB deployment consists of:
 - One or more **time-series files** storing time-series data.
 - **WAL chunk files** (`*.xl`) storing write-ahead log frames.
 - An optional **MPK package** (`*.mpk`) for distribution.
-- A **server configuration file** (`mududb.toml`).
+- A **server configuration file** (`mudud.cfg`).
 
 ## Relation file layout
 

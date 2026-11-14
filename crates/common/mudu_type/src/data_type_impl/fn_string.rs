@@ -7,8 +7,7 @@ use crate::data_type_fn_convert::FnBase;
 use crate::data_value::DataValue;
 use crate::type_error::{TyEC, TyErr};
 use mudu::json_value;
-use mudu::utils::bin_size::BinSize;
-use mudu::utils::buf::{read_sized_buf, write_sized_buf};
+use mudu::utils::buf::{read_sized_buf, sized_buf_len, write_sized_buf};
 use mudu::utils::json::{JsonValue, from_json_str};
 use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
 use std::cmp::Ordering;
@@ -70,32 +69,23 @@ pub fn fn_string_len(_: &DataType) -> Result<Option<u32>, TyErr> {
 
 pub fn fn_string_dat_output_len(val: &DataValue, _ty: &DataType) -> Result<u32, TyErr> {
     let s = val.expect_string();
-    Ok((s.len() + BinSize::size_of()) as u32)
+    sized_buf_len(s.len()).map_err(|e| TyErr::new(TyEC::TypeConvertFailed, format!("{e}")))
 }
 
 pub fn fn_string_send(v: &DataValue, _: &DataType) -> Result<DataBinary, TyErr> {
     let s = v.expect_string();
-    let mut vec = vec![0u8; s.len() + BinSize::size_of()];
-    let write_n = write_sized_buf(&mut vec, s.as_bytes());
-    if write_n == 0 {
-        return Err(TyErr::new(
-            TyEC::TypeConvertFailed,
-            format!("cannot convert string {} to binary", s),
-        ));
-    }
+    let total =
+        sized_buf_len(s.len()).map_err(|e| TyErr::new(TyEC::TypeConvertFailed, format!("{e}")))?;
+    let mut vec = vec![0u8; total as usize];
+    write_sized_buf(&mut vec, s.as_bytes())
+        .map_err(|e| TyErr::new(TyEC::TypeConvertFailed, format!("{e}")))?;
     Ok(DataBinary::from(vec))
 }
 
 pub fn fn_string_send_to(v: &DataValue, _: &DataType, buf: &mut [u8]) -> Result<u32, TyErr> {
     let s = v.expect_string();
-    let write_n = write_sized_buf(buf, s.as_bytes());
-    if write_n == 0 {
-        return Err(TyErr::new(
-            TyEC::TypeConvertFailed,
-            format!("cannot convert string {} to binary", s),
-        ));
-    }
-    Ok((s.len() + size_of::<u32>()) as u32)
+    write_sized_buf(buf, s.as_bytes())
+        .map_err(|e| TyErr::new(TyEC::TypeConvertFailed, format!("{e}")))
 }
 
 pub fn fn_string_recv(buf: &[u8], _: &DataType) -> Result<(DataValue, u32), TyErr> {
@@ -108,7 +98,7 @@ pub fn fn_string_recv(buf: &[u8], _: &DataType) -> Result<(DataValue, u32), TyEr
         }
         Err(n) => Err(TyErr::new(
             TyEC::TypeConvertFailed,
-            format!("buffer size error, expected size {:?}", n),
+            format!("buffer size error: {n}"),
         )),
     }
 }

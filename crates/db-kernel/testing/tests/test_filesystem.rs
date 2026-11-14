@@ -51,7 +51,6 @@ use testing::support::*;
 use testing::wait_until_port_ready;
 use tracing::info;
 
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const APP_NAME: &str = "fs_e2e";
 
 #[cfg_attr(miri, ignore)]
@@ -500,7 +499,7 @@ impl TestContext {
         #[cfg(feature = "ds")]
         let _ = self.http_port;
         wait_until_worker_port_ready(self.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),

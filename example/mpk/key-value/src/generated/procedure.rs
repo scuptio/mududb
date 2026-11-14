@@ -82,18 +82,12 @@ pub async fn kv_read_modify_write(xid: OID, user_key: String, append_value: Stri
 #[cfg(test)]
 mod tests {
     use super::{kv_insert, kv_read, kv_read_modify_write, kv_scan, kv_update};
+    use crate::test_lock;
     use mududb::sys::env_var::temp_dir;
-    use mududb::sys::sync::SMutex;
     use mududb::sys::time::system_time_now;
     use mududb::sys_interface::async_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::sync::OnceLock;
     use std::time::UNIX_EPOCH;
-
-    fn test_lock() -> &'static SMutex<()> {
-        static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| SMutex::new(()))
-    }
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = system_time_now()

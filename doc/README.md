@@ -89,5 +89,6 @@ The [`en/contract/`](en/contract/) and [`cn/contract/`](cn/contract/) directorie
 | [Page size migration TODO](dev/todo/page_size_migration_todo.md) | Pending work item (待实现 / not yet implemented): page-size migration tool |
 | [Replication + Raft TODO (中文)](dev/todo/replication_raft_todo.md) | Design and delivery checklist: v1 (stream / raft modes) delivered and documented in [en/replication.md](en/replication.md); deferred items include snapshot transfer, online membership changes, and WAL GC |
 | [Filesystem design (中文)](cn/filesystem.cn.md) | **仅中文版（Chinese only — no English version yet）.** Object storage, transaction semantics and implementation notes |
+| [Queue mechanism design (中文)](cn/queue.cn.md) | **仅中文版（Chinese only — no English version yet）.** Queue messaging: data model, competing vs fan-out consumers, DLQ, WAIT/activation, and completion status |
 
 For wire compatibility, use the versioned contract and ABI documents above. Design notes may include alternatives and future work; they are not installation instructions.

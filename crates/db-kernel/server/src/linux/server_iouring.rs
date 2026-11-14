@@ -1,4 +1,5 @@
 use crate::async_func_runtime::AsyncFuncInvokerPtr;
+use crate::local_endpoint::{LocalEndpoint, WorkerRoute};
 use crate::server_cfg::ReplRole;
 use crate::server_launch::ServerLaunch;
 use crate::worker::{WorkerRuntime, WorkerRuntimeParams};
@@ -6,9 +7,9 @@ use crate::worker_loop_stats::WorkerLoopStats;
 use crate::worker_mailbox::WorkerMailboxMsg;
 use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::worker_ring_loop::{drive_future_with_ring, WorkerRingLoop, WorkerRingLoopWithRingArgs};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
 use crossbeam_queue::SegQueue;
+use mudu::channel::{Envelope, ServerInstanceId};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -17,6 +18,7 @@ use mudu_sys::io::worker_ring::{set_current_worker_ring, WorkerLocalRing};
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::sync::{SCondvar, SMutex};
 use mudu_sys::task::sync::SJoinHandle;
+use mudu_utils::channel::spawn_endpoint;
 use mudu_utils::notifier::{Notifier, Waiter};
 use mudu_utils::task_async::{build_current_thread_runtime, CurrentThreadTaskRuntime};
 use std::os::fd::RawFd;
@@ -46,6 +48,41 @@ pub(crate) fn sync_serve_iouring(
 ) -> RS<()> {
     validate_iouring_launch(&cfg)?;
     let shared = IouringSharedCtx::new(&cfg, ready)?;
+    // The management gateway: the endpoint the HTTP management handlers ask
+    // workers from. Registered before the workers spawn and unregistered
+    // (via the guard) when serve returns.
+    let _gateway_guard = {
+        let registry = cfg.deps().worker_registry();
+        let mailboxes = shared.mailboxes.clone();
+        let fds = shared.mailbox_fds.clone();
+        let route: WorkerRoute = Arc::new(move |envelope: Envelope| {
+            match registry.worker_index_by_worker_id(*envelope.dst()) {
+                Some(index) => {
+                    let (Some(mailbox), Some(&fd)) = (mailboxes.get(index), fds.get(index)) else {
+                        return Err(mudu_error!(
+                            ErrorCode::Internal,
+                            format!("mailbox target worker {} is out of range", index)
+                        ));
+                    };
+                    mailbox.push(WorkerMailboxMsg::BusMessage(envelope));
+                    notify_mailbox_fd(fd)?;
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
+        });
+        let gateway = LocalEndpoint::new(
+            crate::MANAGEMENT_GATEWAY_ENDPOINT_ID,
+            cfg.cfg().server_instance_id(),
+            route,
+        );
+        let (_channel, guard) = spawn_endpoint(
+            cfg.cfg().server_instance_id(),
+            crate::MANAGEMENT_GATEWAY_ENDPOINT_ID,
+            &gateway.channel_ref(),
+        )?;
+        guard
+    };
     let notifier = spawn_shutdown_notifier(
         stop.clone(),
         shared.mailboxes.clone(),
@@ -53,10 +90,14 @@ pub(crate) fn sync_serve_iouring(
         shared.stop_flag.clone(),
     )?;
     let mut handles = Vec::with_capacity(cfg.cfg().worker_count());
-    for worker_id in 0..cfg.cfg().worker_count() {
-        let args = build_iouring_worker_args(&mut cfg, worker_id, &shared)?;
-        handles.push(mudu_sys::task::sync::spawn_thread_named(
-            format!("worker-{worker_id}"),
+    for worker_index in 0..cfg.cfg().worker_count() {
+        let args = build_iouring_worker_args(&mut cfg, worker_index, &shared)?;
+        // Align the worker thread's tracing identity with its worker id,
+        // which is also its channel endpoint id.
+        let worker_oid = args.worker_identity.worker_id;
+        handles.push(mudu_sys::task::sync::spawn_thread_named_with_id(
+            format!("worker-{worker_index}"),
+            worker_oid,
             move || run_iouring_worker(args),
         )?);
     }
@@ -137,6 +178,7 @@ struct IouringWorkerArgs {
     log_dir: String,
     log_chunk_size: u64,
     log_batching: WorkerLogBatching,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     worker_registry: Arc<WorkerRegistry>,
@@ -233,6 +275,7 @@ fn build_iouring_worker_args(
         log_chunk_size: cfg.cfg().log_chunk_size(),
         log_batching: cfg.deps().log_batching(),
         wal_sync_policy: cfg.deps().wal_sync_policy(),
+        queue_limits: cfg.deps().queue_limits(),
         procedure_runtime: cfg.deps().procedure_runtime_for_worker(worker_id),
         worker_registry: cfg.deps().worker_registry(),
         server_instance_id: cfg.cfg().server_instance_id(),
@@ -294,6 +337,7 @@ async fn run_iouring_worker_async(args: IouringWorkerArgs) -> RS<WorkerLoopStats
         log_chunk_size,
         log_batching,
         wal_sync_policy,
+        queue_limits,
         procedure_runtime,
         worker_registry,
         server_instance_id,
@@ -318,6 +362,7 @@ async fn run_iouring_worker_async(args: IouringWorkerArgs) -> RS<WorkerLoopStats
         log_chunk_size,
         log_batching,
         wal_sync_policy,
+        queue_limits,
         procedure_runtime,
         registry: worker_registry,
         async_runtime,

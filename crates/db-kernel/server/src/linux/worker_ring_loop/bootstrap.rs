@@ -10,18 +10,20 @@ impl WorkerRingLoop {
             self.worker.clone(),
             0,
         )));
-        set_current_message_bus(self.message_bus.as_ref());
+        set_current_channel(self.worker_channel.channel_ref());
         // Install the worker-local ring before any initialization that may use
         // the io_uring-based async file system (e.g. meta catalog open), and
         // drive it while initialization runs so queued io_uring I/O completes.
         set_current_worker_ring(self.worker_local_ring.clone());
         //self.worker.meta_mgr().initialize().await?;
-        register_worker_message_bus(
+        let (_channel, guard) = spawn_endpoint(
             self.worker.server_instance_id(),
             self.worker.worker_id(),
-            &self.message_bus.as_ref(),
+            &self.worker_channel.channel_ref(),
         )?;
+        self.endpoint_guard = Some(guard);
         self.worker.ensure_partition_rpc_handler()?;
+        self.worker.ensure_management_rpc_handler()?;
         trace!(
             worker_id = self.worker.worker_id(),
             "worker_ring_loop partition rpc ready"
@@ -129,14 +131,13 @@ impl WorkerRingLoop {
         Ok(())
     }
 
-    /// Unregisters the worker's message bus and clears the worker
+    /// Unregisters the worker's channel and clears the worker
     /// thread-locals installed for the run.
-    fn teardown_worker_registration(&mut self) {
-        let _ = unregister_worker_message_bus(
-            self.worker.server_instance_id(),
-            self.worker.worker_id(),
-        );
-        unset_current_message_bus();
+    pub(crate) fn teardown_worker_registration(&mut self) {
+        // Dropping the guard unregisters the endpoint and closes the
+        // channel (pending receivers observe `ChannelClosed`).
+        drop(self.endpoint_guard.take());
+        unset_current_channel();
         unset_current_worker_ring();
         unset_current_worker_local();
     }
@@ -180,6 +181,20 @@ impl WorkerRingLoop {
                 format!("io_uring submit error during {} {}", phase, submitted)
             ));
         }
+        // Worker-local tasks (page-buffer mailbox drivers and the per-call
+        // tasks they spawn) wake through the task registry's completion
+        // queue, never the ring's CQ ring. Drive one round of them here, and
+        // let the caller re-poll its future instead of blocking on a CQE
+        // while they are still making progress.
+        let progress = {
+            let registry = self.worker_local_ring.worker_task_registry();
+            let drained = registry.drain_completions();
+            let (completed, more_ready) = registry.poll_ready_budget(16);
+            drained > 0 || !completed.is_empty() || more_ready
+        };
+        if progress {
+            return Ok(());
+        }
         let cqe = match self.wait_for_cqe()? {
             Ok(cqe) => cqe,
             Err(wait_rc) if wait_rc == -libc::ETIME || wait_rc == -libc::EINTR => return Ok(()),
@@ -216,6 +231,24 @@ where
         match future.as_mut().poll(&mut cx) {
             std::task::Poll::Ready(result) => return result,
             std::task::Poll::Pending => {
+                // Pump worker-local tasks (page-buffer mailbox drivers and
+                // the per-call tasks they spawn) so storage work done during
+                // worker initialization can progress. Their wakes land in the
+                // registry's completion queue — never in the ring's CQ ring
+                // (no wake fd is armed at this phase) — so keep re-polling
+                // until they go quiet instead of blocking in ring.wait()
+                // while they are still making progress.
+                let registry = worker_local_ring.worker_task_registry();
+                loop {
+                    let drained = registry.drain_completions();
+                    let (completed, more_ready) = registry.poll_ready_budget(64);
+                    let progress = drained > 0 || !completed.is_empty() || more_ready;
+                    match future.as_mut().poll(&mut cx) {
+                        std::task::Poll::Ready(result) => return result,
+                        std::task::Poll::Pending if !progress => break,
+                        std::task::Poll::Pending => {}
+                    }
+                }
                 let mut ctx = LoopUserIoCtx {
                     ring,
                     user_ring: worker_local_ring,
@@ -228,6 +261,19 @@ where
                     return Err(mudu_error!(
                         ErrorCode::Network,
                         format!("io_uring submit error during {} {}", phase, submitted)
+                    ));
+                }
+                if inflight.is_empty() {
+                    // The future still pends, the registry is quiet and no IO
+                    // is in flight: nothing can ever wake it (its waker is a
+                    // no-op and no wake fd is armed at this phase). Fail fast
+                    // instead of blocking in ring.wait() forever.
+                    return Err(mudu_error!(
+                        ErrorCode::Internal,
+                        format!(
+                            "worker bootstrap stalled during {}: no in-flight IO and no runnable worker-local task",
+                            phase
+                        )
                     ));
                 }
                 let cqe = ring.wait().map_err(|wait_rc| {

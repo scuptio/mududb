@@ -109,6 +109,12 @@ mod tests {
             &[0xff; 64],
             b"hello world",
             &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            // Minimized `_schema_table` crash (numeric family fixed-length
+            // flag mismatch), found by the nightly cargo-fuzz job.
+            &[
+                0x6c, 0x0b, 0x08, 0xff, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+                0x80, 0x80, 0xff,
+            ],
         ];
         for (name, _) in super::_FUZZ_RUN.iter() {
             // `_gen_order_csv` reads fixture files from `mudu_kernel/data/meta/`

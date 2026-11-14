@@ -5,7 +5,6 @@ use crate::routing::SessionOpenConfig;
 use crate::server_cfg::ReplRole;
 use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
 use crate::worker_session_manager::{SessionContext, WorkerSessionManager};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::repl_ctrl::{RaftShareView, ReplAckWait, ReplControl};
 use ::conn::plan_cache::PlanCache;
@@ -16,6 +15,7 @@ use ::wal::worker_log::{
 use ::wal::xl_batch::XLBatch;
 use ::xcontract::{WorkerStorage, WorkerXContract, WorkerXContractWorkerLogParams};
 use ::xengine::api::XContract;
+use mudu::channel::ServerInstanceId;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -25,6 +25,8 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::default_sys_io_context;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::net::AsyncTcpListener;
+use mudu_sys::sync::SMutex;
+use mudu_utils::channel::ServiceHandle;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -54,6 +56,8 @@ pub struct WorkerRuntime {
     fs_gc: Arc<FsGc>,
     registry: Arc<WorkerRegistry>,
     plan_cache: Arc<PlanCache>,
+    /// Keeps the management-plane channel service registered (RAII).
+    management_service: Arc<SMutex<Option<ServiceHandle>>>,
     repl_role: ReplRole,
     repl_leader_hint: Option<LeaderHint>,
     raft_share: Option<Arc<dyn RaftShareView>>,
@@ -77,6 +81,8 @@ pub struct WorkerRuntimeParams {
     pub log_chunk_size: u64,
     /// Group-commit batching watermarks of the worker WAL.
     pub log_batching: WorkerLogBatching,
+    /// Per-queue message and encoded payload byte caps.
+    pub queue_limits: (u64, u64),
     /// Durability policy of the worker WAL.
     pub wal_sync_policy: WalSyncPolicy,
     /// Procedure invoker; `None` disables procedure execution.
@@ -117,6 +123,7 @@ impl WorkerRuntime {
             log_chunk_size,
             log_batching,
             wal_sync_policy,
+            queue_limits,
             procedure_runtime,
             registry,
             async_runtime,
@@ -165,6 +172,9 @@ impl WorkerRuntime {
             server_instance_id,
         )
         .await?;
+        contract
+            .queue_registry()
+            .configure_limits(queue_limits.0, queue_limits.1)?;
         if let Some(share) = &raft_share {
             contract.set_raft_share(share.clone())?;
         }
@@ -189,6 +199,7 @@ impl WorkerRuntime {
             fs_gc,
             registry,
             plan_cache: Arc::new(PlanCache::new()),
+            management_service: Arc::new(SMutex::new(None)),
             repl_role,
             repl_leader_hint,
             raft_share,
@@ -406,7 +417,7 @@ impl WorkerRuntime {
         self.raft_share.as_ref()
     }
 
-    /// Register this worker's partition-RPC handler on the message bus
+    /// Register this worker's partition-RPC handler on the worker channel
     /// exactly once (later calls are no-ops).
     pub fn ensure_partition_rpc_handler(&self) -> RS<()> {
         self.contract.ensure_partition_rpc_handler()
@@ -423,6 +434,19 @@ impl WorkerRuntime {
         self.contract.clone()
     }
 
+    /// The concrete execution contract of this worker: the queue activation
+    /// registration surface lives on `WorkerXContract` beyond the `XContract`
+    /// trait (the injected invoker type is xcontract-local).
+    pub fn worker_x_contract(&self) -> &Arc<WorkerXContract> {
+        &self.contract
+    }
+
+    /// Whether this worker has a procedure runtime configured (procedure
+    /// execution is disabled without one).
+    pub fn has_procedure_runtime(&self) -> bool {
+        self.procedure_runtime.is_some()
+    }
+
     /// The metadata manager (catalog access) of this worker.
     pub fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.contract.meta_mgr()
@@ -432,6 +456,12 @@ impl WorkerRuntime {
     /// flush driver to reach every hosted relation.
     pub fn storage(&self) -> Arc<WorkerStorage> {
         self.contract.storage().clone()
+    }
+
+    /// Point-in-time queue runtime stats of this worker: per-queue counters
+    /// plus parked `RECEIVE ... WAIT` waiter counts (observability endpoint).
+    pub fn queue_runtime_snapshot(&self) -> RS<Vec<::xcontract::QueueRuntimeSnapshot>> {
+        self.contract.queue_runtime_snapshot()
     }
 
     /// Installs the worker's commit sequencer on the contract (replication
@@ -567,6 +597,9 @@ pub async fn adopt_worker_listener(listener: StdTcpListener) -> RS<AsyncTcpListe
 }
 
 mod kv;
+/// The management-plane channel service: queue activation control and queue
+/// observability served on the worker thread.
+mod management_rpc;
 mod procedure;
 mod relation_ops;
 mod session_bound;
@@ -579,5 +612,8 @@ pub use session_bound::{as_worker_local_ref, new_session_bound_worker_runtime};
 // this module are skipped under Miri; worker behavior is still exercised by
 // normal `cargo test` runs.
 #[cfg(test)]
+#[path = "relation_ops_test.rs"]
+mod relation_ops_test;
+#[cfg(test)]
 #[path = "worker_test.rs"]
-mod worker_test;
+pub(crate) mod worker_test;

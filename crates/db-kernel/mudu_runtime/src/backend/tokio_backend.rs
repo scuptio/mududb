@@ -143,6 +143,7 @@ fn build_base_server_cfg(cfg: &MuduDBCfg) -> RS<ServerCfg> {
     .with_multi_port(cfg.tcp_multi_port)
     .with_page_size(cfg.page_size)?
     .with_log_batching_max_wait(std::time::Duration::from_micros(cfg.wal_flush_max_wait_us))
+    .with_queue_limits(cfg.queue_max_msgs, cfg.queue_max_bytes)?
     .with_wal_sync_policy(cfg.wal_sync_policy()?)
     .with_replication(replication)
     .with_backup(build_kernel_backup_cfg(cfg)?))

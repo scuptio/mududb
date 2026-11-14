@@ -1,46 +1,26 @@
 #!/bin/sh
+# Fast pre-commit gate: fmt + clippy + cargo deny per group workspace, then a
+# verification drift gate for formally verified sources.
+# The checks live in script/ci/check_all.py (single source of truth, shared
+# with `cargo make check`); this wrapper only selects the fast steps so the
+# hook stays quick. Run the full suite with: cargo make check
 set -e
 
-# The repository has no root cargo workspace: crates/{common,db-kernel,sdk,
-# tools} and example/mpk are independent workspaces, checked one at a time.
-GROUPS="crates/common crates/db-kernel crates/sdk example/mpk crates/tools"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "Running cargo fmt --check (per group workspace)..."
+if [ -n "${PYTHON:-}" ]; then
+    :
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+else
+    PYTHON=python
+fi
 
-for group in $GROUPS; do
-    echo "  [fmt] $group"
-    if ! (cd "$REPO_ROOT/$group" && cargo fmt -- --check) 2>&1; then
-        echo ""
-        echo "Formatting check failed in $group. Run 'cargo fmt' and try again."
-        exit 1
-    fi
-done
+"$PYTHON" "$REPO_ROOT/script/ci/check_all.py" --only fmt,clippy,deny
 
-echo "Formatting check passed."
-echo ""
-echo "Running cargo clippy --workspace --all-targets (per group workspace)..."
-
-for group in $GROUPS; do
-    echo "  [clippy] $group"
-    if ! (cd "$REPO_ROOT/$group" && cargo clippy --workspace --all-targets -- -D warnings) 2>&1; then
-        echo ""
-        echo "Clippy check failed in $group. Commit aborted."
-        exit 1
-    fi
-done
-
-echo "Clippy check passed."
-echo ""
-echo "Running cargo deny check bans licenses advisories sources (per group workspace)..."
-
-for group in $GROUPS; do
-    echo "  [deny] $group"
-    if ! (cd "$REPO_ROOT/$group" && cargo deny check --config "$REPO_ROOT/deny.toml" bans licenses advisories sources) 2>&1; then
-        echo ""
-        echo "Cargo deny check failed in $group. Commit aborted."
-        exit 1
-    fi
-done
-
-echo "Cargo deny check passed."
+# Verification drift gate: when staged changes touch sources covered by
+# verification/targets.toml, re-extract them and require the committed
+# generated Lean to be current (no proof build). Silently skipped when the
+# formal toolchain is not installed (cargo make doctor -- install --only
+# formal-verification); Linux x86_64 only.
+"$PYTHON" "$REPO_ROOT/script/verification/check.py" drift --staged --skip-if-no-tools

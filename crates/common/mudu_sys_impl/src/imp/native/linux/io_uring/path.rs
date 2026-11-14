@@ -558,3 +558,136 @@ pub(crate) fn path_prefixes(path: impl AsRef<Path>) -> Vec<PathBuf> {
     }
     prefixes
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::imp::io::user_io::try_take_op;
+
+    fn test_cstring() -> CString {
+        CString::new("/tmp/mudu-iou-path-test").unwrap()
+    }
+
+    #[test]
+    fn path_request_kinds_and_accessors() {
+        let create = PathCreateDirRequest::new(test_cstring(), 0o755, op_state());
+        assert_eq!(create.path().as_bytes(), b"/tmp/mudu-iou-path-test");
+        assert_eq!(create.mode(), 0o755);
+        let exists = PathExistsRequest::new(test_cstring(), op_state());
+        assert_eq!(exists.path().as_bytes(), b"/tmp/mudu-iou-path-test");
+        let len = PathMetadataLenRequest::new(test_cstring(), op_state());
+        assert_eq!(len.path().as_bytes(), b"/tmp/mudu-iou-path-test");
+        let remove = PathRemoveFileRequest::new(test_cstring(), op_state());
+        assert_eq!(remove.path().as_bytes(), b"/tmp/mudu-iou-path-test");
+
+        assert_eq!(PathIoRequest::CreateDir(create).kind(), "path.mkdir");
+        assert_eq!(
+            PathIoRequest::PathExists(exists).kind(),
+            "path.statx.exists"
+        );
+        assert_eq!(PathIoRequest::MetadataLen(len).kind(), "path.statx.len");
+        assert_eq!(PathIoRequest::RemoveFile(remove).kind(), "path.unlink");
+
+        assert_eq!(
+            PathInflightOp::CreateDir(Box::new(PathCreateDirRequest::new(
+                test_cstring(),
+                0o755,
+                op_state()
+            )))
+            .kind(),
+            "path.mkdir"
+        );
+        assert_eq!(
+            PathInflightOp::PathExists(Box::new(PathExistsRequest::new(
+                test_cstring(),
+                op_state()
+            )))
+            .kind(),
+            "path.statx.exists"
+        );
+        assert_eq!(
+            PathInflightOp::MetadataLen(Box::new(PathMetadataLenRequest::new(
+                test_cstring(),
+                op_state()
+            )))
+            .kind(),
+            "path.statx.len"
+        );
+        assert_eq!(
+            PathInflightOp::RemoveFile(Box::new(PathRemoveFileRequest::new(
+                test_cstring(),
+                op_state()
+            )))
+            .kind(),
+            "path.unlink"
+        );
+    }
+
+    #[test]
+    fn complete_path_io_error_and_edge_results() {
+        let ring = WorkerLocalRing::new();
+
+        // mkdirat: a generic negative result is an error.
+        let state = op_state();
+        let op = PathInflightOp::CreateDir(Box::new(PathCreateDirRequest::new(
+            test_cstring(),
+            0o755,
+            state.clone(),
+        )));
+        assert!(complete_path_io(1, op, -libc::EPERM, &ring).unwrap());
+        assert!(try_take_op(&state).unwrap().is_err());
+
+        // statx exists: ENOENT maps to `false`, other negatives to an error.
+        let state = op_state();
+        let op = PathInflightOp::PathExists(Box::new(PathExistsRequest::new(
+            test_cstring(),
+            state.clone(),
+        )));
+        assert!(complete_path_io(2, op, -libc::ENOENT, &ring).unwrap());
+        assert!(!try_take_op(&state).unwrap().unwrap());
+
+        let state = op_state();
+        let op = PathInflightOp::PathExists(Box::new(PathExistsRequest::new(
+            test_cstring(),
+            state.clone(),
+        )));
+        assert!(complete_path_io(3, op, -libc::EACCES, &ring).unwrap());
+        assert!(try_take_op(&state).unwrap().is_err());
+
+        // statx len: negative results error out.
+        let state = op_state();
+        let op = PathInflightOp::MetadataLen(Box::new(PathMetadataLenRequest::new(
+            test_cstring(),
+            state.clone(),
+        )));
+        assert!(complete_path_io(4, op, -libc::ENOENT, &ring).unwrap());
+        assert!(try_take_op(&state).unwrap().is_err());
+
+        // unlinkat: ENOENT is success (idempotent removal), others error.
+        let state = op_state();
+        let op = PathInflightOp::RemoveFile(Box::new(PathRemoveFileRequest::new(
+            test_cstring(),
+            state.clone(),
+        )));
+        assert!(complete_path_io(5, op, -libc::ENOENT, &ring).unwrap());
+        assert!(try_take_op(&state).unwrap().is_ok());
+
+        let state = op_state();
+        let op = PathInflightOp::RemoveFile(Box::new(PathRemoveFileRequest::new(
+            test_cstring(),
+            state.clone(),
+        )));
+        assert!(complete_path_io(6, op, -libc::EACCES, &ring).unwrap());
+        assert!(try_take_op(&state).unwrap().is_err());
+    }
+
+    #[test]
+    fn path_to_cstring_rejects_nul_and_prefixes_expand() {
+        assert!(path_to_cstring("/tmp/a\0b").is_err());
+        let prefixes = path_prefixes("/a/b/c");
+        assert_eq!(prefixes.len(), 3);
+        assert_eq!(prefixes[0], PathBuf::from("/a"));
+        assert_eq!(prefixes[2], PathBuf::from("/a/b/c"));
+    }
+}

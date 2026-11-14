@@ -286,7 +286,7 @@ $MGEN message -i ../common/mudu_binding/wit -o /tmp/mgen_c -l c --with-func-code
 cp /tmp/mgen_c/Uni*.h ../sdk/bindings/c/mududb/types/
 ```
 
-`bash script/ci/check_bindings_regen.sh` verifies the checked-in generated
+`python3 script/ci/check_bindings_regen.py` verifies the checked-in generated
 files match a fresh regen byte-for-byte (CI runs it on every PR touching the
 binding sources). Then run every language's corpus tests against the golden
 fixtures — that is the capability-parity gate.

@@ -17,6 +17,7 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 /// Dependencies assembled for one server process after pure configuration is known.
 pub struct ServerRuntimeDeps {
     log_batching: WorkerLogBatching,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     procedure_runtimes: ProcedureRuntimes,
     worker_registry: Arc<WorkerRegistry>,
@@ -33,6 +34,7 @@ impl ServerRuntimeDeps {
         Ok(Self {
             log_batching,
             wal_sync_policy: cfg.wal_sync_policy(),
+            queue_limits: cfg.queue_limits(),
             procedure_runtimes: ProcedureRuntimes::default(),
             worker_registry,
             async_runtime: None,
@@ -86,6 +88,11 @@ impl ServerRuntimeDeps {
 
     pub(crate) fn log_batching(&self) -> WorkerLogBatching {
         self.log_batching
+    }
+
+    /// Per-queue message and encoded payload byte caps.
+    pub fn queue_limits(&self) -> (u64, u64) {
+        self.queue_limits
     }
 
     /// Returns the WAL sync policy.

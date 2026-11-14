@@ -30,7 +30,7 @@ jobs:
           mkdir -p logs
           set -o pipefail
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash ./script/ci/check_format_compatibility.sh "${BASE_REF}" 2>&1 | tee logs/compat-format.log
+          python3 ./script/ci/check_format_compatibility.py "${BASE_REF}" 2>&1 | tee logs/compat-format.log
 
   golden-fixtures:
     name: Golden fixture compatibility tests
@@ -47,7 +47,7 @@ jobs:
         uses: ./.github/actions/rust-stable-setup
 
       - name: Cache Cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -77,7 +77,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('crates/sdk/mudu_api/csharp/**/*.csproj') }}
@@ -151,6 +151,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+
+      # GitHub-hosted runners ship clang; local act images may not.
+      - name: Install clang (if missing)
+        run: |
+          if command -v clang >/dev/null 2>&1 && command -v clang++ >/dev/null 2>&1; then
+            exit 0
+          fi
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y clang make
+          else
+            apt-get update -y
+            apt-get install -y clang make
+          fi
 
       - name: Run C corpus tests
         working-directory: crates/sdk/bindings/c

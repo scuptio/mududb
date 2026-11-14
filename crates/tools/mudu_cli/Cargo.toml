@@ -19,11 +19,9 @@ mudu_client = { workspace = true }
 mudu_contract = { workspace = true }
 backup = { workspace = true }
 mudu_sys = { workspace = true }
+mudu_tui = { workspace = true }
 mudu_type = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
-ratatui = { workspace = true }
-crossterm = { workspace = true }
-unicode-width = { workspace = true }
 rustyline = { workspace = true }

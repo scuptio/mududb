@@ -163,4 +163,15 @@ ignore = [
     # actix-web 4 / tonic 0.11 (hyper 0.14) / libsql. The h2 0.4 line in the
     # graph is already at 0.4.19. Upgrade pending on the web stack.
     { id = "RUSTSEC-2026-0258", reason = "h2 0.3 pinned via actix-web/tonic/libsql; upgrade pending" },
+    # rustls 0.22.4 / rustls-webpki 0.102.8 are pinned via libsql ->
+    # hyper-rustls 0.25; neither line has a patched release. The maintained
+    # lines in the graph are already at rustls 0.23.46 / rustls-webpki
+    # 0.103.16. Upgrade pending on libsql.
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.22 pinned via libsql; no patched 0.22 release" },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.22 pinned via libsql; no patched 0.22 release" },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.102 pinned via libsql; no patched 0.102 release" },
+    # basic-toml is pulled in by askama_derive for template-config parsing;
+    # askama 0.16.1 (the latest release) still depends on it. Build-time
+    # codegen only, no untrusted-input surface.
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml via askama_derive, build-time codegen only" },
 ]

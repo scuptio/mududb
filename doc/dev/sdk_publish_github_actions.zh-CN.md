@@ -249,10 +249,10 @@ SDK 仓库发布与可选 runtime 发布也是独立任务，需要分别检查�
 
 ```bash
 # 扫描所有本地 Git 引用可达的历史，包含之后已删除的内容。
-bash script/ci/check_secrets.sh
+python3 script/ci/check_secrets.py
 
 # 单独扫描本地 SDK 输出目录的文件内容。
-bash script/ci/check_secrets.sh target/sdk-dist
+python3 script/ci/check_secrets.py target/sdk-dist
 ```
 
 文件名拒绝规则无法识别所有普通源码中的密码，模式扫描也不能保证识别所有凭据。

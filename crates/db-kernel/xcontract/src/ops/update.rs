@@ -73,6 +73,50 @@ impl WorkerXContract {
             .await
     }
 
+    /// Update with explicit partition pinning: skips key-based routing and
+    /// targets `target_partition` directly. Queue rows route this way because
+    /// their `__seq` key does not carry the queue's partition-route column.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn update_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        pred_key: &VecDatum,
+        values: &VecDatum,
+        deltas: &[DeltaAssign],
+        null_assignments: &[AttrIndex],
+    ) -> RS<usize> {
+        ensure_supported_predicate(&Predicate::CNF(Vec::new()))?;
+        let key = build_key_tuple(pred_key, &desc)?;
+        let payload = UpdatePayload {
+            values,
+            deltas,
+            null_assignments,
+        };
+        if let Some(partition_id) = target_partition {
+            match self.resolve_partition_worker(partition_id).await? {
+                Some(worker_id) if worker_id != self.worker_id => {
+                    return self
+                        .update_remote_owned(
+                            &desc,
+                            &tx_mgr,
+                            table_id,
+                            partition_id,
+                            worker_id,
+                            key,
+                            &payload,
+                        )
+                        .await;
+                }
+                _ => {}
+            }
+        }
+        self.update_local(&desc, &tx_mgr, table_id, target_partition, key, &payload)
+            .await
+    }
+
     /// Stage deferred (apply-time, lock-free) delta assignments. Every
     /// assignment must be deferred — they cannot be mixed with absolute
     /// assignments (the staged absolute value would silently discard a

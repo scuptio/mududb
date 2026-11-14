@@ -8,9 +8,9 @@ fn open_create_empty_file() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let path = temp_ts_path("empty");
         let file = TimeSeriesFile::open_ts_file(&path, true).await.unwrap();
-        assert_eq!(file.page_count(), PageId::new(0));
-        assert_eq!(file.head_page_id(), None);
-        assert_eq!(file.tail_page_id(), None);
+        assert_eq!(file.page_count().await.unwrap(), PageId::new(0));
+        assert_eq!(file.head_page_id().await.unwrap(), None);
+        assert_eq!(file.tail_page_id().await.unwrap(), None);
         file.close().await.unwrap();
         let _ = mudu_sys::fs::sync::remove_file(path);
     })
@@ -121,9 +121,9 @@ fn insert_creates_multiple_pages_when_page_is_full() {
             file.insert(ts, idx, &data).await.unwrap();
         }
 
-        assert!(file.page_count() > 1);
-        assert!(file.head_page_id().is_some());
-        assert!(file.tail_page_id().is_some());
+        assert!(file.page_count().await.unwrap() > 1);
+        assert!(file.head_page_id().await.unwrap().is_some());
+        assert!(file.tail_page_id().await.unwrap().is_some());
 
         for idx in 0..16u64 {
             let ts = 10_000 - idx;
@@ -150,7 +150,7 @@ fn cached_pages_are_reused_after_writes() {
         let file = TimeSeriesFile::open_ts_file(&path, true).await.unwrap();
 
         file.insert(100, 1, b"cached").await.unwrap();
-        let page_count = file.page_count();
+        let page_count = file.page_count().await.unwrap();
         assert_eq!(page_count, 1);
 
         let first = file.get(100, 1).await.unwrap().unwrap();
@@ -168,9 +168,9 @@ fn cached_pages_are_reused_after_writes() {
 }
 
 async fn assert_empty_file(file: &TimeSeriesFile) {
-    assert_eq!(file.page_count(), 0);
-    assert_eq!(file.head_page_id(), None);
-    assert_eq!(file.tail_page_id(), None);
+    assert_eq!(file.page_count().await.unwrap(), 0);
+    assert_eq!(file.head_page_id().await.unwrap(), None);
+    assert_eq!(file.tail_page_id().await.unwrap(), None);
     assert_eq!(file.get(1, 1).await.unwrap(), None);
     assert!(file.scan_range(1, 10).await.unwrap().is_empty());
     assert!(!file.delete(1, 1).await.unwrap());
@@ -222,9 +222,9 @@ async fn assert_reopened_state(
     tail: Option<PageId>,
 ) {
     let reopened = TimeSeriesFile::open_ts_file(path, false).await.unwrap();
-    assert_eq!(reopened.page_count(), page_count);
-    assert_eq!(reopened.head_page_id(), head);
-    assert_eq!(reopened.tail_page_id(), tail);
+    assert_eq!(reopened.page_count().await.unwrap(), page_count);
+    assert_eq!(reopened.head_page_id().await.unwrap(), head);
+    assert_eq!(reopened.tail_page_id().await.unwrap(), tail);
     assert_eq!(reopened.get(995, 5).await.unwrap(), None);
     assert_eq!(
         reopened.get(997, 3).await.unwrap().unwrap().payload,
@@ -265,9 +265,9 @@ fn integrated_api_flow_covers_all_public_operations() {
 
         insert_descending_rows(&file).await;
 
-        assert!(file.page_count() > 1);
-        let head = file.head_page_id().unwrap();
-        let tail = file.tail_page_id().unwrap();
+        assert!(file.page_count().await.unwrap() > 1);
+        let head = file.head_page_id().await.unwrap().unwrap();
+        let tail = file.tail_page_id().await.unwrap().unwrap();
         assert!(head <= tail);
 
         assert_inserted_rows_readable(&file).await;
@@ -282,9 +282,9 @@ fn integrated_api_flow_covers_all_public_operations() {
         assert!(!file.delete(995, 5).await.unwrap());
 
         file.flush().await.unwrap();
-        let persisted_page_count = file.page_count();
-        let persisted_head = file.head_page_id();
-        let persisted_tail = file.tail_page_id();
+        let persisted_page_count = file.page_count().await.unwrap();
+        let persisted_head = file.head_page_id().await.unwrap();
+        let persisted_tail = file.tail_page_id().await.unwrap();
         file.close().await.unwrap();
 
         assert_reopened_state(&path, persisted_page_count, persisted_head, persisted_tail).await;

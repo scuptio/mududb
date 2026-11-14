@@ -4,7 +4,7 @@
 //! channel: outbound raft messages become MSFM `Raft*` frames written to
 //! per-peer connections managed here; inbound `Raft*` frames arrive at the
 //! repl listener ([`crate::source`]) and are delivered to the
-//! raft handle via [`raft_frame_to_msg`] + `RaftHandle::deliver`.
+//! raft handle via `raft_frame_to_msg` + `RaftHandle::deliver`.
 //!
 //! The [`RaftShare`] is the node's view of raft state shared with workers
 //! (write gate, commit sequencer, xid allocation), the heal driver and the
@@ -21,8 +21,8 @@ pub(crate) use codec::{raft_frame_to_msg, raft_msg_to_frame_bytes};
 
 use crate::seg_hash::SegHash;
 use crate::{register_raft, unregister_raft};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::repl_cfg::{ReplNodeCfg, ReplPeerCfg};
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -230,6 +230,13 @@ impl RaftShare {
         if let Ok(mut slot) = self.voters.write() {
             *slot = voters;
         }
+    }
+
+    /// Test-only constructor bypassing `start_raft_service` (which spawns
+    /// the full raft stack) for unit tests of the heal flow.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(node_id: u64, peers: Vec<ReplPeerCfg>) -> Self {
+        Self::new(node_id, peers, 0)
     }
 
     /// Leader hint for client redirect: the raft leader's host with this

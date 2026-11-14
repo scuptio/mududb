@@ -19,9 +19,18 @@ use mudu_utils::scoped_task_trace;
 impl RelationInner {
     pub(crate) async fn write_rows(&self, rows: &[(Vec<u8>, Option<Vec<u8>>)], xid: u64) -> RS<()> {
         scoped_task_trace!();
+        let closed = self.lifecycle.read().await;
+        if *closed {
+            return Err(mudu_error!(ErrorCode::Storage, "relation is closed"));
+        }
         if rows.is_empty() {
             return Ok(());
         }
+        self.index.before_write().await?;
+        let mut attempt = WriteAttempt {
+            tainted: &self.cache_tainted,
+            complete: false,
+        };
         let timestamp = Timestamp::new(xid, u64::MAX);
         let resolved = self.resolve_row_tuples(rows).await?;
 
@@ -52,7 +61,9 @@ impl RelationInner {
         key_result?;
         value_result?;
 
-        Self::publish_row_versions(&timestamp, rows, resolved).await
+        Self::publish_row_versions(&timestamp, rows, resolved).await?;
+        attempt.complete = true;
+        Ok(())
     }
 
     /// Resolves the DataRow / tuple id of every key up front so the file
@@ -67,6 +78,11 @@ impl RelationInner {
     /// file-write rounds. Stripes are taken in ascending index order so
     /// concurrent batches cannot deadlock, and single-row writers take their
     /// one stripe through the same array.
+    ///
+    /// The index is consulted in two batch round trips: one get for every
+    /// key, then one insert for every absent key. Batch-local reservations
+    /// dedup repeated keys exactly as the tree did for the per-row flow, and
+    /// reservations are still published before the stripes are released.
     async fn resolve_row_tuples<V>(
         &self,
         rows: &[(Vec<u8>, V)],
@@ -88,22 +104,33 @@ impl RelationInner {
             }
             let _stage =
                 ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::WrResolve);
-            for (key, _) in rows {
-                let key_tuple = KeyTuple::from(key.clone());
-                let row = match self.index.get(&key_tuple)? {
+            let keys: Vec<KeyTuple> = rows
+                .iter()
+                .map(|(key, _)| KeyTuple::from(key.clone()))
+                .collect();
+            let found = self.index.get_batch(&keys).await?;
+            let mut reserved: std::collections::HashMap<&[u8], DataRow> =
+                std::collections::HashMap::new();
+            let mut to_insert = Vec::new();
+            for ((key, _), (key_tuple, found_row)) in rows.iter().zip(keys.into_iter().zip(found)) {
+                let row = match found_row {
                     Some(row) => row,
-                    None => {
-                        let tuple_id = self.alloc_tuple_id();
-                        let row = DataRow::new(tuple_id);
-                        // Publish the reservation immediately so a racing
-                        // batch resolves this same row instead of allocating
-                        // a second tuple id. The row is still invisible to
-                        // readers until a version is written (an empty
-                        // version chain reads as absent), which matches the
-                        // old publish-after-persist visibility.
-                        let _ = self.index.insert(key_tuple.clone(), row.clone())?;
-                        row
-                    }
+                    None => match reserved.get(key.as_slice()) {
+                        Some(row) => row.clone(),
+                        None => {
+                            // The reservation is published (below) before the
+                            // stripes are released, so a racing batch resolves
+                            // this same row instead of allocating a second
+                            // tuple id. The row is still invisible to readers
+                            // until a version is written (an empty version
+                            // chain reads as absent), matching the old
+                            // publish-after-persist visibility.
+                            let row = DataRow::new(self.alloc_tuple_id());
+                            reserved.insert(key.as_slice(), row.clone());
+                            to_insert.push((key_tuple.clone(), row.clone()));
+                            row
+                        }
+                    },
                 };
                 let tuple_id = row
                     .tuple_id()
@@ -111,6 +138,7 @@ impl RelationInner {
                     .ok_or_else(|| mudu_error!(ErrorCode::Internal, "missing tuple id"))?;
                 resolved.push((key_tuple, row, tuple_id));
             }
+            self.index.insert_reserved_batch(to_insert).await?;
         }
         Ok(resolved)
     }
@@ -140,7 +168,7 @@ impl RelationInner {
 
     /// Deferred (lock-free) delta apply for one batch of rows. Each row's
     /// new value is computed against the latest committed version atomically
-    /// under the row lock (`DataRow::apply_update_to_latest_sync`), so
+    /// under the row lock (`DataRow::apply_update_to_latest`), so
     /// concurrent commutative updates never overwrite each other; tuple-id
     /// resolution stays serialized by the stripes exactly as in
     /// [`Self::write_rows`]. The caller must guarantee that every concurrent
@@ -152,9 +180,18 @@ impl RelationInner {
         xid: u64,
     ) -> RS<()> {
         scoped_task_trace!();
+        let closed = self.lifecycle.read().await;
+        if *closed {
+            return Err(mudu_error!(ErrorCode::Storage, "relation is closed"));
+        }
         if rows.is_empty() {
             return Ok(());
         }
+        self.index.before_write().await?;
+        let mut attempt = WriteAttempt {
+            tainted: &self.cache_tainted,
+            complete: false,
+        };
         let timestamp = Timestamp::new(xid, u64::MAX);
         let resolved = self.resolve_row_tuples(rows).await?;
 
@@ -165,15 +202,17 @@ impl RelationInner {
         // identical.
         let mut computed_rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(rows.len());
         for ((key, deltas), (_, row, _)) in rows.iter().zip(resolved.iter()) {
-            let computed = row.apply_update_to_latest_sync(timestamp.clone(), |current| {
-                crate::value_update::apply_value_update_with_deltas(
-                    current,
-                    &VecDatum::new(vec![]),
-                    deltas,
-                    &[],
-                    desc,
-                )
-            })?;
+            let computed = row
+                .apply_update_to_latest(timestamp.clone(), |current| {
+                    crate::value_update::apply_value_update_with_deltas(
+                        current,
+                        &VecDatum::new(vec![]),
+                        deltas,
+                        &[],
+                        desc,
+                    )
+                })
+                .await?;
             computed_rows.push((key.clone(), computed));
         }
 
@@ -197,6 +236,7 @@ impl RelationInner {
         );
         key_result?;
         value_result?;
+        attempt.complete = true;
         Ok(())
     }
 
@@ -208,5 +248,19 @@ impl RelationInner {
 
     fn alloc_tuple_id(&self) -> TupleID {
         self.next_tuple_id.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+// A cancelled deferred write may have changed the row before its file append.
+// Such a cache must never be promoted to a clean restart checkpoint.
+struct WriteAttempt<'a> {
+    tainted: &'a std::sync::atomic::AtomicBool,
+    complete: bool,
+}
+impl Drop for WriteAttempt<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.tainted.store(true, Ordering::Release);
+        }
     }
 }

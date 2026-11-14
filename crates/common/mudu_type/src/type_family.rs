@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 /// It is **not** a unique identity for a fully-instantiated type.  Two concrete types
 /// such as `varchar(42)` and `varchar(255)`, or `array<integer>` and `array<string>`,
 /// belong to the same `TypeFamily` (`String` or `Array`) while differing in their
-/// parameters.  The fully-qualified concrete type is represented by [`DataType`], which
+/// parameters.  The fully-qualified concrete type is represented by [`crate::data_type::DataType`], which
 /// pairs a `TypeFamily` with an optional parameter object (`DataTypeParamKind`).
 ///
 /// # Design rationale

@@ -409,6 +409,6 @@ mod test {
         let str = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         let parser = WitParser {};
         let wit_dat = parser.parse_text(&str).unwrap();
-        println!("{:#?}", wit_dat);
+        assert_eq!(wit_dat.interface, vec!["binding"]);
     }
 }

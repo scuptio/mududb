@@ -973,3 +973,7 @@ fn repl_remote_error(error: &ErrorResponse) -> MuduError {
         format!("replication leader returned error: {}", message)
     )
 }
+
+#[cfg(test)]
+#[path = "sink_test.rs"]
+mod tests;

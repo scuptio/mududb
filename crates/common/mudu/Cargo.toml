@@ -19,6 +19,7 @@ strum = { workspace = true, features = ["derive"] }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }
 crc = { workspace = true }
+crc32c = { workspace = true }
 heck = { workspace = true }
 bigdecimal = { workspace = true }
 chrono = { workspace = true }

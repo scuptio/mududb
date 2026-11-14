@@ -1,12 +1,12 @@
 //! `database::field_change` module.
 //!
-//! [`FieldChange`] is the partial-update change type used by the entity
+//! [`crate::database::field_change::FieldChange`] is the partial-update change type used by the entity
 //! changesets that `mgen` generates for each table. A changeset struct holds
 //! one `FieldChange<T>` per non-key column:
 //!
-//! - [`FieldChange::Unchanged`] — the column is not touched by the update;
+//! - [`crate::database::field_change::FieldChange::Unchanged`] — the column is not touched by the update;
 //!   it is omitted from the generated `UPDATE ... SET` clause.
-//! - [`FieldChange::Set(v)`] — the column is updated to `v`.
+//! - [`crate::database::field_change::FieldChange::Set`]`(v)` — the column is updated to `v`.
 //!
 //! Nullable columns use `FieldChange<Option<T>>`, so `Set(None)` writes a
 //! SQL `NULL` while `Unchanged` leaves the column untouched.

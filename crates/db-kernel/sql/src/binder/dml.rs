@@ -30,13 +30,31 @@ impl Binder {
         let table_desc = self.resolve_table(stmt.table_reference()).await?;
 
         let columns = if stmt.columns().is_empty() {
-            let total = table_desc.fields().len();
-            (0..total)
-                .map(|attr| table_desc.get_attr(attr).name().clone())
-                .collect::<Vec<_>>()
+            if table_desc.is_queue() {
+                // Enqueue supplies the payload columns only; the kernel
+                // synthesizes the queue system columns.
+                (QUEUE_PAYLOAD_ATTR_START..table_desc.fields().len())
+                    .map(|attr| table_desc.get_attr(attr).name().clone())
+                    .collect::<Vec<_>>()
+            } else {
+                let total = table_desc.fields().len();
+                (0..total)
+                    .map(|attr| table_desc.get_attr(attr).name().clone())
+                    .collect::<Vec<_>>()
+            }
         } else {
             stmt.columns().clone()
         };
+        if table_desc.is_queue() {
+            for name in &columns {
+                if is_queue_system_column(name) {
+                    return Err(mudu_error!(
+                        ER::InvalidArgument,
+                        format!("queue system column {} is assigned by the kernel", name)
+                    ));
+                }
+            }
+        }
 
         let mut rows = Vec::with_capacity(stmt.values_list().len());
         for values in stmt.values_list() {
@@ -80,6 +98,7 @@ impl Binder {
             table_id: table_desc.id(),
             rows,
             has_fs_columns: has_fs_bound_columns(&table_desc),
+            is_queue: table_desc.is_queue(),
         })
     }
 
@@ -89,6 +108,17 @@ impl Binder {
         recorder: &mut SlotRecorder,
     ) -> RS<UpdateTemplate> {
         let table_desc = self.resolve_table(stmt.get_table_reference()).await?;
+        if table_desc.is_queue() {
+            // Queue rows are managed by RECEIVE/ACK; a raw UPDATE could
+            // rewrite the system columns and corrupt the claim state.
+            return Err(mudu_error!(
+                ER::NotImplemented,
+                format!(
+                    "UPDATE on queue {} is not supported; use RECEIVE/ACK",
+                    table_desc.name()
+                )
+            ));
+        }
         let mut value = Vec::with_capacity(stmt.get_set_values().len());
 
         for assignment in stmt.get_set_values() {
@@ -242,6 +272,16 @@ impl Binder {
         recorder: &mut SlotRecorder,
     ) -> RS<DeleteTemplate> {
         let table_desc = self.resolve_table(stmt.get_table_reference()).await?;
+        if table_desc.is_queue() {
+            // Queue rows are removed by ACK only.
+            return Err(mudu_error!(
+                ER::NotImplemented,
+                format!(
+                    "DELETE on queue {} is not supported; use ACK",
+                    table_desc.name()
+                )
+            ));
+        }
         let key =
             self.bind_exact_key_template(&table_desc, stmt.get_where_predicate(), recorder)?;
         Ok(DeleteTemplate {

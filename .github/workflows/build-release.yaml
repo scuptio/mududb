@@ -36,7 +36,6 @@ jobs:
         include:
           - os: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
-            asset_suffix: x86_64-unknown-linux-gnu
 
     steps:
       - name: Checkout Code
@@ -52,8 +51,8 @@ jobs:
           else
             VERSION="v$(date -u +'%Y%m%d.%H%M')"
           fi
-          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved version: ${VERSION}"
 
       - name: Setup pinned stable Rust
@@ -61,7 +60,7 @@ jobs:
         uses: ./.github/actions/rust-stable-setup
 
       - name: Cache Cargo Registry
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -71,157 +70,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-release
 
-      - name: Build Release Binaries
+      # Packaging lives in script/release/package_release.py (the same
+      # implementation as `cargo make package-release`): build the release
+      # binaries, collect binaries + prerequisite scripts, write the manifest,
+      # and emit the tarball, checksums, and changelog.
+      - name: Package Release
         run: |
-          # The release binaries live in two independent group workspaces:
-          # mudud in crates/db-kernel; mpm-build, mgen, mtp, mcli in
-          # crates/tools. All builds share the root target/ directory.
-          for group in crates/db-kernel crates/tools; do
-            echo "=== cargo build --release: ${group} ==="
-            (cd "${group}" && \
-              RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/../lib" \
-              cargo build --release --target ${{ matrix.rust_target }})
-          done
-
-      - name: Collect Binaries
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ARTIFACT_DIR="target/release-artifacts/${VERSION}"
-          PACKAGE_DIR="${ARTIFACT_DIR}/${VERSION}"
-          BIN_DIR="${PACKAGE_DIR}/bin"
-          LIB_DIR="${PACKAGE_DIR}/lib"
-          SCRIPT_DIR="${PACKAGE_DIR}/script"
-          SCRIPT_PACKAGE_DEB_DIR="${SCRIPT_DIR}/package/deb"
-          SOURCE_LIB_LIST_FILE="build-release/lib-list.txt"
-          SOURCE_PREREQUISITE_ENTRY_FILE="build-release/prerequisite.sh"
-          SOURCE_PREREQUISITE_FILE="build-release/prerequisite-deb.sh"
-          SOURCE_PREREQUISITE_PACKAGE_LIST_FILE="build-release/package/deb/package-list.txt"
-          LIB_LIST_FILE="${LIB_DIR}/lib-list.txt"
-          PREREQUISITE_ENTRY_FILE="${SCRIPT_DIR}/prerequisite.sh"
-          PREREQUISITE_FILE="${SCRIPT_DIR}/prerequisite-deb.sh"
-          PREREQUISITE_PACKAGE_LIST_FILE="${SCRIPT_PACKAGE_DEB_DIR}/package-list.txt"
-          MANIFEST_FILE="${PACKAGE_DIR}/manifest.txt"
-          rm -rf "${ARTIFACT_DIR}"
-          mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${SCRIPT_DIR}" "${SCRIPT_PACKAGE_DEB_DIR}"
-
-          # Define supported binaries and their descriptions
-          declare -A BIN_MAP
-          BIN_MAP=(
-            ["mpm_build"]="mpm-build"
-            ["mpm_crate"]="mpm-crate"
-            ["mudu_gen"]="mgen"
-            ["mudu_transpiler"]="mtp"
-            ["mudud"]="mudud"
-            ["mudu_cli"]="mcli"
-          )
-
-          TARGET_DIR="target/${{ matrix.rust_target }}/release"
-
-          for pkg_name in "${!BIN_MAP[@]}"; do
-            bin_name="${BIN_MAP[$pkg_name]}"
-            bin_path="$TARGET_DIR/$bin_name"
-            if [[ -f "$bin_path" ]]; then
-              cp "$bin_path" "${BIN_DIR}/"
-              echo "Copied $bin_name to ${BIN_DIR}/"
-            else
-              echo "WARNING: Binary $bin_name not found at $bin_path"
-            fi
-          done
-
-          # Derive runtime glibc floor from produced ELF binaries by scanning
-          # referenced GLIBC_* symbol versions and taking the maximum.
-          MIN_GLIBC="$(
-            find "${BIN_DIR}" -maxdepth 1 -type f -exec sh -c '
-              for f in "$@"; do
-                readelf --version-info "$f" 2>/dev/null \
-                  | grep -oE "GLIBC_[0-9]+\.[0-9]+" \
-                  | sed "s/^GLIBC_//"
-              done
-            ' bash {} + | sort -V | tail -1
-          )"
-          if [[ -z "${MIN_GLIBC}" ]]; then
-            echo "ERROR: unable to determine min_glibc from binaries in ${BIN_DIR}"
-            exit 1
-          fi
-          echo "Detected min_glibc=${MIN_GLIBC}"
-
-          SUFFIX="${{ matrix.asset_suffix }}"
-          ARCHIVE_NAME="mududb-${VERSION}-${SUFFIX}.tar.gz"
-          ARCHIVE_URI="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/${ARCHIVE_NAME}"
-
-          if [[ ! -f "${SOURCE_LIB_LIST_FILE}" ]]; then
-            echo "ERROR: Dynamic library list not found at ${SOURCE_LIB_LIST_FILE}"
-            exit 1
-          fi
-          if [[ ! -f "${SOURCE_PREREQUISITE_FILE}" ]]; then
-            echo "ERROR: Prerequisite script not found at ${SOURCE_PREREQUISITE_FILE}"
-            exit 1
-          fi
-          if [[ ! -f "${SOURCE_PREREQUISITE_ENTRY_FILE}" ]]; then
-            echo "ERROR: Prerequisite entry script not found at ${SOURCE_PREREQUISITE_ENTRY_FILE}"
-            exit 1
-          fi
-          if [[ ! -f "${SOURCE_PREREQUISITE_PACKAGE_LIST_FILE}" ]]; then
-            echo "ERROR: Prerequisite package-list not found at ${SOURCE_PREREQUISITE_PACKAGE_LIST_FILE}"
-            exit 1
-          fi
-          cp "${SOURCE_LIB_LIST_FILE}" "${LIB_LIST_FILE}"
-          cp "${SOURCE_PREREQUISITE_ENTRY_FILE}" "${PREREQUISITE_ENTRY_FILE}"
-          cp "${SOURCE_PREREQUISITE_FILE}" "${PREREQUISITE_FILE}"
-          cp "${SOURCE_PREREQUISITE_PACKAGE_LIST_FILE}" "${PREREQUISITE_PACKAGE_LIST_FILE}"
-          chmod +x "${PREREQUISITE_ENTRY_FILE}"
-          chmod +x "${PREREQUISITE_FILE}"
-
-          {
-            echo "name=mududb"
-            echo "version=${VERSION}"
-            echo "target=${{ matrix.rust_target }}"
-            echo "archive=${ARCHIVE_NAME}"
-            echo "archive_uri=${ARCHIVE_URI}"
-            echo "bin_dir=bin"
-            echo "lib_dir=lib"
-            echo "lib_list=lib/lib-list.txt"
-            echo "min_glibc=${MIN_GLIBC}"
-            echo ""
-            echo "[files]"
-            find "${PACKAGE_DIR}" -type f -printf "%P\n" | sort
-          } > "${MANIFEST_FILE}"
-
-          # Create tarball with a top-level <version>/ directory.
-          tar -czf "${ARTIFACT_DIR}/${ARCHIVE_NAME}" -C "${ARTIFACT_DIR}" "${VERSION}"
-          
-          echo "archive=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
-
-          # Generate SHA256 checksums
-          sha256sum "${ARTIFACT_DIR}/${ARCHIVE_NAME}" > "${ARTIFACT_DIR}/${ARCHIVE_NAME}.sha256"
-          echo "Generated checksum file"
-
-      - name: Generate Changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ARTIFACT_DIR="target/release-artifacts/${VERSION}"
-          CHANGELOG_FILE="${ARTIFACT_DIR}/CHANGELOG_RELEASE.md"
-          mkdir -p "${ARTIFACT_DIR}"
-          echo "# Changelog: ${VERSION}" > "${CHANGELOG_FILE}"
-          echo "" >> "${CHANGELOG_FILE}"
-          echo "## Changes" >> "${CHANGELOG_FILE}"
-          echo "" >> "${CHANGELOG_FILE}"
-          
-          # Get previous tag or use initial commit
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "${VERSION}" | head -1)
-          if [[ -n "$PREV_TAG" ]]; then
-            echo "Changes since ${PREV_TAG}:" >> "${CHANGELOG_FILE}"
-            echo "" >> "${CHANGELOG_FILE}"
-            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" >> "${CHANGELOG_FILE}"
-          else
-            echo "Initial release:" >> "${CHANGELOG_FILE}"
-            echo "" >> "${CHANGELOG_FILE}"
-            git log --pretty=format:"- %s (%h)" >> "${CHANGELOG_FILE}"
-          fi
-          
-          echo "" >> "${CHANGELOG_FILE}"
-          echo "" >> "${CHANGELOG_FILE}"
-          echo "**Full Commit History**: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}" >> "${CHANGELOG_FILE}"
+          python3 script/release/package_release.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --target "${{ matrix.rust_target }}" \
+            --repository "${{ github.repository }}"
 
       - name: Normalize Local Artifact Ownership
         run: |

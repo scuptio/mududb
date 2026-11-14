@@ -83,7 +83,8 @@ pub use crate::sync::sync_::unbounded_channel::{unbounded_channel, ChannelSender
 pub use crate::task::async_::{
     block_on_async_current, block_on_tokio_current_thread, build_current_thread_runtime,
     build_multi_thread_runtime, current_poll_task_id, has_tokio_runtime, sleep, spawn_blocking,
-    spawn_local_detached, spawn_local_task, spawn_task, spawn_task_detached, this_task_id, timeout,
+    spawn_local_detached, spawn_local_task, spawn_task, spawn_task_detached,
+    spawn_thread_confined_background_task, spawn_thread_confined_task, this_task_id, timeout,
     try_this_task_id, wait_for_shutdown_signal, CurrentThreadTaskRuntime, LocalTaskSet,
     PollTaskIdGuard, TaskFailed, TaskJoinError, TaskJoinHandle, TaskRuntime, TaskRuntimeEnterGuard,
 };

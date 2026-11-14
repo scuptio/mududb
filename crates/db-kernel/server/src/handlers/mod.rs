@@ -11,6 +11,8 @@ mod session_create;
 
 #[cfg(test)]
 mod handshake_test;
+#[cfg(test)]
+mod range_scan_test;
 
 use crate::async_func_task::HandleResult;
 use crate::request_ctx::RequestCtx;

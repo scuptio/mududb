@@ -19,9 +19,6 @@ pub struct RecordInfo {
 /// Language-normalized record field metadata.
 #[derive(Debug, Clone)]
 pub struct RecordFieldInfo {
-    /// Field index.
-    #[allow(dead_code)]
-    pub rf_index: u32,
     /// 1-based field number in WIT declaration order (the wire map key).
     pub rf_number: u32,
     /// Field doc comments.

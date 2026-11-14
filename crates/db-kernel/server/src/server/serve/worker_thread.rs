@@ -33,7 +33,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
         repl_log_dir,
     } = plan;
     trace!(worker_id, "tokio worker thread starting");
-    let (session, listener) = build_and_register_worker(
+    let (mut session, listener) = build_and_register_worker(
         worker_cfg,
         listener,
         all_bus_mailboxes,
@@ -67,7 +67,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
             worker: session.worker.clone(),
             listener,
             bus_inbox,
-            message_bus: session.message_bus.clone(),
+            worker_channel: session.worker_channel.clone(),
             bus_wake,
             conn_id_alloc,
             stop,
@@ -79,7 +79,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
     )?;
     let _ = started_tx.send(Ok(()));
     let loop_result = join_local_task(join, "join tokio worker loop task error").await?;
-    // The message bus and worker-local must stay registered for
+    // The worker channel and worker-local must stay registered for
     // the whole lifetime of the worker loop above: the loop and
     // the partition rpc handlers resolve them from this thread
     // while serving requests (cross-worker reads and commit
@@ -87,7 +87,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
     session.unregister();
     let repl_results = repl_tasks.shutdown().await?;
     let driver_results = drivers.shutdown().await?;
-    loop_result
+    let result = loop_result
         .and(driver_results.gc)
         .and(repl_results.seq)
         .and(repl_results.sink)
@@ -96,11 +96,13 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
         .and(driver_results.archive)
         .and(driver_results.wal_flush)
         .and(driver_results.wal_fsync)
-        .and(driver_results.page_flush)
+        .and(driver_results.page_flush);
+    result?;
+    session.worker.storage().close_relation_indexes().await
 }
 
 /// Builds the worker runtime, runs the healing truncation and storage
-/// bootstrap, and registers the worker with the message bus, backup and
+/// bootstrap, and registers the worker with the worker channel, backup and
 /// replication registries. Runs on the worker thread inside the same
 /// `block_on` chain so the thread-locals stay installed for the loop.
 async fn build_and_register_worker(
@@ -130,8 +132,9 @@ async fn build_and_register_worker(
         .bootstrap_storage_async()
         .await
         .map_err(|e| mudu_error!(ErrorCode::Storage, "bootstrap worker storage failed", e))?;
-    let message_bus = TokioWorkerMessageBus::new(
+    let worker_channel = TokioWorkerChannel::new(
         worker.worker_id(),
+        worker.server_instance_id(),
         worker.registry().clone(),
         all_bus_mailboxes,
         all_bus_wakes,
@@ -143,23 +146,26 @@ async fn build_and_register_worker(
         worker.clone(),
         0,
     )));
-    let message_bus_ref = message_bus.bus_ref();
-    set_current_message_bus(message_bus_ref.clone());
-    register_worker_message_bus(server_instance_id, worker.worker_id(), &message_bus_ref)?;
+    let worker_channel_ref = worker_channel.channel_ref();
+    set_current_channel(worker_channel_ref.clone());
+    let (_channel, endpoint_guard) =
+        spawn_endpoint(server_instance_id, worker.worker_id(), &worker_channel_ref)?;
     let (backup_worker_index, repl_worker_index) =
         register_worker_services(&worker, worker_repl_cfg.is_some())?;
     trace!(worker_id, "tokio worker loop entering");
     let listener = adopt_worker_listener(listener).await?;
     worker.ensure_partition_rpc_handler()?;
+    worker.ensure_management_rpc_handler()?;
     recover_worker_log_tokio(&worker).await?;
     worker.fs_gc_recover_scan().await?;
     Ok((
         WorkerSession {
             worker,
-            message_bus,
+            worker_channel,
             conn_tasks,
             server_instance_id,
             worker_id,
+            endpoint_guard: Some(endpoint_guard),
             backup_worker_index,
             repl_worker_index,
         },
@@ -232,18 +238,23 @@ fn register_worker_services(
 /// loop exits.
 struct WorkerSession {
     worker: WorkerRuntime,
-    message_bus: Arc<TokioWorkerMessageBus>,
+    worker_channel: Arc<TokioWorkerChannel>,
     conn_tasks: TokioConnTaskState,
     server_instance_id: ServerInstanceId,
     worker_id: OID,
+    /// Owns the channel endpoint registration; taken and dropped by
+    /// [`WorkerSession::unregister`] to unregister and close the channel.
+    endpoint_guard: Option<EndpointGuard>,
     backup_worker_index: u32,
     repl_worker_index: Option<u32>,
 }
 
 impl WorkerSession {
-    fn unregister(&self) {
-        let _ = unregister_worker_message_bus(self.server_instance_id, self.worker_id);
-        unset_current_message_bus();
+    fn unregister(&mut self) {
+        // Dropping the guard unregisters the endpoint and closes the
+        // channel (pending receivers observe `ChannelClosed`).
+        drop(self.endpoint_guard.take());
+        unset_current_channel();
         unset_current_worker_local();
         let _ = ::backup::backup::unregister_backup_worker(
             self.server_instance_id,

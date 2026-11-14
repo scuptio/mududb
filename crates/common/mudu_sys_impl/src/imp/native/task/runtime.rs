@@ -226,3 +226,48 @@ pub fn wait_for_shutdown_signal(stop: Notifier) {
 pub fn has_tokio_runtime() -> bool {
     tokio::runtime::Handle::try_current().is_ok()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_block_on_enter_and_tokio_handle() {
+        let runtime = build_current_thread_runtime().unwrap();
+        assert_eq!(runtime.block_on(async { 2 }), 2);
+        let _tokio = runtime.as_tokio_runtime();
+        {
+            let _guard = runtime.enter();
+        }
+        let multi = build_multi_thread_runtime().unwrap();
+        assert_eq!(multi.block_on(async { 3 }), 3);
+    }
+
+    #[test]
+    fn current_thread_task_runtime_local_and_block_on() {
+        let crt = CurrentThreadTaskRuntime::new().unwrap();
+        let _local = crt.local();
+        assert_eq!(crt.block_on(async { 5 }), 5);
+    }
+
+    #[test]
+    fn block_on_helpers_run_to_completion() {
+        assert_eq!(block_on_tokio_current_thread(async { 9 }).unwrap(), 9);
+        assert_eq!(block_on_async_current(async { 10 }), 10);
+    }
+
+    #[test]
+    fn has_tokio_runtime_reflects_context() {
+        assert!(!has_tokio_runtime());
+        let runtime = build_current_thread_runtime().unwrap();
+        runtime.block_on(async { assert!(has_tokio_runtime()) });
+    }
+
+    #[test]
+    fn wait_for_shutdown_signal_returns_immediately_when_notified() {
+        let (notifier, _waiter) = crate::imp::sync::async_::notify_wait();
+        notifier.notify_all();
+        wait_for_shutdown_signal(notifier);
+    }
+}

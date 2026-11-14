@@ -2,7 +2,7 @@ use super::transport::{install_conf_sync_hook, run_conf_sync, MudbRaftTransport}
 use super::RaftShare;
 use crate::heal::run_heal_driver;
 use crate::ApplierMsg;
-use ::catalog::contract::message_bus_api::ServerInstanceId;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

@@ -6,7 +6,7 @@
 //! [`LoopGuard`] and accumulated into thread-local counters, alongside a few
 //! counter-only events (iterations, budget-exhausted poll slices, wait
 //! timeouts, 1ms idle sleeps, processed CQEs). Each worker event loop
-//! periodically calls [`dump_if_due`], which logs the aggregated numbers and
+//! periodically calls [`crate::loop_stats::dump_if_due`], which logs the aggregated numbers and
 //! resets them.
 //!
 //! This mirrors the `MUDU_STAGE_STATS` mechanism in
@@ -147,7 +147,7 @@ pub fn count_by(counter: LoopCounter, n: u64) {
 }
 
 /// Logs the aggregated loop counters (one line per worker thread) and
-/// resets them, at most once every [`DUMP_INTERVAL`]. Intended to be called
+/// resets them, at most once every `DUMP_INTERVAL`. Intended to be called
 /// from each worker's event-loop iteration; it is a no-op when stats are
 /// disabled or the interval has not elapsed.
 pub fn dump_if_due(worker_id: u128) {
@@ -246,5 +246,18 @@ mod tests {
         count_by(LoopCounter::Iterations, 5);
         let after = COUNTERS.with(|counters| counters[index].get());
         assert_eq!(after, before, "disabled stats must not record");
+    }
+}
+
+#[cfg(test)]
+mod disabled_tests {
+    use super::*;
+
+    #[test]
+    fn counters_are_noop_when_stats_disabled() {
+        // Default in tests: MUDU_LOOP_STATS unset; both entry points no-op.
+        count_by(LoopCounter::Iterations, 3);
+        count_by(LoopCounter::SubmitSqes, 1);
+        dump_if_due(9);
     }
 }

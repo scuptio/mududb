@@ -107,15 +107,15 @@ run_act() {
 }
 
 FAILED=()
-PASSED=()
+SUMMARY_ARGS=()
 
 run_job() {
     local job="$1"
     local log_file="$LOG_DIR/${job}.log"
-    local workflow_args=()
-    if [[ -n "$WORKFLOW" ]]; then
-        workflow_args=(-W "$WORKFLOW")
-    fi
+    # Without -W, act matches the job name in EVERY workflow file (e.g. the
+    # SDK Publish workflow also has a "build" job); pin the default workflow.
+    local workflow="${WORKFLOW:-.github/workflows/build.yaml}"
+    local workflow_args=(-W "$workflow")
 
     echo
     echo "=========================================="
@@ -124,12 +124,12 @@ run_job() {
     echo "=========================================="
 
     if run_act "${workflow_args[@]}" -j "$job" 2>&1 | tee "$log_file"; then
-        PASSED+=("$job")
         echo "[OK] $job"
     else
         FAILED+=("$job")
         echo "[FAIL] $job"
     fi
+    SUMMARY_ARGS+=("$job=$log_file")
 }
 
 run_workflow() {
@@ -146,12 +146,12 @@ run_workflow() {
     echo "=========================================="
 
     if run_act -W "$workflow" 2>&1 | tee "$log_file"; then
-        PASSED+=("$name")
         echo "[OK] $name"
     else
         FAILED+=("$name")
         echo "[FAIL] $name"
     fi
+    SUMMARY_ARGS+=("$name=$log_file")
 }
 
 if [[ ${#JOBS[@]} -gt 0 ]]; then
@@ -164,35 +164,8 @@ else
     run_workflow ".github/workflows/build.yaml"
 fi
 
-echo
-echo "=========================================="
-echo "Summary"
-echo "=========================================="
-echo "Passed: ${#PASSED[@]}"
-for p in "${PASSED[@]}"; do
-    echo "  [OK] $p"
-done
+python3 "$REPO_ROOT/script/ci/act_summary.py" "${SUMMARY_ARGS[@]}"
 
 if [[ ${#FAILED[@]} -gt 0 ]]; then
-    echo "Failed: ${#FAILED[@]}"
-    for f in "${FAILED[@]}"; do
-        echo "  [FAIL] $f"
-    done
-
-    echo
-    echo "Error snippets (last 20 matching lines per failed run):"
-    for f in "${FAILED[@]}"; do
-        log_file="$LOG_DIR/${f}.log"
-        echo
-        echo "---- $f ----"
-        if [[ -f "$log_file" ]]; then
-            grep -E -i "(ERROR|FAIL|failed|::error::|panicked|thread '.*' panicked|warning:)" "$log_file" | tail -n 20 || true
-        else
-            echo "(log file not found)"
-        fi
-    done
-
     exit 1
-else
-    echo "All passed."
 fi

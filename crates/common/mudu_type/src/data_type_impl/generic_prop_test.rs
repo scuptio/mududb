@@ -271,3 +271,43 @@ fn supported_complex_printable_values_parse_back() {
         }
     }
 }
+
+/// The family-level fixed-length flag must agree with the parametrized
+/// binary length function for every generated parameter object.
+/// Regression test: the `_schema_table` fuzz target found that `Numeric`
+/// declared `fixed_length: None` while `fn_numeric_len` always returns
+/// a fixed 16-byte length.
+#[test]
+fn family_fixed_len_flag_matches_parametrized_type_len() {
+    let all = [
+        TypeFamily::I32,
+        TypeFamily::I64,
+        TypeFamily::F32,
+        TypeFamily::F64,
+        TypeFamily::String,
+        TypeFamily::U128,
+        TypeFamily::I128,
+        TypeFamily::Numeric,
+        TypeFamily::Date,
+        TypeFamily::Time,
+        TypeFamily::Timestamp,
+        TypeFamily::TimestampTz,
+        TypeFamily::Array,
+        TypeFamily::Record,
+        TypeFamily::Binary,
+    ];
+    for &id in &all {
+        for seed in 0..SEED_COUNT {
+            let bytes = seed_bytes(seed ^ (id.to_u32() as u64) << 8, SEED_BYTES_LEN);
+            let mut u = Unstructured::new(&bytes);
+            let dt = id.fn_arb_param()(&mut u).unwrap();
+            assert_eq!(
+                id.is_fixed_len(),
+                id.fn_send_type_len()(&dt).unwrap().is_some(),
+                "fixed-length flag mismatch for {:?} with param {:?}",
+                id,
+                dt
+            );
+        }
+    }
+}

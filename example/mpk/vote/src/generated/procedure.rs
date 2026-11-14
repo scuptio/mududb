@@ -148,8 +148,8 @@ pub async fn cast_vote(
     mudu_command(
         xid,
         sql_stmt!(
-            &"INSERT INTO vote_actions (action_id, user_id, vote_id, action_time)
-             VALUES (?, ?, ?, ?)"
+            &"INSERT INTO vote_actions (action_id, user_id, vote_id, action_time, is_withdrawn)
+             VALUES (?, ?, ?, ?, 0)"
         ),
         sql_params!(&(action_id.clone(), user_id.clone(), vote_id, action_time)),
     )
@@ -292,7 +292,7 @@ pub async fn get_voting_history(xid: OID, user_id: String) -> RS<Vec<VoteHistory
     let actions = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(
-            &"SELECT va.*, v.topic
+            &"SELECT va.*
              FROM vote_actions va
              JOIN votes v ON va.vote_id = v.vote_id
              WHERE user_id = ?"

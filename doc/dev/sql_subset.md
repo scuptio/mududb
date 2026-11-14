@@ -10,16 +10,107 @@ mismatches before the package ever reaches a database.
 The checker is built on the same parser (`sql_parser`) the engine uses, so
 "supported" means "the engine can actually execute it":
 
-- single-table `SELECT` with a column list, `*`, or single-argument
-  aggregate calls (`COUNT(*)`, `SUM(col)`), optional alias, optional
-  `WHERE`;
+- single-table `SELECT` with an explicit column list or single-argument
+  aggregate calls (`COUNT(*)`, `SUM(col)`, `AVG(col)`, `MIN(col)`,
+  `MAX(col)`), optional alias, optional `WHERE`. `SELECT *` parses and
+  `check-sql` accepts it (expanding it against the DDL), but the engine
+  binder resolves `*` as a column name and fails with
+  `cannot find column` — executable select lists must name columns
+  explicitly;
 - `INSERT INTO t (cols..) VALUES (..), (..), ..`;
 - `UPDATE t SET col = value, .. WHERE ..` (values may be literals, `?`
   placeholders, or arithmetic like `col = col + 1`);
 - `DELETE FROM t WHERE ..`;
-- `WHERE` predicates are comparisons (`=`, `<>`, `<`, `<=`, `>`, `>=`)
-  combined with `AND`;
+- `WHERE` predicates are comparisons (`=`, `!=`, `<`, `<=`, `>`, `>=`)
+  combined with `AND`; the SQL-standard `<>` spelling is rejected
+  (`operator <> not found`);
 - `?` parameter placeholders everywhere a value is accepted.
+
+Queue messaging statements (parsed by the custom-statement path, not the
+tree-sitter grammar):
+
+- `CREATE QUEUE name LIKE table_name` / `CREATE QUEUE name (col type, ..)`,
+  optionally followed by `PARTITION BY GLOBAL RULE rule REFERENCES (col)` —
+  declares a queue whose payload is copied from a table's columns or given
+  as an explicit column list. The kernel prepends the system columns
+  (`__seq` key, `__lsn`, `status`, `receive_count`, plus the hidden nullable
+  `__state_hi`/`__state_lo` watermark columns); payload columns must
+  not reuse those names, cannot be primary keys (the queue key is always
+  `__seq`), and cannot carry filesystem types. Without the partition clause
+  the queue is unpartitioned (shard 0); with it, the queue is sharded by the
+  payload column `col` through the named range rule (one shard per rule
+  partition, `PARTITION BY` on a table shares the same `CREATE PARTITION
+  RULE` / `CREATE PARTITION PLACEMENT` DDL). `CREATE QUEUE` also derives the
+  dead-letter queue `<name>_dlq` with the same payload layout;
+- `DROP QUEUE name`;
+- `RECEIVE [n] FROM name [FOR consumer] [WAIT ms | WAIT FOREVER]` — claims
+  up to `n` ready messages (default 1; `n` must be at least 1) and returns
+  envelope rows: `__seq`, `__lsn`, then the payload columns. `WAIT`
+  (milliseconds, or `FOREVER`) parks only while no messages are available;
+  a nonempty partial batch returns immediately. WAIT is autocommit-only — inside an explicit transaction
+  it fails with `InvalidState`. With `FOR consumer` the receive is a
+  read-only scan from the named cursor's frontier (no claim, no poison
+  counting); without `FOR` it claims on the default competing cursor.
+  After five committed delivery attempts, the next RECEIVE transfers the
+  message atomically to the DLQ instead of delivering it again. A full DLQ
+  fails the transaction, retaining the original message;
+- `ACK name [FOR consumer] TO seq` — without `FOR`: deletes every claimed
+  message with `__seq <= seq` (still-`ready` rows stay) and advances the
+  acked frontier; a message claimed more than 5 times moves to `<name>_dlq`
+  instead of being deleted. With `FOR consumer`: advances the named cursor's
+  frontier past `seq` (idempotent, never moves backwards) and physically
+  deletes messages below the minimum frontier across all of the queue's
+  cursors (min-cursor GC);
+- `CREATE CONSUMER consumer ON name` / `DROP CONSUMER consumer ON name` —
+  register/remove a named, persistent consumer cursor on a queue (fan-out:
+  every cursor sees every message). A queue with at least one cursor is in
+  fan-out mode: competing-mode `RECEIVE`/`ACK` (no `FOR`) then fail with
+  `InvalidArgument`. Creating a cursor resets the queue's still-claimed
+  rows to `ready`. Cursor frontiers persist (the `_queue_consumer` system
+  table) and survive restart. Queue activation (trigger a registered WASM
+  procedure when a queue is non-empty) is managed through the HTTP
+  management API (`POST/DELETE /mudu/server/queue_activation`,
+  `GET /mudu/server/queue_activations`), not SQL; registrations are
+  in-memory and do not survive restart;
+- queue rows are managed by `RECEIVE`/`ACK` only: `UPDATE`, `DELETE`, and
+  `COPY FROM` on a queue fail with `NotImplemented`, as do the raw
+  relation-write syscalls. Enqueue is plain `INSERT` (payload columns only;
+  the system columns are kernel-assigned), failing the transaction with
+  `QUEUE_FULL` (50040) when either `queue_max_msgs` (default 65536) or
+  `queue_max_bytes` (default 67108864 encoded payload bytes) would be exceeded.
+  Both positive limits are configured in `mudud.cfg`. NULL payload fields
+  contribute zero bytes; system columns and storage overhead are excluded.
+  Sequence allocation and live depth are transactional. Durable watermarks
+  preserve sequence monotonicity even after the queue is drained and restarted.
+  `/mudu/server/queues` reports `bytes` and process-local `overflow_count`.
+  Queue statements run on any worker: the kernel routes them to the shard
+  owner (remote shards ride the partition RPC).
+
+  Sharded queues: `__seq` embeds the shard index in its high bits
+  (`shard << 52 | local_seq`), so every message is routable to its shard
+  from its sequence alone, and `ACK` needs no shard clause. Ordering is
+  per-shard (per-key when the payload key selects the shard), not global.
+  A keyless `RECEIVE` drains one shard per statement in round-robin order;
+  `RECEIVE ... WAIT` parks on the selected shard's owner worker. Named
+  consumers keep one cursor per shard (the `_queue_consumer` table keys are
+  `(queue_oid, shard, consumer)`), and consumer ACK/GC run per shard.
+  Queue activation on a partitioned queue is rejected (`NotImplemented`)
+  for now.
+
+Queue verification includes transactional capacity/ACK rollback, empty-queue
+restart and SIGKILL recovery, automatic poison transfer, fan-out cursors,
+and invocation of a real WASM activation guest. Physical base-backup restore
+preserves queue schemas, rows, cursor frontiers and empty-queue watermarks;
+snapshots include both partition 0 data and `meta/relation` catalog files.
+This does not establish queue PITR, logical dump/restore or Raft failover support.
+
+The opt-in `queue_churn_baseline` test runs 2000 enqueue/receive/ACK cycles
+and prints latency and storage samples. On the 2026-10-22 debug run, enqueue
+p50/p99 were 906/1381 microseconds. Although depth returned to zero, relation
+data grew from 159744 bytes at 500 cycles to 598016 at 2000; relation WAL
+stayed at 2598 bytes. ACK removes live rows but does not reclaim historical
+relation data files. Bounded disk usage remains unimplemented; these timings
+are a reproducible baseline, not a release performance guarantee.
 
 Identifiers (table and column names) are matched ASCII case-insensitively,
 as in SQL.
@@ -77,8 +168,13 @@ Diagnostics are printed as `file:line:col: severity: message`.
 One universal rule applies to every guest language: a string literal is
 treated as SQL when its content (after trimming leading whitespace) starts
 a DML statement — `SELECT ..`, `INSERT INTO ..`, `UPDATE .. SET ..`,
-`DELETE FROM ..` (case-insensitive, word-boundary matched). Everything else
-is skipped, including:
+`DELETE FROM ..` — or a queue statement (`CREATE/DROP QUEUE`,
+`CREATE/DROP CONSUMER`, `RECEIVE .. FROM ..`, `ACK .. TO ..`). Matching is
+case-insensitive and uses word boundaries. Queue DDL in the supplied schema
+files declares payload columns; `LIKE` sources must precede their queues.
+Queue syntax, declared target names and positive RECEIVE counts are checked.
+Consumer existence, mode and transaction state remain runtime checks.
+The filter skips:
 
 - natural-language strings that merely start with a similar word
   (`"Insert user"`, `"Selects the row"`);
@@ -128,9 +224,10 @@ diagnostics and a summary.
 - When the call has a turbofish entity (`mudu_query::<Wallets>`, or helpers
   like `query_one_entity::<Customer>`) and the literal is a `SELECT`, the
   select list is compared with the entity table's columns in DDL order
-  (`Wallets` → `wallets`; `*` expands to the full column list). Scalar
-  turbofish types (`mudu_query::<i64>`) map to no table and skip this
-  check.
+  (`Wallets` → `wallets`; `*` expands to the full column list for this
+  static comparison, even though the engine does not execute `SELECT *`).
+  Scalar turbofish types (`mudu_query::<i64>`) map to no table and skip
+  this check.
 - Parameter tuple elements that are source literals (`42`, `0L`, `"s"`,
   `1.5`, `true`, `b".."`) are typed position-wise against the placeholder's
   target column (INSERT value position, UPDATE assignment, WHERE

@@ -29,3 +29,5 @@ See [How to Add a Format Upgrade](how_to_add_format_upgrade.md) for the detailed
 ## Chinese versions
 
 中文版本见 [cn contracts](../../cn/contract/)。
+
+- [Queue envelope and durable watermark v1](queue_v1.md)

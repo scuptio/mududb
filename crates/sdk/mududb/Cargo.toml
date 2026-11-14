@@ -15,6 +15,18 @@ name = "facade_scenario"
 path = "tests/facade_scenario.rs"
 required-features = ["standalone-adapter"]
 
+[[test]]
+name = "facade_edge_cases"
+path = "tests/facade_edge_cases.rs"
+required-features = ["standalone-adapter"]
+
+# Self dev-dependency: feature unification turns on `standalone-adapter`
+# whenever the test targets build, so the adapter-backed integration tests
+# run under plain `cargo test` / clippy `--all-targets` / llvm-cov without a
+# manual `--features` flag. Normal builds never see dev-dependencies.
+[dev-dependencies]
+mududb = { path = ".", features = ["standalone-adapter"] }
+
 [dependencies]
 mudu = { workspace = true, optional = true }
 mudu_type = { workspace = true, optional = true }

@@ -155,4 +155,20 @@ mod tests {
         assert!(later > earlier);
         assert_eq!(earlier.cmp(&later), std::cmp::Ordering::Less);
     }
+
+    #[test]
+    fn arithmetic_ops_deref_and_conversions() {
+        let now = Instant::now();
+        let mut plus = now;
+        plus += Duration::from_secs(1);
+        let _deref: &std::time::Instant = &plus;
+        let minus = plus - Duration::from_secs(1);
+        let diff = plus - minus;
+        assert!(diff >= Duration::from_secs(1));
+        let mut back = plus;
+        back -= Duration::from_secs(1);
+        assert_eq!(now.saturating_duration_since(plus), Duration::ZERO);
+        let std_instant: std::time::Instant = back.into();
+        let _wrapped: Instant = std_instant.into();
+    }
 }

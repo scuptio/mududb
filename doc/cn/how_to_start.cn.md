@@ -30,7 +30,13 @@ cd mududb
 source .venv/bin/activate
 ```
 
-然后验证构建。仓库已拆分为 `crates/` 下的四个独立 Cargo workspace（`common`、`db-kernel`、`sdk`、`tools`），需进入各 workspace 目录分别构建：
+然后验证工具链——它会列出 MuduDB 构建、示例与发布流程所需的全部工具，并为缺失项给出按操作系统分派的安装命令：
+
+```bash
+cargo make doctor
+```
+
+然后验证构建。仓库由多个独立 Cargo workspace 组成：`crates/` 下四个（`common`、`db-kernel`、`sdk`、`tools`）外加 `example/mpk`；需进入各 workspace 目录分别构建：
 
 ```bash
 cd crates/db-kernel
@@ -40,10 +46,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --workspace --no-deps
 ```
 
-也可以在仓库根目录运行覆盖全部四个 workspace 的完整检查：
+也可以在仓库根目录运行覆盖全部五个 group workspace 的完整检查：
 
 ```bash
-bash script/shell/check_all.sh
+cargo make check
 ```
 
 ### 方式 B：Dev Container / Docker
@@ -183,7 +189,7 @@ mcli --version
 NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < .rust-nightly-version)"
 
 # 代码覆盖率（详见 doc/cn/test_coverage.md）
-script/coverage/run_coverage.sh
+python3 script/coverage/run_coverage.py
 
 # cargo-udeps
 cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-udeps --version 0.1.61 --locked

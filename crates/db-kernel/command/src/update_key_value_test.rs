@@ -295,3 +295,53 @@ fn affected_rows_reflects_update_return_value() {
         assert_eq!(cmd.affected_rows().await.unwrap(), 5);
     });
 }
+
+// Fixture self-tests: drive every mock method so the shared test fixture is
+// verified end to end (and unused fixture paths cannot rot silently).
+#[test]
+fn mock_tx_mgr_fixture_covers_its_trait_surface() {
+    let tx = MockTxMgr;
+    let _ = tx.xid();
+    let _ = tx.snapshot();
+    tx.put(b"k".to_vec(), b"v".to_vec());
+    tx.delete(b"k".to_vec());
+    let _ = tx.get(b"k");
+    let relation = || PhysicalRelationId {
+        table_id: 1,
+        partition_id: 2,
+    };
+    tx.put_relation(relation(), b"k".to_vec(), b"v".to_vec());
+    tx.delete_relation(relation(), b"k".to_vec());
+    let _ = tx.get_relation(relation(), b"k");
+    let _ = tx.staged_relation_items_in_range(relation(), b"a", b"z");
+    let _ = tx.staged_relation_ops();
+    let _ = tx.staged_items_in_range(b"a", b"z");
+    let _ = tx.staged_put_items();
+    let _ = tx.is_empty();
+    let _ = tx.write_ops();
+    tx.build_write_ops();
+    let _ = tx.xl_batch();
+}
+
+#[test]
+fn mock_meta_mgr_fixture_covers_its_trait_surface() {
+    let meta = MockMetaMgr;
+    let schema = ::catalog::contract::schema_table::SchemaTable::new(
+        "fixture_t".to_string(),
+        vec![::catalog::contract::schema_column::SchemaColumn::new(
+            "k".to_string(),
+            mudu_type::type_family::TypeFamily::I64,
+            mudu_type::data_type::DataType::new_no_param(mudu_type::type_family::TypeFamily::I64)
+                .to_info(),
+        )],
+        vec![0],
+        vec![],
+    );
+    block_on(async {
+        meta.initialize().await.unwrap();
+        let _ = meta.get_table_by_id(1).await;
+        let _ = meta.get_table_by_name("fixture_s", "fixture_t").await;
+        meta.create_table(&schema).await.unwrap();
+        meta.drop_table(1).await.unwrap();
+    });
+}

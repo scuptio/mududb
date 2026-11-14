@@ -5,7 +5,7 @@
 //! - one ordered series of chunk files `<seq:020>.rlc`;
 //! - each chunk holds frames in the MuduDB log frame format v1
 //!   (see [`crate::frame`], byte-compatible with the kernel WAL);
-//! - every frame series encodes an ordered stream of [`StoreRecord`]s:
+//! - every frame series encodes an ordered stream of `StoreRecord`s:
 //!   log `Entry` records, `TruncateRight`/`TruncateLeft` markers and
 //!   `State` snapshots (term/vote, commit index, configurations, snapshot
 //!   frontier).

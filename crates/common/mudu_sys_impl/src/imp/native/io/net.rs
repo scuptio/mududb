@@ -123,3 +123,49 @@ pub fn sockaddr_to_socket_addr(addr: &SockAddrBuf) -> RS<SocketAddr> {
 fn zeroed_sockaddr_storage() -> rliburing::sockaddr_storage {
     unsafe { std::mem::zeroed() }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn set_tcp_nodelay_on_a_real_socket() {
+        use std::os::fd::AsRawFd;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        super::set_tcp_nodelay(listener.as_raw_fd()).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn socket_addr_storage_roundtrip_v4_and_v6() {
+        let v4: std::net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let storage = super::socket_addr_to_storage(v4).unwrap();
+        assert_eq!(super::sockaddr_to_socket_addr(&storage).unwrap(), v4);
+
+        let v6: std::net::SocketAddr = "[::1]:9090".parse().unwrap();
+        let storage = super::socket_addr_to_storage(v6).unwrap();
+        assert_eq!(super::sockaddr_to_socket_addr(&storage).unwrap(), v6);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sockaddr_to_socket_addr_rejects_bad_family_and_short_buffers() {
+        use crate::imp::native::linux::io_uring::iouring::SockAddrBuf;
+
+        let mut storage = super::zeroed_sockaddr_storage();
+        storage.ss_family = libc::AF_UNIX as libc::sa_family_t;
+        let unknown = SockAddrBuf::from_raw(storage, 16);
+        assert!(super::sockaddr_to_socket_addr(&unknown).is_err());
+
+        // Right family, but the buffer is too short for the address struct.
+        let mut storage = super::zeroed_sockaddr_storage();
+        storage.ss_family = libc::AF_INET as libc::sa_family_t;
+        let short = SockAddrBuf::from_raw(storage, 2);
+        assert!(super::sockaddr_to_socket_addr(&short).is_err());
+
+        let mut storage = super::zeroed_sockaddr_storage();
+        storage.ss_family = libc::AF_INET6 as libc::sa_family_t;
+        let short = SockAddrBuf::from_raw(storage, 2);
+        assert!(super::sockaddr_to_socket_addr(&short).is_err());
+    }
+}

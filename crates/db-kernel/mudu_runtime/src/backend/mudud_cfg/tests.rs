@@ -323,3 +323,26 @@ fn test_replication_stream_parse_and_defaults() {
     assert_eq!(stream.sync_timeout_ms, 10000);
     assert!(replication.raft.is_none());
 }
+
+#[test]
+fn queue_capacity_config_defaults_and_overrides() {
+    let defaults = MuduDBCfg::default();
+    assert_eq!(defaults.queue_max_msgs, 65536);
+    assert_eq!(defaults.queue_max_bytes, 64 * 1024 * 1024);
+    let mut text = toml::to_string(&defaults).unwrap();
+    text = text
+        .replace("queue_max_msgs = 65536", "queue_max_msgs = 2")
+        .replace("queue_max_bytes = 67108864", "queue_max_bytes = 32");
+    let custom: MuduDBCfg = toml::from_str(&text).unwrap();
+    assert_eq!((custom.queue_max_msgs, custom.queue_max_bytes), (2, 32));
+    let legacy = text
+        .lines()
+        .filter(|line| !line.starts_with("queue_max_"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let legacy: MuduDBCfg = toml::from_str(&legacy).unwrap();
+    assert_eq!(
+        (legacy.queue_max_msgs, legacy.queue_max_bytes),
+        (65536, 67108864)
+    );
+}

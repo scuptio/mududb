@@ -12,7 +12,7 @@
 
 use crate::raft_service::RaftShare;
 use crate::{clear_ack_watermarks, read_next_frame, repl_worker, ApplierMsg};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -370,4 +370,135 @@ fn repl_remote_error(error: &ErrorResponse) -> mudu::error::MuduError {
         ec,
         format!("heal-fetch voter returned error: {}", error.message())
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use ::catalog::frame::try_decode_next_frame;
+    use ::catalog::repl_cfg::ReplPeerCfg;
+    use mudu_contract::protocol::{
+        decode_repl_heal_fetch_request, encode_merror_response, encode_repl_heal_response_frame,
+        Frame, ReplHealRespFrame,
+    };
+    use mudu_sys::net::sync::StdTcpListener;
+    use mudu_sys::task::sync::spawn_thread;
+    use std::io::{Read, Write};
+
+    /// Runs a one-shot mock heal-fetch voter on a loopback port: reads one
+    /// MSSP request frame, answers with `respond(frame)`, returns its bound
+    /// address as `host:port`.
+    fn start_mock_voter(respond: impl Fn(&Frame) -> Vec<u8> + Send + 'static) -> String {
+        let listener = StdTcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = listener.local_addr().unwrap();
+        spawn_thread(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut buf: Vec<u8> = Vec::new();
+            let frame = loop {
+                let mut chunk = [0u8; 4096];
+                let n = socket.read(&mut chunk).unwrap();
+                assert!(n > 0, "mock voter: client closed early");
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some((frame, _used)) = try_decode_next_frame(&buf).unwrap() {
+                    break frame;
+                }
+            };
+            let response = respond(&frame);
+            socket.write_all(&response).unwrap();
+            socket.flush().unwrap();
+        })
+        .unwrap();
+        addr.to_string()
+    }
+
+    #[test]
+    fn heal_fetch_from_peer_roundtrips_frames() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let addr = start_mock_voter(|frame| {
+                let request = decode_repl_heal_fetch_request(frame).unwrap();
+                assert_eq!(request.worker_id(), 3);
+                assert_eq!((request.lsn_lo(), request.lsn_hi()), (10, 20));
+                encode_repl_heal_response_frame(
+                    frame.header().request_id(),
+                    &ReplHealRespFrame::new(3, vec![vec![1, 2, 3], vec![4, 5]]),
+                )
+                .unwrap()
+            });
+            let frames = heal_fetch_from_peer(&addr, 3, 10, 20).await.unwrap();
+            assert_eq!(frames, vec![vec![1u8, 2, 3], vec![4, 5]]);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn heal_fetch_from_peer_maps_error_frames_to_remote_error() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let addr = start_mock_voter(|frame| {
+                encode_merror_response(
+                    frame.header().request_id(),
+                    &mudu_error!(ErrorCode::InvalidState, "no such worker"),
+                )
+                .unwrap()
+            });
+            let err = heal_fetch_from_peer(&addr, 3, 10, 20).await.unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::InvalidState);
+            assert!(err.to_string().contains("no such worker"));
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn heal_fetch_from_peer_reports_connect_failure() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            // Bind and immediately drop to get a closed loopback port.
+            let listener = StdTcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            let addr = listener.local_addr().unwrap().to_string();
+            drop(listener);
+            let err = heal_fetch_from_peer(&addr, 1, 0, 1).await.unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::Network);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn heal_fetch_from_voters_skips_self_and_uses_first_answer() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let addr = start_mock_voter(|frame| {
+                let request = decode_repl_heal_fetch_request(frame).unwrap();
+                encode_repl_heal_response_frame(
+                    frame.header().request_id(),
+                    &ReplHealRespFrame::new(request.worker_id(), vec![vec![9]]),
+                )
+                .unwrap()
+            });
+            let (host, port) = addr.split_once(':').unwrap();
+            let share = RaftShare::new_for_test(
+                1,
+                vec![
+                    ReplPeerCfg::new(1, "127.0.0.1".to_string(), 1),
+                    ReplPeerCfg::new(2, host.to_string(), port.parse().unwrap()),
+                ],
+            );
+            let share = Arc::new(share);
+            let frames = heal_fetch_from_voters(&share, 5, 0, 4).await.unwrap();
+            assert_eq!(frames, vec![vec![9u8]]);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn heal_fetch_from_voters_without_reachable_voter_is_network_error() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            // The only configured voter is this node itself: skipped, so no
+            // voter remains to ask.
+            let share =
+                RaftShare::new_for_test(7, vec![ReplPeerCfg::new(7, "127.0.0.1".to_string(), 1)]);
+            let share = Arc::new(share);
+            let err = heal_fetch_from_voters(&share, 0, 0, 1).await.unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::Network);
+            assert!(err.to_string().contains("no voter reachable"));
+        })
+        .unwrap()
+    }
 }

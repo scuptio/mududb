@@ -28,6 +28,8 @@ use serde_json::Value;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+mod backup_restore;
+mod dispatch_fail;
 mod io_output;
 mod repl;
 mod shell;
@@ -46,6 +48,7 @@ struct MockAsyncClient {
     range_response: Option<RangeScanResponse>,
     invoke_procedure_response: Option<ProcedureInvokeResponse>,
     session_id: u128,
+    session_fails: bool,
 }
 
 impl MockAsyncClient {
@@ -57,6 +60,7 @@ impl MockAsyncClient {
             range_response: None,
             invoke_procedure_response: None,
             session_id: 42,
+            session_fails: false,
         }
     }
 
@@ -82,6 +86,11 @@ impl MockAsyncClient {
 
     fn with_invoke_procedure_response(mut self, response: ProcedureInvokeResponse) -> Self {
         self.invoke_procedure_response = Some(response);
+        self
+    }
+
+    fn with_session_failure(mut self) -> Self {
+        self.session_fails = true;
         self
     }
 }
@@ -135,6 +144,9 @@ impl AsyncClient for MockAsyncClient {
         &mut self,
         _request: SessionCreateRequest,
     ) -> RS<SessionCreateResponse> {
+        if self.session_fails {
+            return Err(mudu_error!(ErrorCode::Network, "mock session failure"));
+        }
         Ok(SessionCreateResponse::new(self.session_id))
     }
 
@@ -176,6 +188,17 @@ impl JsonClientConnect for FailingJsonConnector {
     type Client = AsyncClientImpl;
 
     async fn connect(&self, _addr: &str) -> RS<JsonClient<Self::Client>> {
+        Err(mudu_error!(ErrorCode::Network, "mock connect failure"))
+    }
+}
+
+struct FailingAsyncConnector;
+
+#[async_trait]
+impl AsyncClientConnect for FailingAsyncConnector {
+    type Client = AsyncClientImpl;
+
+    async fn connect(&self, _addr: &str) -> RS<Self::Client> {
         Err(mudu_error!(ErrorCode::Network, "mock connect failure"))
     }
 }

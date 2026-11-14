@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::log_frame::split_frame;
+use crate::log_frame::{split_frame, LOG_FRAME_HEADER_SIZE};
 use crate::lsn::LSN;
 use crate::worker_log::decode_frames;
 use crate::worker_log::WorkerLogBackend;
@@ -472,6 +472,53 @@ fn worker_log_reopen_truncates_checksum_corrupted_tail() {
     })
 }
 
+#[test]
+fn worker_log_reopen_truncates_at_corrupted_middle_frame() {
+    with_corruption_warnings_suppressed(|| {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = temp_dir().join(format!("worker_log_trunc_middle_{}", gen_oid()));
+            let layout = WorkerLogLayout::new(dir, gen_oid(), 4096).unwrap();
+            let chunk_path = layout.chunk_path(0);
+
+            // Three batches land as three single-frame entries in chunk 0.
+            let log = WorkerWALBackend::new(layout.clone()).await.unwrap();
+            for _ in 0..3 {
+                futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+            }
+            log.flush_async().await.unwrap();
+            drop(log);
+
+            // The middle frame starts right after the first frame.
+            let next_lsn = AtomicU64::new(0);
+            let first = serialize_batch(&sample_batch(), 4096, &next_lsn).unwrap();
+            assert_eq!(first.len(), 1);
+            let first_frame_len = first[0].len();
+
+            // Corrupt one payload byte of the middle frame in place: the
+            // frames before it stay valid, but the valid frame that follows
+            // it must be dropped together with the corrupt one.
+            let mut bytes = mudu_sys::fs::sync::read(&chunk_path).unwrap();
+            bytes[first_frame_len + LOG_FRAME_HEADER_SIZE] ^= 0x7f;
+            mudu_sys::fs::sync::write(&chunk_path, &bytes).unwrap();
+
+            let log = WorkerWALBackend::new(layout).await.unwrap();
+            assert_eq!(
+                mudu_sys::fs::sync::metadata(&chunk_path).unwrap().len(),
+                first_frame_len as u64
+            );
+            // Only the first batch (LSN 0) survives, so the next allocation
+            // is LSN 1.
+            assert_eq!(log.last_allocated_lsn(), LSN::new(0));
+            futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+            log.flush_async().await.unwrap();
+            let bytes = mudu_sys::fs::sync::read(&chunk_path).unwrap();
+            let batches = decode_xl_batches(&decode_frames(&bytes).unwrap()).unwrap();
+            assert_eq!(batches, vec![sample_batch(), sample_batch()]);
+        })
+        .unwrap()
+    })
+}
+
 /// Writes `batches` batches to a fresh log with `chunk_size` bytes per chunk
 /// and returns `(layout, provider, log)`.
 async fn archivable_log(
@@ -580,6 +627,266 @@ fn worker_log_gc_never_reclaims_unarchived_chunks() {
         ));
 
         drop(log);
+    })
+    .unwrap()
+}
+
+#[test]
+fn gc_stops_at_unknown_prefix_and_recovery_keeps_frontier() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let dir = temp_dir().join(format!("worker_log_gc_unknown_{}", gen_oid()));
+        let layout = WorkerLogLayout::new(dir, gen_oid(), 64).unwrap();
+        let provider = create_io_provider(ProviderType::Tokio);
+        let log = WorkerWALBackend::new(layout.clone()).await.unwrap();
+        for _ in 0..6 {
+            futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+        }
+        log.flush_async().await.unwrap();
+        drop(log);
+        let before = layout
+            .chunk_paths_sorted_async(provider.fs())
+            .await
+            .unwrap();
+        assert!(before.len() >= 3);
+        // A retained, unclassifiable prefix must not be skipped by the marker.
+        mudu_sys::fs::sync::write(&before[0], []).unwrap();
+        assert_eq!(
+            layout.gc_prefix_chunks(provider.fs(), 100).await.unwrap(),
+            (0, 0)
+        );
+        assert_eq!(
+            layout
+                .chunk_paths_sorted_async(provider.fs())
+                .await
+                .unwrap(),
+            before
+        );
+        assert!(layout.load_gc_frontier().unwrap().is_none());
+        // Even nonempty chunk directories can have no valid frame after a crash.
+        for path in &before {
+            mudu_sys::fs::sync::write(path, []).unwrap();
+        }
+        layout
+            .store_gc_frontier(super::layout::GcFrontier {
+                lsn: 42,
+                first_alive_seq: 0,
+            })
+            .unwrap();
+        let tail = layout.scan_tail_async(provider.fs()).await.unwrap();
+        assert_eq!(tail.next_lsn, LSN::new(42));
+        assert_eq!(layout.scan_tail().await.unwrap().next_lsn, LSN::new(42));
+        let reopened = WorkerWALBackend::new(layout.clone()).await.unwrap();
+        assert_eq!(reopened.next_lsn(), LSN::new(42));
+        futures::executor::block_on(append_xl_batch_async(&reopened, &sample_batch())).unwrap();
+        reopened.flush_async().await.unwrap();
+        let expected_next = reopened.next_lsn();
+        assert!(expected_next > LSN::new(42));
+        drop(reopened);
+        assert_eq!(
+            layout
+                .scan_tail_async(provider.fs())
+                .await
+                .unwrap()
+                .next_lsn,
+            expected_next
+        );
+    })
+    .unwrap();
+}
+
+#[test]
+fn multipart_decode_is_independent_of_input_batch_boundaries() {
+    let value = vec![42u64; 150];
+    let frames = crate::log_frame::serialize_entry(&value, 48, &AtomicU64::new(7)).unwrap();
+    for split in 0..=frames.len() {
+        let mut pending = Vec::new();
+        let mut start = None;
+        let mut decoded: Vec<(LSN, Vec<u64>)> = crate::log_frame::decode_entries_with_pending(
+            &frames[..split],
+            &mut pending,
+            &mut start,
+        )
+        .unwrap();
+        decoded.extend(
+            crate::log_frame::decode_entries_with_pending::<Vec<u64>>(
+                &frames[split..],
+                &mut pending,
+                &mut start,
+            )
+            .unwrap(),
+        );
+        assert_eq!(decoded, vec![(7u64.into(), value.clone())]);
+        assert!(pending.is_empty());
+        assert!(start.is_none());
+    }
+}
+
+#[test]
+fn reordered_multipart_continuation_is_rejected_without_consuming_pending() {
+    let value = vec![42u64; 150];
+    let frames = crate::log_frame::serialize_entry(&value, 48, &AtomicU64::new(0)).unwrap();
+    assert!(frames.len() >= 3);
+    let mut pending = Vec::new();
+    let mut start = None;
+    crate::log_frame::decode_entries_with_pending::<Vec<u64>>(
+        &frames[..1],
+        &mut pending,
+        &mut start,
+    )
+    .unwrap();
+    let before = pending.clone();
+    assert!(crate::log_frame::decode_entries_with_pending::<Vec<u64>>(
+        &frames[2..3],
+        &mut pending,
+        &mut start
+    )
+    .is_err());
+    assert_eq!(pending, before);
+    let decoded = crate::log_frame::decode_entries_with_pending::<Vec<u64>>(
+        &frames[1..],
+        &mut pending,
+        &mut start,
+    )
+    .unwrap();
+    assert_eq!(decoded, vec![(0u64.into(), value)]);
+}
+
+#[test]
+fn live_truncation_retains_prefix_then_appends_at_the_cut() {
+    mudu_sys::task::async_::block_on_async_current(async move {
+        let layout = WorkerLogLayout::new(
+            temp_dir().join(format!("wal_cut_{}", gen_oid())),
+            gen_oid(),
+            80,
+        )
+        .unwrap();
+        let log = WorkerWALBackend::new(layout.clone()).await.unwrap();
+        for value in 0..8u64 {
+            let frames = log.serialize_entry(&value).unwrap();
+            log.append_frames_async(frames).await.unwrap();
+        }
+        log.flush_async().await.unwrap();
+        log.truncate_from_lsn(3u64.into()).await.unwrap();
+        let mut kept = Vec::new();
+        for path in layout.chunk_paths_sorted().await.unwrap() {
+            for frame in decode_frames(&mudu_sys::fs::sync::read(path).unwrap()).unwrap() {
+                kept.push(crate::log_frame::frame_lsn(&frame).unwrap().as_u64());
+            }
+        }
+        assert_eq!(kept, vec![0, 1, 2]);
+        assert_eq!(log.next_lsn().as_u64(), 3);
+        let frames = log.serialize_entry(&99u64).unwrap();
+        assert_eq!(crate::log_frame::frame_lsn(&frames[0]).unwrap().as_u64(), 3);
+        log.append_frames_async(frames).await.unwrap();
+        log.flush_async().await.unwrap();
+        let reopened = WorkerWALBackend::new(layout).await.unwrap();
+        assert_eq!(reopened.next_lsn().as_u64(), 4);
+    });
+}
+
+#[test]
+fn worker_log_truncate_cuts_uncommitted_tail() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let dir = temp_dir().join(format!("worker_log_truncate_{}", gen_oid()));
+        // Small chunks so a handful of batches spans several chunk files.
+        let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 64).unwrap();
+        let provider = create_io_provider(ProviderType::Tokio);
+        let log = WorkerWALBackend::new(layout.clone()).await.unwrap();
+        for _ in 0..6 {
+            futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+        }
+        log.flush_async().await.unwrap();
+        let next_lsn = log.next_lsn().as_u64();
+        assert!(next_lsn >= 6);
+        let chunks_before = layout
+            .chunk_paths_sorted_async(provider.fs())
+            .await
+            .unwrap();
+        assert!(chunks_before.len() >= 2, "chunks: {chunks_before:?}");
+        // Drop the backend before truncating: truncation rewrites chunk
+        // files underneath a live backend, so callers reset state (the
+        // backend here owns no open handles after drop).
+        drop(log);
+
+        // Cut at the middle LSN: the call reports a cut point and the log
+        // shrinks back below the cut LSN.
+        let mid = next_lsn / 2;
+        let cut = layout
+            .truncate_chunks_from_lsn(provider.fs(), mid)
+            .await
+            .unwrap();
+        assert!(cut.is_some());
+        let tail = layout.scan_tail_async(provider.fs()).await.unwrap();
+        assert!(tail.next_lsn <= mid);
+
+        // Truncating again at the same point is a no-op (log already ends
+        // before it).
+        let cut = layout
+            .truncate_chunks_from_lsn(provider.fs(), mid)
+            .await
+            .unwrap();
+        assert!(cut.is_none());
+
+        let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+    })
+    .unwrap()
+}
+
+#[test]
+fn worker_log_truncate_skips_corrupt_and_empty_chunks() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let dir = temp_dir().join(format!("worker_log_truncate_corrupt_{}", gen_oid()));
+        let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 64).unwrap();
+        let provider = create_io_provider(ProviderType::Tokio);
+        // Hand-write chunk files around a valid one: an empty chunk and a
+        // chunk whose frames are undecodable must not fail the scan.
+        mudu_sys::fs::async_::create_dir_all(&dir).await.unwrap();
+        let prefix = layout.short_oid.clone();
+        mudu_sys::fs::sync::sync_write(dir.join(format!("{prefix}.0.xl")), b"").unwrap();
+        mudu_sys::fs::sync::sync_write(dir.join(format!("{prefix}.1.xl")), b"\xff\xff\xff\xff")
+            .unwrap();
+        let cut = layout
+            .truncate_chunks_from_lsn(provider.fs(), 1)
+            .await
+            .unwrap();
+        assert!(cut.is_none());
+        let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+    })
+    .unwrap()
+}
+
+#[test]
+fn worker_log_truncate_stops_at_checksum_corrupted_frame() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        // Capture real frame bytes from a short-lived backend.
+        let src_dir = temp_dir().join(format!("worker_log_trunc_src_{}", gen_oid()));
+        let src_layout = WorkerLogLayout::new(src_dir.clone(), gen_oid(), 4096).unwrap();
+        let log = WorkerWALBackend::new(src_layout.clone()).await.unwrap();
+        futures::executor::block_on(append_xl_batch_async(&log, &sample_batch())).unwrap();
+        log.flush_async().await.unwrap();
+        let bytes = mudu_sys::fs::sync::read(src_layout.chunk_path(0)).unwrap();
+        drop(log);
+
+        // A chunk holding one valid frame plus a checksum-corrupted copy:
+        // the scan walks the first frame and stops at the corrupted one.
+        let dir = temp_dir().join(format!("worker_log_trunc_corrupt_{}", gen_oid()));
+        let layout = WorkerLogLayout::new(dir.clone(), gen_oid(), 4096).unwrap();
+        mudu_sys::fs::async_::create_dir_all(&dir).await.unwrap();
+        let mut content = bytes.clone();
+        let mut bad = bytes.clone();
+        let mid = bad.len() / 2;
+        bad[mid] ^= 0xff;
+        content.extend_from_slice(&bad);
+        mudu_sys::fs::sync::sync_write(layout.chunk_path(0), content).unwrap();
+
+        let provider = create_io_provider(ProviderType::Tokio);
+        let cut = layout
+            .truncate_chunks_from_lsn(provider.fs(), u64::MAX - 1)
+            .await
+            .unwrap();
+        assert!(cut.is_none());
+        let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+        let _ = mudu_sys::fs::sync::remove_dir_all(&src_dir);
     })
     .unwrap()
 }

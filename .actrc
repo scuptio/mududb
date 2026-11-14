@@ -9,6 +9,9 @@
 --container-options
 --security-opt=apparmor=unconfined
 --env ACT=true
+# Silence DEP0040 (punycode) deprecation noise printed by GitHub Actions'
+# bundled JS under the image's Node 24; no repository code uses punycode.
+--env NODE_OPTIONS=--disable-warning=DEP0040
 --bind=false
 --concurrent-jobs=1
 --reuse=true

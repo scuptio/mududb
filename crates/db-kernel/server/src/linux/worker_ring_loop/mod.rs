@@ -12,23 +12,22 @@ use crate::loop_mailbox::{
 use crate::loop_user_io::{
     handle_completion as handle_user_io_completion, submit as submit_user_io, LoopUserIoCtx,
 };
-use crate::message_bus_runtime::WorkerMessageBus;
 use crate::server_iouring;
 use crate::server_iouring::RecoveryCoordinator;
 use crate::task;
 use crate::worker::flush_worker_dirty_pages;
 use crate::worker::WorkerRuntime;
 use crate::worker::{as_worker_local_ref, new_session_bound_worker_runtime};
+use crate::worker_channel_uring::UringWorkerChannel;
 use crate::worker_loop_stats::WorkerLoopStats;
 use crate::worker_mailbox::WorkerMailboxMsg;
-use ::catalog::contract::message_bus_api::{
-    register_worker_message_bus, set_current_message_bus, unregister_worker_message_bus,
-    unset_current_message_bus,
-};
 use ::conn::worker_local::{set_current_worker_local, unset_current_worker_local};
 use ::xcontract::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
 use mudu_sys::io::worker_ring::{
     set_current_worker_ring, unset_current_worker_ring, WorkerLocalRing,
+};
+use mudu_utils::channel::{
+    set_current_channel, spawn_endpoint, unset_current_channel, EndpointGuard,
 };
 
 use ::wal::worker_log::ChunkedWorkerLogBackend;
@@ -84,7 +83,10 @@ pub(crate) struct WorkerRingLoop {
     conn_id_alloc: Arc<AtomicU64>,
     recovery_coordinator: Arc<RecoveryCoordinator>,
     worker_local_ring: Arc<WorkerLocalRing>,
-    message_bus: Arc<WorkerMessageBus>,
+    worker_channel: Arc<UringWorkerChannel>,
+    /// Owns the channel endpoint registration installed by `initialize`;
+    /// dropped by `teardown_worker_registration`.
+    endpoint_guard: Option<EndpointGuard>,
     connection_task_fds: Arc<SMutex<HashMap<u64, RawFd>>>,
     #[cfg(test)]
     callback_registry: CallbackRegistry,
@@ -95,6 +97,8 @@ pub(crate) struct WorkerRingLoop {
     mailbox_read_submitted: bool,
     shutdown_triggered: AtomicBool,
     shutting_down: bool,
+    checkpoint_started: bool,
+    checkpoint_failed: Arc<AtomicBool>,
     accept_submitted: bool,
     stop: Arc<AtomicBool>,
     stats: WorkerLoopStats,
@@ -188,8 +192,9 @@ impl WorkerRingLoop {
                 },
             )
         });
-        let message_bus = WorkerMessageBus::new(
+        let worker_channel = UringWorkerChannel::new(
             worker.worker_id(),
+            worker.server_instance_id(),
             worker.registry().clone(),
             mailbox_fds.clone(),
             mailboxes.clone(),
@@ -204,7 +209,8 @@ impl WorkerRingLoop {
             conn_id_alloc,
             recovery_coordinator,
             worker_local_ring,
-            message_bus,
+            worker_channel,
+            endpoint_guard: None,
             connection_task_fds: Arc::new(SMutex::new(HashMap::new())),
             #[cfg(test)]
             callback_registry: CallbackRegistry::new(),
@@ -215,6 +221,8 @@ impl WorkerRingLoop {
             mailbox_read_submitted: false,
             shutdown_triggered: AtomicBool::new(false),
             shutting_down: false,
+            checkpoint_started: false,
+            checkpoint_failed: Arc::new(AtomicBool::new(false)),
             accept_submitted: false,
             stop,
             stats: WorkerLoopStats {

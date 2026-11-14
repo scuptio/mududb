@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "On-disk storage layer: pages, relations, and time-series files"
 
 [features]
+paged-index = []
 debug_trace = ["mudu_utils/debug_trace"]
 
 [lints]
@@ -22,6 +23,7 @@ mudu_contract = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
 mudu_utils = { workspace = true }
+page_buffer = { workspace = true }
 async-trait = { workspace = true }
 byteorder = { workspace = true }
 futures = { workspace = true }
@@ -29,6 +31,7 @@ libc = { workspace = true }
 rmp-serde = { workspace = true }
 scc = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

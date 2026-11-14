@@ -198,7 +198,7 @@ impl TestContext {
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
-        wait_until_port_ready(self.http_port, "HTTP")?;
+        testing::wait_until_port_ready(self.http_port, "HTTP")?;
         wait_until_worker_port_ready(self.tcp_port)?;
         // The ready barrier fires only after the deferred initdb drain has
         // completed, so a ready server implies auto-loaded packages are
@@ -390,21 +390,4 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
         }
     }
     Ok(None)
-}
-
-fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + backend_startup_timeout();
-    while mudu_sys::time::instant_now() < deadline {
-        if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
-        }
-        sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!(
-            "{} server did not become ready on port {}",
-            service_name, port
-        )
-    ))
 }

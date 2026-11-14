@@ -164,7 +164,10 @@ pub use super::runtime::{
     CurrentThreadTaskRuntime, TaskRuntime, TaskRuntimeEnterGuard,
 };
 pub use super::spawn::{spawn_blocking, spawn_task, spawn_task_detached};
-pub use super::spawn_local::{spawn_local_detached, spawn_local_task, LocalTaskSet, TaskFailed};
+pub use super::spawn_local::{
+    spawn_local_detached, spawn_local_task, spawn_thread_confined_background_task,
+    spawn_thread_confined_task, LocalTaskSet, TaskFailed,
+};
 
 #[cfg(all(test, target_os = "linux"))]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

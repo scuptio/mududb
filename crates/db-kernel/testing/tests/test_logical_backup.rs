@@ -18,8 +18,6 @@ use std::time::Duration;
 use testing::support::*;
 use tracing::info;
 
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-
 // Miri cannot execute the foreign-function calls and network I/O of a full
 // backend server; the test runs on native Linux only.
 #[cfg_attr(miri, ignore)]
@@ -263,7 +261,7 @@ impl TestContext {
         })?;
         wait_until_async_port_ready(self.http_port, "HTTP")?;
         wait_until_worker_port_ready(self.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         Ok(RunningServer {
             stop,
             http_port: self.http_port,

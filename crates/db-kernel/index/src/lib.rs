@@ -6,3 +6,5 @@
 pub mod btree;
 /// Index key encoding and the thread-local comparator context.
 pub mod index_key;
+/// Asynchronous paged B-link tree and its buffer pool.
+pub mod paged;

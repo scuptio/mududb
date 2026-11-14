@@ -226,3 +226,184 @@ async fn async_fs_open_error_paths_return_error_frames() {
     let err = decode_fs_open_result(&out).unwrap_err();
     assert_eq!(err.ec(), ErrorCode::CorruptedData);
 }
+
+#[tokio::test]
+async fn async_fs_lifecycle_round_trip() {
+    let sid = UniOid::from_oid(77);
+    let wl = fs_worker_local();
+    task_context(sid.to_oid(), wl.clone());
+
+    // Open through the task context's connection (mints session 1 on the
+    // fs worker-local).
+    let open_out =
+        async_fs_open_internal_with_worker_local(fs_open_frame_for(sid.clone()), None).await;
+    let fd = decode_fs_open_result(&open_out).unwrap();
+
+    // Cursor-based read: two partial reads walk the content.
+    let out =
+        async_fs_read_internal_with_worker_local(encode_fs_read_request(fd, 5), Some(wl.clone()))
+            .await;
+    assert_eq!(decode_fs_read_result(&out).unwrap(), b"hello".to_vec());
+    let out =
+        async_fs_read_internal_with_worker_local(encode_fs_read_request(fd, 5), Some(wl.clone()))
+            .await;
+    assert_eq!(decode_fs_read_result(&out).unwrap(), b"-fs".to_vec());
+
+    // Seek back to the start and overwrite through the cursor.
+    let out = async_fs_lseek_internal_with_worker_local(
+        encode_fs_lseek_request(fd, 0, 0),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(decode_fs_lseek_result(&out).unwrap(), 0);
+    let out = async_fs_write_internal_with_worker_local(
+        encode_fs_write_request(fd, b"HI"),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(decode_fs_write_result(&out).unwrap(), 2);
+
+    // Positional ops do not move the cursor.
+    let out = async_fs_pread_internal_with_worker_local(
+        encode_fs_pread_request(fd, 2, 4),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(decode_fs_pread_result(&out).unwrap(), b"llo-".to_vec());
+    let out = async_fs_pwrite_internal_with_worker_local(
+        encode_fs_pwrite_request(fd, 0, b"zz"),
+        Some(wl.clone()),
+    )
+    .await;
+    decode_fs_pwrite_result(&out).unwrap();
+    let out = async_fs_lseek_internal_with_worker_local(
+        encode_fs_lseek_request(fd, 0, 0),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(decode_fs_lseek_result(&out).unwrap(), 0);
+    let out =
+        async_fs_read_internal_with_worker_local(encode_fs_read_request(fd, 8), Some(wl.clone()))
+            .await;
+    assert_eq!(decode_fs_read_result(&out).unwrap(), b"zzllo-fs".to_vec());
+}
+
+#[tokio::test]
+async fn async_fs_metadata_and_close_paths() {
+    let sid = UniOid::from_oid(77_001);
+    let wl = fs_worker_local();
+    task_context(sid.to_oid(), wl.clone());
+    let oid = UniOid::from_oid(2);
+
+    let open_out =
+        async_fs_open_internal_with_worker_local(fs_open_frame_for(sid.clone()), None).await;
+    let fd = decode_fs_open_result(&open_out).unwrap();
+
+    // Metadata and durability.
+    let out =
+        async_fs_fstat_internal_with_worker_local(encode_fs_fstat_request(fd), Some(wl.clone()))
+            .await;
+    let stat = decode_fs_fstat_result(&out).unwrap();
+    assert_eq!(stat.length, 8);
+    assert_eq!(stat.entry, "data.bin");
+    let out =
+        async_fs_fsync_internal_with_worker_local(encode_fs_fsync_request(fd), Some(wl.clone()))
+            .await;
+    decode_fs_fsync_result(&out).unwrap();
+
+    // Path-addressed stat and directory listing.
+    let out = async_fs_stat_internal_with_worker_local(
+        encode_fs_stat_request(oid.clone(), "data.bin"),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(decode_fs_stat_result(&out).unwrap().length, 8);
+    let out = async_fs_stat_internal_with_worker_local(
+        encode_fs_stat_request(oid.clone(), "/missing"),
+        Some(wl.clone()),
+    )
+    .await;
+    assert_eq!(
+        decode_fs_stat_result(&out).unwrap_err().ec(),
+        ErrorCode::EntityNotFound
+    );
+    let out = async_fs_readdir_internal_with_worker_local(
+        encode_fs_readdir_request(oid.clone(), "/"),
+        Some(wl.clone()),
+    )
+    .await;
+    let entries = decode_fs_readdir_result(&out).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "data.bin");
+
+    // Close; a second close and reads on the dead fd fail cleanly.
+    let out =
+        async_fs_close_internal_with_worker_local(encode_fs_close_request(fd), Some(wl.clone()))
+            .await;
+    decode_fs_close_result(&out).unwrap();
+    let out =
+        async_fs_close_internal_with_worker_local(encode_fs_close_request(fd), Some(wl.clone()))
+            .await;
+    assert!(decode_fs_close_result(&out).is_err());
+    let out =
+        async_fs_read_internal_with_worker_local(encode_fs_read_request(fd, 1), Some(wl.clone()))
+            .await;
+    assert!(decode_fs_read_result(&out).is_err());
+}
+
+#[test]
+fn sync_fs_syscalls_round_trip() {
+    let sid = UniOid::from_oid(78);
+    let wl = fs_worker_local();
+    task_context(sid.to_oid(), wl.clone());
+
+    let open_out = fs_open_internal_with_worker_local(&fs_open_frame_for(sid.clone()), None);
+    let fd = decode_fs_open_result(&open_out).unwrap();
+
+    let out =
+        fs_write_internal_with_worker_local(&encode_fs_write_request(fd, b"AB"), Some(wl.clone()));
+    assert_eq!(decode_fs_write_result(&out).unwrap(), 2);
+    let out =
+        fs_lseek_internal_with_worker_local(&encode_fs_lseek_request(fd, 0, 0), Some(wl.clone()));
+    assert_eq!(decode_fs_lseek_result(&out).unwrap(), 0);
+    let out = fs_read_internal_with_worker_local(&encode_fs_read_request(fd, 8), Some(wl.clone()));
+    assert_eq!(decode_fs_read_result(&out).unwrap(), b"ABllo-fs".to_vec());
+    let out =
+        fs_pread_internal_with_worker_local(&encode_fs_pread_request(fd, 6, 2), Some(wl.clone()));
+    assert_eq!(decode_fs_pread_result(&out).unwrap(), b"fs".to_vec());
+    let out = fs_pwrite_internal_with_worker_local(
+        &encode_fs_pwrite_request(fd, 0, b"yz"),
+        Some(wl.clone()),
+    );
+    decode_fs_pwrite_result(&out).unwrap();
+    let out = fs_fstat_internal_with_worker_local(&encode_fs_fstat_request(fd), Some(wl.clone()));
+    assert_eq!(decode_fs_fstat_result(&out).unwrap().length, 8);
+    let out = fs_fsync_internal_with_worker_local(&encode_fs_fsync_request(fd), Some(wl.clone()));
+    decode_fs_fsync_result(&out).unwrap();
+    let out = fs_stat_internal_with_worker_local(
+        &encode_fs_stat_request(UniOid::from_oid(2), "data.bin"),
+        Some(wl.clone()),
+    );
+    assert_eq!(decode_fs_stat_result(&out).unwrap().length, 8);
+    let out = fs_readdir_internal_with_worker_local(
+        &encode_fs_readdir_request(UniOid::from_oid(2), "/"),
+        Some(wl.clone()),
+    );
+    assert_eq!(decode_fs_readdir_result(&out).unwrap().len(), 1);
+    let out = fs_close_internal_with_worker_local(&encode_fs_close_request(fd), Some(wl.clone()));
+    decode_fs_close_result(&out).unwrap();
+
+    // lseek validation paths: bad whence and negative target.
+    let open_out = fs_open_internal_with_worker_local(&fs_open_frame_for(sid.clone()), None);
+    let fd2 = decode_fs_open_result(&open_out).unwrap();
+    let out =
+        fs_lseek_internal_with_worker_local(&encode_fs_lseek_request(fd2, 0, 9), Some(wl.clone()));
+    assert!(decode_fs_lseek_result(&out).is_err());
+    let out = fs_lseek_internal_with_worker_local(
+        &encode_fs_lseek_request(fd2, -100, 0),
+        Some(wl.clone()),
+    );
+    assert!(decode_fs_lseek_result(&out).is_err());
+    let out = fs_close_internal_with_worker_local(&encode_fs_close_request(fd2), Some(wl.clone()));
+    decode_fs_close_result(&out).unwrap();
+}

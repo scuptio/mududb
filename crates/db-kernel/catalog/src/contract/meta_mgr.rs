@@ -60,6 +60,37 @@ pub trait MetaMgr: Send + Sync {
     /// Drops the table with the given oid.
     async fn drop_table(&self, table_id: OID) -> RS<()>;
 
+    /// Creates a queue from its schema, which shall carry
+    /// `SchemaObjectKind::Queue`. Queues share the `(schema, name)` namespace
+    /// with tables. The default fails with `NotImplemented`.
+    async fn create_queue(&self, _schema: &SchemaTable) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue catalog is not implemented"
+        ))
+    }
+
+    /// Drops the queue with the given oid. The default fails with
+    /// `NotImplemented`.
+    async fn drop_queue(&self, _queue_id: OID) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue catalog is not implemented"
+        ))
+    }
+
+    /// Resolves a queue by schema and name with the same search-path
+    /// semantics as [`MetaMgr::get_table_by_name`]; a name that resolves to a
+    /// non-queue object reports `None`. The default returns `None`.
+    async fn get_queue(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
+        Ok(None)
+    }
+
+    /// Lists the schemas of all queues. The default returns an empty list.
+    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+        Ok(Vec::new())
+    }
+
     /// Creates a partition rule. The default fails with `NotImplemented`.
     async fn create_partition_rule(&self, _rule: &PartitionRuleDesc) -> RS<()> {
         Err(mudu::mudu_error!(
@@ -163,5 +194,84 @@ pub trait MetaMgr: Send + Sync {
             ErrorCode::NotImplemented,
             "filesystem type catalog is not implemented"
         ))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use mudu::mudu_error;
+
+    /// Minimal manager: required methods only, every default left as-is.
+    struct DefaultMetaMgr;
+
+    #[async_trait]
+    impl MetaMgr for DefaultMetaMgr {
+        async fn initialize(&self) -> RS<()> {
+            Ok(())
+        }
+        async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
+            Err(mudu_error!(
+                ErrorCode::EntityNotFound,
+                format!("no table {oid}")
+            ))
+        }
+        async fn get_table_by_name(
+            &self,
+            _schema: &str,
+            _name: &str,
+        ) -> RS<Option<Arc<TableDesc>>> {
+            Ok(None)
+        }
+        async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+            Ok(())
+        }
+        async fn drop_table(&self, _table_id: OID) -> RS<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn default_methods_cover_noop_and_not_implemented_surface() {
+        let meta = DefaultMetaMgr;
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            // No-op / empty defaults.
+            meta.flush_dirty_pages().await.unwrap();
+            assert_eq!(meta.catalog_version(), 0);
+            assert!(meta.get_table_exact("s", "t").await.unwrap().is_none());
+            assert!(meta
+                .create_queue(&SchemaTable::new("q".to_string(), vec![], vec![], vec![]))
+                .await
+                .is_err());
+            assert!(meta.drop_queue(1).await.is_err());
+            assert!(meta.get_queue("s", "q").await.unwrap().is_none());
+            assert!(meta.list_queues().await.unwrap().is_empty());
+            assert!(meta.get_partition_rule_by_id(1).await.is_err());
+            assert!(meta
+                .get_partition_rule_by_name("r")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(meta.list_partition_rules().await.unwrap().is_empty());
+            assert!(meta.get_table_partition_binding(1).await.unwrap().is_none());
+            assert!(meta.list_partition_bindings().await.unwrap().is_empty());
+            assert!(meta.upsert_partition_placements(&[]).await.is_err());
+            assert!(meta.get_partition_worker(1).await.unwrap().is_none());
+            assert!(meta.list_partition_placements().await.unwrap().is_empty());
+            assert!(meta.list_schemas().await.unwrap().is_empty());
+            assert_eq!(
+                meta.create_fs_type("bin", FsTypeKind::File)
+                    .await
+                    .unwrap_err()
+                    .ec(),
+                ErrorCode::NotImplemented
+            );
+            assert!(meta.get_fs_type_by_name("bin").await.unwrap().is_none());
+            assert!(meta.get_fs_type_by_id(1).await.unwrap().is_none());
+            assert!(meta.list_fs_types().await.unwrap().is_empty());
+            assert!(meta.drop_fs_type("bin").await.is_err());
+        })
+        .unwrap();
     }
 }

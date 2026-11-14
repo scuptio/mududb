@@ -121,12 +121,11 @@ pub async fn mudu_command(oid: OID, sql: &dyn SQLStmt, params: &dyn SQLParams) -
 
 ### 3. `batch`
 
-`batch` executes a batch SQL string through the batch syscall path. In the current host implementation, it is available for the SQLite, PostgreSQL, and MySQL standalone adapter paths, and reuses the same serialized argument and return format as `command`.
+`batch` executes a batch SQL string through the batch syscall path. In the current host implementation, it is available on every adapter path — the SQLite, PostgreSQL, and MySQL standalone adapters as well as the `mudud` adapter — and reuses the same serialized argument and return format as `command`.
 
 Current limitations:
 
-- `batch` does not support SQL parameters
-- the `mudud` adapter path still returns `NotImplemented`
+- no backend supports SQL parameters for `batch`: a non-empty parameter list returns `NotImplemented`
 - portable examples should still prefer executing schema setup statement-by-statement through `command` when they need to run unchanged across all adapters
 
 <!--
@@ -158,8 +157,8 @@ SQL statement with `?` as parameter placeholders.
 
 #### params
 
-Parameter list. For `batch`, the current host implementation requires an empty parameter list because
-`libsql::execute_batch` executes raw SQL text.
+Parameter list. For `batch`, every backend requires an empty parameter list (a non-empty list returns
+`NotImplemented`) because batch execution submits raw SQL text.
 
 ## KV APIs
 
@@ -250,7 +249,7 @@ Raw value bytes.
 
 #### start_key / end_key
 
-Inclusive range boundaries used by `range`.
+Half-open range boundaries `[start_key, end_key)` used by `range`; an empty `end_key` means unbounded.
 
 ## Filesystem APIs
 

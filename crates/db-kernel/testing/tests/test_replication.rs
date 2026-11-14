@@ -34,7 +34,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
-use testing::{connect_sync_client_with_retry, reserve_port, wait_until_port_ready};
+use testing::{connect_sync_client_with_retry, reserve_port};
 
 /// Asynchronous replication (`sync = false`): the primary answers a commit
 /// without waiting for the replica.
@@ -400,15 +400,23 @@ impl ReplTestContext {
     fn start_node(&self, node: &ReplNode, sync: bool, sync_timeout_ms: u64) -> RS<RunningServer> {
         let cfg = self.build_cfg(node, sync, sync_timeout_ms);
         let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
+        let (ready, _ready_waiter) = notify_wait();
+        let ready_probe = ready.clone();
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
-        wait_until_port_ready(node.http_port, "HTTP")?;
-        wait_until_worker_port_ready(node.tcp_port)?;
         // The ready barrier fires only after the deferred initdb drain has
-        // completed, so a ready node also finished its WAL recovery.
-        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
+        // completed, so a ready node also finished its WAL recovery. The
+        // wait races the server thread's exit, so a startup failure surfaces
+        // with the thread's own error instead of a burnt readiness budget.
+        let handle = wait_test_server_ready(
+            node.http_port,
+            node.tcp_port,
+            &stop,
+            &ready_probe,
+            handle,
+            backend_startup_timeout(),
+        )?;
         Ok(RunningServer {
             stop,
             http_port: node.http_port,

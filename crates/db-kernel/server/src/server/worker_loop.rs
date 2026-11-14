@@ -1,4 +1,4 @@
-use super::message_bus::TokioWorkerMessageBus;
+use super::worker_channel::TokioWorkerChannel;
 use super::*;
 
 #[derive(Clone)]
@@ -36,7 +36,7 @@ pub(crate) struct TokioWorkerLoopArgs {
     pub(crate) worker: WorkerRuntime,
     pub(crate) listener: AsyncTcpListener,
     pub(crate) bus_inbox: Arc<SegQueue<Envelope>>,
-    pub(crate) message_bus: Arc<TokioWorkerMessageBus>,
+    pub(crate) worker_channel: Arc<TokioWorkerChannel>,
     pub(crate) bus_wake: Arc<Notify>,
     pub(crate) conn_id_alloc: Arc<AtomicU64>,
     pub(crate) stop: Arc<AtomicBool>,
@@ -51,7 +51,7 @@ pub(crate) async fn run_worker_loop_tokio(args: TokioWorkerLoopArgs) -> RS<()> {
         worker,
         listener,
         bus_inbox,
-        message_bus,
+        worker_channel,
         bus_wake,
         conn_id_alloc,
         stop,
@@ -68,7 +68,7 @@ pub(crate) async fn run_worker_loop_tokio(args: TokioWorkerLoopArgs) -> RS<()> {
         if stop_rx.is_stopped() {
             break;
         }
-        while drain_message_bus_tokio(bus_inbox.as_ref(), message_bus.as_ref())? {}
+        while drain_worker_channel_tokio(bus_inbox.as_ref(), worker_channel.as_ref())? {}
         tokio::select! {
             accept_result = listener.accept() => {
                 let (stream, remote_addr) = accept_result
@@ -189,14 +189,14 @@ async fn handle_tokio_connection(
     Ok(())
 }
 
-fn drain_message_bus_tokio(
+fn drain_worker_channel_tokio(
     inbox: &SegQueue<Envelope>,
-    message_bus: &TokioWorkerMessageBus,
+    worker_channel: &TokioWorkerChannel,
 ) -> RS<bool> {
     let mut progressed = false;
     while let Some(envelope) = inbox.pop() {
         progressed = true;
-        message_bus.handle_incoming(envelope)?;
+        worker_channel.handle_incoming(envelope)?;
     }
     Ok(progressed)
 }

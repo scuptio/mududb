@@ -39,8 +39,14 @@ impl WorkerRingLoop {
             }
             self.submit_pending_io()?;
             self.submit_ring()?;
+            let checkpoint_was_started = self.checkpoint_started;
             if let Some(stats) = self.finish_shutdown_if_drained()? {
                 return Ok(stats);
+            }
+            if !checkpoint_was_started && self.checkpoint_started {
+                // spawn() enqueues locally without an eventfd wake. Poll the
+                // checkpoint before waiting for an unrelated pending CQE.
+                continue;
             }
 
             if self.inflight.is_empty() {
@@ -140,10 +146,17 @@ impl WorkerRingLoop {
         Ok(())
     }
 
-    /// Shutdown drain check: once shutting down with no tracked tasks, the
-    /// loop exits only after the WAL is fully flushed.
+    /// Shutdown drain check: once shutting down with no tracked blocking
+    /// tasks, the loop exits only after the WAL is fully flushed. Background
+    /// tasks (perpetual listeners such as page-buffer mailbox drivers) are
+    /// dropped with the registry at loop exit and do not block the drain.
     fn finish_shutdown_if_drained(&mut self) -> RS<Option<WorkerLoopStats>> {
-        if self.shutting_down && self.worker_local_ring.worker_task_registry().is_empty() {
+        if self.shutting_down
+            && self
+                .worker_local_ring
+                .worker_task_registry()
+                .is_drained_of_blocking()
+        {
             // Make sure the WAL has been fully flushed before tearing the
             // worker loop down. The flush/fsync tasks are not tracked in
             // the worker task registry, so the registry being empty is
@@ -161,6 +174,26 @@ impl WorkerRingLoop {
                 None => true,
             };
             if log_flushed {
+                if !self.checkpoint_started {
+                    self.checkpoint_started = true;
+                    let storage = self.worker.storage();
+                    let failed = self.checkpoint_failed.clone();
+                    self.spawn(None, async move {
+                        if let Err(error) = storage.close_relation_indexes().await {
+                            failed.store(true, Ordering::Release);
+                            tracing::error!("index checkpoint during shutdown failed: {}", error);
+                            return Err(error);
+                        }
+                        Ok(())
+                    });
+                    return Ok(None);
+                }
+                if self.checkpoint_failed.load(Ordering::Acquire) {
+                    return Err(mudu::mudu_error!(
+                        mudu::error::ErrorCode::Storage,
+                        "index checkpoint during shutdown failed"
+                    ));
+                }
                 return Ok(Some(self.finish_shutdown()?));
             }
         }

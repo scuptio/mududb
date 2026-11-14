@@ -248,7 +248,7 @@ async fn persist_kv_to_wal(worker: &WorkerRuntime) -> RS<()> {
     let Some(log) = worker.worker_log()? else {
         return Ok(());
     };
-    let entries = worker.storage().dump_kv_latest();
+    let entries = worker.storage().dump_kv_latest().await;
     // Chunk the dump into bounded batches so a huge KV store does not become
     // one giant WAL entry.
     const BATCH_KEYS: usize = 512;
@@ -316,6 +316,7 @@ async fn restore_worker(
         log_chunk_size: 64 * 1024 * 1024,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime: None,
         registry,
         async_runtime: None,
@@ -419,6 +420,18 @@ pub async fn restore_backup(
         reports.push(report);
     }
     reports.sort_by_key(|report| report.worker_index);
+    // A normal server must reopen the restored WAL and partitions under the
+    // original worker ids instead of generating a fresh topology at startup.
+    let identities = backup
+        .workers
+        .iter()
+        .map(|entry| WorkerIdentity {
+            worker_index: entry.worker_index as usize,
+            worker_id: entry.worker_id,
+            partition_ids: entry.partition_ids.clone(),
+        })
+        .collect();
+    WorkerRegistry::new(identities)?.persist_new(Path::new(target_dir))?;
     Ok(RestoreReport {
         label: backup.label,
         workers: reports,

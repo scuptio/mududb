@@ -22,6 +22,8 @@ pub mod async_api;
 pub mod fs;
 /// Helpers for serializing and invoking host system operations.
 pub mod host;
+#[cfg(test)]
+mod host_test;
 /// Synchronous top-level API.
 pub mod sync_api;
 

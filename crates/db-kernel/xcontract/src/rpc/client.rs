@@ -1,4 +1,11 @@
 use super::*;
+use ::catalog::contract::queue::QueueWait;
+
+/// Timeout of one partition RPC attempt.
+pub(crate) const PARTITION_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+/// How many times an idempotent request is attempted under the same
+/// idempotency key before giving up.
+const MAX_IDEMPOTENT_ATTEMPTS: u32 = 3;
 
 impl WorkerXContract {
     pub(super) async fn send_partition_rpc(
@@ -6,57 +13,74 @@ impl WorkerXContract {
         target_worker_id: OID,
         request: PartitionRpcRequest,
     ) -> RS<PartitionRpcResponse> {
+        self.send_partition_rpc_with_timeout(target_worker_id, request, PARTITION_RPC_TIMEOUT)
+            .await
+    }
+
+    /// One logical partition RPC: idempotent requests are retried under the
+    /// same idempotency key, non-idempotent ones fail after a single attempt
+    /// (their callers resolve the uncertain outcome through the transaction
+    /// recovery records).
+    pub(super) async fn send_partition_rpc_with_timeout(
+        &self,
+        target_worker_id: OID,
+        request: PartitionRpcRequest,
+        timeout: Duration,
+    ) -> RS<PartitionRpcResponse> {
         let _stage =
             ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::PartitionRpc);
-        debug!(
-            worker_id = self.worker_id,
-            target_worker_id,
-            request = ?request,
-            "sending partition rpc request"
-        );
-        let bus = current_message_bus()?;
-        let payload = rmp_serde::to_vec(&request)
-            .map_err(|e| mudu_error!(ErrorCode::Encode, "encode partition rpc request error", e))?;
-        let msg_id = bus
-            .send(
-                target_worker_id,
-                OutgoingMessage::new(PARTITION_RPC_REQUEST_KIND, payload)
-                    .with_delivery(DeliveryMode::Request),
-            )
-            .await?;
-        debug!(
-            worker_id = self.worker_id,
-            target_worker_id, msg_id, "waiting partition rpc response"
-        );
-        let envelope = mudu_sys::task::async_::timeout(
-            Duration::from_secs(10),
-            bus.recv(RecvFilter {
-                src: Some(target_worker_id),
-                dst: Some(self.worker_id),
-                kind: Some(PARTITION_RPC_RESPONSE_KIND),
-                correlation_id: Some(msg_id),
-            }),
-        )
-        .await
-        .ok_or_else(|| {
-            mudu_error!(
-                ErrorCode::Tokio,
-                format!(
-                    "partition rpc response timeout: server={}, worker={}, target_worker={}, msg_id={}",
-                    self.server_instance_id, self.worker_id, target_worker_id, msg_id
-                )
-            )
-        })??;
-        debug!(
-            worker_id = self.worker_id,
-            target_worker_id,
-            msg_id,
-            received_msg_id = envelope.msg_id(),
-            received_correlation_id = ?envelope.correlation_id(),
-            "received partition rpc response envelope"
-        );
-        rmp_serde::from_slice(envelope.payload())
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode partition rpc response error", e))
+        let channel = current_channel()?;
+        let endpoint = channel.endpoint::<PartitionRpcRequest>(target_worker_id);
+        let request_id = mudu_utils::channel::gen_request_id();
+        let max_attempts = if request.is_idempotent() {
+            MAX_IDEMPOTENT_ATTEMPTS
+        } else {
+            1
+        };
+        let mut attempt = 0;
+        loop {
+            debug!(
+                worker_id = self.worker_id,
+                target_worker_id, request_id, attempt, "sending partition rpc request"
+            );
+            let result = endpoint
+                .ask_attempt(request.clone(), request_id, attempt, timeout)
+                .await;
+            attempt += 1;
+            match result {
+                Ok(response) => {
+                    debug!(
+                        worker_id = self.worker_id,
+                        target_worker_id, request_id, attempt, "received partition rpc response"
+                    );
+                    return Ok(response);
+                }
+                Err(err) if attempt < max_attempts => {
+                    debug!(
+                        worker_id = self.worker_id,
+                        target_worker_id,
+                        request_id,
+                        attempt,
+                        error = %err,
+                        "partition rpc attempt failed; retrying"
+                    );
+                }
+                Err(err) => {
+                    return Err(mudu_error!(
+                        err.ec(),
+                        format!(
+                            "partition rpc failed: server={}, worker={}, target_worker={}, request_id={}, attempts={}",
+                            self.server_instance_id,
+                            self.worker_id,
+                            target_worker_id,
+                            request_id,
+                            attempt
+                        ),
+                        err
+                    ));
+                }
+            }
+        }
     }
 
     pub(crate) async fn remote_read_key(
@@ -232,6 +256,99 @@ impl WorkerXContract {
             _ => Err(mudu_error!(
                 ErrorCode::Internal,
                 "unexpected apply_cross_partition_tx rpc response"
+            )),
+        }
+    }
+
+    /// Ask the shard owner to load the shard's runtime state (rebuild the
+    /// counters, migrate the legacy watermark, re-deliver crashed claims).
+    pub(crate) async fn remote_queue_prepare(&self, shard: &QueueShard) -> RS<()> {
+        match self
+            .send_partition_rpc(
+                shard.worker_id,
+                PartitionRpcRequest::QueuePrepare {
+                    queue_oid: shard.queue_oid,
+                    partition_id: shard.partition_id,
+                },
+            )
+            .await?
+        {
+            PartitionRpcResponse::QueuePrepare => Ok(()),
+            PartitionRpcResponse::Err(err) => Err(mudu_error!(ErrorCode::Internal, err)),
+            _ => Err(mudu_error!(
+                ErrorCode::Internal,
+                "unexpected queue_prepare rpc response"
+            )),
+        }
+    }
+
+    /// Dispatch a `RECEIVE ... WAIT` loop to the shard owner.
+    pub(crate) async fn remote_queue_receive_wait(
+        &self,
+        shard: &QueueShard,
+        count: u64,
+        wait: QueueWait,
+        consumer: Option<String>,
+    ) -> RS<Vec<Vec<Option<Buf>>>> {
+        let (wait_ms, timeout) = match wait {
+            QueueWait::Timeout(ms) => (
+                Some(ms),
+                Duration::from_millis(ms).saturating_add(PARTITION_RPC_TIMEOUT),
+            ),
+            // No wall-clock bound: the owner parks on its wait registry and
+            // the caller's own cancellation drops the ask.
+            QueueWait::Forever => (None, Duration::from_secs(24 * 3600)),
+        };
+        match self
+            .send_partition_rpc_with_timeout(
+                shard.worker_id,
+                PartitionRpcRequest::QueueReceiveWait {
+                    queue_oid: shard.queue_oid,
+                    partition_id: shard.partition_id,
+                    count,
+                    wait_ms,
+                    consumer,
+                },
+                timeout,
+            )
+            .await?
+        {
+            PartitionRpcResponse::QueueReceiveWait(rows) => Ok(rows),
+            PartitionRpcResponse::Err(err) => Err(mudu_error!(ErrorCode::Internal, err)),
+            _ => Err(mudu_error!(
+                ErrorCode::Internal,
+                "unexpected queue_receive_wait rpc response"
+            )),
+        }
+    }
+
+    /// Post-commit notification to the shard owner: publish the committed
+    /// watermark and wake parked receivers/activations.
+    pub(crate) async fn send_queue_wake(
+        &self,
+        target_worker_id: OID,
+        queue_oid: OID,
+        partition_id: OID,
+        state: Option<(u64, u64, u64, u64)>,
+        consumers_changed: bool,
+    ) -> RS<()> {
+        match self
+            .send_partition_rpc(
+                target_worker_id,
+                PartitionRpcRequest::QueueWake {
+                    queue_oid,
+                    partition_id,
+                    state,
+                    consumers_changed,
+                },
+            )
+            .await?
+        {
+            PartitionRpcResponse::QueueWake => Ok(()),
+            PartitionRpcResponse::Err(err) => Err(mudu_error!(ErrorCode::Internal, err)),
+            _ => Err(mudu_error!(
+                ErrorCode::Internal,
+                "unexpected queue_wake rpc response"
             )),
         }
     }

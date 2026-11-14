@@ -29,10 +29,7 @@ impl KernelHttpApi {
                     .await
             })
             .and_then(|label| label)
-            .and_then(|label| {
-                serde_json::to_value(label)
-                    .map_err(|e| mudu_error!(ErrorCode::Encode, "encode backup label error", e))
-            });
+            .map(backup_label_json);
             let _ = tx.send(result);
             Ok::<_, mudu::error::MuduError>(())
         })
@@ -78,11 +75,7 @@ impl KernelHttpApi {
                                 format!("backup {label} is missing or corrupt")
                             ))
                         },
-                        |label| {
-                            serde_json::to_value(label).map_err(|e| {
-                                mudu_error!(ErrorCode::Encode, "encode backup label error", e)
-                            })
-                        },
+                        |label| Ok(backup_label_json(label)),
                     )
                 });
             let _ = tx.send(result);
@@ -181,4 +174,23 @@ impl KernelHttpApi {
             )
         })?
     }
+}
+
+// Keep the durable MessagePack label unchanged. HTTP uses the same UniOid
+// representation as other management DTOs, avoiding JSON's u64 number limit.
+fn backup_label_json(label: ::backup::backup::BackupLabel) -> Value {
+    use mudu_binding::universal::uni_oid::UniOid;
+    let workers: Vec<_> = label.workers.into_iter().map(|worker| {
+        serde_json::json!({
+            "worker_index": worker.worker_index,
+            "worker_id": UniOid::from(worker.worker_id),
+            "partition_ids": worker.partition_ids.into_iter().map(UniOid::from).collect::<Vec<_>>(),
+            "base_lsn": worker.base_lsn,
+            "seg_hash": worker.seg_hash,
+        })
+    }).collect();
+    serde_json::json!({
+        "label": label.label, "timeline": label.timeline,
+        "taken_at_ms": label.taken_at_ms, "workers": workers,
+    })
 }

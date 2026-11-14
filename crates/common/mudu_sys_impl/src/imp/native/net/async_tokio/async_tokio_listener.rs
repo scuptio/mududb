@@ -46,3 +46,29 @@ impl AsyncListener for AsyncTokioListener {
         ))
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::AsyncTokioListener;
+    use crate::contract::async_listener::AsyncListener;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn listener_bind_accept_raw_fd_and_clone_unsupported() {
+        let listener = AsyncTokioListener::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _fd = listener.as_raw_fd();
+        assert!(listener.try_clone_listener().is_err());
+
+        let server = tokio::spawn(async move {
+            let (stream, _peer) = listener.accept().await.unwrap();
+            stream
+        });
+        let _client = crate::imp::net::async_tokio::connect_tcp(addr)
+            .await
+            .unwrap();
+        let _stream = server.await.unwrap();
+    }
+}

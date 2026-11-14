@@ -86,6 +86,7 @@ impl WorkerRuntime {
         stmt: Box<dyn SQLStmt>,
         param: Box<dyn SQLParams>,
         tx_mgr: Arc<dyn TxMgr>,
+        autocommit: bool,
     ) -> RS<Arc<dyn ResultSetAsync>> {
         let trace = task_trace!();
         trace.watch("sql.kind", "query");
@@ -120,6 +121,17 @@ impl WorkerRuntime {
                 ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::SqlParse);
             core.parse_one_text(&text)?
         };
+        // A queue RECEIVE carrying WAIT parks the statement on the queue wait
+        // registry between short claim transactions; inside an explicit
+        // transaction the client owns the commit, so the park would break the
+        // statement's claim atomicity. WAIT is autocommit-only. RECEIVE is
+        // never plan-cached, so this check always sees the parsed statement.
+        if !autocommit && ::sql::binder::is_receive_wait_stmt(&stmt) {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "RECEIVE ... WAIT is only allowed in autocommit mode; it cannot run inside an explicit transaction"
+            ));
+        }
         // Miss: bind in template mode (no parameter values read), cache the
         // template, and execute it — the first execution pays one bind, same
         // as the uncached path.
@@ -282,7 +294,7 @@ impl WorkerRuntime {
         if oid == 0 {
             let tx_mgr = self.contract.begin_tx().await?;
             let result = self
-                .run_sql_query_with_tx(core, &current_schema, sql, param, tx_mgr.clone())
+                .run_sql_query_with_tx(core, &current_schema, sql, param, tx_mgr.clone(), true)
                 .await;
             if result.is_ok() {
                 self.contract.commit_tx(tx_mgr).await?;
@@ -302,7 +314,7 @@ impl WorkerRuntime {
             .sql_tx_mgr(oid)?
             .ok_or_else(|| mudu_error!(ErrorCode::Internal, "session transaction is missing"))?;
         let result = self
-            .run_sql_query_with_tx(core, &current_schema, sql, param, tx_mgr)
+            .run_sql_query_with_tx(core, &current_schema, sql, param, tx_mgr, started_tx)
             .await;
         if started_tx {
             let tx_manager = self.session_manager.take_session_tx(oid)?;

@@ -181,7 +181,6 @@ impl WorkerWALBackend {
     /// driving it. After finishing a round, re-checks the queue: a batch
     /// enqueued while the driver count was still above zero would otherwise
     /// be left behind with its waiter parked.
-    #[allow(dead_code)]
     pub(crate) async fn try_drive_flush(&self) -> RS<()> {
         loop {
             // Take a driver slot. At the cap, enough flush rounds are being
@@ -290,7 +289,7 @@ impl WorkerWALBackend {
 
     /// Parks until an enqueue triggers a flush, returning immediately when
     /// queued batches already satisfy the watermarks. Uses the same
-    /// clear-and-recheck pattern as [`WaitLsn::wait_advanced`] because the
+    /// clear-and-recheck pattern as `WaitLsn::wait_advanced` because the
     /// trigger is a sticky-latch `ANotify`.
     pub async fn wait_flush_trigger(&self) -> RS<()> {
         self.inner.flush_trigger.clear_signal();

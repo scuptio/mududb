@@ -163,11 +163,23 @@ impl WorkerXContract {
         };
         _t.watch("procedure.worker_commit.stage", "build_write_ops");
         tx.build_write_ops();
+        // Queue wakeups are resolved against the write set here (the cleanup
+        // below consumes the transaction); the vectors stay empty — costing
+        // one atomic load — while no receiver is parked, no activation is
+        // registered, and no watermark or cursor row is staged.
+        let queue_wake_shards = self.queue_wait_wake_tables(tx.as_ref());
+        let queue_states = self.staged_shard_states(tx.as_ref()).await?;
+        let consumer_shards = self.staged_consumer_shards(tx.as_ref())?;
         let (storage, log, prepared) = self.lock_and_prepare_commit(&tx, lock_owner).await?;
         trace!("log flush {}", xid);
         let result = commit_enqueue_apply_locked(&storage, &log, &repl_route, prepared).await;
         if let (Some(ctl), Some(log)) = (&track_ctl, log.as_ref()) {
             ctl.apply_track_end(log.last_allocated_lsn().as_u64());
+        }
+        if result.is_ok() {
+            for (shard, next, frontier, depth, bytes) in &queue_states {
+                self.publish_queue_state(*shard, *next, *frontier, *depth, *bytes)?;
+            }
         }
         trace!("log flush done {}", xid);
         _t.watch("procedure.worker_commit.stage", "tx_lock_release");
@@ -187,8 +199,108 @@ impl WorkerXContract {
         _t.watch("procedure.worker_commit.stage", "done");
         trace!("worker_commit_tx_async finish {}", xid);
         let last_lsn = result?;
+        self.notify_committed_queues(&consumer_shards, &queue_wake_shards, &queue_states)
+            .await?;
         if let (Some(log), Some(last_lsn)) = (&log, last_lsn) {
             wait_commit_durable(log, last_lsn, &repl_route).await?;
+        }
+        Ok(())
+    }
+
+    /// Post-commit queue notifications: refresh the consumer cursor caches of
+    /// the shards whose cursor rows the commit wrote, publish the committed
+    /// watermarks, and wake the parked receivers/activations of each written
+    /// shard — locally, or on the shard owner through `QueueWake` (wake
+    /// delivery failures are logged, never fail the committed transaction:
+    /// `WAIT <ms>` receivers re-scan on their deadline).
+    pub(crate) async fn notify_committed_queues(
+        &self,
+        consumer_shards: &[(OID, u64)],
+        queue_wake_shards: &[QueueShardId],
+        queue_states: &[(QueueShardId, u64, u64, u64, u64)],
+    ) -> RS<()> {
+        if !consumer_shards.is_empty() {
+            for (queue_oid, shard_index) in consumer_shards {
+                let Some(shard) = self
+                    .resolve_queue_shards(*queue_oid)
+                    .await?
+                    .into_iter()
+                    .find(|shard| shard.shard_index == *shard_index)
+                else {
+                    continue;
+                };
+                if shard.worker_id == self.worker_id {
+                    self.reload_consumer_state(*queue_oid, *shard_index).await?;
+                    self.queue_wait_registry.notify_all(shard_key(&shard))?;
+                } else if let Err(err) = self
+                    .send_queue_wake(shard.worker_id, *queue_oid, shard.partition_id, None, true)
+                    .await
+                {
+                    warn!(
+                        queue_oid,
+                        shard_index, "queue consumer-change wake to the shard owner failed: {err}"
+                    );
+                }
+            }
+        }
+        // The apply completed on every commit route (the sequencer route
+        // resolves only after applying): wake the head waiter of each written
+        // shard so a parked `RECEIVE ... WAIT` re-scans while this commit
+        // drives its durability wait, and notify each written shard's
+        // activation driver so a registered procedure fires post-commit.
+        // Remote shards publish their committed watermark through
+        // `QueueWake` — driven by the staged sentinel writes, not by the
+        // (short-circuitable) waiter wake list.
+        for (shard, next, frontier, depth, bytes) in queue_states {
+            let owner = self
+                .resolve_partition_worker(shard.1)
+                .await?
+                .unwrap_or(self.worker_id);
+            if owner != self.worker_id {
+                if let Err(err) = self
+                    .send_queue_wake(
+                        owner,
+                        shard.0,
+                        shard.1,
+                        Some((*next, *frontier, *depth, *bytes)),
+                        false,
+                    )
+                    .await
+                {
+                    warn!(
+                        queue_oid = shard.0,
+                        partition_id = shard.1,
+                        "queue watermark publish to the shard owner failed: {err}"
+                    );
+                }
+            }
+        }
+        for (table_id, partition_id) in queue_wake_shards {
+            let state = queue_states
+                .iter()
+                .find(|(shard, ..)| *shard == (*table_id, *partition_id))
+                .map(|(_, next, frontier, depth, bytes)| (*next, *frontier, *depth, *bytes));
+            let owner = self
+                .resolve_partition_worker(*partition_id)
+                .await?
+                .unwrap_or(self.worker_id);
+            if owner == self.worker_id {
+                // The caller publishes the watermark of local shards before
+                // this notification.
+                self.queue_wait_registry
+                    .notify_one((*table_id, *partition_id))?;
+                if *partition_id == DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID {
+                    self.activation_registry.notify(*table_id)?;
+                }
+            } else if let Err(err) = self
+                .send_queue_wake(owner, *table_id, *partition_id, state, false)
+                .await
+            {
+                warn!(
+                    table_id,
+                    partition_id, "queue wake to the shard owner failed: {err}"
+                );
+            }
         }
         Ok(())
     }

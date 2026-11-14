@@ -1,5 +1,5 @@
-//! An [`Entity`] is a typed row: a Rust struct mapped positionally onto a
-//! tuple described by a [`TupleFieldDesc`]. The trait carries the row mapping
+//! An [`crate::database::entity::Entity`] is a typed row: a Rust struct mapped positionally onto a
+//! tuple described by a [`crate::tuple::tuple_field_desc::TupleFieldDesc`]. The trait carries the row mapping
 //! only; SQL text and column metadata live on the generated structs, and the
 //! transport layer (`mudu_query` / `mudu_command`) stays outside this layer.
 
@@ -18,7 +18,7 @@ use mudu_type::datum::{Datum, DatumDyn};
 use mudu_type::type_family::TypeFamily;
 
 /// A typed row: a Rust struct mapped positionally onto a tuple described by
-/// a [`TupleFieldDesc`].
+/// a [`crate::tuple::tuple_field_desc::TupleFieldDesc`].
 pub trait Entity: Datum {
     /// Tuple layout of the row: column names, types, and declaration order.
     /// This description drives the tuple binary storage format.

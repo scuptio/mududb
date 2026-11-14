@@ -7,6 +7,7 @@ mod aggregate_schema;
 mod ddl_fs_copy;
 mod dml;
 mod partition;
+mod queue;
 mod update_delta;
 
 use crate::binder::Binder;
@@ -118,6 +119,15 @@ impl MetaMgr for TestMetaMgr {
     async fn drop_table(&self, table_id: OID) -> RS<()> {
         self.tables.lock().unwrap().remove(&table_id);
         Ok(())
+    }
+
+    async fn get_queue(&self, schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
+        // Mirror the catalog queue lookup: search-path resolution filtered to
+        // queue-kind objects.
+        match self.get_table_by_name(schema, name).await? {
+            Some(desc) if desc.is_queue() => Ok(Some(desc)),
+            _ => Ok(None),
+        }
     }
 
     async fn create_partition_rule(&self, rule: &PartitionRuleDesc) -> RS<()> {

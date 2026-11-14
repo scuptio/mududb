@@ -209,5 +209,5 @@ target/debug/mgen message -i crates/common/mudu_binding/wit \
     -o crates/sdk/bindings/c/mududb/types -l c --with-func-codec
 ```
 
-`script/ci/check_bindings_regen.sh` gates that the checked-in files are
+`script/ci/check_bindings_regen.py` gates that the checked-in files are
 byte-identical to a fresh regen.

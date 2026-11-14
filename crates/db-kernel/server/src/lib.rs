@@ -11,10 +11,15 @@
 // `server` but were moved to lower modules to break module dependency cycles;
 // external consumers (mudu_runtime, testing) keep importing them from the old
 // `server::*` paths.
-pub use ::catalog::contract::message_bus_api;
 pub use ::catalog::contract::worker_snapshot;
 pub use ::conn::worker_local;
 pub use ::xengine::partition_router;
+
+/// Well-known channel endpoint id of the management gateway: the endpoint
+/// the HTTP management handlers send their worker-bound asks from. Registered
+/// by the server at startup, one per server instance.
+pub const MANAGEMENT_GATEWAY_ENDPOINT_ID: mudu::common::id::OID =
+    0x6D67_6D74_0000_0000_0000_0000_0000_0001_u128;
 
 /// Asynchronous procedure invocation runtime, re-exported from the `worker`
 /// crate.
@@ -106,6 +111,7 @@ mod inflight_op;
 pub mod logical_backup {
     pub use ::backup::logical_backup::*;
 }
+mod local_endpoint;
 #[cfg(target_os = "linux")]
 #[path = "linux/loop_mailbox.rs"]
 mod loop_mailbox;
@@ -113,10 +119,6 @@ mod loop_mailbox;
 #[cfg(target_os = "linux")]
 #[path = "linux/loop_user_io.rs"]
 mod loop_user_io;
-#[cfg(target_os = "linux")]
-#[path = "linux/message_bus_runtime.rs"]
-mod message_bus_runtime;
-mod message_bus_state;
 mod message_dispatcher;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "linux/perf_test.rs"]
@@ -128,6 +130,10 @@ mod procedure_runtimes;
 #[cfg(target_os = "linux")]
 #[path = "linux/protocol_codec.rs"]
 mod protocol_codec;
+mod worker_channel_state;
+#[cfg(target_os = "linux")]
+#[path = "linux/worker_channel_uring.rs"]
+mod worker_channel_uring;
 /// Replication drivers and controls, re-exported from the `repl` crate.
 pub mod repl {
     pub use ::repl::*;

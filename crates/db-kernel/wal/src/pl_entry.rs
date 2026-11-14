@@ -172,3 +172,22 @@ mod payload_serde {
         deserializer.deserialize_bytes(DataVisitor)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pl_record_payload_roundtrips_as_a_binary_blob() {
+        let record = PLRecord {
+            timestamp: 7,
+            tuple_id: 42,
+            payload: vec![0, 1, 200, 255],
+        };
+        let bytes = mudu::common::serde_utils::serialize_to_vec(&record).unwrap();
+        let (decoded, _used): (PLRecord, u64) =
+            mudu::common::serde_utils::deserialize_from(&bytes).unwrap();
+        assert_eq!(decoded, record);
+    }
+}

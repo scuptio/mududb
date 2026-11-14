@@ -14,7 +14,7 @@ use crate::schema_catalog::{delete_schema_from_catalog, write_schema_to_catalog}
 use ::catalog::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 
 use super::MetaMgrImpl;
 
@@ -50,6 +50,55 @@ impl MetaMgrImpl {
 
         delete_schema_from_catalog(&schema_catalog, oid, self.next_catalog_xid()).await?;
         let schema = table.schema()?;
+        self.broadcast_drop(schema.schema(), schema.table_name(), oid)
+    }
+
+    pub(crate) async fn create_queue_inner(&self, schema: &SchemaTable) -> RS<()> {
+        if schema.kind() != SchemaObjectKind::Queue {
+            return Err(mudu_error!(
+                ER::InvalidArgument,
+                format!(
+                    "schema {} does not carry the queue kind",
+                    schema.table_name()
+                )
+            ));
+        }
+        let _ddl_guard = self.ddl_lock.lock().await;
+        // Queues share the (schema, name) namespace with tables: a same-named
+        // table or queue in the same schema is a collision.
+        if self
+            .table
+            .contains_sync(&(schema.schema().clone(), schema.table_name().clone()))
+        {
+            return Err(mudu_error!(
+                ER::EntityAlreadyExists,
+                format!("queue {} already exists", schema.table_name())
+            ));
+        }
+
+        let schema_catalog = self.catalog_relation()?.schema_catalog;
+        write_schema_to_catalog(&schema_catalog, schema, self.next_catalog_xid()).await?;
+        // Reuses the table broadcast: the local apply is identical for every
+        // SchemaTable, and it bumps the catalog version so plan caches
+        // invalidate.
+        self.broadcast_create(schema)
+    }
+
+    pub(crate) async fn drop_queue_inner(&self, oid: OID) -> RS<()> {
+        let _ddl_guard = self.ddl_lock.lock().await;
+        let table = self
+            .lookup_table_info_by_id(oid)
+            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("no such queue {}", oid)))?;
+        let schema = table.schema()?;
+        if schema.kind() != SchemaObjectKind::Queue {
+            return Err(mudu_error!(
+                ER::EntityNotFound,
+                format!("no such queue {}", oid)
+            ));
+        }
+        let schema_catalog = self.catalog_relation()?.schema_catalog;
+
+        delete_schema_from_catalog(&schema_catalog, oid, self.next_catalog_xid()).await?;
         self.broadcast_drop(schema.schema(), schema.table_name(), oid)
     }
 

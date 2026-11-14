@@ -8,7 +8,7 @@
 //!   scupt-raft's `state_machine_inner`); no I/O, no locks, no wall clock.
 //! - [`store`] — persistent raft log + hard state in the MuduDB log frame
 //!   format v1 (byte-compatible with the kernel WAL, implemented locally).
-//! - [`node`] — one event-loop thread per node plus one persist thread.
+//! - `node` — one event-loop thread per node plus one persist thread.
 //! - [`transport`] — outbound message abstraction; the core never does
 //!   network I/O.
 //!

@@ -28,4 +28,34 @@ pub mod warehouse;
 mod customer_test;
 
 #[cfg(test)]
+mod district_test;
+
+#[cfg(test)]
+mod history_test;
+
+#[cfg(test)]
+mod item_test;
+
+#[cfg(test)]
+mod new_order_test;
+
+#[cfg(test)]
+mod order_line_test;
+
+#[cfg(test)]
+mod orders_test;
+
+#[cfg(test)]
+mod stock_test;
+
+#[cfg(test)]
+mod warehouse_test;
+
+#[cfg(test)]
+mod seckill_test;
+
+#[cfg(test)]
+mod procedure_extra_test;
+
+#[cfg(test)]
 mod procedure_common_test;

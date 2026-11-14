@@ -127,3 +127,111 @@ impl Row {
         })
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use mudu_contract::tuple::datum_desc::DatumDesc;
+    use mudu_type::data_type::DataType;
+    use mudu_type::type_family::TypeFamily;
+
+    fn sample_result_set(rows: Vec<TupleValue>) -> ResultSet {
+        let desc = TupleFieldDesc::new(vec![
+            DatumDesc::new("id".to_string(), DataType::default_for(TypeFamily::I32)),
+            DatumDesc::new(
+                "name".to_string(),
+                DataType::default_for(TypeFamily::String),
+            ),
+        ]);
+        ResultSet::from_parts(Arc::new(desc), rows)
+    }
+
+    fn sample_rows() -> Vec<TupleValue> {
+        vec![
+            TupleValue::from(vec![
+                DataValue::from_i32(1),
+                DataValue::from_string("alice".to_string()),
+            ]),
+            TupleValue::from(vec![DataValue::from_i32(2), DataValue::null()]),
+        ]
+    }
+
+    #[test]
+    fn empty_result_set_is_eof_immediately() {
+        let mut rs = sample_result_set(vec![]);
+        assert_eq!(rs.column_count(), 2);
+        assert!(!rs.next());
+        assert!(rs.eof());
+        let err = rs.current_row().err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn current_row_before_first_next_is_an_error() {
+        let rs = sample_result_set(sample_rows());
+        assert!(!rs.eof());
+        let err = rs.current_row().err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn cursor_walks_rows_then_stays_eof() {
+        let mut rs = sample_result_set(sample_rows());
+        assert!(rs.next());
+        assert_eq!(rs.current_row().unwrap().value(0).unwrap().expect_i32(), &1);
+        assert!(rs.next());
+        assert_eq!(rs.current_row().unwrap().value(0).unwrap().expect_i32(), &2);
+        assert!(rs.eof());
+        // Canonical cross-language semantics (mirrors AS/Python): next() caps
+        // at the row count, so the cursor stays on the last row and
+        // current_row() keeps returning it after exhaustion.
+        assert!(!rs.next());
+        assert!(!rs.next());
+        assert!(rs.eof());
+        assert_eq!(rs.current_row().unwrap().value(0).unwrap().expect_i32(), &2);
+    }
+
+    #[test]
+    fn column_metadata_lookup() {
+        let rs = sample_result_set(sample_rows());
+        assert_eq!(rs.column_count(), 2);
+        assert_eq!(rs.column_name(0).unwrap(), "id");
+        assert_eq!(rs.column_name(1).unwrap(), "name");
+        let err = rs.column_name(2).err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+        assert_eq!(rs.find_column("name").unwrap(), 1);
+        assert_eq!(rs.find_column("id").unwrap(), 0);
+        let err = rs.find_column("missing").err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn row_values_by_index_and_name() {
+        let mut rs = sample_result_set(sample_rows());
+        assert!(rs.next());
+        let row = rs.current_row().unwrap();
+        assert_eq!(row.value(0).unwrap().expect_i32(), &1);
+        assert_eq!(
+            row.value_by_name("name").unwrap().expect_string().as_str(),
+            "alice"
+        );
+        assert!(!row.is_null(0).unwrap());
+        assert!(!row.is_null(1).unwrap());
+        assert!(!row.is_null_by_name("name").unwrap());
+        let err = row.value(2).err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+        let err = row.is_null(2).err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+        let err = row.value_by_name("missing").err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+        let err = row.is_null_by_name("missing").err().unwrap();
+        assert_eq!(err.ec(), ErrorCode::InvalidArgument);
+
+        // Second row carries a NULL name.
+        assert!(rs.next());
+        let row = rs.current_row().unwrap();
+        assert!(row.is_null_by_name("name").unwrap());
+        assert!(row.value_by_name("name").unwrap().is_null());
+    }
+}

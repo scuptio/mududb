@@ -18,6 +18,18 @@ use ::xengine::tx_mgr::PhysicalRelationId;
 
 use self::commit::{latest_version, write_version_to_kv_store_async};
 
+/// The queue runtime rebuild scan of one queue relation: live `__seq` bounds
+/// plus the sequence numbers of rows still marked `claimed` (in-flight at
+/// crash time; the rebuild re-delivers them).
+pub struct QueueRebuildScan {
+    /// Smallest live `__seq`.
+    pub min_seq: u64,
+    /// Largest live `__seq`.
+    pub max_seq: u64,
+    /// Sequence numbers of rows whose status is `claimed`.
+    pub claimed_seqs: Vec<u64>,
+}
+
 #[cfg(test)]
 use crate::worker_tx_manager::WorkerTxManager;
 #[cfg(test)]
@@ -138,19 +150,25 @@ impl WorkerStorage {
 
     /// Latest committed version of every kv key (the snapshot dump):
     /// `(key, xid, value)`, tombstones included as `(key, xid, None)`.
-    pub fn dump_kv_latest(&self) -> Vec<KvDumpEntry> {
+    pub async fn dump_kv_latest(&self) -> Vec<KvDumpEntry> {
+        let mut rows = Vec::new();
+        self.kv_store
+            .iter_async(|key, row| {
+                rows.push((key.clone(), row.clone()));
+                true
+            })
+            .await;
         let mut out = Vec::new();
-        self.kv_store.iter_sync(|key, row| {
-            if let Some(version) = latest_version(row) {
+        for (key, row) in rows {
+            if let Some(version) = latest_version(&row).await {
                 let value = if version.is_deleted() {
                     None
                 } else {
                     Some(version.tuple().clone())
                 };
-                out.push((key.clone(), version.timestamp().c_min(), value));
+                out.push((key, version.timestamp().c_min(), value));
             }
-            true
-        });
+        }
         out
     }
 
@@ -176,6 +194,53 @@ impl WorkerStorage {
         // self-deadlock).
         self.relation_store.clear_sync();
         self.bootstrap_existing_tables_async().await
+    }
+
+    /// Closes relation indexes after request/replay tasks have drained. A
+    /// failure leaves that relation's clean marker invalid; other relations
+    /// still get a chance to finish their checkpoint.
+    pub async fn close_relation_indexes(&self) -> RS<()> {
+        self.checkpoint_indexes(true).await
+    }
+
+    /// Checkpoints each hosted relation without stopping the worker. Each
+    /// relation asynchronously drains and pauses its writers while persisting;
+    /// this is not an atomic checkpoint of all relations or a database backup.
+    pub async fn checkpoint_relation_indexes(&self) -> RS<()> {
+        self.checkpoint_indexes(false).await
+    }
+
+    async fn checkpoint_indexes(&self, close: bool) -> RS<()> {
+        #[cfg(not(feature = "paged-index"))]
+        let _ = close;
+        #[cfg(feature = "paged-index")]
+        {
+            let mut relations = Vec::new();
+            self.relation_store
+                .iter_async(|_, relation| {
+                    relations.push(relation.clone());
+                    true
+                })
+                .await;
+            let mut failure = None;
+            for relation in relations {
+                let result = if close {
+                    relation.close().await
+                } else {
+                    relation.checkpoint().await
+                };
+                if let Err(error) = result {
+                    if failure.is_none() {
+                        failure = Some(error);
+                    }
+                }
+                mudu_utils::yield_now::cooperative_yield_now().await;
+            }
+            if let Some(error) = failure {
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     /// Writes back dirty time-series data pages of every relation this

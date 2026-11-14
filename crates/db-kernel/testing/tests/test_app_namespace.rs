@@ -455,18 +455,9 @@ fn assert_return_profile(response: &Value, expected: &Value, level_as_i64: bool)
 // compiling the wallet-py CPython component takes ~40s.
 const BOOT_WAIT_TIMEOUT: Duration = Duration::from_secs(180);
 
-fn wait_until_port_ready_within(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + timeout;
-    while mudu_sys::time::instant_now() < deadline {
-        if mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], port))).is_ok() {
-            return Ok(());
-        }
-        sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!("{service_name} server did not become ready on port {port}")
-    ))
+// Under sanitizer instrumentation the shared (longer) startup budget wins.
+fn boot_wait_timeout() -> Duration {
+    BOOT_WAIT_TIMEOUT.max(backend_startup_timeout())
 }
 
 fn mpk_path(file_name: &str) -> PathBuf {
@@ -588,15 +579,14 @@ impl TestContext {
         };
         let boot: RS<()> = (|| {
             // Restart boots auto-load every installed package; compiling the
-            // wallet-py CPython component takes ~40s, far beyond the shared
-            // port-ready helpers' fixed 10s, so these waits use a generous
-            // budget.
-            wait_until_port_ready_within(self.http_port, "HTTP", BOOT_WAIT_TIMEOUT)?;
-            wait_until_port_ready_within(self.tcp_port, "TCP", BOOT_WAIT_TIMEOUT)?;
+            // wallet-py CPython component takes ~40s, so these waits use a
+            // generous budget (`boot_wait_timeout`).
+            testing::wait_until_port_ready_within(self.http_port, "HTTP", boot_wait_timeout())?;
+            testing::wait_until_port_ready_within(self.tcp_port, "TCP", boot_wait_timeout())?;
             // The ready barrier fires only after the deferred initdb drain
             // has completed, so a ready server implies auto-loaded packages
             // have their tables.
-            wait_until_backend_ready(ready_waiter, "backend", BOOT_WAIT_TIMEOUT)?;
+            wait_until_backend_ready(ready_waiter, "backend", boot_wait_timeout())?;
             // The management thread binds its listener before actix is
             // accepting, so the port-ready check above can race with the
             // first request. Poll a lightweight HTTP endpoint until it

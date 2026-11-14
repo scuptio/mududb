@@ -1,6 +1,8 @@
 use crate::bound_stmt::{
-    BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateFsType, BoundCreatePartitionPlacement,
-    BoundCreatePartitionRule, BoundCreateTable, BoundDropTable, BoundDropType, BoundStmt,
+    BoundAck, BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateConsumer, BoundCreateFsType,
+    BoundCreatePartitionPlacement, BoundCreatePartitionRule, BoundCreateQueue, BoundCreateTable,
+    BoundDropConsumer, BoundDropQueue, BoundDropTable, BoundDropType, BoundQuery, BoundReceive,
+    BoundStmt,
 };
 use crate::bound_template::{
     template_from_expr, BoundTemplate, DeleteTemplate, InsertRowTemplate, InsertTemplate,
@@ -13,8 +15,12 @@ use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::{PartitionBound, PartitionRuleDesc, RangePartitionDef};
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
+use ::catalog::contract::queue::{
+    is_queue_system_column, queue_envelope_tuple_desc, queue_system_columns,
+    QUEUE_PAYLOAD_ATTR_START, QUEUE_SEQ_COLUMN, QUEUE_SEQ_MAX_SHARD,
+};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::command::fs_hook::has_fs_bound_columns;
 use ::xengine::api::DeltaOp;
@@ -31,14 +37,20 @@ use sql_parser::ast::expr_literal::ExprLiteral;
 use sql_parser::ast::expr_operator::{Arithmetic, ValueCompare};
 use sql_parser::ast::expression::ExprType;
 use sql_parser::ast::object_ref::ObjectRef;
+use sql_parser::ast::stmt_ack::StmtAck;
+use sql_parser::ast::stmt_create_consumer::StmtCreateConsumer;
 use sql_parser::ast::stmt_create_fs_type::{FsTypeKind as AstFsTypeKind, StmtCreateFsType};
 use sql_parser::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
 use sql_parser::ast::stmt_create_partition_rule::{StmtCreatePartitionRule, StmtPartitionBound};
+use sql_parser::ast::stmt_create_queue::{QueuePayload, StmtCreateQueue};
 use sql_parser::ast::stmt_create_table::StmtCreateTable;
 use sql_parser::ast::stmt_delete::StmtDelete;
+use sql_parser::ast::stmt_drop_consumer::StmtDropConsumer;
+use sql_parser::ast::stmt_drop_queue::StmtDropQueue;
 use sql_parser::ast::stmt_drop_table::StmtDropTable;
 use sql_parser::ast::stmt_drop_type::StmtDropType;
 use sql_parser::ast::stmt_insert::StmtInsert;
+use sql_parser::ast::stmt_receive::StmtReceive;
 use sql_parser::ast::stmt_type::{StmtCommand, StmtType};
 use sql_parser::ast::stmt_update::{AssignedValue, StmtUpdate};
 use std::ops::Bound;
@@ -46,6 +58,9 @@ use std::sync::Arc;
 
 mod ddl;
 mod dml;
+mod queue;
+
+pub use queue::is_receive_wait_stmt;
 
 /// Binds parsed SQL statements against the catalog, producing bound
 /// statement trees with table OIDs and binary-encoded values.
@@ -88,6 +103,11 @@ impl Binder {
                 BoundTemplate::new(StmtTemplate::Select(template), recorder.into_slots())
                     .fill(params)
             }
+            // RECEIVE returns rows, so it binds as a query even though the
+            // parser classifies the statement as a command.
+            StmtType::Command(StmtCommand::Receive(stmt)) => Ok(BoundStmt::Query(
+                BoundQuery::Receive(self.bind_receive(stmt).await?),
+            )),
             StmtType::Command(command) => Ok(BoundStmt::Command(
                 self.bind_command_ref(command, params).await?,
             )),
@@ -212,6 +232,25 @@ impl Binder {
                 Ok(BoundCommand::CreateFsType(Self::bind_create_fs_type(&stmt)))
             }
             StmtCommand::DropType(stmt) => Ok(BoundCommand::DropType(Self::bind_drop_type(&stmt))),
+            StmtCommand::CreateQueue(stmt) => Ok(BoundCommand::CreateQueue(
+                self.bind_create_queue(stmt).await?,
+            )),
+            StmtCommand::DropQueue(stmt) => {
+                Ok(BoundCommand::DropQueue(self.bind_drop_queue(stmt).await?))
+            }
+            StmtCommand::CreateConsumer(stmt) => Ok(BoundCommand::CreateConsumer(
+                self.bind_create_consumer(&stmt).await?,
+            )),
+            StmtCommand::DropConsumer(stmt) => Ok(BoundCommand::DropConsumer(
+                self.bind_drop_consumer(&stmt).await?,
+            )),
+            StmtCommand::Ack(stmt) => Ok(BoundCommand::Ack(self.bind_ack(&stmt).await?)),
+            // RECEIVE binds as a query; `bind_ref` intercepts it before this
+            // command-only dispatch.
+            StmtCommand::Receive(_) => Err(mudu_error!(
+                ER::Internal,
+                "RECEIVE binds as a query, not a command"
+            )),
             StmtCommand::Insert(stmt) => self.bind_insert_filled(&stmt, params).await,
             StmtCommand::Update(stmt) => self.bind_update_filled(&stmt, params).await,
             StmtCommand::Delete(stmt) => self.bind_delete_filled(&stmt, params).await,

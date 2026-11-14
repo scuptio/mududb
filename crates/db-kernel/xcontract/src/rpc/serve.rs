@@ -2,39 +2,95 @@ use super::*;
 use crate::utils::{
     apply_value_update, project_selected_fields, rpc_bound_as_ref, STATEMENT_LOCK_TIMEOUT,
 };
+use mudu::channel::{RequestId, ServiceCtx};
+use mudu_utils::channel::channel_now_ms;
+use std::collections::HashMap;
+
+/// How long a receiver-side dedup entry lives: long enough to cover the
+/// caller's whole retry sequence, short enough to bound memory.
+pub(crate) const RPC_DEDUP_TTL_MS: u64 = 60_000;
+/// Upper bound of dedup entries; past the cap new responses are simply not
+/// cached (a replay then re-executes, which retry policy only does for
+/// idempotent requests).
+pub(crate) const RPC_DEDUP_MAX_ENTRIES: usize = 4096;
+
+/// Receiver-side dedup cache of the partition RPC service: a replayed
+/// request (same `(src, request_id)`) is answered from the cache instead of
+/// re-executing.
+pub(crate) struct RpcDedupCache {
+    entries: SMutex<HashMap<(OID, RequestId), (u64, PartitionRpcResponse)>>,
+}
+
+impl RpcDedupCache {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: SMutex::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) fn lookup(&self, src: OID, request_id: RequestId) -> Option<PartitionRpcResponse> {
+        let mut entries = self.entries.lock().ok()?;
+        let expired = entries
+            .get(&(src, request_id))
+            .is_some_and(|(expire_ms, _)| channel_now_ms() >= *expire_ms);
+        if expired {
+            entries.remove(&(src, request_id));
+            return None;
+        }
+        entries
+            .get(&(src, request_id))
+            .map(|(_, response)| response.clone())
+    }
+
+    pub(crate) fn store(&self, src: OID, request_id: RequestId, response: PartitionRpcResponse) {
+        let Ok(mut entries) = self.entries.lock() else {
+            return;
+        };
+        let now = channel_now_ms();
+        entries.retain(|_, (expire_ms, _)| now < *expire_ms);
+        if entries.len() >= RPC_DEDUP_MAX_ENTRIES {
+            tracing::warn!("partition rpc dedup cache full; response not cached");
+            return;
+        }
+        entries.insert(
+            (src, request_id),
+            (now.saturating_add(RPC_DEDUP_TTL_MS), response),
+        );
+    }
+}
 
 impl WorkerXContract {
-    pub(crate) async fn handle_partition_rpc(&self, envelope: Envelope) -> RS<()> {
+    /// Handles one typed partition-RPC request: a replay under an
+    /// already-seen `(src, request_id)` returns the cached response without
+    /// re-executing.
+    pub(crate) async fn handle_partition_rpc_message(
+        &self,
+        request: PartitionRpcRequest,
+        ctx: ServiceCtx,
+    ) -> RS<PartitionRpcResponse> {
         debug!(
             worker_id = self.worker_id,
-            src = ?envelope.src(),
-            msg_id = envelope.msg_id(),
+            src = ctx.src(),
+            request_id = ctx.request_id(),
+            attempt = ctx.attempt(),
             "received partition rpc request"
         );
-        let request = rmp_serde::from_slice::<PartitionRpcRequest>(envelope.payload())
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "decode partition rpc request error", e))?;
+        if let Some(cached) = self.rpc_dedup.lookup(ctx.src(), ctx.request_id()) {
+            debug!(
+                worker_id = self.worker_id,
+                src = ctx.src(),
+                request_id = ctx.request_id(),
+                "replayed partition rpc request answered from dedup cache"
+            );
+            return Ok(cached);
+        }
         let response = match self.execute_partition_rpc(request).await {
             Ok(response) => response,
             Err(err) => PartitionRpcResponse::Err(err.to_string()),
         };
-        let payload = rmp_serde::to_vec(&response).map_err(|e| {
-            mudu_error!(ErrorCode::Encode, "encode partition rpc response error", e)
-        })?;
-        let bus = current_message_bus()?;
-        bus.send(
-            *envelope.src(),
-            OutgoingMessage::new(PARTITION_RPC_RESPONSE_KIND, payload)
-                .with_correlation_id(envelope.msg_id())
-                .with_delivery(DeliveryMode::Response),
-        )
-        .await?;
-        debug!(
-            worker_id = self.worker_id,
-            dst = ?envelope.src(),
-            correlation_id = envelope.msg_id(),
-            "sent partition rpc response"
-        );
-        Ok(())
+        self.rpc_dedup
+            .store(ctx.src(), ctx.request_id(), response.clone());
+        Ok(response)
     }
 
     pub(super) async fn execute_partition_rpc(
@@ -120,6 +176,9 @@ impl WorkerXContract {
             PartitionRpcRequest::UnlockKeys { lock_token } => {
                 self.execute_rpc_unlock_keys(lock_token).await
             }
+            queue_request @ (PartitionRpcRequest::QueuePrepare { .. }
+            | PartitionRpcRequest::QueueReceiveWait { .. }
+            | PartitionRpcRequest::QueueWake { .. }) => self.execute_queue_rpc(queue_request).await,
         }
     }
 

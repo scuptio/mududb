@@ -1,4 +1,4 @@
-use ::catalog::contract::message_bus_api::Envelope;
+use mudu::channel::Envelope;
 
 #[derive(Debug)]
 pub(crate) enum WorkerMailboxMsg {

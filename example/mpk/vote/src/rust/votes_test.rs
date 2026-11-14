@@ -1,9 +1,10 @@
 //! Unit tests for the `rust::votes::Votes` entity.
 
 use mududb::contract::database::entity::Entity;
+use mududb::contract::database::field_change::FieldChange;
 use mududb::types::datum::{Datum, DatumDyn};
 
-use crate::rust::votes::object::Votes;
+use crate::rust::votes::object::{Votes, VotesChange, columns};
 
 fn sample_votes() -> Votes {
     Votes::new(
@@ -90,4 +91,55 @@ fn votes_nullable_fields_roundtrip() {
     assert!(value.values()[1].is_null());
     let restored = Votes::from_tuple_value(&value).unwrap();
     assert_same_votes(&restored, &entity);
+}
+
+#[test]
+fn votes_insert_params_and_change() {
+    let entity = sample_votes();
+    let params = entity.insert_params();
+    assert_eq!(params.0, "vote_id_val");
+    assert_eq!(params.1.as_deref(), Some("creator_id_val"));
+    assert_eq!(params.2, "topic_val");
+    assert_eq!(params.5, 1);
+
+    // Partial update statement
+    let update = VotesChange {
+        topic: FieldChange::Set("new_topic".to_string()),
+        max_choices: FieldChange::Set(Some(3)),
+        ..VotesChange::default()
+    };
+    let (sql, update_params) = update.update_by_pk("vote_id_val".to_string()).unwrap();
+    assert_eq!(
+        sql,
+        "UPDATE votes SET topic = ?, max_choices = ? WHERE vote_id = ?"
+    );
+    assert_eq!(update_params.len(), 3);
+    assert!(VotesChange::default().is_empty());
+    assert!(
+        VotesChange::default()
+            .update_by_pk("vote_id_val".to_string())
+            .is_none()
+    );
+
+    // Set(None) on a nullable column emits `<col> = ?` with a NULL parameter
+    let null_update = VotesChange {
+        creator_id: FieldChange::Set(None),
+        ..VotesChange::default()
+    };
+    let (null_sql, null_params) = null_update.update_by_pk("vote_id_val".to_string()).unwrap();
+    assert_eq!(
+        null_sql,
+        "UPDATE votes SET creator_id = ? WHERE vote_id = ?"
+    );
+    assert_eq!(null_params.len(), 2);
+    assert!(
+        null_params[0]
+            .to_value(&String::data_type())
+            .unwrap()
+            .is_null()
+    );
+
+    // Column name constants feed the metadata and SQL builders
+    assert_eq!(columns::VOTE_ID, "vote_id");
+    assert!(Votes::SQL_DELETE_BY_PK.contains(columns::VOTE_ID));
 }

@@ -13,10 +13,11 @@
 //! Layout (`<data_dir>/snapshot/worker_<N>/`):
 //!
 //! - `v<committed_lsn>/relation/*.dat` — flushed relation files of the
-//!   worker's partitions (meta catalogs ride along on partition 0);
+//!   worker's partitions, including partition 0 on worker 0;
+//! - `v<committed_lsn>/meta/relation/*.dat` — shared catalogs on worker 0;
 //! - `v<committed_lsn>/kv.mp` — msgpack dump of the in-memory kv store
 //!   (latest version per key, tombstones included);
-//! - `v<committed_lsn>/manifest.mp` — the [`ReplSnapshotManifest`],
+//! - `v<committed_lsn>/manifest.mp` — the [`mudu_contract::protocol::ReplSnapshotManifest`],
 //!   fetched last so an incomplete directory is never offered.
 //!
 //! Older versions are reclaimed once a newer manifest is durable; the
@@ -209,6 +210,9 @@ pub async fn take_worker_snapshot(
 
     // 2. copy the relation files of this worker's partitions.
     let mut files = copy_relation_files(worker, &fs, &data_dir, &version_dir).await?;
+    if worker_index == 0 {
+        files.extend(copy_catalog_files(&fs, &data_dir, &version_dir).await?);
+    }
 
     // 3. dump the in-memory kv store (latest version per key).
     files.push(dump_kv_into(worker, &fs, &version_dir).await?);
@@ -244,6 +248,33 @@ pub async fn take_worker_snapshot(
     Ok(manifest)
 }
 
+/// Shared catalogs are stored under `meta/relation`, separately from data
+/// relations. Worker 0 includes them so a fresh restore can resolve schemas.
+async fn copy_catalog_files(
+    fs: &Arc<dyn AsyncFs>,
+    data_dir: &str,
+    version_dir: &Path,
+) -> RS<Vec<ReplSnapshotFileEntry>> {
+    let meta_dir = PathBuf::from(data_dir).join("meta");
+    fsync_relation_files(&meta_dir.to_string_lossy(), fs.as_ref()).await?;
+    let relation_dir = meta_dir.join(RELATION_DIR_NAME);
+    let mut files = Vec::new();
+    if fs.path_exists(&relation_dir).await? {
+        for path in fs.read_dir(&relation_dir).await? {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.ends_with(".dat") {
+                let relative = format!("meta/{RELATION_DIR_NAME}/{name}");
+                files.push(
+                    copy_file_into(fs, &path, &version_dir.join(&relative), &relative).await?,
+                );
+            }
+        }
+    }
+    Ok(files)
+}
+
 /// Copies the relation files of this worker's partitions into the snapshot
 /// version directory and returns their manifest entries.
 async fn copy_relation_files(
@@ -253,11 +284,16 @@ async fn copy_relation_files(
     version_dir: &Path,
 ) -> RS<Vec<ReplSnapshotFileEntry>> {
     let mut files = Vec::new();
-    let partitions: Vec<String> = worker
+    let mut partitions: Vec<String> = worker
         .partition_ids()
         .iter()
         .map(|partition| format!("{partition}."))
         .collect();
+    // Global catalogs and queues live on partition 0, independently of the
+    // random default partition assigned to worker 0 by the worker registry.
+    if worker.worker_index() == 0 && !partitions.iter().any(|p| p == "0.") {
+        partitions.push("0.".to_string());
+    }
     let relation_dir = PathBuf::from(data_dir).join(RELATION_DIR_NAME);
     if fs.path_exists(&relation_dir).await? {
         for path in fs.read_dir(&relation_dir).await? {
@@ -282,7 +318,7 @@ async fn dump_kv_into(
     fs: &Arc<dyn AsyncFs>,
     version_dir: &Path,
 ) -> RS<ReplSnapshotFileEntry> {
-    let kv_entries = worker.storage().dump_kv_latest();
+    let kv_entries = worker.storage().dump_kv_latest().await;
     let kv_bytes = rmp_serde::to_vec(&kv_entries)
         .map_err(|e| mudu_error!(ErrorCode::Encode, "encode kv snapshot dump error", e))?;
     write_bytes_into(fs, &version_dir.join(KV_FILE_NAME), KV_FILE_NAME, &kv_bytes).await
@@ -382,12 +418,19 @@ pub async fn install_snapshot_relation_files(
     manifest: &ReplSnapshotManifest,
 ) -> RS<()> {
     let relation_prefix = format!("{RELATION_DIR_NAME}/");
+    let catalog_prefix = format!("meta/{RELATION_DIR_NAME}/");
     for entry in &manifest.files {
-        let Some(name) = entry.path.strip_prefix(&relation_prefix) else {
+        let dest = if let Some(name) = entry.path.strip_prefix(&relation_prefix) {
+            PathBuf::from(data_dir).join(RELATION_DIR_NAME).join(name)
+        } else if let Some(name) = entry.path.strip_prefix(&catalog_prefix) {
+            PathBuf::from(data_dir)
+                .join("meta")
+                .join(RELATION_DIR_NAME)
+                .join(name)
+        } else {
             continue;
         };
         let bytes = mudu_sys::fs::sync::read(snapshot_dir.join(&entry.path))?;
-        let dest = PathBuf::from(data_dir).join(RELATION_DIR_NAME).join(name);
         if let Some(parent) = dest.parent() {
             mudu_sys::fs::sync::create_dir_all(parent)?;
         }

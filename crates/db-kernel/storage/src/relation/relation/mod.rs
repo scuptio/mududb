@@ -1,6 +1,10 @@
 //! One relation (a table partition): durable key and value time-series
 //! files plus an in-memory index of per-row version chains.
 
+mod index;
+#[cfg(feature = "paged-index")]
+mod paged;
+
 use std::ops::Bound;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -12,11 +16,10 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::async_::AMutex;
 use mudu_sys::SysIoContext;
 
+use self::index::RelationIndex;
 use crate::time_series::time_series_file::TimeSeriesFile;
-use ::catalog::contract::data_row::DataRow;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
-use ::index::btree::btree_index::BTreeIndex;
 use ::index::index_key::key_tuple::KeyTuple;
 use ::xengine::api::DeltaAssign;
 use mudu_utils::scoped_task_trace;
@@ -38,7 +41,7 @@ const WRITE_STRIPE_COUNT: usize = 512;
 /// One relation of a partitioned table: the MVCC row store for a single
 /// table partition.
 ///
-/// Keys map to [`DataRow`] version chains through an in-memory B-tree index;
+/// Keys map to [`catalog::contract::data_row::DataRow`] version chains through an in-memory B-tree index;
 /// the key file and the value file (both [`TimeSeriesFile`]) are the durable
 /// record streams that the index is rebuilt from on open. Same-key writes
 /// are serialized through a fixed set of stripe latches.
@@ -49,7 +52,9 @@ pub struct Relation {
 struct RelationInner {
     _table_id: OID,
     _partition_id: OID,
-    index: BTreeIndex<DataRow>,
+    index: RelationIndex,
+    lifecycle: mudu_sys::sync::async_::ARwLock<bool>,
+    cache_tainted: std::sync::atomic::AtomicBool,
     key_file: TimeSeriesFile,
     value_file: TimeSeriesFile,
     next_tuple_id: AtomicU64,
@@ -66,18 +71,6 @@ struct RelationInner {
     // small task stacks.
     write_stripes: Box<[AMutex<()>]>,
 }
-
-// Safety: every piece of shared mutable state inside RelationInner is
-// internally synchronized, and no `&self` method hands out a mutable alias:
-// - `BTreeIndex` guards its map with SRwLock; its RefCell compare context is
-//   only borrowed immutably and released before the map lock is taken, and
-//   the comparator error context is thread-local.
-// - `TimeSeriesFile` serializes its writers with an async latch and keeps
-//   chain metadata in atomics; readers are latch-free by design.
-// - `next_tuple_id` is an atomic counter.
-// - same-key write check-then-act is serialized by `write_stripes`.
-unsafe impl Send for RelationInner {}
-unsafe impl Sync for RelationInner {}
 
 impl Relation {
     /// Opens (creating if necessary) the relation files of
@@ -194,7 +187,7 @@ impl Relation {
 
     /// Applies one commit's rows for this relation as a batch: the key file
     /// and the value file each persist all their rows with a single PL WAL
-    /// append (see [`TimeSeriesFile::insert_batch`]) instead of one append
+    /// append (see `TimeSeriesFile::insert_batch`) instead of one append
     /// per row. Per-row version-chain and index semantics are unchanged.
     pub async fn write_rows(&self, rows: &[(Vec<u8>, Option<Vec<u8>>)], xid: u64) -> RS<()> {
         scoped_task_trace!();
@@ -203,7 +196,7 @@ impl Relation {
 
     /// Deferred (lock-free) delta apply: resolves each row's new value
     /// against the latest committed version atomically per row (see
-    /// `DataRow::apply_update_to_latest_sync`), then writes the batch. No
+    /// `DataRow::apply_update_to_latest`), then writes the batch. No
     /// statement lock is taken anywhere for these rows; correctness rests on
     /// the caller's contract that every concurrent writer of these keys uses
     /// commutative deferred deltas.
@@ -217,20 +210,32 @@ impl Relation {
     }
 
     /// Writes back dirty data pages of both time-series files; see
-    /// [`TimeSeriesFile::flush_dirty_pages`]. Used by the per-worker
-    /// background flush driver.
+    /// `TimeSeriesFile::flush_dirty_pages`. Used by the per-worker
+    /// background flush driver. A stopped mailbox owner means the file's
+    /// owning runtime is already gone; its published pages are WAL-covered,
+    /// so a background writeback has nothing left to do and is skipped.
     pub async fn flush_dirty_pages(&self) -> RS<()> {
         let (key_result, value_result) = futures::join!(
             self.inner.key_file.flush_dirty_pages(),
             self.inner.value_file.flush_dirty_pages()
         );
-        key_result?;
-        value_result?;
+        for result in [key_result, value_result] {
+            if let Err(err) = result {
+                if !crate::mailbox::is_owner_stopped(&err) {
+                    return Err(err);
+                }
+            }
+        }
+        if let Err(err) = self.inner.index.flush().await {
+            if !crate::mailbox::is_owner_stopped(&err) {
+                return Err(err);
+            }
+        }
         Ok(())
     }
 
     /// Drives the WAL group-commit queue of both files to durable storage;
-    /// see [`TimeSeriesFile::flush_wal_async`]. Catalog (meta) relations
+    /// see `TimeSeriesFile::flush_wal_async`. Catalog (meta) relations
     /// have no background flush driver, so their write helpers call this
     /// after each DDL write; data-table relations rely on the worker's
     /// commit path and event loop instead.
@@ -259,3 +264,20 @@ mod write;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_bench;
+
+impl RelationInner {
+    async fn cache_stamp(key: &TimeSeriesFile, value: &TimeSeriesFile) -> RS<Vec<u64>> {
+        let mut stamp = key.index_cache_stamp().await?;
+        stamp.extend(value.index_cache_stamp().await?);
+        Ok(stamp)
+    }
+}
+
+mod maintenance;
+
+#[cfg(all(test, feature = "paged-index"))]
+mod tests_checkpoint;
+#[cfg(test)]
+mod tests_maintenance;

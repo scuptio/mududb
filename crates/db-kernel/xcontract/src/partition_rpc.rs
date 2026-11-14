@@ -129,6 +129,46 @@ pub enum PartitionRpcRequest {
         /// Fully materialized write set to commit.
         writes: Vec<XLWrite>,
     },
+    /// Ensure the queue shard's runtime state is loaded on this worker (the
+    /// shard owner): rebuilds the counters from the committed relation,
+    /// migrates the legacy watermark into the sentinel row, and re-delivers
+    /// crashed claims. Idempotent.
+    QueuePrepare {
+        /// Queue relation oid.
+        queue_oid: OID,
+        /// Partition hosting the shard.
+        partition_id: OID,
+    },
+    /// Run a `RECEIVE ... WAIT` loop against a queue shard hosted on this
+    /// worker: autonomous claim rounds commit between parks on the owner's
+    /// wait registry. Not idempotent — a retried request could claim a second
+    /// batch while the first batch's response was lost.
+    QueueReceiveWait {
+        /// Queue relation oid.
+        queue_oid: OID,
+        /// Partition hosting the shard.
+        partition_id: OID,
+        /// Batch size of the receive.
+        count: u64,
+        /// `WAIT` milliseconds; `None` is `WAIT FOREVER`.
+        wait_ms: Option<u64>,
+        /// Consumer cursor for the fan-out mode.
+        consumer: Option<String>,
+    },
+    /// Post-commit notification of a queue shard: publishes the committed
+    /// watermark to the in-memory registry, reloads the consumer cursor cache
+    /// when the consumer set changed, and wakes parked receivers/activations.
+    QueueWake {
+        /// Queue relation oid.
+        queue_oid: OID,
+        /// Partition hosting the shard.
+        partition_id: OID,
+        /// Committed `(next, frontier, depth, bytes)` watermark, when the
+        /// commit wrote the shard's sentinel row.
+        state: Option<(u64, u64, u64, u64)>,
+        /// Whether the commit changed the queue's consumer cursor rows.
+        consumers_changed: bool,
+    },
 }
 
 /// Response to a [`PartitionRpcRequest`]; the variants mirror the request.
@@ -151,6 +191,33 @@ pub enum PartitionRpcResponse {
     CommitWriteSet(usize),
     /// Acknowledgement for `UnlockKeys`.
     UnlockKeys,
+    /// Acknowledgement of `QueuePrepare`.
+    QueuePrepare,
+    /// Claimed/read rows of `QueueReceiveWait` (full attribute vectors).
+    QueueReceiveWait(Vec<Vec<Option<Vec<u8>>>>),
+    /// Acknowledgement of `QueueWake`.
+    QueueWake,
     /// The request failed; carries the error's display string.
     Err(String),
 }
+
+impl PartitionRpcRequest {
+    /// Whether replaying the request under the same idempotency key is safe.
+    /// Pure reads are; writes and lock operations are not (their uncertain
+    /// outcomes resolve through the transaction recovery records instead).
+    pub fn is_idempotent(&self) -> bool {
+        matches!(
+            self,
+            PartitionRpcRequest::ReadKey { .. }
+                | PartitionRpcRequest::ReadRange { .. }
+                | PartitionRpcRequest::QueuePrepare { .. }
+                | PartitionRpcRequest::QueueWake { .. }
+        )
+    }
+}
+
+::mudu::impl_channel_message!(
+    PartitionRpcRequest,
+    reply = PartitionRpcResponse,
+    kind = ::catalog::contract::channel_kinds::PARTITION_RPC
+);

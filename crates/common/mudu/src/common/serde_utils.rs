@@ -406,11 +406,9 @@ fn _serialize_sized_to<S: Serialize + DeserializeOwned + 'static>(
                             // the expected size > output buffer size
                             return Ok((false, size));
                         }
-                        println!("size {}, max_buf_size {}", size, out_max_len);
                     } else {
                         return Err(mudu_error!(ErrorCode::Encode, "serialize error", err));
                     }
-                    println!("{}", serde_json::to_string_pretty(&result).unwrap());
                     Err(mudu_error!(ErrorCode::Encode, "serialize error", err))
                 }
                 _ => {

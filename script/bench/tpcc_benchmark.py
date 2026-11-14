@@ -69,11 +69,12 @@ class TpccResult:
 
 
 def find_project_root() -> Path:
-    path = Path(__file__).resolve()
-    for parent in [path, *path.parents]:
-        if (parent / "Cargo.toml").exists():
-            return parent
-    raise RuntimeError("Cannot find project root (no Cargo.toml in ancestry)")
+    # The repository root is not a cargo workspace, so locate it from this
+    # script's position (script/bench/) rather than by walking for Cargo.toml.
+    root = Path(__file__).resolve().parents[2]
+    if not (root / "crates" / "db-kernel" / "Cargo.toml").exists():
+        raise RuntimeError(f"Cannot find project root (no crates/db-kernel under {root})")
+    return root
 
 
 def get_free_port(host: str = "127.0.0.1") -> int:
@@ -97,19 +98,14 @@ def write_config(cfg_path: Path, args: argparse.Namespace, data_dir: Path) -> No
     mpk_dir = data_dir / "mpk"
     mpk_dir.mkdir(parents=True, exist_ok=True)
 
-    mode_map = {"legacy": 0, "iouring": 1, "tokio": 2}
-    server_mode_num = mode_map.get(args.server_mode.lower(), 1)
-
-    routing_map = {"connection_id": 0, "player_id": 1, "remote_hash": 2}
-    routing_mode_num = routing_map.get(args.routing_mode.lower(), 0)
-
+    # MududCfg deserializes both enums from case-insensitive strings.
     config_text = f"""mpk_path = "{mpk_dir}"
-data_path = "{data_dir}"
+db_path = "{data_dir}"
 listen_ip = "{args.listen_ip}"
 http_listen_port = {args.http_port}
 pg_listen_port = 0
 tcp_listen_port = {args.tcp_port}
-server_mode = {server_mode_num}
+server_mode = "{args.server_mode.lower()}"
 tcp_multi_port = false
 worker_threads = {args.worker_threads}
 io_uring_ring_entries = {args.ring_entries}
@@ -117,7 +113,7 @@ io_uring_accept_multishot = true
 io_uring_recv_multishot = true
 io_uring_enable_fixed_buffers = false
 io_uring_enable_fixed_files = false
-routing_mode = {routing_mode_num}
+routing_mode = "{args.routing_mode}"
 enable_async = true
 http_worker_threads = 1
 """
@@ -126,7 +122,7 @@ http_worker_threads = 1
 
 
 def build_mpk(project_root: Path) -> Path:
-    tpcc_dir = project_root / "example" / "tpcc"
+    tpcc_dir = project_root / "example" / "mpk" / "tpcc"
     print(f"[build] building tpcc.mpk in {tpcc_dir} ...")
     result = subprocess.run(
         ["cargo", "make", "package"],
@@ -157,7 +153,7 @@ def _find_mudud_binary(project_root: Path) -> Optional[Path]:
 def _mudud_supports_cfg_flag(mudud_bin: Path) -> bool:
     try:
         result = subprocess.run(
-            [str(mudud_bin), "--help"],
+            [str(mudud_bin), "serve", "--help"],
             capture_output=True,
             text=True,
             timeout=3.0,
@@ -176,7 +172,9 @@ def managed_mudud(project_root: Path, cfg_path: Path, args: argparse.Namespace):
         else:
             cmd = [str(mudud_bin), "serve", str(cfg_path)]
     else:
-        cmd = ["cargo", "run", "-p", "mudud", "--", "serve", "--cfg", str(cfg_path)]
+        cmd = ["cargo", "run",
+               "--manifest-path", str(project_root / "crates" / "db-kernel" / "Cargo.toml"),
+               "-p", "mudud", "--", "serve", "--cfg", str(cfg_path)]
     print(f"[server] starting: {' '.join(cmd)}")
     log_path = cfg_path.parent / "mudud.log"
     log_file = open(log_path, "w")
@@ -221,7 +219,9 @@ def run_benchmark(
     mpk_path: Optional[Path],
 ) -> TpccResult:
     bench_args = [
-        "cargo", "run", "-p", "tpcc",
+        "cargo", "run",
+        "--manifest-path", str(project_root / "example" / "mpk" / "Cargo.toml"),
+        "-p", "tpcc",
         "--features", "benchmark-runner",
         "--bin", "tpcc-benchmark", "--",
         "--mode", args.mode,
@@ -233,6 +233,7 @@ def run_benchmark(
         "--connection-count", str(args.connections),
         "--payment-percent", str(args.payment_percent),
         "--new-order-percent", str(args.new_order_percent),
+        "--think-time-ms", str(args.think_time_ms),
         "--tcp-addr", f"{args.listen_ip}:{args.tcp_port}",
         "--http-addr", f"{args.listen_ip}:{args.http_port}",
     ]
@@ -572,6 +573,9 @@ def main() -> int:
     parser.add_argument("--connections", type=int, default=4)
     parser.add_argument("--payment-percent", type=int, default=50)
     parser.add_argument("--new-order-percent", type=int, default=35)
+    parser.add_argument("--think-time-ms", type=int, default=0,
+                        help="per-terminal think time; 0 disables the TPC-C spec think time "
+                             "that would otherwise pace the run to ~11s/txn")
     parser.add_argument("--warehouse-partitioned", action="store_true")
 
     # Server parameters

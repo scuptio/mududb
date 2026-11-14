@@ -65,9 +65,10 @@ use mudu::compat::{
 };
 use mudu::error::{ErrorCode, MuduError};
 use mudu::mudu_error;
+use mudu::utils::mssp_frame;
 
 /// Length in bytes of the fixed syscall payload header.
-pub const HEADER_LEN: usize = 16;
+pub use mudu::utils::mssp_frame::HEADER_LEN;
 
 const FORMAT: FormatKind = FormatKind::SyscallPayload;
 const MAGIC: u32 = CompatibilityMatrix::magic(FormatKind::SyscallPayload);
@@ -143,12 +144,7 @@ pub enum MessageKind {
 
 /// Encodes the fixed 16-byte header for `kind`.
 pub fn encode_header(kind: MessageKind) -> [u8; HEADER_LEN] {
-    let mut out = [0u8; HEADER_LEN];
-    out[0..4].copy_from_slice(&MAGIC.to_be_bytes());
-    out[4..8].copy_from_slice(&VERSION.to_be_bytes());
-    // flags at out[8..12] stay zero.
-    out[12..16].copy_from_slice(&u32::from(kind).to_be_bytes());
-    out
+    mssp_frame::encode_header_fields(MAGIC, VERSION, u32::from(kind))
 }
 
 /// Decodes and validates the fixed 16-byte header, returning the message kind.
@@ -156,19 +152,15 @@ pub fn encode_header(kind: MessageKind) -> [u8; HEADER_LEN] {
 /// See the module-level documentation for the integrity rules and the error
 /// codes they map to.
 pub fn decode_header(input: &[u8]) -> RS<MessageKind> {
-    if input.len() < HEADER_LEN {
+    let Some((magic, version, flags, kind_raw)) = mssp_frame::decode_header_fields(input) else {
         return Err(corrupted(FORMAT, "header shorter than 16 bytes").into_mudu_error());
-    }
-    let magic = be_u32(input, 0);
-    let version = be_u32(input, 4);
+    };
     check_magic_and_version(FORMAT, magic, version).map_err(MuduError::from)?;
-    let flags = be_u32(input, 8);
     if flags != 0 {
         return Err(
             corrupted(FORMAT, format!("nonzero header flags {flags:#x}")).into_mudu_error(),
         );
     }
-    let kind_raw = be_u32(input, 12);
     MessageKind::try_from(kind_raw).map_err(|_| {
         mudu_error!(
             ErrorCode::Decode,
@@ -267,14 +259,6 @@ fn decode_wire_result(body: &[u8]) -> RS<Result<Value, Value>> {
 /// Maps a wire-runtime decode error to a `MuduError`.
 fn wire_error_to_mudu(error: WireError) -> MuduError {
     mudu_error!(ErrorCode::Decode, error.message)
-}
-
-/// Reads a big-endian `u32` at `offset`; `input` must be at least
-/// `offset + 4` bytes long (guaranteed by the [`HEADER_LEN`] check).
-fn be_u32(input: &[u8], offset: usize) -> u32 {
-    let mut bytes = [0u8; 4];
-    bytes.copy_from_slice(&input[offset..offset + 4]);
-    u32::from_be_bytes(bytes)
 }
 
 /// Validates a frame and checks it carries the expected message kind,

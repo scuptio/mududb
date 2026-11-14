@@ -4,6 +4,9 @@ use ::wal::commit_ts::next_commit_timestamp;
 mod client;
 mod cross_partition;
 mod serve;
+mod serve_queue;
+
+pub(crate) use serve::RpcDedupCache;
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct CrossPartitionParticipant {

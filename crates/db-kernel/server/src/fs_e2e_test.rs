@@ -94,6 +94,7 @@ async fn build_worker(dirs: &TestDirs) -> WorkerRuntime {
         log_chunk_size: 4096,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime: None,
         registry,
         async_runtime: None,

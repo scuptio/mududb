@@ -180,7 +180,10 @@ The repository provides `script/ci/act.sh`, which wraps `act` and captures logs 
 ./script/ci/act.sh --help
 ```
 
-For each run, the script writes a log file under `logs/` and prints a final summary. If anything failed, it extracts the last matching error lines so you do not have to scroll through the full `act` output.
+For each run, the script writes a log file under `logs/` and prints a final
+summary (`script/ci/act_summary.py`): per-invocation and per-job pass/fail
+status with durations, the failed step of each failed job, and a short error
+excerpt, so you do not have to scroll through the full `act` output.
 
 ### Log files from workflow steps
 
@@ -336,6 +339,19 @@ runs. Each retained job workspace keeps its own `target/`; it does not share the
 host's Cargo target directory. Cargo registry caching is also configured by the
 workflows. Exporting host `CARGO_HOME` or `RUSTUP_HOME` alone does not mount those
 directories into act containers.
+
+### Stale files in reused containers
+
+act copies the checkout into each retained container additively: files deleted
+or renamed upstream (including a `foo.rs` split into `foo/mod.rs`) stay behind
+in the container copy and can fail later builds (for example E0761 "file for
+module found at both"). `act.sh` counters this in preflight
+(`act_preflight.py`): before every run it computes the paths git history
+reports as deleted (with rename detection off) and removes them from every
+running act container whose `WorkingDir` is this checkout, printing one line
+per swept container. The sweep never touches untracked paths that still exist
+locally. Stopped containers are skipped — `docker rm` them if one causes
+trouble.
 
 ---
 

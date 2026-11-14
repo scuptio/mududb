@@ -1,0 +1,124 @@
+name: Formal verification
+on:
+  pull_request:
+    paths:
+      - 'crates/common/mudu/src/utils/**'
+      - 'crates/common/mudu_binding/src/universal/mp_core.rs'
+      - 'crates/common/Cargo.toml'
+      - 'crates/common/Cargo.lock'
+      - 'crates/common/mudu_type/src/data_type_impl/fn_string.rs'
+      - 'crates/db-kernel/storage/src/page/**'
+      - 'crates/db-kernel/storage/src/time_series/**'
+      - 'crates/db-kernel/wal/src/**'
+      - 'crates/db-kernel/mudu_raft/src/**'
+      - 'verification/**'
+      - 'script/verification/**'
+      - 'script/lib/**'
+      - 'script/doctor.py'
+      - '.cargo/**'
+      - 'Makefile.toml'
+      - '.github/workflows/formal-verification.yaml'
+  push:
+    branches: [main, master]
+    paths:
+      - 'crates/common/mudu/src/utils/**'
+      - 'crates/common/mudu_binding/src/universal/mp_core.rs'
+      - 'crates/common/Cargo.toml'
+      - 'crates/common/Cargo.lock'
+      - 'crates/db-kernel/storage/src/page/**'
+      - 'crates/db-kernel/storage/src/time_series/**'
+      - 'crates/db-kernel/wal/src/**'
+      - 'crates/db-kernel/mudu_raft/src/**'
+      - 'verification/**'
+      - 'script/verification/**'
+      - 'script/lib/**'
+      - 'script/doctor.py'
+      - '.cargo/**'
+      - 'Makefile.toml'
+      - 'crates/common/mudu_type/src/data_type_impl/fn_string.rs'
+      - '.github/workflows/formal-verification.yaml'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '4'
+      LEAN_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the incremental PR lane can diff against the base.
+          fetch-depth: 0
+      # The Lean/Aeneas bundles plus the mathlib olean cache come close to
+      # filling the stock runner disk; reclaim the unused preinstalled stacks
+      # before restoring the cache.
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af || true
+          df -h
+      - name: Check system prerequisites
+        run: python3 --version && rustup --version && git --version && cc --version && tar --version && zstd --version
+      # The premise-freshness step runs cargo tests whose dev-dependency graph
+      # reaches mudu_sys_impl → rliburing, whose build.rs bindgens against the
+      # system <liburing.h>; the ubuntu-24.04 runner image does not ship
+      # liburing-dev, so install it explicitly like rust-stable-setup does.
+      - name: Install liburing (premise tests build mudu_sys_impl → rliburing)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y liburing-dev clang libclang-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target/verification/tools
+            verification/lean/.lake
+          key: formal-linux-x86_64-${{ hashFiles('verification/toolchain.lock.toml', 'verification/lean/lake-manifest.json', 'script/verification/toolchain.py') }}
+      - name: Prepare user-level tools
+        run: python3 script/doctor.py install --only formal-verification
+      - name: Check CI path triggers cover the registry
+        run: python3 script/verification/impact.py --check-ci .github/workflows/formal-verification.yaml
+      - name: Test verification scripts
+        run: python3 -m unittest discover -s script/verification -p 'test_*.py'
+      - name: Mutation sweep candidate smoke (no proof runs)
+        run: python3 script/verification/check.py mutation-sweep --list-only >/dev/null
+      - name: Verify production source and reject injected bugs
+        # PRs verify only the targets affected by the diff; pushes, the nightly
+        # schedule and manual runs always verify the full registry.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" > changed.txt
+            python3 script/verification/check.py self-test --affected-by-file changed.txt
+          else
+            python3 script/verification/check.py self-test
+          fi
+      - name: Premise freshness (referenced tests still pass)
+        # Advisory-sounding but blocking by exit code: a premise reference whose
+        # test was renamed, moved, ignored, or fails rots the trust chain.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 script/verification/check.py premises --affected-by-file changed.txt
+          else
+            python3 script/verification/check.py premises
+          fi
+      - name: Spec change review aid (advisory)
+        if: github.event_name == 'pull_request'
+        run: python3 script/verification/check.py spec-diff --diff "${{ github.event.pull_request.base.sha }}"
+      - name: Extraction determinism
+        run: python3 script/verification/check.py determinism
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-verification-logs
+          path: |
+            target/verification/logs/
+            target/verification/runs/

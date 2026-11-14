@@ -5,17 +5,43 @@
 # standalone guest-SDK workspace crates/sdk/mudu_api/rust. All of them share
 # the repository-root target/ directory via the root .cargo/config.toml.
 #
+# Discover commands and their descriptions:
+#   cargo make help                    # this repo's tasks, grouped and colored
+#   cargo make --list-all-steps        # raw listing incl. cargo-make built-ins
+#   cargo make --list-category-steps Release   # filter by category
+#
 # Common entry points:
 #   cargo make            # = cargo make build
-#   cargo make build      # release build of all workspaces + CLI tools + wallet.mpk
-#   cargo make check      # fmt + clippy + test compilation (delegates to check_all.sh)
+#   cargo make build      # release build of all workspaces (compile only)
+#   cargo make dist       # build + install CLI tools + package wallet.mpk
+#   cargo make check      # fmt + clippy + test compile + repo invariants (split into check-* steps)
 #   cargo make test       # cargo test --workspace for every workspace
 #   cargo make test-e2e   # end-to-end tests with wallet/wallet-as/wallet-cs/wallet-py/wallet-go/wallet-c mpk packages
+#   cargo make coverage   # merged llvm-cov report (unit + e2e) with totals + HTML link
+#   cargo make udeps      # find unused deps (cargo-udeps, pinned nightly) across crates/* groups
+#   cargo make outdated   # stale direct deps (cargo-outdated) across all group workspaces
+#   cargo make dep-audit  # udeps + outdated across all group workspaces
 #   cargo make build-sdk     # standalone SDK distributions; no publishing
-#   cargo make install-tools  # install mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli
+#   cargo make install       # install workspace binaries; extra args pass through to
+#                            #   script/build/install_binaries.py, e.g.
+#                            #   cargo make install --debug | --root /tmp/mudu --dry-run
+#   cargo make install-tools  # install mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli (release, fixed)
+#   cargo make package-release  # server release tarball into target/release-artifacts/
+#   cargo make package-sdk-registry  # pack npm/NuGet/PyPI packages into target/sdk-dist/registry/
+#                            #   publishing: python3 script/release/publish.py <targets> [--apply]
+
+# Don't load cargo-make's built-in core flows (build/test/CI/publish stubs):
+# every task below is defined explicitly, and skipping the core tasks keeps
+# `cargo make --list-all-steps` free of ~60 unrelated built-in entries.
+[config]
+skip_core_tasks = true
 
 [env]
 REPO_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}"
+# One Python interpreter for every task invoking a script; Windows overrides
+# the default command name below. Individual tasks used to carry their own
+# <TASK>_PYTHON env var plus a [tasks.*.windows] twin for exactly this.
+PYTHON = { value = "python3", condition = { env_not_set = ["PYTHON"] } }
 GROUP_COMMON = "${REPO_ROOT}/crates/common"
 GROUP_DB_KERNEL = "${REPO_ROOT}/crates/db-kernel"
 GROUP_SDK = "${REPO_ROOT}/crates/sdk"
@@ -24,26 +50,37 @@ MUDU_API_RUST = "${GROUP_SDK}/mudu_api/rust"
 MUDU_ADAPTER_FFI = "${REPO_ROOT}/crates/bindings/mudu_adapter_ffi"
 GROUP_EXAMPLE = "${REPO_ROOT}/example/mpk"
 
+[env.windows]
+PYTHON = { value = "python", condition = { env_not_set = ["PYTHON"] } }
+
 # ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
 
 [tasks.build-group-common]
+description = "Release-build the crates/common group workspace"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${GROUP_COMMON}"
 
 [tasks.build-group-db-kernel]
+description = "Release-build the crates/db-kernel group workspace"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${GROUP_DB_KERNEL}"
 
 [tasks.build-group-sdk]
+description = "Release-build the crates/sdk group workspace"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${GROUP_SDK}"
 
 [tasks.build-group-tools]
+description = "Release-build the crates/tools group workspace"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${GROUP_TOOLS}"
@@ -51,6 +88,8 @@ cwd = "${GROUP_TOOLS}"
 # cargo-make runs dependencies sequentially, which keeps one cargo invocation
 # at a time (memory budget, and avoids the shared-target E0463 flake).
 [tasks.build-workspaces]
+description = "Release-build the four group workspaces (sequential)"
+category = "Build"
 dependencies = [
     "build-group-common",
     "build-group-db-kernel",
@@ -60,6 +99,8 @@ dependencies = [
 
 # The guest SDK is a standalone workspace outside the four groups.
 [tasks.build-mudu-api]
+description = "Release-build the standalone guest-SDK workspace (crates/sdk/mudu_api/rust)"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${MUDU_API_RUST}"
@@ -69,6 +110,8 @@ cwd = "${MUDU_API_RUST}"
 # the shared repository-root `target/`. The SDK runtime builds it via
 # `script/sdk/adapter_runtime.py`; this task is a direct-build convenience.
 [tasks.build-adapter-ffi]
+description = "Build the native adapter cdylib (isolated target dir, not the shared target/)"
+category = "Build"
 command = "cargo"
 args = ["build", "--release"]
 cwd = "${MUDU_ADAPTER_FFI}"
@@ -77,11 +120,28 @@ cwd = "${MUDU_ADAPTER_FFI}"
 # mpm-crate, mpm-install, mudud, mcli) so the toolchain cannot drift from
 # the commit.
 [tasks.install-tools]
+description = "Install the workspace CLI tools from source (fixed release profile)"
+category = "Install"
 command = "python3"
 args = ["${REPO_ROOT}/script/build/install_binaries.py", "--profile", "release"]
 cwd = "${REPO_ROOT}"
 
+# User-facing install entry: same installer with argument pass-through, so the
+# profile and install root are selectable. Examples:
+#   cargo make install                          # release, into ~/.cargo/bin
+#   cargo make install --debug                  # dev profile
+#   cargo make install --root /tmp/mudu --dry-run
+#   cargo make install --with-adapter-ffi       # also install libmudu_adapter_ffi + header
+[tasks.install]
+description = "Install workspace binaries (--debug/--root/--dry-run/--with-adapter-ffi pass through)"
+category = "Install"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/build/install_binaries.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
 [tasks.package-wallet]
+description = "Package example/mpk/wallet into wallet.mpk (installs CLI tools first)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
@@ -89,6 +149,8 @@ cwd = "${GROUP_EXAMPLE}/wallet"
 
 # Optional: needs Node.js/npm on PATH (asc compiler).
 [tasks.package-wallet-as]
+description = "Package the AssemblyScript wallet example (needs Node.js/npm)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
@@ -96,6 +158,8 @@ cwd = "${GROUP_EXAMPLE}/wallet-as"
 
 # Optional: needs the .NET 10 SDK at ~/.dotnet (see example/mpk/wallet-cs/readme.md).
 [tasks.package-wallet-cs]
+description = "Package the C# wallet example (needs the .NET 10 SDK)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
@@ -104,6 +168,8 @@ cwd = "${GROUP_EXAMPLE}/wallet-cs"
 # Optional: needs componentize-py on PATH (pipx install componentize-py==0.25.1)
 # plus wasm-tools (see example/mpk/wallet-py/readme.md).
 [tasks.package-wallet-py]
+description = "Package the Python wallet example (needs componentize-py + wasm-tools)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
@@ -112,14 +178,18 @@ cwd = "${GROUP_EXAMPLE}/wallet-py"
 # Optional: needs TinyGo 0.42 and the Go 1.27 toolchain on PATH plus
 # wasm-tools (see example/mpk/wallet-go/readme.md).
 [tasks.package-wallet-go]
+description = "Package the Go wallet example (needs TinyGo + Go toolchain)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
 cwd = "${GROUP_EXAMPLE}/wallet-go"
 
-# Optional: needs a clang targeting wasm32 freestanding (wasi-sdk 29 at
-# ~/.wasi-sdk by default; see example/mpk/wallet-c/readme.md) plus wasm-tools.
+# Optional: needs a clang targeting wasm32 freestanding (wasi-sdk 29, located
+# via WASI_SDK/CLANG/PATH/default; see example/mpk/wallet-c/readme.md) plus wasm-tools.
 [tasks.package-wallet-c]
+description = "Package the C wallet example (needs a wasm32 freestanding clang)"
+category = "Package"
 dependencies = ["install-tools"]
 command = "cargo"
 args = ["make", "package"]
@@ -127,32 +197,147 @@ cwd = "${GROUP_EXAMPLE}/wallet-c"
 
 # All guest example packages (requires the full external toolchain set).
 [tasks.package-examples]
+description = "Package all guest example packages (needs the full external toolchain set)"
+category = "Package"
 dependencies = ["package-wallet", "package-wallet-as", "package-wallet-cs", "package-wallet-py", "package-wallet-go", "package-wallet-c"]
 
-# Equivalent of script/shell/build_all.sh: workspaces + tools + wallet.mpk.
+# ---------------------------------------------------------------------------
+# release packaging / publishing
+# ---------------------------------------------------------------------------
+
+# Package a server release tarball into target/release-artifacts/<version>/
+# (binaries + prerequisite scripts + manifest + sha256 + changelog). This is
+# the same implementation the Release workflow runs. Examples:
+#   cargo make package-release                          # host target, v<date>
+#   cargo make package-release --version v0.2.0 --target x86_64-unknown-linux-gnu
+#   cargo make package-release --skip-build             # reuse built artifacts
+[tasks.package-release]
+description = "Package a server release tarball into target/release-artifacts/<version>/"
+category = "Release"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/release/package_release.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Pack the npm/NuGet/PyPI registry packages into target/sdk-dist/registry/
+# (per-file sha256 + manifest; no credentials needed). Publishing is a separate
+# command, dry-run by default: script/release/publish.py, e.g.
+#   python3 script/release/publish.py npm            # verify + rehearse
+#   python3 script/release/publish.py npm --apply    # real upload
+[tasks.package-sdk-registry]
+description = "Pack npm/NuGet/PyPI registry packages into target/sdk-dist/registry/ (no credentials)"
+category = "Release"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/release/pack_registry.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Full local build: workspaces + tools + wallet.mpk.
 [tasks.build]
 clear = true
+description = "Release-build all workspaces (compile only; `dist` adds CLI install + wallet.mpk)"
+category = "Build"
 dependencies = [
     "build-workspaces",
     "build-mudu-api",
+]
+
+# Full local distribution flow: compile everything, install the CLI tools,
+# package wallet.mpk.
+[tasks.dist]
+description = "Compile all workspaces, install CLI tools, and package wallet.mpk"
+category = "Build"
+dependencies = [
+    "build",
     "install-tools",
     "package-wallet",
 ]
 
 [tasks.default]
 clear = true
+description = "Default flow: alias for build"
+category = "Build"
 alias = "build"
 
 # ---------------------------------------------------------------------------
 # check / test
 # ---------------------------------------------------------------------------
 
-# fmt + clippy (-D warnings) + test compilation across the four group
-# workspaces. Delegates to the CI script to keep a single source of truth.
+# fmt + clippy (-D warnings) + test compilation across the five group
+# workspaces (crates/* plus example/mpk), then the repository-wide invariants
+# (versions.toml consistency, layering, test-feature ban, code metrics).
+# Delegates to the CI script to keep a single source of truth.
+#
+# Split into per-step tasks below (check-fmt, check-clippy, ...). Arbitrary
+# combinations are also possible by passing `--only` straight through:
+#   cargo make check -- --only fmt,clippy
+#   cargo make check -- --only deny,arch
 [tasks.check]
 clear = true
-command = "bash"
-args = ["${REPO_ROOT}/script/shell/check_all.sh"]
+description = "Format, lint, and compile-check all workspaces (see check-* steps; --only accepts combinations)"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-fmt]
+description = "cargo fmt --check across all group workspaces"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "fmt"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-clippy]
+description = "cargo clippy -D warnings across all group workspaces"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "clippy"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-test-compile]
+description = "cargo test --no-run across all group workspaces"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-compile"]
+cwd = "${REPO_ROOT}"
+
+# Local-only deny gate: bans/licenses/sources (deterministic, no advisory DB).
+# The full CI check with the time-varying advisories runs in ci-hardening.yaml
+# (`cargo deny check ... bans licenses advisories sources`), not locally.
+[tasks.check-deny]
+description = "cargo-deny ban/license/source check across all group workspaces"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deny"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-deps]
+description = "Workspace dependency consistency (versions.toml)"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deps"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-arch]
+description = "Crate layering check (ARCHITECTURE.md)"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "arch"]
+cwd = "${REPO_ROOT}"
+
+[tasks.check-test-feature]
+description = "Test feature kept out of production dependencies"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-feature"]
+cwd = "${REPO_ROOT}"
+
+# Fast standalone run of just the code-metrics steps (the same two
+# mudu_metrics invocations that check runs last), for quick iteration when
+# trimming files/functions under the code_metrics.toml limits.
+[tasks.check-metrics]
+description = "Run only the code-metrics checks (mudu_metrics over crates/ and example/)"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "metrics"]
 cwd = "${REPO_ROOT}"
 
 # `--quiet` after `--` collapses libtest's one-line-per-test output into
@@ -160,47 +345,183 @@ cwd = "${REPO_ROOT}"
 # lines bury failures and summaries. Failures still print their full captured
 # output; per-suite `test result:` summaries are kept.
 [tasks.test-group-common]
+description = "Run the crates/common workspace test suite"
+category = "Test"
 command = "cargo"
 args = ["test", "--workspace", "--", "--quiet"]
 cwd = "${GROUP_COMMON}"
 
 [tasks.test-group-db-kernel]
+description = "Run the crates/db-kernel workspace test suite"
+category = "Test"
 command = "cargo"
 args = ["test", "--workspace", "--", "--quiet"]
 cwd = "${GROUP_DB_KERNEL}"
 
 [tasks.test-group-sdk]
+description = "Run the crates/sdk workspace test suite"
+category = "Test"
 command = "cargo"
 args = ["test", "--workspace", "--", "--quiet"]
 cwd = "${GROUP_SDK}"
 
+[tasks.test-group-example-mpk]
+description = "Run the example/mpk workspace test suite"
+category = "Test"
+command = "cargo"
+args = ["test", "--workspace", "--", "--quiet"]
+cwd = "${GROUP_EXAMPLE}"
+
 [tasks.test-group-tools]
+description = "Run the crates/tools workspace test suite"
+category = "Test"
 command = "cargo"
 args = ["test", "--workspace", "--", "--quiet"]
 cwd = "${GROUP_TOOLS}"
 
 [tasks.test-mudu-api]
+description = "Run the guest-SDK workspace test suite"
+category = "Test"
 command = "cargo"
 args = ["test", "--workspace", "--", "--quiet"]
 cwd = "${MUDU_API_RUST}"
 
+# Aggregator: runs every workspace test suite via script/ci/run_all_tests.py
+# (fail-fast, per-group timing, cargo-style status output). The individual
+# test-group-* tasks above run the same `cargo test --workspace -- --quiet`
+# directly for single-group granularity.
 [tasks.test]
 clear = true
-dependencies = [
-    "test-group-common",
-    "test-group-db-kernel",
-    "test-group-sdk",
-    "test-group-tools",
-    "test-mudu-api",
-]
+description = "Run cargo test --workspace for every workspace"
+category = "Test"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py"]
+cwd = "${REPO_ROOT}"
 
 # End-to-end suite: builds wallet / wallet-as / wallet-cs / wallet-py /
 # wallet-go / wallet-c mpk packages first (requires the full external
 # toolchain set), then runs the testing crate.
 [tasks.test-e2e]
+description = "End-to-end suite via crates/db-kernel/testing (builds all wallet mpk packages first)"
+category = "Test"
 command = "cargo"
 args = ["make", "test"]
 cwd = "${GROUP_DB_KERNEL}/testing"
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+
+# Merged llvm-cov coverage across all four group workspaces plus the testing
+# crate's e2e tests, then best-effort guest-language bindings coverage
+# (coverage.py / coverlet) under target/llvm-cov/bindings/; prints overall +
+# per-group + per-language totals and the HTML report link at the end. e2e is
+# on by default (--no-e2e skips it; --no-bindings skips the bindings stage).
+# Extra args pass through to script/coverage/run_coverage.py, e.g.
+#   cargo make coverage --no-e2e -f html
+[tasks.coverage]
+clear = true
+description = "Merged llvm-cov report (unit + e2e) + bindings coverage, with totals and HTML link; args pass through"
+category = "Coverage"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/coverage/run_coverage.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# ---------------------------------------------------------------------------
+# performance regression gates
+# ---------------------------------------------------------------------------
+
+# Build the tpcc.mpk benchmark package (wasm32-wasip2 guest + mpm-build).
+[tasks.package-tpcc]
+description = "Build the tpcc.mpk benchmark package"
+category = "Build"
+command = "cargo"
+args = ["make", "package"]
+cwd = "${GROUP_EXAMPLE}/tpcc"
+
+# Paged-index gate: runs the deterministic tasks suite at smoke scale, then
+# compares machine-independent counters (page reads/writes/evictions/rows
+# exactly; hint hits within a narrow band) plus wide same-run paged/baseline
+# throughput-ratio bands against script/bench/baselines/paged-index.json.
+# Wall-clock metrics are recorded in the baseline but never gated.
+[tasks.bench-smoke-paged]
+description = "Paged-index performance gate against the committed baseline"
+category = "Bench"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "paged-index"]
+cwd = "${REPO_ROOT}"
+
+# TPC-C gate: one warehouse at smoke scale in stored-procedure mode against
+# a locally managed mudud (tokio backend, the portable default); gates
+# completion, abort rate (baseline + delta) and a sanity TPS floor against
+# script/bench/baselines/tpcc.json; TPS/latency trends are recorded only.
+[tasks.bench-smoke-tpcc]
+description = "TPC-C smoke gate against the committed baseline"
+category = "Bench"
+dependencies = ["package-tpcc"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "tpcc"]
+cwd = "${REPO_ROOT}"
+
+# Both performance gates (paged-index first, then TPC-C).
+[tasks.bench-smoke]
+description = "Run every performance regression gate at smoke scale"
+category = "Bench"
+dependencies = ["bench-smoke-paged", "bench-smoke-tpcc"]
+
+# Regenerate baselines after an intended change to benchmarked code; review
+# the baseline diff in the same commit (same convention as binding regen).
+[tasks.bench-baseline-update-paged]
+description = "Re-record the paged-index baseline from a fresh smoke run"
+category = "Bench"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "paged-index", "--update"]
+cwd = "${REPO_ROOT}"
+
+[tasks.bench-baseline-update-tpcc]
+description = "Re-record the TPC-C baseline from a fresh smoke run"
+category = "Bench"
+dependencies = ["package-tpcc"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "tpcc", "--update"]
+cwd = "${REPO_ROOT}"
+
+[tasks.bench-baseline-update]
+description = "Re-record every performance baseline"
+category = "Bench"
+dependencies = ["bench-baseline-update-paged", "bench-baseline-update-tpcc"]
+
+# ---------------------------------------------------------------------------
+# dependency hygiene (cargo-udeps / cargo-outdated)
+# ---------------------------------------------------------------------------
+
+# Find unused dependencies across the four crates/* groups. Needs cargo-udeps
+# plus the pinned nightly toolchain (read from .rust-nightly-version), since
+# cargo-udeps only runs on nightly.
+[tasks.udeps]
+description = "Find unused dependencies (cargo-udeps, pinned nightly) across crates/* groups"
+category = "Audit"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/dep_audit.py", "udeps", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Report stale direct dependencies (cargo-outdated) across all group workspaces.
+[tasks.outdated]
+description = "Report stale direct dependencies (cargo-outdated) across all group workspaces"
+category = "Audit"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/dep_audit.py", "outdated", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Both dependency audits in one pass. The cargo-deny ban/license/advisory/source
+# drift lives under `cargo make check-deny` (deterministic bans/licenses/sources)
+# and CI (ci-hardening.yaml); see the note there.
+[tasks.dep-audit]
+description = "Run udeps + outdated across all group workspaces"
+category = "Audit"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/dep_audit.py", "all", "${@}"]
+cwd = "${REPO_ROOT}"
 
 # ---------------------------------------------------------------------------
 # misc
@@ -209,16 +530,159 @@ cwd = "${GROUP_DB_KERNEL}/testing"
 # Cleans the shared repository-root target/ directory.
 [tasks.clean]
 clear = true
+description = "Clean the shared repository-root target/ directory"
+category = "Utility"
 command = "cargo"
 args = ["clean"]
 cwd = "${REPO_ROOT}"
 
+# Pretty, grouped list of this repository's tasks. `--list-all-steps` shows
+# the raw listing (only hook stubs remain, since core tasks are skipped above).
+[tasks.help]
+description = "List this repository's cargo-make tasks, grouped and colored"
+category = "Utility"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/show_tasks.py"]
+cwd = "${REPO_ROOT}"
+
+# Probe the toolchain and report what each tool unlocks (which example
+# packages, e2e, coverage, or release steps become available).
+# `cargo make doctor -- install [--dry-run]` installs the missing user-level
+# tools (rustup/cargo/pip/pipx recipes only; never sudo).
+[tasks.doctor]
+description = "Probe the dev toolchain; `cargo make doctor -- install` installs missing user-level tools"
+category = "Utility"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/doctor.py", "${@}"]
+cwd = "${REPO_ROOT}"
+
 # Build standalone language SDK distributions without publishing them.
 [tasks.build-sdk]
-env = { SDK_PYTHON = { value = "python3", condition = { env_not_set = ["SDK_PYTHON"] } } }
-command = "${SDK_PYTHON}"
+description = "Build standalone language SDK distributions (no publishing)"
+category = "Release"
+command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/sdk/sdk_build.py", "${@}"]
 cwd = "${REPO_ROOT}"
 
-[tasks.build-sdk.windows]
-env = { SDK_PYTHON = { value = "python", condition = { env_not_set = ["SDK_PYTHON"] } } }
+[tasks.verify]
+description = "Check source extraction, Lean proofs and axiom dependencies"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "check"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+[tasks.verify-extract]
+description = "Regenerate Lean from the production buffer implementation"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "extract"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-extract.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+[tasks.verify-self-test]
+description = "Inject a buffer encoding bug in an isolated copy and require verification failure"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "self-test"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-self-test.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+# Fast drift gate: re-extract affected (or all) targets and compare against the
+# committed generated Lean, without building proofs. Passes trivially when no
+# covered file changed; used by the pre-commit hook with --staged.
+[tasks.verify-drift]
+description = "Re-extract and drift-check generated Lean only (no proof build)"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "drift"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-drift.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+[tasks.verify-determinism]
+description = "Extract every target twice and require byte-identical Lean"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "determinism"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-determinism.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+# Generated-candidate mutation sweep with a kill-rate report. Bounded by
+# --budget; full sweeps are slow, so CI only lists candidates.
+[tasks.verify-mutation-sweep]
+description = "Run pattern-generated mutants against the proofs and report the kill rate"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "mutation-sweep"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-mutation-sweep.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+# Trust-boundary report from the registry; pure Python, no formal toolchain.
+[tasks.verify-report]
+description = "Generate the verification trust-boundary report into target/verification/report/"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "report"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-report.windows]
+command = "cmd"
+args = ["/C", "python ${REPO_ROOT}/script/verification/check.py report"]
+
+# Scaffold a new verification target: registry entry, extraction module,
+# spec/proof skeletons; then extract and compile the skeleton. Pass
+# --name/--source/--owner/--functions [--module] [--dry-run] through.
+[tasks.verify-new-target]
+description = "Scaffold a new verification target (args pass through: --name/--source/--owner/--functions/--dry-run)"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "new-target", "${@}"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-new-target.windows]
+command = "cmd"
+args = ["/C", "echo Formal verification is supported on Linux x86_64 only; use an x86_64 WSL2 distribution. && exit /B 1"]
+
+# Premise freshness: run the tests cited by `established_by` premise references
+# so a renamed/moved/ignored test breaks the trust chain loudly. Cargo-only.
+[tasks.verify-premises]
+description = "Run the tests cited as premise evidence; references must exist and pass"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "premises", "${@}"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-premises.windows]
+command = "cmd"
+args = ["/C", "python ${REPO_ROOT}/script/verification/check.py premises %*"]
+
+# Advisory spec-weakening review aid: declaration-level diff of spec/proof
+# Lean files against a base ref. Pass the ref: cargo make verify-spec-diff -- --diff main
+[tasks.verify-spec-diff]
+description = "Declaration-level diff of spec/proof Lean files against a base ref (advisory)"
+category = "Verification"
+command = "python3"
+args = ["${REPO_ROOT}/script/verification/check.py", "spec-diff", "${@}"]
+cwd = "${REPO_ROOT}"
+
+[tasks.verify-spec-diff.windows]
+command = "cmd"
+args = ["/C", "python ${REPO_ROOT}/script/verification/check.py spec-diff %*"]

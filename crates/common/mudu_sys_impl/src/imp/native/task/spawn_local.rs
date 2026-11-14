@@ -47,6 +47,56 @@ where
     spawn_local_task(cancel_waiter, name, future)
 }
 
+/// Spawns a thread-confined (`!Send`) fire-and-forget task on the current
+/// worker thread's scheduler: the io_uring worker task registry when this
+/// thread has a worker ring installed, otherwise the active tokio
+/// `LocalSet` (panicking when there is none, same as
+/// `tokio::task::spawn_local`). The task's output is discarded; callers
+/// deliver results through their own channels. A `background` task idles for
+/// the worker's lifetime and never blocks the io_uring shutdown drain.
+pub fn spawn_thread_confined_task<F>(name: &str, future: F) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    spawn_thread_confined_task_as(name, future, false)
+}
+
+/// Like [`spawn_thread_confined_task`], but the task never blocks the
+/// worker's shutdown drain (for perpetual listeners that are dropped with
+/// the worker anyway).
+pub fn spawn_thread_confined_background_task<F>(name: &str, future: F) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    spawn_thread_confined_task_as(name, future, true)
+}
+
+fn spawn_thread_confined_task_as<F>(name: &str, future: F, background: bool) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    if crate::imp::io::worker_ring::has_current_worker_ring() {
+        let task_id = id::new_task_id();
+        let _ = TaskContext::new_iouring_context(task_id, name.to_string());
+        let future = Box::pin(async move {
+            future.await;
+            Ok(())
+        });
+        return crate::imp::io::worker_ring::with_current_ring(|ring| {
+            let registry = ring.worker_task_registry();
+            if background {
+                registry.spawn_background_with_trace_id(task_id, future);
+            } else {
+                registry.spawn_with_trace_id(None, task_id, future);
+            }
+            Ok(())
+        });
+    }
+    let _ = background;
+    spawn_local_detached(name, future)?;
+    Ok(())
+}
+
 /// A set of `!Send` local tasks driven together on one thread (wraps
 /// [`tokio::task::LocalSet`]).
 pub struct LocalTaskSet {
@@ -182,4 +232,58 @@ pub enum TaskFailed {
     Cancel,
     /// The deadline elapsed before the task completed.
     Timeout,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{__select_local_till_done_or_timeout, LocalTaskSet, TaskFailed};
+    use std::time::Duration;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn local_task_set_spawn_detached_and_run_until() {
+        let set = LocalTaskSet::default();
+        let handle = set.spawn_detached("answer", async { 40 + 2 }).unwrap();
+        let out = set.run_until(async move { handle.await.unwrap() }).await;
+        assert_eq!(out, Some(42));
+    }
+
+    #[test]
+    fn local_task_set_block_on_and_inner() {
+        let runtime = super::super::build_current_thread_runtime().unwrap();
+        let set = LocalTaskSet::new();
+        let _inner = set.inner();
+        let out = set.block_on(&runtime, async { 7 });
+        assert_eq!(out, 7);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn select_local_till_done_or_timeout_covers_all_outcomes() {
+        use crate::imp::sync::async_::notify_wait;
+
+        let (_notifier, waiter) = notify_wait();
+        let done =
+            __select_local_till_done_or_timeout(waiter, Duration::from_secs(60), async { 1 }).await;
+        assert!(matches!(done, Ok(1)));
+
+        let (_notifier, waiter) = notify_wait();
+        let timed_out =
+            __select_local_till_done_or_timeout(waiter, Duration::from_millis(1), async {
+                loop {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await;
+        assert!(matches!(timed_out, Err(TaskFailed::Timeout)));
+
+        let (notifier, waiter) = notify_wait();
+        notifier.notify_all();
+        let cancelled = __select_local_till_done_or_timeout(
+            waiter,
+            Duration::from_secs(60),
+            std::future::pending::<()>(),
+        )
+        .await;
+        assert!(matches!(cancelled, Err(TaskFailed::Cancel)));
+    }
 }

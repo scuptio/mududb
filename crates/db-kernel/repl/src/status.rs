@@ -10,8 +10,8 @@
 use crate::raft_service::RaftShare;
 use crate::stream_admin::stream_admin_for_node;
 use crate::{connected_subscriber_ack_pairs, repl_worker};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::repl_cfg::ReplMode;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

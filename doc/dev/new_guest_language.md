@@ -172,7 +172,7 @@ and [go_codec.rs](../../crates/tools/mudu_gen/src/lang_impl/go/go_codec.rs)).
   Go needed nothing: `//` comments, no index).
 - Output must be **byte-stable**: two runs produce identical bytes, and the
   checked-in binding files must match a fresh regen exactly (enforced by
-  `script/ci/check_bindings_regen.sh`).
+  `script/ci/check_bindings_regen.py`).
 
 **Binding package** (`crates/sdk/bindings/<lang>/`): canonical segments
 `mududb.types` (generated `Uni*` files) + `mududb.codec` (hand-written
@@ -187,7 +187,7 @@ needed): byte-exact request/response encodes, semantic equality against the
 JSON sidecars, decode → re-encode roundtrips. The C driver (`tests/corpus_driver.c`)
 and the Go `corpus/` package are the two reference harnesses.
 
-**Gates**: add your language to `script/ci/check_bindings_regen.sh` and a
+**Gates**: add your language to `script/ci/check_bindings_regen.py` and a
 corpus job to `.github/workflows/bindings.yaml`; document the module path
 in [`binding_api_surface.md`](binding_api_surface.md) and `AGENTS.md`.
 
@@ -258,7 +258,7 @@ cd crates/tools && cargo fmt -- --check \
   && cargo test --workspace
 
 # binding regen byte-clean across ALL languages
-bash script/ci/check_bindings_regen.sh
+python3 script/ci/check_bindings_regen.py
 
 # golden corpus for the new language (native runner)
 #   e.g. cd crates/sdk/bindings/<lang> && <its test command>

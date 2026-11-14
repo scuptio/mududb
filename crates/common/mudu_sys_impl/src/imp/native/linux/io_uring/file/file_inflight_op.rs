@@ -34,3 +34,46 @@ impl FileInflightOp {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::{
+        FileCloseRequest, FileFlushRequest, FileLenRequest, FileOpenRequest, FileReadRequest,
+        FileWriteRequest,
+    };
+    use super::FileInflightOp;
+    use crate::imp::io::user_io::op_state;
+    use std::ffi::CString;
+
+    #[test]
+    fn inflight_op_kind_names() {
+        let path = CString::new("/tmp/x").unwrap();
+        let open = FileInflightOp::Open(Box::new(FileOpenRequest::new(
+            path,
+            libc::O_RDONLY,
+            0,
+            op_state(),
+        )));
+        assert_eq!(open.kind(), "file.open");
+        let close = FileInflightOp::Close(Box::new(FileCloseRequest::new(0, op_state())));
+        assert_eq!(close.kind(), "file.close");
+        let read = FileInflightOp::Read {
+            request: Box::new(FileReadRequest::new(0, 4, 0, op_state())),
+            buf: vec![0; 4],
+        };
+        assert_eq!(read.kind(), "file.read");
+        let write = FileInflightOp::Write(Box::new(FileWriteRequest::new(
+            0,
+            0,
+            vec![1],
+            false,
+            op_state(),
+        )));
+        assert_eq!(write.kind(), "file.write");
+        let flush = FileInflightOp::Flush(Box::new(FileFlushRequest::new(0, (), op_state())));
+        assert_eq!(flush.kind(), "file.flush");
+        let len = FileInflightOp::Len(Box::new(FileLenRequest::new(0, op_state())));
+        assert_eq!(len.kind(), "file.len");
+    }
+}

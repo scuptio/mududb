@@ -116,7 +116,9 @@ lazy_static! {
             opt_fn_compare: Some(data_type_impl::fn_numeric::FN_NUMERIC_COMPARE),
             #[cfg(any(test, feature = "arbitrary"))]
             fn_arbitrary: data_type_impl::fn_numeric_arb::FN_NUMERIC_ARBITRARY,
-            fixed_length: None,
+            // Numeric is encoded as a fixed-width scaled i128 (see
+            // fn_numeric::fn_numeric_len), so every subtype is fixed length.
+            fixed_length: Some(size_of::<i128>() as u32),
             opt_fn_param: Some(data_type_impl::fn_numeric_param::FN_NUMERIC_PARAM),
         },
         DatTypeDef {

@@ -107,4 +107,43 @@ mod tests {
         let err = rx.recv().unwrap_err();
         assert_eq!(err.ec(), ErrorCode::ChannelClosed);
     }
+
+    #[test]
+    fn cloned_senders_and_send_after_disconnect() {
+        let (tx, rx): (ChannelSender<i32>, SyncReceiver<i32>) = unbounded_channel();
+        let tx2 = tx.clone();
+        tx2.send(1).unwrap();
+        drop(rx);
+        assert!(tx.send(2).is_err());
+        assert!(tx2.send(3).is_err());
+    }
+
+    #[test]
+    fn try_recv_variants() {
+        let (tx, rx): (ChannelSender<i32>, SyncReceiver<i32>) = unbounded_channel();
+        assert_eq!(rx.try_recv().unwrap(), None);
+        tx.send(9).unwrap();
+        assert_eq!(rx.try_recv().unwrap(), Some(9));
+        drop(tx);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn recv_timeout_variants() {
+        let (tx, rx): (ChannelSender<i32>, SyncReceiver<i32>) = unbounded_channel();
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_millis(10))
+                .unwrap(),
+            None
+        );
+        tx.send(5).unwrap();
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(),
+            Some(5)
+        );
+        drop(tx);
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(10))
+            .is_err());
+    }
 }

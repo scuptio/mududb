@@ -109,13 +109,15 @@ impl ValueCompare {
     /// Reverse the comparison direction.
     ///
     /// Used to normalize `literal OP field` into `field OP' literal`.
+    /// Reversal swaps the direction but keeps the strictness: `a > b` is
+    /// `b < a`, `a >= b` is `b <= a`; equality operators are unchanged.
     pub fn revert_cmp_op(op: ValueCompare) -> ValueCompare {
         match op {
             ValueCompare::EQ => ValueCompare::EQ,
-            ValueCompare::LE => ValueCompare::GT,
-            ValueCompare::LT => ValueCompare::GE,
-            ValueCompare::GE => ValueCompare::LT,
-            ValueCompare::GT => ValueCompare::LE,
+            ValueCompare::LE => ValueCompare::GE,
+            ValueCompare::LT => ValueCompare::GT,
+            ValueCompare::GE => ValueCompare::LE,
+            ValueCompare::GT => ValueCompare::LT,
             ValueCompare::NE => ValueCompare::NE,
         }
     }

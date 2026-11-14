@@ -80,6 +80,21 @@ where
     crate::imp::thread::spawn_thread_named(name, f)
 }
 
+/// Spawns a named thread whose task id is prescribed by the caller (e.g. a
+/// worker id, aligning the thread's tracing identity with its channel
+/// endpoint id) and returns a join handle for its result.
+pub fn spawn_thread_named_with_id<F, T>(
+    name: impl Into<String>,
+    id: super::id::TaskID,
+    f: F,
+) -> RS<SJoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    crate::imp::thread::spawn_thread_named_with_id(name, id, f)
+}
+
 /// Returns the task id assigned to the current thread, or `None` if the
 /// current thread was not spawned through this crate.
 pub fn try_this_thread_task_id() -> Option<super::id::TaskID> {

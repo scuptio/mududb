@@ -118,7 +118,13 @@ fn unpack_syscall_segments(bytes: &[u8]) -> Vec<&[u8]> {
 #[test]
 #[ignore = "one-shot fixture generator"]
 fn generate_golden_v1_fixtures() {
-    mudu_sys::fs::sync::sync_create_dir_all(FIXTURE_DIR).expect("create fixture directory");
+    write_golden_v1_fixtures(std::path::Path::new(FIXTURE_DIR));
+}
+
+/// Writes the canonical v1 golden fixture set into `fixture_dir`.
+fn write_golden_v1_fixtures(fixture_dir: &std::path::Path) {
+    mudu_sys::fs::sync::sync_create_dir_all(fixture_dir).expect("create fixture directory");
+    let fixture_path = |name: &str| fixture_dir.join(name);
 
     let mut page = [0u8; PAGE_HEADER_SIZE];
     let mut header = PageHeader::new(PageId::new(42));
@@ -180,4 +186,24 @@ fn generate_golden_v1_fixtures() {
         lenient_sidecar_json(&vectors),
     )
     .unwrap();
+}
+
+/// Regenerating the fixtures into a scratch directory must reproduce the
+/// committed bytes exactly: the golden files are deterministic and never
+/// drift.
+#[test]
+fn golden_v1_fixtures_regenerate_byte_identically() {
+    let dir = mudu_sys::env_var::temp_dir()
+        .join(format!("golden-v1-regen-{}", mudu_sys::random::uuid_v4()));
+    write_golden_v1_fixtures(&dir);
+    let mut checked = 0;
+    for generated_path in mudu_sys::fs::sync::read_dir(&dir).unwrap() {
+        let name = generated_path.file_name().unwrap().to_str().unwrap();
+        let generated = mudu_sys::fs::sync::read(&generated_path).unwrap();
+        let committed = mudu_sys::fs::sync::read(fixture_path(name)).unwrap();
+        assert_eq!(generated, committed, "golden fixture {name} drifted");
+        checked += 1;
+    }
+    assert!(checked >= 6, "expected the full fixture set, got {checked}");
+    let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
 }

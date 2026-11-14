@@ -56,12 +56,9 @@ NO_DEPENDENCIES = {"mudu"}
 
 # Known, documented exceptions. Keep this minimal: every entry must carry a
 # reason and should be removed once the underlying edge is refactored away.
-ALLOWED_EDGES = {
-    # `testing` (db-kernel) shells out to the compiled `mudu_cli` binary to
-    # drive interactive sessions in integration tests. This is a dev-only,
-    # process-level dependency, not a library dependency.
-    ("testing", "mudu_cli"),
-}
+# Currently empty: the last exception (`testing` -> `mudu_cli`) was removed
+# when the TUI table rendering moved to `crates/common/mudu_tui`.
+ALLOWED_EDGES = set()
 
 # Fine-grained layering of the extracted kernel crates. Lower rank = lower
 # layer. A kernel crate may depend only on kernel crates of equal or lower
@@ -70,6 +67,7 @@ ALLOWED_EDGES = {
 # ARCHITECTURE.md.
 KERNEL_RANKS = {
     "catalog": 0,
+    "page_buffer": 0,
     # Test-fixture crate sitting directly on `catalog`; consumed only through
     # dev-dependencies (in-memory meta-mgr fixture).
     "catalog-testing": 1,

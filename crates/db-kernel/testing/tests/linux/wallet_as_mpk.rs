@@ -201,7 +201,7 @@ impl TestContext {
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         // The management thread binds its listener before actix is accepting,
         // so the port-ready check above can race with the first request. Poll
         // a lightweight HTTP endpoint until it responds to avoid transient

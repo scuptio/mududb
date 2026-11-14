@@ -1,3 +1,4 @@
+mod append_plan;
 mod backend;
 mod batching;
 mod file_cache;

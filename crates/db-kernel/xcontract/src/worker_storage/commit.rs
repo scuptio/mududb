@@ -180,12 +180,13 @@ impl WorkerStorage {
                     TxOp::Write(XLWrite::Insert(insert))
                         if insert.table_id == 0 && insert.partition_id == 0 =>
                     {
-                        self.worker_put_local(insert.key, insert.value, entry.xid)?;
+                        self.worker_put_local(insert.key, insert.value, entry.xid)
+                            .await?;
                     }
                     TxOp::Write(XLWrite::Delete(delete))
                         if delete.table_id == 0 && delete.partition_id == 0 =>
                     {
-                        self.worker_delete_local(delete.key, entry.xid)?;
+                        self.worker_delete_local(delete.key, entry.xid).await?;
                     }
                     TxOp::Write(XLWrite::Insert(insert)) => {
                         self.apply_relation_replay_insert_async(insert, entry.xid)
@@ -222,7 +223,8 @@ impl WorkerStorage {
     ) -> RS<PreparedWorkerCommit> {
         self.ensure_no_relation_conflicts_async(snapshot, xid, &relation_rows, conflict_skip)
             .await?;
-        self.ensure_no_kv_conflicts(snapshot, xid, &kv_rows)?;
+        self.ensure_no_kv_conflicts(snapshot, xid, &kv_rows, conflict_skip)
+            .await?;
 
         Ok(PreparedWorkerCommit {
             xid,
@@ -269,17 +271,37 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn ensure_no_kv_conflicts(
+    async fn ensure_no_kv_conflicts(
         &self,
         snapshot: &WorkerSnapshot,
         xid: u64,
         kv_rows: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+        conflict_skip: &BTreeSet<(PhysicalRelationId, Vec<u8>)>,
     ) -> RS<()> {
         for key in kv_rows.keys() {
-            let conflict = self
+            // A queue watermark is read only after its pessimistic lock is
+            // held. Its latest committed value supersedes the begin snapshot.
+            if crate::queue_state::legacy_state_oid(key).is_some()
+                && conflict_skip.contains(&(
+                    PhysicalRelationId {
+                        table_id: 0,
+                        partition_id: 0,
+                    },
+                    key.clone(),
+                ))
+            {
+                continue;
+            }
+            let row = self
                 .kv_store
-                .get_sync(key)
-                .and_then(|entry| latest_version(entry.get()))
+                .get_async(key)
+                .await
+                .map(|entry| entry.get().clone());
+            let latest = match row {
+                Some(row) => latest_version(&row).await,
+                None => None,
+            };
+            let conflict = latest
                 .map(|latest| !snapshot.is_visible(latest.timestamp().c_min()))
                 .unwrap_or(false);
             if conflict {
@@ -369,25 +391,6 @@ fn new_value_version(xid: u64, value: Vec<u8>) -> VersionTuple {
     VersionTuple::new(Timestamp::new(xid, u64::MAX), value)
 }
 
-pub(super) fn write_version_to_kv_store(
-    kv_store: &SccHashMap<Vec<u8>, DataRow>,
-    key: Vec<u8>,
-    value: Option<Vec<u8>>,
-    xid: u64,
-) -> RS<()> {
-    let row = kv_store
-        .get_sync(&key)
-        .map(|entry| entry.get().clone())
-        .unwrap_or_else(|| DataRow::new(0));
-    let version = match value {
-        Some(value) => new_value_version(xid, value),
-        None => VersionTuple::new_delete(Timestamp::new(xid, u64::MAX)),
-    };
-    row.write_sync(version, None)?;
-    let _ = kv_store.insert_sync(key, row);
-    Ok(())
-}
-
 pub(super) async fn write_version_to_kv_store_async(
     kv_store: &SccHashMap<Vec<u8>, DataRow>,
     key: Vec<u8>,
@@ -396,7 +399,8 @@ pub(super) async fn write_version_to_kv_store_async(
 ) -> RS<()> {
     scoped_task_trace!();
     let row = kv_store
-        .get_sync(&key)
+        .get_async(&key)
+        .await
         .map(|entry| entry.get().clone())
         .unwrap_or_else(|| DataRow::new(0));
     let version = match value {
@@ -404,10 +408,10 @@ pub(super) async fn write_version_to_kv_store_async(
         None => VersionTuple::new_delete(Timestamp::new(xid, u64::MAX)),
     };
     row.write(version, None).await?;
-    let _ = kv_store.insert_sync(key, row);
+    let _ = kv_store.insert_async(key, row).await;
     Ok(())
 }
 
-pub(super) fn latest_version(row: &DataRow) -> Option<VersionTuple> {
-    row.read_latest_sync().ok().flatten()
+pub(super) async fn latest_version(row: &DataRow) -> Option<VersionTuple> {
+    row.read_latest().await.ok().flatten()
 }

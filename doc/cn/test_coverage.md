@@ -8,7 +8,7 @@ MuduDB 使用 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) 生�
 
 - **line coverage**：语句/行覆盖。
 - **function coverage**：函数覆盖。
-- **branch coverage**：分支覆盖（nightly 不稳定特性，默认开启，可关闭）。
+- **branch coverage**：分支覆盖（nightly 不稳定特性，**默认关闭**——pinned nightly 的 LLVM 在报告阶段处理 branch 数据可能 SIGSEGV，可用 `--branch` 显式开启）。
 
 ## 2. 前置条件
 
@@ -23,42 +23,55 @@ MuduDB 使用 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) 生�
 ## 3. 一键运行覆盖率
 
 ```bash
-script/coverage/run_coverage.sh
+cargo make coverage
+```
+
+该命令委托给跨平台 Python 脚本（支持 Linux / macOS / Windows）；直接调用脚本等价：
+
+```bash
+python3 script/coverage/run_coverage.py
 ```
 
 默认行为：
 
-- 覆盖范围：`core` profile，即 `mudu`、`mudu_type`、`mudu_contract`、`mudu_kernel` 四个核心 crate。
+- 覆盖范围：**全部五个 group workspace**（`crates/common`、`crates/db-kernel`、`crates/sdk`、`example/mpk`、`crates/tools`）的 unit test，**外加 `testing` crate 的端到端测试**。
+- 报告：所有数据合并为**一份**报告（见下文"合并原理"）。
 - 输出格式：`all`（同时生成 HTML、JSON、lcov）。
-- 输出目录：`target/llvm-cov`。
-- branch coverage：**开启**（`--branch`）。
-- 测试线程：固定为 `--test-threads=1`，避免并发导致的不确定性。
+- 输出目录：`target/llvm-cov`（`html/index.html`、`coverage.json`、`coverage.lcov`）。
+- branch coverage：**关闭**（`--branch` 显式开启；不稳定，见 §8.2）。
+- unit test 固定 `--test-threads=1` 串行；e2e 保持默认并行（与 `cargo make test` 一致）。
 
-> `workspace` profile 默认关闭 branch coverage（`--no-branch`），因为当前 pinned nightly 下包含 `mudu_kernel` 的合并报告会触发 LLVM SIGSEGV。如需强制开启，可显式加 `--branch`。
+### 合并原理
+
+所有 group workspace 共享仓库根的 `target/` 目录，所有 profraw 都平铺落在 `target/llvm-cov-target/`。报告阶段用 pinned nightly 自带的 `llvm-profdata` 合并全部 profraw，再以"实际跑过的测试二进制"为 objects 用 `llvm-cov show/export` 生成单一报告（`cargo llvm-cov report` 本身无法跨 workspace 合并）。
+
+### e2e 覆盖率
+
+`testing` crate 的集成测试在**进程内**启动完整 server，因此 e2e 覆盖无需特殊处理：测试二进制的 profraw 照常落盘。e2e 阶段前脚本会尽力构建 `wallet.mpk`（缺失时相关测试软跳过）；e2e 结束后会把 `crates/db-kernel/testing/mpk/` 下已提交的夹具恢复为运行前的字节，因此 coverage 运行不会弄脏工作区（确需刷新夹具时走 `cargo make copy-wallet-mpk` 单独提交）。用 `--no-e2e` 可完全跳过 e2e；用 `--e2e-filter <子串>` 可做快速冒烟。
 
 ### 3.1 常用选项
 
 ```bash
-# 关闭 branch coverage
-script/coverage/run_coverage.sh --no-branch
+# 只跑 unit test（快得多）
+python3 script/coverage/run_coverage.py --no-e2e
 
-# 全 workspace，仅 HTML（默认 line coverage）
-script/coverage/run_coverage.sh -p workspace -f html
+# 只跑名字匹配子串的 e2e 测试（冒烟）
+python3 script/coverage/run_coverage.py --e2e-filter string_literal
 
-# 全 workspace，强制 branch coverage（可能崩溃）
-script/coverage/run_coverage.sh -p workspace --branch
+# 仅 HTML
+python3 script/coverage/run_coverage.py -f html
 
-# 核心 crate，仅 JSON 摘要
-script/coverage/run_coverage.sh -p core -f json
+# 强制开启 branch coverage（不稳定，可能崩溃）
+python3 script/coverage/run_coverage.py --branch
 
 # 自定义输出目录
-script/coverage/run_coverage.sh -o /tmp/mudu-cov
+python3 script/coverage/run_coverage.py -o /tmp/mudu-cov
 ```
 
 完整选项见：
 
 ```bash
-script/coverage/run_coverage.sh --help
+python3 script/coverage/run_coverage.py --help
 ```
 
 ## 4. 查看报告
@@ -95,63 +108,35 @@ PY
 
 ## 5. 手动命令
 
-如果你希望更精细地控制，可以使用 `cargo llvm-cov` 直接运行。
-
-### 5.1 基本流程
-
-`cargo llvm-cov` 不能在一次命令中多次使用 `--output-path`，因此多格式报告需要分两步：先用 `--no-report` 跑测试收集数据，再用 `cargo llvm-cov report` 生成具体格式。
+如需更精细的控制，可按脚本的流水线手动执行：
 
 ```bash
-export NIGHTLY_TOOLCHAIN="nightly-2026-06-17"
-export CARGO_INCREMENTAL=0
+NIGHTLY=nightly-2026-06-17
+LLVM_BIN="$(rustc +"${NIGHTLY}" --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
 
-# 第一步：收集覆盖率数据
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu \
-  --package mudu_type \
-  --package mudu_contract \
-  --package mudu_kernel \
-  --lib --tests \
-  --no-report \
-  --branch \
-  -- \
-  --test-threads=1
+# 1. 逐 group workspace 收集（unit 阶段排除 testing crate）
+(cd crates/common    && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/sdk       && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/tools     && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/db-kernel && cargo +"${NIGHTLY}" llvm-cov --workspace --exclude testing --lib --tests --no-report -- --test-threads=1)
+(cd crates/db-kernel && cargo +"${NIGHTLY}" llvm-cov --package testing --lib --tests --no-report)  # e2e 阶段
 
-# 第二步：生成报告
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-  --branch \
-  --html --output-dir ./target/llvm-cov/html \
-  --json --output-path ./target/llvm-cov/coverage.json \
-  --lcov --output-path ./target/llvm-cov/coverage.lcov
+# 2. 合并全部 profraw（都平铺在 target/llvm-cov-target/）
+"${LLVM_BIN}/llvm-profdata" merge -sparse target/llvm-cov-target/*.profraw -o target/llvm-cov/merged.profdata
+
+# 3. 以实际跑过的测试二进制为 objects 生成一份报告
+"${LLVM_BIN}/llvm-cov" show   --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=html --output-dir=target/llvm-cov/html
+"${LLVM_BIN}/llvm-cov" export --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=text > target/llvm-cov/coverage.json
+"${LLVM_BIN}/llvm-cov" export --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=lcov > target/llvm-cov/coverage.lcov
 ```
 
-### 5.2 关闭 branch coverage
-
-去掉所有 `--branch` 即可。此时报告中的 branch 列会显示为 `0/0`。
-
-### 5.3 只生成单一格式
-
-```bash
-# 仅 HTML
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu --package mudu_type --package mudu_contract --package mudu_kernel \
-  --lib --tests --branch \
-  --html --output-dir ./target/llvm-cov/html \
-  -- --test-threads=1
-
-# 仅 JSON
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu --package mudu_type --package mudu_contract --package mudu_kernel \
-  --lib --tests --branch \
-  --json --output-path ./target/llvm-cov/coverage.json \
-  -- --test-threads=1
-```
+精确的 objects 清单来自用 `cargo +"${NIGHTLY}" llvm-cov show-env --export-prefix` 打印的环境变量（外加 `CARGO_TARGET_DIR=target/llvm-cov-target`）执行的 `cargo test --no-run --message-format=json`；完整细节见 `script/coverage/run_coverage.py`。
 
 ## 6. CI 中的覆盖率
 
 `.github/workflows/nightly-checks.yaml` 中包含 `coverage` job：
 
-- 每晚自动对 `core` profile 跑覆盖率。
+- 每晚自动跑合并后的 unit test 覆盖率（e2e 仅限本地：`--no-e2e`）。
 - 生成 HTML / JSON / lcov 并上传为 artifact（保留 30 天）。
 - 在 job summary 中输出覆盖率摘要。
 
@@ -180,12 +165,12 @@ mod my_feature_test;
 
 `--branch` 需要在**测试收集阶段**和**报告生成阶段**都指定。如果只在测试阶段加 `--branch`、而 `report` 阶段未加，branch 列会显示 `0/0`。脚本和 CI 已自动处理，手动执行时请检查两阶段命令。
 
-### 8.2 运行 `core` profile 时 `llvm-cov export` 崩溃
+### 8.2 报告生成崩溃（SIGSEGV）
 
-当前 pinned nightly 下，`mudu_kernel` 的 branch coverage 数据可能触发 LLVM bug，导致 `llvm-cov export` SIGSEGV。此时请关闭 branch coverage：
+当前 pinned nightly 下，kernel crate 的 branch coverage 数据可能触发 LLVM bug，导致报告生成阶段 SIGSEGV（`getInstantiationGroups`）。因此 branch coverage **默认关闭**；如确有需要再用 `--branch` 显式开启：
 
 ```bash
-script/coverage/run_coverage.sh --no-branch
+python3 script/coverage/run_coverage.py --branch
 ```
 
 `mudu`、`mudu_type`、`mudu_contract` 单独或合并使用 `--branch` 均正常。
@@ -197,7 +182,7 @@ script/coverage/run_coverage.sh --no-branch
 ```bash
 rm -rf ~/.rustup/downloads/*.partial
 rustup toolchain uninstall nightly-2026-06-17 2>/dev/null || true
-script/coverage/run_coverage.sh
+python3 script/coverage/run_coverage.py
 ```
 
 ### 8.4 首次运行较慢
@@ -206,6 +191,7 @@ script/coverage/run_coverage.sh
 
 ## 9. 相关文件
 
-- `script/coverage/run_coverage.sh`：本地覆盖率入口脚本。
+- `script/coverage/run_coverage.py`：本地覆盖率入口脚本（跨平台 Python，也可通过 `cargo make coverage` 调用）。
+- `script/coverage/install_deps.py`：覆盖率工具链依赖安装脚本（由 run_coverage.py 自动调用）。
 - `.github/workflows/nightly-checks.yaml`：CI 覆盖率 job。
 - `.github/scripts/summarize_coverage.py`：覆盖率摘要脚本。

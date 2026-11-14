@@ -13,7 +13,7 @@
 //!         Ok(RaftIn::Stop)               => break + persist,
 //!     }
 //!     persist(fx.writes) -> wait durable; transport.send(fx.messages);
-//!     complete waiters + watchers with fx.committed;
+//!     publish status; complete waiters + watchers with fx.committed;
 //!     (snapshot/compact requests are answered only after persistence)
 //! }
 //! ```
@@ -48,6 +48,10 @@ use crate::entry::ReplEntry;
 use crate::store::RaftStore;
 use crate::transport::RaftTransport;
 use crate::{NodeStatus, ProposeError, ProposeResult, UpdateConfError, UpdateConfResult};
+
+#[cfg(test)]
+#[path = "node_tests.rs"]
+mod tests;
 
 /// Input message of a raft node's event loop.
 pub enum RaftIn {
@@ -393,7 +397,7 @@ impl RaftNode {
     }
 
     /// Persists writes (waiting for durability), sends messages, then
-    /// delivers committed entries and status updates.
+    /// publishes status before delivering committed entries.
     fn flush_effects(&mut self, mut fx: Effects) -> RS<()> {
         if !fx.writes.is_empty() {
             let persist_tx = self.persist_tx.as_ref().ok_or_else(|| {
@@ -417,6 +421,10 @@ impl RaftNode {
                 );
             }
         }
+        // Publish the durable state before waking any proposal waiter or
+        // commit watcher: callers may immediately read status after a
+        // notification and must not observe the previous commit index.
+        self.update_status()?;
         for (index, entry) in std::mem::take(&mut fx.committed) {
             if let Some((term, resp)) = self.pending.remove(&index) {
                 let _ = resp.send(Ok((index, term)));
@@ -424,7 +432,6 @@ impl RaftNode {
             self.commit_watchers
                 .retain(|tx| tx.send((index, entry.clone())).is_ok());
         }
-        self.update_status()?;
         Ok(())
     }
 

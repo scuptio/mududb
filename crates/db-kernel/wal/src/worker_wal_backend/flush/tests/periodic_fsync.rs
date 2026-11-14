@@ -351,3 +351,55 @@ fn periodic_queued_batch_flushes_immediately() {
     })
     .unwrap();
 }
+
+#[test]
+fn start_periodic_fsync_task_fills_slot_and_poll_completes_it() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let backend = make_backend_with_queue_batching_and_sync_policy(
+            vec![force_queued_batch(0)],
+            WorkerLogBatching::default(),
+            WalSyncPolicy::Periodic {
+                interval: Duration::from_secs(3600),
+            },
+        );
+        backend.run_flush_log().await.unwrap();
+        assert_eq!(backend.inner.unsynced_paths.lock().unwrap().len(), 1);
+
+        // Not due (fresh last_fsync): no task starts.
+        backend.start_periodic_fsync_task(false).unwrap();
+        assert!(backend.fsync_task.lock().unwrap().is_none());
+
+        // Forced: the task starts; a second start is a no-op while active.
+        backend.start_periodic_fsync_task(true).unwrap();
+        assert!(backend.fsync_task.lock().unwrap().is_some());
+        backend.start_periodic_fsync_task(true).unwrap();
+
+        // Poll the slot until the fsync task reports Ready: the slot clears
+        // and the dirty set drains.
+        for _ in 0..1000 {
+            if backend.fsync_task.lock().unwrap().is_none() {
+                break;
+            }
+            assert!(backend.poll_fsync_task().unwrap());
+            mudu_sys::task::async_::sleep(Duration::from_millis(1))
+                .await
+                .unwrap();
+        }
+        assert!(backend.fsync_task.lock().unwrap().is_none());
+        assert!(backend.inner.unsynced_paths.lock().unwrap().is_empty());
+    })
+    .unwrap();
+}
+
+#[test]
+fn start_periodic_fsync_task_is_noop_in_commit_mode() {
+    let backend = make_backend_with_queue(vec![]);
+    backend
+        .inner
+        .unsynced_paths
+        .lock()
+        .unwrap()
+        .insert(PathBuf::from("/tmp/dirty.xl"));
+    backend.start_periodic_fsync_task(true).unwrap();
+    assert!(backend.fsync_task.lock().unwrap().is_none());
+}

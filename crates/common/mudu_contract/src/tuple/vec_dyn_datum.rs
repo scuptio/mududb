@@ -1,4 +1,4 @@
-//! [`EnumerableDatum`] implementation for slices of datum trait objects.
+//! [`crate::tuple::enumerable_datum::EnumerableDatum`] implementation for slices of datum trait objects.
 
 use crate::tuple::datum_desc::DatumDesc;
 use crate::tuple::enumerable_datum::EnumerableDatum;

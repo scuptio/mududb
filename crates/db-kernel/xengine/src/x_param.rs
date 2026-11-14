@@ -77,6 +77,89 @@ pub struct PDropTable {
     pub oid: Option<OID>,
 }
 
+/// Parameters of a create-queue command.
+#[derive(Clone)]
+pub struct PCreateQueue {
+    /// Transaction the command runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// Schema of the queue to create; carries the queue kind and the queue
+    /// system columns ahead of the payload columns.
+    pub schema: SchemaTable,
+    /// Sharding binding of the queue, when it is partitioned.
+    pub partition_binding: Option<TablePartitionBinding>,
+}
+
+/// Parameters of a drop-queue command.
+#[derive(Clone)]
+pub struct PDropQueue {
+    /// Transaction the command runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// OID of the queue to drop.
+    pub oid: OID,
+}
+
+/// Parameters of a queue `RECEIVE` statement.
+#[derive(Clone)]
+pub struct PReceiveQueue {
+    /// Transaction the receive runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// OID of the queue to receive from.
+    pub table_id: OID,
+    /// Maximum number of messages to claim (at least 1).
+    pub count: u64,
+    /// The WAIT clause of the statement: `None` returns immediately with
+    /// whatever messages are available; `Some` parks on the queue wait
+    /// registry between short claim transactions until the batch fills up or
+    /// the wait expires (autocommit only, enforced by the worker SQL layer).
+    pub wait: Option<::catalog::contract::queue::QueueWait>,
+    /// The named consumer cursor (`FOR <consumer>`) this receive reads from;
+    /// `None` means the default competing cursor. A named cursor receive is
+    /// a read-only scan past the cursor frontier: it claims nothing.
+    pub consumer: Option<String>,
+    /// Descriptor of the returned envelope rows (`__seq`, `__lsn`, then the
+    /// payload columns).
+    pub tuple_desc: mudu_contract::tuple::tuple_field_desc::TupleFieldDesc,
+}
+
+/// Parameters of a queue `ACK` statement.
+#[derive(Clone)]
+pub struct PAckQueue {
+    /// Transaction the ack runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// OID of the queue to acknowledge.
+    pub table_id: OID,
+    /// Acknowledged sequence number: claimed messages with `__seq <= seq`
+    /// are deleted (or moved to the dead-letter queue when poison).
+    pub seq: u64,
+    /// The named consumer cursor (`FOR <consumer>`) this ack advances;
+    /// `None` means the default competing cursor. A named cursor ack moves
+    /// the cursor frontier forward and garbage-collects the queue prefix
+    /// every consumer of the queue has acknowledged.
+    pub consumer: Option<String>,
+}
+
+/// Parameters of a create-consumer command (`CREATE CONSUMER cg ON q`).
+#[derive(Clone)]
+pub struct PCreateConsumer {
+    /// Transaction the command runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// OID of the queue the consumer cursor is registered on.
+    pub table_id: OID,
+    /// Name of the consumer cursor to register.
+    pub consumer: String,
+}
+
+/// Parameters of a drop-consumer command (`DROP CONSUMER cg ON q`).
+#[derive(Clone)]
+pub struct PDropConsumer {
+    /// Transaction the command runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// OID of the queue the consumer cursor is registered on.
+    pub table_id: OID,
+    /// Name of the consumer cursor to remove.
+    pub consumer: String,
+}
+
 /// Parameters of a create-filesystem-type command.
 #[derive(Clone)]
 pub struct PCreateFsType {

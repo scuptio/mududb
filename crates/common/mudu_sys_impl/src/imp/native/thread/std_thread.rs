@@ -1,4 +1,5 @@
-use crate::imp::native::thread::context::ThreadTaskContextGuard;
+use crate::imp::native::thread::context::{try_this_thread_task_id, ThreadTaskContextGuard};
+use crate::imp::task::id::TaskID;
 use crate::imp::task::SJoinHandle;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -55,10 +56,39 @@ impl Thread {
     {
         let name = name.into();
         let task_name = name.clone();
+        let parent = try_this_thread_task_id();
         std::thread::Builder::new()
             .name(name)
             .spawn(move || {
-                let _task_ctx = ThreadTaskContextGuard::enter(task_name);
+                let _task_ctx = ThreadTaskContextGuard::enter(task_name, parent);
+                f()
+            })
+            .map(ThreadJoinHandle::new)
+            .map_err(|e| mudu_error!(ErrorCode::Thread, "spawn thread error", e))
+    }
+
+    /// Spawns a named thread running `f`, prescribing the thread's task id
+    /// instead of generating a random one.
+    ///
+    /// Used to align a thread's tracing identity with an identity allocated
+    /// elsewhere (e.g. a worker id doubling as its channel endpoint id). The
+    /// caller owns the id's uniqueness in the task context registry.
+    pub fn spawn_named_with_id<F, T>(
+        name: impl Into<String>,
+        id: TaskID,
+        f: F,
+    ) -> RS<ThreadJoinHandle<T>>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let name = name.into();
+        let task_name = name.clone();
+        let parent = try_this_thread_task_id();
+        std::thread::Builder::new()
+            .name(name)
+            .spawn(move || {
+                let _task_ctx = ThreadTaskContextGuard::enter_with_id(task_name, id, parent);
                 f()
             })
             .map(ThreadJoinHandle::new)
@@ -88,4 +118,18 @@ where
     T: Send + 'static,
 {
     Thread::spawn_named(name, f).map(SJoinHandle::new)
+}
+
+/// Spawns a named thread with a caller-prescribed task id and returns a
+/// join handle for its result. See [`Thread::spawn_named_with_id`].
+pub fn spawn_thread_named_with_id<F, T>(
+    name: impl Into<String>,
+    id: TaskID,
+    f: F,
+) -> RS<SJoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    Thread::spawn_named_with_id(name, id, f).map(SJoinHandle::new)
 }

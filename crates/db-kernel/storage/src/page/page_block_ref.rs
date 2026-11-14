@@ -1,5 +1,7 @@
 //! Read-only view over a slotted-page buffer.
 
+use super::layout_math;
+
 use crate::page::page_header::{
     PageHeader, NONE_PAGE_ID, PAGE_HEADER_MAGIC, PAGE_HEADER_OFF_FIRST_FREE_OFFSET,
     PAGE_HEADER_OFF_FREE_BYTES, PAGE_HEADER_OFF_LSN, PAGE_HEADER_OFF_MAGIC,
@@ -45,11 +47,6 @@ pub const DEFAULT_PAGE_SIZE: usize = 4096;
 pub(crate) const PAGE_SIZE: usize = DEFAULT_PAGE_SIZE;
 
 pub(crate) const RECORD_ALIGN: usize = 8;
-
-pub(crate) fn align_up(value: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
-    (value + (align - 1)) & !(align - 1)
-}
 
 /// Ensures a complete page binary is in the current page format version.
 ///
@@ -97,7 +94,7 @@ impl<'a> PageBlockRef<'a> {
     /// Creates a page view from an already-current page buffer.
     ///
     /// The caller is responsible for ensuring the page is in the latest format
-    /// version.  Use [`Self::try_new`] when reading pages from disk or any other
+    /// version.  Use `Self::try_new` when reading pages from disk or any other
     /// source that may contain an older format version.
     pub fn new(page: &'a [u8]) -> Self {
         Self {
@@ -229,7 +226,9 @@ impl<'a> PageBlockRef<'a> {
     }
 
     pub(crate) fn slot_count(&self) -> RS<usize> {
-        Ok(self.header_record_count()? as usize)
+        let count = self.header_record_count()? as usize;
+        self.slot_region_start_for_count(count)?;
+        Ok(count)
     }
 
     /// Returns the slot at `sorted_index` in ascending key order.
@@ -266,13 +265,13 @@ impl<'a> PageBlockRef<'a> {
         let offset = slot.offset() as usize;
         let size = slot.size() as usize;
         let slot_start = self.slot_array_low_bound()?;
-        if offset < PAGE_HEADER_SIZE || offset + size > slot_start {
+        if layout_math::record_end(PAGE_HEADER_SIZE, slot_start, offset, size).is_none() {
             return Err(mudu_error!(
                 ErrorCode::Decode,
                 format!(
                     "record range [{}, {}) overlaps page metadata or slot array",
                     offset,
-                    offset + size
+                    offset.saturating_add(size)
                 )
             ));
         }
@@ -360,7 +359,7 @@ impl<'a> PageBlockRef<'a> {
 
         let count = header.record_count() as usize;
         let first_free = header.first_free_offset() as usize;
-        let slot_start = self.slot_region_start_for_count(count);
+        let slot_start = self.slot_region_start_for_count(count)?;
         if first_free < PAGE_HEADER_SIZE || first_free > slot_start {
             return Err(mudu_error!(
                 ErrorCode::Decode,
@@ -406,7 +405,7 @@ impl<'a> PageBlockRef<'a> {
                     )
                 ));
             }
-            if offset < PAGE_HEADER_SIZE || offset + size > slot_start {
+            if layout_math::record_end(PAGE_HEADER_SIZE, slot_start, offset, size).is_none() {
                 return Err(mudu_error!(
                     ErrorCode::Decode,
                     format!("slot {} points outside the data region", idx)
@@ -483,12 +482,13 @@ impl<'a> PageBlockRef<'a> {
         PAGE_SIZE - PAGE_TAILER_SIZE
     }
 
-    fn slot_region_start_for_count(&self, count: usize) -> usize {
-        self.tailer_offset() - (count * RECORD_SLOT_SIZE)
+    fn slot_region_start_for_count(&self, count: usize) -> RS<usize> {
+        layout_math::slot_start(self.tailer_offset(), PAGE_HEADER_SIZE, count)
+            .ok_or_else(|| mudu_error!(ErrorCode::Decode, "slot array overlaps page header"))
     }
 
     fn slot_array_low_bound(&self) -> RS<usize> {
-        Ok(self.slot_region_start_for_count(self.slot_count()?))
+        self.slot_region_start_for_count(self.slot_count()?)
     }
 
     fn slot_offset(&self, sorted_index: usize) -> RS<usize> {

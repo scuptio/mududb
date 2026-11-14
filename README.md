@@ -10,11 +10,11 @@
 
 MuduDB is an open-source relational database with a built-in application runtime.
 
-Build data-centric, real-time applications in C, C#, Go, JavaScript, Python, or Rust, package them as MuduDB Apps, and deploy them directly into the database. 
+Build data-centric, real-time applications in C, C#, Go, AssemblyScript, Python, or Rust, package them as MuduDB Apps, and deploy them directly into the database.
 
 Your application logic runs right next to the data, reducing data movement, simplifying system architecture, and enabling low-latency execution.
 
-Application Server + Database. All in One. 
+Application Server + Database. All in One.
 
 Run your application where your data lives.
 
@@ -26,6 +26,7 @@ Run your application where your data lives.
 | Write or call a procedure | [Core concepts](doc/en/concepts.md) → [Procedure development](doc/en/procedure.md) |
 | Choose or publish an SDK | [Languages and execution modes](doc/dev/sdk_distribution.md#language-and-execution-modes) · [Manual publishing](doc/dev/sdk_distribution.md#manual-github-action) |
 | Change the database implementation | [Code architecture](ARCHITECTURE.md) · [Contributor conventions](AGENTS.md) |
+| Verify buffer correctness | [Aeneas + Lean: install, verify and troubleshoot](verification/README.md) |
 
 ## Execution model
 
@@ -63,7 +64,7 @@ Build or check one workspace at a time from its directory:
 cd crates/db-kernel && cargo build --release
 ```
 
-`script/shell/check_all.sh` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --no-run --workspace` across all workspaces sequentially.
+`script/ci/check_all.py` (`cargo make check`) runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --no-run --workspace` across all workspaces sequentially.
 
 ## Documentation
 

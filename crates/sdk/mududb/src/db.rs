@@ -90,3 +90,34 @@ impl Database {
         sync_api::mudu_batch(self.id, sql, params)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    /// A non-numeric URI is rejected before any syscall is made, so this
+    /// test needs no transport.
+    #[test]
+    fn open_uri_rejects_non_numeric_worker_id() {
+        for bad in ["not-a-number", "-1", "1.5", "0x10", "  "] {
+            let err = match Database::open_uri(bad) {
+                Ok(_) => panic!("open_uri({bad:?}) must fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Parse, "open_uri({bad:?})");
+        }
+    }
+
+    /// A decimal string beyond u128 range overflows the parse and is
+    /// rejected with the same `ErrorCode::Parse`.
+    #[test]
+    fn open_uri_rejects_out_of_range_worker_id() {
+        let bad = "340282366920938463463374607431768211456"; // u128::MAX + 1
+        let err = match Database::open_uri(bad) {
+            Ok(_) => panic!("open_uri({bad:?}) must fail"),
+            Err(err) => err,
+        };
+        assert_eq!(err.ec(), ErrorCode::Parse);
+    }
+}

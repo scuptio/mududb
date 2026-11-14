@@ -1,37 +1,95 @@
-//! Helpers for length-prefixed buffers.
+//! Checked, big-endian length-prefixed buffers.
 
-use crate::common::endian::{read_u32, write_u32};
+/// A length-prefixed buffer cannot represent or contain the requested data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SizedBufError {
+    /// The payload plus its four-byte header exceeds `u32::MAX`.
+    LengthOverflow,
+    /// The input does not contain a complete four-byte header.
+    HeaderTooShort {
+        /// Number of input bytes.
+        available: usize,
+    },
+    /// The input or output cannot contain the complete frame.
+    BufferTooSmall {
+        /// Required total length, including the header.
+        required: u32,
+        /// Number of available bytes.
+        available: usize,
+    },
+}
 
-/// Writes `src` into `dest` prefixed with its length as a `u32`.
-///
-/// Returns the number of bytes written, or `0` if `dest` is too small.
-pub fn write_sized_buf(dest: &mut [u8], src: &[u8]) -> u32 {
-    let len_bytes = size_of::<u32>();
-    if dest.len() < len_bytes + src.len() {
-        0
-    } else {
-        write_u32(dest, src.len() as u32);
-        dest[len_bytes..len_bytes + src.len()].copy_from_slice(src);
-        src.len() as u32 + len_bytes as u32
+impl std::fmt::Display for SizedBufError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SizedBufError::LengthOverflow => {
+                write!(f, "payload length plus the 4-byte header exceeds u32::MAX")
+            }
+            SizedBufError::HeaderTooShort { available } => {
+                write!(
+                    f,
+                    "input is {available} bytes, shorter than the 4-byte length header"
+                )
+            }
+            SizedBufError::BufferTooSmall {
+                required,
+                available,
+            } => {
+                write!(
+                    f,
+                    "buffer holds {available} bytes, but the frame needs {required}"
+                )
+            }
+        }
     }
 }
 
-/// Reads a length-prefixed buffer from `buf`.
+impl std::error::Error for SizedBufError {}
+
+/// Returns the total encoded length, rejecting lengths that exceed `u32`.
+pub fn sized_buf_len(payload_len: usize) -> Result<u32, SizedBufError> {
+    if payload_len > 0xffff_fffb {
+        Err(SizedBufError::LengthOverflow)
+    } else {
+        Ok(payload_len as u32 + 4)
+    }
+}
+
+/// Writes a big-endian length header followed by `src`.
 ///
-/// On success returns `(total_consumed, payload)`. On failure returns the
-/// expected total length if it could be determined, or `None` if the input is
-/// too short to read the length prefix.
-pub fn read_sized_buf(buf: &[u8]) -> Result<(u32, &[u8]), Option<u32>> {
-    let len_bytes = size_of::<u32>();
-    if buf.len() < len_bytes {
-        return Err(None);
+/// Checks representability before capacity. On error `dest` is unchanged;
+/// on success bytes beyond the returned total length are unchanged.
+pub fn write_sized_buf(dest: &mut [u8], src: &[u8]) -> Result<u32, SizedBufError> {
+    let total = sized_buf_len(src.len())?;
+    if dest.len() < total as usize {
+        return Err(SizedBufError::BufferTooSmall {
+            required: total,
+            available: dest.len(),
+        });
     }
-    let n = read_u32(buf);
-    if buf.len() < n as usize + len_bytes {
-        return Err(Some(n));
+    let header = (src.len() as u32).to_be_bytes();
+    dest[..4].copy_from_slice(&header);
+    dest[4..total as usize].copy_from_slice(src);
+    Ok(total)
+}
+
+/// Reads a big-endian length-prefixed payload, ignoring any trailing bytes.
+///
+/// Returns `(total_consumed, payload)`. Checks the header, representability
+/// of the total length, then capacity, in that order. The payload is borrowed.
+pub fn read_sized_buf(input: &[u8]) -> Result<(u32, &[u8]), SizedBufError> {
+    if input.len() < 4 {
+        return Err(SizedBufError::HeaderTooShort {
+            available: input.len(),
+        });
     }
-    Ok((
-        n + size_of::<u32>() as u32,
-        &buf[len_bytes..len_bytes + n as usize],
-    ))
+    let n = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+    let total = sized_buf_len(n as usize)?;
+    if input.len() < total as usize {
+        return Err(SizedBufError::BufferTooSmall {
+            required: total,
+            available: input.len(),
+        });
+    }
+    Ok((total, &input[4..total as usize]))
 }

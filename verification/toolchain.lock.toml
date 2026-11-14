@@ -1,0 +1,11 @@
+# Fixed official release bundles, including the matching Charon and Lean backend.
+platform = "x86_64-unknown-linux-gnu"
+aeneas_commit = "74aabd52f77001cf9eaad51b4f4b867a7dc6b111"
+charon_commit = "260ba2c82588291b1f9efaf4f42d7100adc9c6c2"
+aeneas_version = "nightly-2026.10.24-74aabd5"
+rust = "nightly-2026-09-17"
+lean_version = "4.35.0"
+aeneas_url = "https://github.com/AeneasVerif/aeneas/releases/download/nightly-2026.10.24-74aabd5/aeneas-linux-x86_64.tar.gz"
+aeneas_sha256 = "0c2d6acf44e3e4f38a9b04ca14f909cf049bed1033a85b4591da5fd46663eeeb"
+lean_url = "https://github.com/leanprover/lean4/releases/download/v4.35.0/lean-4.35.0-linux.tar.zst"
+lean_sha256 = "7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d"

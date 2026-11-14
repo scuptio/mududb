@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "TCP server backend with a Linux-first io_uring implementation"
 
 [features]
+paged-index = ["worker/paged-index"]
 debug_trace = ["mudu_utils/debug_trace"]
 ds = ["mudu_sys/ds"]
 

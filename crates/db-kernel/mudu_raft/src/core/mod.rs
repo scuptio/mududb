@@ -64,8 +64,10 @@ mod conf_update;
 mod election;
 pub mod message;
 pub mod quorum;
+pub mod quorum_core;
 mod replication;
 pub mod role;
+pub mod vote_core;
 
 /// Effects produced by one step of the core, consumed by the node runtime.
 #[derive(Default)]

@@ -103,3 +103,21 @@ fn spawn_management_thread_starts_and_stops() {
 
     stop_tx.notify_all();
 }
+
+#[cfg_attr(miri, ignore)]
+#[test]
+fn spawn_management_thread_reports_bind_failure() {
+    // Occupy a port, then point the management thread at it: the bind error
+    // comes back through the startup channel (not a panic, not a hang).
+    let listener = mudu_sys::net::sync::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let cfg = test_cfg("127.0.0.1", port);
+    let (stop_tx, stop_rx) = notify_wait();
+    let registry = Arc::new(WorkerRegistry::new(vec![]).unwrap());
+
+    let err = spawn_management_thread(cfg, Arc::new(MockAppMgr), registry, 0, stop_rx)
+        .err()
+        .unwrap();
+    assert_ne!(err.ec(), mudu::error::ErrorCode::Parse);
+    let _ = stop_tx;
+}

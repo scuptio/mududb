@@ -25,9 +25,17 @@ impl MetaMgrImpl {
         schema: &str,
         name: &str,
     ) -> RS<Option<Arc<TableDesc>>> {
+        let table = match self.lookup_table_info_by_name(schema, name) {
+            None => return Ok(None),
+            Some(table) => table,
+        };
+        Ok(Some(table.table_desc()?))
+    }
+
+    fn lookup_table_info_by_name(&self, schema: &str, name: &str) -> Option<TableInfo> {
         let key = (schema.to_string(), name.to_string());
         let opt = self.table.get_sync(&key);
-        let table = match opt {
+        match opt {
             Some(table) => Some(table.get().clone()),
             // Search path fallback: an unqualified lookup that misses in the
             // current schema resolves against the default schema.
@@ -36,12 +44,24 @@ impl MetaMgrImpl {
                 .get_sync(&(DEFAULT_SCHEMA.to_string(), name.to_string()))
                 .map(|table| table.get().clone()),
             None => None,
-        };
-        let table_desc = match table {
+        }
+    }
+
+    /// Resolves a queue with the same search-path semantics as
+    /// [`MetaMgrImpl::lookup_table_by_name`], filtered to queue-kind schemas.
+    pub(crate) fn lookup_queue_by_name(
+        &self,
+        schema: &str,
+        name: &str,
+    ) -> RS<Option<Arc<TableDesc>>> {
+        let table = match self.lookup_table_info_by_name(schema, name) {
             None => return Ok(None),
-            Some(table) => table.table_desc()?,
+            Some(table) => table,
         };
-        Ok(Some(table_desc))
+        if !table.schema()?.is_queue() {
+            return Ok(None);
+        }
+        Ok(Some(table.table_desc()?))
     }
 
     pub(crate) fn lookup_table_exact(
@@ -67,6 +87,20 @@ impl MetaMgrImpl {
         });
         schemas.sort_by_key(|schema| schema.id());
         Ok(schemas)
+    }
+
+    pub(crate) fn list_queues_inner(&self) -> RS<Vec<SchemaTable>> {
+        let mut queues = Vec::new();
+        self.table.iter_sync(|_table_name, table_info| {
+            if let Ok(schema) = table_info.schema() {
+                if schema.is_queue() {
+                    queues.push(schema.as_ref().clone());
+                }
+            }
+            true
+        });
+        queues.sort_by_key(|schema| schema.id());
+        Ok(queues)
     }
 
     pub(crate) fn lookup_partition_rule_by_id(&self, oid: OID) -> Option<PartitionRuleDesc> {

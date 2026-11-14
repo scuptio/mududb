@@ -54,7 +54,9 @@ pub fn spawn_management_thread(
                 return;
             }
         };
-        runtime.block_on(async move {
+        // Run under a LocalSet: the management service opens relations whose
+        // thread-confined page buffers spawn local driver tasks.
+        mudu_sys::task::async_::LocalTaskSet::new().block_on(&runtime, async move {
             let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry, server_instance_id)
                 .await
             {

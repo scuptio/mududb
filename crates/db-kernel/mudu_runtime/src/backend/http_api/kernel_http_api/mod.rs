@@ -1,12 +1,15 @@
 mod apps;
 mod backup;
+mod queue_activation;
+mod queues;
 mod repl;
 mod topology;
 
 use super::{
     AsyncKernelInvokeClientFactory, HttpApi, KernelInvokeClientFactory, PartitionRouteRequest,
-    PartitionRouteResponse, ReplFollowRequest, ReplMembershipRequest, ReplMembershipResponse,
-    ReplPromoteRequest, ReplRoleResponse, ServerReplicationResponse, ServerTopology,
+    PartitionRouteResponse, QueueActivationRequest, ReplFollowRequest, ReplMembershipRequest,
+    ReplMembershipResponse, ReplPromoteRequest, ReplRoleResponse, ServerQueueActivationsResponse,
+    ServerQueuesResponse, ServerReplicationResponse, ServerTopology,
 };
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudud_cfg::MuduDBCfg;
@@ -45,7 +48,10 @@ pub struct KernelHttpApi {
 
 impl KernelHttpApi {
     /// Creates the API from the server configuration, opening the meta
-    /// manager on the configured database path.
+    /// manager on the configured database path. The meta manager is
+    /// initialized (its catalogs loaded from disk) so the endpoints see the
+    /// objects that survived a restart — without it the catalog only learns
+    /// the DDL broadcast during this process's own lifetime.
     pub async fn new(
         app_mgr: Arc<dyn AppMgr>,
         cfg: &MuduDBCfg,
@@ -55,6 +61,13 @@ impl KernelHttpApi {
         let meta_mgr = MetaMgrFactory::create(cfg.db_path.clone())
             .await
             .map_err(|e| mudu_error!(ErrorCode::Database, "create http meta manager failed", e))?;
+        meta_mgr.initialize().await.map_err(|e| {
+            mudu_error!(
+                ErrorCode::Database,
+                "initialize http meta manager failed",
+                e
+            )
+        })?;
         let raft_node_id = cfg
             .replication
             .as_ref()
@@ -212,6 +225,22 @@ impl HttpApi for KernelHttpApi {
 
     async fn server_replication(&self) -> RS<ServerReplicationResponse> {
         KernelHttpApi::server_replication(self).await
+    }
+
+    async fn server_queues(&self) -> RS<ServerQueuesResponse> {
+        KernelHttpApi::server_queues(self).await
+    }
+
+    async fn queue_activation_register(&self, request: QueueActivationRequest) -> RS<()> {
+        KernelHttpApi::queue_activation_register(self, request).await
+    }
+
+    async fn queue_activation_unregister(&self, queue: String) -> RS<()> {
+        KernelHttpApi::queue_activation_unregister(self, queue).await
+    }
+
+    async fn server_queue_activations(&self) -> RS<ServerQueueActivationsResponse> {
+        KernelHttpApi::server_queue_activations(self).await
     }
 
     async fn uninstall_app(&self, app_name: &str) -> RS<()> {

@@ -8,12 +8,12 @@ use crate::{
     raft_for, read_next_frame, record_repl_ack, register_repl_subscriber, repl_worker,
     unregister_repl_subscriber, ReplWorkerState,
 };
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::repl_cfg::ReplNodeCfg;
 use ::wal::log_frame::frame_lsn;
 use ::wal::worker_log::{scan_valid_frame_prefix, ChunkedWorkerLogBackend, WorkerLogBackend};
 use ::worker::worker::adopt_worker_listener;
 use ::worker::worker::WorkerRuntime;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -874,3 +874,7 @@ async fn gather_frames_for_heal(
     }
     Ok(by_lsn.into_values().collect())
 }
+
+#[cfg(test)]
+#[path = "source_test.rs"]
+mod tests;

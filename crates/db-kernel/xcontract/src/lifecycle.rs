@@ -119,6 +119,8 @@ impl WorkerXContract {
             storage,
             partition_router: PartitionRouter::new(meta_mgr.clone()),
             partition_rpc_registered: AtomicBool::new(false),
+            rpc_dedup: crate::rpc::RpcDedupCache::new(),
+            rpc_service: SMutex::new(None),
             log: SMutex::new(log),
             log_layout,
             active_sessions,
@@ -129,6 +131,10 @@ impl WorkerXContract {
             commit_sequencer: SMutex::new(None),
             repl_ctl: SMutex::new(None),
             repl_ack_waiter: SMutex::new(None),
+            queue_registry: Arc::new(QueueRegistry::new()),
+            queue_wait_registry: QueueWaitRegistry::new(),
+            consumer_registry: ConsumerRegistry::new(),
+            activation_registry: ActivationRegistry::new(),
         })
     }
 
@@ -209,7 +215,13 @@ impl WorkerXContract {
     }
 
     /// Open relation indexes for every table already known to the metadata
-    /// manager (existing tables after a restart).
+    /// manager (existing tables after a restart). The queue runtime counters
+    /// and the consumer cursor cache are not rebuilt here — the server
+    /// bootstrap runs before WAL recovery, so they rebuild lazily on first
+    /// queue access; the registries are only cleared so a snapshot restore
+    /// underneath does not leave stale state behind. Parked queue waiters are
+    /// woken for the same reason: their next scan runs against the reloaded
+    /// relations.
     pub async fn bootstrap_storage_async(&self) -> RS<()> {
         self.storage
             .bootstrap_existing_tables_async()
@@ -220,7 +232,11 @@ impl WorkerXContract {
                     "bootstrap worker storage from meta failed",
                     e
                 )
-            })
+            })?;
+        self.queue_registry.clear()?;
+        self.queue_wait_registry.clear()?;
+        self.consumer_registry.clear()?;
+        Ok(())
     }
 
     /// The worker's WAL backend, if the log was opened.
@@ -363,6 +379,14 @@ fn default_worker_storage_data_dir() -> String {
         .to_string()
 }
 
+impl Drop for WorkerXContract {
+    fn drop(&mut self) {
+        // Stop every queue activation driver task; the tasks re-park on their
+        // stop signal and exit without touching the dropped contract.
+        let _ = self.activation_registry.shutdown_all();
+    }
+}
+
 impl WorkerXContract {
     /// The metadata manager this worker reads table/partition metadata
     /// through.
@@ -373,6 +397,29 @@ impl WorkerXContract {
     /// The worker's storage facade.
     pub fn storage(&self) -> &Arc<WorkerStorage> {
         &self.storage
+    }
+
+    /// The worker's queue runtime registry (per-queue sequence and acked
+    /// frontier counters).
+    pub fn queue_registry(&self) -> &QueueRegistry {
+        self.queue_registry.as_ref()
+    }
+
+    /// The worker's queue WAIT registry (parked `RECEIVE ... WAIT` waiters).
+    pub fn queue_wait_registry(&self) -> &QueueWaitRegistry {
+        &self.queue_wait_registry
+    }
+
+    /// The worker's consumer cursor registry (named queue consumers, fan-out
+    /// mode).
+    pub fn consumer_registry(&self) -> &ConsumerRegistry {
+        &self.consumer_registry
+    }
+
+    /// The worker's queue activation registry (registered post-commit
+    /// activation procedures).
+    pub fn activation_registry(&self) -> &ActivationRegistry {
+        &self.activation_registry
     }
 
     /// Return the oldest xid still running on this worker, if any.

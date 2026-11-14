@@ -157,6 +157,11 @@ impl WorkerXContract {
     ) -> RS<()> {
         let xid = tx.xid();
         tx.build_write_ops();
+        // Queue notifications are resolved against the write set before the
+        // commit consumes the transaction, exactly like the local path.
+        let queue_wake_shards = self.queue_wait_wake_tables(tx.as_ref());
+        let queue_states = self.staged_shard_states(tx.as_ref()).await?;
+        let consumer_shards = self.staged_consumer_shards(tx.as_ref())?;
         let write_ops = tx.write_ops();
         acquire_commit_locks(&self.tx_lock, xid as OID, &write_ops).await?;
 
@@ -195,6 +200,19 @@ impl WorkerXContract {
         }
         self.worker_rollback_tx(tx)?;
         let last_lsn = result?;
+        // Publish the committed watermarks of the local shards (remote shards
+        // publish on their owners through `QueueWake`).
+        for (shard, next, frontier, depth, bytes) in &queue_states {
+            let owner = self
+                .resolve_partition_worker(shard.1)
+                .await?
+                .unwrap_or(self.worker_id);
+            if owner == self.worker_id {
+                self.publish_queue_state(*shard, *next, *frontier, *depth, *bytes)?;
+            }
+        }
+        self.notify_committed_queues(&consumer_shards, &queue_wake_shards, &queue_states)
+            .await?;
         if let (Some(log), Some(last_lsn)) = (self.log_cloned()?, last_lsn) {
             log.wait_group_commit_advanced(last_lsn).await?;
         }

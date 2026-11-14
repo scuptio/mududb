@@ -59,7 +59,7 @@ pub enum ReplMode {
 ///
 /// Stream mode: the primary is configured explicitly per node (`primary`);
 /// replicas stream from and redirect to it. Raft mode: the leader is
-/// elected. When `None` is attached to [`ServerCfg`], the server runs as a
+/// elected. When `None` is attached to `ServerCfg`, the server runs as a
 /// single node.
 #[derive(Debug, Clone)]
 pub struct ReplNodeCfg {
@@ -246,5 +246,95 @@ impl ReplNodeCfg {
             .iter()
             .find(|peer| peer.node_id() == node_id)
             .map(|peer| format!("{}:{}", peer.host(), peer.port()))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn node_cfg(node_id: u64, peers: Vec<ReplPeerCfg>) -> ReplNodeCfg {
+        ReplNodeCfg::new(
+            ReplMode::Stream,
+            node_id,
+            7900,
+            100,
+            30,
+            8,
+            1 << 20,
+            60,
+            None,
+            None,
+            1000,
+            peers,
+        )
+    }
+
+    #[test]
+    fn primary_resolution_two_node_and_multi_node() {
+        let peers = vec![
+            ReplPeerCfg::new(1, "10.0.0.1".to_string(), 7901),
+            ReplPeerCfg::new(2, "10.0.0.2".to_string(), 7902),
+        ];
+        // Two-node stream cluster: the non-self peer is the primary.
+        let follower = node_cfg(2, peers.clone());
+        assert_eq!(
+            follower.configured_primary_host().as_deref(),
+            Some("10.0.0.1")
+        );
+        assert_eq!(
+            follower.configured_primary_repl_addr().as_deref(),
+            Some("10.0.0.1:7901")
+        );
+        assert_eq!(follower.configured_primary_node_id(), Some(1));
+        assert_eq!(follower.peer_addr(1).as_deref(), Some("10.0.0.1:7901"));
+        assert!(follower.peer_addr(99).is_none());
+        assert!(!follower.is_primary());
+        assert!(matches!(follower.role(), ReplRole::Follower));
+
+        let leader = node_cfg(1, peers.clone());
+        assert_eq!(
+            leader.configured_primary_host().as_deref(),
+            Some("10.0.0.2")
+        );
+
+        // Multi-node raft: the smallest node id wins the static tie-break.
+        let mut three_peers = peers;
+        three_peers.push(ReplPeerCfg::new(3, "10.0.0.3".to_string(), 7903));
+        let node1 = ReplNodeCfg::new(
+            ReplMode::Raft,
+            1,
+            7901,
+            100,
+            30,
+            8,
+            1 << 20,
+            60,
+            None,
+            None,
+            1000,
+            three_peers.clone(),
+        );
+        assert!(node1.is_primary());
+        assert!(matches!(node1.role(), ReplRole::Primary));
+        assert_eq!(node1.primary_addr().as_deref(), Some("10.0.0.1:7901"));
+
+        let node3 = ReplNodeCfg::new(
+            ReplMode::Raft,
+            3,
+            7903,
+            100,
+            30,
+            8,
+            1 << 20,
+            60,
+            None,
+            None,
+            1000,
+            three_peers,
+        );
+        assert_eq!(node3.configured_primary_host().as_deref(), Some("10.0.0.1"));
+        assert!(!node3.is_primary());
     }
 }

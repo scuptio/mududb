@@ -2,10 +2,11 @@ use super::drivers::{
     recover_worker_log_tokio, run_worker_page_flush_loop, run_worker_wal_flush_loop,
     run_worker_wal_fsync_loop,
 };
-use super::message_bus::TokioWorkerMessageBus;
 use super::repl_setup::{build_stream_setup, spawn_status_cache_thread};
+use super::worker_channel::TokioWorkerChannel;
 use super::worker_loop::{run_worker_loop_tokio, TokioConnTaskState, TokioWorkerLoopArgs};
 use super::*;
+use crate::local_endpoint::{LocalEndpoint, WorkerRoute};
 
 mod repl_tasks;
 mod worker_thread;
@@ -19,6 +20,7 @@ struct WorkerBuildConfig {
     data_dir: String,
     log_chunk_size: u64,
     log_batching: WorkerLogBatching,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     procedure_runtime: Option<AsyncFuncInvokerPtr>,
     worker_identity: WorkerIdentity,
@@ -54,6 +56,7 @@ impl WorkerBuildConfig {
             log_chunk_size: server_cfg.log_chunk_size(),
             log_batching: deps.log_batching(),
             wal_sync_policy: deps.wal_sync_policy(),
+            queue_limits: deps.queue_limits(),
             procedure_runtime: deps.procedure_runtime_for_worker(worker_id),
             worker_identity,
             worker_registry: deps.worker_registry(),
@@ -75,6 +78,7 @@ impl WorkerBuildConfig {
             log_chunk_size: self.log_chunk_size,
             log_batching: self.log_batching,
             wal_sync_policy: self.wal_sync_policy,
+            queue_limits: self.queue_limits,
             procedure_runtime: self.procedure_runtime,
             registry: self.worker_registry,
             async_runtime: self.async_runtime,
@@ -363,7 +367,7 @@ fn await_worker_start_barriers(
         started?;
     }
 
-    // RPC-ready barrier: every worker must report that its message bus,
+    // RPC-ready barrier: every worker must report that its worker channel,
     // partition rpc handler and main loop are active before the backend is
     // externally considered ready.
     for _ in 0..worker_count {
@@ -402,14 +406,50 @@ pub(crate) fn sync_serve_tokio(
     }
     let mut node = NodeReplRuntime::setup(&cfg)?;
     let bus = WorkerBusFabric::new(cfg.cfg().worker_count());
+    // The management gateway: the endpoint the HTTP management handlers ask
+    // workers from. Registered before the workers spawn and unregistered
+    // (via the guard) when serve returns.
+    let _gateway_guard = {
+        let registry = cfg.deps().worker_registry();
+        let mailboxes = bus.mailboxes.clone();
+        let wakes = bus.wakes.clone();
+        let route: WorkerRoute = Arc::new(move |envelope: Envelope| {
+            match registry.worker_index_by_worker_id(*envelope.dst()) {
+                Some(index) => {
+                    let (Some(mailbox), Some(wake)) = (mailboxes.get(index), wakes.get(index))
+                    else {
+                        return Err(mudu_error!(
+                            ErrorCode::Internal,
+                            format!("mailbox target worker {} is out of range", index)
+                        ));
+                    };
+                    mailbox.push(envelope);
+                    wake.notify_one();
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
+        });
+        let gateway = LocalEndpoint::new(
+            crate::MANAGEMENT_GATEWAY_ENDPOINT_ID,
+            cfg.cfg().server_instance_id(),
+            route,
+        );
+        let (_channel, guard) = spawn_endpoint(
+            cfg.cfg().server_instance_id(),
+            crate::MANAGEMENT_GATEWAY_ENDPOINT_ID,
+            &gateway.channel_ref(),
+        )?;
+        guard
+    };
     let (started_tx, started_rx) = mpsc::channel::<RS<()>>();
     let (rpc_ready_tx, rpc_ready_rx) = mpsc::channel::<RS<()>>();
 
     let mut handles = Vec::with_capacity(cfg.cfg().worker_count());
-    for worker_id in 0..cfg.cfg().worker_count() {
+    for worker_index in 0..cfg.cfg().worker_count() {
         let plan = WorkerSpawnPlan::new(
             &mut cfg,
-            worker_id,
+            worker_index,
             &node,
             &bus,
             &stop,
@@ -418,8 +458,12 @@ pub(crate) fn sync_serve_tokio(
             &started_tx,
             &rpc_ready_tx,
         )?;
-        handles.push(mudu_sys::task::sync::spawn_thread_named(
-            format!("tokio-tcp-worker-{worker_id}"),
+        // Align the worker thread's tracing identity with its worker id,
+        // which is also its channel endpoint id.
+        let worker_oid = plan.worker_cfg.worker_identity.worker_id;
+        handles.push(mudu_sys::task::sync::spawn_thread_named_with_id(
+            format!("tokio-tcp-worker-{worker_index}"),
+            worker_oid,
             move || run_worker_thread(plan),
         )?);
     }

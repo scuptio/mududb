@@ -1,7 +1,8 @@
 use super::handlers::{
     app_list, app_proc_detail, app_proc_list, backup, backup_delete, backup_list, backup_verify,
-    dump_logical, install, invoke, partition_route, repl_follow, repl_membership, repl_promote,
-    restore_logical, server_replication, server_topology, uninstall,
+    dump_logical, install, invoke, partition_route, queue_activation_register,
+    queue_activation_unregister, repl_follow, repl_membership, repl_promote, restore_logical,
+    server_queue_activations, server_queues, server_replication, server_topology, uninstall,
 };
 use super::{HttpApi, HttpApiCapabilities, HttpApiContext};
 use crate::backend::mudud_cfg::MuduDBCfg;
@@ -95,6 +96,10 @@ pub(crate) fn configure_routes(cfg: &mut web::ServiceConfig, capabilities: HttpA
         .service(app_proc_detail)
         .service(server_topology)
         .service(server_replication)
+        .service(server_queues)
+        .service(queue_activation_register)
+        .service(queue_activation_unregister)
+        .service(server_queue_activations)
         .service(partition_route)
         .service(install)
         .service(backup)

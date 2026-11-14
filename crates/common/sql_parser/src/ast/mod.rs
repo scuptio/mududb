@@ -58,10 +58,18 @@ pub mod column_def;
 mod expr_arithmetic;
 #[cfg(test)]
 mod parser_test;
+/// `ACK` statement AST node.
+pub mod stmt_ack;
+#[cfg(test)]
+mod stmt_ack_test;
 /// `COPY ... FROM` statement AST node.
 pub mod stmt_copy_from;
 /// `COPY ... TO` statement AST node.
 pub mod stmt_copy_to;
+/// `CREATE CONSUMER` statement AST node.
+pub mod stmt_create_consumer;
+#[cfg(test)]
+mod stmt_create_consumer_test;
 /// `CREATE TYPE FILESYSTEM` statement AST node.
 pub mod stmt_create_fs_type;
 /// `CREATE PARTITION PLACEMENT` statement AST node.
@@ -70,8 +78,20 @@ pub mod stmt_create_partition_placement;
 pub mod stmt_create_partition_rule;
 #[cfg(test)]
 mod stmt_create_partition_rule_test;
+/// `CREATE QUEUE` statement AST node.
+pub mod stmt_create_queue;
+#[cfg(test)]
+mod stmt_create_queue_test;
 /// `DROP` statement enum.
 pub mod stmt_drop;
+/// `DROP CONSUMER` statement AST node.
+pub mod stmt_drop_consumer;
+#[cfg(test)]
+mod stmt_drop_consumer_test;
+/// `DROP QUEUE` statement AST node.
+pub mod stmt_drop_queue;
+#[cfg(test)]
+mod stmt_drop_queue_test;
 /// `DROP TABLE` statement AST node.
 pub mod stmt_drop_table;
 /// `DROP TYPE` statement AST node.
@@ -82,6 +102,10 @@ pub mod stmt_insert;
 pub mod stmt_list;
 #[cfg(test)]
 mod stmt_list_test;
+/// `RECEIVE` statement AST node.
+pub mod stmt_receive;
+#[cfg(test)]
+mod stmt_receive_test;
 /// `SELECT` statement AST node.
 pub mod stmt_select;
 #[cfg(test)]

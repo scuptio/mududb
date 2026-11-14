@@ -31,13 +31,14 @@ use crate::partition_placement_catalog::{
 use crate::partition_rule_catalog::{
     load_partition_rules_from_catalog, open_partition_rule_catalog,
 };
+use crate::queue_consumer::{queue_consumer_schema, QUEUE_CONSUMER_TABLE_NAME};
 use crate::schema_catalog::{load_schemas_from_catalog, open_schema_catalog};
 use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::fs_type::FsTypeDesc;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::TablePartitionBinding;
 use ::catalog::contract::table_info::TableInfo;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 type MetaMgrRegistry = HashMap<String, Vec<Weak<MetaMgrImpl>>>;
 type DdlLockRegistry = HashMap<String, Weak<AMutex<()>>>;
@@ -168,6 +169,15 @@ impl MetaMgrImpl {
             .contains_sync(&(DEFAULT_SCHEMA.to_string(), FS_OBJECT_TABLE_NAME.to_string()))
         {
             self.apply_create_table_local(&fs_object_schema())?;
+        }
+        // Register the built-in `_queue_consumer` system table the same way:
+        // one row per named queue consumer cursor, written through ordinary
+        // DML so cursor frontiers stay transactional and replicate.
+        if !self.table.contains_sync(&(
+            DEFAULT_SCHEMA.to_string(),
+            QUEUE_CONSUMER_TABLE_NAME.to_string(),
+        )) {
+            self.apply_create_table_local(&queue_consumer_schema())?;
         }
         let catalog = CatalogRelation {
             schema_catalog: Arc::new(schema_catalog),

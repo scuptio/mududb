@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::contract::schema_column::SchemaColumn;
-use crate::contract::schema_table::{schema_columns_to_tuple_desc, SchemaTable};
+use crate::contract::schema_table::{schema_columns_to_tuple_desc, SchemaObjectKind, SchemaTable};
 use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
 
@@ -113,4 +113,71 @@ fn serde_roundtrip_preserves_schema() {
     assert_eq!(decoded.table_name(), schema.table_name());
     assert_eq!(decoded.columns().len(), schema.columns().len());
     assert_eq!(decoded.id(), schema.id());
+}
+
+#[test]
+fn new_schema_defaults_to_table_kind() {
+    let schema = SchemaTable::new(
+        "t6".to_string(),
+        vec![make_col("k", TypeFamily::I32)],
+        vec![0],
+        vec![],
+    );
+    assert_eq!(schema.kind(), SchemaObjectKind::Table);
+    assert!(!schema.is_queue());
+}
+
+#[test]
+fn positional_roundtrip_preserves_queue_kind() {
+    let mut schema = SchemaTable::new(
+        "q1".to_string(),
+        vec![
+            make_col("k", TypeFamily::I32),
+            make_col("v", TypeFamily::F64),
+        ],
+        vec![0],
+        vec![1],
+    );
+    schema.set_kind(SchemaObjectKind::Queue);
+    assert!(schema.is_queue());
+
+    // rmp_serde persists the struct positionally (the catalog format).
+    let bytes = rmp_serde::to_vec(&schema).unwrap();
+    let decoded: SchemaTable = rmp_serde::from_slice(&bytes).unwrap();
+    assert_eq!(decoded.kind(), SchemaObjectKind::Queue);
+    assert_eq!(decoded.id(), schema.id());
+    assert_eq!(decoded.table_name(), schema.table_name());
+
+    let json = serde_json::to_string(&schema).unwrap();
+    let decoded: SchemaTable = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.kind(), SchemaObjectKind::Queue);
+}
+
+#[test]
+fn legacy_encoding_without_kind_decodes_as_table_kind() {
+    let schema = SchemaTable::new(
+        "t7".to_string(),
+        vec![
+            make_col("k", TypeFamily::I32),
+            make_col("v", TypeFamily::F64),
+        ],
+        vec![0],
+        vec![1],
+    );
+    // Simulate a catalog row written before the `kind` field existed: the
+    // positional encoding holds only the six older fields.
+    let legacy_bytes = rmp_serde::to_vec(&(
+        schema.id(),
+        schema.table_name().clone(),
+        schema.columns().clone(),
+        schema.key_indices().clone(),
+        schema.value_indices().clone(),
+        schema.schema().clone(),
+    ))
+    .unwrap();
+    let decoded: SchemaTable = rmp_serde::from_slice(&legacy_bytes).unwrap();
+    assert_eq!(decoded.kind(), SchemaObjectKind::Table);
+    assert_eq!(decoded.id(), schema.id());
+    assert_eq!(decoded.table_name(), schema.table_name());
+    assert_eq!(decoded.schema(), schema.schema());
 }

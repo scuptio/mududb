@@ -53,10 +53,10 @@ pub use source::spawn_repl_source;
 pub use staging::StagingStore;
 
 use crate::seg_hash::SegHash;
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::frame::try_decode_next_frame;
 use ::wal::lsn::LSN;
 use ::worker::worker::WorkerRuntime;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

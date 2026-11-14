@@ -399,7 +399,7 @@ pub async fn repl_follow(
 /// When the contacted node is not the raft leader, the endpoint answers
 /// with a `leader_hint` in the error envelope and the request is re-issued
 /// against the hinted HTTP address (bounded by
-/// [`MEMBERSHIP_MAX_REDIRECTS`]).
+/// `MEMBERSHIP_MAX_REDIRECTS`).
 pub async fn repl_membership(
     http_addr: &str,
     action: &str,
@@ -692,6 +692,46 @@ mod tests {
             topology.worker_addr_by_id("127.0.0.1", 11),
             Some("127.0.0.1:9527".to_string())
         );
+    }
+
+    #[test]
+    fn extract_http_api_data_status_form_variants() {
+        let ok = extract_http_api_data(json!({"status": 0, "data": [1, 2]})).unwrap();
+        assert_eq!(ok, json!([1, 2]));
+
+        let err = extract_http_api_data(json!({
+            "status": 7,
+            "message": "denied",
+            "data": {"why": "policy"}
+        }))
+        .unwrap_err();
+        assert!(err.contains("denied"));
+
+        // Neither the `ok` envelope nor the legacy `status` form is present.
+        assert!(extract_http_api_data(json!({"neither": "nor"})).is_err());
+
+        // `ok: false` without any message fields falls back to the default.
+        let err = extract_http_api_data(json!({"ok": false})).unwrap_err();
+        assert!(err.contains("HTTP API request failed"));
+    }
+
+    #[test]
+    fn oid_serde_rejects_malformed_unioid_shapes() {
+        let bad_worker = json!({
+            "worker_index": 0,
+            "tcp_listen_port": 9527,
+            "worker_id": {"h": "not-a-number", "l": 7},
+            "partitions": []
+        });
+        assert!(serde_json::from_value::<WorkerTopology>(bad_worker).is_err());
+
+        let bad_partition = json!({
+            "worker_index": 0,
+            "tcp_listen_port": 9527,
+            "worker_id": {"h": 0, "l": 1},
+            "partitions": [{"h": 1, "l": "x"}]
+        });
+        assert!(serde_json::from_value::<WorkerTopology>(bad_partition).is_err());
     }
 }
 

@@ -24,7 +24,7 @@ pub struct FieldInfo {
     /// Rust field type: the base type for `NOT NULL` columns,
     /// `Option<base>` for nullable columns.
     pub rust_field_type: String,
-    /// Rust expression evaluating to the column [`DataType`] used in the
+    /// Rust expression evaluating to the column `DataType` used in the
     /// tuple description; carries DDL type parameters (e.g. `NUMERIC(p, s)`
     /// precision/scale) when present, otherwise the type-family default.
     pub datum_desc_type_expr: String,
@@ -94,7 +94,7 @@ fn is_copy_type(data_type: &UniDataType) -> bool {
     )
 }
 
-/// Build a tuple-description [`DataType`] expression that preserves DDL type
+/// Build a tuple-description `DataType` expression that preserves DDL type
 /// parameters, so the generated entity encodes values with the schema's
 /// precision/scale instead of the type-family default. Currently only
 /// `NUMERIC(p, s)` for Rust.

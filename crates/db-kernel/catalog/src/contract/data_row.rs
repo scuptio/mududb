@@ -7,9 +7,12 @@ use mudu::common::result::RS;
 use mudu::common::update_delta::UpdateDelta;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_sys::sync::SMutex;
+use mudu_sys::sync::async_::AMutex;
 use mudu_utils::scoped_task_trace;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 const UNCOMPRESSED_VERSION_COUNT: usize = 4;
 
@@ -17,11 +20,13 @@ const UNCOMPRESSED_VERSION_COUNT: usize = 4;
 /// append-only delta chain used to reconstruct older versions.
 #[derive(Clone)]
 pub struct DataRow {
-    inner: Arc<SMutex<DataRowInner>>,
+    inner: Arc<AMutex<DataRowInner>>,
 }
 
 struct DataRowInner {
     tid: TupleID,
+    bytes: usize,
+    accounting: Option<Arc<AtomicUsize>>,
     // Full versions are stored from oldest to newest inside the retained
     // in-memory window. New commits therefore append to the tail, and the
     // latest version is always `tuple.last()`.
@@ -48,6 +53,8 @@ impl DataRowInner {
     fn new(tid: TupleID) -> Self {
         Self {
             tid,
+            bytes: std::mem::size_of::<Self>(),
+            accounting: None,
             tuple: vec![],
             delta: vec![],
         }
@@ -62,7 +69,7 @@ impl DataRowInner {
     ) -> RS<()> {
         if let Some(latest) = self.tuple.last() {
             let delta = prev_version.unwrap_or_else(|| build_version_delta(&version, latest));
-            self.delta.push(delta);
+            self.append_delta(delta);
         }
         self.push_version(version);
         Ok(())
@@ -83,16 +90,39 @@ impl DataRowInner {
                 latest.is_deleted(),
                 vec![UpdateDelta::new(0, 0, Vec::new())],
             );
-            self.delta.push(delta);
+            self.append_delta(delta);
         }
         self.push_version(version);
         Ok(())
     }
 
+    fn append_delta(&mut self, delta: VersionDelta) {
+        let size = 64
+            + delta
+                .update_delta()
+                .iter()
+                .map(|d| d.delta().len() + 24)
+                .sum::<usize>();
+        self.add_bytes(size);
+        self.delta.push(delta);
+    }
+
+    fn add_bytes(&mut self, amount: usize) {
+        self.bytes += amount;
+        if let Some(account) = &self.accounting {
+            account.fetch_add(amount, Ordering::Relaxed);
+        }
+    }
+
     fn push_version(&mut self, version: VersionTuple) {
+        self.add_bytes(version.tuple().len() + 64);
         self.tuple.push(version);
         if self.tuple.len() > UNCOMPRESSED_VERSION_COUNT {
-            self.tuple.remove(0);
+            let removed = self.tuple.remove(0).tuple().len() + 64;
+            self.bytes -= removed;
+            if let Some(account) = &self.accounting {
+                account.fetch_sub(removed, Ordering::Relaxed);
+            }
         }
     }
 
@@ -155,85 +185,39 @@ impl DataRow {
     /// Creates an empty row with the given tuple id.
     pub fn new(tid: TupleID) -> Self {
         Self {
-            inner: Arc::new(SMutex::new(DataRowInner::new(tid))),
+            inner: Arc::new(AMutex::new(DataRowInner::new(tid))),
         }
     }
 
     /// The tuple id of this row.
     pub async fn tuple_id(&self) -> RS<Option<OID>> {
-        mudu_utils::scoped_task_trace!();
-        self.tuple_id_sync()
+        Ok(Some(self.inner.lock().await.tid as OID))
     }
 
-    /// Synchronous variant of [`DataRow::tuple_id`].
-    pub fn tuple_id_sync(&self) -> RS<Option<OID>> {
-        let guard = self.inner.lock()?;
-        Ok(Some(guard.tid as OID))
-    }
-
-    /// Reads the newest version visible to `snapshot`.
+    /// Reads the newest version visible to `snapshot` without blocking an executor.
     pub async fn read(&self, snapshot: &Snapshot) -> RS<Option<VersionTuple>> {
-        self.read_sync(snapshot)
+        self.inner.lock().await.read_version(snapshot)
     }
 
-    /// Synchronous variant of [`DataRow::read`].
-    pub fn read_sync(&self, snapshot: &Snapshot) -> RS<Option<VersionTuple>> {
-        let guard = self.inner.lock()?;
-        guard.read_version(snapshot)
-    }
-
-    /// Reads the visible version and whether its payload bytes are the
-    /// version's own; see [`DataRowInner::read_version_detailed`].
+    /// Reads the visible version and whether its payload is authoritative.
     pub async fn read_detailed(&self, snapshot: &Snapshot) -> RS<Option<(VersionTuple, bool)>> {
-        self.read_detailed_sync(snapshot)
+        self.inner.lock().await.read_version_detailed(snapshot)
     }
 
-    /// Synchronous variant of [`DataRow::read_detailed`].
-    pub fn read_detailed_sync(&self, snapshot: &Snapshot) -> RS<Option<(VersionTuple, bool)>> {
-        let guard = self.inner.lock()?;
-        guard.read_version_detailed(snapshot)
-    }
-
-    /// Reads the newest committed version regardless of snapshot visibility.
+    /// Reads the latest committed version regardless of snapshot visibility.
     pub async fn read_latest(&self) -> RS<Option<VersionTuple>> {
-        self.read_latest_sync()
+        self.inner.lock().await.read_latest()
     }
 
-    /// Synchronous variant of [`DataRow::read_latest`].
-    pub fn read_latest_sync(&self) -> RS<Option<VersionTuple>> {
-        let guard = self.inner.lock()?;
-        guard.read_latest()
-    }
-
-    /// Appends a new version. `prev_version` supplies the delta back to the
-    /// previous version; when `None`, it is computed from the previous full
-    /// version's payload.
+    /// Publishes a version and its optional compensating delta under the async row lock.
     pub async fn write(&self, version: VersionTuple, prev_version: Option<VersionDelta>) -> RS<()> {
         scoped_task_trace!();
-        self.write_sync(version, prev_version)
+        self.inner.lock().await.write_version(version, prev_version)
     }
 
-    /// Synchronous variant of [`DataRow::write`].
-    pub fn write_sync(&self, version: VersionTuple, prev_version: Option<VersionDelta>) -> RS<()> {
-        scoped_task_trace!();
-        let mut guard = self.inner.lock()?;
-        guard.write_version(version, prev_version)
-    }
-
-    /// Appends a version whose payload is kept only in the retained
-    /// full-version window; the delta chain records only metadata (timestamp
-    /// and deleted flag), never payload bytes. See
-    /// [`DataRowInner::write_version_shallow`].
+    /// Publishes a version retaining only metadata in the historical delta chain.
     pub async fn write_shallow(&self, version: VersionTuple) -> RS<()> {
-        scoped_task_trace!();
-        self.write_shallow_sync(version)
-    }
-
-    /// Synchronous variant of [`DataRow::write_shallow`].
-    pub fn write_shallow_sync(&self, version: VersionTuple) -> RS<()> {
-        scoped_task_trace!();
-        let mut guard = self.inner.lock()?;
-        guard.write_version_shallow(version)
+        self.inner.lock().await.write_version_shallow(version)
     }
 
     /// Atomically reads the latest committed version, computes a new payload
@@ -245,12 +229,12 @@ impl DataRow {
     ///
     /// The compute closure runs synchronously under the lock and must not
     /// block.
-    pub fn apply_update_to_latest_sync(
+    pub async fn apply_update_to_latest(
         &self,
         timestamp: Timestamp,
         compute: impl FnOnce(&Vec<u8>) -> RS<Vec<u8>>,
     ) -> RS<Vec<u8>> {
-        let mut guard = self.inner.lock()?;
+        let mut guard = self.inner.lock().await;
         let latest = guard.read_latest()?.ok_or_else(|| {
             mudu_error!(
                 ErrorCode::EntityNotFound,
@@ -262,9 +246,6 @@ impl DataRow {
         Ok(computed)
     }
 }
-
-unsafe impl Send for DataRow {}
-unsafe impl Sync for DataRow {}
 
 fn build_version_delta(newer: &VersionTuple, older: &VersionTuple) -> VersionDelta {
     VersionDelta::new(
@@ -312,29 +293,64 @@ mod tests {
         Snapshot::from(RunningXList::new(xid, vec![]))
     }
 
-    #[test]
-    fn keeps_latest_versions_uncompressed() {
+    #[tokio::test]
+    async fn keeps_latest_versions_uncompressed() {
         let row = DataRow::new(1);
         for xid in 1..=6 {
-            row.write_sync(version(xid, &[xid as u8]), None).unwrap();
+            row.write(version(xid, &[xid as u8]), None).await.unwrap();
         }
 
-        let guard = row.inner.lock().unwrap();
+        let guard = row.inner.lock().await;
         assert_eq!(guard.tuple.len(), UNCOMPRESSED_VERSION_COUNT);
         assert_eq!(guard.delta.len(), 5);
         assert_eq!(guard.tuple[0].tuple(), &vec![3]);
         assert_eq!(guard.tuple[3].tuple(), &vec![6]);
     }
 
-    #[test]
-    fn reads_compressed_old_versions_via_delta_chain() {
+    #[tokio::test]
+    async fn snapshot_preserves_mixed_retained_versions_and_memory_accounting() {
+        let row = DataRow::new(1);
+        row.write(version(1, &[1; 100]), None).await.unwrap();
+        row.write(version(2, &[2; 100]), None).await.unwrap();
+        row.write_shallow(version(3, &[3])).await.unwrap();
+        let account = Arc::new(AtomicUsize::new(0));
+        row.account_memory(account.clone()).await.unwrap();
+        assert_eq!(account.load(Ordering::Relaxed), row.resident_bytes().await);
+        let restored = DataRow::restore_snapshot(&row.export_snapshot().await.unwrap()).unwrap();
+        assert_eq!(
+            restored.read(&snapshot(1)).await.unwrap().unwrap().tuple(),
+            &vec![1; 100]
+        );
+        assert_eq!(
+            restored.read_latest().await.unwrap().unwrap().tuple(),
+            &vec![3]
+        );
+        row.write_shallow(version(4, &[4; 300])).await.unwrap();
+        assert_eq!(account.load(Ordering::Relaxed), row.resident_bytes().await);
+        drop(row);
+        assert_eq!(account.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn reads_compressed_old_versions_via_delta_chain() {
         let row = DataRow::new(1);
         for xid in 1..=6 {
-            row.write_sync(version(xid, &[xid as u8]), None).unwrap();
+            row.write(version(xid, &[xid as u8]), None).await.unwrap();
         }
 
-        let visible = row.read_sync(&snapshot(2)).unwrap().unwrap();
+        let visible = row.read(&snapshot(2)).await.unwrap().unwrap();
         assert_eq!(visible.tuple(), &vec![2]);
         assert_eq!(visible.timestamp().c_min(), 2);
+    }
+}
+
+#[path = "data_row_snapshot.rs"]
+mod snapshot_image;
+
+impl Drop for DataRowInner {
+    fn drop(&mut self) {
+        if let Some(account) = &self.accounting {
+            account.fetch_sub(self.bytes, Ordering::Relaxed);
+        }
     }
 }

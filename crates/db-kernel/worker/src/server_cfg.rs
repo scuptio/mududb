@@ -1,7 +1,7 @@
 use crate::routing::RoutingMode;
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::storage::page::page_block_ref::DEFAULT_PAGE_SIZE;
 use ::wal::worker_log::WalSyncPolicy;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -95,6 +95,7 @@ pub struct ServerCfg {
     routing_mode: RoutingMode,
     page_size: usize,
     log_batching_max_wait: Duration,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     replication: Option<ReplNodeCfg>,
     backup: Option<BackupCfg>,
@@ -129,9 +130,26 @@ impl ServerCfg {
             page_size: DEFAULT_PAGE_SIZE,
             log_batching_max_wait: DEFAULT_LOG_BATCHING_MAX_WAIT,
             wal_sync_policy: WalSyncPolicy::Commit,
+            queue_limits: (65536, 64 * 1024 * 1024),
             replication: None,
             backup: None,
         })
+    }
+
+    /// Configures positive per-queue message and payload-byte caps.
+    pub fn with_queue_limits(mut self, messages: u64, bytes: u64) -> RS<Self> {
+        if messages == 0 || bytes == 0 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "queue limits must be positive"
+            ));
+        }
+        self.queue_limits = (messages, bytes);
+        Ok(self)
+    }
+    /// Per-queue message and encoded payload byte caps.
+    pub fn queue_limits(&self) -> (u64, u64) {
+        self.queue_limits
     }
 
     /// Overrides the WAL chunk size in bytes (default 64 MiB).

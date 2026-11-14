@@ -61,7 +61,7 @@ Header 所有字段均为大端序。
 - `HandshakeRequest` 包含 `supported_versions: Vec<u32>` 与可选的 `capabilities: Vec<String>`。
 - `HandshakeResponse` 包含 `selected_version: u32` 与可选的服务端能力标签。
 
-当前服务端实现仅选择版本 `1`。若客户端未在 `supported_versions` 中包含 `1`，则返回 `IncompatibleProtocolVersion`。
+当前服务端实现仅选择版本 `1`。若客户端未在 `supported_versions` 中包含 `1`，则返回 `ErrorCode::Parse` 错误（`no mutually supported protocol version`）。
 
 ## 完整性机制
 
@@ -83,7 +83,7 @@ Header 所有字段均为大端序。
 ## 升级与回滚规则
 
 - **升级：** 未来 v2 帧可扩展 header（如增加能力标志位）或定义新消息类型。V2 客户端与服务端必须在握手阶段协商版本，之后才能发送 v2 帧。
-- **回滚：** v1 服务端收到仅支持 v2 的帧时返回 `UnsupportedFormatVersion`；v2 服务端收到 v1-only 客户端时握手阶段选择版本 `1`。
+- **回滚：** v1 服务端收到仅支持 v2 的帧时返回 `IncompatibleProtocolVersion`（帧版本检查映射到协议专用错误码）；v2 服务端收到 v1-only 客户端时握手阶段选择版本 `1`。
 - **破坏性变更：** 小版本协议可增加新消息类型；删除或重命名消息类型需要主版本号提升。
 
 ## 废弃策略
@@ -97,4 +97,4 @@ Header 所有字段均为大端序。
 
 - 帧格式：[mudu_contract/src/protocol/format/latest.rs](../../../crates/common/mudu_contract/src/protocol/format/latest.rs)
 - 消息类型与 payload：[mudu_contract/src/protocol/mod.rs](../../../crates/common/mudu_contract/src/protocol/mod.rs)
-- 握手处理：[mudu_kernel/src/server/handlers/handshake.rs](../../../crates/db-kernel/mudu_kernel/src/server/handlers/handshake.rs)
+- 握手处理：[server/src/handlers/handshake.rs](../../../crates/db-kernel/server/src/handlers/handshake.rs)

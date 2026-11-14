@@ -14,6 +14,8 @@ pub mod entity_scalar;
 mod entity_scalar_test;
 /// Field-level change description.
 pub mod field_change;
+#[cfg(test)]
+mod field_change_test;
 
 /// Session context registry and top-level query/command helpers.
 pub mod sql;

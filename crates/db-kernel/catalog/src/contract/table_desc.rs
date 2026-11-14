@@ -1,15 +1,18 @@
 use mudu::common::id::{AttrIndex, OID};
 
 use crate::contract::field_info::FieldInfo;
+use crate::contract::schema_table::SchemaObjectKind;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use std::collections::HashMap;
 
 /// Immutable runtime table descriptor: tuple descriptors and field lookups
 /// derived from the table schema.
+#[derive(Clone)]
 pub struct TableDesc {
     name: String,
     schema: String,
     oid: OID,
+    kind: SchemaObjectKind,
     key_oid: Vec<OID>,
     value_oid: Vec<OID>,
 
@@ -32,6 +35,8 @@ pub struct TableDescParams {
     pub schema: String,
     /// Table oid.
     pub oid: OID,
+    /// Kind of catalog object the descriptor describes.
+    pub kind: SchemaObjectKind,
     /// Oids of the key fields in key order.
     pub key_oid: Vec<OID>,
     /// Oids of the value fields in value order.
@@ -60,6 +65,7 @@ impl TableDesc {
             name: params.name,
             schema: params.schema,
             oid: params.oid,
+            kind: params.kind,
             key_oid: params.key_oid,
             value_oid: params.value_oid,
             key_desc: params.key_desc,
@@ -84,7 +90,7 @@ impl TableDesc {
     }
 
     /// The field at `index`. [`AttrIndex`] always refers to the original
-    /// table column order; use [`FieldInfo::datum_index`] to locate the field
+    /// table column order; use `FieldInfo::datum_index` to locate the field
     /// inside the key/value tuple.
     pub fn get_attr(&self, index: AttrIndex) -> &FieldInfo {
         &self.fields[index]
@@ -154,6 +160,16 @@ impl TableDesc {
     /// The table oid.
     pub fn id(&self) -> OID {
         self.oid
+    }
+
+    /// The kind of catalog object this descriptor describes.
+    pub fn kind(&self) -> SchemaObjectKind {
+        self.kind
+    }
+
+    /// Whether this descriptor describes a queue.
+    pub fn is_queue(&self) -> bool {
+        self.kind == SchemaObjectKind::Queue
     }
 
     /// Field oids in original column order.

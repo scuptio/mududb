@@ -26,6 +26,7 @@ test_utils = { workspace = true, optional = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
 rmp-serde = { workspace = true }
 futures = { workspace = true }
 mudu = { workspace = true, features = ["arbitrary"] }

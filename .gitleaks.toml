@@ -3,3 +3,15 @@ title = "mududb secret scanning"
 
 [extend]
 useDefault = true
+
+[allowlist]
+description = "Reviewed false positives, not credentials: benchmark baselines map source file paths to content SHA-256 hashes; workflow cache keys pin a tool tarball as name-version-SHA256 on a `key:` line, and the `key` keyword trips generic-api-key."
+paths = [
+    '''script/bench/baselines/''',
+]
+regexTarget = "line"
+regexes = [
+    # actions/cache key pinning a checksummed tool tarball, e.g.
+    # `key: gitleaks-8.24.3-<64 hex>` in .github/workflows/.
+    '''^\s*key:\s+(?:actionlint|gitleaks)-[0-9.]+-[0-9a-f]{64}\s*$''',
+]

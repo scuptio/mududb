@@ -124,3 +124,76 @@ pub(crate) async fn dispatch_frame_async(
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use crate::server_cfg::ReplRole;
+    use crate::worker::{WorkerRuntime as WT, WorkerRuntimeParams};
+    use crate::worker_registry::load_or_create_worker_registry;
+    use ::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
+    use mudu_sys::env_var::temp_dir;
+    use mudu_utils::oid::gen_oid;
+
+    async fn test_worker() -> (std::path::PathBuf, WorkerRuntime) {
+        let dir = temp_dir().join(format!("frame_dispatch_{}", gen_oid()));
+        let dir_str = dir.to_string_lossy().to_string();
+        let registry = load_or_create_worker_registry(&dir_str, 1).unwrap();
+        let identity = registry.worker(0).cloned().unwrap();
+        let worker = WT::new(WorkerRuntimeParams {
+            identity,
+            worker_count: 1,
+            log_dir: dir_str.clone(),
+            data_dir: dir_str.clone(),
+            log_chunk_size: 4096,
+            log_batching: WorkerLogBatching::default(),
+            wal_sync_policy: WalSyncPolicy::Commit,
+            queue_limits: (65536, 64 * 1024 * 1024),
+            procedure_runtime: None,
+            registry,
+            async_runtime: None,
+            server_instance_id: 0,
+            repl_role: ReplRole::Primary,
+            repl_leader_hint: None,
+            raft_share: None,
+            archive_dir: None,
+        })
+        .await
+        .unwrap();
+        (dir, worker)
+    }
+
+    #[test]
+    fn write_gate_passes_everything_on_single_node() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (dir, worker) = test_worker().await;
+            // Write frames proceed when no raft share / stream replication
+            // controller is configured.
+            let put = Frame::new(MessageType::Put, 1, Vec::new());
+            assert!(repl_write_gate(&worker, &put).unwrap().is_none());
+            // Non-write frames are never gated.
+            let handshake = Frame::new(MessageType::Handshake, 2, Vec::new());
+            assert!(repl_write_gate(&worker, &handshake).unwrap().is_none());
+            let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn dispatch_rejects_frame_without_handler() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (dir, worker) = test_worker().await;
+            // ReplSubscribe is a server-to-server frame: no client dispatch
+            // handler is registered for it, so dispatch fails with Parse.
+            let frame = Frame::new(MessageType::ReplSubscribe, 3, Vec::new());
+            let result = dispatch_frame_async(&worker, 1, &frame).await;
+            match result {
+                Err(err) => assert_eq!(err.ec(), ErrorCode::Parse),
+                Ok(_) => panic!("ReplSubscribe dispatch must fail with Parse"),
+            }
+            let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+        })
+        .unwrap()
+    }
+}

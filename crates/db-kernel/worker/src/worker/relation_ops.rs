@@ -1,5 +1,6 @@
 use super::*;
 use ::catalog::contract::app_schema::current_schema;
+use ::catalog::contract::table_desc::TableDesc;
 use ::xengine::api::{
     DeltaAssign, DeltaOp, OptInsert, OptRead, OptUpdate, Predicate, VecDatum, VecSelTerm,
 };
@@ -7,11 +8,11 @@ use ::xengine::DataBin;
 use mudu::common::id::AttrIndex;
 
 impl WorkerRuntime {
-    /// Resolve a relation (table) name to its object id, failing with
+    /// Resolve a relation (table) name to its descriptor, failing with
     /// `EntityNotFound` when the table does not exist. The bare name resolves
     /// against the schema of the requesting application (search path
     /// `[current_schema, mududb]` inside the catalog).
-    async fn relation_table_id(&self, app_name: Option<&str>, table: &str) -> RS<OID> {
+    async fn relation_table_desc(&self, app_name: Option<&str>, table: &str) -> RS<Arc<TableDesc>> {
         let desc = self
             .meta_mgr()
             .get_table_by_name(&current_schema(app_name), table)
@@ -22,7 +23,7 @@ impl WorkerRuntime {
                 format!("no such relation: {table}")
             )
         })?;
-        Ok(desc.id())
+        Ok(desc)
     }
 
     /// Point-read one relation row by primary key through `XContract`,
@@ -37,7 +38,7 @@ impl WorkerRuntime {
         key: Vec<(AttrIndex, DataBin)>,
         select: Vec<AttrIndex>,
     ) -> RS<Option<Vec<Option<DataBin>>>> {
-        let table_id = self.relation_table_id(app_name, table).await?;
+        let table_id = self.relation_table_desc(app_name, table).await?.id();
         let pred_key = VecDatum::new(key);
         let select = VecSelTerm::new(select);
         if self.session_manager.has_session_tx(session_id)? {
@@ -81,7 +82,9 @@ impl WorkerRuntime {
         values: Vec<(AttrIndex, DataBin)>,
         deltas: Vec<(AttrIndex, DeltaOp, DataBin)>,
     ) -> RS<u64> {
-        let table_id = self.relation_table_id(app_name, table).await?;
+        let desc = self.relation_table_desc(app_name, table).await?;
+        Self::ensure_not_queue(&desc, "relation_update")?;
+        let table_id = desc.id();
         let pred_key = VecDatum::new(key);
         let values = VecDatum::new(values);
         let opt_update = OptUpdate {
@@ -141,7 +144,9 @@ impl WorkerRuntime {
         key: Vec<(AttrIndex, DataBin)>,
         values: Vec<(AttrIndex, DataBin)>,
     ) -> RS<()> {
-        let table_id = self.relation_table_id(app_name, table).await?;
+        let desc = self.relation_table_desc(app_name, table).await?;
+        Self::ensure_not_queue(&desc, "relation_insert")?;
+        let table_id = desc.id();
         let keys = VecDatum::new(key);
         let values = VecDatum::new(values);
         if self.session_manager.has_session_tx(session_id)? {
@@ -170,5 +175,23 @@ impl WorkerRuntime {
             self.contract.abort_tx(tx_mgr).await?;
         }
         result
+    }
+
+    /// Queue rows carry kernel-synthesized system columns, so the raw
+    /// relation-write syscalls (which take user key/value bytes verbatim)
+    /// cannot target them; queue writes go through SQL (`INSERT` enqueues,
+    /// `RECEIVE`/`ACK` dequeue).
+    fn ensure_not_queue(desc: &TableDesc, op: &str) -> RS<()> {
+        if desc.is_queue() {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                format!(
+                    "{} on queue {} is not supported; use SQL INSERT/RECEIVE/ACK",
+                    op,
+                    desc.name()
+                )
+            ));
+        }
+        Ok(())
     }
 }

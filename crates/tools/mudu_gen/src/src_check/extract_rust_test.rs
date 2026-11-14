@@ -196,3 +196,18 @@ fn f(xid: u64) {
         .collect();
     assert_eq!(tags, expected, "got {items:?}");
 }
+
+#[test]
+fn queue_literals_are_extracted_without_matching_prose() {
+    for sql in [
+        "RECEIVE 10 FROM q WAIT FOREVER",
+        "ACK q FOR cg TO 1",
+        "CREATE QUEUE q (body TEXT)",
+        "DROP CONSUMER cg ON q",
+    ] {
+        assert!(is_sql_candidate(sql), "{sql}");
+    }
+    assert!(!is_sql_candidate("receive the message"));
+    assert!(!is_sql_candidate("ack received"));
+    assert!(!is_sql_candidate("create a queue"));
+}

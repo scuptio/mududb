@@ -24,6 +24,9 @@ pub const LOG_FRAME_HEADER_SIZE: usize = 24;
 /// Byte size of an encoded log frame tailer.
 pub const LOG_FRAME_TAILER_SIZE: usize = 8;
 
+// Keep the verified offsets tied to the on-disk format.
+const _: () = assert!(LOG_FRAME_HEADER_SIZE == 24 && LOG_FRAME_TAILER_SIZE == 8);
+
 /// Header of one log frame.
 ///
 /// Records the frame's LSN, its payload size, and how many further frames
@@ -238,19 +241,18 @@ pub fn frame_len(input: &[u8]) -> RS<usize> {
         return Err(mudu_error!(ErrorCode::Decode, "log frame is truncated"));
     }
     let header = peek_header(&input[..LOG_FRAME_HEADER_SIZE])?;
-    let payload_end = LOG_FRAME_HEADER_SIZE + header.size as usize;
-    let expected_len = payload_end + LOG_FRAME_TAILER_SIZE;
-    if input.len() < expected_len {
-        return Err(mudu_error!(
-            ErrorCode::Decode,
-            format!(
-                "log frame is truncated, expected at least {}, got {}",
-                expected_len,
-                input.len()
+    crate::frame_bounds::bounds(input.len(), header.size as usize)
+        .map(|(_, end)| end)
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::Decode,
+                format!(
+                    "log frame is truncated, expected at least {}, got {}",
+                    u64::from(header.size) + 32,
+                    input.len()
+                )
             )
-        ));
-    }
-    Ok(expected_len)
+        })
 }
 
 /// Decodes every complete entry in `frames`, pairing each with the LSN of its
@@ -269,13 +271,29 @@ pub fn decode_entries_with_pending<L: DeserializeOwned>(
         let (header, _, _) = split_frame(&pending_frames[0])?;
         *pending_start_lsn = Some(header.lsn());
     }
+    let mut previous = None;
+    for frame in pending_frames.iter() {
+        let (header, _, _) = split_frame(frame)?;
+        previous = crate::part_chain::advance(previous, header.n_part())
+            .ok_or_else(|| mudu_error!(ErrorCode::Decode, "invalid pending WAL part chain"))?;
+        if previous.is_none() {
+            return Err(mudu_error!(
+                ErrorCode::Decode,
+                "pending WAL entry is already complete"
+            ));
+        }
+    }
     for frame in frames {
         let (header, _, _) = split_frame(frame)?;
+        let next = crate::part_chain::advance(previous, header.n_part()).ok_or_else(|| {
+            mudu_error!(ErrorCode::Decode, "unexpected WAL remaining-part counter")
+        })?;
         if pending_frames.is_empty() {
             *pending_start_lsn = Some(header.lsn());
         }
         pending_frames.push(frame.clone());
-        if header.n_part() != 0 {
+        previous = next;
+        if previous.is_some() {
             continue;
         }
 
@@ -321,8 +339,16 @@ fn split_frame_exact(frame: &[u8]) -> RS<(LogFrameHeader, Vec<u8>, LogFrameTaile
         ));
     }
     let migrated = ensure_latest_frame(frame)?;
-    let header = LogFrameHeader::decode(&migrated[..LOG_FRAME_HEADER_SIZE])?;
-    let payload_end = LOG_FRAME_HEADER_SIZE + header.size() as usize;
+    // A migration may change the image: validate its own header and bounds again.
+    let header = LogFrameHeader::decode(&migrated)?;
+    let (payload_end, end) = crate::frame_bounds::bounds(migrated.len(), header.size() as usize)
+        .ok_or_else(|| mudu_error!(ErrorCode::Decode, "migrated log frame is truncated"))?;
+    if end != migrated.len() {
+        return Err(mudu_error!(
+            ErrorCode::Decode,
+            "migrated log frame length mismatch"
+        ));
+    }
     let payload = migrated[LOG_FRAME_HEADER_SIZE..payload_end].to_vec();
     let tailer = LogFrameTailer::decode(&migrated[payload_end..])?;
     if header.n_part() != tailer.n_part() {
@@ -360,7 +386,9 @@ fn deserialize_frames_payload(frames: &[Vec<u8>]) -> RS<Vec<u8>> {
                 )
             ));
         }
-        payload.extend_from_slice(&body);
+        if !crate::part_chain::append(&mut payload, &body) {
+            return Err(mudu_error!(ErrorCode::Decode, "WAL entry length overflow"));
+        }
     }
     Ok(payload)
 }

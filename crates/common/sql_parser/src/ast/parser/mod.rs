@@ -1,6 +1,6 @@
 //! SQL parser entry point.
 //!
-//! [`SQLParser`] wraps a thread-safe [`tree_sitter::Parser`] configured for the
+//! [`crate::ast::parser::SQLParser`] wraps a thread-safe [`tree_sitter::Parser`] configured for the
 //! SQL grammar and dispatches between custom statement parsing and the standard
 //! tree-sitter parse path.
 
@@ -33,11 +33,11 @@ impl SQLParser {
 
     /// Parse a SQL string into a [`StmtList`].
     ///
-    /// Single custom statements (partition DDL, filesystem types) are parsed
-    /// by the dedicated custom parser. Scripts that mix custom statements
-    /// with standard SQL are split top-level and each statement is parsed
-    /// with the custom parser first, falling back to the tree-sitter
-    /// standard parser.
+    /// Single custom statements (partition DDL, filesystem types, queue
+    /// statements) are parsed by the dedicated custom parser. Scripts that mix
+    /// custom statements with standard SQL are split top-level and each
+    /// statement is parsed with the custom parser first, falling back to the
+    /// tree-sitter standard parser.
     pub fn parse(&self, sql: &str) -> RS<StmtList> {
         if let Some(stmt_list) = self.try_parse_custom_statement(sql)? {
             return Ok(stmt_list);
@@ -58,6 +58,9 @@ mod error;
 mod expression;
 mod insert;
 mod partition;
+#[cfg(test)]
+mod partition_test;
+mod queue;
 mod select;
 mod update_delete;
 mod utils;

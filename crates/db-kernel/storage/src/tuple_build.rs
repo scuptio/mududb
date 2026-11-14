@@ -150,3 +150,186 @@ pub fn decode_delta_assigns(delta: &[u8]) -> RS<Vec<DeltaAssign>> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use ::catalog::contract::schema_column::SchemaColumn;
+    use ::catalog::contract::schema_table::SchemaTable;
+    use ::catalog::contract::table_info::TableInfo;
+    use mudu::common::buf::Buf;
+    use mudu_contract::tuple::nullable_tuple::{read_value, NullableValue};
+    use mudu_type::data_type_info::DataTypeInfo;
+    use mudu_type::type_family::TypeFamily;
+    use std::sync::Arc;
+
+    fn test_desc() -> Arc<TableDesc> {
+        TableInfo::new(SchemaTable::new(
+            "t".to_string(),
+            vec![
+                SchemaColumn::new(
+                    "id".to_string(),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+                ),
+                SchemaColumn::new(
+                    "v".to_string(),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+                ),
+            ],
+            vec![0],
+            vec![1],
+        ))
+        .unwrap()
+        .table_desc()
+        .unwrap()
+    }
+
+    #[test]
+    fn build_tuples_validate_membership_and_width() {
+        let desc = test_desc();
+        let key = VecDatum::new(vec![(0, Buf::from(1i32.to_be_bytes().to_vec()))]);
+        let value = VecDatum::new(vec![(1, Buf::from(2i32.to_be_bytes().to_vec()))]);
+        assert!(build_key_tuple(&key, &desc).is_ok());
+        assert!(build_value_tuple(&value, &desc).is_ok());
+
+        // Mixing key and value members on one path is rejected.
+        let mixed = VecDatum::new(vec![
+            (0, Buf::from(1i32.to_be_bytes().to_vec())),
+            (1, Buf::from(2i32.to_be_bytes().to_vec())),
+        ]);
+        assert!(build_key_tuple(&mixed, &desc).is_err());
+        assert!(build_value_tuple(&mixed, &desc).is_err());
+
+        // An incomplete key is rejected.
+        assert!(build_key_tuple(&VecDatum::new(vec![]), &desc).is_err());
+    }
+
+    fn test_desc_two_keys() -> Arc<TableDesc> {
+        let col = |name: &str| {
+            SchemaColumn::new(
+                name.to_string(),
+                TypeFamily::I32,
+                DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+            )
+        };
+        TableInfo::new(SchemaTable::new(
+            "t".to_string(),
+            vec![col("id1"), col("id2"), col("v")],
+            vec![0, 1],
+            vec![2],
+        ))
+        .unwrap()
+        .table_desc()
+        .unwrap()
+    }
+
+    #[test]
+    fn key_width_mismatch_reports_provided_fields() {
+        let desc = test_desc_two_keys();
+        let partial = VecDatum::new(vec![(0, Buf::from(1i32.to_be_bytes().to_vec()))]);
+        let err = build_key_tuple(&partial, &desc).unwrap_err();
+        assert!(
+            err.to_string().contains("width mismatch"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn value_tuple_rejects_key_member_single_element() {
+        // A single-element datum vector never runs the pairwise sort check;
+        // the per-member key check must still reject it.
+        let desc = test_desc();
+        let only_key = VecDatum::new(vec![(0, Buf::from(1i32.to_be_bytes().to_vec()))]);
+        assert!(build_value_tuple(&only_key, &desc).is_err());
+    }
+
+    #[test]
+    fn value_tuple_rejects_duplicate_member() {
+        let desc = test_desc();
+        let duplicated = VecDatum::new(vec![
+            (1, Buf::from(1i32.to_be_bytes().to_vec())),
+            (1, Buf::from(2i32.to_be_bytes().to_vec())),
+        ]);
+        assert!(build_value_tuple(&duplicated, &desc).is_err());
+    }
+
+    #[test]
+    fn value_tuple_rejects_undecodable_datum() {
+        let desc = test_desc();
+        let bad = VecDatum::new(vec![(1, Buf::from(vec![0xAB]))]);
+        assert!(build_value_tuple(&bad, &desc).is_err());
+    }
+
+    #[test]
+    fn omitted_nullable_value_becomes_null() {
+        let desc = test_desc();
+        let tuple = build_value_tuple(&VecDatum::new(vec![]), &desc).unwrap();
+        let field = read_value(&tuple, desc.value_desc(), 0).unwrap();
+        assert!(matches!(field, NullableValue::Null));
+    }
+
+    #[test]
+    fn omitted_non_nullable_value_filled_with_type_default() {
+        let mut value_column = SchemaColumn::new(
+            "v".to_string(),
+            TypeFamily::I32,
+            DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+        );
+        value_column.set_nullable(false);
+        let desc = TableInfo::new(SchemaTable::new(
+            "t".to_string(),
+            vec![
+                SchemaColumn::new(
+                    "id".to_string(),
+                    TypeFamily::I32,
+                    DataTypeInfo::from_text(TypeFamily::I32, String::new()),
+                ),
+                value_column,
+            ],
+            vec![0],
+            vec![1],
+        ))
+        .unwrap()
+        .table_desc()
+        .unwrap();
+        let tuple = build_value_tuple(&VecDatum::new(vec![]), &desc).unwrap();
+        match read_value(&tuple, desc.value_desc(), 0).unwrap() {
+            NullableValue::Value(value) => assert_eq!(*value.expect_i32(), 0),
+            NullableValue::Null => panic!("expected the i32 type default"),
+        }
+    }
+
+    #[test]
+    fn decode_delta_assigns_rejects_garbage_and_bad_op_code() {
+        assert!(decode_delta_assigns(&[0xC1]).is_err());
+        let wire: Vec<(u64, u8, Vec<u8>)> = vec![(1, 99, vec![0; 4])];
+        let payload = rmp_serde::to_vec(&wire).unwrap();
+        assert!(decode_delta_assigns(&payload).is_err());
+    }
+
+    #[test]
+    fn encode_decode_delta_assigns_round_trip() {
+        let deltas = vec![
+            DeltaAssign {
+                attr: 1,
+                op: DeltaOp::Add,
+                literal: Buf::from(1i32.to_be_bytes().to_vec()),
+            },
+            DeltaAssign {
+                attr: 2,
+                op: DeltaOp::SubWrapDeferred,
+                literal: Buf::from(vec![0; 24]),
+            },
+        ];
+        let decoded = decode_delta_assigns(&encode_delta_assigns(&deltas).unwrap()).unwrap();
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].attr, 1);
+        assert!(matches!(decoded[0].op, DeltaOp::Add));
+        assert_eq!(decoded[1].attr, 2);
+        assert!(matches!(decoded[1].op, DeltaOp::SubWrapDeferred));
+        assert_eq!(decoded[1].literal, vec![0; 24]);
+    }
+}

@@ -75,10 +75,15 @@ fn generated_rust_codec_reproduces_golden_corpus() -> RS<()> {
 
     // The generated code converts through the hand-written wire runtime;
     // mirror it into the scratch crate's `universal` module and register it.
+    // mp_wire delegates the byte-level marker codec to mp_core, so both must
+    // be mirrored.
+    let mp_core_src = manifest.join("../../common/mudu_binding/src/universal/mp_core.rs");
+    sync_copy(&mp_core_src, universal_dir.join("mp_core.rs"))?;
     let mp_wire_src = manifest.join("../../common/mudu_binding/src/universal/mp_wire.rs");
     sync_copy(&mp_wire_src, universal_dir.join("mp_wire.rs"))?;
     let mod_rs = universal_dir.join("mod.rs");
     let mut mod_content = mudu_sys::fs::sync::sync_read_to_string(&mod_rs)?;
+    mod_content.push_str("pub mod mp_core;\n");
     mod_content.push_str("pub mod mp_wire;\n");
     sync_write(&mod_rs, &mod_content)?;
 

@@ -20,6 +20,10 @@ pub struct TaskContext {
     name: String,
     kind: TaskContextKind,
     id: u128,
+    /// Task id of the thread that spawned this task or thread (the spawning
+    /// thread's identity); `None` when the spawner was not spawned through
+    /// this crate (e.g. the main thread or foreign runtime threads).
+    parent_thread: Option<TaskID>,
     backtrace: Mutex<VecDeque<BtLoc>>,
     thread_backtrace: Mutex<VecDeque<String>>,
     // Keep watch_data on a plain Mutex<HashMap> instead of scc::HashMap.
@@ -59,10 +63,36 @@ impl TaskContext {
 
     /// Registers a new context of the given kind with the given id and name.
     pub fn new_context_with_kind(id: TaskID, name: String, kind: TaskContextKind) -> Arc<Self> {
+        Self::new_context(
+            id,
+            name,
+            kind,
+            crate::imp::thread::try_this_thread_task_id(),
+        )
+    }
+
+    /// Registers a new thread-kind context with an explicit parent: a fresh
+    /// thread's TLS is empty, so the spawner's thread id must be captured on
+    /// the spawning side and passed through.
+    pub fn new_thread_context_with_parent(
+        id: TaskID,
+        name: String,
+        parent_thread: Option<TaskID>,
+    ) -> Arc<Self> {
+        Self::new_context(id, name, TaskContextKind::Thread, parent_thread)
+    }
+
+    fn new_context(
+        id: TaskID,
+        name: String,
+        kind: TaskContextKind,
+        parent_thread: Option<TaskID>,
+    ) -> Arc<Self> {
         let ctx = Arc::new(Self {
             name,
             kind,
             id,
+            parent_thread,
             backtrace: Default::default(),
             thread_backtrace: Default::default(),
             watch_data: Default::default(),
@@ -99,6 +129,12 @@ impl TaskContext {
     /// Returns this context's task id.
     pub fn id(&self) -> TaskID {
         self.id
+    }
+
+    /// Returns the task id of the thread that spawned this task or thread,
+    /// if the spawning thread was spawned through this crate.
+    pub fn parent_thread(&self) -> Option<TaskID> {
+        self.parent_thread
     }
 
     /// Records or replaces a watched key/value pair.
@@ -246,12 +282,17 @@ impl TaskContext {
         let mut out = String::new();
         let guard = scc::Guard::new();
         for (id, task) in TASK_CONTEXT.iter(&guard) {
+            let parent = task
+                .parent_thread()
+                .map(|parent| parent.to_string())
+                .unwrap_or_else(|| "-".to_string());
             out.push_str(
                 format!(
-                    "kind:{},\t name:{},\t id: {},\t trace {}\n",
+                    "kind:{},\t name:{},\t id: {},\t parent: {},\t trace {}\n",
                     task.kind().as_str(),
                     task.name(),
                     id,
+                    parent,
                     task.backtrace()
                 )
                 .as_str(),

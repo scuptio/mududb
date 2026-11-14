@@ -73,13 +73,13 @@ mpm-build ──► target/c-guest/wallet-c.mpk
 ## Build
 
 Requirements: a clang able to target **wasm32 freestanding** — the
-[wasi-sdk](https://github.com/WebAssembly/wasi-sdk) 29 clang is used by
-default (`~/.wasi-sdk/wasi-sdk-29.0`; override with
-`WASI_SDK=/path/to/wasi-sdk cargo make`, or `CLANG=/path/to/clang`) — plus
-`wasm-tools`, `cargo-make`, and the workspace tools `mgen` / `mtp` /
-`mpm-build` (`cargo make install-tools` at the repo root). Only the
-compiler and the sysroot *headers* are used: the link is `-nostdlib` and
-the component imports nothing but `mududb:api/system`.
+[wasi-sdk](https://github.com/WebAssembly/wasi-sdk) 29 clang. It is located
+automatically, in order: `WASI_SDK` (explicit root), `CLANG`, `clang` on
+`PATH`, then `~/.wasi-sdk/wasi-sdk-29.0` — each candidate validated by its
+wasip1 sysroot — plus `wasm-tools`, `cargo-make`, and the workspace tools
+`mgen` / `mtp` / `mpm-build` (`cargo make install-tools` at the repo root).
+Only the compiler and the sysroot *headers* are used: the link is
+`-nostdlib` and the component imports nothing but `mududb:api/system`.
 
 ```sh
 cargo make package    # produces target/c-guest/wallet-c.mpk (repo-root target/)

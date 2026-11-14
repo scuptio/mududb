@@ -117,6 +117,31 @@ mod tests {
     }
 
     #[test]
+    fn test_package_archive_is_byte_reproducible() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        create_test_files(temp_dir.path())?;
+
+        let mut config = base_config(&temp_dir);
+        config.validate()?;
+        write_package_archive(&config)?;
+        let first = mudu_sys::fs::sync::sync_read_all(&config.output_path)?;
+
+        // Repacking the same inputs must produce byte-identical archives:
+        // entry timestamps are pinned to the ZIP epoch instead of the wall
+        // clock, so rebuilds no longer dirty the committed prebuilt .mpk.
+        config.output_path = temp_dir
+            .path()
+            .join("test-second.mpk")
+            .to_string_lossy()
+            .into_owned();
+        write_package_archive(&config)?;
+        let second = mudu_sys::fs::sync::sync_read_all(&config.output_path)?;
+        assert_eq!(first, second, "repacked archive bytes differ");
+
+        Ok(())
+    }
+
+    #[test]
     fn test_validate_rejects_missing_package_cfg() -> Result<()> {
         let temp_dir = TempDir::new()?;
         create_test_files(temp_dir.path())?;

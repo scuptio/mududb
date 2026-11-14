@@ -15,6 +15,18 @@ fn default_schema_on_decode() -> String {
     DEFAULT_SCHEMA.to_string()
 }
 
+/// Kind of a catalog object stored as a [`SchemaTable`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "test", fuzzing), derive(Arbitrary))]
+pub enum SchemaObjectKind {
+    /// A regular table.
+    #[default]
+    Table,
+    /// An in-database message queue. A queue keeps the table storage layout;
+    /// the kind tag distinguishes queue semantics at the SQL layer.
+    Queue,
+}
+
 /// Schema of a table: the columns plus the key/value layout.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SchemaTable {
@@ -29,12 +41,17 @@ pub struct SchemaTable {
     // schema (zero migration).
     #[serde(default = "default_schema_on_decode")]
     schema: String,
+    // Kind of catalog object. Appended after `schema` for the same positional
+    // persistence reason: pre-existing catalog rows decode through the serde
+    // default into `SchemaObjectKind::Table`.
+    #[serde(default)]
+    kind: SchemaObjectKind,
 }
 
 /// Builds a tuple descriptor from a key/value column slice.
 ///
 /// The input [`AttrIndex`] is the original column order in the table schema,
-/// while the generated [`FieldInfo`] datum index is the position inside this
+/// while the generated `FieldInfo` datum index is the position inside this
 /// tuple.
 pub fn schema_columns_to_tuple_desc(
     fields: Vec<(AttrIndex, &SchemaColumn)>,
@@ -111,7 +128,8 @@ impl<'a> Arbitrary<'a> for SchemaTable {
             value_indices.push(columns.len());
             columns.push(s);
         }
-        let schema = SchemaTable::new(name, columns, key_indices, value_indices);
+        let mut schema = SchemaTable::new(name, columns, key_indices, value_indices);
+        schema.set_kind(SchemaObjectKind::arbitrary(u)?);
         Ok(schema)
     }
 }
@@ -152,6 +170,7 @@ impl SchemaTable {
             key_indices,
             value_indices,
             schema: DEFAULT_SCHEMA.to_string(),
+            kind: SchemaObjectKind::Table,
         };
         for (i, index) in s.key_indices.iter().copied().enumerate() {
             let sc = &mut s.columns[index];
@@ -184,6 +203,21 @@ impl SchemaTable {
     /// Set the schema (namespace) this table belongs to.
     pub fn set_schema(&mut self, schema: String) {
         self.schema = schema;
+    }
+
+    /// The kind of catalog object this schema describes.
+    pub fn kind(&self) -> SchemaObjectKind {
+        self.kind
+    }
+
+    /// Set the kind of catalog object this schema describes.
+    pub fn set_kind(&mut self, kind: SchemaObjectKind) {
+        self.kind = kind;
+    }
+
+    /// Whether this schema describes a queue.
+    pub fn is_queue(&self) -> bool {
+        self.kind == SchemaObjectKind::Queue
     }
 
     /// All columns in original table order.

@@ -1,0 +1,29 @@
+{
+  "modules": {
+    "queue_activation_guest": [
+      {
+        "module_name": "queue_activation_guest",
+        "proc_name": "activated",
+        "param_desc": {
+          "fields": [
+            {
+              "data_type": {
+                "id": "String",
+                "param": {
+                  "String": {
+                    "length": 65536
+                  }
+                }
+              },
+              "name": "queue",
+              "nullable": false
+            }
+          ]
+        },
+        "return_desc": {
+          "fields": []
+        }
+      }
+    ]
+  }
+}

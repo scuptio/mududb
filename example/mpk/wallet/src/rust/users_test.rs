@@ -79,11 +79,14 @@ fn users_lifecycle() -> RS<()> {
     assert_eq!(params.1.as_deref(), Some("name_val"));
     assert_eq!(params.6, Some(1));
 
-    // Partial update statement
+    // Partial update statement (every column marked, in declaration order)
     let update = UsersChange {
         name: FieldChange::Set(Some("new_name".to_string())),
+        phone: FieldChange::Set(Some("new_phone".to_string())),
+        email: FieldChange::Set(Some("new_email".to_string())),
+        password: FieldChange::Set(Some("new_password".to_string())),
+        created_at: FieldChange::Set(Some(1)),
         updated_at: FieldChange::Set(Some(2)),
-        ..UsersChange::default()
     };
     let (sql, update_params) = match update.update_by_pk(1) {
         Some(parts) => parts,
@@ -96,9 +99,10 @@ fn users_lifecycle() -> RS<()> {
     };
     assert_eq!(
         sql,
-        "UPDATE users SET name = ?, updated_at = ? WHERE user_id = ?"
+        "UPDATE users SET name = ?, phone = ?, email = ?, password = ?, created_at = ?, updated_at = ? WHERE user_id = ?"
     );
-    assert_eq!(update_params.len(), 3);
+    assert_eq!(update_params.len(), 7);
+    assert!(UsersChange::default().is_empty());
     assert!(UsersChange::default().update_by_pk(1).is_none());
 
     // Set(None) on a nullable column emits `<col> = ?` with a NULL parameter

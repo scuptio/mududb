@@ -145,3 +145,61 @@ impl AsRawFd for AsyncTcpListener {
         self.0.as_raw_fd()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{AsyncTcpListener, AsyncTcpStream};
+    use std::os::fd::AsRawFd;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_tcp_loopback_roundtrip() {
+        let listener = AsyncTcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _peer) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await.unwrap();
+            stream.write_all(&buf).await.unwrap();
+            stream.flush().await.unwrap();
+            stream.shutdown().await.unwrap();
+            stream
+        });
+
+        let mut client = AsyncTcpStream::connect(addr).await.unwrap();
+        client.set_nodelay(true).unwrap();
+        let _local = client.local_addr().unwrap();
+        let _peer = client.peer_addr().unwrap();
+        client.write_all(b"hello").await.unwrap();
+        let mut buf = [0u8; 5];
+        client.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"hello");
+        let _fd = client.as_raw_fd();
+
+        let server_stream = server.await.unwrap();
+        let _std_stream = server_stream.into_std().unwrap();
+        let _tokio_stream = client.into_inner();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_tcp_from_std_and_new_conversions() {
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std_listener.set_nonblocking(true).unwrap();
+        let async_listener = AsyncTcpListener::from_std(std_listener).unwrap();
+        let _fd = async_listener.as_raw_fd();
+        let _tokio_listener = async_listener.into_inner();
+
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let std_addr = std_listener.local_addr().unwrap();
+
+        let std_stream = std::net::TcpStream::connect(std_addr).unwrap();
+        std_stream.set_nonblocking(true).unwrap();
+        let _async_stream = AsyncTcpStream::from_std(std_stream).await.unwrap();
+
+        let std_stream = std::net::TcpStream::connect(std_addr).unwrap();
+        std_stream.set_nonblocking(true).unwrap();
+        let backend = crate::imp::net::async_tokio::stream_from_std(std_stream).unwrap();
+        let _wrapped = AsyncTcpStream::new(backend);
+    }
+}

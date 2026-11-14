@@ -44,7 +44,7 @@ impl WorkerWALBackend {
     /// File offsets are not reserved here: reservation happens when the flush
     /// driver drains the queue, so out-of-order concurrent enqueues cannot
     /// corrupt the file layout. `force_flush` has the same meaning as the
-    /// `force_flush` branch of [`WorkerWALBackend::should_start_flush`]: the
+    /// `force_flush` branch of `WorkerWALBackend::should_start_flush`: the
     /// batch asks the driver to flush immediately instead of waiting for the
     /// batching watermarks.
     pub async fn enqueue_group_commit(
@@ -95,7 +95,7 @@ impl WorkerWALBackend {
     /// cross-thread driver wake costs more than the inline fsync), first
     /// waiting out the batching window (`wait_batching_window`, bounded by
     /// one `max_wait`) so concurrent commits share the round. Up to
-    /// [`FLUSH_SLOT_COUNT`] callers drive concurrently (`flush_drivers`);
+    /// `FLUSH_SLOT_COUNT` callers drive concurrently (`flush_drivers`);
     /// callers past the cap skip driving and batch into the rounds being
     /// accumulated or already in flight. Losing the driving race is safe:
     /// the rounds in flight, their successor rounds, or the background
@@ -120,7 +120,7 @@ impl WorkerWALBackend {
     /// File offsets are not reserved here: reservation happens when the flush
     /// driver drains the queue, so out-of-order concurrent enqueues cannot
     /// corrupt the file layout. `force_flush` has the same meaning as the
-    /// `force_flush` branch of [`WorkerWALBackend::should_start_flush`]: the
+    /// `force_flush` branch of `WorkerWALBackend::should_start_flush`: the
     /// batch asks the driver to flush immediately instead of waiting for the
     /// batching watermarks.
     ///

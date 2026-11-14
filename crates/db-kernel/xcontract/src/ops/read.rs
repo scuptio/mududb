@@ -231,6 +231,65 @@ impl WorkerXContract {
         }))
     }
 
+    /// Range scan pinned to one explicit partition: skips routing and reads
+    /// exactly `partition_id`, locally or through the remote-partition read.
+    /// Queue executors scan this way because the `__seq` key does not carry
+    /// the queue's partition-route column.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn read_range_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        partition_id: OID,
+        pred_key: &RangeData,
+        pred_non_key: &Predicate,
+        select: &VecSelTerm,
+    ) -> RS<Arc<dyn RSCursor>> {
+        ensure_supported_predicate(pred_non_key)?;
+        let start = build_bound_key(pred_key.start(), &desc)?;
+        let end = build_bound_key(pred_key.end(), &desc)?;
+        let projected = match self.resolve_partition_worker(partition_id).await? {
+            Some(worker_id) if worker_id != self.worker_id => {
+                let rows = self
+                    .read_range_remote_partition(
+                        tx_mgr.as_ref(),
+                        &RemoteRangeRead {
+                            worker_id,
+                            table_id,
+                            partition_id,
+                            desc: &desc,
+                            pred_key,
+                            pred_non_key,
+                            select,
+                            start: &start,
+                            end: &end,
+                        },
+                    )
+                    .await?;
+                rows.into_iter().map(TupleRow::new_nullable).collect()
+            }
+            _ => {
+                let rows = self
+                    .storage
+                    .range_on_partition(
+                        table_id,
+                        Some(partition_id),
+                        (bound_key_as_ref(&start), bound_key_as_ref(&end)),
+                        tx_mgr.as_ref(),
+                    )
+                    .await?;
+                project_range_rows(rows, &desc, pred_non_key, select)?
+            }
+        };
+        Ok(Arc::new(VecCursor {
+            inner: SMutex::new(VecCursorInner {
+                rows: projected,
+                index: 0,
+            }),
+        }))
+    }
+
     /// Route a range scan to its target partitions: a `KeyPrefixEq` predicate
     /// pinning every partition-key column resolves to the single owning
     /// partition; anything else fans out over the range router.

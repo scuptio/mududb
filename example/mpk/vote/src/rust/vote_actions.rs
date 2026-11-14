@@ -89,7 +89,7 @@ pub mod object {
             }
         }
 
-        /// Typed bind parameters for [`SQL_INSERT`], in column declaration order.
+        /// Typed bind parameters for [`Self::SQL_INSERT`], in column declaration order.
         // The explicit full-row tuple is the point of the typed API.
         #[allow(clippy::type_complexity)]
         pub fn insert_params(&self) -> (String, Option<String>, Option<String>, i32, Option<i32>) {

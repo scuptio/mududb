@@ -2,11 +2,13 @@
 mod tests {
     use crate::support::test_runtime_domain_lock;
     use crate::{
-        connect_sync_client_with_retry, reserve_port, reserve_port_block, wait_until_port_ready,
+        connect_sync_client_with_retry_within, reserve_port, reserve_port_block,
+        wait_until_port_ready, wait_until_port_ready_within,
     };
     use mudu_sys::net::sync::SStdTcpStream;
     use mudu_sys::sync::SMutexGuard;
     use std::net::SocketAddr;
+    use std::time::Duration;
 
     // Tests in this module bind listeners and probe "this port is free"
     // properties against one process-wide port space (on the simulation
@@ -88,7 +90,11 @@ mod tests {
         let _guard = port_space_guard();
         // Reserve a port and release it so we know it is not currently listened on.
         let port = reserve_port().unwrap().expect("reserve failed");
-        let result = wait_until_port_ready(port, "test-no-listener");
+        // A short explicit budget keeps this negative test fast; the shared
+        // helper's default budget is the (much longer) backend startup
+        // timeout.
+        let result =
+            wait_until_port_ready_within(port, "test-no-listener", Duration::from_millis(200));
         assert!(result.is_err());
     }
 
@@ -96,7 +102,9 @@ mod tests {
     fn connect_sync_client_with_retry_errors_when_no_server() {
         let _guard = port_space_guard();
         let port = reserve_port().unwrap().expect("reserve failed");
-        let result = connect_sync_client_with_retry(port);
+        // Short explicit budget: the default scales up under sanitizer or
+        // coverage instrumentation, which would make this negative test slow.
+        let result = connect_sync_client_with_retry_within(port, Duration::from_millis(200));
         assert!(result.is_err());
     }
 }

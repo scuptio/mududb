@@ -237,7 +237,6 @@ name = "mudu_api_rust"
 version = "0.1.0"
 dependencies = [
  "libloading",
- "rmp",
  "rmp-serde",
  "rusqlite",
  "serde",

@@ -70,3 +70,36 @@ pub fn poll_op<T>(state: &Arc<OpState<T>>, cx: &mut Context<'_>) -> Poll<RS<T>> 
 pub fn try_take_op<T>(state: &Arc<OpState<T>>) -> Option<RS<T>> {
     state.inner.lock().ok()?.result.take()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn completion_error_maps_negative_result_to_os_error() {
+        let err = super::completion_error("read", -2);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::from_raw_os_error(2));
+    }
+
+    #[test]
+    fn op_state_complete_then_try_take() {
+        let state = super::op_state::<u32>();
+        assert!(super::try_take_op(&state).is_none());
+        super::complete_op(state.clone(), Ok(7));
+        assert_eq!(super::try_take_op(&state).unwrap().unwrap(), 7);
+        assert!(super::try_take_op(&state).is_none());
+    }
+
+    #[test]
+    fn poll_op_registers_waker_and_resolves_after_complete() {
+        let state = super::op_state::<u32>();
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        assert!(super::poll_op(&state, &mut cx).is_pending());
+        super::complete_op(state.clone(), Ok(9));
+        match super::poll_op(&state, &mut cx) {
+            std::task::Poll::Ready(result) => assert_eq!(result.unwrap(), 9),
+            std::task::Poll::Pending => panic!("operation must be completed"),
+        }
+    }
+}

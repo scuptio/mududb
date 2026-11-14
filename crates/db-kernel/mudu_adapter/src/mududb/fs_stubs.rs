@@ -139,3 +139,75 @@ pub async fn mudu_fs_readdir_async(
 ) -> RS<Vec<UniFsDirent>> {
     fs_not_supported("mudu_fs_readdir")
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_fs_stub_returns_not_implemented() {
+        assert_eq!(
+            mudu_fs_open(1, 2, "/x", 0).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_close(1, 9).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_read(1, 9, 4).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_write(1, 9, b"d").unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_pread(1, 9, 0, 4).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_pwrite(1, 9, 0, b"d").unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_lseek(1, 9, 0, 0).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_fstat(1, 9).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_stat(1, 2, "/x").unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_fsync(1, 9).unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            mudu_fs_readdir(1, 2, "/x").unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+    }
+
+    #[test]
+    fn every_async_fs_stub_returns_not_implemented() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            assert!(mudu_fs_open_async(1, 2, "/x", 0).await.is_err());
+            assert!(mudu_fs_close_async(1, 9).await.is_err());
+            assert!(mudu_fs_read_async(1, 9, 4).await.is_err());
+            assert!(mudu_fs_write_async(1, 9, b"d").await.is_err());
+            assert!(mudu_fs_pread_async(1, 9, 0, 4).await.is_err());
+            assert!(mudu_fs_pwrite_async(1, 9, 0, b"d").await.is_err());
+            assert!(mudu_fs_lseek_async(1, 9, 0, 0).await.is_err());
+            assert!(mudu_fs_fstat_async(1, 9).await.is_err());
+            assert!(mudu_fs_stat_async(1, 2, "/x").await.is_err());
+            assert!(mudu_fs_fsync_async(1, 9).await.is_err());
+            assert!(mudu_fs_readdir_async(1, 2, "/x").await.is_err());
+        })
+        .unwrap();
+    }
+}

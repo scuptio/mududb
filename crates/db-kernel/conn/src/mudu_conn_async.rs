@@ -142,7 +142,7 @@ impl MuduConnAsync {
     }
 
     /// Create a connection bound to an application schema; see
-    /// [`Self::app_name`].
+    /// `Self::app_name`.
     pub fn new_with_runtime_and_app(
         async_runtime: Option<Arc<dyn AsyncIoProvider>>,
         app_name: Option<String>,

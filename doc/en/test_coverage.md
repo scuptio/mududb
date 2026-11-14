@@ -8,7 +8,7 @@ MuduDB uses [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) to gen
 
 - **Line coverage**: statement/line coverage.
 - **Function coverage**: function-level coverage.
-- **Branch coverage**: branch coverage (nightly-only unstable feature, enabled by default, can be disabled).
+- **Branch coverage**: branch coverage (nightly-only unstable feature, **disabled** by default — the pinned nightly's LLVM can SIGSEGV on branch data at report time; `--branch` opts in).
 
 ## 2. Prerequisites
 
@@ -23,42 +23,55 @@ If you have already run `script/setup_dev_env.sh`, you only need to run the cove
 ## 3. One-command coverage
 
 ```bash
-script/coverage/run_coverage.sh
+cargo make coverage
+```
+
+This delegates to the cross-platform Python runner (works on Linux / macOS / Windows); direct invocation is equivalent:
+
+```bash
+python3 script/coverage/run_coverage.py
 ```
 
 Defaults:
 
-- Scope: `core` profile, i.e. `mudu`, `mudu_type`, `mudu_contract`, and `mudu_kernel`.
+- Scope: unit tests of **all five group workspaces** (`crates/common`, `crates/db-kernel`, `crates/sdk`, `example/mpk`, `crates/tools`) **plus the `testing` crate's end-to-end tests**.
+- Report: **one merged report** over everything that ran (see "How merging works" below).
 - Format: `all` (HTML, JSON, and lcov).
-- Output directory: `target/llvm-cov`.
-- Branch coverage: **enabled** (`--branch`).
-- Test threads: fixed at `--test-threads=1` to avoid non-determinism.
+- Output directory: `target/llvm-cov` (`html/index.html`, `coverage.json`, `coverage.lcov`).
+- Branch coverage: **disabled** (`--branch` opts in; unstable, see §8.2).
+- Unit tests run with `--test-threads=1` to avoid non-determinism; e2e tests keep the default parallelism (like `cargo make test`).
 
-> The `workspace` profile defaults to line coverage (`--no-branch`) because the current pinned nightly triggers an LLVM SIGSEGV when generating a merged report that includes `mudu_kernel`. Use `--branch` to force it on.
+### How merging works
+
+All group workspaces share the repository-root `target/` directory, so every profraw file lands flat in `target/llvm-cov-target/`. The report step merges them with the pinned nightly's `llvm-profdata` and renders a single report via `llvm-cov show/export` over exactly the instrumented test binaries that ran (`cargo llvm-cov report` itself cannot merge across workspaces).
+
+### e2e coverage
+
+The `testing` crate's integration tests run a full server **in-process**, so e2e coverage needs no special instrumentation: the test binaries' profraw is collected like any other. Before the e2e stage the script builds `wallet.mpk` on a best-effort basis (wallet-dependent tests soft-skip if it is missing); the committed fixture under `crates/db-kernel/testing/mpk/` is restored to its pre-run bytes afterwards, so a coverage run never dirties the working tree (a deliberate fixture refresh is committed via `cargo make copy-wallet-mpk` instead). Use `--no-e2e` to skip e2e entirely, or `--e2e-filter <substring>` for a quick smoke run.
 
 ### 3.1 Common options
 
 ```bash
-# Disable branch coverage
-script/coverage/run_coverage.sh --no-branch
+# Unit tests only (much faster)
+python3 script/coverage/run_coverage.py --no-e2e
 
-# Full workspace, HTML only (line coverage by default)
-script/coverage/run_coverage.sh -p workspace -f html
+# Run only e2e tests matching a substring (smoke)
+python3 script/coverage/run_coverage.py --e2e-filter string_literal
 
-# Full workspace, force branch coverage (may crash)
-script/coverage/run_coverage.sh -p workspace --branch
+# HTML only
+python3 script/coverage/run_coverage.py -f html
 
-# Core crates, JSON summary only
-script/coverage/run_coverage.sh -p core -f json
+# Force branch coverage (unstable, may crash)
+python3 script/coverage/run_coverage.py --branch
 
 # Custom output directory
-script/coverage/run_coverage.sh -o /tmp/mudu-cov
+python3 script/coverage/run_coverage.py -o /tmp/mudu-cov
 ```
 
 For the full option list:
 
 ```bash
-script/coverage/run_coverage.sh --help
+python3 script/coverage/run_coverage.py --help
 ```
 
 ## 4. Viewing reports
@@ -94,63 +107,35 @@ PY
 
 ## 5. Manual commands
 
-If you need finer control, run `cargo llvm-cov` directly.
-
-### 5.1 Basic workflow
-
-`cargo llvm-cov` cannot use `--output-path` more than once in a single command, so multi-format reports require two steps: first run tests with `--no-report` to collect raw data, then use `cargo llvm-cov report` to generate each format.
+The script's pipeline, if you need finer control:
 
 ```bash
-export NIGHTLY_TOOLCHAIN="nightly-2026-06-17"
-export CARGO_INCREMENTAL=0
+NIGHTLY=nightly-2026-06-17
+LLVM_BIN="$(rustc +"${NIGHTLY}" --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
 
-# Step 1: collect coverage data
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu \
-  --package mudu_type \
-  --package mudu_contract \
-  --package mudu_kernel \
-  --lib --tests \
-  --no-report \
-  --branch \
-  -- \
-  --test-threads=1
+# 1. Collect per group workspace (testing is excluded from the unit stage)
+(cd crates/common    && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/sdk       && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/tools     && cargo +"${NIGHTLY}" llvm-cov --workspace --lib --tests --no-report -- --test-threads=1)
+(cd crates/db-kernel && cargo +"${NIGHTLY}" llvm-cov --workspace --exclude testing --lib --tests --no-report -- --test-threads=1)
+(cd crates/db-kernel && cargo +"${NIGHTLY}" llvm-cov --package testing --lib --tests --no-report)  # e2e stage
 
-# Step 2: generate reports
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov report \
-  --branch \
-  --html --output-dir ./target/llvm-cov/html \
-  --json --output-path ./target/llvm-cov/coverage.json \
-  --lcov --output-path ./target/llvm-cov/coverage.lcov
+# 2. Merge every profraw (they all land flat in target/llvm-cov-target/)
+"${LLVM_BIN}/llvm-profdata" merge -sparse target/llvm-cov-target/*.profraw -o target/llvm-cov/merged.profdata
+
+# 3. Render one report over exactly the test binaries that ran
+"${LLVM_BIN}/llvm-cov" show   --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=html --output-dir=target/llvm-cov/html
+"${LLVM_BIN}/llvm-cov" export --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=text > target/llvm-cov/coverage.json
+"${LLVM_BIN}/llvm-cov" export --instr-profile=target/llvm-cov/merged.profdata <test-binary> [-object <test-binary>...] -format=lcov > target/llvm-cov/coverage.lcov
 ```
 
-### 5.2 Disabling branch coverage
-
-Remove all `--branch` flags. The branch column in the report will then show `0/0`.
-
-### 5.3 Generating a single format
-
-```bash
-# HTML only
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu --package mudu_type --package mudu_contract --package mudu_kernel \
-  --lib --tests --branch \
-  --html --output-dir ./target/llvm-cov/html \
-  -- --test-threads=1
-
-# JSON only
-cargo +"${NIGHTLY_TOOLCHAIN}" llvm-cov \
-  --package mudu --package mudu_type --package mudu_contract --package mudu_kernel \
-  --lib --tests --branch \
-  --json --output-path ./target/llvm-cov/coverage.json \
-  -- --test-threads=1
-```
+The exact object list comes from `cargo test --no-run --message-format=json` run with the environment printed by `cargo +"${NIGHTLY}" llvm-cov show-env --export-prefix` (plus `CARGO_TARGET_DIR=target/llvm-cov-target`); see `script/coverage/run_coverage.py` for the full details.
 
 ## 6. Coverage in CI
 
 The `.github/workflows/nightly-checks.yaml` workflow contains a `coverage` job:
 
-- Runs coverage for the `core` profile every night.
+- Runs merged unit-test coverage every night (e2e stays local-only: `--no-e2e`).
 - Generates HTML / JSON / lcov and uploads them as artifacts (retained for 30 days).
 - Posts a coverage summary to the job summary page.
 
@@ -179,12 +164,12 @@ After running coverage, use the HTML report to locate uncovered code and add tar
 
 The `--branch` flag must be supplied in **both** the test-collection phase and the report phase. If it is only passed during test collection but omitted from `report`, the branch column will show `0/0`. The script and CI handle this automatically; check both commands when running manually.
 
-### 8.2 `llvm-cov export` crashes when running the `core` profile
+### 8.2 Report generation crashes (SIGSEGV)
 
-On the current pinned nightly, `mudu_kernel`'s branch coverage data can trigger an LLVM bug that causes `llvm-cov export` to SIGSEGV. Disable branch coverage in that case:
+On the current pinned nightly, branch coverage data for the kernel crates can trigger an LLVM bug that SIGSEGVs report generation (`getInstantiationGroups`). Branch coverage is therefore **disabled by default**; only opt in with `--branch` if you need it:
 
 ```bash
-script/coverage/run_coverage.sh --no-branch
+python3 script/coverage/run_coverage.py --branch
 ```
 
 `mudu`, `mudu_type`, and `mudu_contract` work fine with `--branch` both individually and combined.
@@ -196,7 +181,7 @@ The script retries `rustup` commands up to three times. If it still fails, clean
 ```bash
 rm -rf ~/.rustup/downloads/*.partial
 rustup toolchain uninstall nightly-2026-06-17 2>/dev/null || true
-script/coverage/run_coverage.sh
+python3 script/coverage/run_coverage.py
 ```
 
 ### 8.4 First run is slow
@@ -205,6 +190,7 @@ The first run installs the pinned nightly, `llvm-tools-preview`, and `cargo-llvm
 
 ## 9. Related files
 
-- `script/coverage/run_coverage.sh`: local coverage entry point.
+- `script/coverage/run_coverage.py`: local coverage entry point (cross-platform Python, also reachable via `cargo make coverage`).
+- `script/coverage/install_deps.py`: coverage toolchain dependency installer (invoked automatically by run_coverage.py).
 - `.github/workflows/nightly-checks.yaml`: CI coverage job.
 - `.github/scripts/summarize_coverage.py`: coverage summary script.

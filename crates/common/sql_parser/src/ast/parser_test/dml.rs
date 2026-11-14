@@ -58,7 +58,8 @@ fn parse_select_reverts_literal_field_comparison_shape() {
         predicate.1.data_type().unwrap().data_type().type_family(),
         mudu_type::type_family::TypeFamily::I64
     );
-    assert!(matches!(predicate.2, ValueCompare::LE));
+    // `7 > id` normalizes to `id < 7`.
+    assert!(matches!(predicate.2, ValueCompare::LT));
 }
 
 #[test]

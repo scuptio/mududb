@@ -11,4 +11,6 @@ mod template_record_go;
 mod template_variant_go;
 
 #[cfg(test)]
+mod go_codec_test;
+#[cfg(test)]
 mod template_message_go_test;

@@ -32,7 +32,7 @@ use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
-use testing::{connect_sync_client_with_retry, reserve_port, wait_until_port_ready};
+use testing::{connect_sync_client_with_retry, reserve_port};
 
 const RAFT_TICK_MS: u64 = 25;
 const LEADER_WAIT: Duration = Duration::from_secs(30);
@@ -132,7 +132,9 @@ fn join_learner_catch_up_and_promote(
 // granted when its log tail is at least as long as every other voter's, so
 // drive one more converged write and let the append heartbeats even out the
 // tails before the failover. The promoted learner wins the election and
-// every acknowledged write survives (RPO=0).
+// every acknowledged write survives (RPO=0). The survivor set is computed
+// from the killed leader: under instrumented runs the initial election is
+// not deterministic, so any of nodes 1-3 may be the dead one.
 fn promoted_learner_wins_failover(
     cluster: &mut Cluster,
     leader_id: u64,
@@ -147,15 +149,19 @@ fn promoted_learner_wins_failover(
     }
     sleep_blocking(Duration::from_millis(500));
     cluster.stop_node(leader_id)?;
-    let new_leader = cluster.wait_leader_among(&[1, 2, 4])?;
+    let survivors: Vec<u64> = [1, 2, 3, 4]
+        .into_iter()
+        .filter(|id| *id != leader_id)
+        .collect();
+    let new_leader = cluster.wait_leader_among(&survivors)?;
     assert_eq!(new_leader, 4, "the promoted learner must win the election");
     let mut committed = batch_a.to_vec();
     committed.extend(batch_b.to_vec());
     cluster.wait_values(4, &committed)?;
     let batch_c = make_batch("mem-c", 8);
     cluster.put_all(4, &batch_c)?;
-    for node_id in [1, 2, 4] {
-        cluster.wait_values(node_id, &batch_c)?;
+    for node_id in &survivors {
+        cluster.wait_values(*node_id, &batch_c)?;
     }
     Ok(())
 }
@@ -171,10 +177,14 @@ fn remove_dead_member_keeps_serving(cluster: &mut Cluster, dead_leader: u64) -> 
         3,
         "the conf must shrink back to three members: {response}"
     );
+    let survivors: Vec<u64> = [1, 2, 3, 4]
+        .into_iter()
+        .filter(|id| *id != dead_leader)
+        .collect();
     let batch_d = make_batch("mem-d", 8);
     cluster.put_all(4, &batch_d)?;
-    for node_id in [1, 2, 4] {
-        cluster.wait_values(node_id, &batch_d)?;
+    for node_id in &survivors {
+        cluster.wait_values(*node_id, &batch_d)?;
     }
     Ok(())
 }
@@ -430,13 +440,23 @@ impl Cluster {
     fn start_server(node: &ClusterNode, peers: &[ClusterNode]) -> RS<RunningServer> {
         let cfg = Self::build_cfg(node, peers);
         let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
+        let (ready, _ready_waiter) = notify_wait();
+        let ready_probe = ready.clone();
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
-        wait_until_port_ready(node.http_port, "HTTP")?;
-        wait_until_worker_port_ready(node.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
+        // Race the readiness conditions against the server thread's exit: a
+        // startup failure (e.g. a listen port lost to a parallel test
+        // process) surfaces with the thread's own error immediately instead
+        // of burning the whole readiness budget on a port that never opens.
+        let handle = wait_test_server_ready(
+            node.http_port,
+            node.tcp_port,
+            &stop,
+            &ready_probe,
+            handle,
+            backend_startup_timeout(),
+        )?;
         Ok(RunningServer {
             stop,
             http_port: node.http_port,

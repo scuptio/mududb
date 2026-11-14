@@ -1,6 +1,6 @@
 //! Connection configuration resolved from the `MUDU_CONNECTION` environment variable.
 
-use mudu_sys::sync::{SMutex, SRwLock};
+use mudu_sys::sync::{SMutex, SMutexGuard, SRwLock};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -16,6 +16,14 @@ static DB_PATH_OVERRIDE: OnceLock<SRwLock<Option<PathBuf>>> = OnceLock::new();
 pub fn test_lock() -> &'static SMutex<()> {
     static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| SMutex::new(()))
+}
+
+/// Acquires [`test_lock`], ignoring poisoning: a test that panics while
+/// holding the lock must not fail every later test that touches the shared
+/// process-global connection configuration.
+#[doc(hidden)]
+pub fn test_guard() -> SMutexGuard<'static, ()> {
+    test_lock().lock_ignore_poison()
 }
 
 /// Supported database backends.

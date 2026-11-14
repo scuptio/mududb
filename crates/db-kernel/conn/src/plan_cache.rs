@@ -4,7 +4,7 @@
 //! benchmark workloads re-execute a small set of parameterized statement
 //! templates thousands of times per second. The bound shape of a statement
 //! depends on the SQL text, the schema the statement resolves against, and
-//! the catalog, so this cache stores [`BoundTemplate`]s (placeholders kept
+//! the catalog, so this cache stores [`sql::bound_template::BoundTemplate`]s (placeholders kept
 //! as ordered slots, see `sql::bound_template`) keyed by `(schema, SQL
 //! text)`, tagged with the catalog version they were bound against. A lookup
 //! carries the current `MetaMgr::catalog_version()`; a version mismatch is a
@@ -152,7 +152,7 @@ impl CachedPlan {
                     .await
             }
             (PlanClass::PointInsert, StmtTemplate::Insert(template)) => {
-                self.run_point_insert(template, params, tx_mgr, x_contract)
+                self.run_point_insert(template, params, tx_mgr, x_contract, meta_mgr)
                     .await
             }
             (_, StmtTemplate::Select(_)) => Err(mudu_error!(
@@ -297,13 +297,15 @@ impl CachedPlan {
 
     /// Point insert: fills every row and issues one `XContract::insert` per
     /// row. All rows are validated before the first insert, mirroring
-    /// `InsertKeyValue::prepare`.
+    /// `InsertKeyValue::prepare` (same error code and messages for an empty
+    /// insert key).
     async fn run_point_insert(
         &self,
         template: &::sql::bound_template::InsertTemplate,
         params: &dyn SQLParams,
         tx_mgr: Arc<dyn TxMgr>,
         x_contract: Arc<dyn XContract>,
+        meta_mgr: Arc<dyn MetaMgr>,
     ) -> RS<u64> {
         let _stage = ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::SqlRun);
         let slots = &self.template.slots;
@@ -316,7 +318,19 @@ impl CachedPlan {
         }
         for (key, _) in &rows {
             if key.data().is_empty() {
-                return Err(mudu_error!(ErrorCode::EntityNotFound, "key is empty"));
+                // Only look the table up on the error path; see
+                // `InsertKeyValue::prepare_inner` for the rationale.
+                let desc = meta_mgr.get_table_by_id(template.table_id).await?;
+                if desc.key_indices().is_empty() {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidTuple,
+                        format!(
+                            "insert into table {} without primary key is not supported",
+                            desc.name()
+                        )
+                    ));
+                }
+                return Err(mudu_error!(ErrorCode::InvalidTuple, "insert key is empty"));
             }
         }
         let mut affected_rows = 0;

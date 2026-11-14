@@ -2,6 +2,14 @@
 
 #![warn(missing_docs)]
 
+/// Queue `ACK` statement executor.
+pub mod ack_queue;
+#[cfg(test)]
+mod ack_queue_test;
+/// Create-consumer command executor (`CREATE CONSUMER <consumer> ON <queue>`).
+pub mod create_consumer;
+#[cfg(test)]
+mod create_consumer_test;
 /// Create-filesystem-type command executor.
 pub mod create_fs_type;
 #[cfg(all(test, not(miri)))]
@@ -14,6 +22,10 @@ mod create_partition_placement_test;
 pub mod create_partition_rule;
 #[cfg(test)]
 mod create_partition_rule_test;
+/// Create-queue command executor.
+pub mod create_queue;
+#[cfg(test)]
+mod create_queue_test;
 /// Create-table command executor.
 pub mod create_table;
 #[cfg(test)]
@@ -22,10 +34,18 @@ mod create_table_test;
 pub mod delete_key_value;
 #[cfg(test)]
 mod delete_key_value_test;
+/// Drop-consumer command executor (`DROP CONSUMER <consumer> ON <queue>`).
+pub mod drop_consumer;
+#[cfg(test)]
+mod drop_consumer_test;
 /// Drop-filesystem-type command executor.
 pub mod drop_fs_type;
 #[cfg(test)]
 mod drop_fs_type_test;
+/// Drop-queue command executor.
+pub mod drop_queue;
+#[cfg(test)]
+mod drop_queue_test;
 /// Drop-table command executor.
 pub mod drop_table;
 #[cfg(test)]
@@ -42,6 +62,10 @@ mod insert_key_value_test;
 pub mod load_from_file;
 #[cfg(test)]
 mod load_from_file_test;
+/// Queue `RECEIVE` statement executor.
+pub mod receive_queue;
+#[cfg(test)]
+mod receive_queue_test;
 /// Save-to-file (COPY TO) command executor.
 pub mod save_to_file;
 #[cfg(test)]

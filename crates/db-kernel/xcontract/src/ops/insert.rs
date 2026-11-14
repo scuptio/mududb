@@ -2,6 +2,35 @@ use super::*;
 use crate::utils::{build_key_tuple, build_value_tuple};
 
 impl WorkerXContract {
+    /// Insert with explicit partition pinning: skips key-based routing and
+    /// targets `target_partition` directly (`None`/`Some(0)` is the
+    /// unpartitioned default). Used by the queue executors, whose row keys
+    /// (`__seq`) do not carry the queue's partition-route column.
+    pub(crate) async fn insert_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        keys: &VecDatum,
+        values: &VecDatum,
+    ) -> RS<()> {
+        let key = build_key_tuple(keys, &desc)?;
+        let value = build_value_tuple(values, &desc)?;
+        if let Some(partition_id) = target_partition {
+            match self.resolve_partition_worker(partition_id).await? {
+                Some(worker_id) if worker_id != self.worker_id => {
+                    return self
+                        .insert_remote_owned(&tx_mgr, table_id, partition_id, worker_id, key, value)
+                        .await;
+                }
+                _ => {}
+            }
+        }
+        self.insert_local(&tx_mgr, table_id, target_partition, key, value)
+            .await
+    }
+
     pub(crate) async fn _insert(
         &self,
         desc: Arc<TableDesc>,
@@ -18,8 +47,6 @@ impl WorkerXContract {
             value_cols = values.data().len(),
             "insert begin"
         );
-        let key = build_key_tuple(keys, &desc)?;
-        let value = build_value_tuple(values, &desc)?;
         let target_partition = self
             .partition_router
             .route_exact_partition(table_id, desc.as_ref(), keys)
@@ -30,17 +57,7 @@ impl WorkerXContract {
             target_partition = ?target_partition,
             "insert routed partition"
         );
-        if let Some(partition_id) = target_partition {
-            match self.resolve_partition_worker(partition_id).await? {
-                Some(worker_id) if worker_id != self.worker_id => {
-                    return self
-                        .insert_remote_owned(&tx_mgr, table_id, partition_id, worker_id, key, value)
-                        .await;
-                }
-                _ => {}
-            }
-        }
-        self.insert_local(&tx_mgr, table_id, target_partition, key, value)
+        self.insert_pinned(desc, tx_mgr, table_id, target_partition, keys, values)
             .await
     }
 

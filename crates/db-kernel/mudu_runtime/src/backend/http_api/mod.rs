@@ -37,6 +37,8 @@ pub use serve::{serve_http_api, serve_http_api_on_listener, serve_http_api_on_li
 // Each test below returns early when running under Miri.
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_handler_routes;
 
 use async_trait::async_trait;
 use mudu::common::result::RS;
@@ -96,6 +98,40 @@ pub trait HttpApi: Send + Sync {
         Err(mudu_error!(
             ErrorCode::NotImplemented,
             "server replication status is not supported"
+        ))
+    }
+
+    /// Returns the per-queue runtime status of this server.
+    async fn server_queues(&self) -> RS<ServerQueuesResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "server queues status is not supported"
+        ))
+    }
+
+    /// Registers (or replaces) a queue activation: the procedure is invoked
+    /// post-commit while the queue is non-empty. Volatile (in-memory; lost on
+    /// restart).
+    async fn queue_activation_register(&self, _request: QueueActivationRequest) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation registration is not supported"
+        ))
+    }
+
+    /// Removes the activation of the queue `queue`.
+    async fn queue_activation_unregister(&self, _queue: String) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation removal is not supported"
+        ))
+    }
+
+    /// Lists the queue activations registered on this server.
+    async fn server_queue_activations(&self) -> RS<ServerQueueActivationsResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation status is not supported"
         ))
     }
 

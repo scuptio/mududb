@@ -43,6 +43,47 @@ jobs:
             done
           } 2>&1 | tee logs/hardening-fmt.log
 
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      # Same checksum-pinning pattern as the Gitleaks install in
+      # secret-scan.yaml; bump the version and the hash together. The
+      # tarball is cached because GitHub's release endpoint intermittently
+      # returns 504s for minutes at a time; the cache is skipped under act,
+      # which has no cache service.
+      - name: Cache checksum-pinned actionlint
+        if: env.ACT != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/actionlint-bin
+          key: actionlint-1.7.12-8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      - name: Install checksum-pinned actionlint
+        run: |
+          set -euo pipefail
+          tool_dir="$HOME/actionlint-bin"
+          tarball="$tool_dir/actionlint.tar.gz"
+          mkdir -p "$tool_dir"
+          if [ ! -f "$tarball" ]; then
+            # A GitHub 504 blip can outlast curl's default retry window
+            # (about 7 seconds); use a window long enough to ride it out.
+            curl --fail --silent --show-error --location \
+              --retry 8 --retry-delay 10 --retry-max-time 300 \
+              https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+              --output "$tarball"
+          fi
+          printf '%s  %s\n' \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 \
+            "$tarball" | sha256sum --check --strict
+          tar -xzf "$tarball" -C "$tool_dir" actionlint
+          echo "$tool_dir" >> "$GITHUB_PATH"
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint -oneline .github/workflows/*.yaml
+
   cargo-deny:
     name: cargo-deny - ${{ matrix.group }}
     runs-on: ubuntu-latest

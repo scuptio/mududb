@@ -152,3 +152,120 @@ pub async fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<Fs
         .await
         .map(|ents| ents.into_iter().map(FsDirEntry::from).collect())
 }
+
+#[cfg(all(test, not(miri)))]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
+    use mudu_contract::database::sql_stmt_text::SQLStmtText;
+
+    fn run_adapter_test<F, Fut>(name: &str, f: F)
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + 'static,
+    {
+        let _guard = mudu_adapter::config::test_lock()
+            .lock()
+            .expect("test lock poisoned");
+        let db_path = mudu_sys::env_var::temp_dir().join(format!(
+            "sys_interface_async_impl_{name}_{}",
+            mudu_sys::random::uuid_v4()
+        ));
+        mudu_adapter::syscall::set_db_path(&db_path);
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move { f().await }).unwrap();
+        mudu_adapter::config::reset_db_path_override_for_test();
+        let _ = mudu_sys::fs::sync::sync_remove_file(&db_path);
+    }
+
+    #[test]
+    fn standalone_async_facade_full_roundtrip() {
+        run_adapter_test("full", || async {
+            let session = mudu_open().await.unwrap();
+            let second = mudu_open_argv(&UniSessionOpenArgv::new(0)).await.unwrap();
+            mudu_close(second).await.unwrap();
+
+            // SQL forwarders.
+            mudu_command(
+                session,
+                &SQLStmtText::new("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)".to_string()),
+                &(),
+            )
+            .await
+            .unwrap();
+            mudu_batch(
+                session,
+                &SQLStmtText::new("INSERT INTO t VALUES (1, 11)".to_string()),
+                &(),
+            )
+            .await
+            .unwrap();
+            let rows = mudu_query::<i32>(
+                session,
+                &SQLStmtText::new("SELECT v FROM t".to_string()),
+                &(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(rows.next_record().unwrap(), Some(11));
+
+            // KV forwarders.
+            mudu_put(session, b"k", b"v").await.unwrap();
+            assert_eq!(mudu_get(session, b"k").await.unwrap(), Some(b"v".to_vec()));
+            assert!(!mudu_range(session, b"", b"z").await.unwrap().is_empty());
+
+            // Relation forwarders.
+            let key = vec![(0u64, 1i32.to_be_bytes().to_vec())];
+            assert_eq!(
+                mudu_relation_get(session, "t", &key, &[1]).await.unwrap(),
+                Some(vec![Some(11i32.to_be_bytes().to_vec())])
+            );
+            assert_eq!(
+                mudu_relation_update(
+                    session,
+                    "t",
+                    &key,
+                    &[(1u64, 12i32.to_be_bytes().to_vec())],
+                    &[UniRelationDelta::add(1, 1i64.to_be_bytes().to_vec())],
+                )
+                .await
+                .unwrap(),
+                1
+            );
+            mudu_relation_insert(
+                session,
+                "t",
+                &[(0u64, 5i32.to_be_bytes().to_vec())],
+                &[(1u64, 51i32.to_be_bytes().to_vec())],
+            )
+            .await
+            .unwrap();
+
+            // fs forwarders through the local-fs emulation.
+            let fd = mudu_fs_open(session, 99, "docs/a.txt", 1).await.unwrap();
+            assert_eq!(mudu_fs_write(session, fd, b"hello").await.unwrap(), 5);
+            mudu_fs_pwrite(session, fd, 0, b"H").await.unwrap();
+            mudu_fs_fsync(session, fd).await.unwrap();
+            assert_eq!(mudu_fs_fstat(session, fd).await.unwrap().length, 5);
+            assert_eq!(mudu_fs_lseek(session, fd, 1, 0).await.unwrap(), 1);
+            mudu_fs_close(session, fd).await.unwrap();
+
+            let fd = mudu_fs_open(session, 99, "docs/a.txt", 0).await.unwrap();
+            assert_eq!(mudu_fs_read(session, fd, 5).await.unwrap(), b"Hello");
+            assert_eq!(mudu_fs_pread(session, fd, 1, 3).await.unwrap(), b"ell");
+            mudu_fs_close(session, fd).await.unwrap();
+
+            assert_eq!(
+                mudu_fs_stat(session, 99, "docs/a.txt")
+                    .await
+                    .unwrap()
+                    .length,
+                5
+            );
+            let entries = mudu_fs_readdir(session, 99, "docs").await.unwrap();
+            assert!(entries.iter().any(|e| e.name == "a.txt"));
+
+            mudu_close(session).await.unwrap();
+        });
+    }
+}

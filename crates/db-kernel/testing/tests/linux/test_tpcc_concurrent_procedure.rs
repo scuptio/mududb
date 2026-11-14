@@ -475,7 +475,7 @@ impl TestContext {
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),

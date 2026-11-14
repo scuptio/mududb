@@ -48,7 +48,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     rerun_if_changed(&root_manifest_path);
 
     let keys = [
-        "rmp",
         "rmp-serde",
         "serde",
         "serde_repr",

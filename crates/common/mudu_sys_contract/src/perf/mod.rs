@@ -221,7 +221,7 @@ pub fn next_trace_id() -> u64 {
 
 /// Decide whether the current transaction should be sampled.
 ///
-/// Uses its own counter rather than [`NEXT_TRACE_ID`]: the trace id only
+/// Uses its own counter rather than `NEXT_TRACE_ID`: the trace id only
 /// advances when a sample is taken, so gating on it would never let the
 /// first sample through when the rate is above 1.
 #[inline]
@@ -383,6 +383,63 @@ mod tests {
 
         let parse = PerfSnapshot::get(TxnStage::Parse);
         assert_eq!(parse.count, 0);
+    }
+
+    #[test]
+    fn perf_merge_snapshot_and_accessors() {
+        let _guard = perf_test_lock();
+        reset();
+        set_enabled(true);
+        set_sample_rate(1);
+
+        // PerfSpan::finish records eagerly (not via Drop)...
+        let span = PerfSpan::new(TxnStage::Parse, 7);
+        span.finish();
+        // ...and a dropped span records once.
+        {
+            let _span = PerfSpan::new(TxnStage::QueryExec, 7);
+        }
+        let _ = next_trace_id();
+
+        // LocalCollector merge + snapshot + bucket accessors.
+        let snap = snapshot();
+        assert_eq!(snap.sampled_txns, 0); // no Total-stage span recorded
+        let parse = PerfSnapshot::get(TxnStage::Parse);
+        assert_eq!(parse.count, 1);
+        assert!(snap.avg_ns(TxnStage::Parse) <= parse.total_ns);
+        let execute = PerfSnapshot::get(TxnStage::QueryExec);
+        assert_eq!(execute.count, 1);
+        assert_eq!(execute.min_ns, execute.max_ns);
+        assert_eq!(execute.avg_ns(), execute.total_ns);
+
+        // A bucket with two samples tracks min/max and averages.
+        let mut bucket = StageBucket::default();
+        bucket.add(10);
+        bucket.add(4);
+        assert_eq!(bucket.count, 2);
+        assert_eq!(bucket.min_ns, 4);
+        assert_eq!(bucket.max_ns, 10);
+        assert_eq!(bucket.avg_ns(), 7);
+        assert_eq!(StageBucket::default().avg_ns(), 0);
+
+        // merge_into merges min/max correctly across collectors.
+        let mut other = LocalCollector::default();
+        other.record(TxnStage::Parse, 100);
+        other.record(TxnStage::Total, 5);
+        let mut out = [StageBucket::default(); TxnStage::Count as usize];
+        let mut txns = 0u64;
+        other.merge_into(&mut out, &mut txns);
+        assert_eq!(txns, 1);
+        assert_eq!(out[TxnStage::Parse.as_index()].count, 1);
+
+        // The stage table never contains the Count sentinel.
+        assert!(!TxnStage::all().contains(&TxnStage::Count));
+
+        // should_sample with perf disabled never samples.
+        set_enabled(false);
+        assert!(!should_sample());
+        set_enabled(false);
+        reset();
     }
 
     #[test]

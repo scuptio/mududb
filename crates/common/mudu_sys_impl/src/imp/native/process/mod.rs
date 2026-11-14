@@ -18,3 +18,17 @@ impl SysProcess {
         std::process::exit(code)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sys_process_default_and_new() {
+        // `exit` terminates the process and is exercised only by real exits.
+        #[allow(
+            clippy::default_constructed_unit_structs,
+            reason = "exercise the Default impl explicitly"
+        )]
+        let _ = super::SysProcess::default();
+        let _ = super::SysProcess::new();
+    }
+}

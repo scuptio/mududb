@@ -48,4 +48,29 @@ mod tests {
         assert_eq!(once, twice);
         assert_eq!(once, crc64(&data));
     }
+    #[test]
+    fn accelerated_crc32c_matches_portable_algorithm() {
+        let portable = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
+        assert_eq!(crc32(b"123456789"), 0xe3069283);
+        for size in [0, 1, 7, 8, 15, 16, 31, 32, 255, 4096, 16384, 65535] {
+            let bytes: Vec<u8> = (0..size).map(|i| (i * 37 + i / 251) as u8).collect();
+            assert_eq!(crc32(&bytes), portable.checksum(&bytes), "size {size}");
+        }
+    }
+
+    #[test]
+    fn streaming_crc64_preserves_one_shot_results() {
+        use crate::common::crc::Crc64;
+        assert_eq!(crc64(b"123456789"), 0x995dc9bbdf1939fa);
+        assert_eq!(Crc64::new().finalize(), crc64(b""));
+        let bytes: Vec<u8> = (0..16385).map(|i| (i * 17) as u8).collect();
+        for chunk_size in [1, 7, 8, 31, 512, 4096, 16385] {
+            let mut digest = Crc64::default();
+            for chunk in bytes.chunks(chunk_size) {
+                digest.update(&[]);
+                digest.update(chunk);
+            }
+            assert_eq!(digest.finalize(), crc64(&bytes), "chunk size {chunk_size}");
+        }
+    }
 }

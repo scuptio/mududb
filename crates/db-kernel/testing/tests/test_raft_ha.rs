@@ -33,7 +33,7 @@ use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
-use testing::{connect_sync_client_with_retry, reserve_port, wait_until_port_ready};
+use testing::{connect_sync_client_with_retry, reserve_port};
 
 const RAFT_TICK_MS: u64 = 25;
 const ELECTION_TIMEOUT_TICKS: u64 = 4;
@@ -332,13 +332,23 @@ impl Cluster {
     fn start_server(node: &ClusterNode, nodes: &[ClusterNode]) -> RS<RunningServer> {
         let cfg = Self::build_cfg(node, nodes);
         let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
+        let (ready, _ready_waiter) = notify_wait();
+        let ready_probe = ready.clone();
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
-        wait_until_port_ready(node.http_port, "HTTP")?;
-        wait_until_worker_port_ready(node.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
+        // Race the readiness conditions against the server thread's exit: a
+        // startup failure (e.g. a listen port lost to a parallel test
+        // process) surfaces with the thread's own error immediately instead
+        // of burning the whole readiness budget on a port that never opens.
+        let handle = wait_test_server_ready(
+            node.http_port,
+            node.tcp_port,
+            &stop,
+            &ready_probe,
+            handle,
+            backend_startup_timeout(),
+        )?;
         Ok(RunningServer {
             stop,
             http_port: node.http_port,

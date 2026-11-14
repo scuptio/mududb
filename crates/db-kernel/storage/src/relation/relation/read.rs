@@ -24,7 +24,7 @@ impl RelationInner {
         let row = {
             let _stage =
                 ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::VisIndexGet);
-            match self.index.get(key)? {
+            match self.index.get(key).await? {
                 Some(row) => row,
                 None => return Ok(None),
             }
@@ -82,7 +82,8 @@ impl RelationInner {
         let end_key = bounds.1.as_ref().map(|key| KeyTuple::from(key.to_vec()));
         let rows = self
             .index
-            .range((bound_key_ref(&begin_key), bound_key_ref(&end_key)))?;
+            .range((bound_key_ref(&begin_key), bound_key_ref(&end_key)))
+            .await?;
 
         let snapshot = snapshot.to_snapshot();
         let mut items = Vec::new();
@@ -104,7 +105,7 @@ impl RelationInner {
         key: &KeyTuple,
         snapshot: &WorkerSnapshot,
     ) -> RS<bool> {
-        let latest = match self.index.get(key)? {
+        let latest = match self.index.get(key).await? {
             Some(row) => latest_version_async(&row).await,
             None => None,
         };

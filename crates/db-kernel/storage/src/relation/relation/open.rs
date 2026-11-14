@@ -17,7 +17,7 @@ use ::catalog::contract::data_row::DataRow;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::timestamp::Timestamp;
 use ::catalog::contract::version_tuple::VersionTuple;
-use ::index::btree::btree_index::BTreeIndex;
+
 use ::index::index_key::compare_context::CompareContext;
 use ::index::index_key::key_tuple::KeyTuple;
 use mudu_utils::scoped_task_trace;
@@ -30,49 +30,16 @@ impl RelationInner {
         path: String,
         table_desc: &TableDesc,
     ) -> RS<Self> {
-        scoped_task_trace!();
-        let key_identity = TimeSeriesFileIdentity {
-            partition_id,
+        let sys = mudu_sys::default_sys_io_context();
+        Self::new_with_provider_inner(
+            sys.fs(),
+            Some(sys.provider_arc()),
             table_id,
-            file_index: KEY_FILE_INDEX,
-        };
-        let value_identity = TimeSeriesFileIdentity {
             partition_id,
-            table_id,
-            file_index: VALUE_FILE_INDEX,
-        };
-        let key_schema_hash = tuple_schema_hash(b'K', table_desc.key_desc());
-        let value_schema_hash = tuple_schema_hash(b'V', table_desc.value_desc());
-
-        let relation = Self {
-            _table_id: table_id,
-            _partition_id: partition_id,
-            index: BTreeIndex::new(CompareContext {
-                result: Ok(()),
-                comparator: TupleComparator::new(),
-                desc: table_desc.key_desc().clone(),
-            }),
-            key_file: TimeSeriesFile::open_relation_file(
-                &path,
-                key_identity,
-                key_schema_hash,
-                true,
-            )
-            .await?,
-            value_file: TimeSeriesFile::open_relation_file(
-                &path,
-                value_identity,
-                value_schema_hash,
-                true,
-            )
-            .await?,
-            next_tuple_id: AtomicU64::new(1),
-            write_stripes: (0..WRITE_STRIPE_COUNT).map(|_| AMutex::new(())).collect(),
-        };
-        relation.rebuild_from_files_async().await.map_err(|e| {
-            mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
-        })?;
-        Ok(relation)
+            path,
+            table_desc,
+        )
+        .await
     }
 
     pub(crate) async fn new_with_fs(
@@ -143,17 +110,22 @@ impl RelationInner {
         let value_file =
             Self::open_component_file(&fs, &provider, &path, value_identity, value_schema_hash)
                 .await?;
+        let context = CompareContext {
+            result: Ok(()),
+            comparator: TupleComparator::new(),
+            desc: table_desc.key_desc().clone(),
+        };
+        let stamp = Self::cache_stamp(&key_file, &value_file).await?;
+        let (index, restored) = RelationIndex::open(context, &fs, key_file.path(), &stamp).await?;
         let relation = Self {
             _table_id: table_id,
             _partition_id: partition_id,
-            index: BTreeIndex::new(CompareContext {
-                result: Ok(()),
-                comparator: TupleComparator::new(),
-                desc: table_desc.key_desc().clone(),
-            }),
+            index,
+            lifecycle: mudu_sys::sync::async_::ARwLock::new(false),
+            cache_tainted: std::sync::atomic::AtomicBool::new(false),
             key_file,
             value_file,
-            next_tuple_id: AtomicU64::new(1),
+            next_tuple_id: AtomicU64::new(restored.unwrap_or(1)),
             write_stripes: (0..WRITE_STRIPE_COUNT).map(|_| AMutex::new(())).collect(),
         };
         trace!(
@@ -161,9 +133,11 @@ impl RelationInner {
             partition_id,
             "relation files opened, rebuilding from files"
         );
-        relation.rebuild_from_files_async().await.map_err(|e| {
-            mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
-        })?;
+        if restored.is_none() {
+            relation.rebuild_from_files_async().await.map_err(|e| {
+                mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
+            })?;
+        }
         trace!(table_id, partition_id, "relation new_with_fs done");
         Ok(relation)
     }
@@ -210,7 +184,7 @@ impl RelationInner {
             max_tuple_id = max_tuple_id.max(tuple_id);
 
             let key_tuple = KeyTuple::from(key_row.payload.clone());
-            let row = match self.index.get(&key_tuple)? {
+            let row = match self.index.get(&key_tuple).await? {
                 Some(row) => {
                     let existing_tuple_id = row
                         .tuple_id()
@@ -245,7 +219,7 @@ impl RelationInner {
             // value file, and visibility reads fall back to the file until
             // the row is rewritten (see visible_value).
             row.write_shallow(version).await?;
-            let _ = self.index.insert(key_tuple, row)?;
+            let _ = self.index.insert(key_tuple, row).await?;
         }
 
         self.next_tuple_id

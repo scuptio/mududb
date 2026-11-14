@@ -211,3 +211,36 @@ fn meta_mgr_drop_table_removes_table() {
             .is_none()
     );
 }
+
+#[test]
+fn meta_mgr_create_queue_returns_not_implemented() {
+    let mgr = StubMetaMgr::new();
+    let schema = sample_schema("q1", gen_oid());
+    let err = futures::executor::block_on(mgr.create_queue(&schema)).unwrap_err();
+    assert_eq!(err.ec(), ErrorCode::NotImplemented);
+}
+
+#[test]
+fn meta_mgr_drop_queue_returns_not_implemented() {
+    let mgr = StubMetaMgr::new();
+    let err = futures::executor::block_on(mgr.drop_queue(gen_oid())).unwrap_err();
+    assert_eq!(err.ec(), ErrorCode::NotImplemented);
+}
+
+#[test]
+fn meta_mgr_get_queue_returns_none() {
+    let mgr = StubMetaMgr::new();
+    assert!(
+        futures::executor::block_on(mgr.get_queue(DEFAULT_SCHEMA, "q1"))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn meta_mgr_list_queues_returns_empty() {
+    let mgr = StubMetaMgr::new();
+    assert!(futures::executor::block_on(mgr.list_queues())
+        .unwrap()
+        .is_empty());
+}

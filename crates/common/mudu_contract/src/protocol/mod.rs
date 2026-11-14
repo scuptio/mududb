@@ -2,8 +2,8 @@
 //!
 //! This module defines the message types exchanged between a Mudu client and
 //! server (SQL queries, key-value operations, procedure invocations, session
-//! management), the replication and Raft frames, and the [`Frame`] /
-//! [`FrameHeader`] codec used to carry them on the wire.
+//! management), the replication and Raft frames, and the [`crate::protocol::Frame`] /
+//! [`crate::protocol::FrameHeader`] codec used to carry them on the wire.
 
 /// Frame wire encoding and decoding.
 pub mod format;

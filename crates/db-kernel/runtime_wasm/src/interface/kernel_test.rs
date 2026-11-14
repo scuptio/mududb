@@ -2,9 +2,6 @@
 
 use super::kernel_async::*;
 use super::kernel_sync::*;
-use ::catalog::contract::message_bus_api::{
-    Envelope, MessageBus, MessageId, OnRecvCallback, OutgoingMessage, RecvFilter, SubscriptionId,
-};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
@@ -20,24 +17,31 @@ use ::xengine::api::{
 };
 use ::xengine::tx_mgr::TxMgr;
 use async_trait::async_trait;
+use mudu::channel::{Envelope, MessageId, MessageKind as ChannelKind, OutgoingMessage, RecvFilter};
 use mudu::common::buf::Buf;
 use mudu::common::id::AttrIndex;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_binding::codec::syscall_payload::{
-    MessageKind, decode_close_result, decode_delete_result, decode_fs_open_result,
-    decode_fs_read_result, decode_fs_readdir_result, decode_get_result, decode_open_result,
-    decode_put_result, decode_range_result, decode_relation_get_result,
+    MessageKind, decode_close_result, decode_delete_result, decode_fs_close_result,
+    decode_fs_fstat_result, decode_fs_fsync_result, decode_fs_lseek_result, decode_fs_open_result,
+    decode_fs_pread_result, decode_fs_pwrite_result, decode_fs_read_result,
+    decode_fs_readdir_result, decode_fs_stat_result, decode_fs_write_result, decode_get_result,
+    decode_open_result, decode_put_result, decode_range_result, decode_relation_get_result,
     decode_relation_insert_result, decode_relation_update_result, encode_close_request,
-    encode_delete_request, encode_frame, encode_fs_open_request, encode_fs_read_request,
-    encode_fs_readdir_request, encode_get_request, encode_open_request, encode_put_request,
-    encode_range_request, encode_relation_get_request, encode_relation_insert_request,
-    encode_relation_update_request,
+    encode_delete_request, encode_frame, encode_fs_close_request, encode_fs_fstat_request,
+    encode_fs_fsync_request, encode_fs_lseek_request, encode_fs_open_request,
+    encode_fs_pread_request, encode_fs_pwrite_request, encode_fs_read_request,
+    encode_fs_readdir_request, encode_fs_stat_request, encode_fs_write_request, encode_get_request,
+    encode_open_request, encode_put_request, encode_range_request, encode_relation_get_request,
+    encode_relation_insert_request, encode_relation_update_request,
 };
 use mudu_binding::universal::mp_wire::{FromValue, ToValue, decode_value, encode_value};
 use mudu_binding::universal::uni_error::UniError;
+use mudu_binding::universal::uni_fs_dirent::UniFsDirent;
 use mudu_binding::universal::uni_fs_open_argv::UniFsOpenArgv;
+use mudu_binding::universal::uni_fs_stat::UniFsStat;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_result::UniResult;
 use mudu_binding::universal::uni_result_set::UniResultSet;
@@ -50,16 +54,19 @@ use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::data_value::DataValue;
+use mudu_utils::channel::{ChannelEndpoint, KindHandler};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use mudu_sys::sync::SMutex;
 
 mod fetch;
+mod host_wrappers;
 mod kv_fs_frames;
 mod relation;
 mod session;
 mod sql_errors;
+mod surface;
 
 struct NullXContract;
 
@@ -196,32 +203,28 @@ impl MetaMgr for NullMetaMgr {
     }
 }
 
-struct NullMessageBus;
+struct NullWorkerChannel;
 
 #[async_trait]
-impl MessageBus for NullMessageBus {
+impl ChannelEndpoint for NullWorkerChannel {
     fn local_endpoint(&self) -> OID {
         unimplemented!()
     }
     async fn send(&self, _dst: OID, _message: OutgoingMessage) -> RS<MessageId> {
         unimplemented!()
     }
-    async fn recv(&self, _filter: RecvFilter) -> RS<Envelope> {
+    async fn recv(&self, _filter: RecvFilter, _deadline_ms: Option<u64>) -> RS<Envelope> {
         unimplemented!()
     }
-    fn on_recv_callback(
-        &self,
-        _filter: RecvFilter,
-        _callback: OnRecvCallback,
-    ) -> RS<SubscriptionId> {
+    fn register_kind_handler(&self, _kind: ChannelKind, _handler: KindHandler) -> RS<()> {
         unimplemented!()
     }
-    fn cancel_callback(&self, _id: SubscriptionId) -> RS<bool> {
+    fn unregister_kind_handler(&self, _kind: ChannelKind) -> RS<()> {
         unimplemented!()
     }
 }
 
-struct FakeWorkerLocal {
+pub(crate) struct FakeWorkerLocal {
     next_id: SMutex<u128>,
     store: SMutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
@@ -243,8 +246,8 @@ impl WorkerLocal for FakeWorkerLocal {
     fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         Arc::new(NullMetaMgr)
     }
-    fn message_bus(&self) -> Arc<dyn MessageBus> {
-        Arc::new(NullMessageBus)
+    fn worker_channel(&self) -> Arc<dyn ChannelEndpoint> {
+        Arc::new(NullWorkerChannel)
     }
     async fn open_async(&self) -> RS<OID> {
         let mut id = self.next_id.lock().unwrap();
@@ -326,7 +329,7 @@ impl WorkerLocal for FakeWorkerLocal {
     }
 }
 
-fn worker_local() -> WorkerLocalRef {
+pub(crate) fn worker_local() -> WorkerLocalRef {
     Arc::new(FakeWorkerLocal::new())
 }
 
@@ -336,7 +339,7 @@ fn worker_local() -> WorkerLocalRef {
 /// `WorkerSessionManager` enforces. A syscall that forwards the
 /// guest-side task id (instead of resolving the task context's
 /// connection session) fails here, reproducing the pre-fix KV behavior.
-struct SessionAwareWorkerLocal {
+pub(crate) struct SessionAwareWorkerLocal {
     base: FakeWorkerLocal,
     live_sessions: SMutex<std::collections::HashSet<OID>>,
 }
@@ -373,8 +376,8 @@ impl WorkerLocal for SessionAwareWorkerLocal {
     fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.base.meta_mgr()
     }
-    fn message_bus(&self) -> Arc<dyn MessageBus> {
-        self.base.message_bus()
+    fn worker_channel(&self) -> Arc<dyn ChannelEndpoint> {
+        self.base.worker_channel()
     }
     async fn open_async(&self) -> RS<OID> {
         let session_id = self.base.open_async().await?;
@@ -440,7 +443,7 @@ impl WorkerLocal for SessionAwareWorkerLocal {
     }
 }
 
-fn session_aware_worker_local() -> Arc<SessionAwareWorkerLocal> {
+pub(crate) fn session_aware_worker_local() -> Arc<SessionAwareWorkerLocal> {
     Arc::new(SessionAwareWorkerLocal::new())
 }
 
@@ -448,7 +451,7 @@ fn session_aware_worker_local() -> Arc<SessionAwareWorkerLocal> {
 /// the relation syscall plumbing (frame decode, attribute/delta mapping).
 type RelationRows = HashMap<(String, Vec<u8>), Vec<(AttrIndex, DataBin)>>;
 
-struct RelationWorkerLocal {
+pub(crate) struct RelationWorkerLocal {
     base: FakeWorkerLocal,
     rows: SMutex<RelationRows>,
     last_deltas: SMutex<Vec<(AttrIndex, DeltaOp, DataBin)>>,
@@ -481,8 +484,8 @@ impl WorkerLocal for RelationWorkerLocal {
     fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.base.meta_mgr()
     }
-    fn message_bus(&self) -> Arc<dyn MessageBus> {
-        self.base.message_bus()
+    fn worker_channel(&self) -> Arc<dyn ChannelEndpoint> {
+        self.base.worker_channel()
     }
     async fn open_async(&self) -> RS<OID> {
         self.base.open_async().await
@@ -605,7 +608,7 @@ impl WorkerLocal for RelationWorkerLocal {
     }
 }
 
-fn relation_worker_local() -> WorkerLocalRef {
+pub(crate) fn relation_worker_local() -> WorkerLocalRef {
     Arc::new(RelationWorkerLocal::new())
 }
 
@@ -614,7 +617,272 @@ fn relation_worker_local() -> WorkerLocalRef {
 /// Relation syscalls resolve the connection (and with it the session)
 /// through this context; the frame's session field is only the lookup
 /// key.
-fn relation_context(oid: OID, wl: WorkerLocalRef) {
+pub(crate) fn relation_context(oid: OID, wl: WorkerLocalRef) {
+    let conn = MuduConnAsync::new_with_worker_local(wl).unwrap();
+    Context::create(oid, DBConn::Async(Arc::new(conn))).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// In-memory fs service + a worker-local exposing it (fs syscall tests)
+// ---------------------------------------------------------------------------
+
+/// Content filesystem mock: a global fd table over byte buffers with a
+/// cursor per fd; `/missing` is the only absent path.
+pub(crate) struct MockFsService {
+    files: SMutex<HashMap<u32, (Vec<u8>, u64)>>,
+    next_fd: SMutex<u32>,
+}
+
+impl MockFsService {
+    fn new() -> Self {
+        Self {
+            files: SMutex::new(HashMap::new()),
+            next_fd: SMutex::new(3),
+        }
+    }
+
+    fn entry(&self, fd: u32) -> RS<(Vec<u8>, u64)> {
+        self.files
+            .lock()
+            .unwrap()
+            .get(&fd)
+            .cloned()
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))
+    }
+}
+
+#[async_trait]
+impl ::conn::worker_local::WorkerFsService for MockFsService {
+    async fn fs_open(&self, _session_id: OID, oid: OID, path: &str, _flags: u32) -> RS<u32> {
+        if path == "/missing" {
+            return Err(mudu::mudu_error!(
+                ErrorCode::EntityNotFound,
+                "no such fs object"
+            ));
+        }
+        let mut files = self.files.lock().unwrap();
+        let mut next = self.next_fd.lock().unwrap();
+        let fd = *next;
+        *next += 1;
+        files.insert(fd, (b"hello-fs".to_vec(), 0));
+        let _ = oid;
+        Ok(fd)
+    }
+
+    async fn fs_close(&self, _session_id: OID, fd: u32) -> RS<()> {
+        self.files
+            .lock()
+            .unwrap()
+            .remove(&fd)
+            .map(|_| ())
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))
+    }
+
+    async fn fs_read(&self, _session_id: OID, fd: u32, len: u32) -> RS<Vec<u8>> {
+        let mut files = self.files.lock().unwrap();
+        let (content, cursor) = files
+            .get_mut(&fd)
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))?;
+        let start = (*cursor).min(content.len() as u64) as usize;
+        let end = (start + len as usize).min(content.len());
+        let out = content[start..end].to_vec();
+        *cursor = end as u64;
+        Ok(out)
+    }
+
+    async fn fs_write(&self, _session_id: OID, fd: u32, data: &[u8]) -> RS<u32> {
+        let mut files = self.files.lock().unwrap();
+        let (content, cursor) = files
+            .get_mut(&fd)
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))?;
+        let at = *cursor as usize;
+        if content.len() < at + data.len() {
+            content.resize(at + data.len(), 0);
+        }
+        content[at..at + data.len()].copy_from_slice(data);
+        *cursor = (at + data.len()) as u64;
+        Ok(data.len() as u32)
+    }
+
+    async fn fs_pread(&self, _session_id: OID, fd: u32, offset: u64, len: u32) -> RS<Vec<u8>> {
+        let (content, _) = self.entry(fd)?;
+        let start = (offset as usize).min(content.len());
+        let end = (start + len as usize).min(content.len());
+        Ok(content[start..end].to_vec())
+    }
+
+    async fn fs_pwrite(&self, _session_id: OID, fd: u32, offset: u64, data: &[u8]) -> RS<()> {
+        let mut files = self.files.lock().unwrap();
+        let (content, _) = files
+            .get_mut(&fd)
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))?;
+        let at = offset as usize;
+        if content.len() < at + data.len() {
+            content.resize(at + data.len(), 0);
+        }
+        content[at..at + data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
+    fn fs_lseek(&self, _session_id: OID, fd: u32, offset: i64, whence: u32) -> RS<u64> {
+        let mut files = self.files.lock().unwrap();
+        let (content, cursor) = files
+            .get_mut(&fd)
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::InvalidArgument, "bad fs fd"))?;
+        let base = match whence {
+            0 => 0i64,
+            1 => *cursor as i64,
+            2 => content.len() as i64,
+            _ => return Err(mudu::mudu_error!(ErrorCode::InvalidArgument, "bad whence")),
+        };
+        let next = base + offset;
+        if next < 0 {
+            return Err(mudu::mudu_error!(
+                ErrorCode::InvalidArgument,
+                "negative seek"
+            ));
+        }
+        *cursor = next as u64;
+        Ok(*cursor)
+    }
+
+    fn fs_fstat(&self, _session_id: OID, fd: u32) -> RS<UniFsStat> {
+        let (content, _) = self.entry(fd)?;
+        Ok(UniFsStat {
+            oid: UniOid::from_oid(2),
+            generation: 1,
+            entry: "data.bin".to_string(),
+            length: content.len() as u64,
+            state: 1,
+        })
+    }
+
+    async fn fs_fsync(&self, _session_id: OID, fd: u32) -> RS<()> {
+        let _ = self.entry(fd)?;
+        Ok(())
+    }
+
+    async fn fs_stat(&self, _session_id: OID, oid: OID, path: &str) -> RS<UniFsStat> {
+        if path == "/missing" {
+            return Err(mudu::mudu_error!(
+                ErrorCode::EntityNotFound,
+                "no such fs object"
+            ));
+        }
+        Ok(UniFsStat {
+            oid: UniOid::from_oid(oid),
+            generation: 1,
+            entry: path.to_string(),
+            length: 8,
+            state: 1,
+        })
+    }
+
+    async fn fs_readdir(&self, _session_id: OID, _oid: OID, _path: &str) -> RS<Vec<UniFsDirent>> {
+        Ok(vec![UniFsDirent {
+            name: "data.bin".to_string(),
+            is_dir: false,
+            length: 8,
+        }])
+    }
+}
+
+/// A worker-local that exposes the in-memory fs service and reports a fixed
+/// current session (the fs syscalls resolve the session through
+/// `current_session_id`, opens through `open_async`).
+pub(crate) struct FsWorkerLocal {
+    base: FakeWorkerLocal,
+    session_id: OID,
+    fs: Arc<MockFsService>,
+}
+
+#[async_trait]
+impl WorkerLocal for FsWorkerLocal {
+    fn x_contract(&self) -> Arc<dyn XContract> {
+        self.base.x_contract()
+    }
+    fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
+        self.base.meta_mgr()
+    }
+    fn worker_channel(&self) -> Arc<dyn ChannelEndpoint> {
+        self.base.worker_channel()
+    }
+    fn fs_service(&self) -> RS<Arc<dyn ::conn::worker_local::WorkerFsService>> {
+        Ok(self.fs.clone())
+    }
+    fn current_session_id(&self) -> Option<OID> {
+        Some(self.session_id)
+    }
+    async fn open_async(&self) -> RS<OID> {
+        Ok(self.session_id)
+    }
+    async fn open_argv_async(&self, _worker_id: OID) -> RS<OID> {
+        Ok(self.session_id)
+    }
+    async fn close_async(&self, session_id: OID) -> RS<()> {
+        self.base.close_async(session_id).await
+    }
+    async fn execute_async(&self, session_id: OID, instruction: WorkerExecute) -> RS<()> {
+        self.base.execute_async(session_id, instruction).await
+    }
+    async fn put_async(&self, session_id: OID, key: Vec<u8>, value: Vec<u8>) -> RS<()> {
+        self.base.put_async(session_id, key, value).await
+    }
+    async fn delete_async(&self, session_id: OID, key: &[u8]) -> RS<()> {
+        self.base.delete_async(session_id, key).await
+    }
+    async fn get_async(&self, session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+        self.base.get_async(session_id, key).await
+    }
+    async fn range_async(
+        &self,
+        session_id: OID,
+        start_key: &[u8],
+        end_key: &[u8],
+    ) -> RS<Vec<KvItem>> {
+        self.base.range_async(session_id, start_key, end_key).await
+    }
+    async fn query(
+        &self,
+        oid: OID,
+        app_name: Option<&str>,
+        sql: Box<dyn SQLStmt>,
+        param: Box<dyn SQLParams>,
+    ) -> RS<Arc<dyn ResultSetAsync>> {
+        self.base.query(oid, app_name, sql, param).await
+    }
+    async fn execute(
+        &self,
+        oid: OID,
+        app_name: Option<&str>,
+        sql: Box<dyn SQLStmt>,
+        param: Box<dyn SQLParams>,
+    ) -> RS<u64> {
+        self.base.execute(oid, app_name, sql, param).await
+    }
+    async fn batch(
+        &self,
+        oid: OID,
+        app_name: Option<&str>,
+        sql: Box<dyn SQLStmt>,
+        param: Box<dyn SQLParams>,
+    ) -> RS<u64> {
+        self.base.batch(oid, app_name, sql, param).await
+    }
+}
+
+/// An fs-serving worker-local bound to session 1.
+pub(crate) fn fs_worker_local() -> Arc<FsWorkerLocal> {
+    Arc::new(FsWorkerLocal {
+        base: FakeWorkerLocal::new(),
+        session_id: 1,
+        fs: Arc::new(MockFsService::new()),
+    })
+}
+
+/// Register a task context bound to an arbitrary worker-local (generic form
+/// of `relation_context`).
+pub(crate) fn task_context(oid: OID, wl: WorkerLocalRef) {
     let conn = MuduConnAsync::new_with_worker_local(wl).unwrap();
     Context::create(oid, DBConn::Async(Arc::new(conn))).unwrap();
 }

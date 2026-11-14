@@ -77,8 +77,23 @@ fn reserve_port() -> Option<u16> {
     }
 }
 
+// Boot budget for a full backend: 30 s on regular builds, 10 min under
+// sanitizer instrumentation (the CI sanitizer job exports ASAN_OPTIONS /
+// LSAN_OPTIONS), which slows wasmtime component compilation ~15-25x. Mirrors
+// `testing::support::backend_startup_timeout`, which this crate cannot import
+// (`mudu_runtime` has no dev-dependency on `testing`).
+fn server_ready_timeout() -> Duration {
+    if mudu_sys::env_var::var("ASAN_OPTIONS").is_some()
+        || mudu_sys::env_var::var("LSAN_OPTIONS").is_some()
+    {
+        Duration::from_secs(600)
+    } else {
+        Duration::from_secs(30)
+    }
+}
+
 fn wait_until_server_ready(port: u16) {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
+    let deadline = mudu_sys::time::instant_now() + server_ready_timeout();
     while mudu_sys::time::instant_now() < deadline {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         if mudu_sys::net::sync::connect_tcp(addr).is_ok() {
@@ -236,10 +251,12 @@ fn start_tpcc_server(
 }
 
 /// Install stage: retries until the server-side install path is ready or the
-/// 30-second deadline passes.
+/// `server_ready_timeout` deadline passes (package install compiles the
+/// wasmtime component, which is ~15-25x slower under sanitizer
+/// instrumentation).
 fn install_package_with_retry(app_mgr: &MuduAppMgr, package_path: &Path) -> RS<()> {
     eprintln!("stage: install");
-    let install_deadline = mudu_sys::time::instant_now() + Duration::from_secs(30);
+    let install_deadline = mudu_sys::time::instant_now() + server_ready_timeout();
     loop {
         match install_package(app_mgr, package_path) {
             Ok(()) => break Ok(()),

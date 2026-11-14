@@ -46,6 +46,7 @@ impl TableInfo {
             name: inner.name().clone(),
             schema: inner.schema().clone(),
             oid: inner.id(),
+            kind: inner.schema_table.kind(),
             key_oid: inner.key_oid.clone(),
             value_oid: inner.value_oid.clone(),
             key_indices: inner.key_indices.clone(),

@@ -704,3 +704,91 @@ impl<'a> postgres::types::FromSql<'a> for PgNumeric {
         matches!(*ty, Type::NUMERIC)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// Builds a NUMERIC binary payload: ndigits/weight/sign/dscale header plus
+    /// base-10000 digit groups.
+    fn numeric_payload(
+        ndigits: i16,
+        weight: i16,
+        sign: u16,
+        dscale: i16,
+        digits: &[u16],
+    ) -> Vec<u8> {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&ndigits.to_be_bytes());
+        raw.extend_from_slice(&weight.to_be_bytes());
+        raw.extend_from_slice(&sign.to_be_bytes());
+        raw.extend_from_slice(&dscale.to_be_bytes());
+        for digit in digits {
+            raw.extend_from_slice(&digit.to_be_bytes());
+        }
+        raw
+    }
+
+    fn decode(raw: &[u8]) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+        use postgres::types::FromSql;
+        PgNumeric::from_sql(&postgres::types::Type::NUMERIC, raw).map(|n| n.0)
+    }
+
+    #[test]
+    fn pg_numeric_decodes_base10000_payloads() {
+        // 12.34: one integer group, one fractional group (3400), dscale 2.
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0, 2, &[12, 3400])).unwrap(),
+            "12.34"
+        );
+        // -1234.5: one integer group (1234), one fractional group (5000).
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0x4000, 1, &[1234, 5000])).unwrap(),
+            "-1234.5"
+        );
+        // Zero weight: pure fraction 0.0001.
+        assert_eq!(
+            decode(&numeric_payload(1, -1, 0, 4, &[1])).unwrap(),
+            "0.0001"
+        );
+        // dscale larger than the digit groups zero-extends.
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0, 4, &[1, 2000])).unwrap(),
+            "1.2000"
+        );
+        // dscale zero: integer only.
+        assert_eq!(decode(&numeric_payload(1, 0, 0, 0, &[7])).unwrap(), "7");
+    }
+
+    #[test]
+    fn pg_numeric_rejects_malformed_payloads() {
+        // Shorter than the 8-byte header.
+        assert!(decode(&[0u8; 4]).is_err());
+        // NaN sign is unsupported.
+        assert!(decode(&numeric_payload(0, 0, 0xC000, 0, &[])).is_err());
+        // Header promises two digit groups but the payload carries one.
+        assert!(decode(&numeric_payload(2, 0, 0, 0, &[1])).is_err());
+    }
+
+    #[test]
+    fn pg_numeric_accepts_only_numeric() {
+        use postgres::types::FromSql;
+        assert!(<PgNumeric as FromSql>::accepts(
+            &postgres::types::Type::NUMERIC
+        ));
+        assert!(!<PgNumeric as FromSql>::accepts(
+            &postgres::types::Type::INT4
+        ));
+    }
+
+    #[test]
+    fn session_helpers_reject_unknown_sessions_without_a_server() {
+        let err = ensure_session_exists(999_999_998).unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert!(mudu_get(999_999_998, b"k").is_err());
+        assert!(mudu_put(999_999_998, b"k", b"v").is_err());
+        assert!(mudu_range(999_999_998, b"a", b"z").is_err());
+        assert!(mudu_close(999_999_998).is_err());
+    }
+}

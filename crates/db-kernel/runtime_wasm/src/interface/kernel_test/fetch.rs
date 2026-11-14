@@ -214,3 +214,58 @@ async fn async_fetch_internal_unknown_cursor_returns_uni_error() {
         UniResult::Ok(_) => panic!("expected error"),
     }
 }
+
+#[tokio::test]
+async fn invocation_query_materializes_rows_within_budget() {
+    use crate::service::invocation_limits::InvocationContext;
+
+    let oid = 9_100_100;
+    let rows = vec![
+        TupleValue::from(vec![DataValue::from_i32(10)]),
+        TupleValue::from(vec![DataValue::from_i32(20)]),
+    ];
+    let _ctx = query_context(oid, rows);
+    let input =
+        mudu_binding::system::query_invoke::serialize_query_dyn_param(oid, &"SELECT 1", &())
+            .unwrap();
+    let control = InvocationContext::new(Default::default()).unwrap();
+    let out = crate::service::invocation_query::query(input, control).await;
+    let (batch, _desc) =
+        mudu_binding::system::query_invoke::deserialize_query_result(&out).unwrap();
+    assert_eq!(batch.rows().len(), 2);
+    Context::remove(oid);
+}
+
+#[tokio::test]
+async fn invocation_query_exhausts_budget_and_marks_control() {
+    use crate::service::invocation_limits::{InvocationContext, InvocationLimits};
+
+    let oid = 9_100_101;
+    let rows = vec![TupleValue::from(vec![DataValue::from_i32(10)])];
+    let _ctx = query_context(oid, rows);
+    let input =
+        mudu_binding::system::query_invoke::serialize_query_dyn_param(oid, &"SELECT 1", &())
+            .unwrap();
+    // A one-byte output budget fails the first row charge.
+    let control = InvocationContext::new(InvocationLimits {
+        max_output_bytes: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let out = crate::service::invocation_query::query(input, control).await;
+    match mudu_binding::system::query_invoke::deserialize_query_result(&out) {
+        Err(err) => assert_eq!(err.ec(), ErrorCode::OutOfMemory),
+        Ok(_) => panic!("expected budget-exhausted error"),
+    }
+    Context::remove(oid);
+}
+
+#[test]
+fn invocation_query_sync_wraps_errors_into_frames() {
+    use crate::service::invocation_limits::InvocationContext;
+
+    let control = InvocationContext::new(Default::default()).unwrap();
+    // Malformed param frame: the error is serialized into the result frame.
+    let out = crate::service::invocation_query::query_sync(vec![0x01, 0x02], control);
+    assert!(mudu_binding::system::query_invoke::deserialize_query_result(&out).is_err());
+}

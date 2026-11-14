@@ -1,4 +1,3 @@
-use ::catalog::contract::message_bus_api::MessageBusRef;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::worker_snapshot::KvItem;
 use async_trait::async_trait;
@@ -9,6 +8,7 @@ use mudu_binding::universal::uni_fs_stat::UniFsStat;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
+use mudu_utils::channel::ChannelEndpointRef;
 use std::cell::UnsafeCell;
 use std::sync::Arc;
 
@@ -78,8 +78,8 @@ pub trait WorkerLocal: Send + Sync {
     fn x_contract(&self) -> Arc<dyn XContract>;
     /// The worker's meta manager.
     fn meta_mgr(&self) -> Arc<dyn MetaMgr>;
-    /// The server's message bus.
-    fn message_bus(&self) -> MessageBusRef;
+    /// The server's channel endpoint of this worker.
+    fn worker_channel(&self) -> ChannelEndpointRef;
 
     /// Return the fs object IO service of this worker.
     ///

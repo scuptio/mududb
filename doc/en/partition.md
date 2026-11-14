@@ -216,7 +216,7 @@ This avoids corrupting data when multiple partitions of the same table exist on 
 
 ## Remote Partition Access
 
-The engine currently supports partition RPC over the worker message bus.
+The engine currently supports partition RPC over the channel (the endpoint messaging layer of `mudu_utils::channel`).
 
 Supported remote actions:
 

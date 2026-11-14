@@ -4,7 +4,7 @@
 //! does not read parameter values: every placeholder (`?`) is recorded as an
 //! ordered [`ParamSlot`] and every value position in the bound statement
 //! becomes a [`TemplateDatum`] (either a literal encoded at bind time or a
-//! slot reference). The resulting [`BoundTemplate`] is schema-dependent but
+//! slot reference). The resulting [`crate::bound_template::BoundTemplate`] is schema-dependent but
 //! parameter-independent, so it can be cached keyed by SQL text plus catalog
 //! version and re-executed with different parameters by filling the slots
 //! (see `mudu_conn::plan_cache`).
@@ -191,6 +191,10 @@ pub struct InsertTemplate {
     /// Tables with fs-bound columns keep the fs DML hook, so they are
     /// classified `Other` and executed through the regular planner path.
     pub has_fs_columns: bool,
+    /// Queue tables synthesize their system columns in the command executor
+    /// (`InsertKeyValue`), so they are classified `Other` and never take the
+    /// point-insert fast path.
+    pub is_queue: bool,
 }
 
 /// Template form of [`BoundInsertRow`]; every datum is non-NULL by
@@ -300,7 +304,9 @@ impl BoundTemplate {
                 PlanClass::PointRead { select: attrs }
             }
             StmtTemplate::Update(update) if !update.has_fs_columns => PlanClass::PointUpdate,
-            StmtTemplate::Insert(insert) if !insert.has_fs_columns => PlanClass::PointInsert,
+            StmtTemplate::Insert(insert) if !insert.has_fs_columns && !insert.is_queue => {
+                PlanClass::PointInsert
+            }
             _ => PlanClass::Other,
         }
     }

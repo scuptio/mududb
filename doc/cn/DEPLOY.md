@@ -36,15 +36,17 @@ bash script/build/inspect_iouring_env.sh
 | Python | toml, tomli-w |
 | 工具 | cargo-make |
 
-> 实现参考：`script/shell/install_deps.sh`、`rust-toolchain.toml`。
+> 实现参考：`script/shell/install_deps.sh`（现为 `script/setup_dev_env.sh --system-pip`
+> 的薄封装——系统级 Python 包、不建 venv）、`rust-toolchain.toml`。
 
-### `script/shell/build_all.sh`
+### `cargo make build` / `cargo make dist`
 
-编译并安装全部组件：
+`cargo make build` 编译全部组件（根 `Makefile.toml`）：在 `crates/` 下的四个组 workspace（`common`、`db-kernel`、`sdk`、`tools`）以及独立的 guest-SDK workspace `crates/sdk/mudu_api/rust` 中分别执行 `cargo build --release`。
 
-1. 在 `crates/` 下的四个组 workspace（`common`、`db-kernel`、`sdk`、`tools`）中分别执行 `cargo build --release` — 编译全部 crate
-2. `python3 script/build/install_binaries.py` — 安装二进制文件到 `~/.cargo/bin/`（mpm-build、mpm-crate、mpm-install、mgen、mtp、mudud、mcli）
-3. 在 `example/mpk/wallet` 中执行 `cargo make` — 重新生成实体代码、转译过程、编译 wallet 示例并生成 `.mpk` 包
+`cargo make dist` 在此基础上额外打包并安装：
+
+1. `python3 script/build/install_binaries.py` — 复制刚构建的产物安装二进制到 `~/.cargo/bin/`（mpm、mpm-build、mpm-crate、mpm-install、mgen、mtp、mudud、mcli；字节一致的跳过）
+2. 在 `example/mpk/wallet` 中执行 `cargo make package` — 重新生成实体代码、转译过程、编译 wallet 示例并生成 `.mpk` 包
 
 wallet 的 `Makefile.toml` 会在生成代码前从源码重新安装工作区 CLI 工具，因此包总是用当前 commit 的工具链构建。
 
@@ -69,7 +71,7 @@ wallet 的 `Makefile.toml` 会在生成代码前从源码重新安装工作区 C
 set -euo pipefail
 bash script/shell/install_deps.sh
 source "$HOME/.cargo/env"
-bash script/shell/build_all.sh
+cargo make dist
 bash script/shell/run_test.sh
 bash script/shell/debug_test.sh
 echo "All tests passed."

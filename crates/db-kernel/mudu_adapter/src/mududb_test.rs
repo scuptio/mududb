@@ -39,7 +39,7 @@ fn open_argv() -> UniSessionOpenArgv {
 
 #[test]
 fn connection_parses_mudud_async_and_http_query_variants() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
 
     with_connection_env(
@@ -74,7 +74,7 @@ fn connection_parses_mudud_async_and_http_query_variants() -> RS<()> {
 
 #[test]
 fn mudu_open_async_reports_database_error_when_mudud_addr_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let argv = open_argv();
@@ -93,7 +93,7 @@ fn mudu_open_async_reports_database_error_when_mudud_addr_missing() -> RS<()> {
 
 #[test]
 fn mudu_open_async_reports_network_error_for_invalid_address() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://not-a-socket-addr/test", || {
         let argv = open_argv();
@@ -115,7 +115,7 @@ fn mudu_open_async_reports_network_error_for_invalid_address() -> RS<()> {
 
 #[test]
 fn mudu_query_async_reports_database_error_when_mudud_app_name_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("SELECT 1".to_string());
@@ -134,7 +134,7 @@ fn mudu_query_async_reports_database_error_when_mudud_app_name_missing() -> RS<(
 
 #[test]
 fn mudu_command_async_reports_database_error_when_mudud_app_name_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("SELECT 1".to_string());
@@ -153,7 +153,7 @@ fn mudu_command_async_reports_database_error_when_mudud_app_name_missing() -> RS
 
 #[test]
 fn mudu_batch_async_rejects_parameters_before_session_lookup() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("INSERT INTO t VALUES (?)".to_string());
@@ -175,7 +175,7 @@ fn mudu_batch_async_rejects_parameters_before_session_lookup() -> RS<()> {
 
 #[test]
 fn native_async_operations_report_entity_not_found_for_missing_session() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://127.0.0.1:9999/test", || {
         let session_id = 8888;
@@ -233,7 +233,7 @@ fn native_async_operations_report_entity_not_found_for_missing_session() -> RS<(
 
 #[test]
 fn async_loop_open_reports_network_error_without_server() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -253,7 +253,7 @@ fn async_loop_open_reports_network_error_without_server() -> RS<()> {
 
 #[test]
 fn async_loop_operations_report_entity_not_found_for_missing_session() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -312,7 +312,7 @@ fn async_loop_operations_report_entity_not_found_for_missing_session() -> RS<()>
 
 #[test]
 fn async_loop_batch_rejects_parameters() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -334,7 +334,7 @@ fn async_loop_batch_rejects_parameters() -> RS<()> {
 
 #[test]
 fn async_loop_query_and_command_forward_params_without_local_validation() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",

@@ -77,6 +77,25 @@ pub fn load_or_create_worker_registry<P: AsRef<Path>>(
 }
 
 impl WorkerRegistry {
+    /// Persist a restored topology in a directory without worker markers.
+    /// Existing marker files are rejected rather than overwritten.
+    pub fn persist_new(&self, log_dir: &Path) -> RS<()> {
+        validate_worker_identities(&self.workers, self.workers.len())?;
+        if !scan_worker_identities(log_dir)?.is_empty() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "worker registry already exists"
+            ));
+        }
+        for worker in &self.workers {
+            touch_marker(log_dir.join(worker_marker_name(worker.worker_index, worker.worker_id)))?;
+            for partition in &worker.partition_ids {
+                touch_marker(log_dir.join(partition_marker_name(worker.worker_id, *partition)))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Build a registry from worker identities, rejecting duplicate worker
     /// ids and duplicate partition ids.
     pub fn new(workers: Vec<WorkerIdentity>) -> RS<Self> {

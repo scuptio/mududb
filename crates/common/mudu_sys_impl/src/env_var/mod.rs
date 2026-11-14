@@ -44,3 +44,25 @@ pub fn home_dir() -> Option<PathBuf> {
 pub fn args_os() -> Vec<OsString> {
     crate::default_env().env_var().args_os()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    #[test]
+    fn env_var_facade_roundtrip_and_process_dirs() {
+        let key = "MUDU_SYS_IMPL_ENV_VAR_FACADE_TEST";
+        super::set_var(key, "value1");
+        assert_eq!(super::var(key).as_deref(), Some("value1"));
+        assert_eq!(
+            super::var_os(key).unwrap(),
+            std::ffi::OsString::from("value1")
+        );
+        super::remove_var(key);
+        assert_eq!(super::var(key), None);
+
+        let _temp = super::temp_dir();
+        assert!(super::current_dir().unwrap().is_absolute());
+        let _home = super::home_dir();
+        assert!(!super::args_os().is_empty());
+    }
+}

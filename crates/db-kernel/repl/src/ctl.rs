@@ -7,7 +7,7 @@
 //! stay read-only for clients.
 
 use crate::{ack_watermarks, ReplWorkerState};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

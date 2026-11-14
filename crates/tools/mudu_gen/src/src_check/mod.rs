@@ -4,13 +4,13 @@
 //! a string literal is treated as SQL when its content (after trimming
 //! leading whitespace) starts a DML statement — `SELECT ..`, `INSERT
 //! INTO ..`, `UPDATE .. SET ..`, `DELETE FROM ..` (ASCII case-insensitive,
-//! word-boundary matched). Literals containing `{` or `}` are skipped
+//! word-boundary matched), or a queue/consumer statement. Literals containing `{` or `}` are skipped
 //! because they are `format!`-style templates with holes, not complete SQL.
 //!
 //! The extracted literals are checked by the language-independent core in
 //! `sql_parser::check`; each language front-end additionally records
 //! call-site context (bind-parameter arity, result entity type) for the
-//! enhancement checks implemented by [`check_driver`].
+//! enhancement checks implemented by [`crate::src_check::check_driver`].
 
 /// The `check-sql` driver: schema loading, file walking, checking, and
 /// diagnostic rendering.

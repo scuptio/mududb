@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "Worker execution layer: runtime, sessions, fs services, and config"
 
 [features]
+paged-index = ["xcontract/paged-index"]
 test = ["catalog/test", "meta/test", "sql/test", "xcontract/test"]
 debug_trace = ["mudu_utils/debug_trace"]
 ds = ["mudu_sys/ds"]

@@ -7,6 +7,9 @@
 
 #![warn(missing_docs)]
 
+/// Channel runtime layer: endpoint transport trait, endpoint registry and
+/// lifecycle, and the typed ask/tell API over `mudu::channel`.
+pub mod channel;
 /// Debug HTTP server exposing task traces and registered debug URLs.
 pub mod debug;
 #[cfg(test)]
@@ -34,6 +37,8 @@ pub mod sync;
 pub mod task;
 /// Async task and runtime facade over `mudu_sys::task::async_`.
 pub mod task_async;
+#[cfg(test)]
+mod task_async_test;
 /// Task context registry re-exported from `mudu_sys`.
 pub mod task_context;
 /// Task identifier types re-exported from `mudu_sys`.

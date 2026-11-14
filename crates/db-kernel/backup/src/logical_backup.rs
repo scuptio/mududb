@@ -13,7 +13,6 @@
 
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeDesc};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
@@ -26,6 +25,7 @@ use ::meta::fs_object::FS_OBJECT_TABLE_ID;
 use ::sql::copy_layout::CopyLayout;
 use ::worker::worker::WorkerRuntime;
 use ::xengine::api::XContract;
+use mudu::channel::ServerInstanceId;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;

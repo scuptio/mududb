@@ -303,7 +303,7 @@ the regen section of the
 [C# SDK `README.md`](../../../crates/sdk/mudu_api/csharp/README.md), and the
 [AssemblyScript generated-code `README`](../../../crates/sdk/bindings/assemblyscript/assembly/generated/README.md).
 Consistency between the generated codecs and the WIT schema is enforced by
-`script/ci/check_bindings_regen.sh`, which requires regenerated code to be
+`script/ci/check_bindings_regen.py`, which requires regenerated code to be
 byte-identical to the checkout.
 
 ### MessagePack encoding rules

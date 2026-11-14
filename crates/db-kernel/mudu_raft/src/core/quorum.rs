@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::core::conf::{ConfNode, ConfVersion, NID};
 use crate::core::message::TermIndex;
+use crate::core::quorum_core::{count_agreeing_excluding, majority_met, majority_pick};
 
 /// Whether the node `leader_nid` has collected votes for `current_term` from
 /// a quorum. With a joint configuration (committed != new), a quorum is
@@ -25,11 +26,11 @@ pub fn quorum_agree_vote(
     };
     let agreed_num = count(voter, leader_nid, filter) + 1;
     if conf_committed.conf_version().eq(conf_new.conf_version()) {
-        agreed_num * 2 > voter.len()
+        majority_met(agreed_num, voter.len())
     } else {
         let voter_new = &conf_new.nid_vote;
         let agreed_num_new = count(voter_new, leader_nid, filter) + 1;
-        agreed_num * 2 > voter.len() && agreed_num_new * 2 > voter_new.len()
+        majority_met(agreed_num, voter.len()) && majority_met(agreed_num_new, voter_new.len())
     }
 }
 
@@ -76,7 +77,7 @@ pub fn quorum_check_conf_term_version(
         None => false,
     };
     let agreed_num = count(nid_set, leader_nid, filter) + 1;
-    agreed_num * 2 > nid_set.len()
+    majority_met(agreed_num, nid_set.len())
 }
 
 /// Whether a quorum of `nid_set` (leader included) has reached the leader's
@@ -95,17 +96,12 @@ pub fn quorum_check_term_commit_index(
         None => false,
     };
     let agreed_num = count(nid_set, leader_nid, filter) + 1;
-    agreed_num * 2 > nid_set.len()
+    majority_met(agreed_num, nid_set.len())
 }
 
 fn count<F: Fn(NID) -> bool>(node: &[NID], exclude: NID, cond: F) -> usize {
-    let mut n = 0;
-    for id in node {
-        if *id != exclude && cond(*id) {
-            n += 1
-        }
-    }
-    n
+    let granted: Vec<bool> = node.iter().map(|id| cond(*id)).collect();
+    count_agreeing_excluding(node, &granted, exclude)
 }
 
 fn index_of<F: Fn(NID) -> u64>(node: &[NID], exclude: NID, get_index: F) -> Vec<u64> {
@@ -121,14 +117,9 @@ fn index_of<F: Fn(NID) -> u64>(node: &[NID], exclude: NID, get_index: F) -> Vec<
 fn majority_agree_index(vec: Vec<u64>, nodes_num: usize) -> u64 {
     let mut agreed_index = vec;
     agreed_index.sort_by(|x, y| x.cmp(y).reverse());
-    let len = agreed_index.len();
-    if len == nodes_num && len >= 1 {
-        let n = len / 2 + 1;
-        assert!(n * 2 > len); // reach majority
-        agreed_index[n - 1]
-    } else {
-        0
-    }
+    // The extracted core returns the (len/2+1)-th largest on a full list;
+    // its proof shows the majority index cannot out-of-range there.
+    majority_pick(&agreed_index, nodes_num).unwrap_or(0)
 }
 
 #[cfg(test)]

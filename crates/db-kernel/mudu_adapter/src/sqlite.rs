@@ -27,6 +27,7 @@ use mudu_type::data_type::DataType;
 use rusqlite::Connection;
 use rusqlite::params_from_iter;
 use scc::HashMap as SccHashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -41,14 +42,21 @@ lazy_static! {
     /// separate commands on one session), so `mudu_open` pins its connection
     /// here and every operation on the session goes through it; `mudu_close`
     /// removes it (dropping the connection rolls back any open transaction).
-    static ref SESSION_CONNECTIONS: SccHashMap<OID, ConnectionRef> = SccHashMap::new();
+    /// The key carries the database path: session ids are SQLite rowids,
+    /// which restart from 1 in every fresh database file, so an id alone
+    /// only identifies a session together with the file it was opened in —
+    /// keying by id alone silently routes operations to the wrong database
+    /// after the configured db path changes with live sessions.
+    static ref SESSION_CONNECTIONS: SccHashMap<(PathBuf, OID), ConnectionRef> = SccHashMap::new();
 }
 
 /// Returns the connection operations on `session_id` must use: the pinned
-/// session connection when this process opened the session, otherwise a fresh
-/// one (the session row may live in a database file shared across processes).
+/// session connection when this process opened the session against the
+/// currently configured database path, otherwise a fresh one (the session
+/// row may live in a database file shared across processes).
 pub(crate) fn connection_for(session_id: OID) -> RS<ConnectionRef> {
-    if let Some(entry) = SESSION_CONNECTIONS.get_sync(&session_id) {
+    let key = (config::db_path(), session_id);
+    if let Some(entry) = SESSION_CONNECTIONS.get_sync(&key) {
         return Ok(Arc::clone(entry.get()));
     }
     Ok(Arc::new(SMutex::new(open_connection()?)))
@@ -136,7 +144,7 @@ pub fn mudu_open() -> RS<OID> {
     )
     .map_err(|e| mudu_error!(ErrorCode::Database, "create sqlite session error", e))?;
     let session_id = conn.last_insert_rowid() as OID;
-    let _ = SESSION_CONNECTIONS.insert_sync(session_id, Arc::new(SMutex::new(conn)));
+    SESSION_CONNECTIONS.upsert_sync((config::db_path(), session_id), Arc::new(SMutex::new(conn)));
     Ok(session_id)
 }
 
@@ -149,7 +157,8 @@ pub async fn mudu_open_async() -> RS<OID> {
 /// Closes a SQLite-backed session.
 pub fn mudu_close(session_id: OID) -> RS<()> {
     kv::ensure_session_exists(session_id)?;
-    let conn = match SESSION_CONNECTIONS.remove_sync(&session_id) {
+    let key = (config::db_path(), session_id);
+    let conn = match SESSION_CONNECTIONS.remove_sync(&key) {
         Some(entry) => entry.1,
         None => Arc::new(SMutex::new(open_connection()?)),
     };

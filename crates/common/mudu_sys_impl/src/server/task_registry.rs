@@ -66,6 +66,24 @@ impl WorkerTaskRegistry {
         self.ready_queue.push(task_id);
     }
 
+    /// Spawns a perpetual background task that never blocks the shutdown
+    /// drain (e.g. a page-buffer mailbox driver idling on its channel). The
+    /// task is dropped with the registry when the worker loop exits.
+    #[doc(hidden)]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
+    )]
+    pub fn spawn_background_with_trace_id(&self, trace_task_id: TaskID, future: WorkerTaskFuture) {
+        let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+        let _ = self
+            .tasks
+            .lock()
+            .unwrap()
+            .insert(task_id, WorkerTask::new_background(trace_task_id, future));
+        self.ready_queue.push(task_id);
+    }
+
     /// Internal: use `mudu_kernel::server::task::spawn` instead.
     #[doc(hidden)]
     pub fn spawn(&self, conn_id: Option<u64>, future: WorkerTaskFuture) {
@@ -79,12 +97,18 @@ impl WorkerTaskRegistry {
         self.spawn_with_trace_id(conn_id, trace_task_id, future);
     }
 
+    /// Drains completed IO wakes into the ready queue. Returns how many
+    /// completions were drained, so event loops that drive the registry
+    /// without an armed wake fd (e.g. worker bootstrap) can tell whether
+    /// task progress was made.
     #[expect(
         clippy::unwrap_used,
         reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
     )]
-    pub fn drain_completions(&self) {
+    pub fn drain_completions(&self) -> usize {
+        let mut drained = 0usize;
         while let Some(op_id) = self.completion_queue.pop() {
+            drained += 1;
             let Some(task_id) = self.op_registry.lock().unwrap().remove(&op_id) else {
                 trace!(
                     op_id,
@@ -112,6 +136,7 @@ impl WorkerTaskRegistry {
                 self.ready_queue.push(task_id);
             }
         }
+        drained
     }
 
     pub fn poll_ready(&self) -> Vec<CompletedWorkerTask> {
@@ -215,6 +240,21 @@ impl WorkerTaskRegistry {
     )]
     pub fn is_empty(&self) -> bool {
         self.tasks.lock().unwrap().is_empty()
+    }
+
+    /// Whether only background tasks remain: perpetual listeners are dropped
+    /// with the registry at loop exit, so the shutdown drain must not wait
+    /// for them.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
+    )]
+    pub fn is_drained_of_blocking(&self) -> bool {
+        self.tasks
+            .lock()
+            .unwrap()
+            .values()
+            .all(|task| !task.is_blocking())
     }
 }
 

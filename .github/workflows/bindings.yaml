@@ -10,6 +10,11 @@ name: Bindings
 # Publishing (tags as-v* / cs-v* / py-v*): each job re-runs the consistency
 # gate, then publishes its package. Registry credentials come from secrets /
 # trusted publishing; see doc/dev/binding_api_surface.md for setup.
+#
+# Manual rehearsal: workflow_dispatch with dry_run=true (the default) also
+# runs the publish jobs, but the registry upload is replaced by a harmless
+# equivalent (npm publish --dry-run, NuGet push into a local folder feed,
+# twine check). Real uploads still happen only on the publishing tags.
 
 on:
   push:
@@ -39,6 +44,13 @@ on:
       - '.gitattributes'
       - '.github/workflows/bindings.yaml'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >-
+          Rehearse publishing without uploading: build and validate every
+          package, but skip the registry push.
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -91,6 +103,9 @@ jobs:
       - name: Python guest component build (wallet-py)
         run: |
           pipx install componentize-py==0.25.1
+          # Minimal runner images (e.g. act) lack pipx's bin dir on PATH.
+          PATH="$(pipx environment --value PIPX_BIN_DIR):$PATH"
+          export PATH
           cd example/mpk/wallet-py && cargo make package
 
       - name: AssemblyScript corpus tests
@@ -123,7 +138,9 @@ jobs:
 
   publish-npm:
     name: publish @mududb/mududb (npm)
-    if: startsWith(github.ref, 'refs/tags/as-v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/as-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     needs: consistency
     runs-on: ubuntu-latest
     permissions:
@@ -139,15 +156,28 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
+      # Packing is credential-free (script/release/pack_registry.py);
+      # publishing verifies tag/version/hashes before any upload.
+      - name: Pack npm package
+        run: python3 script/release/pack_registry.py npm
+
+      - name: Dry-run publish to npm
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        # --dry-run skips the upload; publish.py sets a placeholder
+        # NODE_AUTH_TOKEN because setup-node's registry-url .npmrc references it.
+        run: python3 script/release/publish.py npm
+
       - name: Publish to npm
-        working-directory: crates/sdk/bindings/assemblyscript
-        run: npm publish --provenance --access public
+        if: startsWith(github.ref, 'refs/tags/as-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: python3 script/release/publish.py npm --tag "${GITHUB_REF_NAME}" --apply
 
   publish-nuget:
     name: publish mududb (NuGet)
-    if: startsWith(github.ref, 'refs/tags/cs-v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/cs-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     needs: consistency
     runs-on: ubuntu-latest
     steps:
@@ -159,21 +189,24 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Pack
-        run: dotnet pack -c Release crates/sdk/mudu_api/csharp/Mudu.Api.csproj
+      - name: Pack NuGet package
+        run: python3 script/release/pack_registry.py nuget
+
+      - name: Dry-run push (local folder feed)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: python3 script/release/publish.py nuget
 
       - name: Push to nuget.org
+        if: startsWith(github.ref, 'refs/tags/cs-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: >-
-          dotnet nuget push
-          crates/sdk/mudu_api/csharp/bin/Release/mududb.*.nupkg
-          --source https://api.nuget.org/v3/index.json
-          --api-key "$NUGET_API_KEY"
+        run: python3 script/release/publish.py nuget --tag "${GITHUB_REF_NAME}" --apply
 
   publish-pypi:
     name: publish mududb (PyPI)
-    if: startsWith(github.ref, 'refs/tags/py-v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/py-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     needs: consistency
     runs-on: ubuntu-latest
     permissions:
@@ -182,13 +215,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v5
 
-      - name: Build distributions
-        working-directory: crates/sdk/bindings/python
-        run: |
-          python3 -m pip install --upgrade build
-          python3 -m build
+      - name: Install packaging tools
+        run: python3 -m pip install --upgrade build twine
+
+      - name: Pack distributions
+        run: python3 script/release/pack_registry.py pypi
+
+      - name: Dry-run check distributions
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: python3 script/release/publish.py pypi
 
       - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/py-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: crates/sdk/bindings/python/dist/
+          packages-dir: target/sdk-dist/registry/pypi/

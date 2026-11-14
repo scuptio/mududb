@@ -104,7 +104,7 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let command = Command::new("mgen")
-        .version("1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("scuptio")
         .about("Mudu Source Code Generate(mgen), generate source code from wit/sql")
         // Common arguments shared by all subcommands

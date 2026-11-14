@@ -60,6 +60,22 @@ impl MetaMgr for MetaMgrImpl {
         self.drop_table_inner(table_id).await
     }
 
+    async fn create_queue(&self, schema: &SchemaTable) -> RS<()> {
+        self.create_queue_inner(schema).await
+    }
+
+    async fn drop_queue(&self, queue_id: OID) -> RS<()> {
+        self.drop_queue_inner(queue_id).await
+    }
+
+    async fn get_queue(&self, schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
+        self.lookup_queue_by_name(schema, name)
+    }
+
+    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+        self.list_queues_inner()
+    }
+
     async fn create_partition_rule(&self, rule: &PartitionRuleDesc) -> RS<()> {
         self.create_partition_rule_inner(rule).await
     }

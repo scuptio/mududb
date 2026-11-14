@@ -5,7 +5,7 @@ use crate::src_gen::wit_def::WitFuncDef;
 use mudu_binding::table::table_def::TableDef;
 use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
 
-/// A single top-level element inside an [`AbstractTemplate`](crate::lang_impl::lang::abstract_template::AbstractTemplate).
+/// A single top-level element inside an `AbstractTemplate`.
 pub enum TemplateKind {
     /// Enum definition and its generation config.
     Enum((UniEnumDef, CodegenCfg)),

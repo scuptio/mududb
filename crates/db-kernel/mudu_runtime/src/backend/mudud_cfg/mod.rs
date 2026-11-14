@@ -81,6 +81,12 @@ pub struct MuduDBCfg {
     /// WAL log chunk size in bytes.
     #[serde(default = "default_log_chunk_size")]
     pub log_chunk_size: u64,
+    /// Maximum live messages per queue.
+    #[serde(default = "default_queue_max_msgs")]
+    pub queue_max_msgs: u64,
+    /// Maximum encoded payload bytes per queue.
+    #[serde(default = "default_queue_max_bytes")]
+    pub queue_max_bytes: u64,
     /// Database page size in bytes.
     ///
     /// This is a `ConfigMutability::Persistent` setting: it is written into the
@@ -202,6 +208,8 @@ impl Default for MuduDBCfg {
             io_uring_enable_fixed_files: false,
             routing_mode: RoutingMode::ConnectionId,
             log_chunk_size: default_log_chunk_size(),
+            queue_max_msgs: default_queue_max_msgs(),
+            queue_max_bytes: default_queue_max_bytes(),
             page_size: default_page_size(),
             wal_flush_max_wait_us: default_wal_flush_max_wait_us(),
             wal_sync_mode: default_wal_sync_mode(),
@@ -267,6 +275,8 @@ tcp_multi_port = false
 
 # WAL log chunk size in bytes.
 log_chunk_size = 67108864
+queue_max_msgs = 65536
+queue_max_bytes = 67108864
 
 # Database page size in bytes. Persistent: changing it requires re-initialization.
 page_size = 4096
@@ -540,3 +550,10 @@ pub(crate) fn default_sync_timeout_ms() -> u64 {
 #[cfg(test)]
 #[path = "../mudud_cfg_test.rs"]
 mod mudud_cfg_test;
+
+fn default_queue_max_msgs() -> u64 {
+    65536
+}
+fn default_queue_max_bytes() -> u64 {
+    64 * 1024 * 1024
+}

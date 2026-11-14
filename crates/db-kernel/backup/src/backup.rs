@@ -8,10 +8,10 @@
 //! per-worker snapshot (at its committed point) together with the WAL archive
 //! range needed to replay forward from there.
 
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::repl::seg_hash::{SegHash, ZERO_SEG_HASH};
 use ::repl::snapshot::{snapshot_version_dir, take_worker_snapshot};
 use ::worker::worker::WorkerRuntime;
+use mudu::channel::ServerInstanceId;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -287,10 +287,9 @@ pub fn unregister_backup_worker(server_instance_id: ServerInstanceId, worker_ind
     Ok(())
 }
 
-/// Snapshots the live workers of the server, ordered by worker index.
-pub(crate) fn backup_workers(
-    server_instance_id: ServerInstanceId,
-) -> RS<Vec<(Arc<WorkerRuntime>, u32)>> {
+/// Snapshots the live workers of the server, ordered by worker index. Shared
+/// by the base/logical backup paths and the queue-observability endpoint.
+pub fn backup_workers(server_instance_id: ServerInstanceId) -> RS<Vec<(Arc<WorkerRuntime>, u32)>> {
     let registry = backup_worker_registry()
         .lock()
         .map_err(|_| mudu_error!(ErrorCode::Internal, "backup worker registry lock poisoned"))?;
@@ -404,6 +403,105 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use mudu_sys::env_var::temp_dir;
+
+    async fn test_worker_runtime(dir: &str, archive_dir: Option<String>) -> WorkerRuntime {
+        use ::catalog::repl_cfg::ReplRole;
+        use ::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
+        use ::worker::worker::{WorkerRuntime as WT, WorkerRuntimeParams};
+        use ::worker::worker_registry::load_or_create_worker_registry;
+
+        let registry = load_or_create_worker_registry(dir, 1).unwrap();
+        let identity = registry.worker(0).cloned().unwrap();
+        WT::new(WorkerRuntimeParams {
+            identity,
+            worker_count: 1,
+            log_dir: dir.to_string(),
+            data_dir: dir.to_string(),
+            log_chunk_size: 4096,
+            log_batching: WorkerLogBatching::default(),
+            wal_sync_policy: WalSyncPolicy::Commit,
+            queue_limits: (65536, 64 * 1024 * 1024),
+            procedure_runtime: None,
+            registry,
+            async_runtime: None,
+            server_instance_id: 0,
+            repl_role: ReplRole::Primary,
+            repl_leader_hint: None,
+            raft_share: None,
+            archive_dir,
+        })
+        .await
+        .unwrap()
+    }
+
+    fn test_dir(tag: &str) -> String {
+        temp_dir()
+            .join(format!("mudu_backup_{tag}_{}", mudu_utils::oid::gen_oid()))
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[test]
+    fn archive_loop_is_noop_without_archive_dir() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = test_dir("no_archive");
+            let worker = test_worker_runtime(&dir, None).await;
+            let (_stop_tx, stop_rx) = mudu_sys::sync::async_::stop_flag::stop_channel();
+            // No archive directory configured: the loop exits immediately.
+            run_worker_archive_loop(worker, stop_rx).await.unwrap();
+            let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn archive_loop_archives_until_stopped() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let dir = test_dir("archive");
+            let archive_dir = test_dir("archive_out");
+            let worker = test_worker_runtime(&dir, Some(archive_dir.clone())).await;
+            worker.initialize().await.unwrap();
+            let (stop_tx, stop_rx) = mudu_sys::sync::async_::stop_flag::stop_channel();
+            let handle = mudu_sys::task::async_::spawn_task_detached("archive-loop", async move {
+                run_worker_archive_loop(worker, stop_rx).await
+            })
+            .unwrap();
+            // Let one check interval elapse so the loop body runs once
+            // (no sealed chunks yet: the archive round is a cheap no-op),
+            // then stop and join.
+            mudu_sys::task::async_::sleep(ARCHIVE_CHECK_INTERVAL + Duration::from_millis(500))
+                .await
+                .unwrap();
+            stop_tx.stop();
+            handle.await.unwrap().expect("archive loop task").unwrap();
+            let _ = mudu_sys::fs::sync::remove_dir_all(&dir);
+            let _ = mudu_sys::fs::sync::remove_dir_all(&archive_dir);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn list_verify_and_delete_backup_labels() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let backup_dir = test_dir("labels");
+
+            // Nothing on disk: empty list, missing verify, missing delete.
+            assert!(list_backup_labels(&backup_dir).unwrap().is_empty());
+            assert!(verify_backup(&backup_dir, "absent").unwrap().is_none());
+            assert!(!delete_backup(&backup_dir, "absent").unwrap());
+
+            let label = run_base_backup(&[], &backup_dir, "b1").await.unwrap();
+            assert_eq!(list_backup_labels(&backup_dir).unwrap(), vec!["b1"]);
+            assert_eq!(verify_backup(&backup_dir, "b1").unwrap(), Some(label));
+
+            assert!(delete_backup(&backup_dir, "b1").unwrap());
+            assert!(list_backup_labels(&backup_dir).unwrap().is_empty());
+            assert!(verify_backup(&backup_dir, "b1").unwrap().is_none());
+
+            let _ = mudu_sys::fs::sync::remove_dir_all(&backup_dir);
+        })
+        .unwrap()
+    }
 
     #[test]
     fn backup_label_round_trips_and_seals() {

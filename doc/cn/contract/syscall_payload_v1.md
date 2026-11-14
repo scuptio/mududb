@@ -249,7 +249,7 @@ case（标签 8）。这些钉死规则以及确切的重新生成命令记录�
 [Rust SDK 的 `REGENERATE.md`](../../../crates/sdk/mudu_api/rust/REGENERATE.md)、
 [C# SDK `README.md`](../../../crates/sdk/mudu_api/csharp/README.md) 的 regen 小节，以及
 [AssemblyScript 生成代码的 `README`](../../../crates/sdk/bindings/assemblyscript/assembly/generated/README.md)。
-生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.sh` 强制保证：重新生成的
+生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.py` 强制保证：重新生成的
 代码必须与仓库中的版本逐字节一致。
 
 ### MessagePack 编码规则

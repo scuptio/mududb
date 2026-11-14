@@ -290,6 +290,10 @@ pub enum ErrorCode {
     /// Incompatible protocol version.
     #[strum(message = "Incompatible protocol version")]
     IncompatibleProtocolVersion = 50039,
+    /// Queue full: the enqueueing transaction is rejected (the producer may
+    /// retry after consumers drain the queue).
+    #[strum(message = "Queue full")]
+    QueueFull = 50040,
 }
 
 impl Display for ErrorCode {
@@ -358,6 +362,7 @@ impl ErrorCode {
             | ErrorCode::WouldBlock
             | ErrorCode::Interrupted
             | ErrorCode::InProgress
+            | ErrorCode::QueueFull
             | ErrorCode::ConnectionRefused
             | ErrorCode::ConnectionReset
             | ErrorCode::ConnectionAborted

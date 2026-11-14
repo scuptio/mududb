@@ -1,6 +1,6 @@
 //! Session-scoped file descriptor tables for the fs object syscalls.
 //!
-//! Each session owns one [`FdTable`]; fds are `u32` handles that follow the
+//! Each session owns one `FdTable`; fds are `u32` handles that follow the
 //! POSIX model: the minimum free value is allocated and closed values are
 //! reused. All state lives behind atomics and `Arc` so [`super::fs_service`]
 //! methods only need `&self`.

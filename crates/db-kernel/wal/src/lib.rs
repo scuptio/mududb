@@ -35,3 +35,7 @@ mod worker_wal_backend;
 pub mod xl_batch;
 /// Worker-log specialization for transaction log batches.
 pub mod xl_batch_worker_log;
+
+mod frame_bounds;
+
+mod part_chain;

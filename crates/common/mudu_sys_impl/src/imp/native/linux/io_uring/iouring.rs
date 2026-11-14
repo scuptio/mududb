@@ -259,6 +259,26 @@ mod linux {
             // containers it is false. Either is acceptable as long as it returns.
             let _ = available;
         }
+
+        #[test]
+        fn peek_on_empty_ring_and_iowq_tunables() {
+            let mut ring = match super::IoUring::new(8) {
+                Ok(ring) => ring,
+                Err(_) => return, // io_uring unavailable on this host
+            };
+            assert!(ring.peek().unwrap().is_none());
+            let _rc = ring.register_iowq_affinity(0);
+            let _rc = ring.register_iowq_max_workers(2, 2);
+            ring.exit();
+            ring.exit(); // idempotent
+        }
+
+        #[test]
+        fn sock_addr_buf_empty_state() {
+            let buf = super::SockAddrBuf::new_empty();
+            assert_ne!(buf.len(), 0);
+            assert!(!buf.is_empty());
+        }
     }
 }
 

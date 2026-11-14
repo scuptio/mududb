@@ -16,7 +16,15 @@ use mudu_type::type_family::TypeFamily;
 use std::future::Future;
 
 #[cfg(test)]
+mod consumer;
+#[cfg(test)]
 mod ops;
+#[cfg(test)]
+mod queue;
+#[cfg(test)]
+mod queue_partition;
+#[cfg(test)]
+mod repl_route;
 #[cfg(test)]
 mod tuple_update;
 #[cfg(test)]
@@ -29,7 +37,7 @@ where
 {
     mudu_sys::task::async_::build_current_thread_runtime()
         .unwrap()
-        .block_on(fut)
+        .block_on(tokio::task::LocalSet::new().run_until(fut))
 }
 
 #[cfg(test)]

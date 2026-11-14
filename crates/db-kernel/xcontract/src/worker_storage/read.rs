@@ -7,11 +7,22 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_utils::task_trace;
 
+use ::catalog::contract::queue::{
+    decode_queue_seq, decode_queue_status, QUEUE_STATUS_ATTR, QUEUE_STATUS_CLAIMED,
+    QUEUE_STATUS_STATE,
+};
 use ::catalog::contract::worker_snapshot::{KvItem, WorkerSnapshot};
 use ::index::index_key::key_tuple::KeyTuple;
+use ::meta::queue_consumer::{
+    decode_queue_consumer_frontier, decode_queue_consumer_name, decode_queue_consumer_oid,
+    queue_consumer_desc, QUEUE_CONSUMER_FRONTIER_ATTR, QUEUE_CONSUMER_NAME_ATTR,
+    QUEUE_CONSUMER_OID_ATTR, QUEUE_CONSUMER_TABLE_ID,
+};
+use ::xengine::api::VecSelTerm;
+use ::xengine::partition_router::DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID;
 use ::xengine::tx_mgr::TxMgr;
 
-use super::WorkerStorage;
+use super::{QueueRebuildScan, WorkerStorage};
 
 impl WorkerStorage {
     #[cfg(test)]
@@ -117,6 +128,137 @@ impl WorkerStorage {
         let key = KeyTuple::from(key.to_vec());
         self.read_visible_relation_value(oid, partition_id, &key, snapshot)
             .await
+    }
+
+    /// Scan the committed head/tail of the queue relation `table_id` and
+    /// return the smallest and largest live `__seq` values; `None` when the
+    /// relation is not open locally or holds no live rows.
+    ///
+    /// Used to rebuild the in-memory queue runtime counters at bootstrap. The
+    /// scan materializes the queue's live rows (bounded by the queue depth
+    /// cap); acknowledged rows are physically deleted at ACK time, so they
+    /// are not scanned.
+    /// The `(min_seq, max_seq)` live bounds of the queue shard, when it holds
+    /// any message rows.
+    pub async fn queue_seq_bounds_async(
+        &self,
+        table_id: OID,
+        partition_id: OID,
+    ) -> RS<Option<(u64, u64)>> {
+        Ok(self
+            .queue_rebuild_scan_async(table_id, partition_id)
+            .await?
+            .map(|scan| (scan.min_seq, scan.max_seq)))
+    }
+
+    /// Scan the committed live rows of the queue shard `table_id` /
+    /// `partition_id` for the runtime rebuild: the smallest and largest live
+    /// `__seq` plus the sequence numbers of rows still marked `claimed`
+    /// (in-flight at crash time; the rebuild re-delivers them). The shard's
+    /// sentinel row (`QUEUE_STATUS_STATE`) is excluded. `None` when the
+    /// relation partition is not open locally or holds no live message rows.
+    pub async fn queue_rebuild_scan_async(
+        &self,
+        table_id: OID,
+        partition_id: OID,
+    ) -> RS<Option<QueueRebuildScan>> {
+        let relation_id = self.relation_id(table_id, partition_id);
+        let relation = match self.get_relation_by_id_async(&relation_id).await {
+            Ok(relation) => relation,
+            Err(err) if err.ec() == ErrorCode::EntityNotFound => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        let rows = relation
+            .visible_range(
+                (Bound::Unbounded, Bound::Unbounded),
+                &WorkerSnapshot::latest_committed(),
+            )
+            .await?;
+        let desc = self.mgr.get_table_by_id(table_id).await?;
+        // The queue layout guarantees a single key column: `__seq`.
+        let seq_field = desc.key_desc().get_field_desc(0);
+        let status_select = VecSelTerm::new(vec![QUEUE_STATUS_ATTR]);
+        let mut min_seq = u64::MAX;
+        let mut max_seq = 0u64;
+        let mut claimed_seqs = Vec::new();
+        let mut live = 0u64;
+        for (key, value) in &rows {
+            let seq = decode_queue_seq(seq_field.get(key)?)?;
+            let status =
+                crate::utils::project_selected_fields(desc.as_ref(), key, value, &status_select)?;
+            if let Some(status_bin) = &status[0] {
+                let status = decode_queue_status(status_bin)?;
+                if status == QUEUE_STATUS_STATE {
+                    continue;
+                }
+                if status == QUEUE_STATUS_CLAIMED {
+                    claimed_seqs.push(seq);
+                }
+            }
+            min_seq = min_seq.min(seq);
+            max_seq = max_seq.max(seq);
+            live += 1;
+        }
+        if live == 0 {
+            return Ok(None);
+        }
+        Ok(Some(QueueRebuildScan {
+            min_seq,
+            max_seq,
+            claimed_seqs,
+        }))
+    }
+
+    /// Scan the committed `_queue_consumer` rows of the queue `queue_oid` and
+    /// return its consumer cursors as `(name, frontier)` pairs; empty when
+    /// the relation is not open locally or the queue has no consumers.
+    ///
+    /// Used to rebuild the in-memory consumer cursor cache lazily on the
+    /// first queue access after a restart. The `_queue_consumer` relation
+    /// always lives on [`DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID`] (queues
+    /// are never partitioned), the same partition the queue relations use.
+    pub async fn consumer_scan_async(&self, queue_oid: OID) -> RS<Vec<(String, u64)>> {
+        let relation_id = self.relation_id(
+            QUEUE_CONSUMER_TABLE_ID,
+            DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+        );
+        let relation = match self.get_relation_by_id_async(&relation_id).await {
+            Ok(relation) => relation,
+            Err(err) if err.ec() == ErrorCode::EntityNotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err),
+        };
+        let rows = relation
+            .visible_range(
+                (Bound::Unbounded, Bound::Unbounded),
+                &WorkerSnapshot::latest_committed(),
+            )
+            .await?;
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        let desc = queue_consumer_desc()?;
+        let select = VecSelTerm::new(vec![
+            QUEUE_CONSUMER_OID_ATTR,
+            QUEUE_CONSUMER_NAME_ATTR,
+            QUEUE_CONSUMER_FRONTIER_ATTR,
+        ]);
+        let mut entries = Vec::new();
+        for (key, value) in &rows {
+            let fields = crate::utils::project_selected_fields(desc.as_ref(), key, value, &select)?;
+            let (Some(oid_bin), Some(name_bin), Some(frontier_bin)) =
+                (fields[0].clone(), fields[1].clone(), fields[2].clone())
+            else {
+                continue;
+            };
+            if decode_queue_consumer_oid(&oid_bin)? != queue_oid {
+                continue;
+            }
+            entries.push((
+                decode_queue_consumer_name(&name_bin)?,
+                decode_queue_consumer_frontier(&frontier_bin)?,
+            ));
+        }
+        Ok(entries)
     }
 
     pub(crate) async fn range(

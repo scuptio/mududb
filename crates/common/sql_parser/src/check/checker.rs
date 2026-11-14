@@ -78,6 +78,9 @@ const BEYOND_SUBSET_KEYWORDS: &[&str] = &[
 /// - unknown tables/columns yield [`SqlSeverity::Error`].
 pub fn check_sql(sql: &str, schema: &[TableDef]) -> Vec<SqlDiagnostic> {
     let mut diagnostics = Vec::new();
+    if let Some(diagnostics) = check_queue_sql(sql, schema) {
+        return diagnostics;
+    }
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_sql::LANGUAGE.into();
     if parser.set_language(&language).is_err() {
@@ -154,6 +157,34 @@ pub fn check_sql(sql: &str, schema: &[TableDef]) -> Vec<SqlDiagnostic> {
         check_stmt(stmt, schema, sql, &mut diagnostics);
     }
     diagnostics
+}
+
+fn check_queue_sql(sql: &str, schema: &[TableDef]) -> Option<Vec<SqlDiagnostic>> {
+    let mut diagnostics = Vec::new();
+    let words: Vec<_> = sql
+        .split_whitespace()
+        .take(2)
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let custom_queue = matches!(words.first().map(String::as_str), Some("receive" | "ack"))
+        || matches!(words.as_slice(), [first, second] if (first == "create" || first == "drop") && (second == "queue" || second == "consumer"));
+    if custom_queue {
+        match SQLParser::new().and_then(|parser| parser.parse(sql)) {
+            Ok(statements) => {
+                for stmt in statements.stmts() {
+                    check_stmt(stmt, schema, sql, &mut diagnostics);
+                }
+            }
+            Err(err) => diagnostics.push(SqlDiagnostic::new(
+                SqlSeverity::Error,
+                err.message().to_string(),
+                1,
+                1,
+            )),
+        }
+        return Some(diagnostics);
+    }
+    None
 }
 
 /// Count the `?` parameter placeholders in one parsed statement.
@@ -325,7 +356,82 @@ fn check_command(
         StmtCommand::Insert(insert) => check_insert(insert, schema, sql, diagnostics),
         StmtCommand::Update(update) => check_update(update, schema, sql, diagnostics),
         StmtCommand::Delete(delete) => check_delete(delete, schema, sql, diagnostics),
+        StmtCommand::Receive(receive) => {
+            check_table(receive.name(), schema, sql, diagnostics);
+            if receive.count() == Some(0) {
+                diagnostics.push(SqlDiagnostic::new(
+                    SqlSeverity::Error,
+                    "RECEIVE count must be positive".to_string(),
+                    1,
+                    1,
+                ));
+            }
+        }
+        StmtCommand::Ack(ack) => {
+            check_table(ack.name(), schema, sql, diagnostics);
+        }
+        StmtCommand::DropQueue(drop) => {
+            check_table(drop.name(), schema, sql, diagnostics);
+        }
+        StmtCommand::CreateConsumer(create) => {
+            check_table(create.queue(), schema, sql, diagnostics);
+        }
+        StmtCommand::DropConsumer(drop) => {
+            check_table(drop.queue(), schema, sql, diagnostics);
+        }
+        StmtCommand::CreateQueue(create) => {
+            if let crate::ast::stmt_create_queue::QueuePayload::Like(name) = create.payload() {
+                check_table(name, schema, sql, diagnostics);
+            }
+            check_queue_partition(create, schema, sql, diagnostics);
+        }
         _ => {}
+    }
+}
+
+/// Validates the optional sharding clause of a `CREATE QUEUE`: exactly one
+/// referenced column, and that column must belong to the payload (declared
+/// columns, or the columns of the `LIKE` source table when it is known).
+fn check_queue_partition(
+    create: &crate::ast::stmt_create_queue::StmtCreateQueue,
+    schema: &[TableDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(partition) = create.partition() else {
+        return;
+    };
+    if partition.reference_columns().len() != 1 {
+        diagnostics.push(SqlDiagnostic::new(
+            SqlSeverity::Error,
+            "CREATE QUEUE partition clause must reference exactly one payload column".to_string(),
+            1,
+            1,
+        ));
+        return;
+    }
+    let column = &partition.reference_columns()[0];
+    let known = match create.payload() {
+        crate::ast::stmt_create_queue::QueuePayload::Columns(columns) => Some(
+            columns
+                .iter()
+                .any(|def| def.column_name().eq_ignore_ascii_case(column)),
+        ),
+        crate::ast::stmt_create_queue::QueuePayload::Like(table) => {
+            find_table(schema, table).map(|table_def| find_column(table_def, column).is_some())
+        }
+    };
+    if known == Some(false) {
+        let (line, column_index) = locate_identifier(sql, column).unwrap_or((1, 1));
+        diagnostics.push(SqlDiagnostic::new(
+            SqlSeverity::Error,
+            format!(
+                "partition column '{column}' is not a payload column of queue '{}'",
+                create.name()
+            ),
+            line,
+            column_index,
+        ));
     }
 }
 

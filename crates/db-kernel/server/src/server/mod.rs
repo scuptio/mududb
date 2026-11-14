@@ -7,7 +7,6 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 
 use crate::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
 use crate::fs_gc::FS_GC_INTERVAL;
-use crate::message_bus_state::WorkerMessageBusState;
 use crate::server_cfg::ReplMode;
 use crate::server_cfg::ReplNodeCfg;
 use crate::server_cfg::ReplRole;
@@ -15,12 +14,8 @@ use crate::worker::{
     adopt_worker_listener, flush_worker_dirty_pages, WorkerRuntime, WorkerRuntimeParams,
 };
 use crate::worker::{as_worker_local_ref, new_session_bound_worker_runtime};
+use crate::worker_channel_state::{IncomingDispatch, WorkerChannelState};
 use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
-use ::catalog::contract::message_bus_api::{
-    register_worker_message_bus, set_current_message_bus, unregister_worker_message_bus,
-    unset_current_message_bus, EndpointId, Envelope, MessageBus, MessageBusRef, MessageId,
-    OnRecvCallback, OutgoingMessage, RecvFilter, ServerInstanceId, SubscriptionId,
-};
 use ::catalog::repl_ctrl::RaftShareView;
 use ::conn::worker_local::{set_current_worker_local, unset_current_worker_local};
 use ::repl::ctl::{ReplAckWaiter, ReplModeCtl};
@@ -35,6 +30,14 @@ use ::wal::xl_batch::decode_xl_batches_with_pending;
 use ::xcontract::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
+use mudu::channel::{
+    DeliveryMode, EndpointId, Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter,
+    ReplyStatus, ServerInstanceId,
+};
+use mudu_utils::channel::{
+    channel_for, channel_now_ms, set_current_channel, spawn_endpoint, unset_current_channel,
+    ChannelEndpoint, ChannelEndpointRef, EndpointGuard, KindHandler,
+};
 
 use mudu::common::id::OID;
 use mudu::common::result::RS;
@@ -188,9 +191,9 @@ impl TokioTcpBackend {
 }
 
 mod drivers;
-mod message_bus;
 mod repl_setup;
 mod serve;
+pub(crate) mod worker_channel;
 mod worker_loop;
 
 #[cfg(test)]

@@ -49,7 +49,6 @@ fn field_info_at(
         field_ser_de(field, &field_name, lang, rf_required, type_kinds)?;
     let (rf_to_value, rf_from_value) = field_wire_exprs(field, &field_name, lang)?;
     Ok(RecordFieldInfo {
-        rf_index: i as _,
         // The WIT parser assigns `rf_number` after parsing; fall back to
         // the positional number for hand-built definitions.
         rf_number: if field.rf_number == 0 {

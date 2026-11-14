@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "Cross-contract transaction execution and worker storage"
 
 [features]
+paged-index = ["storage/paged-index"]
 test = ["catalog/test", "meta/test", "sql/test"]
 debug_trace = ["mudu_utils/debug_trace"]
 ds = ["mudu_sys/ds"]

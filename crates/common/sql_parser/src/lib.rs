@@ -2,8 +2,9 @@
 //!
 //! This crate provides an AST representation of SQL statements and a parser
 //! built on top of tree-sitter-sql. It supports parsing DDL (create table,
-//! partition rules, partition placements), DML (select, insert, update, delete),
-//! and utility statements (copy from/to, drop table, etc.).
+//! partition rules, partition placements, queues), DML (select, insert, update,
+//! delete), queue consumption statements (receive, ack), and utility
+//! statements (copy from/to, drop table, etc.).
 
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used)]

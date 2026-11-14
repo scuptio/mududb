@@ -221,7 +221,6 @@ mod tests {
     use crate::service::test_wasm_mod_path::wasm_mod_path;
     use crate::service::wasi_context_component::WasiContextComponent;
     use crate::service::wt_runtime_component::WTRuntimeComponent;
-    use ::catalog::contract::message_bus_api::MessageBusRef;
     use ::catalog::contract::meta_mgr::MetaMgr;
     use ::catalog::contract::worker_snapshot::KvItem;
     use ::conn::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
@@ -235,6 +234,7 @@ mod tests {
     use mudu_contract::database::sql_stmt::SQLStmt;
     use mudu_contract::procedure::procedure_param::ProcedureParam;
     use mudu_type::data_value::DataValue;
+    use mudu_utils::channel::ChannelEndpointRef;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -252,7 +252,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn message_bus(&self) -> MessageBusRef {
+        fn worker_channel(&self) -> ChannelEndpointRef {
             unimplemented!()
         }
 

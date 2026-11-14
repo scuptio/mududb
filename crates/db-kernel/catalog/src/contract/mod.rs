@@ -4,6 +4,8 @@
 //! execution contracts, snapshot metadata, and version-tracking structures
 //! used by the storage, WAL, server, and SQL layers.
 
+/// Central registry of the kernel's channel message kinds (block `0x71xx`).
+pub mod channel_kinds;
 /// Log sequence number type.
 pub mod lsn;
 /// Tests for [`lsn`].
@@ -13,8 +15,6 @@ pub mod lsn_test;
 pub mod x_lock_mgr;
 
 pub mod app_schema;
-/// Worker-local message bus API: envelopes, filters, and the endpoint registry.
-pub mod message_bus_api;
 /// Catalog metadata manager trait (tables, partition rules, fs types).
 pub mod meta_mgr;
 /// Tests for [`meta_mgr`].
@@ -43,6 +43,8 @@ pub mod field_info_test;
 pub mod fs_type;
 /// Query execution contract (open/next/tuple descriptor).
 pub mod query_exec;
+/// Queue system-column layout constants and builders.
+pub mod queue;
 /// Column schema descriptor.
 pub mod schema_column;
 /// Tests for [`schema_column`].

@@ -14,6 +14,10 @@
 #![warn(clippy::panic)]
 #![warn(clippy::todo)]
 #![warn(clippy::unimplemented)]
+#![cfg_attr(
+    test,
+    allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 
 #[allow(unused)]
 #[cfg(target_arch = "x86_64")]
@@ -22,3 +26,15 @@ pub mod rust;
 #[allow(unused, missing_docs)]
 #[cfg(target_arch = "wasm32")]
 pub mod generated;
+
+/// Test-only subset of the generated module. The full generated procedure file
+/// contains pre-existing async `#[test]` functions that do not compile on
+/// native targets, so unit tests expose only the generated entity modules.
+#[allow(unused, missing_docs)]
+#[cfg(all(test, target_arch = "x86_64"))]
+pub mod generated {
+    pub mod wallets;
+}
+
+#[cfg(test)]
+mod generated_test;

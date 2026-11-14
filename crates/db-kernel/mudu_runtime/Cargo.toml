@@ -6,6 +6,7 @@ rust-version.workspace = true
 license = "Apache-2.0"
 
 [features]
+paged-index = ["server/paged-index"]
 debug_trace = ["mudu_utils/debug_trace"]
 # Pass-through for the deterministic-simulation backend (`-F mudu_sys/ds`).
 # Tests that exercise real-OS semantics the simulator cannot provide (e.g.
@@ -24,6 +25,7 @@ repl = { workspace = true }
 server = { workspace = true }
 wal = { workspace = true }
 worker = { workspace = true }
+xcontract = { workspace = true }
 xengine = { workspace = true }
 mudu_type = { workspace = true }
 mudu_sys = { workspace = true }

@@ -214,7 +214,7 @@ worker 会按需懒创建自己需要访问的 partition relation。
 
 ## 远端 Partition 访问
 
-当前执行层通过 worker message bus 提供 partition RPC。
+当前执行层通过 channel（`mudu_utils::channel` 的端点消息层）提供 partition RPC。
 
 当前支持的远端操作包括：
 

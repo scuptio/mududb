@@ -279,7 +279,7 @@ them casually:
   WIT `box<T>` types, so it must stay even though no syscall payload carries
   it.
 - Consistency between the generated codecs and the WIT schema is enforced by
-  `script/ci/check_bindings_regen.sh`, which regenerates all binding code into
+  `script/ci/check_bindings_regen.py`, which regenerates all binding code into
   a temporary directory and requires a byte-clean match against the checkout.
 
 ### Verification gates

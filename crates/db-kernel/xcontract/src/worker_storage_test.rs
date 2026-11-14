@@ -24,7 +24,7 @@ where
 {
     mudu_sys::task::async_::build_current_thread_runtime()
         .unwrap()
-        .block_on(fut)
+        .block_on(tokio::task::LocalSet::new().run_until(fut))
 }
 
 fn test_schema() -> SchemaTable {
@@ -327,7 +327,9 @@ fn worker_storage_kv_snapshot_hides_later_commit() {
 
 async fn _worker_storage_kv_snapshot_hides_later_commit() -> RS<()> {
     let (storage, _oid) = test_storage().await?;
-    storage.worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)?;
+    storage
+        .worker_put_local(b"a".to_vec(), b"0".to_vec(), 1)
+        .await?;
 
     let snapshot = WorkerSnapshot::new(2, vec![]);
     let prepared = storage.prepare_worker_kv_autocommit(
@@ -356,9 +358,13 @@ fn worker_storage_kv_range_is_stable_with_snapshot() {
 
 async fn _worker_storage_kv_range_is_stable_with_snapshot() -> RS<()> {
     let (storage, _oid) = test_storage().await?;
-    storage.worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)?;
+    storage
+        .worker_put_local(b"a".to_vec(), b"1".to_vec(), 1)
+        .await?;
     let snapshot = WorkerSnapshot::new(2, vec![]);
-    storage.worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)?;
+    storage
+        .worker_put_local(b"b".to_vec(), b"2".to_vec(), 3)
+        .await?;
 
     let rows = storage.kv_range(b"a", b"z", Some(&snapshot)).await?;
     assert_eq!(
@@ -462,7 +468,9 @@ fn worker_storage_replay_batch_applies_kv_delete() {
 
 async fn _worker_storage_replay_batch_applies_kv_delete() -> RS<()> {
     let (storage, _oid) = test_storage().await?;
-    storage.worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)?;
+    storage
+        .worker_put_local(b"k".to_vec(), b"v".to_vec(), 1)
+        .await?;
 
     let batch = XLBatch::new(vec![::wal::xl_entry::XLEntry {
         xid: 2,
@@ -698,7 +706,7 @@ async fn _worker_storage_concurrent_first_touch_creates_single_relation() -> RS<
     let mut handles = Vec::new();
     for index in 0..8i32 {
         let storage = storage.clone();
-        handles.push(tokio::spawn(async move {
+        handles.push(tokio::task::spawn_local(async move {
             storage
                 .ensure_relation_index(oid, Some(partition_id))
                 .await?;

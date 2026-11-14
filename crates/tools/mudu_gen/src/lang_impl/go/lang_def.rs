@@ -77,6 +77,7 @@ pub fn create_render_go() -> Arc<dyn Render> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::lang_impl::lang::lang_kind::LangKind;
     use mudu::common::result::RS;
     use mudu_binding::universal::uni_scalar::UniScalar;
@@ -92,5 +93,32 @@ mod tests {
         assert_eq!(lang.name_of_scalar(&UniScalar::Blob)?, "[]byte");
         assert_eq!(lang.name_of_scalar(&UniScalar::Numeric)?, "numeric");
         Ok(())
+    }
+
+    #[test]
+    fn go_non_scalar_names_and_render_constructor() {
+        use crate::lang_impl::lang::non_scalar::NonScalarType;
+
+        // The Go surface: arrays map to slices, options to pointer fields,
+        // boxes erase, tuples become []any.
+        assert_eq!(
+            non_scalar_name_go(&NonScalarType::Array("int64".to_string())),
+            "[]int64"
+        );
+        assert_eq!(
+            non_scalar_name_go(&NonScalarType::Option("string".to_string())),
+            "*string"
+        );
+        assert_eq!(
+            non_scalar_name_go(&NonScalarType::Box("int64".to_string())),
+            "int64"
+        );
+        assert_eq!(
+            non_scalar_name_go(&NonScalarType::Tuple(vec!["int64".to_string()])),
+            "[]any"
+        );
+
+        // The render constructor hands out the shared Go renderer.
+        let _render = create_render_go();
     }
 }

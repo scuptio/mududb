@@ -18,7 +18,7 @@
 - 一个或多个 **time-series 文件**：存储时序数据。
 - **WAL chunk 文件**（`*.xl`）：存储 write-ahead log frame。
 - 可选的 **MPK 包**（`*.mpk`）：用于分发。
-- **服务端配置文件**（`mududb.toml`）。
+- **服务端配置文件**（`mudud.cfg`）。
 
 ## Relation 文件布局
 

@@ -493,6 +493,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
 
 [[package]]
+name = "crc32c"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a47af21622d091a8f0fb295b88bc886ac74efcc613efc19f5d0b21de5c89e47"
+dependencies = [
+ "rustc_version",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1013,10 +1022,13 @@ dependencies = [
 name = "index"
 version = "0.0.1"
 dependencies = [
+ "crc32c",
+ "futures",
  "mudu",
  "mudu_contract",
  "mudu_sys",
  "mudu_type",
+ "page_buffer",
 ]
 
 [[package]]
@@ -1257,6 +1269,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "crc",
+ "crc32c",
  "heck",
  "num_enum",
  "rmp-serde",
@@ -1276,8 +1289,6 @@ dependencies = [
  "mudu_contract",
  "mudu_type",
  "num_enum",
- "rmp",
- "rmp-serde",
  "serde",
  "serde_repr",
  "tracing",
@@ -1449,6 +1460,7 @@ name = "mudu_utils"
 version = "0.1.0"
 dependencies = [
  "async-backtrace",
+ "async-trait",
  "bytes",
  "console-subscriber",
  "hex",
@@ -1555,6 +1567,16 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "page_buffer"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "futures",
+ "mudu",
+ "mudu_sys",
+]
 
 [[package]]
 name = "parking_lot"
@@ -1837,6 +1859,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1884,6 +1915,12 @@ checksum = "e5f0e40a01b94e35d1dacbcfbe5bfd3d31e37d9590b2e6d86a82b0e87bd4f551"
 dependencies = [
  "saa",
 ]
+
+[[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
@@ -2133,9 +2170,11 @@ dependencies = [
  "mudu_sys",
  "mudu_type",
  "mudu_utils",
+ "page_buffer",
  "rmp-serde",
  "scc",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "wal",

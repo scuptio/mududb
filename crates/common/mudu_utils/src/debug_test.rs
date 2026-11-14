@@ -6,7 +6,7 @@
 use crate::debug::async_debug_serve_until;
 use crate::debug::register_debug_url;
 #[cfg(not(feature = "debug_trace"))]
-use crate::debug::{async_debug_serve, debug_serve};
+use crate::debug::{async_debug_serve, async_debug_serve_until, debug_serve};
 use crate::notifier::NotifyWait;
 use mudu::common::result::RS;
 use std::net::SocketAddr;
@@ -33,6 +33,16 @@ fn async_debug_serve_stub_returns_ok() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         async_debug_serve(addr).await
+    });
+    assert!(result.is_ok());
+}
+
+#[cfg(not(feature = "debug_trace"))]
+#[test]
+fn async_debug_serve_until_stub_returns_ok() {
+    let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+    let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        async_debug_serve_until(addr, NotifyWait::new()).await
     });
     assert!(result.is_ok());
 }

@@ -1,6 +1,7 @@
+use super::inner::TsFileInner;
 use super::page::{build_entries_page_image, empty_page_image, page_entries_fit};
 use super::plan::{PlannedPageWrite, TimeSeriesFileMutationPlan};
-use super::{TimeSeriesFile, TimeSeriesRecord};
+use super::TimeSeriesRecord;
 use crate::page::page_block_ref::PageBlockRef;
 use crate::page::page_block_ref_mut::PageBlockRefMut;
 use crate::page::page_header::NONE_PAGE_ID;
@@ -9,8 +10,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_utils::scoped_task_trace;
+use page_buffer::PageImage;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PageInsertLocation {
@@ -25,31 +26,34 @@ enum PageInsertLocation {
 }
 
 /// In-memory view of the file's chain state while one batched mutation is
-/// being planned. Page reads fall through to the file when the batch has not
-/// touched the page yet; page writes only update the pending overlay. The
-/// batch ends with a single `persist_plan`, so one multi-row commit appends
-/// one PL WAL batch (one pwrite) and publishes the page-cache update once,
-/// after every row has been planned against the latest in-memory images.
+/// being planned. Page reads fall through to the file's published state when
+/// the batch has not touched the page yet; page writes only update the
+/// pending overlay. The batch ends with a single `persist_plan`, so one
+/// multi-row commit appends one PL WAL batch and publishes the page-buffer
+/// update once, after every row has been planned against the latest
+/// in-memory images.
 struct WriteOverlay<'a> {
-    file: &'a TimeSeriesFile,
-    page_images: HashMap<PageId, Arc<Vec<u8>>>,
+    inner: &'a TsFileInner,
+    page_images: HashMap<PageId, PageImage>,
     page_count: PageId,
     head_page_id: Option<PageId>,
     tail_page_id: Option<PageId>,
 }
 
 impl<'a> WriteOverlay<'a> {
-    fn new(file: &'a TimeSeriesFile) -> Self {
+    fn new(inner: &'a TsFileInner) -> Self {
         Self {
-            file,
+            inner,
             page_images: HashMap::new(),
-            page_count: file.page_count(),
-            head_page_id: file.head_page_id(),
-            tail_page_id: file.tail_page_id(),
+            page_count: inner.page_count(),
+            head_page_id: inner.head_page_id(),
+            tail_page_id: inner.tail_page_id(),
         }
     }
 
     /// Hands out the next page id for a page allocated inside this batch.
+    /// The buffer-side page number is reserved only when the plan is
+    /// applied, so a failed batch never leaves an allocation orphan.
     fn alloc_page_id(&mut self) -> PageId {
         let page_id = self.page_count;
         self.page_count = PageId::new(page_id.as_u64() + 1);
@@ -58,35 +62,34 @@ impl<'a> WriteOverlay<'a> {
 
     /// Returns the newest image of `page_id`: the pending batch image when
     /// the batch already rewrote the page, otherwise the file's published
-    /// image (page cache or data file).
-    async fn read_page(&self, page_id: PageId) -> RS<Arc<Vec<u8>>> {
+    /// image (resident in the buffer or read from the data file).
+    async fn read_page(&self, page_id: PageId) -> RS<PageImage> {
         if let Some(image) = self.page_images.get(&page_id) {
             return Ok(image.clone());
         }
-        self.file.read_page(page_id).await
+        self.inner.read_page(page_id).await
     }
 
     /// Records the batch's newest image of `page_id`; a later write to the
     /// same page replaces the earlier one because intermediate batch states
     /// are never published.
     fn write_page_image(&mut self, page_id: PageId, image: Vec<u8>) {
-        self.page_images.insert(page_id, Arc::new(image));
+        self.page_images.insert(page_id, PageImage::new(image));
     }
 
     /// Hands the newest image of `page_id` to a caller that is about to
     /// mutate it. When the batch already rewrote the page the pending image
     /// is moved out of the overlay — rows of one batch that land on the same
-    /// page therefore mutate a single buffer instead of cloning the whole
+    /// page therefore mutate a single buffer instead of copying the whole
     /// page image per row. The caller must put the image back with
-    /// [`WriteOverlay::write_page_image`] on every path (including failed
-    /// inserts that leave the buffer unmodified) so the pending batch state
-    /// is not lost.
+    /// [`WriteOverlay::write_page_image`] on every path where the batch
+    /// continues (including handled insert failures) so the pending batch
+    /// state is not lost.
     async fn take_page_for_mutation(&mut self, page_id: PageId) -> RS<Vec<u8>> {
         if let Some(image) = self.page_images.remove(&page_id) {
-            return Ok(Arc::try_unwrap(image).unwrap_or_else(|image| (*image).clone()));
+            return Ok(image.into_owned());
         }
-        let image = self.file.read_page(page_id).await?;
-        Ok((*image).clone())
+        Ok(self.inner.read_page(page_id).await?.into_owned())
     }
 
     /// Folds the pending images and chain metadata into the single mutation
@@ -94,53 +97,54 @@ impl<'a> WriteOverlay<'a> {
     /// the file's published state become `next_*` updates.
     fn into_plan(self) -> TimeSeriesFileMutationPlan {
         let mut plan = TimeSeriesFileMutationPlan::default();
-        let mut images: Vec<(PageId, Arc<Vec<u8>>)> = self.page_images.into_iter().collect();
+        let mut images: Vec<(PageId, PageImage)> = self.page_images.into_iter().collect();
         images.sort_by_key(|(page_id, _)| *page_id);
         for (page_id, image) in images {
             plan.page_writes.push(PlannedPageWrite {
                 page_id,
-                image: Arc::try_unwrap(image).unwrap_or_else(|image| (*image).clone()),
+                image: image.into_owned(),
             });
         }
-        if self.page_count != self.file.page_count() {
+        if self.page_count != self.inner.page_count() {
             plan.next_page_count = Some(self.page_count);
         }
-        if self.head_page_id != self.file.head_page_id() {
+        if self.head_page_id != self.inner.head_page_id() {
             plan.next_head_page_id = Some(self.head_page_id);
         }
-        if self.tail_page_id != self.file.tail_page_id() {
+        if self.tail_page_id != self.inner.tail_page_id() {
             plan.next_tail_page_id = Some(self.tail_page_id);
         }
         plan
     }
 }
 
-impl TimeSeriesFile {
+impl TsFileInner {
     /// Inserts one record, allocating or splitting pages as needed. An
     /// existing `(timestamp, tuple_id)` key is updated in place.
-    pub async fn insert(&self, timestamp: u64, tuple_id: u64, payload: &[u8]) -> RS<()> {
+    pub(super) async fn insert(&self, timestamp: u64, tuple_id: u64, payload: &[u8]) -> RS<()> {
         self.insert_batch(&[(timestamp, tuple_id, payload)]).await
     }
 
     /// Inserts `rows` as one file mutation: every row is planned against the
     /// overlay carrying the previous rows' page images, then the merged plan
     /// is persisted with a single PL WAL append and applied once. Behavior
-    /// per row is identical to calling [`TimeSeriesFile::insert`] for each
-    /// row in order.
-    pub(crate) async fn insert_batch(&self, rows: &[(u64, u64, &[u8])]) -> RS<()> {
+    /// per row is identical to calling [`TsFileInner::insert`] for each row
+    /// in order.
+    pub(super) async fn insert_batch(&self, rows: &[(u64, u64, &[u8])]) -> RS<()> {
         scoped_task_trace!();
         if rows.is_empty() {
             return Ok(());
         }
+        self.check_writable()?;
         let result = async {
             // The whole locate->plan->persist->apply sequence mutates the page
-            // chain across await points; serialize writers of this file. Readers
-            // never take this latch.
+            // chain across await points; serialize writers of this file.
+            // Readers never take this latch.
             let _write_guard = {
                 let _stage = ::catalog::stage_stats::StageGuard::new(
                     ::catalog::stage_stats::Stage::WrFileLatch,
                 );
-                self.write_latch.lock().await
+                self.write_latch.write().await
             };
             let mut overlay = WriteOverlay::new(self);
             for &(timestamp, tuple_id, payload) in rows {
@@ -152,20 +156,6 @@ impl TimeSeriesFile {
         .await;
         result?;
         self.flush_dirty_pages_if_over_threshold().await
-    }
-
-    /// Flushes dirty pages when the deferred-flush watermark is reached.
-    /// Runs OUTSIDE `write_latch`: the flush is a memory backstop (durability
-    /// comes from the WAL, and the background driver repeats it every
-    /// `DIRTY_PAGE_FLUSH_INTERVAL`), and `dirty_flush_latch` plus the
-    /// `Arc::ptr_eq` re-check in `flush_dirty_pages` already make it safe
-    /// against concurrent publishers. Keeping it inside `write_latch`
-    /// serialized every writer of this file behind a full data-file flush.
-    pub(crate) async fn flush_dirty_pages_if_over_threshold(&self) -> RS<()> {
-        if self.dirty_pages.len() >= super::DIRTY_PAGE_FLUSH_THRESHOLD {
-            self.flush_dirty_pages().await?;
-        }
-        Ok(())
     }
 
     /// Plans the insertion of one record into `overlay`, mirroring what the
@@ -319,9 +309,10 @@ impl TimeSeriesFile {
         payload: &[u8],
     ) -> RS<()> {
         let page_id = overlay.alloc_page_id();
-        let prev_page_buf = overlay.read_page(prev_page_id).await?;
-        let prev_page = PageBlockRef::try_new(&prev_page_buf)?;
-        let next_page_id = prev_page.active_next_page()?;
+        let next_page_id = {
+            let prev_page_buf = overlay.read_page(prev_page_id).await?;
+            PageBlockRef::try_new(&prev_page_buf)?.active_next_page()?
+        };
         let mut new_page_buf = empty_page_image(
             page_id,
             self.tuple_format_version,
@@ -334,7 +325,7 @@ impl TimeSeriesFile {
             page.insert_record(timestamp, tuple_id, payload)?;
         }
 
-        let mut updated_prev_buf = prev_page_buf.as_ref().clone();
+        let mut updated_prev_buf = overlay.take_page_for_mutation(prev_page_id).await?;
         {
             let header = PageBlockRef::try_new(&updated_prev_buf)?.header()?;
             let mut page = PageBlockRefMut::new(&mut updated_prev_buf);
@@ -345,7 +336,7 @@ impl TimeSeriesFile {
         overlay.write_page_image(prev_page_id, updated_prev_buf);
         if let Some(next_page_id) = next_page_id {
             let next_page_buf = overlay.read_page(next_page_id).await?;
-            let mut updated_next_buf = next_page_buf.as_ref().clone();
+            let mut updated_next_buf = next_page_buf.into_owned();
             let header = PageBlockRef::try_new(&updated_next_buf)?.header()?;
             {
                 let mut page = PageBlockRefMut::new(&mut updated_next_buf);
@@ -363,10 +354,11 @@ impl TimeSeriesFile {
 
     /// Removes the record with exactly this `timestamp` and `tuple_id`.
     /// Returns whether such a record existed.
-    pub async fn delete(&self, timestamp: u64, tuple_id: u64) -> RS<bool> {
+    pub(super) async fn delete(&self, timestamp: u64, tuple_id: u64) -> RS<bool> {
+        self.check_writable()?;
         let deleted = async {
             // Same cross-await chain mutation as insert; serialize writers.
-            let _write_guard = self.write_latch.lock().await;
+            let _write_guard = self.write_latch.write().await;
             let mut result: RS<bool> = Ok(false);
             let mut current = self.head_page_id();
             while let Some(page_id) = current {
@@ -381,7 +373,8 @@ impl TimeSeriesFile {
                         continue;
                     }
                     if let Some(slot_index) = page.find_slot_index(timestamp, tuple_id)? {
-                        let mut page_buf = page_buf.as_ref().clone();
+                        drop(page);
+                        let mut page_buf = page_buf.into_owned();
                         {
                             let mut page_mut = PageBlockRefMut::new(&mut page_buf);
                             page_mut.delete_record(slot_index)?;
@@ -445,9 +438,10 @@ impl TimeSeriesFile {
         payload: &[u8],
     ) -> RS<()> {
         let page_id = overlay.alloc_page_id();
-        let next_page_buf = overlay.read_page(next_page_id).await?;
-        let next_page = PageBlockRef::try_new(&next_page_buf)?;
-        let prev_page_id = next_page.active_prev_page()?;
+        let prev_page_id = {
+            let next_page_buf = overlay.read_page(next_page_id).await?;
+            PageBlockRef::try_new(&next_page_buf)?.active_prev_page()?
+        };
         let mut new_page_buf = empty_page_image(
             page_id,
             self.tuple_format_version,
@@ -460,7 +454,7 @@ impl TimeSeriesFile {
             page.insert_record(timestamp, tuple_id, payload)?;
         }
 
-        let mut updated_next_buf = next_page_buf.as_ref().clone();
+        let mut updated_next_buf = overlay.take_page_for_mutation(next_page_id).await?;
         {
             let header = PageBlockRef::try_new(&updated_next_buf)?.header()?;
             let mut page = PageBlockRefMut::new(&mut updated_next_buf);
@@ -471,7 +465,7 @@ impl TimeSeriesFile {
         overlay.write_page_image(next_page_id, updated_next_buf);
         if let Some(prev_page_id) = prev_page_id {
             let prev_page_buf = overlay.read_page(prev_page_id).await?;
-            let mut updated_prev_buf = prev_page_buf.as_ref().clone();
+            let mut updated_prev_buf = prev_page_buf.into_owned();
             let header = PageBlockRef::try_new(&updated_prev_buf)?.header()?;
             {
                 let mut page = PageBlockRefMut::new(&mut updated_prev_buf);
@@ -555,7 +549,7 @@ impl TimeSeriesFile {
         overlay.write_page_image(new_page_id, new_page_buf);
         if let Some(next_page_id) = old_next_page_id {
             let next_page_buf = overlay.read_page(next_page_id).await?;
-            let mut updated_next_buf = next_page_buf.as_ref().clone();
+            let mut updated_next_buf = next_page_buf.into_owned();
             let next_header = PageBlockRef::try_new(&updated_next_buf)?.header()?;
             {
                 let mut page = PageBlockRefMut::new(&mut updated_next_buf);

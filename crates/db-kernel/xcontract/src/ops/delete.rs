@@ -49,6 +49,65 @@ impl WorkerXContract {
                 _ => {}
             }
         }
+        self.delete_pinned_local(tx_mgr, table_id, target_partition, key)
+            .await
+    }
+
+    /// Delete with explicit partition pinning: skips key-based routing and
+    /// targets `target_partition` directly. Queue rows route this way because
+    /// their `__seq` key does not carry the queue's partition-route column.
+    pub(crate) async fn delete_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        pred_key: &VecDatum,
+    ) -> RS<usize> {
+        let key = build_key_tuple(pred_key, &desc)?;
+        if let Some(partition_id) = target_partition {
+            match self.resolve_partition_worker(partition_id).await? {
+                Some(worker_id) if worker_id != self.worker_id => {
+                    let relation_id = PhysicalRelationId {
+                        table_id,
+                        partition_id,
+                    };
+                    let exists = match tx_mgr.get_relation(relation_id, &key) {
+                        Some(staged) => staged.is_some(),
+                        None => self
+                            .lock_remote_key_for_update(
+                                tx_mgr.as_ref(),
+                                worker_id,
+                                table_id,
+                                partition_id,
+                                key.clone(),
+                                vec![],
+                            )
+                            .await?
+                            .is_some(),
+                    };
+                    if !exists {
+                        return Ok(0);
+                    }
+                    tx_mgr.delete_relation(relation_id, key);
+                    return Ok(1);
+                }
+                _ => {}
+            }
+        }
+        self.delete_pinned_local(tx_mgr, table_id, target_partition, key)
+            .await
+    }
+
+    /// Delete on a locally owned (or unpartitioned) partition under the
+    /// statement-level write lock.
+    async fn delete_pinned_local(
+        &self,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        key: Vec<u8>,
+    ) -> RS<usize> {
         self.acquire_statement_lock(
             tx_mgr.as_ref(),
             PhysicalRelationId {

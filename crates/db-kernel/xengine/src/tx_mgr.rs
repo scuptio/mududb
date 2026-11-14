@@ -158,3 +158,202 @@ pub trait TxMgr: Send + Sync {
     /// commit, which releases them on the owner).
     fn clear_remote_lock_owners(&self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )]
+
+    use super::*;
+    use crate::api::DeltaOp;
+    use mudu::error::ErrorCode;
+
+    /// A `TxMgr` that implements only the required methods, leaving every
+    /// defaulted capability (deferred deltas, statement locks, remote lock
+    /// owners) at the trait default. The tests pin the default contract that
+    /// transaction managers without those capabilities rely on.
+    struct DefaultOnlyTxMgr;
+
+    impl TxMgr for DefaultOnlyTxMgr {
+        fn xid(&self) -> u64 {
+            1
+        }
+
+        fn snapshot(&self) -> WorkerSnapshot {
+            WorkerSnapshot::new(1, Vec::new())
+        }
+
+        fn put(&self, _key: Vec<u8>, _value: Vec<u8>) {}
+
+        fn delete(&self, _key: Vec<u8>) {}
+
+        fn get(&self, _key: &[u8]) -> Option<Option<Vec<u8>>> {
+            None
+        }
+
+        fn put_relation(&self, _relation_id: PhysicalRelationId, _key: Vec<u8>, _value: Vec<u8>) {}
+
+        fn delete_relation(&self, _relation_id: PhysicalRelationId, _key: Vec<u8>) {}
+
+        fn get_relation(
+            &self,
+            _relation_id: PhysicalRelationId,
+            _key: &[u8],
+        ) -> Option<Option<Vec<u8>>> {
+            None
+        }
+
+        fn staged_relation_items_in_range(
+            &self,
+            _relation_id: PhysicalRelationId,
+            _start_key: &[u8],
+            _end_key: &[u8],
+        ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+            Vec::new()
+        }
+
+        fn staged_relation_ops(
+            &self,
+        ) -> BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>> {
+            BTreeMap::new()
+        }
+
+        fn staged_items_in_range(
+            &self,
+            _start_key: &[u8],
+            _end_key: &[u8],
+        ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+            Vec::new()
+        }
+
+        fn staged_put_items(&self) -> BTreeMap<Vec<u8>, Option<Vec<u8>>> {
+            BTreeMap::new()
+        }
+
+        fn is_empty(&self) -> bool {
+            true
+        }
+
+        fn write_ops(&self) -> Vec<(PhysicalRelationId, Vec<u8>)> {
+            Vec::new()
+        }
+
+        fn build_write_ops(&self) {}
+
+        fn xl_batch(&self) -> XLBatch {
+            XLBatch::new(Vec::new())
+        }
+    }
+
+    fn relation(table_id: OID, partition_id: OID) -> PhysicalRelationId {
+        PhysicalRelationId {
+            table_id,
+            partition_id,
+        }
+    }
+
+    #[test]
+    fn physical_relation_id_orders_by_table_then_partition() {
+        // `staged_relation_ops`/`staged_relation_deltas` are BTreeMaps keyed
+        // by PhysicalRelationId and `build_write_ops` sorts by it, so the
+        // derived order (table_id first, then partition_id) is what keeps
+        // staged-output snapshots and write-op lists deterministic.
+        let mut map = BTreeMap::new();
+        for (index, id) in [
+            relation(2, 1),
+            relation(1, 3),
+            relation(1, 2),
+            relation(2, 0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            map.insert(id, index);
+        }
+        let ordered: Vec<PhysicalRelationId> = map.keys().copied().collect();
+        assert_eq!(
+            ordered,
+            vec![
+                relation(1, 2),
+                relation(1, 3),
+                relation(2, 0),
+                relation(2, 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn default_deferred_deltas_are_rejected_as_not_implemented() {
+        // A transaction manager without a deferred-apply commit path must
+        // reject staged deferred deltas instead of silently dropping them:
+        // accepting them would lose the update entirely.
+        let tx_mgr = DefaultOnlyTxMgr;
+        let deltas = vec![DeltaAssign {
+            attr: 0,
+            op: DeltaOp::AddDeferred,
+            literal: vec![1],
+        }];
+        let err = tx_mgr
+            .put_relation_deferred_deltas(relation(1, 0), vec![1], deltas)
+            .unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::NotImplemented);
+        // A rejected stage leaves no observable deltas behind.
+        assert!(tx_mgr.get_relation_deltas(relation(1, 0), &[1]).is_none());
+        assert!(tx_mgr.staged_relation_deltas().is_empty());
+    }
+
+    #[test]
+    fn default_statement_lock_recording_is_a_noop() {
+        // Without pessimistic statement locking, recording a lock must be a
+        // harmless no-op and queries must report no locks held: callers use
+        // `has_statement_lock`/`statement_locked_keys` to decide which keys
+        // need conflict checks and lock release at commit/rollback.
+        let tx_mgr = DefaultOnlyTxMgr;
+        tx_mgr.record_statement_lock(relation(1, 0), vec![7]);
+        assert!(!tx_mgr.has_statement_lock(&relation(1, 0), &[7]));
+        assert!(tx_mgr.statement_locked_keys().is_empty());
+    }
+
+    #[test]
+    fn default_remote_lock_owner_tracking_is_a_noop() {
+        // Owners recorded for rollback-time lock release must not accumulate
+        // for a transaction manager that never takes remote locks; clearing
+        // must stay safe.
+        let tx_mgr = DefaultOnlyTxMgr;
+        tx_mgr.record_remote_lock_owner(9);
+        assert!(tx_mgr.remote_lock_owners().is_empty());
+        tx_mgr.clear_remote_lock_owners();
+        assert!(tx_mgr.remote_lock_owners().is_empty());
+    }
+
+    #[test]
+    fn default_only_fixture_covers_its_trait_surface() {
+        // The stub's required methods are all observable no-ops/empties;
+        // call each one so a signature drift breaks this test, not a
+        // production caller.
+        let tx_mgr = DefaultOnlyTxMgr;
+        assert_eq!(tx_mgr.xid(), 1);
+        assert_eq!(tx_mgr.snapshot().xid(), 1);
+        tx_mgr.put(b"k".to_vec(), b"v".to_vec());
+        tx_mgr.delete(b"k".to_vec());
+        assert!(tx_mgr.get(b"k").is_none());
+        tx_mgr.put_relation(relation(1, 0), b"k".to_vec(), b"v".to_vec());
+        tx_mgr.delete_relation(relation(1, 0), b"k".to_vec());
+        assert!(tx_mgr.get_relation(relation(1, 0), b"k").is_none());
+        assert!(tx_mgr
+            .staged_relation_items_in_range(relation(1, 0), b"a", b"z")
+            .is_empty());
+        assert!(tx_mgr.staged_relation_ops().is_empty());
+        assert!(tx_mgr.staged_items_in_range(b"a", b"z").is_empty());
+        assert!(tx_mgr.staged_put_items().is_empty());
+        assert!(tx_mgr.is_empty());
+        assert!(tx_mgr.write_ops().is_empty());
+        tx_mgr.build_write_ops();
+        let _ = tx_mgr.xl_batch();
+    }
+}

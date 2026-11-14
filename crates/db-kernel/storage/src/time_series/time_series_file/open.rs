@@ -1,9 +1,10 @@
-use super::io::{open_rw, page_offset, read_file_exact};
+use super::inner::TsFileInner;
+use super::io::read_file_exact;
 use super::wal::{
     append_file_create_async, new_relation_wal_backend, new_relation_wal_backend_with_provider,
     recover_relation_file, recover_relation_file_async,
 };
-use super::{raw_page_id, TimeSeriesFile, TimeSeriesFileIdentity};
+use super::{TimeSeriesFile, TimeSeriesFileIdentity, FILE_MODE_644};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_header::{PageHeader, NONE_PAGE_ID};
 use crate::page::PageId;
@@ -14,15 +15,12 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::contract::async_fs::AsyncFs;
 use mudu_sys::contract::async_io_provider::AsyncIoProvider;
+use mudu_sys::contract::file_options::FileOptions;
 use mudu_sys::default_sys_io_context;
 use mudu_sys::fs::SysFile;
-use mudu_sys::sync::async_::AMutex;
-use mudu_sys::sync::SMutex;
 use mudu_sys::SysIoContext;
 use mudu_utils::scoped_task_trace;
-use scc::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::{debug, trace};
 
@@ -43,6 +41,7 @@ impl TimeSeriesFile {
 
     /// Opens a relation-owned time-series file and replays its dedicated PL
     /// stream before any file state is observed.
+    #[cfg(test)]
     pub(crate) async fn open_relation_file<P: AsRef<Path>>(
         base_path: P,
         identity: TimeSeriesFileIdentity,
@@ -129,8 +128,8 @@ impl TimeSeriesFile {
             append_file_create_async(&wal_backend, &identity).await?;
         }
         debug!(path = %path.display(), "time_series opening relation file inner");
-        Self::open_inner_with_fs(
-            fs,
+        Self::open_inner(
+            Some(fs),
             path,
             Some(identity),
             Some(wal_backend),
@@ -140,7 +139,7 @@ impl TimeSeriesFile {
         .await
     }
 
-    /// Sync version of [`TimeSeriesFile::open_relation_file`].
+    /// Sync version of `TimeSeriesFile::open_relation_file`.
     pub async fn open_relation_file_sync<P: AsRef<Path>>(
         base_path: P,
         identity: TimeSeriesFileIdentity,
@@ -159,7 +158,8 @@ impl TimeSeriesFile {
         if create_if_missing && !mudu_sys::io::path::path_exists(&path).await? {
             append_file_create_async(&wal_backend, &identity).await?;
         }
-        Self::open_inner_sync(
+        Self::open_inner(
+            None,
             path,
             Some(identity),
             Some(wal_backend),
@@ -193,8 +193,8 @@ impl TimeSeriesFile {
         path: P,
         create_if_missing: bool,
     ) -> RS<Self> {
-        Self::open_inner_with_fs(
-            fs,
+        Self::open_inner(
+            Some(fs),
             path.as_ref().to_path_buf(),
             None,
             None,
@@ -207,7 +207,8 @@ impl TimeSeriesFile {
     /// Standalone-file open using the default file-system backend; see
     /// [`TimeSeriesFile::open_ts_file`].
     pub async fn open_ts_file_sync<P: AsRef<Path>>(path: P, create_if_missing: bool) -> RS<Self> {
-        Self::open_inner_sync(
+        Self::open_inner(
+            None,
             path.as_ref().to_path_buf(),
             None,
             None,
@@ -217,8 +218,12 @@ impl TimeSeriesFile {
         .await
     }
 
-    async fn open_inner_with_fs(
-        fs: Arc<dyn AsyncFs>,
+    /// Opens the data file, validates the chain on disk, and confines the
+    /// fresh inner object to the current LocalSet. When `fs` is `None`, the
+    /// default file-system backend is used for open and later maintenance
+    /// operations.
+    async fn open_inner(
+        fs: Option<Arc<dyn AsyncFs>>,
         path: PathBuf,
         identity: Option<TimeSeriesFileIdentity>,
         wal_backend: Option<ChunkedWorkerLogBackend>,
@@ -226,10 +231,13 @@ impl TimeSeriesFile {
         create_if_missing: bool,
     ) -> RS<Self> {
         scoped_task_trace!();
-        let path = path.to_path_buf();
+        let open_fs = match fs.as_ref() {
+            Some(fs) => fs.clone(),
+            None => default_sys_io_context().fs(),
+        };
         if let Some(parent) = path.parent() {
             trace!(path = %path.display(), parent = %parent.display(), "time_series ensuring parent dir");
-            fs.create_dir_all(parent).await?;
+            open_fs.create_dir_all(parent).await?;
         }
 
         let flags = if create_if_missing {
@@ -238,8 +246,11 @@ impl TimeSeriesFile {
             libc::O_RDWR | libc::O_CLOEXEC
         };
         trace!(path = %path.display(), flags, "time_series opening rw file");
-        let file = open_rw(fs.as_ref(), &path, flags).await?;
+        let file_async = open_fs
+            .open(&path, FileOptions::new(flags, FILE_MODE_644))
+            .await?;
         trace!(path = %path.display(), "time_series opened rw file, reading metadata len by fd");
+        let file = SysFile::new(file_async.clone());
         let len = file.file_len().await?;
         if len % PAGE_SIZE as u64 != 0 {
             return Err(mudu_error!(
@@ -254,74 +265,18 @@ impl TimeSeriesFile {
         let page_count = PageId::from(len / PAGE_SIZE as u64);
         let (head_page_id, tail_page_id) =
             load_chain_metadata(&file, page_count, tuple_schema_hash).await?;
-        Ok(Self {
-            fs: Some(fs),
-            identity,
-            path,
-            file: SMutex::new(Some(file)),
-            wal_backend,
-            page_cache: HashMap::new(),
-            dirty_pages: HashSet::new(),
-            dirty_flush_latch: AMutex::new(()),
-            write_latch: AMutex::new(()),
-            page_count: AtomicU64::new(page_count.as_u64()),
-            head_page_id: AtomicU64::new(raw_page_id(head_page_id)),
-            tail_page_id: AtomicU64::new(raw_page_id(tail_page_id)),
-            tuple_format_version: if tuple_schema_hash != 0 { 1 } else { 0 },
+        let inner = TsFileInner::new(
+            fs,
+            path.clone(),
+            identity.clone(),
+            wal_backend.clone(),
+            file_async,
+            page_count,
+            head_page_id,
+            tail_page_id,
             tuple_schema_hash,
-            tuple_flags: 0,
-        })
-    }
-
-    async fn open_inner_sync(
-        path: PathBuf,
-        identity: Option<TimeSeriesFileIdentity>,
-        wal_backend: Option<ChunkedWorkerLogBackend>,
-        tuple_schema_hash: u64,
-        create_if_missing: bool,
-    ) -> RS<Self> {
-        let path = path.to_path_buf();
-        if let Some(parent) = path.parent() {
-            mudu_sys::fs::async_::create_dir_all(parent).await?;
-        }
-
-        let flags = if create_if_missing {
-            libc::O_CREAT | libc::O_RDWR | libc::O_CLOEXEC
-        } else {
-            libc::O_RDWR | libc::O_CLOEXEC
-        };
-        let file = open_rw(default_sys_io_context().fs().as_ref(), &path, flags).await?;
-        let len = file.file_len().await?;
-        if len % PAGE_SIZE as u64 != 0 {
-            return Err(mudu_error!(
-                ErrorCode::Decode,
-                format!(
-                    "time series file length {} is not aligned to page size {}",
-                    len, PAGE_SIZE
-                )
-            ));
-        }
-
-        let page_count = PageId::from(len / PAGE_SIZE as u64);
-        let (head_page_id, tail_page_id) =
-            load_chain_metadata(&file, page_count, tuple_schema_hash).await?;
-        Ok(Self {
-            fs: None,
-            identity,
-            path,
-            file: SMutex::new(Some(file)),
-            wal_backend,
-            page_cache: HashMap::new(),
-            dirty_pages: HashSet::new(),
-            dirty_flush_latch: AMutex::new(()),
-            write_latch: AMutex::new(()),
-            page_count: AtomicU64::new(page_count.as_u64()),
-            head_page_id: AtomicU64::new(raw_page_id(head_page_id)),
-            tail_page_id: AtomicU64::new(raw_page_id(tail_page_id)),
-            tuple_format_version: if tuple_schema_hash != 0 { 1 } else { 0 },
-            tuple_schema_hash,
-            tuple_flags: 0,
-        })
+        )?;
+        Self::from_inner(inner, path, identity, wal_backend)
     }
 }
 
@@ -349,7 +304,12 @@ async fn read_chain_headers(
 ) -> RS<Vec<PageHeader>> {
     let mut headers = Vec::with_capacity(page_count.as_usize());
     for page_id in 0..page_count.as_u64() {
-        let buf = read_file_exact(file, PAGE_SIZE, page_offset(PageId::from(page_id))?).await?;
+        let buf = read_file_exact(
+            file,
+            PAGE_SIZE,
+            super::io::page_offset(PageId::from(page_id))?,
+        )
+        .await?;
         let page = PageBlockRef::try_new(&buf)?;
         page.validate_layout()?;
         let header = page.header()?;
@@ -433,7 +393,7 @@ async fn validate_chain(
             }
         }
 
-        let buf = read_file_exact(file, PAGE_SIZE, page_offset(current)?).await?;
+        let buf = read_file_exact(file, PAGE_SIZE, super::io::page_offset(current)?).await?;
         let page = PageBlockRef::try_new(&buf)?;
         if let Some((min_ts, page_max)) = page.timestamp_bounds()? {
             if let Some(prev_min) = prev_non_empty_min {

@@ -31,8 +31,46 @@ impl DDLParser {
         let stmt_list = self.parser.parse(text)?;
         let mut vec = vec![];
         for stmt in stmt_list.stmts() {
-            if let StmtType::Command(StmtCommand::CreateTable(ddl)) = stmt {
-                vec.push(Self::record_def(ddl)?);
+            match stmt {
+                StmtType::Command(StmtCommand::CreateTable(ddl)) => {
+                    vec.push(Self::record_def(ddl)?)
+                }
+                StmtType::Command(StmtCommand::CreateQueue(queue)) => {
+                    use crate::ast::stmt_create_queue::QueuePayload;
+                    let columns = match queue.payload() {
+                        QueuePayload::Columns(columns) => columns
+                            .iter()
+                            .map(|d| {
+                                ColumnDef::new(
+                                    d.column_name().clone(),
+                                    d.data_type().clone(),
+                                    d.data_type_param().clone(),
+                                    !d.nullable(),
+                                    false,
+                                )
+                            })
+                            .collect(),
+                        QueuePayload::Like(name) => {
+                            let source = vec.iter().find(|table| table.table_name().eq_ignore_ascii_case(name))
+                                .ok_or_else(|| mudu::mudu_error!(mudu::error::ErrorCode::EntityNotFound, format!("queue LIKE source {name} is not declared before the queue")))?;
+                            source
+                                .table_columns()
+                                .iter()
+                                .map(|d| {
+                                    ColumnDef::new(
+                                        d.column_name().clone(),
+                                        d.data_type().clone(),
+                                        d.data_type_param().clone(),
+                                        d.is_not_null(),
+                                        false,
+                                    )
+                                })
+                                .collect()
+                        }
+                    };
+                    vec.push(TableDef::new(queue.name().to_string(), columns));
+                }
+                _ => {}
             }
         }
 

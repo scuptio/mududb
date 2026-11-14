@@ -11,6 +11,9 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'doc/**'
+  schedule:
+    # Daily at 02:41 UTC; avoids the crowded :00/:30 minute marks.
+    - cron: '41 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -58,19 +61,19 @@ jobs:
             udeps-deps-${{ runner.os }}-${{ matrix.group }}-
 
       - name: Install cargo-udeps
-        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-udeps --version 0.1.61 --locked
 
       - name: Fetch locked workspace dependencies
         timeout-minutes: 15
         working-directory: crates/${{ matrix.group }}
-        run: cargo +${NIGHTLY_TOOLCHAIN} fetch --locked
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" fetch --locked
 
       - name: Run cargo-udeps
         working-directory: crates/${{ matrix.group }}
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets --locked --offline 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/nightly-udeps.log
+          cargo +"${NIGHTLY_TOOLCHAIN}" udeps --workspace --all-targets --locked --offline 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/nightly-udeps.log
 
       - name: Local reproduction command
         if: failure()
@@ -105,7 +108,7 @@ jobs:
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Install cargo-fuzz
-        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-fuzz --version 0.13.2 --locked
 
       - name: Run fuzz targets (smoke)
         working-directory: crates/db-kernel/mudu_kernel/fuzz
@@ -115,7 +118,7 @@ jobs:
           {
             for target in _de_en_x_l_up_tuple _de_en_x_l_batch _schema_table _x_log_append _delta_apply _type_convert; do
               echo "Running fuzz target: ${target}"
-              cargo +${NIGHTLY_TOOLCHAIN} fuzz run "${target}" -- -max_total_time=60 -runs=1000
+              cargo +"${NIGHTLY_TOOLCHAIN}" fuzz run "${target}" -- -max_total_time=60 -runs=1000
             done
           } 2>&1 | tee ${{ github.workspace }}/logs/nightly-fuzz.log
 
@@ -163,7 +166,7 @@ jobs:
             failed=0
             for group in crates/common crates/db-kernel crates/sdk crates/tools; do
               echo "=== ASan tests: ${group} ==="
-              (cd "${group}" && cargo +${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu) || failed=1
+              (cd "${group}" && cargo +"${NIGHTLY_TOOLCHAIN}" test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu) || failed=1
             done
             exit "${failed}"
           } 2>&1 | tee ${{ github.workspace }}/logs/nightly-asan.log
@@ -213,15 +216,13 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-llvm-cov --version 0.8.7 --locked
 
-      - name: Run coverage (per group workspace)
+      - name: Run coverage (unit tests, merged across group workspaces)
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          # The core packages (mudu, mudu_type, mudu_contract, mudu_kernel) are
-          # split across the crates/common and crates/db-kernel workspaces;
-          # the script runs llvm-cov per group and writes reports to
-          # target/llvm-cov/<group>/.
-          bash script/coverage/run_coverage.sh --profile core --format all 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
+          # Unit tests of all four group workspaces, merged into a single
+          # report under target/llvm-cov/ (e2e stays local-only: --no-e2e).
+          python3 script/coverage/run_coverage.py --format all --no-e2e 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
 
       - name: Upload coverage artifacts
         if: env.ACT != 'true'
@@ -229,24 +230,23 @@ jobs:
         with:
           name: coverage-${{ github.run_id }}-${{ github.sha }}
           path: |
-            target/llvm-cov/*/html
-            target/llvm-cov/*/coverage.json
-            target/llvm-cov/*/coverage.lcov
+            target/llvm-cov/html
+            target/llvm-cov/coverage.json
+            target/llvm-cov/coverage.lcov
           retention-days: 30
 
       - name: Summarize coverage in job summary
         if: env.ACT != 'true'
         run: |
-          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          for json in target/llvm-cov/*/coverage.json; do
-            echo "### ${json}" >> "$GITHUB_STEP_SUMMARY"
-            python3 .github/scripts/summarize_coverage.py "${json}" >> "$GITHUB_STEP_SUMMARY" || true
-          done
+          {
+            echo "## Coverage Report"
+            echo "Commit: ${{ github.sha }}"
+            echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}"
+            python3 .github/scripts/summarize_coverage.py target/llvm-cov/coverage.json || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Local reproduction command
         if: failure()
         run: |
           echo "To reproduce locally:"
-          echo "  bash script/coverage/run_coverage.sh --profile core --format all"
+          echo "  python3 script/coverage/run_coverage.py --format all --no-e2e"

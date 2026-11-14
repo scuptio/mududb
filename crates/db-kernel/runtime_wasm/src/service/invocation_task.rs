@@ -5,8 +5,14 @@ use std::future::Future;
 
 /// Keeps cleanup independent of the requester while retaining the worker's
 /// executor. io_uring workers manually poll their task registry; their Tokio
-/// runtime is entered but does not drive spawned Tokio tasks.
-pub(crate) fn spawn(future: impl Future<Output = ()> + Send + 'static) -> RS<()> {
+/// runtime is entered but does not drive spawned Tokio tasks. Every other
+/// entry point (Tokio workers, actix HTTP workers, the management thread, the
+/// standalone adapter) drives futures inside a `LocalSet` — see
+/// `block_on_tokio_current_thread` — so the lifecycle task must be a *local*
+/// task: a plain `tokio::spawn` task is polled outside the `LocalSet` context,
+/// and downstream thread-confined spawns (e.g. the storage `Mailbox`) panic
+/// with "`spawn_local` called from outside of a `task::LocalSet`".
+pub(crate) fn spawn(future: impl Future<Output = ()> + 'static) -> RS<()> {
     #[cfg(target_os = "linux")]
     if mudu_sys::io::worker_ring::has_current_worker_ring() {
         return mudu_sys::io::worker_ring::with_current_ring(|ring| {
@@ -20,7 +26,7 @@ pub(crate) fn spawn(future: impl Future<Output = ()> + Send + 'static) -> RS<()>
             Ok(())
         });
     }
-    mudu_sys::task::async_::spawn_task_detached("procedure-lifecycle", future)?;
+    mudu_sys::task::async_::spawn_local_detached("procedure-lifecycle", future)?;
     Ok(())
 }
 
@@ -28,14 +34,38 @@ pub(crate) fn spawn(future: impl Future<Output = ()> + Send + 'static) -> RS<()>
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn lifecycle_runs_on_tokio_without_worker_ring() -> RS<()> {
-        let (notify, wait) = mudu_sys::sync::async_::create_notify_wait();
-        spawn(async move {
-            let _ = notify.notify(42);
-        })?;
-        assert_eq!(wait.wait().await?, Some(42));
-        Ok(())
+    /// Production entry points always drive futures inside a `LocalSet`
+    /// (`block_on_tokio_current_thread`); mirror that here.
+    #[test]
+    fn lifecycle_runs_on_tokio_without_worker_ring() -> RS<()> {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let (notify, wait) = mudu_sys::sync::async_::create_notify_wait();
+            spawn(async move {
+                let _ = notify.notify(42);
+            })?;
+            assert_eq!(wait.wait().await?, Some(42));
+            Ok(())
+        })?
+    }
+
+    /// Regression: the lifecycle task must stay inside the worker's LocalSet
+    /// so downstream thread-confined spawns (e.g. the storage `Mailbox` via
+    /// `spawn_thread_confined_task`) do not panic. A plain `tokio::spawn`
+    /// task is polled outside the LocalSet and fails this test.
+    #[test]
+    fn lifecycle_task_supports_thread_confined_spawns() -> RS<()> {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let (notify, wait) = mudu_sys::sync::async_::create_notify_wait();
+            spawn(async move {
+                let r =
+                    mudu_sys::task::async_::spawn_thread_confined_task("confined", async move {
+                        let _ = notify.notify(7);
+                    });
+                assert!(r.is_ok(), "thread-confined spawn failed: {r:?}");
+            })?;
+            assert_eq!(wait.wait().await?, Some(7));
+            Ok(())
+        })?
     }
 
     #[test]

@@ -8,7 +8,16 @@ pub mod users;
 pub mod wallets;
 
 #[cfg(test)]
+mod orders_test;
+
+#[cfg(test)]
+mod transactions_test;
+
+#[cfg(test)]
 mod users_test;
+
+#[cfg(test)]
+mod wallets_test;
 
 #[cfg(test)]
 mod procedures_test;

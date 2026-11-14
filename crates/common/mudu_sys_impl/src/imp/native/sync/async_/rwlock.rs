@@ -51,6 +51,22 @@ impl<T: ?Sized> ARwLock<T> {
         }
     }
 
+    /// Acquires a read guard immediately, or returns `None` without waiting.
+    pub fn try_read(&self) -> Option<ARwLockReadGuard<'_, T>> {
+        self.inner
+            .try_read()
+            .ok()
+            .map(|inner| ARwLockReadGuard { inner })
+    }
+
+    /// Acquires a write guard immediately, or returns `None` without waiting.
+    pub fn try_write(&self) -> Option<ARwLockWriteGuard<'_, T>> {
+        self.inner
+            .try_write()
+            .ok()
+            .map(|inner| ARwLockWriteGuard { inner })
+    }
+
     /// Consumes the lock and returns the protected value.
     pub fn into_inner(self) -> T
     where
@@ -187,6 +203,21 @@ mod tests {
             Some("after-read")
         );
         handle.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn arwlock_try_guards_respect_exclusion() {
+        let lock = ARwLock::new(3);
+        let read = lock.try_read().unwrap();
+        assert!(lock.try_read().is_some());
+        assert!(lock.try_write().is_none());
+        drop(read);
+        let mut write = lock.try_write().unwrap();
+        *write = 4;
+        assert!(lock.try_read().is_none());
+        assert!(lock.try_write().is_none());
+        drop(write);
+        assert_eq!(*lock.read().await, 4);
     }
 
     #[test]

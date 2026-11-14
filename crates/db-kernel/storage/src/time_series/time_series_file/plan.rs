@@ -1,9 +1,6 @@
-use super::io::{
-    close_file, ensure_time_series_file_exists_async, ensure_time_series_file_exists_async_no_fs,
-    remove_file_if_exists_async,
-};
+use super::inner::{buffer_page_id, PoisonGuard, TsFileInner};
+use super::io::{ensure_time_series_file_exists_async, ensure_time_series_file_exists_async_no_fs};
 use super::page::{finalize_page_image_checksum, stamp_page_image_lsn};
-use super::{raw_page_id, TimeSeriesFile};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::PageId;
 use ::wal::log_frame::frame_lsns;
@@ -16,8 +13,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_utils::scoped_task_trace;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use page_buffer::BufferManager;
 use tracing::trace;
 
 #[derive(Clone)]
@@ -38,7 +34,7 @@ pub(super) struct TimeSeriesFileMutationPlan {
     pub(super) next_tail_page_id: Option<Option<PageId>>,
 }
 
-impl TimeSeriesFile {
+impl TsFileInner {
     pub(super) async fn persist_plan(&self, mut plan: TimeSeriesFileMutationPlan) -> RS<()> {
         scoped_task_trace!();
         // Physical WAL must reach durable storage before any data-page update.
@@ -94,8 +90,8 @@ impl TimeSeriesFile {
                 }
             } else {
                 // No WAL backend (standalone file): finalize the deferred
-                // tailer checksums so the page-cache publish (and the later
-                // dirty-page flush) carries valid checksums.
+                // tailer checksums so the buffer publish (and the later
+                // writeback) carries valid checksums.
                 for write in &mut plan.page_writes {
                     finalize_page_image_checksum(&mut write.image)?;
                 }
@@ -113,6 +109,13 @@ impl TimeSeriesFile {
         self.apply_plan(&plan).await
     }
 
+    /// Publishes the plan's page images into the buffer and stores the chain
+    /// metadata. Admission of batch-allocated pages completes before any
+    /// existing page's new image can be observed, so a chain reader can
+    /// never be referred to a page that is not yet readable. A failure (or
+    /// cancellation) midway leaves the in-memory state skewed from the
+    /// already-appended WAL batch; the file is poisoned and must be
+    /// reopened, with replay converging the data file.
     pub(super) async fn apply_plan(&self, plan: &TimeSeriesFileMutationPlan) -> RS<()> {
         if plan.create_file {
             trace!(path = %self.path.display(), "time_series apply_plan create file start");
@@ -122,76 +125,95 @@ impl TimeSeriesFile {
             }
             trace!(path = %self.path.display(), "time_series apply_plan create file done");
         }
-        // Publish section: from the first page-cache update to the last
-        // metadata store there must be no await point. Read paths walk the
-        // chain latch-free; an await here (this used to be the dirty-page
-        // threshold flush) lets a reader observe a partially applied plan —
-        // e.g. follow a next pointer to a page whose image and page_count
-        // store have not happened yet (IndexOutOfRange).
+        let guard = PoisonGuard::new(self);
+        let published_page_count = self.page_count();
+        // Admission phase: batch-allocated pages become resident-dirty. The
+        // buffer's allocator state stays in lockstep with the file's page
+        // count because admission happens exactly once per planned new page.
         for write in &plan.page_writes {
-            trace!(path = %self.path.display(), page_id = %write.page_id, "time_series apply_plan write page");
-            self.apply_page_write(write.page_id, &write.image);
-        }
-        if plan.delete_file {
-            close_file(self.take_file()?).await?;
-            match self.fs.as_ref() {
-                Some(fs) => fs.remove_file_if_exists(&self.path).await?,
-                None => remove_file_if_exists_async(&self.path).await?,
+            if write.page_id >= published_page_count {
+                trace!(path = %self.path.display(), page_id = %write.page_id, "time_series apply_plan admit page");
+                self.admit_new_page(write).await?;
             }
-            self.page_cache.clear_sync();
-            self.dirty_pages.clear_sync();
         }
-        // Publication order matters for latch-free readers: page_count first,
-        // so a reader that observes a new head/tail or a new chain link finds
-        // the referenced page id already inside the valid range.
+        // Publish phase: replace existing pages' images. Awaiting between
+        // pages is safe: every page id a new image references was admitted
+        // above, and the chain metadata below is stored only after all
+        // images are in place (all synchronous, no yield in between).
+        for write in &plan.page_writes {
+            if write.page_id < published_page_count {
+                trace!(path = %self.path.display(), page_id = %write.page_id, "time_series apply_plan write page");
+                self.publish_page_write(write).await?;
+            }
+        }
         if let Some(page_count) = plan.next_page_count {
-            self.page_count
-                .store(page_count.as_u64(), Ordering::Release);
+            self.page_count.set(page_count.as_u64());
         }
         if let Some(head_page_id) = plan.next_head_page_id {
-            self.head_page_id
-                .store(raw_page_id(head_page_id), Ordering::Release);
+            self.head_page_id.set(super::raw_page_id(head_page_id));
         }
         if let Some(tail_page_id) = plan.next_tail_page_id {
-            self.tail_page_id
-                .store(raw_page_id(tail_page_id), Ordering::Release);
+            self.tail_page_id.set(super::raw_page_id(tail_page_id));
         }
-        // The dirty-page threshold flush is NOT triggered here: it ran inside
-        // `write_latch` (and, above it, the relation write stripes),
-        // serializing every writer of the file behind a full data-file
-        // flush. Callers now run it after releasing the latch via
-        // `flush_dirty_pages_if_over_threshold` — the publish section above
-        // stays complete and await-free either way, so latch-free readers
-        // still never observe a partially applied plan.
+        if plan.delete_file {
+            self.file.close().await?;
+            match self.fs.as_ref() {
+                Some(fs) => fs.remove_file_if_exists(&self.path).await?,
+                None => super::io::remove_file_if_exists_async(&self.path).await?,
+            }
+        }
+        guard.disarm();
+        // The dirty-page threshold flush is NOT triggered here: it would run
+        // inside `write_latch`, serializing every writer of this file behind
+        // a full data-file writeback. Callers run it after releasing the
+        // latch via `flush_dirty_pages_if_over_threshold`.
         Ok(())
     }
 
-    pub(super) fn apply_page_write(&self, page_id: PageId, page: &[u8]) {
-        // WAL-first deferred flush: the PL batch is already appended at
-        // this point (see persist_plan), so the page image only updates the
-        // page cache and marks the page dirty. The data file is written
-        // later by flush_dirty_pages (background round, flush(), close(),
-        // or the threshold flush in apply_plan), which coalesces
-        // consecutive row writes to the same page into a single page write.
-        // The image's tailer checksum was already finalized by persist_plan.
-        //
-        // Must stay synchronous: it runs inside apply_plan's publish
-        // section.
-        let _ = self.page_cache.remove_sync(&page_id);
-        let _ = self
-            .page_cache
-            .insert_sync(page_id, Arc::new(page.to_vec()));
-        let _ = self.dirty_pages.insert_sync(page_id);
+    /// Publishes one batch-allocated page as a resident-dirty frame without
+    /// a backing write; the WAL batch already covers its durability.
+    async fn admit_new_page(&self, write: &PlannedPageWrite) -> RS<()> {
+        let access = self.buffer.access().await;
+        let reservation = self.buffer.reserve_page(&access).await?;
+        if reservation.id() != buffer_page_id(write.page_id) {
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                "buffer page allocation diverged from file plan"
+            ));
+        }
+        self.buffer
+            .initialize_resident(
+                &access,
+                reservation,
+                super::inner::resident_image(write.image.clone()),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Replaces the buffer's image of an existing page with the plan's
+    /// image, marking the frame dirty.
+    async fn publish_page_write(&self, write: &PlannedPageWrite) -> RS<()> {
+        let access = self.buffer.access().await;
+        let page = self.buffer.page_ref(buffer_page_id(write.page_id));
+        let pin = self.buffer.pin(&access, &page).await?;
+        let mut prepared = pin
+            .write()
+            .await
+            .prepare(super::inner::resident_image(write.image.clone()))?;
+        prepared.publish();
+        Ok(())
     }
 
     /// Encodes the plan as record-level page deltas.
     ///
     /// Each planned page image is diffed against the page's published image
-    /// (page cache or data file — the state the WAL replay will find as its
-    /// base) and only the changed records and chain links are logged; a page
-    /// allocated by this batch is logged as an init plus its record list.
-    /// The published image is read before `apply_plan` publishes the new
-    /// images, so it is exactly the previous batch state.
+    /// (resident in the buffer or read from the data file — the state the
+    /// WAL replay will find as its base) and only the changed records and
+    /// chain links are logged; a page allocated by this batch is logged as
+    /// an init plus its record list. The published image is read before
+    /// `apply_plan` publishes the new images, so it is exactly the previous
+    /// batch state.
     pub(super) async fn build_pl_batch(
         &self,
         plan: &TimeSeriesFileMutationPlan,
@@ -289,34 +311,44 @@ impl TimeSeriesFile {
         let mut old_idx = 0usize;
         let mut new_idx = 0usize;
         while old_idx < old_count || new_idx < new_count {
-            if old_idx >= old_count {
-                upserts.push(page_record(&new_page, new_idx)?);
-                new_idx += 1;
-                continue;
-            }
-            if new_idx >= new_count {
-                removes.push(page_record_key(&old_page, old_idx)?);
-                old_idx += 1;
-                continue;
-            }
-            let old_slot = old_page.slot_ref(old_idx)?;
-            let new_slot = new_page.slot_ref(new_idx)?;
-            let old_key = (old_slot.timestamp(), old_slot.tuple_id());
-            let new_key = (new_slot.timestamp(), new_slot.tuple_id());
-            if old_key == new_key {
-                if old_page.record_bytes(old_idx)? != new_page.record_bytes(new_idx)? {
-                    upserts.push(page_record(&new_page, new_idx)?);
-                }
-                old_idx += 1;
-                new_idx += 1;
-            } else if old_key < new_key {
-                removes.push(PLRecordKey {
-                    timestamp: old_key.0,
-                    tuple_id: old_key.1,
-                });
-                old_idx += 1;
+            let (old_index, new_index) = if old_idx >= old_count {
+                (None, Some(new_idx))
+            } else if new_idx >= new_count {
+                (Some(old_idx), None)
             } else {
-                upserts.push(page_record(&new_page, new_idx)?);
+                let old_slot = old_page.slot_ref(old_idx)?;
+                let new_slot = new_page.slot_ref(new_idx)?;
+                let old_key = (old_slot.timestamp(), old_slot.tuple_id());
+                let new_key = (new_slot.timestamp(), new_slot.tuple_id());
+                if old_key == new_key {
+                    (Some(old_idx), Some(new_idx))
+                } else if crate::page::sequence_edit::key_less(
+                    old_key.0, old_key.1, new_key.0, new_key.1,
+                ) {
+                    (Some(old_idx), None)
+                } else {
+                    (None, Some(new_idx))
+                }
+            };
+            let equal = match (old_index, new_index) {
+                (Some(old), Some(new)) => {
+                    old_page.record_bytes(old)? == new_page.record_bytes(new)?
+                }
+                _ => false,
+            };
+            match super::delta_value::diff(old_index.is_some(), new_index, equal) {
+                super::delta_value::Change::Keep => {}
+                super::delta_value::Change::Set(index) => {
+                    upserts.push(page_record(&new_page, index)?)
+                }
+                super::delta_value::Change::Remove => {
+                    removes.push(page_record_key(&old_page, old_idx)?)
+                }
+            }
+            if old_index.is_some() {
+                old_idx += 1;
+            }
+            if new_index.is_some() {
                 new_idx += 1;
             }
         }
@@ -361,4 +393,42 @@ fn page_records(page: &PageBlockRef<'_>) -> RS<Vec<PLRecord>> {
         records.push(page_record(page, slot_index)?);
     }
     Ok(records)
+}
+
+#[cfg(test)]
+mod delta_tests {
+    use super::*;
+
+    #[test]
+    fn generated_record_delta_reconstructs_new_logical_page() -> RS<()> {
+        let mut old = vec![0u8; PAGE_SIZE];
+        let mut page = crate::page::page_block_ref_mut::PageBlockRefMut::new(&mut old);
+        page.init_empty(1u64.into())?;
+        page.insert_record(1, 1, b"old")?;
+        page.insert_record(2, 2, b"remove")?;
+        page.insert_record(3, 3, b"unchanged")?;
+        let mut new = old.clone();
+        let mut page = crate::page::page_block_ref_mut::PageBlockRefMut::new(&mut new);
+        page.delete_record(1)?;
+        page.update_record(0, 1, 1, b"new-longer-payload")?;
+        page.insert_record(4, 4, b"insert")?;
+        page.set_page_links(7u64.into(), 9u64.into())?;
+        let op = TsFileInner::page_record_delta(1u64.into(), &old, &new)?;
+        let Some(PLOp::PageDelta(delta)) = op else {
+            return Err(mudu_error!(ErrorCode::Internal, "expected nonempty delta"));
+        };
+        assert_eq!(delta.removes.len(), 1);
+        assert_eq!(delta.upserts.len(), 2);
+        let mut replay = super::super::wal::recovered_base_image(&delta, Some(old))?;
+        super::super::wal::apply_recovered_upserts(&mut replay, &delta)?;
+        assert_eq!(
+            page_records(&PageBlockRef::new(&replay))?,
+            page_records(&PageBlockRef::new(&new))?
+        );
+        let actual = PageBlockRef::new(&replay).header()?;
+        assert_eq!(actual.prev_page(), 7u64);
+        assert_eq!(actual.next_page(), 9u64);
+        assert!(TsFileInner::page_record_delta(1u64.into(), &replay, &new)?.is_none());
+        Ok(())
+    }
 }

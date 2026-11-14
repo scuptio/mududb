@@ -10,7 +10,7 @@
 
 MuduDB 是一个内置应用运行时的开源关系型数据库。
 
-使用 C, C#, Go, JavaScript, Python 或 Rust 构建以数据为中心的实时应用，打包成 MuduDB 应用，直接部署到数据库中。
+使用 C, C#, Go, AssemblyScript, Python 或 Rust 构建以数据为中心的实时应用，打包成 MuduDB 应用，直接部署到数据库中。
 
 你的应用逻辑紧贴数据运行，减少数据搬运、简化系统架构，并实现低延迟执行。
 
@@ -26,6 +26,7 @@ MuduDB 是一个内置应用运行时的开源关系型数据库。
 | 编写或调用过程 | [核心概念](doc/cn/concepts.cn.md) → [过程开发](doc/cn/procedure.cn.md) |
 | 选择语言 SDK 或发布 SDK | [语言与运行方式](doc/dev/sdk_distribution.md#language-and-execution-modes) · [发布指南](doc/dev/sdk_publish_github_actions.zh-CN.md) |
 | 修改数据库实现 | [代码架构](ARCHITECTURE.md) · [开发约定](AGENTS.md) |
+| 验证缓冲区正确性 | [Aeneas + Lean：安装、验证与排错](verification/README.zh-CN.md) |
 
 ## 执行方式
 
@@ -63,7 +64,7 @@ Rust 过程通过 `Entity` trait 将查询结果映射为结构体。构建步�
 cd crates/db-kernel && cargo build --release
 ```
 
-`script/shell/check_all.sh` 会依次对所有 workspace 执行 `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --no-run --workspace`。
+`script/ci/check_all.py`（`cargo make check`）会依次对所有 workspace 执行 `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --no-run --workspace`。
 
 ## 文档导航
 

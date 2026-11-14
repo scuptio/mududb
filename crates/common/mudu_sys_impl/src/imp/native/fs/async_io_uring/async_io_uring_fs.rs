@@ -69,3 +69,32 @@ impl AsyncFs for AsyncIoUringFs {
         })
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::AsyncIoUringFs;
+    use crate::contract::async_fs::AsyncFs;
+
+    // `read_dir`/`remove_dir_all` mirror std::fs synchronously: no ring needed.
+    #[tokio::test(flavor = "current_thread")]
+    async fn read_dir_and_remove_dir_all_without_a_ring() {
+        let root = std::env::temp_dir().join(format!("mudu-iou-fs-{}", crate::random::uuid_v4()));
+        let nested = root.join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+
+        let fs = AsyncIoUringFs::new();
+        let mut entries = fs.read_dir(&root).await.unwrap();
+        entries.sort();
+        assert!(entries.iter().any(|p| p.ends_with("a.txt")));
+        assert!(entries.iter().any(|p| p.ends_with("sub")));
+        assert!(fs.read_dir(&root.join("missing")).await.is_err());
+
+        fs.remove_dir_all(&nested).await.unwrap();
+        assert!(!nested.exists());
+        fs.remove_dir_all(&root).await.unwrap();
+        assert!(!root.exists());
+        assert!(fs.remove_dir_all(&root).await.is_err());
+    }
+}

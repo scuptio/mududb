@@ -5,6 +5,7 @@ use crate::core::conf::NID;
 use crate::core::message::{PreVoteReq, PreVoteResp, RaftMsg, VoteReq, VoteResp, WriteOp};
 use crate::core::quorum::quorum_agree_vote;
 use crate::core::role::RaftRole;
+use crate::core::vote_core::{log_fresh, vote_decision};
 use crate::core::{Effects, RaftCore};
 
 impl RaftCore {
@@ -290,22 +291,22 @@ impl RaftCore {
         if self.log.is_empty() {
             let term = self.snapshot_max_index_term.term;
             let index = self.snapshot_max_index_term.index;
-            last_term > term || (last_term == term && last_index >= index)
+            log_fresh(term, index, last_term, last_index)
         } else {
             let log_off = self.log.len() - 1;
             let term = self.log[log_off].term;
             let index = self.log[log_off].index;
-            last_term > term || (last_term == term && last_index >= index)
+            log_fresh(term, index, last_term, last_index)
         }
     }
 
     fn can_grant_vote(&self, term: u64, last_index: u64, last_term: u64, vote_for: NID) -> bool {
-        self.is_last_log_term_index_ok(last_index, last_term)
-            && (term > self.current_term
-                || (term == self.current_term
-                    && (match self.voted_for {
-                        Some(n) => n == vote_for,
-                        None => true,
-                    })))
+        vote_decision(
+            self.current_term,
+            self.voted_for,
+            term,
+            vote_for,
+            self.is_last_log_term_index_ok(last_index, last_term),
+        )
     }
 }

@@ -33,7 +33,7 @@ repository-root `target/` directory (root `.cargo/config.toml` sets
 `[build] target-dir = "target"`), so build artifacts like
 `target/wasm32-wasip2/release/*.mpk` land at the repository root regardless
 of which workspace produced them. Run cargo commands per
-workspace (`cd crates/<group> && cargo ...`); `script/shell/check_all.sh`
+workspace (`cd crates/<group> && cargo ...`); `script/ci/check_all.py`
 orchestrates fmt/clippy/test-compile across all five.
 
 ## Crate Layers
@@ -50,7 +50,7 @@ orchestrates fmt/clippy/test-compile across all five.
 │  Kernel                                                      │
 │  (conn -> sql -> command -> meta │
 │   -> storage -> xengine -> wal ->       │
-│   index -> catalog)                            │
+│   index -> catalog / page_buffer)                            │
 ├─────────────────────────────────────────────────────────────┤
 │  Runtime & Raft                                              │
 │  (mudu_runtime, mudu_raft, sys_interface_standalone)         │
@@ -100,8 +100,30 @@ test utilities), preserving the historical `mudu_kernel::server`,
 
 ## Dependency Notes
 
+- `page_buffer` is a rank-0 kernel leaf that depends only on foundation/system
+  libraries. It owns format-independent byte-page caching, pin/latch handles,
+  allocation, async backing stores and reuse epochs. `index` consumes its
+  non-generic `dyn BufferManager`; B-tree page formats and checkpoint manifests
+  remain above this boundary. `storage` consumes the concrete
+  `ClockBufferManager` for its time-series files (their WAL-first physical
+  logging stays in `storage`); `storage` must not become a dependency of
+  either. Paged trees and buffer managers are thread-confined
+  (`!Send`/`!Sync`). A partition's LocalSet owns page mutation and eviction;
+  resident operations use checked local borrows, and suspension retains
+  explicit leases/snapshots. Cross-thread callers send owned requests through
+  relation mailboxes, never share a tree. Mailbox driver and per-call tasks
+  spawn through `mudu_sys::task::async_::spawn_thread_confined_task`, which
+  targets the io_uring worker task registry when a worker ring is installed
+  and the active tokio `LocalSet` otherwise; the io_uring bootstrap
+  (`drive_future_with_ring`) pumps that registry so worker startup can run
+  storage operations, and registry background tasks (perpetual mailbox
+  drivers) never block the shutdown drain. Shared metadata catalogs have
+  their own owner executors. Index benchmarks compare local tasks on one
+  thread; task count is not core count.
+
 - `mudu_sys_impl` depends on `mudu` for `RS`/`EC`/`mudu_error!`. 
 - `mudu_utils` depends on both `mudu` and `mudu_sys`, making it the natural home for higher-level I/O utilities.
+- `mudu::channel` holds the channel wire protocol (envelope, message kinds, typed-message traits; pure); `mudu_utils::channel` hosts the endpoint transport trait, the endpoint registry with `spawn_endpoint`/`EndpointGuard` lifecycle, and the typed ask/tell runtime. Any thread may register an endpoint — the transports themselves (tokio/io_uring) live in `server`. Identity is single-sourced at thread granularity: a worker thread's task id = worker id = channel endpoint id (threads spawn with `spawn_thread_named_with_id`); tasks point at their hosting thread via `TaskContext::parent_thread`, so a trace line joins directly to its worker/endpoint.
 - `sql_parser` parses DDL into `TableDef` and also hosts the SQL static-check core (`sql_parser::check`) used by `mgen check-sql`.
 - `mududb.ds` is a separate workspace that consumes the public crates from `mududb` for deterministic simulation / model checking.
 
@@ -118,7 +140,7 @@ test utilities), preserving the historical `mudu_kernel::server`,
   depend on `db-kernel`/`sdk`/`tools`, `db-kernel` may not depend on
   `sdk`/`tools`, and `sdk`/`tools` may not depend on each other. The pure
   `mudu` crate must depend on nothing. The `example/mpk` crates are treated as
-  part of the `sdk` layer. Both scripts run in `script/shell/check_all.sh` and
+  part of the `sdk` layer. Both scripts run in `script/ci/check_all.py` and
   the `workspace-invariants` CI job.
 - `crates/bindings/mudu_adapter_ffi` is a standalone cdylib workspace (native
   adapter ABI). It is deliberately excluded from the group/example workspaces

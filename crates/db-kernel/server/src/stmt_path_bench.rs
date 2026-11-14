@@ -198,12 +198,11 @@ fn report(name: &str, avg_ns: u128) {
 #[test]
 #[ignore = "micro-benchmark; run on demand with --ignored --nocapture"]
 fn stmt_point_select_breakdown() {
-    mudu_sys::task::async_::build_current_thread_runtime()
-        .unwrap()
-        .block_on(async move {
-            let r = bench_body().await;
-            r.unwrap();
-        });
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let r = bench_body().await;
+        r.unwrap();
+    })
+    .unwrap();
 }
 
 async fn bench_body() -> RS<()> {

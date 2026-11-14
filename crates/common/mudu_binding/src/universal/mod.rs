@@ -4,8 +4,10 @@
 //! from the `missing_docs` lint.
 #![allow(missing_docs)]
 
+pub mod mp_core;
 pub mod mp_wire;
 pub mod test_uni;
+pub mod test_uni_more;
 pub mod uni_command_argv;
 pub mod uni_command_argv_impl;
 pub mod uni_command_result;

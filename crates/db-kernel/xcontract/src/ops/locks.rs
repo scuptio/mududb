@@ -7,7 +7,7 @@ impl WorkerXContract {
     /// `STATEMENT_LOCK_TIMEOUT`) and record it on the transaction for
     /// commit/rollback release. Re-entrant for keys the transaction already
     /// holds.
-    pub(super) async fn acquire_statement_lock(
+    pub(crate) async fn acquire_statement_lock(
         &self,
         tx_mgr: &dyn TxMgr,
         relation_id: PhysicalRelationId,
@@ -39,7 +39,7 @@ impl WorkerXContract {
     /// `LockKeyForUpdate` (lock + read in one round trip) and record the
     /// owner for rollback release. Returns the currently committed value,
     /// projected like `remote_read_key`.
-    pub(super) async fn lock_remote_key_for_update(
+    pub(crate) async fn lock_remote_key_for_update(
         &self,
         tx_mgr: &dyn TxMgr,
         worker_id: OID,

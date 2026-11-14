@@ -30,7 +30,13 @@ After the script finishes, activate the Python virtual environment:
 source .venv/bin/activate
 ```
 
-Then verify the build. The repository is split into four independent Cargo workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`); build each workspace from its own directory:
+Then verify the toolchain — this reports every tool MuduDB's build, examples, and release flows need, with per-OS install commands for anything missing:
+
+```bash
+cargo make doctor
+```
+
+Then verify the build. The repository is split into independent Cargo workspaces: four under `crates/` (`common`, `db-kernel`, `sdk`, `tools`) plus `example/mpk`; build each workspace from its own directory:
 
 ```bash
 cd crates/db-kernel
@@ -40,10 +46,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --workspace --no-deps
 ```
 
-Or run the full check sequence for all four workspaces from the repository root:
+Or run the full check sequence for all five group workspaces from the repository root:
 
 ```bash
-bash script/shell/check_all.sh
+cargo make check
 ```
 
 ### Option B: Dev Container / Docker
@@ -183,7 +189,7 @@ Then create a configuration file and start the server as described in [Running m
 NIGHTLY_TOOLCHAIN="$(tr -d '[:space:]' < .rust-nightly-version)"
 
 # Code coverage (see doc/en/test_coverage.md)
-script/coverage/run_coverage.sh
+python3 script/coverage/run_coverage.py
 
 # cargo-udeps
 cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-udeps --version 0.1.61 --locked

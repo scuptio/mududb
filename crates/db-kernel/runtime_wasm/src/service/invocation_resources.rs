@@ -11,8 +11,8 @@ use mudu_sys::sync::SMutex;
 
 #[derive(Default)]
 pub(crate) struct HostResources {
-    sessions: Vec<(WorkerLocalRef, OID)>,
-    files: Vec<(WorkerLocalRef, OID, u32)>,
+    pub(crate) sessions: Vec<(WorkerLocalRef, OID)>,
+    pub(crate) files: Vec<(WorkerLocalRef, OID, u32)>,
 }
 
 impl InvocationContext {

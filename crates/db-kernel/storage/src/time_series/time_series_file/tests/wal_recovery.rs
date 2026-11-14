@@ -69,14 +69,14 @@ async fn _wal_recovers_empty_file_from_create_record() {
     let file = TimeSeriesFile::open_relation_file_sync(&base, identity.clone(), 0x1, true)
         .await
         .unwrap();
-    file.close_sync().unwrap();
+    file.close().await.unwrap();
     mudu_sys::fs::sync::remove_file(&path).unwrap();
 
     let reopened = TimeSeriesFile::open_relation_file_sync(&base, identity, 0x1, false)
         .await
         .unwrap();
-    assert_eq!(reopened.page_count(), 0);
-    reopened.close_sync().unwrap();
+    assert_eq!(reopened.page_count().await.unwrap(), 0);
+    reopened.close().await.unwrap();
     mudu_sys::fs::sync::remove_dir_all(base).unwrap();
 }
 
@@ -113,7 +113,7 @@ fn wal_recovers_relation_file_after_data_loss_async() {
             b"alpha".to_vec()
         );
         assert_eq!(reopened.get(90, 2).await.unwrap(), None);
-        reopened.close_sync().unwrap();
+        reopened.close().await.unwrap();
         mudu_sys::fs::sync::remove_dir_all(base).unwrap();
     })
     .unwrap()
@@ -167,7 +167,7 @@ fn wal_recovers_relation_file_with_injected_async_fs() {
             reopened.get(90, 2).await.unwrap().unwrap().payload,
             b"beta".to_vec()
         );
-        reopened.close_sync().unwrap();
+        reopened.close().await.unwrap();
         mudu_sys::fs::sync::remove_dir_all(base).unwrap();
     })
     .unwrap()

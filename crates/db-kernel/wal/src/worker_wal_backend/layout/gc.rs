@@ -9,31 +9,30 @@ impl WorkerLogLayout {
     /// frontier marker. Returns `(reclaimed bytes, reclaimed chunks)`.
     pub async fn gc_prefix_chunks(&self, fs: &dyn AsyncFs, frontier_lsn: u64) -> RS<(u64, u64)> {
         let existing = self.gc_frontier_or_zero();
-        let frontier_lsn = frontier_lsn.max(existing.lsn);
-        // Archive guard: with archiving enabled, never reclaim a chunk the
-        // archiver has not yet copied (the archive frontier is the first LSN
-        // not yet archived).
-        let frontier_lsn = if self.archive_dir.is_some() {
-            frontier_lsn.min(self.archive_frontier_or_zero().lsn)
-        } else {
-            frontier_lsn
+        let archive = self
+            .archive_dir
+            .as_ref()
+            .map(|_| self.archive_frontier_or_zero().lsn);
+        let Some(frontier_lsn) = decision::gc_limit(frontier_lsn, existing.lsn, archive) else {
+            return Ok((0, 0));
         };
         let chunks = self.chunk_paths_sorted_async(fs).await?;
         let mut deletable: Vec<(u64, PathBuf, u64)> = Vec::new();
         for (index, path) in chunks.iter().enumerate() {
             // The last chunk is the append tail: never reclaimed here.
-            if index + 1 == chunks.len() {
+            let is_tail = index + 1 == chunks.len();
+            if is_tail {
                 break;
             }
             let bytes = fs.read_all(path).await?;
             if bytes.is_empty() {
-                continue;
+                break;
             }
             let prefix = scan_valid_frame_prefix(&bytes);
             let Some(max_lsn) = prefix.max_lsn else {
-                continue;
+                break;
             };
-            if max_lsn.as_u64() < frontier_lsn {
+            if decision::deletable(is_tail, Some(max_lsn.as_u64()), frontier_lsn) {
                 let sequence = self.parse_chunk_sequence(path).ok_or_else(|| {
                     mudu_error!(
                         ErrorCode::Internal,
@@ -41,15 +40,20 @@ impl WorkerLogLayout {
                     )
                 })?;
                 deletable.push((sequence, path.clone(), bytes.len() as u64));
+            } else {
+                // Never advance the persisted sequence past a retained chunk.
+                break;
             }
         }
         if deletable.is_empty() {
             return Ok((0, 0));
         }
-        let first_alive_seq = deletable
+        let last_sequence = deletable
             .last()
-            .map(|(sequence, _, _)| sequence + 1)
+            .map(|(sequence, _, _)| *sequence)
             .unwrap_or(0);
+        let first_alive_seq = decision::successor(last_sequence)
+            .ok_or_else(|| mudu_error!(ErrorCode::Internal, "WAL sequence exhausted"))?;
         self.store_gc_frontier(GcFrontier {
             lsn: frontier_lsn,
             first_alive_seq,

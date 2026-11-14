@@ -307,14 +307,14 @@ impl TestContext {
         })?;
         println!("  [server] Waiting for HTTP port {}...", self.http_port);
         #[cfg(not(feature = "ds"))]
-        wait_until_port_ready(self.http_port, "HTTP")?;
+        testing::wait_until_port_ready(self.http_port, "HTTP")?;
         #[cfg(feature = "ds")]
         let _ = self.http_port;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             println!("  [server] Waiting for TCP port {}...", self.tcp_port);
             wait_until_worker_port_ready(self.tcp_port)?;
         }
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         println!("  [server] Server ready.");
         Ok(RunningServer {
             stop,
@@ -403,22 +403,4 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
         }
     }
     Ok(None)
-}
-
-#[cfg(not(feature = "ds"))]
-fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
-    while mudu_sys::time::instant_now() < deadline {
-        if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
-        }
-        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!(
-            "{} server did not become ready on port {}",
-            service_name, port
-        )
-    ))
 }

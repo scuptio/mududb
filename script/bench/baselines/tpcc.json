@@ -1,0 +1,74 @@
+{
+  "benchmark": "tpcc",
+  "scale": {
+    "mode": "stored-procedure",
+    "warehouses": 1,
+    "operations": 300,
+    "connections": 2,
+    "districts": 10,
+    "customers": 100,
+    "items": 100
+  },
+  "source_sha256": null,
+  "entries": {
+    "tokio": {
+      "abort_count": {
+        "gate": "info",
+        "value": 0.0
+      },
+      "abort_rate_pct": {
+        "gate": "delta_max",
+        "delta": 5.0,
+        "value": 0.0
+      },
+      "avg_latency_ms": {
+        "gate": "info",
+        "value": 9.855333333333332
+      },
+      "committed_tps": {
+        "gate": "info",
+        "value": 101.39999999999999
+      },
+      "load_elapsed_sec": {
+        "gate": "info",
+        "value": 7.194333333333333
+      },
+      "new_order_tps": {
+        "gate": "info",
+        "value": 35.49
+      },
+      "op_count": {
+        "gate": "min",
+        "value": 270.0
+      },
+      "p50_latency_ms": {
+        "gate": "info",
+        "value": 10.308666666666667
+      },
+      "p90_latency_ms": {
+        "gate": "info",
+        "value": 11.686
+      },
+      "p999_latency_ms": {
+        "gate": "info",
+        "value": 14.033333333333333
+      },
+      "p99_latency_ms": {
+        "gate": "info",
+        "value": 13.591333333333333
+      },
+      "throughput": {
+        "gate": "info",
+        "value": 101.39999999999999
+      },
+      "tps": {
+        "gate": "min",
+        "value": 10.14
+      },
+      "txn_elapsed_sec": {
+        "gate": "info",
+        "value": 2.9586666666666672
+      }
+    }
+  }
+}

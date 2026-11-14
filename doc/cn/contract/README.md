@@ -29,3 +29,5 @@
 ## English versions
 
 English versions are in [en contracts](../../en/contract/).
+
+- [Queue envelope and durable watermark v1](queue_v1.md)

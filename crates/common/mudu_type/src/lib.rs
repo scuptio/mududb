@@ -42,6 +42,8 @@ mod data_type_fn_param_test;
 mod data_type_impl;
 /// The serializable `DataTypeInfo` type descriptor.
 pub mod data_type_info;
+#[cfg(test)]
+mod data_type_info_test;
 /// The `DataTypeParam` trait for type parameters.
 pub mod data_type_param;
 /// The `LenKind` length classification of data types.

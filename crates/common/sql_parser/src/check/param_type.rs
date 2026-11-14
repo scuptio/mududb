@@ -3,7 +3,7 @@
 //! `mudu_binding::universal::uni_type_compat` so the syscall frame
 //! decoders, the host checker, and this crate share one table).
 //!
-//! The mapping aligns with [`placeholder_spans`] order: entry `i` is the
+//! The mapping aligns with [`crate::check::placeholder::placeholder_spans`] order: entry `i` is the
 //! target column of the `i`-th `?` placeholder, or `None` when the
 //! placeholder has no statically known target (a `?` in a select list, a
 //! `? = ?` predicate, an unknown table/column, or SQL beyond the supported
@@ -27,7 +27,7 @@ pub use mudu_binding::universal::uni_type_compat::{
 };
 pub use mudu_binding::universal::uni_type_compat_impl::param_type_tag_of_value;
 
-/// Map every `?` placeholder in `sql` (in [`placeholder_spans`] order) to
+/// Map every `?` placeholder in `sql` (in [`crate::check::placeholder::placeholder_spans`] order) to
 /// its target column in `schema`.
 ///
 /// Returns one entry per placeholder; `None` marks placeholders without a

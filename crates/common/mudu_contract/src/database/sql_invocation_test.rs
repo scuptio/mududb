@@ -53,3 +53,25 @@ fn failed_borrowed_transaction_requires_rollback() -> RS<()> {
     Context::remove(id);
     Ok(())
 }
+
+#[test]
+fn healthy_transaction_drives_connection_and_commits() -> RS<()> {
+    let connection = Arc::new(Connection::default());
+    let id = mudu_sys::random::uuid_v4().as_u128();
+    let context = Context::create(id, DBConn::Sync(connection.clone()))?;
+
+    // Healthy statements reach the connection; the mock query is
+    // unimplemented and its error propagates through the context.
+    context.command(&"UPDATE t SET x = 1", &())?;
+    context.batch(&"UPDATE t SET x = 2", &())?;
+    assert!(context.query_raw(&"SELECT 1", &()).is_err());
+
+    // The remaining connection primitives, called directly.
+    connection.exec_silent("SET x = 1")?;
+    connection.begin_tx()?;
+
+    Context::commit(id)?;
+    assert_eq!(connection.commits.load(Ordering::SeqCst), 1);
+    Context::remove(id);
+    Ok(())
+}

@@ -17,6 +17,8 @@ pub mod gen_message;
 mod gen_message_test;
 #[cfg(all(test, not(miri)))]
 mod gen_syscall_roundtrip_test;
+#[cfg(test)]
+mod render_kinds_test;
 pub mod schema_desc;
 /// Parsed WIT definitions shared by the parsers and code generators.
 pub mod wit_def;

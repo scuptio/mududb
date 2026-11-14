@@ -9,6 +9,10 @@
 /// Common types and helpers shared across the workspace.
 pub mod common;
 
+/// Channel wire protocol: envelopes, message kinds, and typed-message
+/// traits for point-to-point messaging between a server's endpoints.
+pub mod channel;
+
 /// Format compatibility registry and structured compatibility errors.
 pub mod compat;
 

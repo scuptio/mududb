@@ -17,7 +17,6 @@ mod tests {
 
     fn sample_versions() -> BTreeMap<String, String> {
         let mut versions = BTreeMap::new();
-        versions.insert("rmp".to_string(), "0.8.15".to_string());
         versions.insert("rmp-serde".to_string(), "1.2.3".to_string());
         versions.insert("serde".to_string(), "1.3.0".to_string());
         versions.insert("serde_repr".to_string(), "0.2.0".to_string());

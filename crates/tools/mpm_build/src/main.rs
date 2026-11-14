@@ -30,7 +30,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipWriter};
+use zip::{CompressionMethod, DateTime, ZipWriter};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum MpmBuildCommand {
@@ -305,25 +305,28 @@ where
     parse_from_matches(&matches)
 }
 
+/// Zip entry options for `.mpk` archives: entries are stored uncompressed and
+/// pinned to the ZIP epoch so identical inputs produce byte-identical
+/// archives (reproducible builds — the default would embed the wall clock).
+fn zip_entry_options() -> SimpleFileOptions {
+    SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .last_modified_time(DateTime::DEFAULT)
+}
+
 fn add_file_to_zip<P: AsRef<Path>>(
     zip_writer: &mut ZipWriter<SFile>,
     file_path: P,
     zip_path: &str,
 ) -> Result<()> {
     let mut file = SFile::open(file_path.as_ref())?;
-    zip_writer.start_file(
-        zip_path,
-        SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
-    )?;
+    zip_writer.start_file(zip_path, zip_entry_options())?;
     io::copy(&mut file, zip_writer)?;
     Ok(())
 }
 
 fn add_bytes_to_zip(zip_writer: &mut ZipWriter<SFile>, bytes: &[u8], zip_path: &str) -> Result<()> {
-    zip_writer.start_file(
-        zip_path,
-        SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
-    )?;
+    zip_writer.start_file(zip_path, zip_entry_options())?;
     zip_writer.write_all(bytes)?;
     Ok(())
 }

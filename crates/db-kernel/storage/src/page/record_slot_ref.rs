@@ -105,3 +105,58 @@ impl<'a> RecordSlotRef<'a> {
         )
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use byteorder::{ByteOrder, LittleEndian};
+
+    fn sample_slot(flag: u16) -> [u8; 32] {
+        let mut raw = [0u8; RECORD_SLOT_SIZE];
+        LittleEndian::write_u32(&mut raw[0..4], 100);
+        LittleEndian::write_u32(&mut raw[4..8], 64);
+        LittleEndian::write_u64(&mut raw[8..16], 1000);
+        LittleEndian::write_u64(&mut raw[16..24], 7);
+        LittleEndian::write_u16(&mut raw[24..26], 0xBEEF);
+        LittleEndian::write_u16(&mut raw[26..28], flag);
+        LittleEndian::write_u32(&mut raw[28..32], 9);
+        raw
+    }
+
+    #[test]
+    fn slot_ref_reads_every_field_and_fragment_kinds() {
+        let raw = sample_slot(RECORD_SLOT_FLAG_COMPLETE);
+        let slot = RecordSlotRef::new(&raw).unwrap();
+        assert_eq!(slot.offset(), 100);
+        assert_eq!(slot.size(), 64);
+        assert_eq!(slot.timestamp(), 1000);
+        assert_eq!(slot.tuple_id(), 7);
+        assert_eq!(slot.checksum(), 0xBEEF);
+        assert_eq!(slot.flag(), RECORD_SLOT_FLAG_COMPLETE);
+        assert_eq!(slot.reserved(), 9);
+        assert_eq!(slot.fragment_kind(), RECORD_SLOT_FLAG_COMPLETE);
+        assert!(slot.is_complete());
+        assert!(!slot.is_partial_continued());
+        assert!(!slot.is_partial_last());
+
+        let continued_raw = sample_slot(RECORD_SLOT_FLAG_PARTIAL_CONTINUED);
+        let continued = RecordSlotRef::new(&continued_raw).unwrap();
+        assert!(continued.is_partial_continued());
+        assert!(!continued.is_complete());
+        let last_raw = sample_slot(RECORD_SLOT_FLAG_PARTIAL_LAST);
+        let last = RecordSlotRef::new(&last_raw).unwrap();
+        assert!(last.is_partial_last());
+
+        // Short buffers are rejected.
+        assert!(RecordSlotRef::new(&raw[..16]).is_err());
+
+        // cmp_key orders by timestamp, then tuple id, then offset.
+        let owned = slot.to_owned();
+        assert_eq!(slot.cmp_key(&owned), Ordering::Equal);
+        let mut other_raw = sample_slot(RECORD_SLOT_FLAG_COMPLETE);
+        LittleEndian::write_u64(&mut other_raw[16..24], 8);
+        let other = RecordSlotRef::new(&other_raw).unwrap();
+        assert_eq!(slot.cmp_key(&other.to_owned()), Ordering::Less);
+    }
+}

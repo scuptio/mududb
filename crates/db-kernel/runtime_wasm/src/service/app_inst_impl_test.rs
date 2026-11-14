@@ -120,30 +120,36 @@ async fn procedure_and_describe_return_not_found_for_missing_module() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn invoke_rejects_missing_procedure() {
-    let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
-        .lock()
-        .await;
-    let db_path = temp_db_path("invoke");
-    let package = test_package(ModProcDesc::new(HashMap::new()));
-    let app = AppInstImpl::build(
-        &db_path,
-        &package,
-        vec![],
-        ComponentTarget::P2,
-        false,
-        ServerMode::Legacy,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
+    // Mirror production: invocations run inside a tokio LocalSet
+    // (invocation tasks spawn_local).
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
+                .lock()
+                .await;
+            let db_path = temp_db_path("invoke");
+            let package = test_package(ModProcDesc::new(HashMap::new()));
+            let app = AppInstImpl::build(
+                &db_path,
+                &package,
+                vec![],
+                ComponentTarget::P2,
+                false,
+                ServerMode::Legacy,
+                None,
+                false,
+            )
+            .await
+            .unwrap();
 
-    let param = ProcedureParam::new(0, 0, vec![]);
-    let err = app
-        .invoke(1, "missing", "missing", param, None)
-        .await
-        .unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            let param = ProcedureParam::new(0, 0, vec![]);
+            let err = app
+                .invoke(1, "missing", "missing", param, None)
+                .await
+                .unwrap_err();
+            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        })
+        .await;
 }
 
 // libsql performs real SQLite file IO outside `mudu_sys`; the
@@ -280,30 +286,36 @@ async fn wallet_balance(db_path: &str, user_id: i32) -> i32 {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn concurrent_invoke_async_transactions_commit_independently() {
-    let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
-        .lock()
+    // Mirror production: invocations run inside a tokio LocalSet
+    // (invocation tasks spawn_local).
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
+                .lock()
+                .await;
+            let (app, db_path) = build_wallet_async_app("tx-commit").await;
+            let task_a = app.task_create().await.unwrap();
+            let task_b = app.task_create().await.unwrap();
+
+            // Two invocations interleaved on one task set (`join!` polls both on this
+            // thread): each must get its own transaction context at pre_invoke, and
+            // one's commit must not disturb the other.
+            let (result_a, result_b) = tokio::join!(
+                app.invoke_async(task_a, "wallet", "deposit", deposit_param(1, 100), None),
+                app.invoke_async(task_b, "wallet", "deposit", deposit_param(2, 200), None),
+            );
+            result_a.unwrap();
+            result_b.unwrap();
+
+            // Both transactions committed durably and independently. (The wallet
+            // seed data gives every user an initial balance of 10000.)
+            assert_eq!(wallet_balance(&db_path, 1).await, 10100);
+            assert_eq!(wallet_balance(&db_path, 2).await, 10200);
+
+            app.task_end(task_a).unwrap();
+            app.task_end(task_b).unwrap();
+        })
         .await;
-    let (app, db_path) = build_wallet_async_app("tx-commit").await;
-    let task_a = app.task_create().await.unwrap();
-    let task_b = app.task_create().await.unwrap();
-
-    // Two invocations interleaved on one task set (`join!` polls both on this
-    // thread): each must get its own transaction context at pre_invoke, and
-    // one's commit must not disturb the other.
-    let (result_a, result_b) = tokio::join!(
-        app.invoke_async(task_a, "wallet", "deposit", deposit_param(1, 100), None),
-        app.invoke_async(task_b, "wallet", "deposit", deposit_param(2, 200), None),
-    );
-    result_a.unwrap();
-    result_b.unwrap();
-
-    // Both transactions committed durably and independently. (The wallet
-    // seed data gives every user an initial balance of 10000.)
-    assert_eq!(wallet_balance(&db_path, 1).await, 10100);
-    assert_eq!(wallet_balance(&db_path, 2).await, 10200);
-
-    app.task_end(task_a).unwrap();
-    app.task_end(task_b).unwrap();
 }
 
 // libsql performs real SQLite file IO outside `mudu_sys`. Native backend only.
@@ -311,153 +323,173 @@ async fn concurrent_invoke_async_transactions_commit_independently() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn failing_invoke_async_rolls_back_only_its_own_tx() {
-    let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
-        .lock()
+    // Mirror production: invocations run inside a tokio LocalSet
+    // (invocation tasks spawn_local).
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
+                .lock()
+                .await;
+            let (app, db_path) = build_wallet_async_app("tx-rollback").await;
+            let task_bad = app.task_create().await.unwrap();
+            let task_good = app.task_create().await.unwrap();
+
+            // User 1 exists in the seed data, so re-creating it hits a UNIQUE
+            // constraint inside the invocation's transaction — a mid-transaction
+            // failure after real host I/O.
+            let (bad, good) = tokio::join!(
+                app.invoke_async(
+                    task_bad,
+                    "wallet",
+                    "create_user",
+                    create_user_param(1, "alice-clone"),
+                    None,
+                ),
+                app.invoke_async(task_good, "wallet", "deposit", deposit_param(2, 200), None),
+            );
+            let err = bad.unwrap_err();
+            assert!(
+                err.to_string().contains("UNIQUE constraint"),
+                "unexpected error: {err}"
+            );
+            good.unwrap();
+
+            // The concurrent invocation's transaction committed; the failed one left
+            // no partial state and did not poison its own task connection.
+            assert_eq!(wallet_balance(&db_path, 2).await, 10200);
+            app.invoke_async(task_bad, "wallet", "deposit", deposit_param(1, 50), None)
+                .await
+                .unwrap();
+            assert_eq!(wallet_balance(&db_path, 1).await, 10050);
+
+            app.task_end(task_bad).unwrap();
+            app.task_end(task_good).unwrap();
+        })
         .await;
-    let (app, db_path) = build_wallet_async_app("tx-rollback").await;
-    let task_bad = app.task_create().await.unwrap();
-    let task_good = app.task_create().await.unwrap();
-
-    // User 1 exists in the seed data, so re-creating it hits a UNIQUE
-    // constraint inside the invocation's transaction — a mid-transaction
-    // failure after real host I/O.
-    let (bad, good) = tokio::join!(
-        app.invoke_async(
-            task_bad,
-            "wallet",
-            "create_user",
-            create_user_param(1, "alice-clone"),
-            None,
-        ),
-        app.invoke_async(task_good, "wallet", "deposit", deposit_param(2, 200), None),
-    );
-    let err = bad.unwrap_err();
-    assert!(
-        err.to_string().contains("UNIQUE constraint"),
-        "unexpected error: {err}"
-    );
-    good.unwrap();
-
-    // The concurrent invocation's transaction committed; the failed one left
-    // no partial state and did not poison its own task connection.
-    assert_eq!(wallet_balance(&db_path, 2).await, 10200);
-    app.invoke_async(task_bad, "wallet", "deposit", deposit_param(1, 50), None)
-        .await
-        .unwrap();
-    assert_eq!(wallet_balance(&db_path, 1).await, 10050);
-
-    app.task_end(task_bad).unwrap();
-    app.task_end(task_good).unwrap();
 }
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn host_budget_failure_after_write_rolls_back_and_removes_context() {
-    let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
-        .lock()
-        .await;
-    use crate::service::invocation_limits::InvocationLimits;
-    use mudu_contract::database::sql::Context;
-    let (app, db_path) = build_wallet_async_app("budget-rollback").await;
-    let app = app
-        .with_limits(InvocationLimits {
-            max_host_calls: 2,
-            ..Default::default()
+    // Mirror production: invocations run inside a tokio LocalSet
+    // (invocation tasks spawn_local).
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
+                .lock()
+                .await;
+            use crate::service::invocation_limits::InvocationLimits;
+            use mudu_contract::database::sql::Context;
+            let (app, db_path) = build_wallet_async_app("budget-rollback").await;
+            let app = app
+                .with_limits(InvocationLimits {
+                    max_host_calls: 2,
+                    ..Default::default()
+                })
+                .unwrap();
+            let task = app.task_create().await.unwrap();
+            // deposit queries, updates the balance, then inserts an audit record.
+            // The third host call must trap, undoing the already executed update.
+            assert!(
+                app.invoke_async(task, "wallet", "deposit", deposit_param(1, 100), None)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(wallet_balance(&db_path, 1).await, 10000);
+            assert!(Context::context(task).is_none());
+            app.task_end(task).unwrap();
         })
-        .unwrap();
-    let task = app.task_create().await.unwrap();
-    // deposit queries, updates the balance, then inserts an audit record.
-    // The third host call must trap, undoing the already executed update.
-    assert!(
-        app.invoke_async(task, "wallet", "deposit", deposit_param(1, 100), None)
-            .await
-            .is_err()
-    );
-    assert_eq!(wallet_balance(&db_path, 1).await, 10000);
-    assert!(Context::context(task).is_none());
-    app.task_end(task).unwrap();
+        .await;
 }
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn disconnected_request_stops_guest_rolls_back_and_releases_admission() {
-    let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
-        .lock()
-        .await;
-    use crate::service::invocation_limits::InvocationLimits;
-    use crate::service::invocation_test_component::component;
-    use crate::service::package_module::PackageModule;
-    use mudu_contract::database::sql::Context;
-    use std::time::Duration;
-    let desc = test_proc_desc("loop", "test");
-    let module = PackageModule::new(component("(loop br 0)"), vec![desc]).unwrap();
-    let mut package = test_package(ModProcDesc::new_empty());
-    package.package_cfg.name = format!("cancel_{}", mudu_sys::random::uuid_v4());
-    let app = AppInstImpl::build(
-        &temp_db_path("cancel-loop"),
-        &package,
-        vec![("loop".into(), module)],
-        ComponentTarget::P2,
-        false,
-        ServerMode::Legacy,
-        None,
-        false,
-    )
-    .await
-    .unwrap()
-    .with_limits(InvocationLimits {
-        fuel: u64::MAX,
-        max_concurrent_per_app: 1,
-        ..Default::default()
-    })
-    .unwrap();
-    let task = app.task_create().await.unwrap();
-    let caller_app = app.clone();
-    let caller = tokio::spawn(async move {
-        caller_app
-            .invoke(
-                task,
-                "loop",
-                "test",
-                ProcedureParam::new(0, 0, vec![]),
+    // Mirror production: invocations run inside a tokio LocalSet
+    // (invocation tasks spawn_local).
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let _admission = crate::service::invocation_admission::TEST_ADMISSION_LOCK
+                .lock()
+                .await;
+            use crate::service::invocation_limits::InvocationLimits;
+            use crate::service::invocation_test_component::component;
+            use crate::service::package_module::PackageModule;
+            use mudu_contract::database::sql::Context;
+            use std::time::Duration;
+            let desc = test_proc_desc("loop", "test");
+            let module = PackageModule::new(component("(loop br 0)"), vec![desc]).unwrap();
+            let mut package = test_package(ModProcDesc::new_empty());
+            package.package_cfg.name = format!("cancel_{}", mudu_sys::random::uuid_v4());
+            let app = AppInstImpl::build(
+                &temp_db_path("cancel-loop"),
+                &package,
+                vec![("loop".into(), module)],
+                ComponentTarget::P2,
+                false,
+                ServerMode::Legacy,
                 None,
+                false,
             )
             .await
-    });
-    mudu_sys::timeout(Duration::from_secs(5), async {
-        while Context::context(task).is_none() {
-            mudu_sys::sleep(Duration::from_millis(1)).await.unwrap();
-        }
-    })
-    .await
-    .unwrap();
-    let other = app.task_create().await.unwrap();
-    let error = app
-        .invoke(
-            other,
-            "loop",
-            "test",
-            ProcedureParam::new(0, 0, vec![]),
-            None,
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(error.ec(), mudu::error::ErrorCode::ResourceBusy);
-    assert!(Context::context(other).is_none());
-    caller.abort();
-    let _ = caller.await;
-    mudu_sys::timeout(Duration::from_secs(5), async {
-        while Context::context(task).is_some() || app.connection(task).is_some() {
-            mudu_sys::sleep(Duration::from_millis(1)).await.unwrap();
-        }
-    })
-    .await
-    .unwrap();
-    // No stale admission remains after cancellation and rollback complete.
-    let _permit = crate::service::invocation_admission::Admission::acquire(
-        &app.cfg().name,
-        &app.inner.limits,
-    )
-    .unwrap();
-    app.task_end(other).unwrap();
+            .unwrap()
+            .with_limits(InvocationLimits {
+                fuel: u64::MAX,
+                max_concurrent_per_app: 1,
+                ..Default::default()
+            })
+            .unwrap();
+            let task = app.task_create().await.unwrap();
+            let caller_app = app.clone();
+            // spawn_local: the invocation spawns thread-confined tasks, so the
+            // caller must stay on this LocalSet.
+            let caller = tokio::task::spawn_local(async move {
+                caller_app
+                    .invoke(
+                        task,
+                        "loop",
+                        "test",
+                        ProcedureParam::new(0, 0, vec![]),
+                        None,
+                    )
+                    .await
+            });
+            mudu_sys::timeout(Duration::from_secs(5), async {
+                while Context::context(task).is_none() {
+                    mudu_sys::sleep(Duration::from_millis(1)).await.unwrap();
+                }
+            })
+            .await
+            .unwrap();
+            let other = app.task_create().await.unwrap();
+            let error = app
+                .invoke(
+                    other,
+                    "loop",
+                    "test",
+                    ProcedureParam::new(0, 0, vec![]),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.ec(), mudu::error::ErrorCode::ResourceBusy);
+            assert!(Context::context(other).is_none());
+            caller.abort();
+            let _ = caller.await;
+            mudu_sys::timeout(Duration::from_secs(5), async {
+                while Context::context(task).is_some() || app.connection(task).is_some() {
+                    mudu_sys::sleep(Duration::from_millis(1)).await.unwrap();
+                }
+            })
+            .await
+            .unwrap();
+            // No stale admission remains after cancellation and rollback complete.
+            let _permit = crate::service::invocation_admission::Admission::acquire(
+                &app.cfg().name,
+                &app.inner.limits,
+            )
+            .unwrap();
+            app.task_end(other).unwrap();
+        })
+        .await;
 }

@@ -185,6 +185,96 @@ fn run_wallet_mpk_via_mudu_cli_library_for_mode(server_mode: ServerMode) -> RS<(
     Ok(())
 }
 
+// Regression for the tokio-worker "spawn_local called from outside of a
+// `task::LocalSet`" panic: an unpinned session (`SessionCreateRequest` with
+// no config) on the shared TCP port commits through the *routed* path
+// (`worker_commit_routed_tx_async`), whose lifecycle task must stay a local
+// task of the owning worker. A plain `tokio::spawn` task is polled outside
+// the worker's LocalSet and the storage mailbox panics on the first write.
+// The sibling `via_mudu_cli_library` tests pin the session to the
+// connection's worker and therefore never exercise this path.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn wallet_mpk_routed_invoke_tokio() -> RS<()> {
+    log_setup("info");
+    run_wallet_mpk_routed_invoke(ServerMode::Tokio)
+}
+
+#[cfg_attr(miri, ignore)]
+#[test]
+fn wallet_mpk_routed_invoke_iouring() -> RS<()> {
+    log_setup("info");
+    if !supports_server_mode(ServerMode::IOUring) {
+        info!("skip wallet routed invoke io_uring test: io_uring unavailable");
+        return Ok(());
+    }
+    run_wallet_mpk_routed_invoke(ServerMode::IOUring)
+}
+
+fn run_wallet_mpk_routed_invoke(server_mode: ServerMode) -> RS<()> {
+    let _guard = WALLET_MPK_TEST_LOCK
+        .lock()
+        .expect("wallet mpk test lock poisoned");
+    let Some(ctx) = TestContext::new(server_mode)? else {
+        eprintln!("skip wallet routed invoke test: local TCP/HTTP bind is not permitted");
+        return Ok(());
+    };
+    let server = ctx.start_server()?;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime");
+    let mpk_binary = read(ctx.wallet_mpk_path()).expect("read wallet.mpk");
+    runtime
+        .block_on(install_app_package(&ctx.http_addr(), mpk_binary))
+        .map_err(to_mudu_error)?;
+
+    // Unpinned session on the shared TCP port: the tpcc benchmark client's
+    // shape, which drives the routed commit path.
+    let mut client = runtime
+        .block_on(AsyncClientImpl::connect(&format!(
+            "127.0.0.1:{}",
+            ctx.tcp_port
+        )))
+        .map_err(|e| to_mudu_error(e.to_string()))?;
+    let session_id = runtime
+        .block_on(client.create_session(mudu_contract::protocol::SessionCreateRequest::new(None)))
+        .map_err(|e| to_mudu_error(e.to_string()))?
+        .session_id();
+
+    invoke_void(
+        &runtime,
+        &mut client,
+        session_id,
+        "wallet/wallet/create_user",
+        (4i32, "Dave".to_string(), "dave@example.com".to_string()),
+    )?;
+    assert!(user_exists_via_client(&runtime, &mut client, "wallet", 4)?);
+    invoke_void(
+        &runtime,
+        &mut client,
+        session_id,
+        "wallet/wallet/delete_user",
+        (4i32,),
+    )?;
+    assert!(!user_exists_via_client(&runtime, &mut client, "wallet", 4)?);
+
+    assert!(
+        runtime
+            .block_on(
+                client.close_session(mudu_contract::protocol::SessionCloseRequest::new(
+                    session_id
+                ))
+            )
+            .map_err(|e| to_mudu_error(e.to_string()))?
+            .closed()
+    );
+
+    drop(server);
+    Ok(())
+}
+
 // Connects to worker 0 (from the server topology) and opens a client
 // session pinned to that worker.
 fn connect_wallet_session(
@@ -462,7 +552,7 @@ impl TestContext {
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_port_ready(self.tcp_port, "TCP")?;
         }
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         // The management thread binds its listener before actix is accepting,
         // so the port-ready check above can race with the first request. Poll
         // a lightweight HTTP endpoint until it responds to avoid transient

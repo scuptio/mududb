@@ -16,10 +16,10 @@ fn newer_versions_pack_into_head_page() {
             file.insert(ts, 1, b"v").await.unwrap();
         }
         assert!(
-            file.page_count() < VERSIONS / 2,
+            file.page_count().await.unwrap() < VERSIONS / 2,
             "expected {} versions to pack into far fewer pages, got {}",
             VERSIONS,
-            file.page_count()
+            file.page_count().await.unwrap()
         );
 
         // Every version stays readable at its exact timestamp, and the
@@ -53,16 +53,16 @@ fn flush_writes_back_dirty_pages() {
         file.insert(90, 2, b"v2").await.unwrap();
         // Deferred page writes: the images live in the page cache and the
         // pages are marked dirty until flush().
-        assert!(file.dirty_page_count() > 0);
+        assert!(file.dirty_page_count().await.unwrap() > 0);
 
         file.flush().await.unwrap();
-        assert_eq!(file.dirty_page_count(), 0);
+        assert_eq!(file.dirty_page_count().await.unwrap(), 0);
         file.close().await.unwrap();
 
         // A fresh standalone open has no WAL to replay: the flushed data
         // pages must be on disk.
         let reopened = TimeSeriesFile::open_ts_file(&path, false).await.unwrap();
-        assert_eq!(reopened.dirty_page_count(), 0);
+        assert_eq!(reopened.dirty_page_count().await.unwrap(), 0);
         assert_eq!(reopened.get(100, 1).await.unwrap().unwrap().payload, b"v1");
         assert_eq!(reopened.get(90, 2).await.unwrap().unwrap().payload, b"v2");
         reopened.close().await.unwrap();
@@ -86,7 +86,7 @@ fn wal_recovers_unflushed_dirty_pages_on_reopen() {
             .unwrap();
         file.insert(100, 1, b"alpha").await.unwrap();
         file.insert(90, 2, b"beta").await.unwrap();
-        assert!(file.dirty_page_count() > 0);
+        assert!(file.dirty_page_count().await.unwrap() > 0);
         // Dropping without close/flush leaves the dirty pages in memory
         // only: recovery must replay the PL WAL and still serve both rows.
         // The PL frames sit in the group-commit queue until it is driven,
@@ -134,7 +134,7 @@ fn spawn_writer(
     inserted: Arc<InsertedMap>,
     high_water: Arc<AtomicU64>,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    tokio::task::spawn_local(async move {
         for i in 0..CONCURRENT_RECORDS {
             // Mostly increasing timestamps with a small jitter, so
             // some inserts land in older pages and force mid-chain
@@ -160,7 +160,7 @@ fn spawn_reader(
     high_water: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    tokio::task::spawn_local(async move {
         let mut scans = 0u64;
         while !stop.load(Ordering::Acquire) {
             let hi = high_water.load(Ordering::Acquire);

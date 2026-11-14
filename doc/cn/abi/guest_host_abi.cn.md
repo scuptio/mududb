@@ -241,7 +241,7 @@ WIT 模式的下列属性是已部署的线值——不要轻易改动：
 - `uni-data-type.wit` 以 `%box(box<uni-data-type>)` 结尾（标签 8，在标签 7 的
   `binary` 之后）。`Box` 变体同时充当 `mgen` 内部表示 WIT `box<T>` 类型的 IR，因此
   尽管没有任何 syscall 负载携带它，也必须保留。
-- 生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.sh` 强制保证：它在临时
+- 生成代码与 WIT 模式的一致性由 `script/ci/check_bindings_regen.py` 强制保证：它在临时
   目录重新生成全部绑定代码，并要求与仓库中的版本逐字节一致。
 
 ### 验证门禁

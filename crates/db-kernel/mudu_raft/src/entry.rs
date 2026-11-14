@@ -51,3 +51,48 @@ impl ReplEntry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn payload_term_reflects_the_variant_payload() {
+        let commit_vec = ReplEntry::CommitVec {
+            term: 3,
+            per_worker: vec![(1, 10, [7u8; 32])],
+        };
+        assert_eq!(commit_vec.payload_term(), Some(3));
+
+        let barrier = ReplEntry::Barrier { term: 5 };
+        assert_eq!(barrier.payload_term(), Some(5));
+
+        let xid_alloc = ReplEntry::XidAlloc {
+            worker_id: 2,
+            base: 100,
+            count: 50,
+        };
+        assert_eq!(xid_alloc.payload_term(), None);
+    }
+
+    #[test]
+    fn serde_roundtrip_preserves_every_variant() {
+        let entries = vec![
+            ReplEntry::CommitVec {
+                term: 1,
+                per_worker: vec![(0, 7, [1u8; 32]), (3, 9, [2u8; 32])],
+            },
+            ReplEntry::Barrier { term: 2 },
+            ReplEntry::XidAlloc {
+                worker_id: 4,
+                base: 8,
+                count: 16,
+            },
+        ];
+        for entry in entries {
+            let bytes = rmp_serde::to_vec(&entry).unwrap();
+            let decoded: ReplEntry = rmp_serde::from_slice(&bytes).unwrap();
+            assert_eq!(decoded, entry);
+        }
+    }
+}

@@ -435,12 +435,15 @@ fn force_compact_reclaims_chunk_files() {
         "expected chunk GC: before {before}, after {after}"
     );
     // the log still accepts entries above the frontier
-    c.handle(1)
+    let (index, _term) = c
+        .handle(1)
         .propose(TestCluster::barrier(1))
         .unwrap()
         .recv()
         .unwrap();
-    assert_eq!(c.handle(1).commit_index(), 11);
+    assert_eq!(index, 11);
+    // Proposal waiters resolve before the node publishes its updated status.
+    c.wait_commit_index(1, index);
     c.stop_node(1);
 }
 

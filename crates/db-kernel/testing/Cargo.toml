@@ -35,6 +35,7 @@ tracing = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
-mudu_cli = { workspace = true }
+backup = { workspace = true }
+mudu_tui = { workspace = true }
 rmp-serde = { workspace = true }
 tokio = { workspace = true }

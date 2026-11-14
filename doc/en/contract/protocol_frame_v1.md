@@ -61,7 +61,7 @@ The protocol defines a handshake message for version negotiation:
 - `HandshakeRequest` contains `supported_versions: Vec<u32>` and optional `capabilities: Vec<String>`.
 - `HandshakeResponse` contains `selected_version: u32` and optional server capabilities.
 
-The current server implementation selects version `1` only. A client that does not include `1` in `supported_versions` receives `IncompatibleProtocolVersion`.
+The current server implementation selects version `1` only. A client that does not include `1` in `supported_versions` receives an `ErrorCode::Parse` error (`no mutually supported protocol version`).
 
 ## Integrity mechanisms
 
@@ -83,7 +83,7 @@ Only version `1` is supported.
 ## Upgrade and rollback rules
 
 - **Upgrade:** A future v2 frame may extend the header (e.g., add capability flags) or define new message types. V2 clients and servers must negotiate the version via the handshake before sending v2 frames.
-- **Rollback:** A v1 server receiving a v2-only frame returns `UnsupportedFormatVersion`. A v2 server receiving a v1-only client selects version `1` during handshake.
+- **Rollback:** A v1 server receiving a v2-only frame returns `IncompatibleProtocolVersion` (frame version checks map to the protocol-specific error code). A v2 server receiving a v1-only client selects version `1` during handshake.
 - **Breaking changes:** New message types may be added in minor protocol versions. Removed or renamed message types require a major version bump.
 
 ## Deprecation policy
@@ -97,4 +97,4 @@ Version `1` may be deprecated only after:
 
 - Frame format: [`mudu_contract/src/protocol/format/latest.rs`](../../../crates/common/mudu_contract/src/protocol/format/latest.rs)
 - Message types and payloads: [`mudu_contract/src/protocol/mod.rs`](../../../crates/common/mudu_contract/src/protocol/mod.rs)
-- Handshake handler: [`mudu_kernel/src/server/handlers/handshake.rs`](../../../crates/db-kernel/mudu_kernel/src/server/handlers/handshake.rs)
+- Handshake handler: [`server/src/handlers/handshake.rs`](../../../crates/db-kernel/server/src/handlers/handshake.rs)

@@ -72,6 +72,17 @@ impl RenderPy {
         Self {}
     }
 
+    /// Render one askama template, mapping its failure into a Decode error.
+    fn render_template<T: askama::Template>(template: T, what: &str) -> RS<String> {
+        template.render().map_err(|e| {
+            mudu_error!(
+                ErrorCode::Decode,
+                format!("render python {what} template error"),
+                e
+            )
+        })
+    }
+
     fn render_inner(&self, elements: Vec<TemplateKind>) -> RS<Vec<String>> {
         let mut code_blocks = Vec::with_capacity(elements.len());
         for element in elements {
@@ -96,53 +107,31 @@ impl RenderPy {
 
     fn render_record_py(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateRecordPy::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(ErrorCode::Decode, "render python record template error", e)
-        })?;
-        Ok(s)
+        Self::render_template(template, "record")
     }
 
     fn render_variant_py(def: UniVariantDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateVariantPy::from(def, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(ErrorCode::Decode, "render python variant template error", e)
-        })?;
-        Ok(s)
+        Self::render_template(template, "variant")
     }
 
     fn render_enum_py(def: UniEnumDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateEnumPy::from(def, cfg)?;
-        let s = template
-            .render()
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "render python enum template error", e))?;
-        Ok(s)
+        Self::render_template(template, "enum")
     }
 
     fn render_entity_py(table_schema: &TableDef) -> RS<String> {
         let template = TemplateEntityPy::from_table_schema(table_schema)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(ErrorCode::Decode, "render python entity template error", e)
-        })?;
-        Ok(s)
+        Self::render_template(template, "entity")
     }
 
     fn render_func_header_py(funcs: Vec<WitFuncDef>, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateFuncHeaderPy::from(funcs, cfg)?;
-        let s = template.render().map_err(|e| {
-            mudu_error!(
-                ErrorCode::Decode,
-                "render python func header template error",
-                e
-            )
-        })?;
-        Ok(s)
+        Self::render_template(template, "func header")
     }
 
     fn render_func_py(func: WitFuncDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateFuncPy::from(func, cfg)?;
-        let s = template
-            .render()
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "render python func template error", e))?;
-        Ok(s)
+        Self::render_template(template, "func")
     }
 }

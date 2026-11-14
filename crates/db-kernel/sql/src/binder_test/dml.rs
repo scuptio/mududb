@@ -566,6 +566,74 @@ fn bind_select_builds_range_predicates_for_ge_le_lt_gt() {
 
 #[test]
 #[cfg_attr(miri, ignore)]
+fn bind_select_builds_same_range_for_literal_left_predicates() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        // `1 < id` is `id > 1`: reversing the operand order flips the
+        // comparison direction but keeps its strictness.
+        for (sql, expected_start, expected_end) in [
+            (
+                "select id from users where 1 <= id;",
+                "Included",
+                "Unbounded",
+            ),
+            (
+                "select id from users where 1 < id;",
+                "Excluded",
+                "Unbounded",
+            ),
+            (
+                "select id from users where 1 >= id;",
+                "Unbounded",
+                "Included",
+            ),
+            (
+                "select id from users where 1 > id;",
+                "Unbounded",
+                "Excluded",
+            ),
+        ] {
+            let bound = binder().bind(parse_stmt(sql), &()).await.unwrap();
+            let BoundStmt::Query(BoundQuery::Select(select)) = bound else {
+                panic!("expected bound select for {sql}");
+            };
+            match select.predicate {
+                BoundPredicate::KeyRange { start, end } => {
+                    assert!(format!("{start:?}").starts_with(expected_start));
+                    assert!(format!("{end:?}").starts_with(expected_end));
+                }
+                other => panic!("expected key range for {sql}, got {other:?}"),
+            }
+        }
+    })
+    .unwrap()
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn bind_select_reversed_literal_on_value_column_keeps_strictness() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        // `name` is a non-key column, so the predicate becomes a residual
+        // filter: `'m' > name` must be evaluated as `name < 'm'`.
+        let bound = binder()
+            .bind(parse_stmt("select id from users where 'm' > name;"), &())
+            .await
+            .unwrap();
+
+        let BoundStmt::Query(BoundQuery::Select(select)) = bound else {
+            panic!("expected bound select");
+        };
+        assert_eq!(select.residual.len(), 1);
+        assert!(
+            matches!(select.residual[0].op, ValueCompare::LT),
+            "expected residual LT, got {:?}",
+            select.residual[0].op
+        );
+    })
+    .unwrap()
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
 fn bind_update_accepts_complete_primary_key() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let bound = binder()
