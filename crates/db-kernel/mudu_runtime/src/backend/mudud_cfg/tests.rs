@@ -1,6 +1,6 @@
 use super::io::{read_mudud_cfg, write_mudud_cfg};
 use crate::backend::cfg_meta::ConfigMutability;
-use crate::backend::mudud_cfg::{MuduDBCfg, ReplicationMode};
+use crate::backend::mudud_cfg::MuduDBCfg;
 use mudu::common::result::RS;
 
 #[test]
@@ -88,8 +88,10 @@ fn test_mutability_of_known_fields() {
     );
 }
 
-fn replication_cfg_toml() -> &'static str {
+/// A single-data-group Combined topology: no `control_plane`, one Raft group.
+fn topology_cfg_toml() -> &'static str {
     r#"
+version = 1
 mpk_path = "/tmp/mpk"
 db_path = "/tmp/data"
 listen_ip = "127.0.0.1"
@@ -99,110 +101,269 @@ pg_listen_port = 5432
 enable_async = true
 tcp_listen_port = 9527
 
-[replication]
-node_id = 1
-listen_port = 19527
+name = "g1-node-1"
+cluster = "prod"
+channel_listen_port = 29527
+topology_version = 1
 
-[replication.raft]
+[data_plane]
+rebalance_interval_ms = 0
 
-[[replication.peers]]
-node_id = 1
+[[data_plane.group]]
+name = "grp-1"
+worker_count = 4
+
+[data_plane.group.replica.raft]
+
+[[data_plane.group.replica.member]]
+name = "g1-node-1"
 host = "127.0.0.1"
-port = 19527
+channel_port = 29527
+client_port = 5432
+replication_port = 19527
 
-[[replication.peers]]
-node_id = 2
+[[data_plane.group.replica.member]]
+name = "g1-node-2"
 host = "127.0.0.1"
-port = 19528
+channel_port = 29528
+client_port = 5433
+replication_port = 19528
 "#
 }
 
-#[test]
-fn test_replication_parse_and_defaults() {
-    let path = mudu_sys::env_var::temp_dir().join("mudu/mudud_cfg_replication.cfg");
-    if let Some(parent) = path.parent() {
-        mudu_sys::fs::sync::create_dir_all(parent).unwrap();
-    }
-    mudu_sys::fs::sync::write(&path, replication_cfg_toml()).unwrap();
-    let cfg = read_mudud_cfg(path).unwrap();
-    let replication = cfg
-        .replication
-        .as_ref()
-        .expect("replication section parsed");
-    assert_eq!(replication.mode().unwrap(), ReplicationMode::Raft);
-    assert_eq!(replication.node_id, 1);
-    assert_eq!(replication.listen_port, 19527);
-    let raft = replication.raft.as_ref().expect("raft subsection parsed");
-    assert_eq!(raft.raft_tick_ms, 50);
-    assert_eq!(raft.election_timeout_ticks, 500);
-    assert_eq!(replication.repl_flow_window_segments, 64);
-    assert_eq!(replication.snapshot_wal_threshold_bytes, 1024 * 1024 * 1024);
-    assert_eq!(replication.gc_check_interval_secs, 60);
-    assert!(replication.stream.is_none());
-    assert_eq!(replication.peers.len(), 2);
-    // a two-peer raft list is valid (bootstrap shape of a joining node)
-    assert!(cfg.validate_replication().is_ok());
-}
-
-#[test]
-fn test_replication_absent_is_single_node() {
-    let cfg = MuduDBCfg::default();
-    assert!(cfg.replication.is_none());
-    assert!(cfg.validate_replication().is_ok());
-}
-
-#[test]
-fn test_replication_validate_rejects_bad_peers() {
-    let parse = |peers: &str| {
-        let text = replication_cfg_toml().replace(
-            "[[replication.peers]]
-node_id = 1
-host = \"127.0.0.1\"
-port = 19527
-
-[[replication.peers]]
-node_id = 2
-host = \"127.0.0.1\"
-port = 19528",
-            peers,
-        );
-        let path = mudu_sys::env_var::temp_dir().join("mudu/mudud_cfg_replication_bad.cfg");
-        mudu_sys::fs::sync::write(&path, text).unwrap();
-        read_mudud_cfg(path).unwrap()
-    };
-    // empty peers
-    let cfg = parse("");
-    assert!(cfg.validate_replication().is_err());
-    // duplicate node_id
-    let cfg = parse(
-        "[[replication.peers]]
-node_id = 1
-host = \"127.0.0.1\"
-port = 19527
-
-[[replication.peers]]
-node_id = 1
-host = \"127.0.0.1\"
-port = 19528",
-    );
-    assert!(cfg.validate_replication().is_err());
-    // self missing
-    let cfg = parse(
-        "[[replication.peers]]
-node_id = 2
-host = \"127.0.0.1\"
-port = 19528",
-    );
-    assert!(cfg.validate_replication().is_err());
-}
-
-#[test]
-fn test_replication_validate_rejects_port_collision() {
-    let text = replication_cfg_toml().replace("listen_port = 19527", "listen_port = 9527");
-    let path = mudu_sys::env_var::temp_dir().join("mudu/mudud_cfg_replication_collision.cfg");
+fn try_parse_cfg(text: &str) -> RS<MuduDBCfg> {
+    let path = mudu_sys::env_var::temp_dir().join(format!(
+        "mudu/mudud_cfg_topology-{}",
+        mudu_sys::random::uuid_v4()
+    ));
     mudu_sys::fs::sync::write(&path, text).unwrap();
-    let cfg = read_mudud_cfg(path).unwrap();
-    assert!(cfg.validate_replication().is_err());
+    read_mudud_cfg(path)
+}
+
+fn parse_cfg(text: &str) -> MuduDBCfg {
+    try_parse_cfg(text).unwrap()
+}
+
+#[test]
+fn test_topology_parse_and_defaults() {
+    let cfg = parse_cfg(topology_cfg_toml());
+    assert_eq!(cfg.version, 1);
+    assert_eq!(cfg.name.as_deref(), Some("g1-node-1"));
+    assert_eq!(cfg.cluster.as_deref(), Some("prod"));
+    let data_plane = cfg.data_plane.as_ref().expect("data_plane parsed");
+    assert_eq!(data_plane.group.len(), 1);
+    let group = &data_plane.group[0];
+    assert_eq!(group.name, "grp-1");
+    assert_eq!(group.worker_count, 4);
+    assert!(group.replica.raft.is_some());
+    assert!(group.replica.stream.is_none());
+    assert_eq!(group.replica.member.len(), 2);
+    let raft = group.replica.raft.as_ref().unwrap();
+    assert_eq!(raft.tick_ms, 50);
+    assert_eq!(raft.election_timeout_ticks, 500);
+    assert!(cfg.control_plane.is_none());
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_absent_is_single_node() {
+    let cfg = MuduDBCfg::default();
+    assert!(cfg.data_plane.is_none());
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_rejects_empty_members() {
+    let text = topology_cfg_toml().replace(
+        "[[data_plane.group.replica.member]]
+name = \"g1-node-1\"
+host = \"127.0.0.1\"
+channel_port = 29527
+client_port = 5432
+replication_port = 19527
+
+[[data_plane.group.replica.member]]
+name = \"g1-node-2\"
+host = \"127.0.0.1\"
+channel_port = 29528
+client_port = 5433
+replication_port = 19528",
+        "",
+    );
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_rejects_self_missing() {
+    // The local node (top-level name) is not a member of any group.
+    let text = topology_cfg_toml().replace(
+        "name = \"g1-node-1\"\ncluster",
+        "name = \"other-node\"\ncluster",
+    );
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_rejects_both_modes() {
+    // Both raft and stream declared.
+    let text = topology_cfg_toml().replace(
+        "[data_plane.group.replica.raft]",
+        "[data_plane.group.replica.raft]\n\n[data_plane.group.replica.stream]\nbootstrap_primary = \"g1-node-1\"\nsync = true",
+    );
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_rejects_mode_less_with_multiple_members() {
+    // Neither mode declared, but two members remain: single replica needs one.
+    let text = topology_cfg_toml().replace("[data_plane.group.replica.raft]\n", "");
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_single_replica() {
+    // Neither mode with exactly one member is a valid single-replica group.
+    let text = topology_cfg_toml().replace(
+        "[data_plane.group.replica.raft]\n\n[[data_plane.group.replica.member]]\nname = \"g1-node-1\"\nhost = \"127.0.0.1\"\nchannel_port = 29527\nclient_port = 5432\nreplication_port = 19527\n\n[[data_plane.group.replica.member]]\nname = \"g1-node-2\"\nhost = \"127.0.0.1\"\nchannel_port = 29528\nclient_port = 5433\nreplication_port = 19528",
+        "[[data_plane.group.replica.member]]\nname = \"g1-node-1\"\nhost = \"127.0.0.1\"\nchannel_port = 29527\nclient_port = 5432\nreplication_port = 19527",
+    );
+    let cfg = parse_cfg(&text);
+    let group = &cfg.data_plane.as_ref().unwrap().group[0];
+    assert!(group.replica.raft.is_none());
+    assert!(group.replica.stream.is_none());
+    assert_eq!(group.replica.member.len(), 1);
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_combined_requires_single_group() {
+    // Two data groups without a control plane is not a valid Combined layout.
+    let second_group = r#"
+[[data_plane.group]]
+name = "grp-2"
+worker_count = 4
+
+[data_plane.group.replica.raft]
+
+[[data_plane.group.replica.member]]
+name = "g2-node-1"
+host = "127.0.0.1"
+channel_port = 29529
+client_port = 5434
+replication_port = 19529
+"#;
+    let text = format!("{}{}", topology_cfg_toml(), second_group);
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_dedicated_control_plane() {
+    let control = r#"
+[control_plane.replica.raft]
+
+[[control_plane.replica.member]]
+name = "ctl-1"
+host = "127.0.0.1"
+channel_port = 29530
+client_port = 5434
+"#;
+    let text = format!("{}{}", topology_cfg_toml(), control);
+    let cfg = parse_cfg(&text);
+    assert!(cfg.control_plane.is_some());
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_multi_group_dedicated_control_plane() {
+    // Scale-out: a dedicated control plane plus two data groups. Without the
+    // control plane this would be rejected (Combined needs exactly one group).
+    let control = r#"
+[control_plane.replica.raft]
+
+[[control_plane.replica.member]]
+name = "ctl-1"
+host = "127.0.0.1"
+channel_port = 29530
+client_port = 5434
+"#;
+    let second_group = r#"
+[[data_plane.group]]
+name = "grp-2"
+worker_count = 4
+
+[data_plane.group.replica.raft]
+
+[[data_plane.group.replica.member]]
+name = "g2-node-1"
+host = "127.0.0.1"
+channel_port = 29529
+client_port = 5435
+replication_port = 19529
+"#;
+    let text = format!("{}{}{}", topology_cfg_toml(), control, second_group);
+    let cfg = parse_cfg(&text);
+    assert_eq!(cfg.data_plane.as_ref().unwrap().group.len(), 2);
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_stream_parse_and_defaults() {
+    let text = topology_cfg_toml().replace(
+        "[data_plane.group.replica.raft]",
+        "[data_plane.group.replica.stream]\nbootstrap_primary = \"g1-node-1\"\nsync = false",
+    );
+    let cfg = parse_cfg(&text);
+    let group = &cfg.data_plane.as_ref().unwrap().group[0];
+    assert!(group.replica.raft.is_none());
+    let stream = group.replica.stream.as_ref().unwrap();
+    assert_eq!(stream.bootstrap_primary, "g1-node-1");
+    assert!(!stream.sync);
+    assert_eq!(stream.sync_timeout_ms, 10000);
+    assert!(cfg.validate_topology().is_ok());
+}
+
+#[test]
+fn test_topology_stream_rejects_foreign_bootstrap_primary() {
+    let text = topology_cfg_toml().replace(
+        "[data_plane.group.replica.raft]",
+        "[data_plane.group.replica.stream]\nbootstrap_primary = \"other-node\"\nsync = false",
+    );
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
+}
+
+#[test]
+fn test_topology_stream_requires_keys() {
+    // bootstrap_primary/sync are structurally required: a missing key fails
+    // parsing.
+    let base = topology_cfg_toml().replace(
+        "[data_plane.group.replica.raft]",
+        "[data_plane.group.replica.stream]",
+    );
+    assert!(try_parse_cfg(&base).is_err());
+    let toml = base.replace(
+        "[data_plane.group.replica.stream]",
+        "[data_plane.group.replica.stream]\nbootstrap_primary = \"g1-node-1\"",
+    );
+    assert!(try_parse_cfg(&toml).is_err());
+    let toml = base.replace(
+        "[data_plane.group.replica.stream]",
+        "[data_plane.group.replica.stream]\nsync = true",
+    );
+    assert!(try_parse_cfg(&toml).is_err());
+}
+
+#[test]
+fn test_topology_rejects_port_collision() {
+    let text =
+        topology_cfg_toml().replace("channel_listen_port = 29527", "channel_listen_port = 9527");
+    let cfg = parse_cfg(&text);
+    assert!(cfg.validate_topology().is_err());
 }
 
 #[test]
@@ -214,114 +375,6 @@ fn test_load_or_create_node_id() {
     let reloaded = crate::backend::mudud_cfg::load_or_create_node_id(&dir, 7).unwrap();
     assert_eq!(reloaded, 7);
     assert!(crate::backend::mudud_cfg::load_or_create_node_id(&dir, 8).is_err());
-}
-
-fn try_parse_replication_cfg(text: &str) -> RS<MuduDBCfg> {
-    let path = mudu_sys::env_var::temp_dir().join(format!(
-        "mudu/mudud_cfg_mode-{}",
-        mudu_sys::random::uuid_v4()
-    ));
-    mudu_sys::fs::sync::write(&path, text).unwrap();
-    read_mudud_cfg(path)
-}
-
-fn parse_replication_cfg(text: &str) -> MuduDBCfg {
-    try_parse_replication_cfg(text).unwrap()
-}
-
-#[test]
-fn test_replication_subsection_is_required() {
-    // both subsections absent: parses fine, but the mode selection is
-    // reported by mode() and by validation
-    let toml = replication_cfg_toml().replace("[replication.raft]\n\n", "");
-    let cfg = parse_replication_cfg(&toml);
-    let replication = cfg.replication.as_ref().unwrap();
-    let err = replication.mode().unwrap_err();
-    assert!(
-        err.to_string().contains("requires exactly one of"),
-        "unexpected error: {err}"
-    );
-    assert!(cfg.validate_replication().is_err());
-}
-
-#[test]
-fn test_replication_subsections_mutually_exclusive() {
-    let toml = replication_cfg_toml().replace(
-        "[replication.raft]",
-        "[replication.raft]\n\n[replication.stream]\nprimary = true\nsync = true",
-    );
-    let cfg = parse_replication_cfg(&toml);
-    let replication = cfg.replication.as_ref().unwrap();
-    let err = replication.mode().unwrap_err();
-    assert!(
-        err.to_string().contains("mutually exclusive"),
-        "unexpected error: {err}"
-    );
-    assert!(cfg.validate_replication().is_err());
-}
-
-#[test]
-fn test_replication_raft_two_peers_allowed_for_bootstrap() {
-    // Two peers is the sanctioned bootstrap shape of a joining node
-    // (itself + one existing member); steady-state two-node clusters are
-    // discouraged but not rejected.
-    let cfg = parse_replication_cfg(replication_cfg_toml());
-    assert!(cfg.validate_replication().is_ok());
-}
-
-#[test]
-fn test_replication_snapshot_gc_knobs_validated() {
-    let toml = replication_cfg_toml().replace(
-        "listen_port = 19527",
-        "listen_port = 19527\nsnapshot_wal_threshold_bytes = 0",
-    );
-    let cfg = parse_replication_cfg(&toml);
-    let err = cfg.validate_replication().unwrap_err();
-    assert!(
-        err.to_string().contains("snapshot_wal_threshold_bytes"),
-        "unexpected error: {err}"
-    );
-    let toml = replication_cfg_toml().replace(
-        "listen_port = 19527",
-        "listen_port = 19527\ngc_check_interval_secs = 0",
-    );
-    let cfg = parse_replication_cfg(&toml);
-    let err = cfg.validate_replication().unwrap_err();
-    assert!(
-        err.to_string().contains("gc_check_interval_secs"),
-        "unexpected error: {err}"
-    );
-}
-
-#[test]
-fn test_replication_stream_requires_primary_and_sync_keys() {
-    // primary/sync are structurally required: a missing key fails parsing
-    let base = replication_cfg_toml().replace("[replication.raft]", "[replication.stream]");
-    assert!(try_parse_replication_cfg(&base).is_err());
-    let toml = base.replace(
-        "[replication.stream]",
-        "[replication.stream]\nprimary = true",
-    );
-    assert!(try_parse_replication_cfg(&toml).is_err());
-    let toml = base.replace("[replication.stream]", "[replication.stream]\nsync = true");
-    assert!(try_parse_replication_cfg(&toml).is_err());
-}
-
-#[test]
-fn test_replication_stream_parse_and_defaults() {
-    let toml = replication_cfg_toml().replace(
-        "[replication.raft]",
-        "[replication.stream]\nprimary = true\nsync = false",
-    );
-    let cfg = parse_replication_cfg(&toml);
-    cfg.validate_replication().unwrap();
-    let replication = cfg.replication.as_ref().unwrap();
-    assert_eq!(replication.mode().unwrap(), ReplicationMode::Stream);
-    let stream = replication.stream.as_ref().unwrap();
-    assert!(stream.primary);
-    assert!(!stream.sync);
-    assert_eq!(stream.sync_timeout_ms, 10000);
-    assert!(replication.raft.is_none());
 }
 
 #[test]

@@ -1,6 +1,8 @@
 //! Partition-RPC handlers of the queue-family requests (`QueuePrepare`,
 //! `QueueReceiveWait`, `QueueWake`).
 use super::*;
+use crate::queue::resolve_local_queue_shard;
+use crate::queue_state::publish_queue_state;
 use ::catalog::contract::queue::QueueWait;
 
 impl WorkerXContract {
@@ -61,9 +63,15 @@ impl WorkerXContract {
             worker_id = self.worker_id,
             queue_oid, partition_id, "execute partition rpc queue_prepare"
         );
-        let shard = self
-            .resolve_local_queue_shard(queue_oid, partition_id)
-            .await?;
+        let shard = resolve_local_queue_shard(
+            &self.meta_mgr,
+            self.worker_id,
+            &self.cluster_router,
+            self.default_unpartitioned_worker_id,
+            queue_oid,
+            partition_id,
+        )
+        .await?;
         self.ensure_shard_runtime_loaded(&shard).await?;
         self.ensure_consumer_state_loaded(queue_oid, shard.shard_index)
             .await?;
@@ -84,9 +92,15 @@ impl WorkerXContract {
             worker_id = self.worker_id,
             queue_oid, partition_id, count, "execute partition rpc queue_receive_wait"
         );
-        let shard = self
-            .resolve_local_queue_shard(queue_oid, partition_id)
-            .await?;
+        let shard = resolve_local_queue_shard(
+            &self.meta_mgr,
+            self.worker_id,
+            &self.cluster_router,
+            self.default_unpartitioned_worker_id,
+            queue_oid,
+            partition_id,
+        )
+        .await?;
         self.ensure_shard_runtime_loaded(&shard).await?;
         if consumer.is_some() {
             self.ensure_consumer_state_loaded(queue_oid, shard.shard_index)
@@ -112,11 +126,24 @@ impl WorkerXContract {
         state: Option<(u64, u64, u64, u64)>,
         consumers_changed: bool,
     ) -> RS<PartitionRpcResponse> {
-        let shard = self
-            .resolve_local_queue_shard(queue_oid, partition_id)
-            .await?;
+        let shard = resolve_local_queue_shard(
+            &self.meta_mgr,
+            self.worker_id,
+            &self.cluster_router,
+            self.default_unpartitioned_worker_id,
+            queue_oid,
+            partition_id,
+        )
+        .await?;
         if let Some((next, frontier, depth, bytes)) = state {
-            self.publish_queue_state(shard_key(&shard), next, frontier, depth, bytes)?;
+            publish_queue_state(
+                &self.queue_registry,
+                shard_key(&shard),
+                next,
+                frontier,
+                depth,
+                bytes,
+            )?;
         }
         if consumers_changed {
             self.reload_consumer_state(queue_oid, shard.shard_index)

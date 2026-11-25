@@ -1,4 +1,7 @@
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::lifecycle_cluster::ensure_partition_read_open;
+use crate::types::{DataBin, VecCursor, VecCursorInner};
 use crate::utils::{
     bound_key_as_ref, build_bound_key, build_key_tuple, ensure_supported_predicate,
     matches_predicate, project_selected_fields, rpc_bound_from_key_bound, staged_overlay_in_bounds,
@@ -31,6 +34,65 @@ struct RemoteRangeOverlayRead<'a> {
     key_prefix: Option<&'a [(AttrIndex, DataBin)]>,
 }
 
+/// Routes an exact-partition prefix read to its partition, when the prefix
+/// covers the partition key.
+async fn exact_partition_route_by_prefix(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    partition_router: &PartitionRouter,
+    table_id: OID,
+    desc: &TableDesc,
+    prefix: &[(AttrIndex, DataBin)],
+) -> RS<Option<OID>> {
+    let Some(binding) = meta_mgr.get_table_partition_binding(table_id).await? else {
+        return Ok(None);
+    };
+    if !PartitionRouter::prefix_covers_partition_key(&binding.ref_attr_indices, prefix) {
+        return Ok(None);
+    }
+    partition_router
+        .route_exact_partition(table_id, desc, &VecDatum::new(prefix.to_vec()))
+        .await
+}
+
+/// Routes a range read to its target partitions: a key-prefix equality
+/// predicate targets the single exact partition; anything else fans out
+/// over the range router.
+async fn route_read_range_partitions(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    partition_router: &PartitionRouter,
+    table_id: OID,
+    desc: &TableDesc,
+    pred_key: &RangeData,
+    pred_non_key: &Predicate,
+) -> RS<Option<Vec<OID>>> {
+    let target_partitions = match pred_non_key {
+        Predicate::KeyPrefixEq(prefix) => {
+            match exact_partition_route_by_prefix(
+                meta_mgr,
+                partition_router,
+                table_id,
+                desc,
+                prefix,
+            )
+            .await?
+            {
+                Some(partition_id) => Some(vec![partition_id]),
+                None => {
+                    partition_router
+                        .route_range_partitions(table_id, desc, pred_key.start(), pred_key.end())
+                        .await?
+                }
+            }
+        }
+        _ => {
+            partition_router
+                .route_range_partitions(table_id, desc, pred_key.start(), pred_key.end())
+                .await?
+        }
+    };
+    Ok(target_partitions)
+}
+
 impl WorkerXContract {
     pub(crate) async fn _read_key(
         &self,
@@ -53,6 +115,8 @@ impl WorkerXContract {
         };
         let opt_value = match target_partition {
             Some(partition_id) => {
+                ensure_partition_read_open(&self.cluster_router, &self.meta_mgr, partition_id)
+                    .await?;
                 let resolved_worker = {
                     let _stage = ::catalog::stage_stats::StageGuard::new(
                         ::catalog::stage_stats::Stage::ReadKeyRoute,
@@ -133,23 +197,6 @@ impl WorkerXContract {
     /// partition. This keeps prefix-equality scans on one partition instead
     /// of fanning the unbounded range out to every partition (one
     /// cross-worker RPC per partition).
-    async fn exact_partition_route_by_prefix(
-        &self,
-        table_id: OID,
-        desc: &TableDesc,
-        prefix: &[(AttrIndex, DataBin)],
-    ) -> RS<Option<OID>> {
-        let Some(binding) = self.meta_mgr.get_table_partition_binding(table_id).await? else {
-            return Ok(None);
-        };
-        if !PartitionRouter::prefix_covers_partition_key(&binding.ref_attr_indices, prefix) {
-            return Ok(None);
-        }
-        self.partition_router
-            .route_exact_partition(table_id, desc, &VecDatum::new(prefix.to_vec()))
-            .await
-    }
-
     pub(crate) async fn _read_range(
         &self,
         desc: Arc<TableDesc>,
@@ -162,13 +209,21 @@ impl WorkerXContract {
         ensure_supported_predicate(pred_non_key)?;
         let start = build_bound_key(pred_key.start(), &desc)?;
         let end = build_bound_key(pred_key.end(), &desc)?;
-        let target_partitions = self
-            .route_read_range_partitions(table_id, &desc, pred_key, pred_non_key)
-            .await?;
+        let target_partitions = route_read_range_partitions(
+            &self.meta_mgr,
+            &self.partition_router,
+            table_id,
+            &desc,
+            pred_key,
+            pred_non_key,
+        )
+        .await?;
         let mut projected = Vec::new();
         match target_partitions {
             Some(partitions) => {
                 for partition_id in partitions {
+                    ensure_partition_read_open(&self.cluster_router, &self.meta_mgr, partition_id)
+                        .await?;
                     match self.resolve_partition_worker(partition_id).await? {
                         Some(worker_id) if worker_id != self.worker_id => {
                             let rows = self
@@ -288,44 +343,6 @@ impl WorkerXContract {
                 index: 0,
             }),
         }))
-    }
-
-    /// Route a range scan to its target partitions: a `KeyPrefixEq` predicate
-    /// pinning every partition-key column resolves to the single owning
-    /// partition; anything else fans out over the range router.
-    async fn route_read_range_partitions(
-        &self,
-        table_id: OID,
-        desc: &TableDesc,
-        pred_key: &RangeData,
-        pred_non_key: &Predicate,
-    ) -> RS<Option<Vec<OID>>> {
-        let target_partitions = match pred_non_key {
-            Predicate::KeyPrefixEq(prefix) => {
-                match self
-                    .exact_partition_route_by_prefix(table_id, desc, prefix)
-                    .await?
-                {
-                    Some(partition_id) => Some(vec![partition_id]),
-                    None => {
-                        self.partition_router
-                            .route_range_partitions(
-                                table_id,
-                                desc,
-                                pred_key.start(),
-                                pred_key.end(),
-                            )
-                            .await?
-                    }
-                }
-            }
-            _ => {
-                self.partition_router
-                    .route_range_partitions(table_id, desc, pred_key.start(), pred_key.end())
-                    .await?
-            }
-        };
-        Ok(target_partitions)
     }
 
     /// Read one remote-owned partition of a range scan, merging the

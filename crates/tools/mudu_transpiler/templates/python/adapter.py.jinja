@@ -26,7 +26,7 @@ multiple results, or `None` for no result.
 User-defined types (declared in the project `.wit` files and registered with
 `mtp --type-wit`): a record argument travels as the positional
 `uni-data-value` record-case envelope (declaration order, names dropped by
-the host) and decodes through `mududb.codec.bridge.record_field_values`
+the host) and decodes through `mududb.codec.bridge.struct_field_values`
 composed with the mgen-generated `xxx_from_value` codec of the module given
 by `--type-import`; a record return value encodes symmetrically through
 `xxx_to_value` and `record_from_field_values`. An enum argument decodes

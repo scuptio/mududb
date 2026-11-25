@@ -8,7 +8,7 @@
 //!   scupt-raft's `state_machine_inner`); no I/O, no locks, no wall clock.
 //! - [`store`] — persistent raft log + hard state in the MuduDB log frame
 //!   format v1 (byte-compatible with the kernel WAL, implemented locally).
-//! - `node` — one event-loop thread per node plus one persist thread.
+//! - `node` — one serialized async task per group on a shared owner executor.
 //! - [`transport`] — outbound message abstraction; the core never does
 //!   network I/O.
 //!
@@ -17,30 +17,45 @@
 
 #![warn(missing_docs)]
 
+mod admission;
+/// Revocable fence for queued proposal certificates.
+pub use admission::{AdmissionGuard, MembershipFence};
+mod api;
+mod completion;
 pub mod core;
 mod entry;
 pub mod frame;
+mod handle_async;
+mod inbox;
 mod node;
+mod replay;
+mod runtime;
+/// Recovery page from the durable committed log.
+pub use replay::{CommittedBatch, MAX_REPLAY_BYTES};
 pub mod store;
+pub mod stream;
 pub mod transport;
 
 #[cfg(test)]
 mod cluster_test;
+#[cfg(test)]
+mod runtime_tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::completion::{completion, CompletionReceiver};
 use mudu::common::result::RS;
-use mudu::error::{ErrorCode, MuduError};
+use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_sys::sync::sync_::channel::sync_channel;
-use mudu_sys::sync::sync_::unbounded_channel::SyncReceiver;
 use mudu_sys::sync::{SMutex, SRwLock};
-use mudu_sys::task::sync::{spawn_thread_named, SJoinHandle};
 
 /// The replicated entry type carried by the raft log.
 pub use entry::ReplEntry;
+
+/// Public result and status types of a raft node.
+pub use crate::api::{NodeStatus, ProposeError, ProposeResult, UpdateConfError, UpdateConfResult};
 
 /// Cluster membership types: node id, per-node info, configuration value,
 /// configuration version, and a node set paired with its value.
@@ -58,17 +73,28 @@ pub use crate::store::{raft_log_dir, RaftStore, StoreCfg};
 pub use crate::transport::{InMemoryNetwork, RaftTransport};
 
 use crate::core::{CoreRecovered, Effects, RaftCore};
-use crate::node::{spawn_persist_thread, RaftIn, RaftNode};
+/// Events accepted by a driver ingress handle.
+pub use crate::inbox::RaftIn;
+/// Nonblocking input handle with bounded message and byte budgets.
+pub use crate::inbox::RaftSender;
+use crate::node::RaftNode;
 
 /// Node configuration.
 pub struct RaftCfg {
     /// This node's id.
     pub node_id: u64,
-    /// All voter node ids of the cluster, **including** this node.
+    /// All voter node ids of the cluster, **including** this node when it is
+    /// a voter.
     ///
     /// Used only on first bootstrap: afterwards the configuration stored in
     /// the raft log wins.
     pub peers: Vec<u64>,
+    /// All learner node ids of the cluster at bootstrap, possibly including
+    /// this node. Learners replicate the log but never vote or campaign.
+    ///
+    /// Used only on first bootstrap (same rule as `peers`); every node of the
+    /// cluster must bootstrap with the identical voter/learner split.
+    pub learners: Vec<u64>,
     /// Duration of one raft tick in milliseconds. The event loop wakes at
     /// most once per tick; election timeouts are counted in ticks, so the
     /// consensus core never reads a wall clock.
@@ -102,6 +128,7 @@ impl RaftCfg {
         Self {
             node_id,
             peers,
+            learners: Vec::new(),
             raft_tick_ms,
             election_timeout_ticks,
             election_timeout_offset: 0,
@@ -109,6 +136,13 @@ impl RaftCfg {
             manual_ticks: false,
             tuning: RaftTuning::default(),
         }
+    }
+
+    /// Sets the bootstrap learner set (see the field). Every node of the
+    /// cluster must pass the identical voter/learner split.
+    pub fn with_learners(mut self, learners: Vec<u64>) -> Self {
+        self.learners = learners;
+        self
     }
 
     /// Sets the local election-timeout phasing in ticks (see the field).
@@ -166,232 +200,37 @@ impl Default for RaftTuning {
     }
 }
 
-/// A snapshot of a node's observable raft state.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct NodeStatus {
-    /// Node id.
-    pub node_id: u64,
-    /// Current role.
-    pub role: RaftRole,
-    /// Current term.
-    pub term: u64,
-    /// Currently known leader, if any.
-    pub leader_id: Option<u64>,
-    /// Current commit index.
-    pub commit_index: u64,
-    /// Version of the committed configuration. While this differs from
-    /// `conf_version_new`, a re-configuration is in progress.
-    pub conf_version_committed: ConfVersion,
-    /// Version of the new (joint) configuration.
-    pub conf_version_new: ConfVersion,
-}
-
-/// Error of a failed proposal.
-///
-/// Carries an optional leader hint for `NotLeader` failures so callers can
-/// retry on the right node. Converts into [`MuduError`] (hint is embedded
-/// in the message).
-#[derive(Debug)]
-pub struct ProposeError {
-    error: MuduError,
-    leader_hint: Option<u64>,
-}
-
-impl ProposeError {
-    pub(crate) fn not_leader(leader_hint: Option<u64>) -> Self {
-        let message = match leader_hint {
-            Some(id) => format!("not the raft leader (leader hint: {id})"),
-            None => "not the raft leader (leader unknown)".to_string(),
-        };
-        Self {
-            error: mudu_error!(ErrorCode::InvalidState, message),
-            leader_hint,
-        }
-    }
-
-    pub(crate) fn stopped() -> Self {
-        Self {
-            error: mudu_error!(
-                ErrorCode::InvalidState,
-                "raft node stopped before the proposal completed"
-            ),
-            leader_hint: None,
-        }
-    }
-
-    /// The leader hint carried by `NotLeader` errors.
-    pub fn leader_hint(&self) -> Option<u64> {
-        self.leader_hint
-    }
-
-    /// The error code.
-    pub fn ec(&self) -> ErrorCode {
-        self.error.ec()
-    }
-
-    /// Converts into a plain [`MuduError`].
-    pub fn into_mudu_error(self) -> MuduError {
-        self.error
-    }
-
-    /// The underlying error reference.
-    pub fn mudu_error(&self) -> &MuduError {
-        &self.error
-    }
-}
-
-impl std::fmt::Display for ProposeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error)
-    }
-}
-
-impl std::error::Error for ProposeError {}
-
-impl From<ProposeError> for MuduError {
-    fn from(e: ProposeError) -> Self {
-        e.into_mudu_error()
-    }
-}
-
-/// Result delivered to a [`RaftProposeWaiter`]: the `(index, term)` of the
-/// committed entry, or a [`ProposeError`].
-pub type ProposeResult = Result<(u64, u64), ProposeError>;
-
 /// Waiter for the completion of one proposal.
 ///
 /// Completed when the proposed entry commits (anywhere on a quorum, as
 /// observed by this node), or with an error when leadership is lost or the
 /// node stops.
 pub struct RaftProposeWaiter {
-    rx: SyncReceiver<ProposeResult>,
+    rx: CompletionReceiver<ProposeResult>,
 }
 
 impl RaftProposeWaiter {
+    /// Waits for commit or failure without blocking an executor thread.
+    pub async fn wait(mut self) -> ProposeResult {
+        self.rx.wait().await.map_err(ProposeError::from_error)?
+    }
+
     /// Blocks until the proposal completes.
     pub fn recv(&self) -> ProposeResult {
+        runtime::ensure_sync_wait().map_err(ProposeError::from_error)?;
         match self.rx.recv() {
             Ok(r) => r,
-            Err(e) => Err(ProposeError {
-                error: e,
-                leader_hint: None,
-            }),
+            Err(e) => Err(ProposeError::from_error(e)),
         }
     }
 
     /// Blocks up to `dur` for the proposal to complete; `Ok(None)` on
     /// timeout.
     pub fn recv_timeout(&self, dur: Duration) -> RS<Option<ProposeResult>> {
+        runtime::ensure_sync_wait()?;
         self.rx.recv_timeout(dur)
     }
 }
-
-/// Error of a failed re-configuration request.
-///
-/// Immediate rejections (not the leader, a re-configuration already in
-/// progress, invalid membership) are returned by
-/// [`RaftHandle::update_conf`] itself; asynchronous failures (leadership
-/// lost mid-reconfiguration, node stopped) are delivered through
-/// [`UpdateConfWaiter`]. `NotLeader`-style errors carry an optional
-/// leader hint.
-#[derive(Debug)]
-pub struct UpdateConfError {
-    error: MuduError,
-    leader_hint: Option<u64>,
-}
-
-impl UpdateConfError {
-    pub(crate) fn not_leader(leader_hint: Option<u64>) -> Self {
-        let message = match leader_hint {
-            Some(id) => format!("not the raft leader (leader hint: {id})"),
-            None => "not the raft leader (leader unknown)".to_string(),
-        };
-        Self {
-            error: mudu_error!(ErrorCode::InvalidState, message),
-            leader_hint,
-        }
-    }
-
-    pub(crate) fn reconfig_in_progress() -> Self {
-        Self {
-            error: mudu_error!(
-                ErrorCode::InvalidState,
-                "a raft re-configuration is already in progress"
-            ),
-            leader_hint: None,
-        }
-    }
-
-    pub(crate) fn leadership_lost(leader_hint: Option<u64>) -> Self {
-        let message = match leader_hint {
-            Some(id) => format!(
-                "raft leadership was lost while the re-configuration was in progress (leader hint: {id})"
-            ),
-            None => {
-                "raft leadership was lost while the re-configuration was in progress".to_string()
-            }
-        };
-        Self {
-            error: mudu_error!(ErrorCode::InvalidState, message),
-            leader_hint,
-        }
-    }
-
-    pub(crate) fn stopped() -> Self {
-        Self {
-            error: mudu_error!(
-                ErrorCode::InvalidState,
-                "raft node stopped before the re-configuration completed"
-            ),
-            leader_hint: None,
-        }
-    }
-
-    pub(crate) fn from_error(error: MuduError) -> Self {
-        Self {
-            error,
-            leader_hint: None,
-        }
-    }
-
-    /// The leader hint carried by `NotLeader`-style errors.
-    pub fn leader_hint(&self) -> Option<u64> {
-        self.leader_hint
-    }
-
-    /// The error code.
-    pub fn ec(&self) -> ErrorCode {
-        self.error.ec()
-    }
-
-    /// Converts into a plain [`MuduError`].
-    pub fn into_mudu_error(self) -> MuduError {
-        self.error
-    }
-
-    /// The underlying error reference.
-    pub fn mudu_error(&self) -> &MuduError {
-        &self.error
-    }
-}
-
-impl std::fmt::Display for UpdateConfError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error)
-    }
-}
-
-impl std::error::Error for UpdateConfError {}
-
-impl From<UpdateConfError> for MuduError {
-    fn from(e: UpdateConfError) -> Self {
-        e.into_mudu_error()
-    }
-}
-
-/// Result delivered to a [`UpdateConfWaiter`]: the committed
-/// configuration version once the re-configuration completes.
-pub type UpdateConfResult = Result<ConfVersion, UpdateConfError>;
 
 /// Waiter for the completion of one re-configuration.
 ///
@@ -405,7 +244,7 @@ pub type UpdateConfResult = Result<ConfVersion, UpdateConfError>;
 /// new leader.)
 pub struct UpdateConfWaiter {
     version: ConfVersion,
-    rx: SyncReceiver<UpdateConfResult>,
+    rx: CompletionReceiver<UpdateConfResult>,
 }
 
 impl std::fmt::Debug for UpdateConfWaiter {
@@ -417,6 +256,11 @@ impl std::fmt::Debug for UpdateConfWaiter {
 }
 
 impl UpdateConfWaiter {
+    /// Waits for the configuration to commit without blocking an executor.
+    pub async fn wait(mut self) -> UpdateConfResult {
+        self.rx.wait().await.map_err(UpdateConfError::from_error)?
+    }
+
     /// The new-configuration version this waiter tracks.
     pub fn version(&self) -> &ConfVersion {
         &self.version
@@ -424,18 +268,17 @@ impl UpdateConfWaiter {
 
     /// Blocks until the re-configuration completes or fails.
     pub fn recv(&self) -> UpdateConfResult {
+        runtime::ensure_sync_wait().map_err(UpdateConfError::from_error)?;
         match self.rx.recv() {
             Ok(r) => r,
-            Err(e) => Err(UpdateConfError {
-                error: e,
-                leader_hint: None,
-            }),
+            Err(e) => Err(UpdateConfError::from_error(e)),
         }
     }
 
     /// Blocks up to `dur`; `Ok(None)` on timeout (the waiter stays valid
     /// and can be awaited again).
     pub fn recv_timeout(&self, dur: Duration) -> RS<Option<UpdateConfResult>> {
+        runtime::ensure_sync_wait()?;
         self.rx.recv_timeout(dur)
     }
 }
@@ -443,24 +286,54 @@ impl UpdateConfWaiter {
 /// Handle of a running raft node.
 pub struct RaftHandle {
     node_id: u64,
-    in_tx: mudu_sys::ChannelSender<RaftIn>,
+    in_tx: RaftSender,
     status: Arc<SRwLock<NodeStatus>>,
-    join: SMutex<Option<SJoinHandle<()>>>,
+    join: SMutex<Option<CompletionReceiver<RS<()>>>>,
+    stopped: mudu_sys::tokio::sync::watch::Receiver<Option<RS<()>>>,
 }
 
 impl RaftHandle {
     /// Starts a raft node: opens (and if necessary bootstraps) the store,
-    /// recovers the core, and spawns the event-loop and persist threads.
+    /// recovers the core, and starts its serialized asynchronous driver.
     ///
     /// On first start the cluster bootstraps with `cfg.peers` as the static
-    /// voter set; on later starts the configuration stored in the raft log
-    /// wins. `cfg.election_timeout_ticks` always applies (it is a local
-    /// tunable).
+    /// voter set and `cfg.learners` as the static learner set; on later
+    /// starts the configuration stored in the raft log wins.
+    /// `cfg.election_timeout_ticks` always applies (it is a local tunable).
     pub fn start(cfg: RaftCfg, transport: Arc<dyn RaftTransport>) -> RS<Self> {
-        if cfg.peers.is_empty() || !cfg.peers.contains(&cfg.node_id) {
+        runtime::ensure_sync_wait()?;
+        Self::start_waiter(cfg, transport)?.recv()?
+    }
+
+    /// Starts a node without blocking the caller's executor during recovery.
+    pub async fn start_async(cfg: RaftCfg, transport: Arc<dyn RaftTransport>) -> RS<Self> {
+        Self::start_waiter(cfg, transport)?.wait().await?
+    }
+
+    fn start_waiter(
+        cfg: RaftCfg,
+        transport: Arc<dyn RaftTransport>,
+    ) -> RS<CompletionReceiver<RS<Self>>> {
+        let (ready, wait) = completion();
+        runtime::spawn(async move {
+            let _ = ready.send(Self::start_on_runtime(cfg, transport).await);
+        })?;
+        Ok(wait)
+    }
+
+    async fn start_on_runtime(cfg: RaftCfg, transport: Arc<dyn RaftTransport>) -> RS<Self> {
+        if cfg.peers.is_empty()
+            || (!cfg.peers.contains(&cfg.node_id) && !cfg.learners.contains(&cfg.node_id))
+        {
             return Err(mudu_error!(
                 ErrorCode::InvalidArgument,
-                "raft peers must be non-empty and contain the node id"
+                "raft peers must be non-empty and contain the node id as voter or learner"
+            ));
+        }
+        if cfg.peers.iter().any(|peer| cfg.learners.contains(peer)) {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "raft voters and learners must be disjoint"
             ));
         }
         if cfg.election_timeout_ticks == 0 {
@@ -482,10 +355,10 @@ impl RaftHandle {
             fsync: cfg.tuning.fsync,
         };
         let dir = raft_log_dir(&cfg.log_dir);
-        let (store, recovered) = RaftStore::open(&dir, store_cfg)?;
+        let (store, recovered) = RaftStore::open_async(&dir, store_cfg).await?;
         let (store, recovered) = match recovered {
             Some(r) => (store, r),
-            None => bootstrap_store(store, &cfg)?,
+            None => bootstrap_store_async(store, &cfg).await?,
         };
 
         let mut core = RaftCore::new(
@@ -496,8 +369,7 @@ impl RaftHandle {
         core.override_timeout_max_tick(cfg.election_timeout_ticks);
         core.set_election_timeout_offset(cfg.election_timeout_offset);
 
-        let persist = spawn_persist_thread(cfg.node_id, store)?;
-        let (in_tx, in_rx) = mudu_sys::unbounded_channel();
+        let (in_tx, in_rx) = inbox::inbox();
         let status = Arc::new(SRwLock::new(NodeStatus {
             node_id: cfg.node_id,
             role: core.role(),
@@ -519,22 +391,28 @@ impl RaftHandle {
             core,
             in_rx,
             transport,
-            persist,
+            Box::new(store),
             status.clone(),
             Duration::from_millis(cfg.raft_tick_ms),
             cfg.manual_ticks,
         )?;
         let node_id = cfg.node_id;
-        let join = spawn_thread_named(format!("mudu_raft_node_{node_id}"), move || {
-            if let Err(e) = node.run() {
+        let (done, join) = completion();
+        let (finished, stopped) = mudu_sys::tokio::sync::watch::channel(None);
+        runtime::spawn(async move {
+            let result = node.run().await;
+            if let Err(e) = &result {
                 tracing::error!("raft node {node_id} event loop exited with error: {e}");
             }
+            finished.send_replace(Some(result.clone()));
+            let _ = done.send(result);
         })?;
         Ok(Self {
             node_id,
             in_tx,
             status,
             join: SMutex::new(Some(join)),
+            stopped,
         })
     }
 
@@ -549,8 +427,14 @@ impl RaftHandle {
     /// once it commits, or with a [`ProposeError`] (`NotLeader` errors carry
     /// an `Option<u64>` leader hint).
     pub fn propose(&self, entry: ReplEntry) -> RS<RaftProposeWaiter> {
-        let (tx, rx) = sync_channel(1);
-        self.in_tx.send(RaftIn::Propose { entry, resp: tx })?;
+        let (tx, rx) = completion();
+        self.in_tx.send(RaftIn::Propose {
+            entry,
+            resp: tx,
+            expected_conf: None,
+            expected_term: None,
+            guards: Vec::new(),
+        })?;
         Ok(RaftProposeWaiter { rx })
     }
 
@@ -561,24 +445,8 @@ impl RaftHandle {
 
     /// The node's input channel, for transports that deliver by channel
     /// (e.g. [`InMemoryNetwork`]).
-    pub fn input_sender(&self) -> mudu_sys::ChannelSender<RaftIn> {
+    pub fn input_sender(&self) -> RaftSender {
         self.in_tx.clone()
-    }
-
-    /// Subscribes to committed entries `(index, entry)` as observed by this
-    /// node.
-    pub fn watch_committed(&self) -> mudu_sys::SyncReceiver<(u64, ReplEntry)> {
-        let (tx, rx) = mudu_sys::unbounded_channel();
-        let _ = self.in_tx.send(RaftIn::WatchCommits { tx });
-        rx
-    }
-
-    /// Subscribes to node status changes; the current status is sent
-    /// immediately.
-    pub fn watch_status(&self) -> mudu_sys::SyncReceiver<NodeStatus> {
-        let (tx, rx) = mudu_sys::unbounded_channel();
-        let _ = self.in_tx.send(RaftIn::WatchStatus { tx });
-        rx
     }
 
     /// Injects one tick (drives time when `manual_ticks` is set).
@@ -601,7 +469,8 @@ impl RaftHandle {
     /// log tail is discarded and the commit index is pinned to the
     /// frontier.
     pub fn install_snapshot(&self, frontier: TermIndex) -> RS<()> {
-        let (tx, rx) = sync_channel(1);
+        runtime::ensure_sync_wait()?;
+        let (tx, rx) = completion();
         self.in_tx
             .send(RaftIn::InstallSnapshot { frontier, resp: tx })?;
         rx.recv()?
@@ -614,7 +483,8 @@ impl RaftHandle {
     /// raft log is compacted (and physically reclaimed) in lockstep.
     /// Blocks until the compaction is durable.
     pub fn force_compact(&self) -> RS<()> {
-        let (tx, rx) = sync_channel(1);
+        runtime::ensure_sync_wait()?;
+        let (tx, rx) = completion();
         self.in_tx.send(RaftIn::ForceCompact { resp: tx })?;
         rx.recv()?
     }
@@ -645,13 +515,15 @@ impl RaftHandle {
         nid_vote: Vec<u64>,
         nid_log: Vec<u64>,
     ) -> Result<UpdateConfWaiter, UpdateConfError> {
-        let (ack_tx, ack_rx) = sync_channel(1);
-        let (done_tx, done_rx) = sync_channel(1);
+        runtime::ensure_sync_wait().map_err(UpdateConfError::from_error)?;
+        let (ack_tx, ack_rx) = completion();
+        let (done_tx, done_rx) = completion();
         self.in_tx
             .send(RaftIn::UpdateConf {
                 conf_value,
                 nid_vote,
                 nid_log,
+                fence: None,
                 ack: ack_tx,
                 done: done_tx,
             })
@@ -669,7 +541,8 @@ impl RaftHandle {
     /// re-configuration is in progress (then both are equal). Intended for
     /// upper layers synchronizing address books and membership.
     pub fn conf(&self) -> RS<(ConfNodeValue, ConfNodeValue)> {
-        let (tx, rx) = sync_channel(1);
+        runtime::ensure_sync_wait()?;
+        let (tx, rx) = completion();
         self.in_tx.send(RaftIn::QueryConf { resp: tx })?;
         rx.recv()
     }
@@ -723,14 +596,14 @@ impl RaftHandle {
     }
 
     /// Stops the node: the event loop finishes in-flight persistence and
-    /// both threads are joined. Idempotent.
+    /// its asynchronous driver is drained. Idempotent.
     pub fn stop(&self) -> RS<()> {
+        runtime::ensure_sync_wait()?;
         let join = self.join.lock()?.take();
         if let Some(join) = join {
             // best-effort: the loop also exits when the channel closes
             let _ = self.in_tx.send(RaftIn::Stop);
-            join.join()
-                .map_err(|_| mudu_error!(ErrorCode::Thread, "raft node thread panicked on stop"))?;
+            join.recv()??;
         }
         Ok(())
     }
@@ -741,30 +614,43 @@ impl Drop for RaftHandle {
         if let Ok(mut guard) = self.join.lock() {
             if let Some(join) = guard.take() {
                 let _ = self.in_tx.send(RaftIn::Stop);
-                let _ = join.join();
+                // Dropping an async startup result can run on the owner
+                // itself. Never synchronously join from an async runtime.
+                if !mudu_sys::task::async_::has_tokio_runtime() {
+                    let _ = join.recv();
+                }
             }
         }
     }
 }
 
-fn bootstrap_store(mut store: RaftStore, cfg: &RaftCfg) -> RS<(RaftStore, CoreRecovered)> {
+async fn bootstrap_store_async(
+    mut store: RaftStore,
+    cfg: &RaftCfg,
+) -> RS<(RaftStore, CoreRecovered)> {
     let mut peers = cfg.peers.clone();
     peers.sort_unstable();
     peers.dedup();
-    let conf_value = core::conf::ConfValue::new(
+    let mut learners = cfg.learners.clone();
+    learners.sort_unstable();
+    learners.dedup();
+    let value = ConfValue::new(
         cfg.node_id,
         cfg.election_timeout_ticks,
         peers
             .into_iter()
-            .map(|node_id| core::conf::NodeInfo {
+            .map(|node_id| NodeInfo {
                 node_id,
                 can_vote: true,
             })
+            .chain(learners.into_iter().map(|node_id| NodeInfo {
+                node_id,
+                can_vote: false,
+            }))
             .collect(),
     );
     let mut fx = Effects::default();
-    RaftCore::bootstrap_effects(conf_value.clone(), &mut fx);
-    store.apply_batch(&fx.writes)?;
-    let recovered = RaftCore::bootstrap_recovered(conf_value);
-    Ok((store, recovered))
+    RaftCore::bootstrap_effects(value.clone(), &mut fx);
+    store.apply_batch_async(&fx.writes).await?;
+    Ok((store, RaftCore::bootstrap_recovered(value)))
 }

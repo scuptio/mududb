@@ -3,7 +3,7 @@ use crate::log_frame::{deserialize_entry, serialize_entry};
 use crate::lsn::LSN;
 use crate::typed_worker_log::{TypedWorkerLog, WorkerLogRecoveryHandler};
 use crate::worker_log::WorkerLogBackend;
-use crate::xl_batch::XLBatch;
+use crate::xl_batch_type::XLBatch;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -154,6 +154,7 @@ mod tests {
                     })),
                     TxOp::Commit(Default::default()),
                 ],
+                commit_epoch: None,
             });
         }
         XLBatch::new(entries)
@@ -256,6 +257,7 @@ mod tests {
                 })),
                 TxOp::Commit(Default::default()),
             ],
+            commit_epoch: None,
         }]);
 
         let next_lsn = AtomicU64::new(0);

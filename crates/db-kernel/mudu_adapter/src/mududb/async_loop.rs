@@ -7,8 +7,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_client::client::async_client::{AsyncClient, AsyncClientImpl};
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::protocol::{
     ClientRequest, GetRequest, PutRequest, RangeScanRequest, SessionCloseRequest,
     SessionCreateRequest,
@@ -200,12 +200,12 @@ pub(super) fn async_range(
     recv_response(rx)
 }
 
-pub(super) fn async_query<R: Entity>(
+pub(super) fn async_query<R: Object>(
     session_id: OID,
     app_name: String,
     sql_text: String,
     params: Vec<DataValue>,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let (tx, rx) = mpsc::sync_channel(1);
     async_manager()?
         .sender
@@ -226,7 +226,7 @@ pub(super) fn async_query<R: Entity>(
     let response = recv_response(rx)?;
     let desc = response.row_desc;
     let rows = response.rows;
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(rows)),
         Arc::new(desc),
     ))
@@ -390,14 +390,14 @@ async fn handle_async_command(
     }
 }
 
-/// Borrows the session of `session_id`, or fails with `EntityNotFound`.
+/// Borrows the session of `session_id`, or fails with `ObjectNotFound`.
 fn session_mut(
     sessions: &mut HashMap<OID, AsyncMududSession>,
     session_id: OID,
 ) -> RS<&mut AsyncMududSession> {
     sessions.get_mut(&session_id).ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })
@@ -430,7 +430,7 @@ async fn handle_open(
 async fn handle_close(sessions: &mut HashMap<OID, AsyncMududSession>, session_id: OID) -> RS<()> {
     let mut session = sessions.remove(&session_id).ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;

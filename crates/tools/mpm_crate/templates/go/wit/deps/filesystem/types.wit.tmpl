@@ -99,7 +99,7 @@ interface types {
     /// File attributes.
     ///
     /// Note: This was called `filestat` in earlier versions of WASI.
-    record descriptor-stat {
+    struct descriptor-stat {
         /// File type.
         %type: descriptor-type,
         /// Number of hard links to the file.
@@ -158,7 +158,7 @@ interface types {
     }
 
     /// A directory entry.
-    record directory-entry {
+    struct directory-entry {
         /// The type of the file referred to by this directory entry.
         %type: descriptor-type,
 
@@ -271,7 +271,7 @@ interface types {
 
     /// A 128-bit hash value, split into parts because wasm doesn't have a
     /// 128-bit integer type.
-    record metadata-hash-value {
+    struct metadata-hash-value {
        /// 64 bits of a 128-bit hash value.
        lower: u64,
        /// Another 64 bits of a 128-bit hash value.

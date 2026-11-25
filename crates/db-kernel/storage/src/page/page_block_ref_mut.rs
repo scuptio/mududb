@@ -5,8 +5,8 @@ use super::{layout_math, sequence_edit};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_header::{PageHeader, PAGE_HEADER_SIZE};
 use crate::page::page_tailer::{PageTailer, PAGE_TAILER_SIZE};
-use crate::page::record_slot::{RecordSlot, RECORD_SLOT_SIZE};
-use crate::page::record_slot_ref::RecordSlotRef;
+use crate::page::record_slot::{StructSlot, RECORD_SLOT_SIZE};
+use crate::page::record_slot_ref::StructSlotRef;
 use crate::page::PageId;
 use ::wal::lsn::LSN;
 use mudu::common::crc::crc16;
@@ -16,8 +16,8 @@ use mudu::mudu_error;
 
 /// `PageBlockRefMut` keeps the same layout and ordering guarantees as `PageBlockRef`.
 ///
-/// Record payloads are always written on 8-byte boundaries in the data area.
-/// `RecordSlot::size` stores the real payload length rather than the aligned size.
+/// Struct payloads are always written on 8-byte boundaries in the data area.
+/// `StructSlot::size` stores the real payload length rather than the aligned size.
 ///
 /// Update and delete paths compact the page after the change so that the data
 /// area stays contiguous and `free_bytes` remains an exact value instead of a
@@ -90,13 +90,13 @@ impl<'a> PageBlockRefMut<'a> {
     }
 
     /// Returns the slot at `sorted_index` in ascending key order.
-    pub fn slot(&self, sorted_index: usize) -> RS<RecordSlot> {
+    pub fn slot(&self, sorted_index: usize) -> RS<StructSlot> {
         PageBlockRef::try_new(self.page)?.slot(sorted_index)
     }
 
     /// Returns a zero-copy reader for the slot at `sorted_index` in ascending
     /// key order.
-    pub fn slot_ref(&self, sorted_index: usize) -> RS<RecordSlotRef<'_>> {
+    pub fn slot_ref(&self, sorted_index: usize) -> RS<StructSlotRef<'_>> {
         self.check_page_len()?;
         let count = self.header()?.record_count() as usize;
         self.slot_region_start_for_count(count)?;
@@ -108,7 +108,7 @@ impl<'a> PageBlockRefMut<'a> {
         }
 
         let offset = self.slot_offset_for_sorted_index(sorted_index);
-        RecordSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
+        StructSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
     }
 
     /// Returns the payload bytes of the record at `sorted_index` in ascending
@@ -207,7 +207,7 @@ impl<'a> PageBlockRefMut<'a> {
                 })?;
 
         self.page[data_offset..record_end].copy_from_slice(payload);
-        let mut slot = RecordSlot::new(
+        let mut slot = StructSlot::new(
             data_offset as u32,
             payload.len() as u32,
             timestamp,
@@ -258,11 +258,11 @@ impl<'a> PageBlockRefMut<'a> {
 
         let slots = sequence_edit::splice(&slots, sorted_index, sorted_index + 1, &[])
             .ok_or_else(|| mudu_error!(ErrorCode::Decode, "invalid page record edit"))?;
-        let mut new_slot = RecordSlot::new(0, payload.len() as u32, timestamp, tuple_id);
+        let mut new_slot = StructSlot::new(0, payload.len() as u32, timestamp, tuple_id);
         new_slot.set_check_sum(crc16(payload));
         let mut entries = self.materialize_entries(&slots)?;
         entries.push((new_slot, payload.to_vec()));
-        let mut sorted_slots: Vec<RecordSlot> = entries.iter().map(|(slot, _)| *slot).collect();
+        let mut sorted_slots: Vec<StructSlot> = entries.iter().map(|(slot, _)| *slot).collect();
         sorted_slots.sort_by(|left, right| left.cmp_key(right));
         let new_index = sorted_slots
             .iter()
@@ -279,13 +279,13 @@ impl<'a> PageBlockRefMut<'a> {
         self.compact_with_slots(slots)
     }
 
-    fn compact_with_slots(&mut self, slots: Vec<RecordSlot>) -> RS<()> {
+    fn compact_with_slots(&mut self, slots: Vec<StructSlot>) -> RS<()> {
         let entries = self.materialize_entries(&slots)?;
         self.rebuild_from_entries(entries)?;
         Ok(())
     }
 
-    fn rebuild_from_entries(&mut self, mut entries: Vec<(RecordSlot, Vec<u8>)>) -> RS<()> {
+    fn rebuild_from_entries(&mut self, mut entries: Vec<(StructSlot, Vec<u8>)>) -> RS<()> {
         let header = self.header()?;
         entries.sort_by(|(left, _), (right, _)| left.cmp_key(right));
 
@@ -333,7 +333,7 @@ impl<'a> PageBlockRefMut<'a> {
     fn rewrite_header_and_slots(
         &mut self,
         page_id: PageId,
-        slots: Vec<RecordSlot>,
+        slots: Vec<StructSlot>,
         first_free_offset: u32,
     ) -> RS<()> {
         let slot_region_start = self.slot_region_start_for_count(slots.len())?;
@@ -364,7 +364,7 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(())
     }
 
-    fn materialize_entries(&self, slots: &[RecordSlot]) -> RS<Vec<(RecordSlot, Vec<u8>)>> {
+    fn materialize_entries(&self, slots: &[StructSlot]) -> RS<Vec<(StructSlot, Vec<u8>)>> {
         let page = PageBlockRef::try_new(self.page)?;
         let limit = self.slot_region_start_for_count(page.slot_count()?)?;
         slots
@@ -382,7 +382,7 @@ impl<'a> PageBlockRefMut<'a> {
             .collect()
     }
 
-    fn read_all_slots(&self) -> RS<Vec<RecordSlot>> {
+    fn read_all_slots(&self) -> RS<Vec<StructSlot>> {
         let page = PageBlockRef::try_new(self.page)?;
         let count = page.slot_count()?;
         (0..count).map(|idx| page.slot(idx)).collect()
@@ -431,7 +431,7 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(())
     }
 
-    fn find_insert_position_by_key(&self, new_slot: &RecordSlot) -> RS<usize> {
+    fn find_insert_position_by_key(&self, new_slot: &StructSlot) -> RS<usize> {
         let page = PageBlockRef::try_new(self.page)?;
         let count = page.slot_count()?;
         let mut low = 0usize;
@@ -448,7 +448,7 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(low)
     }
 
-    fn insert_slot_bytes(&mut self, insert_at: usize, slot: &RecordSlot) -> RS<()> {
+    fn insert_slot_bytes(&mut self, insert_at: usize, slot: &StructSlot) -> RS<()> {
         let count = self.header()?.record_count() as usize;
         let old_region_start = self.slot_region_start_for_count(count)?;
         let new_region_start = self.slot_region_start_for_count(count + 1)?;

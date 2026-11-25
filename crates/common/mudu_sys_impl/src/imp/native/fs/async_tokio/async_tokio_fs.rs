@@ -42,6 +42,27 @@ impl AsyncFs for AsyncTokioFs {
         async_tokio::read_dir(path).await
     }
 
+    async fn sync_dir(&self, path: &Path) -> RS<()> {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        // Windows requires backup semantics to open a directory handle.
+        // Flush failures are propagated rather than silently weakening durability.
+        #[cfg(windows)]
+        options.write(true).custom_flags(0x0200_0000);
+        let file = options.open(path).await.map_err(|e| {
+            mudu::error::others::io_error_with_message(e, "open directory for sync error")
+        })?;
+        file.sync_all()
+            .await
+            .map_err(|e| mudu::error::others::io_error_with_message(e, "sync directory error"))
+    }
+
+    async fn rename(&self, from: &Path, to: &Path) -> RS<()> {
+        tokio::fs::rename(from, to)
+            .await
+            .map_err(|e| mudu::error::others::io_error_with_message(e, "rename tokio file error"))
+    }
+
     async fn remove_dir_all(&self, path: &Path) -> RS<()> {
         async_tokio::remove_dir_all(path).await
     }

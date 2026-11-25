@@ -27,8 +27,17 @@ pub struct ServerRuntimeDeps {
 impl ServerRuntimeDeps {
     /// Assembles the dependencies from the server configuration, loading or
     /// creating the worker registry under the configured log directory.
+    /// Cluster mode derives worker ids from `(node_id, worker_index)` so the
+    /// whole cluster can address any worker without exchanging worker maps.
     pub fn from_cfg(cfg: &ServerCfg) -> RS<Self> {
-        let worker_registry = load_or_create_worker_registry(cfg.log_dir(), cfg.worker_count())?;
+        let worker_registry = match cfg.cluster_node_id() {
+            Some(node_id) => crate::worker_registry::load_or_create_worker_registry_cluster(
+                cfg.log_dir(),
+                cfg.worker_count(),
+                node_id,
+            )?,
+            None => load_or_create_worker_registry(cfg.log_dir(), cfg.worker_count())?,
+        };
         let log_batching =
             WorkerLogBatching::new(64 * 1024, 32, cfg.log_batching_max_wait(), 256 * 1024);
         Ok(Self {

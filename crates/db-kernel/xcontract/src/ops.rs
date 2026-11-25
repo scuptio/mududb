@@ -1,15 +1,13 @@
 use super::*;
+use crate::worker_tx_manager::WorkerTxManager;
 
 mod delete;
 mod insert;
-mod locks;
+pub(crate) mod locks;
 mod read;
 mod update;
 
-impl WorkerXContract {
-    pub(crate) fn _begin_tx(&self) -> RS<Arc<dyn TxMgr>> {
-        Ok(Arc::new(WorkerTxManager::new(
-            self.snapshot_mgr.begin_tx()?,
-        )))
-    }
+/// Starts an untracked transaction over the worker's snapshot manager.
+pub(crate) fn _begin_tx(snapshot_mgr: &WorkerSnapshotMgr) -> RS<Arc<dyn TxMgr>> {
+    Ok(Arc::new(WorkerTxManager::new(snapshot_mgr.begin_tx()?)))
 }

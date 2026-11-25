@@ -1,7 +1,7 @@
 import crates.«db-kernel».storage.src.page.record_slot_core.generated
 open Aeneas Std Result
 namespace record_slot_spec
-abbrev Slot := record_slot_core.record_slot_core.RecordSlot
+abbrev Slot := record_slot_core.record_slot_core.StructSlot
 
 /-- Canonical little-endian bytes of one scalar, including every reserved bit. -/
 def bytes {ty : UScalarTy} (v : UScalar ty) : List U8 :=

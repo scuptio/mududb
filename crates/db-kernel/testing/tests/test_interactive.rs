@@ -112,7 +112,7 @@ fn run_interactive_mcli_tui_test(server_mode: ServerMode) -> RS<()> {
         .find_map(extract_query_table)
         .ok_or_else(|| {
             mudu::mudu_error!(
-                mudu::error::ErrorCode::EntityNotFound,
+                mudu::error::ErrorCode::ObjectNotFound,
                 format!(
                     "no query output found for tui render: {}",
                     serde_json::to_string(&outputs).unwrap_or_default()

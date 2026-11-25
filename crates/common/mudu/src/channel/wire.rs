@@ -11,7 +11,7 @@ pub type MessageId = u64;
 pub type RequestId = u128;
 /// Channel endpoint id.
 ///
-/// Identity is single-sourced at thread granularity: a database worker's
+/// Idobject is single-sourced at thread granularity: a database worker's
 /// endpoint id is its worker id, which is also the worker thread's task id;
 /// any other thread that hosts an endpoint registers its own thread OID
 /// (see `mudu_utils::channel::spawn_endpoint_for_current_thread`). When

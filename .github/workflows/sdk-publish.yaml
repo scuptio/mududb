@@ -55,11 +55,19 @@ jobs:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v5
+        id: actions_checkout_v5
         with:
           persist-credentials: false
-      - name: Free disk space
-        if: runner.os == 'Linux'
+      - name: Initialize job report
+        id: initialize_job_report
         shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
+      - name: Free disk space
+        id: free_disk_space
+        if: runner.os == 'Linux'
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk_space bash {0}
         run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /opt/cabal /usr/local/.ghcup \
             /usr/share/swift /usr/local/julia* /opt/az /usr/local/share/powershell \
@@ -67,61 +75,81 @@ jobs:
           docker image prune --all --force
           df -h /
       - uses: actions/setup-python@v5
+        id: actions_setup_python_v5
         with:
           python-version: '3.12'
       - name: Validate SDK selection
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run validate_sdk_selection python {0}
+        id: validate_sdk_selection
         run: |
           import os, sys
           sys.path.insert(0, 'script/sdk')
           from sdk_build import languages
           languages(os.environ['SDK_LANGS'])
       - name: Install Linux native dependencies
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_linux_native_dependencies python {0}
+        id: install_linux_native_dependencies
         if: runner.os == 'Linux'
         run: |
           import subprocess
           subprocess.run(['sudo', 'apt-get', 'update'], check=True)
           subprocess.run(['sudo', 'apt-get', 'install', '-y', 'build-essential', 'liburing-dev', 'clang', 'libclang-dev', 'llvm-dev'], check=True)
       - uses: ilammy/msvc-dev-cmd@v1
+        id: ilammy_msvc_dev_cmd_v1
         if: runner.os == 'Windows'
       - name: Install pinned Rust and WASI target
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_pinned_rust_and_wasi_target python {0}
+        id: install_pinned_rust_and_wasi_target
         run: |
           import subprocess, tomllib
           from pathlib import Path
           toolchain = tomllib.loads(Path('rust-toolchain.toml').read_text(encoding='utf-8'))['toolchain']['channel']
           subprocess.run(['rustup', 'toolchain', 'install', toolchain, '--profile', 'minimal', '--component', 'clippy,rustfmt', '--target', 'wasm32-wasip2'], check=True)
       - uses: taiki-e/install-action@v2
+        id: taiki_e_install_action_v2
         with:
           tool: cargo-make
       - uses: actions/setup-node@v4
+        id: actions_setup_node_v4
         if: contains(format(',{0},', inputs.languages), ',as,') || inputs.with_adapter_runtime || inputs.with_examples
         with:
           node-version: '22'
       - name: Install Python packaging tools
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_python_packaging_tools python {0}
+        id: install_python_packaging_tools
         if: contains(format(',{0},', inputs.languages), ',py,')
         run: |
           import subprocess, sys
           subprocess.run([sys.executable, '-m', 'pip', 'install', 'build'], check=True)
       - uses: actions/setup-dotnet@v4
+        id: actions_setup_dotnet_v4
         if: contains(format(',{0},', inputs.languages), ',cs,')
         with:
           dotnet-version: |
             8.0.x
             10.0.x
       - uses: actions/setup-go@v5
+        id: actions_setup_go_v5
         if: contains(format(',{0},', inputs.languages), ',go,')
         with:
           go-version: '1.27.1'
           cache: false
       - name: Install Linux guest build tools
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_linux_guest_build_tools python {0}
+        id: install_linux_guest_build_tools
         if: runner.os == 'Linux' && inputs.with_examples
         run: |
           import subprocess, sys
           subprocess.run([sys.executable, 'script/sdk/setup_examples.py'], check=True)
       - name: Test SDK distribution tooling (local Git and fake API only)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run test_sdk_distribution_tooling_local_git_and_fake_api_only python {0}
+        id: test_sdk_distribution_tooling_local_git_and_fake_api_only
         run: |
           import subprocess, sys
           subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'script/sdk/tests', '-v'], check=True)
       - name: Build and verify SDK distributions
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run build_and_verify_sdk_distributions python {0}
+        id: build_and_verify_sdk_distributions
         env:
           BUILD_EXAMPLES: ${{ inputs.with_examples }}
           BUILD_RUNTIME: ${{ inputs.with_adapter_runtime }}
@@ -134,6 +162,8 @@ jobs:
               args += ['--with-adapter-runtime']
           subprocess.run(args, check=True)
       - name: Verify native adapters with PostgreSQL, MySQL and Mudud
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run verify_native_adapters_with_postgresql_mysql_and_mudud python {0}
+        id: verify_native_adapters_with_postgresql_mysql_and_mudud
         if: runner.os == 'Linux' && inputs.with_examples
         run: |
           import json, os, subprocess, sys
@@ -143,12 +173,14 @@ jobs:
           library = manifest.parent / json.loads(manifest.read_text())['library']
           subprocess.run([sys.executable, 'script/sdk/backend_smoke.py', '--dist', str(root), '--library', str(library.resolve()), '--languages', os.environ['SDK_LANGS']], check=True)
       - uses: actions/upload-artifact@v4
+        id: actions_upload_artifact_v4
         with:
           name: sdk-distributions-${{ runner.os }}
           path: target/sdk-dist/
           if-no-files-found: error
           include-hidden-files: true
       - uses: actions/upload-artifact@v4
+        id: actions_upload_artifact_v4_2
         if: inputs.with_adapter_runtime || inputs.with_examples
         with:
           name: adapter-runtime-${{ runner.os }}
@@ -156,6 +188,15 @@ jobs:
             target/sdk-dist/adapter-runtime/*.tar.gz
             target/sdk-dist/adapter-runtime/*.sha256
           if-no-files-found: error
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   publish:
     if: ${{ inputs.publish }}
@@ -166,13 +207,23 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        id: actions_checkout_v5
         with:
           persist-credentials: false
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - uses: actions/download-artifact@v4
+        id: actions_download_artifact_v4
         with:
           name: sdk-distributions-Linux
           path: target/sdk-dist/
       - name: Publish SDK repositories and Releases
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run publish_sdk_repositories_and_releases bash {0}
+        id: publish_sdk_repositories_and_releases
         env:
           SDK_PUBLISH_TOKEN: ${{ secrets.SDK_PUBLISH_TOKEN }}
           SDK_CREATE_REPOS: ${{ inputs.create_repos }}
@@ -190,11 +241,21 @@ jobs:
           python3 script/sdk/publish.py --dist target/sdk-dist \
             --expected-commit "$SDK_SOURCE_COMMIT" "${args[@]}"
       - uses: actions/upload-artifact@v4
+        id: actions_upload_artifact_v4
         if: always()
         with:
           name: sdk-publish-report
           path: target/sdk-dist/publish-report.json
           if-no-files-found: ignore
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   publish-runtime:
     if: inputs.publish && (inputs.with_adapter_runtime || inputs.with_examples)
@@ -204,15 +265,24 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        id: actions_checkout_v5
         with:
           persist-credentials: false
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - uses: actions/download-artifact@v4
+        id: actions_download_artifact_v4
         with:
           pattern: adapter-runtime-*
           path: runtime-assets
           merge-multiple: true
       - name: Publish separate adapter runtime Release
-        shell: python
+        id: publish_separate_adapter_runtime_release
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run publish_separate_adapter_runtime_release python {0}
         env:
           RUNTIME_TOKEN: ${{ github.token }}
         run: |
@@ -225,3 +295,11 @@ jobs:
               env = os.environ.copy()
               env['SDK_GITHUB_TOKEN_FILE'] = str(token)
               subprocess.run([sys.executable, 'script/sdk/publish_runtime.py', '--artifacts', 'runtime-assets'], env=env, check=True)
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

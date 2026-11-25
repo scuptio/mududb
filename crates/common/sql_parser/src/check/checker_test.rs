@@ -11,7 +11,7 @@ use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::check::checker::{check_sql, count_params, select_result_shape};
 use crate::check::diagnostic::{SqlDiagnostic, SqlSeverity};
 use crate::parser::ddl_parser::DDLParser;
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 
 const DDL: &str = "
 CREATE TABLE users
@@ -32,7 +32,7 @@ CREATE TABLE wallets
 );
 ";
 
-fn schema() -> Vec<TableDef> {
+fn schema() -> Vec<ClassDef> {
     let parser = DDLParser::new().unwrap();
     parser.parse(DDL).unwrap()
 }
@@ -265,7 +265,7 @@ fn count_params_returns_zero_for_ddl() {
 
 // ---- select result shape ----
 
-fn shape_of(sql: &str, schema: &[TableDef]) -> Vec<String> {
+fn shape_of(sql: &str, schema: &[ClassDef]) -> Vec<String> {
     let stmt = parse_one(sql);
     match &stmt {
         StmtType::Select(select) => select_result_shape(select, schema),

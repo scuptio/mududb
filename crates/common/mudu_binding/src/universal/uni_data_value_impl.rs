@@ -24,13 +24,13 @@ impl UniDataValue {
                 }
                 DataValue::from_array(vec)
             }
-            UniDataValue::Record(inner) => {
+            UniDataValue::Struct(inner) => {
                 let mut vec = Vec::with_capacity(inner.len());
                 for field in inner {
                     let v = field.field_value.uni_to()?;
                     vec.push(v);
                 }
-                DataValue::from_record(vec)
+                DataValue::from_struct(vec)
             }
             UniDataValue::Binary(data) => DataValue::from_binary(data),
         };
@@ -97,8 +97,8 @@ impl UniDataValue {
                 }
                 UniDataValue::from_array(vec)
             }
-            TypeFamily::Record => {
-                let object = data_value.into_record();
+            TypeFamily::Struct => {
+                let object = data_value.into_struct();
                 let mut vec = Vec::with_capacity(object.len());
                 for v in object {
                     let mu_ve = Self::uni_from(v)?;
@@ -107,7 +107,7 @@ impl UniDataValue {
                         field_value: mu_ve,
                     });
                 }
-                UniDataValue::from_record(vec)
+                UniDataValue::from_struct(vec)
             }
             TypeFamily::Binary => {
                 let binary = data_value.into_binary();
@@ -235,8 +235,8 @@ mod tests {
     }
 
     fn assert_record_values_match(actual: &UniDataValue, expected: &UniDataValue) {
-        let actual_fields = actual.as_record().expect("record");
-        let expected_fields = expected.as_record().expect("record");
+        let actual_fields = actual.as_struct().expect("record");
+        let expected_fields = expected.as_struct().expect("record");
         assert_eq!(actual_fields.len(), expected_fields.len());
         for (actual_field, expected_field) in actual_fields.iter().zip(expected_fields.iter()) {
             assert_eq!(actual_field.field_name, "");
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn record_uni_to_from_roundtrip_mixed_scalars() {
-        let value = UniDataValue::Record(vec![
+        let value = UniDataValue::Struct(vec![
             field("a", UniDataValue::Scalar(UniScalarValue::from_i32(-7))),
             field("b", UniDataValue::Scalar(UniScalarValue::from_i64(99))),
             field(
@@ -389,7 +389,7 @@ mod tests {
         let back = UniDataValue::uni_from(dat).unwrap();
         assert_eq!(serialize_json(&back), serialize_json(&empty_array));
 
-        let empty_record = UniDataValue::Record(Vec::new());
+        let empty_record = UniDataValue::Struct(Vec::new());
         let dat = empty_record.clone().uni_to().unwrap();
         let back = UniDataValue::uni_from(dat).unwrap();
         assert_eq!(serialize_json(&back), serialize_json(&empty_record));
@@ -398,14 +398,14 @@ mod tests {
     #[test]
     fn nested_array_of_records_roundtrip() {
         let value = UniDataValue::Array(vec![
-            UniDataValue::Record(vec![
+            UniDataValue::Struct(vec![
                 field("x", UniDataValue::Scalar(UniScalarValue::from_i32(1))),
                 field(
                     "y",
                     UniDataValue::Scalar(UniScalarValue::from_string("a".to_string())),
                 ),
             ]),
-            UniDataValue::Record(vec![
+            UniDataValue::Struct(vec![
                 field("x", UniDataValue::Scalar(UniScalarValue::from_i32(2))),
                 field(
                     "y",

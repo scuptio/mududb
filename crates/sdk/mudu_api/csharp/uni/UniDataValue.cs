@@ -21,7 +21,7 @@ public enum UniDataValueKind {
 
    Array = 1,
 
-   Record = 2,
+   Struct = 2,
 
    Binary = 3,
 
@@ -93,11 +93,11 @@ public class UniDataValueArray : UniDataValue
     }
 }
 
-public class UniDataValueRecord : UniDataValue
+public class UniDataValueStruct : UniDataValue
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniDataValueRecord()
+    public UniDataValueStruct()
     {
         Inner = [];
     }
@@ -106,18 +106,18 @@ public class UniDataValueRecord : UniDataValue
     public required List<UniDataValueField> Inner  { get; set; }
 
     public UniDataValueKind Kind() {
-        return UniDataValueKind.Record;
+        return UniDataValueKind.Struct;
     }
 
     public static UniDataValueKind KindStatic() {
-        return UniDataValueKind.Record;
+        return UniDataValueKind.Struct;
     }
 
-    public static UniDataValueRecord AsRecord(UniDataValue value)
+    public static UniDataValueStruct AsStruct(UniDataValue value)
     {
         switch (value)
         {
-            case UniDataValueRecord  v:
+            case UniDataValueStruct  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -161,7 +161,7 @@ public class UniDataValueBinary : UniDataValue
 public class UniDataValueFormatter : IMessagePackFormatter<UniDataValue?>
 {
     /// The proto3-style default instance of the variant: the first declared
-    /// case carrying its own default payload. Record fields of this variant
+    /// case carrying its own default payload. Struct fields of this variant
     /// type initialize to this value, so a field missing from the wire map
     /// decodes to the default case instead of null.
     public static UniDataValue DefaultInstance()
@@ -209,16 +209,16 @@ public class UniDataValueFormatter : IMessagePackFormatter<UniDataValue?>
                 
                 break;
             
-            case UniDataValueKind.Record:
+            case UniDataValueKind.Struct:
                 
-                if (((UniDataValueRecord)value).Inner is null)
+                if (((UniDataValueStruct)value).Inner is null)
                 {
                     writer.WriteNil();
                 }
                 else
                 {
-                    writer.WriteArrayHeader(((UniDataValueRecord)value).Inner.Count);
-                    foreach (var __e0 in ((UniDataValueRecord)value).Inner)
+                    writer.WriteArrayHeader(((UniDataValueStruct)value).Inner.Count);
+                    foreach (var __e0 in ((UniDataValueStruct)value).Inner)
                     {
                         new UniDataValueFieldFormatter().Serialize(ref writer, __e0, options);
                     }
@@ -297,10 +297,10 @@ public class UniDataValueFormatter : IMessagePackFormatter<UniDataValue?>
             
             case 2:
                 
-                List<UniDataValueField> recordInner;
+                List<UniDataValueField> structInner;
                 if (reader.TryReadNil())
                 {
-                    recordInner = null!;
+                    structInner = null!;
                 }
                 else
                 {
@@ -310,10 +310,10 @@ public class UniDataValueFormatter : IMessagePackFormatter<UniDataValue?>
                     {
                         __l1.Add(new UniDataValueFieldFormatter().Deserialize(ref reader, options)!);
                     }
-                    recordInner = __l1;
+                    structInner = __l1;
                 }
 
-                return new UniDataValueRecord { Inner = recordInner };
+                return new UniDataValueStruct { Inner = structInner };
                 
             
             case 3:
@@ -370,7 +370,7 @@ public class UniDataValueFieldFormatter : IMessagePackFormatter<UniDataValueFiel
 {
     public void Serialize(ref MessagePackWriter writer, UniDataValueField value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(2);
         

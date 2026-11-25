@@ -21,7 +21,7 @@ use crate::universal::uni_scalar_value::UniScalarValue;
 pub enum UniDataValue {
     Scalar(UniScalarValue),
     Array(Vec<UniDataValue>),
-    Record(Vec<UniDataValueField>),
+    Struct(Vec<UniDataValueField>),
     Binary(Vec<u8>),
 }
 impl Default for UniDataValue {
@@ -60,19 +60,19 @@ impl UniDataValue {
             _ => panic!("UniDataValue::expect_array called on the wrong variant"),
         }
     }
-    pub fn from_record(inner: Vec<UniDataValueField>) -> Self {
-        Self::Record(inner)
+    pub fn from_struct(inner: Vec<UniDataValueField>) -> Self {
+        Self::Struct(inner)
     }
-    pub fn as_record(&self) -> Option<&Vec<UniDataValueField>> {
+    pub fn as_struct(&self) -> Option<&Vec<UniDataValueField>> {
         match self {
-            Self::Record(inner) => Some(inner),
+            Self::Struct(inner) => Some(inner),
             _ => None,
         }
     }
-    pub fn expect_record(&self) -> &Vec<UniDataValueField> {
+    pub fn expect_struct(&self) -> &Vec<UniDataValueField> {
         match self {
-            Self::Record(inner) => inner,
-            _ => panic!("UniDataValue::expect_record called on the wrong variant"),
+            Self::Struct(inner) => inner,
+            _ => panic!("UniDataValue::expect_struct called on the wrong variant"),
         }
     }
     pub fn from_binary(inner: Vec<u8>) -> Self {
@@ -102,7 +102,7 @@ impl crate::universal::mp_wire::ToValue for UniDataValue {
                 crate::universal::mp_wire::Value::from(1u32),
                 to_array(inner, |item| (item).to_value()),
             ]),
-            UniDataValue::Record(inner) => crate::universal::mp_wire::Value::Array(vec![
+            UniDataValue::Struct(inner) => crate::universal::mp_wire::Value::Array(vec![
                 crate::universal::mp_wire::Value::from(2u32),
                 to_array(inner, |item| (item).to_value()),
             ]),
@@ -131,7 +131,7 @@ impl crate::universal::mp_wire::FromValue for UniDataValue {
             1 => Ok(Self::Array(from_array(&items[1], |item| {
                 UniDataValue::from_value(item)
             })?)),
-            2 => Ok(Self::Record(from_array(&items[1], |item| {
+            2 => Ok(Self::Struct(from_array(&items[1], |item| {
                 UniDataValueField::from_value(item)
             })?)),
             3 => Ok(Self::Binary((&items[1]).as_bin()?)),

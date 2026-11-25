@@ -18,7 +18,6 @@ pub(crate) mod tests {
     use crate::universal::uni_query_result::UniQueryResult;
     use crate::universal::uni_range_argv::UniRangeArgv;
     use crate::universal::uni_range_result::UniRangeResult;
-    use crate::universal::uni_record_type::{UniFieldAttr, UniRecordField, UniRecordType};
     use crate::universal::uni_relation::{
         RELATION_DELTA_OP_ADD, RELATION_DELTA_OP_ADD_DEFERRED, RELATION_DELTA_OP_SUB,
         RELATION_DELTA_OP_SUB_DEFERRED, RELATION_DELTA_OP_SUB_WRAP_DEFERRED, UniRelationDelta,
@@ -30,6 +29,7 @@ pub(crate) mod tests {
     use crate::universal::uni_scalar_value::UniScalarValue;
     use crate::universal::uni_sql_param::UniSqlParam;
     use crate::universal::uni_sql_stmt::UniSqlStmt;
+    use crate::universal::uni_struct_type::{UniFieldAttr, UniStructField, UniStructType};
     use crate::universal::uni_tuple_row::UniTupleRow;
     use crate::universal::uni_type_desc::UniTypeDesc;
     use mudu::common::serde_utils::{
@@ -79,21 +79,21 @@ pub(crate) mod tests {
         UniOid { h: 7, l: 42 }
     }
 
-    fn sample_record_type() -> UniRecordType {
-        UniRecordType {
-            record_name: "vote_record".to_string(),
-            record_fields: vec![
-                UniRecordField {
+    fn sample_struct_type() -> UniStructType {
+        UniStructType {
+            struct_name: "vote_record".to_string(),
+            struct_fields: vec![
+                UniStructField {
                     field_name: "id".to_string(),
                     field_type: UniDataType::Scalar(UniScalar::U128),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "name".to_string(),
                     field_type: UniDataType::Scalar(UniScalar::String),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "tags".to_string(),
                     field_type: UniDataType::Array(Box::new(UniDataType::Scalar(
                         UniScalar::String,
@@ -105,10 +105,10 @@ pub(crate) mod tests {
     }
 
     fn sample_data_type() -> UniDataType {
-        UniDataType::Record(UniRecordType {
-            record_name: "envelope".to_string(),
-            record_fields: vec![
-                UniRecordField {
+        UniDataType::Struct(UniStructType {
+            struct_name: "envelope".to_string(),
+            struct_fields: vec![
+                UniStructField {
                     field_name: "meta".to_string(),
                     field_type: UniDataType::Tuple(vec![
                         UniDataType::Scalar(UniScalar::U64),
@@ -116,7 +116,7 @@ pub(crate) mod tests {
                     ]),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "payload".to_string(),
                     field_type: UniDataType::Result(UniResultType {
                         ok: Some(Box::new(UniDataType::Array(Box::new(UniDataType::Scalar(
@@ -126,7 +126,7 @@ pub(crate) mod tests {
                     }),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "blob".to_string(),
                     field_type: UniDataType::Binary,
                     field_attrs: Vec::new(),
@@ -136,7 +136,7 @@ pub(crate) mod tests {
     }
 
     fn sample_data_value() -> UniDataValue {
-        UniDataValue::Record(vec![
+        UniDataValue::Struct(vec![
             UniDataValueField {
                 field_name: "scores".to_string(),
                 field_value: UniDataValue::Array(vec![
@@ -146,7 +146,7 @@ pub(crate) mod tests {
             },
             UniDataValueField {
                 field_name: "nested".to_string(),
-                field_value: UniDataValue::Record(vec![
+                field_value: UniDataValue::Struct(vec![
                     UniDataValueField {
                         field_name: "ok".to_string(),
                         field_value: UniDataValue::Scalar(UniScalarValue::from_bool(true)),
@@ -168,7 +168,7 @@ pub(crate) mod tests {
 
     fn sample_query_result() -> UniQueryResult {
         UniQueryResult {
-            tuple_desc: sample_record_type(),
+            tuple_desc: sample_struct_type(),
             result_set: UniResultSet {
                 eof: false,
                 row_set: vec![UniTupleRow {
@@ -195,10 +195,10 @@ pub(crate) mod tests {
 
         let json = serialize_to_json(&uni_dat_ty).unwrap();
         let uni_dat_ty2: UniDataType = deserialize_from_json(json.as_str()).unwrap();
-        let record = uni_dat_ty2.as_record().expect("record dat type");
-        assert_eq!(record.record_name, "envelope");
-        assert_eq!(record.record_fields.len(), 3);
-        assert!(record.record_fields[2].field_type.as_identifier().is_none());
+        let record = uni_dat_ty2.as_struct().expect("record dat type");
+        assert_eq!(record.struct_name, "envelope");
+        assert_eq!(record.struct_fields.len(), 3);
+        assert!(record.struct_fields[2].field_type.as_identifier().is_none());
     }
 
     #[test]
@@ -737,17 +737,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_uni_record_type_and_field_attr_wire() {
+    fn test_uni_struct_type_and_field_attr_wire() {
         let default_attr = UniFieldAttr::default();
         assert!(default_attr.attr_name.is_empty());
-        let default_field = UniRecordField::default();
+        let default_field = UniStructField::default();
         assert!(default_field.field_name.is_empty());
-        let default_record = UniRecordType::default();
-        assert!(default_record.record_name.is_empty());
+        let default_record = UniStructType::default();
+        assert!(default_record.struct_name.is_empty());
 
-        let record = UniRecordType {
-            record_name: "r".to_string(),
-            record_fields: vec![UniRecordField {
+        let record = UniStructType {
+            struct_name: "r".to_string(),
+            struct_fields: vec![UniStructField {
                 field_name: "f".to_string(),
                 field_type: UniDataType::Scalar(UniScalar::U8),
                 field_attrs: vec![UniFieldAttr {
@@ -761,13 +761,13 @@ pub(crate) mod tests {
         // Missing fields fall back to defaults; unknown keys are ignored.
         let empty_map = Value::Map(vec![]);
         assert!(
-            UniRecordType::from_value(&empty_map)
+            UniStructType::from_value(&empty_map)
                 .unwrap()
-                .record_fields
+                .struct_fields
                 .is_empty()
         );
         assert!(
-            UniRecordField::from_value(&empty_map)
+            UniStructField::from_value(&empty_map)
                 .unwrap()
                 .field_name
                 .is_empty()
@@ -782,22 +782,22 @@ pub(crate) mod tests {
             (Value::from("x"), Value::from(0u32)),
             (Value::from(99u32), Value::from(0u32)),
         ]);
-        assert!(UniRecordType::from_value(&messy).is_ok());
-        assert!(UniRecordField::from_value(&messy).is_ok());
+        assert!(UniStructType::from_value(&messy).is_ok());
+        assert!(UniStructField::from_value(&messy).is_ok());
         assert!(UniFieldAttr::from_value(&messy).is_ok());
 
         // Non-map payloads and malformed known fields are rejected.
-        assert!(UniRecordType::from_value(&Value::from(1u32)).is_err());
-        assert!(UniRecordField::from_value(&Value::from(1u32)).is_err());
+        assert!(UniStructType::from_value(&Value::from(1u32)).is_err());
+        assert!(UniStructField::from_value(&Value::from(1u32)).is_err());
         assert!(UniFieldAttr::from_value(&Value::from(1u32)).is_err());
         let bad_first = Value::Map(vec![(Value::from(1u32), Value::from(1u32))]);
-        assert!(UniRecordType::from_value(&bad_first).is_err());
+        assert!(UniStructType::from_value(&bad_first).is_err());
         assert!(UniFieldAttr::from_value(&bad_first).is_err());
         let bad_second = Value::Map(vec![(Value::from(2u32), Value::from(1u32))]);
-        assert!(UniRecordField::from_value(&bad_second).is_err());
-        assert!(UniRecordType::from_value(&bad_second).is_err());
+        assert!(UniStructField::from_value(&bad_second).is_err());
+        assert!(UniStructType::from_value(&bad_second).is_err());
         let bad_third = Value::Map(vec![(Value::from(3u32), Value::from(1u32))]);
-        assert!(UniRecordField::from_value(&bad_third).is_err());
+        assert!(UniStructField::from_value(&bad_third).is_err());
     }
 
     #[test]

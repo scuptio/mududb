@@ -5,7 +5,7 @@ use mudu::error::MuduError;
 use serde::{Deserialize, Serialize};
 
 /// Optional hint pointing at the current replication leader, attached to
-/// error responses so a replica or client can reconnect to the right node.
+/// error responses so a follower or client can reconnect to the right node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LeaderHint {
     host: String,

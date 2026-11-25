@@ -2,7 +2,8 @@
 //! sync (ack wait) and the degraded sync-without-waiter path.
 
 use super::*;
-use crate::{ReplCommitRoute, WorkerXContract};
+use crate::contract::WorkerXContract;
+use crate::types::ReplCommitRoute;
 use ::catalog::repl_ctrl::{ReplAckWait, ReplControl};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -125,7 +126,7 @@ fn replica_rejects_commits() {
             apply_ends: AtomicUsize::new(0),
         });
         let contract = contract_with_ctl(Some(ctl.clone()), None).await;
-        // A KV write on a replica is rejected with a leader-hint error, and
+        // A KV write on a StreamFollower is rejected with a leader-hint error, and
         // nothing is applied or tracked.
         let err = contract
             .worker_put_async(b"k".to_vec(), b"v".to_vec())

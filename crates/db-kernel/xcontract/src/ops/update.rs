@@ -1,7 +1,12 @@
+use super::locks::acquire_statement_lock;
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::lifecycle_cluster::ensure_partition_write_open;
 use crate::utils::{
     apply_value_update_with_deltas, build_key_tuple, build_value_tuple, ensure_supported_predicate,
 };
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
 
 /// The update payload routed through `_update`: absolute `values`,
 /// expression-assignment `deltas`, and explicit NULL assignments.
@@ -9,6 +14,58 @@ struct UpdatePayload<'a> {
     values: &'a VecDatum,
     deltas: &'a [DeltaAssign],
     null_assignments: &'a [AttrIndex],
+}
+
+/// Update a row of a locally owned (or unpartitioned) partition under
+/// the statement-level write lock: read the current value, apply the
+/// update payload, and stage the result.
+#[allow(clippy::too_many_arguments)]
+async fn update_local(
+    tx_lock: &XLockMgr,
+    storage: &Arc<WorkerStorage>,
+    desc: &TableDesc,
+    tx_mgr: &Arc<dyn TxMgr>,
+    table_id: OID,
+    target_partition: Option<OID>,
+    key: Vec<u8>,
+    payload: &UpdatePayload<'_>,
+) -> RS<usize> {
+    acquire_statement_lock(
+        tx_lock,
+        tx_mgr.as_ref(),
+        PhysicalRelationId {
+            table_id,
+            partition_id: storage.physical_partition_id(target_partition),
+        },
+        key.clone(),
+    )
+    .await?;
+    let current = {
+        let _stage =
+            ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::WriteStmtRead);
+        storage
+            .get_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
+            .await?
+    };
+    let Some(current) = current else {
+        return Ok(0);
+    };
+    let updated = apply_value_update_with_deltas(
+        &current,
+        payload.values,
+        payload.deltas,
+        payload.null_assignments,
+        desc,
+    )?;
+    {
+        let _stage = ::catalog::stage_stats::StageGuard::new(
+            ::catalog::stage_stats::Stage::WriteStmtStaging,
+        );
+        storage
+            .put_on_partition(table_id, target_partition, key, updated, tx_mgr.as_ref())
+            .await
+            .map(|()| 1)
+    }
 }
 
 impl WorkerXContract {
@@ -52,6 +109,7 @@ impl WorkerXContract {
                 .await;
         }
         if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
             match self.resolve_partition_worker(partition_id).await? {
                 Some(worker_id) if worker_id != self.worker_id => {
                     return self
@@ -69,8 +127,17 @@ impl WorkerXContract {
                 _ => {}
             }
         }
-        self.update_local(&desc, &tx_mgr, table_id, target_partition, key, &payload)
-            .await
+        update_local(
+            &self.tx_lock,
+            &self.storage,
+            &desc,
+            &tx_mgr,
+            table_id,
+            target_partition,
+            key,
+            &payload,
+        )
+        .await
     }
 
     /// Update with explicit partition pinning: skips key-based routing and
@@ -96,6 +163,7 @@ impl WorkerXContract {
             null_assignments,
         };
         if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
             match self.resolve_partition_worker(partition_id).await? {
                 Some(worker_id) if worker_id != self.worker_id => {
                     return self
@@ -113,8 +181,17 @@ impl WorkerXContract {
                 _ => {}
             }
         }
-        self.update_local(&desc, &tx_mgr, table_id, target_partition, key, &payload)
-            .await
+        update_local(
+            &self.tx_lock,
+            &self.storage,
+            &desc,
+            &tx_mgr,
+            table_id,
+            target_partition,
+            key,
+            &payload,
+        )
+        .await
     }
 
     /// Stage deferred (apply-time, lock-free) delta assignments. Every
@@ -141,6 +218,7 @@ impl WorkerXContract {
         }
         let mut deferred_remote_owner = None;
         if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
             if let Some(worker_id) = self.resolve_partition_worker(partition_id).await? {
                 if worker_id != self.worker_id {
                     deferred_remote_owner = Some((partition_id, worker_id));
@@ -255,55 +333,5 @@ impl WorkerXContract {
             tx_mgr.put_relation(relation_id, key, updated);
         }
         Ok(1)
-    }
-
-    /// Update a row of a locally owned (or unpartitioned) partition under
-    /// the statement-level write lock: read the current value, apply the
-    /// update payload, and stage the result.
-    async fn update_local(
-        &self,
-        desc: &TableDesc,
-        tx_mgr: &Arc<dyn TxMgr>,
-        table_id: OID,
-        target_partition: Option<OID>,
-        key: Vec<u8>,
-        payload: &UpdatePayload<'_>,
-    ) -> RS<usize> {
-        self.acquire_statement_lock(
-            tx_mgr.as_ref(),
-            PhysicalRelationId {
-                table_id,
-                partition_id: self.storage.physical_partition_id(target_partition),
-            },
-            key.clone(),
-        )
-        .await?;
-        let current = {
-            let _stage = ::catalog::stage_stats::StageGuard::new(
-                ::catalog::stage_stats::Stage::WriteStmtRead,
-            );
-            self.storage
-                .get_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
-                .await?
-        };
-        let Some(current) = current else {
-            return Ok(0);
-        };
-        let updated = apply_value_update_with_deltas(
-            &current,
-            payload.values,
-            payload.deltas,
-            payload.null_assignments,
-            desc,
-        )?;
-        {
-            let _stage = ::catalog::stage_stats::StageGuard::new(
-                ::catalog::stage_stats::Stage::WriteStmtStaging,
-            );
-            self.storage
-                .put_on_partition(table_id, target_partition, key, updated, tx_mgr.as_ref())
-                .await
-                .map(|()| 1)
-        }
     }
 }

@@ -34,7 +34,7 @@ mod imp {
         F: FnOnce(&Arc<WorkerLocalRing>) -> RS<R>,
     {
         Err(mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             "current worker ring is not set"
         ))
     }

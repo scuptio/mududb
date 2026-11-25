@@ -1,7 +1,7 @@
-//! Unit tests for the `rust::options::Options` entity.
+//! Unit tests for the `rust::options::Options` object.
 
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::options::object::{Options, OptionsChange, columns};
@@ -22,12 +22,12 @@ fn assert_same_options(lhs: &Options, rhs: &Options) {
 
 #[test]
 fn options_lifecycle() {
-    let entity = sample_options();
-    assert_eq!(entity.option_id, "option_id_val");
-    assert_eq!(entity.option_text, "option_text_val");
+    let object = sample_options();
+    assert_eq!(object.option_id, "option_id_val");
+    assert_eq!(object.option_text, "option_text_val");
 
-    // Entity metadata
-    assert_eq!(Options::table_name(), "options");
+    // Object metadata
+    assert_eq!(Options::class_name(), "options");
     assert_eq!(Options::TABLE_NAME, "options");
     assert_eq!(Options::tuple_desc().fields().len(), 3);
     assert_eq!(Options::tuple_desc().fields()[0].name(), columns::OPTION_ID);
@@ -36,36 +36,36 @@ fn options_lifecycle() {
 
     // Datum / DatumDyn metadata
     let data_type = Options::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     let from_tuple = Options::from_tuple(&tuple).unwrap();
-    assert_same_options(&from_tuple, &entity);
+    assert_same_options(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type).unwrap();
+    let value = object.to_value(&data_type).unwrap();
     let from_value = Options::from_value(&value).unwrap();
-    assert_same_options(&from_value, &entity);
+    assert_same_options(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type).unwrap();
+    let binary = object.to_binary(&data_type).unwrap();
     let from_binary = Options::from_binary(binary.as_ref()).unwrap();
-    assert_same_options(&from_binary, &entity);
+    assert_same_options(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type).unwrap();
+    let textual = object.to_textual(&data_type).unwrap();
     let from_textual = Options::from_textual(textual.as_str()).unwrap();
-    assert_same_options(&from_textual, &entity);
+    assert_same_options(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = Options::from_value(&cloned_value).unwrap();
-    assert_same_options(&from_cloned, &entity);
+    assert_same_options(&from_cloned, &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, "option_id_val");
     assert_eq!(params.1.as_deref(), Some("vote_id_val"));
     assert_eq!(params.2, "option_text_val");
@@ -111,18 +111,18 @@ fn options_lifecycle() {
 
 #[test]
 fn options_nullable_fields_roundtrip() {
-    let entity = Options::new(
+    let object = Options::new(
         "option_id_val".to_string(),
         None,
         "option_text_val".to_string(),
     );
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     assert!(tuple.is_null(1));
     let restored = Options::from_tuple(&tuple).unwrap();
-    assert_same_options(&restored, &entity);
+    assert_same_options(&restored, &object);
 
-    let value = entity.to_tuple_value().unwrap();
+    let value = object.to_tuple_value().unwrap();
     assert!(value.values()[1].is_null());
     let restored = Options::from_tuple_value(&value).unwrap();
-    assert_same_options(&restored, &entity);
+    assert_same_options(&restored, &object);
 }

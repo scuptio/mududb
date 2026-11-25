@@ -106,6 +106,9 @@ pub(crate) async fn dispatch_frame_async(
         | MessageType::ReplSnapshotFetch
         | MessageType::ReplSnapshotResp
         | MessageType::ReplSubscribeAccept
+        | MessageType::ReplStreamPush
+        | MessageType::ReplStreamFetch
+        | MessageType::ReplStreamProgress
         | MessageType::RaftPreVoteReq
         | MessageType::RaftPreVoteResp
         | MessageType::RaftVoteReq
@@ -158,6 +161,8 @@ mod tests {
             repl_leader_hint: None,
             raft_share: None,
             archive_dir: None,
+            cluster_router: None,
+            epoch_oracle: None,
         })
         .await
         .unwrap();

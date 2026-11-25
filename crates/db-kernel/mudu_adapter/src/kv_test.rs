@@ -91,10 +91,10 @@ fn kv_async_get_put_and_range_roundtrip() -> RS<()> {
 fn ensure_session_exists_errors_when_session_missing() -> RS<()> {
     with_sqlite_db("missing_session", || {
         let err = match kv::ensure_session_exists(12345) {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(e) => e,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         Ok(())
     })
 }

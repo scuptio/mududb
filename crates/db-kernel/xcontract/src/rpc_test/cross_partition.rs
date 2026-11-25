@@ -26,6 +26,8 @@ async fn build_cross_partition_tx_ops_groups_writes_uses_default_worker() {
                 data_dir,
                 async_runtime: None,
                 server_instance_id: 0,
+                cluster_router: None,
+                epoch_oracle: None,
             })
             .unwrap();
 
@@ -94,7 +96,7 @@ async fn apply_cross_partition_ops_applies_local_writes() {
             })];
 
             contract
-                .apply_cross_partition_ops(1, participants, write_set)
+                .apply_cross_partition_ops(1, participants, write_set, None)
                 .await
                 .unwrap();
 
@@ -134,6 +136,8 @@ async fn apply_cross_partition_ops_sends_remote_request() {
                 data_dir,
                 async_runtime: None,
                 server_instance_id: 0,
+                cluster_router: None,
+                epoch_oracle: None,
             })
             .unwrap();
 
@@ -154,7 +158,7 @@ async fn apply_cross_partition_ops_sends_remote_request() {
             })];
 
             contract
-                .apply_cross_partition_ops(1, participants, write_set.clone())
+                .apply_cross_partition_ops(1, participants, write_set.clone(), None)
                 .await
                 .unwrap();
 

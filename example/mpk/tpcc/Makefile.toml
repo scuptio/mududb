@@ -10,7 +10,7 @@ PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/${TARGET}/${PR
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files",
     "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder",
@@ -49,7 +49,7 @@ command = "cargo"
 args = ["fmt", "--manifest-path", "${CARGO_MAKE_WORKING_DIRECTORY}/Cargo.toml"]
 
 # Statically check every SQL string literal in src/rust against the DDL
-# schema (see doc/dev/sql_subset.md). The procedures cover both schema
+# schema (see doc/en/sql_subset.md). The procedures cover both schema
 # variants: ddl_warehouse_partitioned.sql adds the partition-key columns,
 # ddl_dynamic.sql the tables the benchmark driver creates client-side.
 [tasks.check-sql]

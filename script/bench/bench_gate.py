@@ -21,6 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "script" / "lib"))
+from task_report import Report, add_options
+from cli import normalized_argv
 from output import cmd, error, highlight  # noqa: E402
 
 PAGED_OUTPUT = "target/bench/gate-paged"
@@ -64,12 +66,25 @@ GATES = {"paged-index": paged_index, "tpcc": tpcc}
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("benchmark", choices=sorted(GATES))
+    parser.add_argument("benchmark", choices=[*sorted(GATES), "all"])
     parser.add_argument("--update", action="store_true",
                         help="re-record the baseline instead of checking against it")
-    args = parser.parse_args(argv)
-    GATES[args.benchmark](args.update)
-    return 0
+    parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
+    add_options(parser, 'bench-smoke')
+    args = parser.parse_args(normalized_argv() if argv is None else argv)
+    if args.update or args.worker:
+        if args.benchmark == 'all':
+            parser.error('--update requires a single benchmark; baseline updates remain fail-fast')
+        GATES[args.benchmark](args.update)
+        return 0
+    report = Report(args, 'MuduDB benchmark gates')
+    for benchmark in (list(GATES) if args.benchmark == 'all' else [args.benchmark]):
+        needs = []
+        if benchmark == 'tpcc':
+            report.run('package-tpcc', ['cargo', 'make', 'package-tpcc'])
+            needs = ['package-tpcc']
+        report.run(benchmark, [sys.executable, __file__, benchmark, '--worker'], needs=needs)
+    return report.finish()
 
 
 if __name__ == "__main__":

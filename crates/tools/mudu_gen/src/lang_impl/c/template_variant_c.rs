@@ -34,7 +34,7 @@ pub struct CKindCase {
 }
 
 /// Whether a variant payload of a named type is a pointer union member.
-/// Record/variant payloads (and unregistered names, which follow the record
+/// Struct/variant payloads (and unregistered names, which follow the record
 /// assumption) are pointers; enum payloads stay by value.
 fn payload_by_pointer(ty: &UniDataType, cfg: &CodegenCfg) -> bool {
     match ty {

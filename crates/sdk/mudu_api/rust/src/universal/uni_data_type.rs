@@ -16,14 +16,14 @@ use crate::universal::mp_wire::{
     FromValue, ToValue, Value, WireError, from_array, from_option, from_tuple2, from_tuple3,
     to_array, to_option, to_tuple2, to_tuple3,
 };
-use crate::universal::uni_record_type::UniRecordType;
 use crate::universal::uni_result_type::UniResultType;
 use crate::universal::uni_scalar::UniScalar;
+use crate::universal::uni_struct_type::UniStructType;
 #[derive(Debug, Clone)]
 pub enum UniDataType {
     Scalar(UniScalar),
     Array(Box<UniDataType>),
-    Record(UniRecordType),
+    Struct(UniStructType),
     Option(Box<UniDataType>),
     Tuple(Vec<UniDataType>),
     Result(UniResultType),
@@ -67,19 +67,19 @@ impl UniDataType {
             _ => panic!("UniDataType::expect_array called on the wrong variant"),
         }
     }
-    pub fn from_record(inner: UniRecordType) -> Self {
-        Self::Record(inner)
+    pub fn from_struct(inner: UniStructType) -> Self {
+        Self::Struct(inner)
     }
-    pub fn as_record(&self) -> Option<&UniRecordType> {
+    pub fn as_struct(&self) -> Option<&UniStructType> {
         match self {
-            Self::Record(inner) => Some(inner),
+            Self::Struct(inner) => Some(inner),
             _ => None,
         }
     }
-    pub fn expect_record(&self) -> &UniRecordType {
+    pub fn expect_struct(&self) -> &UniStructType {
         match self {
-            Self::Record(inner) => inner,
-            _ => panic!("UniDataType::expect_record called on the wrong variant"),
+            Self::Struct(inner) => inner,
+            _ => panic!("UniDataType::expect_struct called on the wrong variant"),
         }
     }
     pub fn from_option(inner: Box<UniDataType>) -> Self {
@@ -169,7 +169,7 @@ impl crate::universal::mp_wire::ToValue for UniDataType {
                 crate::universal::mp_wire::Value::from(1u32),
                 (inner).to_value(),
             ]),
-            UniDataType::Record(inner) => crate::universal::mp_wire::Value::Array(vec![
+            UniDataType::Struct(inner) => crate::universal::mp_wire::Value::Array(vec![
                 crate::universal::mp_wire::Value::from(2u32),
                 (inner).to_value(),
             ]),
@@ -218,7 +218,7 @@ impl crate::universal::mp_wire::FromValue for UniDataType {
             1 => Ok(Self::Array(
                 (UniDataType::from_value(&items[1])).map(Box::new)?,
             )),
-            2 => Ok(Self::Record(UniRecordType::from_value(&items[1])?)),
+            2 => Ok(Self::Struct(UniStructType::from_value(&items[1])?)),
             3 => Ok(Self::Option(
                 (UniDataType::from_value(&items[1])).map(Box::new)?,
             )),

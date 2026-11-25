@@ -1,7 +1,7 @@
-//! Unit tests for the `generated::votes::Votes` entity.
+//! Unit tests for the `generated::votes::Votes` object.
 
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::generated::votes::object::{Votes, VotesChange, columns};
@@ -30,50 +30,50 @@ fn assert_same_votes(lhs: &Votes, rhs: &Votes) {
 
 #[test]
 fn votes_lifecycle() {
-    let entity = sample_votes();
-    assert_eq!(entity.vote_id, "vote_id_val");
-    assert_eq!(entity.topic, "topic_val");
-    assert_eq!(entity.end_time, 1);
+    let object = sample_votes();
+    assert_eq!(object.vote_id, "vote_id_val");
+    assert_eq!(object.topic, "topic_val");
+    assert_eq!(object.end_time, 1);
 
-    // Entity metadata
-    assert_eq!(Votes::table_name(), "votes");
+    // Object metadata
+    assert_eq!(Votes::class_name(), "votes");
     assert_eq!(Votes::TABLE_NAME, "votes");
     assert_eq!(Votes::tuple_desc().fields().len(), 7);
 
     // Datum / DatumDyn metadata
     let data_type = Votes::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     let from_tuple = Votes::from_tuple(&tuple).unwrap();
-    assert_same_votes(&from_tuple, &entity);
+    assert_same_votes(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type).unwrap();
+    let value = object.to_value(&data_type).unwrap();
     let from_value = Votes::from_value(&value).unwrap();
-    assert_same_votes(&from_value, &entity);
+    assert_same_votes(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type).unwrap();
+    let binary = object.to_binary(&data_type).unwrap();
     let from_binary = Votes::from_binary(binary.as_ref()).unwrap();
-    assert_same_votes(&from_binary, &entity);
+    assert_same_votes(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type).unwrap();
+    let textual = object.to_textual(&data_type).unwrap();
     let from_textual = Votes::from_textual(textual.as_str()).unwrap();
-    assert_same_votes(&from_textual, &entity);
+    assert_same_votes(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = Votes::from_value(&cloned_value).unwrap();
-    assert_same_votes(&from_cloned, &entity);
+    assert_same_votes(&from_cloned, &object);
 }
 
 #[test]
 fn votes_nullable_fields_roundtrip() {
-    let entity = Votes::new(
+    let object = Votes::new(
         "vote_id_val".to_string(),
         None,
         "topic_val".to_string(),
@@ -82,21 +82,21 @@ fn votes_nullable_fields_roundtrip() {
         1,
         None,
     );
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     assert!(tuple.is_null(1));
     let restored = Votes::from_tuple(&tuple).unwrap();
-    assert_same_votes(&restored, &entity);
+    assert_same_votes(&restored, &object);
 
-    let value = entity.to_tuple_value().unwrap();
+    let value = object.to_tuple_value().unwrap();
     assert!(value.values()[1].is_null());
     let restored = Votes::from_tuple_value(&value).unwrap();
-    assert_same_votes(&restored, &entity);
+    assert_same_votes(&restored, &object);
 }
 
 #[test]
 fn votes_insert_params_and_change() {
-    let entity = sample_votes();
-    let params = entity.insert_params();
+    let object = sample_votes();
+    let params = object.insert_params();
     assert_eq!(params.0, "vote_id_val");
     assert_eq!(params.1.as_deref(), Some("creator_id_val"));
     assert_eq!(params.2, "topic_val");

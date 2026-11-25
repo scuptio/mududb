@@ -1,17 +1,18 @@
 #![allow(clippy::unwrap_used)]
 
+use crate::contract::schema_class::SchemaClass;
 use crate::contract::schema_column::SchemaColumn;
-use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_info::TableInfo;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 
 fn make_col(name: &str, ty: TypeFamily) -> SchemaColumn {
     SchemaColumn::new(name.to_string(), ty, DataType::new_no_param(ty).to_info())
 }
 
-fn sample_table() -> SchemaTable {
-    SchemaTable::new(
+fn sample_table() -> SchemaClass {
+    SchemaClass::new(
         "desc_t".to_string(),
         vec![
             make_col("k1", TypeFamily::I32),

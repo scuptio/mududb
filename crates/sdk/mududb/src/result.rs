@@ -1,7 +1,7 @@
 //! Canonical guest facade `mududb.result`: row-based query results.
 //!
 //! Mirrors the cross-language canonical surface
-//! (`doc/dev/binding_api_surface.md`): the AssemblyScript `ResultSet`/`Row`
+//! (`doc/en/binding_api_surface.md`): the AssemblyScript `ResultSet`/`Row`
 //! semantics exactly — the cursor starts before the first row, `next()`
 //! advances it, and `current_row()` is valid only after a successful
 //! `next()`. The host drains all rows into the first query response, so

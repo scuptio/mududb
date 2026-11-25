@@ -4,7 +4,7 @@ use super::{ParseContext, WitParser, expected_get_filed};
 use crate::src_gen::wit_def::WitFuncDef;
 use crate::ts_const;
 use mudu::common::result::RS;
-use mudu_binding::universal::uni_def::RecordField;
+use mudu_binding::universal::uni_def::StructField;
 use tree_sitter::Node;
 
 impl WitParser {
@@ -38,7 +38,7 @@ impl WitParser {
         &self,
         context: &ParseContext,
         node: &Node,
-    ) -> RS<(Vec<RecordField>, Vec<RecordField>)> {
+    ) -> RS<(Vec<StructField>, Vec<StructField>)> {
         let mut params = Vec::new();
         let mut returns = Vec::new();
         let mut cursor = node.walk();
@@ -56,7 +56,7 @@ impl WitParser {
         Ok((params, returns))
     }
 
-    fn visit_param_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<RecordField>> {
+    fn visit_param_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<StructField>> {
         let mut fields = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -67,13 +67,13 @@ impl WitParser {
         Ok(fields)
     }
 
-    fn visit_result_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<RecordField>> {
+    fn visit_result_list(&self, context: &ParseContext, node: &Node) -> RS<Vec<StructField>> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
                 ts_const::ts_kind_name::S_TY => {
                     let ty = self.visit_type(context, &child)?;
-                    return Ok(vec![RecordField::new(String::new(), String::new(), ty)]);
+                    return Ok(vec![StructField::new(String::new(), String::new(), ty)]);
                 }
                 ts_const::ts_kind_name::S__NAMED_TYPE_LIST => {
                     let mut fields = Vec::new();
@@ -91,11 +91,11 @@ impl WitParser {
         Ok(Vec::new())
     }
 
-    fn visit_named_type(&self, context: &ParseContext, node: &Node) -> RS<RecordField> {
+    fn visit_named_type(&self, context: &ParseContext, node: &Node) -> RS<StructField> {
         let name_node = expected_get_filed(node, ts_const::ts_field_name::NAME)?;
         let name = context.text_of_node(&name_node)?;
         let type_node = expected_get_filed(node, ts_const::ts_field_name::TYPE)?;
         let ty = self.visit_type(context, &type_node)?;
-        Ok(RecordField::new(String::new(), name, ty))
+        Ok(StructField::new(String::new(), name, ty))
     }
 }

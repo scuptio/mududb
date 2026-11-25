@@ -1,74 +1,17 @@
 //! Server backends: the Linux `io_uring` worker loop and the portable Tokio
 //! TCP worker loop, together with their supporting drivers.
 
-use crate::async_func_runtime::AsyncFuncInvokerPtr;
-use crate::async_func_task::HandleResult;
-use mudu_sys::contract::async_io_provider::AsyncIoProvider;
-
-use crate::frame_dispatch::{dispatch_frame_async, try_decode_next_frame};
-use crate::fs_gc::FS_GC_INTERVAL;
-use crate::server_cfg::ReplMode;
-use crate::server_cfg::ReplNodeCfg;
-use crate::server_cfg::ReplRole;
-use crate::worker::{
-    adopt_worker_listener, flush_worker_dirty_pages, WorkerRuntime, WorkerRuntimeParams,
-};
-use crate::worker::{as_worker_local_ref, new_session_bound_worker_runtime};
-use crate::worker_channel_state::{IncomingDispatch, WorkerChannelState};
-use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
-use ::catalog::repl_ctrl::RaftShareView;
-use ::conn::worker_local::{set_current_worker_local, unset_current_worker_local};
-use ::repl::ctl::{ReplAckWaiter, ReplModeCtl};
-use ::repl::{
-    new_commit_sequencer, raft_for, register_repl_worker, repl_worker, run_commit_sequencer,
-    run_repl_applier, run_repl_sink, spawn_repl_source, start_raft_service, unregister_repl_worker,
-    ReplWorkerHandle, SinkDriver, StagingStore,
-};
-use ::wal::worker_log::{scan_valid_frame_prefix, ChunkedWorkerLogBackend, WorkerLogBackend};
-use ::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
-use ::wal::xl_batch::decode_xl_batches_with_pending;
-use ::xcontract::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
-use async_trait::async_trait;
-use crossbeam_queue::SegQueue;
-use mudu::channel::{
-    DeliveryMode, EndpointId, Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter,
-    ReplyStatus, ServerInstanceId,
-};
-use mudu_utils::channel::{
-    channel_for, channel_now_ms, set_current_channel, spawn_endpoint, unset_current_channel,
-    ChannelEndpoint, ChannelEndpointRef, EndpointGuard, KindHandler,
-};
-
-use mudu::common::id::OID;
+use crate::server_launch::ServerLaunch;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_contract::protocol::{encode_merror_response, LeaderHint};
-use mudu_sys::default_sys_io_context;
-use mudu_sys::net::{AsyncTcpListener, AsyncTcpStream};
-use mudu_sys::sync::async_::stop_flag::{stop_channel, StopRx, StopTx};
-use mudu_sys::tokio;
-use mudu_sys::tokio::io::{AsyncReadExt, AsyncWriteExt};
-use mudu_sys::tokio::sync::Notify;
-use mudu_utils::notifier::{notify_wait, Notifier, Waiter};
-use mudu_utils::scoped_task_trace;
-use mudu_utils::task_async::{
-    build_current_thread_runtime, spawn_local_detached, spawn_local_task, CurrentThreadTaskRuntime,
-};
-
-use mudu_sys::net::sync::StdTcpListener;
-use mudu_sys::sync::SMutex;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
-use std::sync::{atomic::AtomicBool, Arc};
-use std::time::Duration;
-
-use crate::server_launch::{ServerLaunch, WorkerTcpBackendConfig};
+use mudu_sys::sync::async_::stop_flag::{stop_channel, StopTx};
 use mudu_sys::task::sync::SJoinHandle;
-
-use tracing::{error, trace, warn};
+use mudu_utils::notifier::{notify_wait, Notifier, Waiter};
+use mudu_utils::task_async::build_current_thread_runtime;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tracing::trace;
 
 use self::serve::sync_serve_tokio;
 
@@ -145,6 +88,7 @@ impl WorkerTcpBackend {
         stop: Waiter,
         ready: Option<Notifier>,
     ) -> RS<()> {
+        snapshot_recovery::recover(&cfg)?;
         #[cfg(target_os = "linux")]
         {
             crate::server_iouring::sync_serve_iouring(cfg, stop, ready)
@@ -174,6 +118,7 @@ impl TokioTcpBackend {
         stop: Waiter,
         ready: Option<Notifier>,
     ) -> RS<()> {
+        snapshot_recovery::recover(&cfg)?;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let service_ready = Arc::new(AtomicBool::new(false));
         let (stop_tx, stop_rx) = stop_channel();
@@ -185,12 +130,31 @@ impl TokioTcpBackend {
             stop_tx,
         )?;
         let result = sync_serve_tokio(cfg, stop_flag, stop_rx, service_ready, ready);
+        if let Err(error) = &result {
+            // The stop bridge parks the outcome until shutdown; log it now so
+            // an early startup failure is not invisible for the whole wait.
+            tracing::error!("tokio backend serve returned early: {error}");
+        }
         wait_stop_bridge("tokio-stop-bridge", notifier)?;
         result
     }
 }
 
+/// Static cluster directory (node-local view of the cluster topology).
+pub mod cluster_directory;
+/// Cluster data-plane transport (inter-node channel backend).
+pub mod cluster_transport;
+/// Data-plane control client (phase 2: subscribes to the committed control
+/// state without joining the control Raft group).
+pub mod control_client;
+/// Unified control-plane node wiring (one merged control Raft group, catalog
+/// and epoch streams, client face, epoch reporter).
+pub mod control_plane_node;
+/// Production stream transport of the control plane over the cluster channel.
+pub(crate) mod control_plane_transport;
 mod drivers;
+/// Node-level catalog applier of the control plane (catalog + placement overlay).
+pub(crate) mod meta_apply;
 mod repl_setup;
 mod serve;
 pub(crate) mod worker_channel;
@@ -198,3 +162,5 @@ mod worker_loop;
 
 #[cfg(test)]
 mod tests;
+
+mod snapshot_recovery;

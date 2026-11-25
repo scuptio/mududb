@@ -11,13 +11,22 @@ use std::sync::Arc;
 pub struct DropFsType {
     param: PDropType,
     meta_mgr: Arc<dyn MetaMgr>,
+    meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
 }
 
 impl DropFsType {
     /// Creates an executor for the drop-filesystem-type command `param`,
     /// reading and writing the filesystem-type catalog through `meta_mgr`.
-    pub fn new(param: PDropType, meta_mgr: Arc<dyn MetaMgr>) -> Self {
-        Self { param, meta_mgr }
+    pub fn new(
+        param: PDropType,
+        meta_mgr: Arc<dyn MetaMgr>,
+        meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
+    ) -> Self {
+        Self {
+            param,
+            meta_mgr,
+            meta_group,
+        }
     }
 }
 
@@ -31,7 +40,7 @@ impl CmdExec for DropFsType {
             .is_none()
         {
             return Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such filesystem type {}", self.param.name)
             ));
         }
@@ -40,6 +49,13 @@ impl CmdExec for DropFsType {
 
     async fn run(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
+        if let Some(meta_group) = &self.meta_group {
+            return meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::DropFsType {
+                    name: self.param.name.clone(),
+                })
+                .await;
+        }
         self.meta_mgr.drop_fs_type(&self.param.name).await
     }
 

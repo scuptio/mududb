@@ -16,6 +16,7 @@ macro_rules! this_file {
     };
 }
 
+#[doc(hidden)]
 /// Implementation backing the [`this_file!`](crate::this_file!) macro.
 ///
 /// Resolves the `file!()` path reported by `rustc` to an absolute path under
@@ -62,6 +63,27 @@ pub fn __this_file(file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::__this_file;
+
+    #[test]
+    fn absolute_path_is_preserved_even_when_missing() {
+        let absolute =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("__missing_coverage_source__.rs");
+        let absolute = absolute.to_str().unwrap();
+        assert_eq!(__this_file(absolute), absolute);
+    }
+
+    #[test]
+    fn missing_relative_source_resolves_from_project_marker() {
+        let relative = "__missing_coverage_source__/new.rs";
+        let mut root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        while !root.join(".project.home").exists() {
+            assert!(root.pop(), "repository marker must exist");
+        }
+        assert_eq!(
+            std::path::PathBuf::from(__this_file(relative)),
+            root.join(relative)
+        );
+    }
 
     #[test]
     fn this_file_is_non_empty() {

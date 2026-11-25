@@ -654,3 +654,42 @@ fn apply_req_stub_gets_resume_hint() {
     c.tick(1, 2);
     assert_eq!(c.committed_indices(3), vec![1, 2, 3, 4, 5, 6]);
 }
+
+/// Builds an entry of approximately `bytes` serialized size (each
+/// per-worker commit record is 48 bytes plus framing overhead).
+pub(crate) fn big_entry(bytes: usize) -> ReplEntry {
+    ReplEntry::CommitVec {
+        term: 1,
+        per_worker: vec![(0, 0, [0u8; 32]); bytes / 48],
+    }
+}
+
+#[test]
+fn committed_replay_bounds_count_and_owned_entry_bytes() {
+    let mut cluster = CoreCluster::new(&[1]);
+    cluster.tick(1, 6);
+    let core = cluster.cores.get_mut(&1).unwrap();
+    let mut fx = Effects::default();
+    for _ in 0..3 {
+        assert!(matches!(
+            core.step_propose(big_entry(3 * 1024 * 1024), &mut fx),
+            ProposeOutcome::Accepted { .. }
+        ));
+    }
+    let first = core.read_committed(0, 256);
+    assert_eq!(first.entries.len(), 1);
+    assert_eq!(first.entries[0].0.index, 1);
+    assert_eq!(core.read_committed(1, 256).entries[0].0.index, 2);
+    assert_eq!(core.read_committed(2, 1).entries[0].0.index, 3);
+    assert!(core.read_committed(3, 256).entries.is_empty());
+    let mut fx = Effects::default();
+    core.step_propose(big_entry(crate::MAX_REPLAY_BYTES + 1), &mut fx);
+    assert_eq!(core.read_committed(3, 256).entries.len(), 1);
+    for _ in 0..300 {
+        core.step_propose(ReplEntry::Barrier { term: 1 }, &mut fx);
+    }
+    let page = core.read_committed(4, usize::MAX);
+    assert_eq!(page.entries.len(), 256);
+    assert_eq!(page.entries[0].0.index, 5);
+    assert_eq!(core.read_committed(260, usize::MAX).entries.len(), 44);
+}

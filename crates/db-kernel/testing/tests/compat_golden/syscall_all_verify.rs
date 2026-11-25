@@ -78,8 +78,8 @@ fn verify_query(segments: &[&[u8]]) {
         "query request re-encode"
     );
     let result = decode_query_result(segments[1]).expect("decode query result");
-    assert_eq!(result.tuple_desc.record_name, "");
-    assert!(result.tuple_desc.record_fields.is_empty());
+    assert_eq!(result.tuple_desc.struct_name, "");
+    assert!(result.tuple_desc.struct_fields.is_empty());
     assert!(!result.result_set.eof);
     assert!(result.result_set.row_set.is_empty());
     assert!(result.result_set.cursor.is_empty());

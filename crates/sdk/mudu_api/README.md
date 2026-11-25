@@ -21,5 +21,5 @@ Python).
 
 Both sub-bindings are generated from the shared WIT source of truth in
 [`../../common/mudu_binding/wit/`](../../common/mudu_binding/wit/); see
-[doc/dev/binding_api_surface.md](../../../doc/dev/binding_api_surface.md)
+[doc/en/binding_api_surface.md](../../../doc/en/binding_api_surface.md)
 for the canonical cross-language API surface.

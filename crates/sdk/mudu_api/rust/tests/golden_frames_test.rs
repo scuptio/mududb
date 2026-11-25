@@ -170,8 +170,8 @@ fn verify_query_frames(segments: &[&[u8]]) {
     );
     match mudu_sys::deserialize_query_result(segments[1]).unwrap() {
         UniQueryReturn::Ok(result) => {
-            assert_eq!(result.tuple_desc.record_name, "");
-            assert!(result.tuple_desc.record_fields.is_empty());
+            assert_eq!(result.tuple_desc.struct_name, "");
+            assert!(result.tuple_desc.struct_fields.is_empty());
             assert!(!result.result_set.eof);
             assert!(result.result_set.row_set.is_empty());
             assert!(result.result_set.cursor.is_empty());

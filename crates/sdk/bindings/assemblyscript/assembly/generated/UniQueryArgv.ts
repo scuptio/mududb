@@ -6,7 +6,7 @@ import { UniSqlStmt, UniSqlStmtCodec } from "./UniSqlStmt";
 
 import { UniSqlParam, UniSqlParamCodec } from "./UniSqlParam";
 
-import { UniRecordType, UniRecordTypeCodec } from "./UniRecordType";
+import { UniStructType, UniStructTypeCodec } from "./UniStructType";
 
 import { MpackWriter, MpackReader } from "../mpack";
 
@@ -25,7 +25,7 @@ export class UniQueryArgv {
     param_list: UniSqlParam = new UniSqlParam();
     
     
-    param_desc: UniRecordType | null = null;
+    param_desc: UniStructType | null = null;
     
 }
 
@@ -58,7 +58,7 @@ export class UniQueryArgvCodec {
             if (opt === null) {
                 writer.writeNil();
             } else {
-                UniRecordTypeCodec.encode(opt, writer);
+                UniStructTypeCodec.encode(opt, writer);
             }
         }
         }
@@ -86,7 +86,7 @@ export class UniQueryArgvCodec {
                 if (reader.tryNil()) {
                     value.param_desc = null;
                 } else {
-                    value.param_desc = UniRecordTypeCodec.decode(reader);
+                    value.param_desc = UniStructTypeCodec.decode(reader);
                 }
             } else {
                 reader.skipValue();

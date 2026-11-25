@@ -4,8 +4,8 @@ use crate::contract::app_schema::DEFAULT_SCHEMA;
 use crate::contract::meta_mgr::MetaMgr;
 use crate::contract::partition_rule::PartitionRuleDesc;
 use crate::contract::partition_rule_binding::TablePartitionBinding;
+use crate::contract::schema_class::SchemaClass;
 use crate::contract::schema_column::SchemaColumn;
-use crate::contract::schema_table::SchemaTable;
 use crate::contract::table_desc::TableDesc;
 use crate::contract::table_info::TableInfo;
 use async_trait::async_trait;
@@ -15,7 +15,6 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,7 +42,7 @@ impl MetaMgr for StubMetaMgr {
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         self.tables.lock()?.get(&oid).cloned().ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("table {} not found", oid)
             )
         })
@@ -57,7 +56,7 @@ impl MetaMgr for StubMetaMgr {
         }
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         let desc = TableInfo::new(schema.clone())?.table_desc()?;
         let mut tables = self.tables.lock()?;
         let mut by_name = self.tables_by_name.lock()?;
@@ -69,7 +68,7 @@ impl MetaMgr for StubMetaMgr {
     async fn drop_table(&self, table_id: OID) -> RS<()> {
         let desc = self.tables.lock()?.remove(&table_id).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("table {} not found", table_id)
             )
         })?;
@@ -78,14 +77,14 @@ impl MetaMgr for StubMetaMgr {
     }
 }
 
-fn sample_schema(name: &str, oid: OID) -> SchemaTable {
+fn sample_schema(name: &str, oid: OID) -> SchemaClass {
     let column = SchemaColumn::new_with_oid(
         gen_oid(),
         "c1".to_string(),
         TypeFamily::I64,
-        DataTypeInfo::from_opt_object(&DataType::new_no_param(TypeFamily::I64)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::new_no_param(TypeFamily::I64)),
     );
-    SchemaTable::new_with_oid(oid, name.to_string(), vec![column], vec![0], vec![])
+    SchemaClass::new_with_oid(oid, name.to_string(), vec![column], vec![0], vec![])
 }
 
 fn gen_oid() -> OID {
@@ -101,11 +100,11 @@ fn meta_mgr_create_partition_rule_returns_not_implemented() {
 }
 
 #[test]
-fn meta_mgr_get_partition_rule_by_id_returns_entity_not_found_with_oid() {
+fn meta_mgr_get_partition_rule_by_id_returns_object_not_found_with_oid() {
     let mgr = StubMetaMgr::new();
     let oid = gen_oid();
     let err = futures::executor::block_on(mgr.get_partition_rule_by_id(oid)).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     assert!(err.message().contains(&oid.to_string()));
 }
 

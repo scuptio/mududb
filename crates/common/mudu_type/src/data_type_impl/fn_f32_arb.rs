@@ -1,6 +1,7 @@
 use crate::data_type::DataType;
 use crate::data_type_fn_arbitrary::FnArbitrary;
 use crate::data_value::DataValue;
+use crate::datum::data_value_from_datum;
 use crate::type_family::TypeFamily;
 use arbitrary::{Arbitrary, Unstructured};
 
@@ -10,7 +11,7 @@ fn arb_finite_f32(u: &mut Unstructured) -> arbitrary::Result<f32> {
 }
 
 pub fn fn_f32_arb_val(u: &mut Unstructured, data_type: &DataType) -> arbitrary::Result<DataValue> {
-    DataValue::from_datum(arb_finite_f32(u)?, data_type)
+    data_value_from_datum(arb_finite_f32(u)?, data_type)
         .map_err(|_| arbitrary::Error::IncorrectFormat)
 }
 

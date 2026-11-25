@@ -2,8 +2,8 @@
 
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use crate::src_gen::wit_def::WitFuncDef;
-use mudu_binding::table::table_def::TableDef;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
+use mudu_binding::table::class_def::ClassDef;
+use mudu_binding::universal::uni_def::{UniClassDef, UniEnumDef, UniStructDef, UniVariantDef};
 
 /// A single top-level element inside an `AbstractTemplate`.
 pub enum TemplateKind {
@@ -11,12 +11,12 @@ pub enum TemplateKind {
     Enum((UniEnumDef, CodegenCfg)),
     /// Variant definition and its generation config.
     Variant((UniVariantDef, CodegenCfg)),
-    /// Record definition and its generation config.
-    Record((UniRecordDef, CodegenCfg)),
+    /// Struct definition and its generation config.
+    Struct((UniStructDef, CodegenCfg)),
     /// Table definition and its generation config.
-    Table((UniTableDef, CodegenCfg)),
-    /// Entity derived from a SQL table definition.
-    Entity(TableDef),
+    Table((UniClassDef, CodegenCfg)),
+    /// Object derived from a SQL table definition.
+    Object(ClassDef),
     /// Shared MSSP frame codec preamble (message kinds plus frame helpers)
     /// for all functions of one WIT file.
     FuncHeader((Vec<WitFuncDef>, CodegenCfg)),

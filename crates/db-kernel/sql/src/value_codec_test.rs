@@ -325,6 +325,7 @@ mod temporal_literal_tests {
     use mudu_type::data_type_param_timestamptz::DataTypeParamTimestampTz;
     use mudu_type::data_typed::DataTyped;
     use mudu_type::type_family::TypeFamily;
+    use mudu_type::type_family_ext::TypeFamilyExt;
     use sql_parser::ast::expr_literal::ExprLiteral;
 
     fn string_literal(text: &str) -> ExprLiteral {

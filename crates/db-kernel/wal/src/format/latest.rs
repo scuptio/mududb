@@ -29,7 +29,7 @@ const _: () = assert!(LOG_FRAME_HEADER_SIZE == 24 && LOG_FRAME_TAILER_SIZE == 8)
 
 /// Header of one log frame.
 ///
-/// Records the frame's LSN, its payload size, and how many further frames
+/// Structs the frame's LSN, its payload size, and how many further frames
 /// (`n_part`) belong to the same multi-part entry.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct LogFrameHeader {

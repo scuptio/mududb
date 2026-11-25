@@ -3,7 +3,7 @@
 //! opener's worker thread; the public shell reaches it through a mailbox.
 
 use super::io::remove_file_if_exists_async;
-use super::{page_id_from_raw, raw_page_id, TimeSeriesFileIdentity};
+use super::{page_id_from_raw, raw_page_id, TimeSeriesFileIdobject};
 use crate::page::page_block_ref::PAGE_SIZE;
 use crate::page::PageId;
 use ::wal::pl_batch::{new_pl_batch_writer, PLBatch};
@@ -63,7 +63,7 @@ pub(in crate::time_series) struct TsFileInner {
     // Relation-owned files carry a stable identity and a dedicated PL backend.
     // Standalone test files leave both fields as `None`.
     pub(super) fs: Option<Arc<dyn AsyncFs>>,
-    pub(super) identity: Option<TimeSeriesFileIdentity>,
+    pub(super) identity: Option<TimeSeriesFileIdobject>,
     pub(super) path: PathBuf,
     pub(super) file: SysFile,
     pub(super) wal_backend: Option<ChunkedWorkerLogBackend>,
@@ -95,7 +95,7 @@ impl TsFileInner {
     pub(super) fn new(
         fs: Option<Arc<dyn AsyncFs>>,
         path: PathBuf,
-        identity: Option<TimeSeriesFileIdentity>,
+        identity: Option<TimeSeriesFileIdobject>,
         wal_backend: Option<ChunkedWorkerLogBackend>,
         file: Arc<dyn AsyncFile>,
         page_count: PageId,
@@ -156,7 +156,7 @@ impl TsFileInner {
         self.buffer.dirty_count()
     }
 
-    /// Identity and recovered WAL extent used to reject stale rebuildable indexes.
+    /// Idobject and recovered WAL extent used to reject stale rebuildable indexes.
     pub(super) fn index_cache_stamp(&self) -> Vec<u64> {
         let (table, partition) = self
             .identity
@@ -236,7 +236,7 @@ impl TsFileInner {
         Ok(())
     }
 
-    /// Records why the file was poisoned; the first cause sticks.
+    /// Structs why the file was poisoned; the first cause sticks.
     pub(super) fn poison(&self, cause: String) {
         let mut slot = self.poisoned.borrow_mut();
         if slot.is_none() {

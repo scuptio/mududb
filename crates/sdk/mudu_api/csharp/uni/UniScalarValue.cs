@@ -773,7 +773,7 @@ public class UniScalarValueNull : UniScalarValue
 public class UniScalarValueFormatter : IMessagePackFormatter<UniScalarValue?>
 {
     /// The proto3-style default instance of the variant: the first declared
-    /// case carrying its own default payload. Record fields of this variant
+    /// case carrying its own default payload. Struct fields of this variant
     /// type initialize to this value, so a field missing from the wire map
     /// decodes to the default case instead of null.
     public static UniScalarValue DefaultInstance()

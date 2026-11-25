@@ -13,7 +13,7 @@ lazy_static! {
 /// Per-task tracing context registered in a process-wide registry keyed by
 /// [`TaskID`].
 ///
-/// Records the task name, its kind, a stack of async source locations, a
+/// Structs the task name, its kind, a stack of async source locations, a
 /// stack of thread backtraces, and arbitrary watched key/value pairs; all of
 /// it is rendered by [`TaskContext::backtrace`].
 pub struct TaskContext {
@@ -137,7 +137,7 @@ impl TaskContext {
         self.parent_thread
     }
 
-    /// Records or replaces a watched key/value pair.
+    /// Structs or replaces a watched key/value pair.
     #[expect(
         clippy::unwrap_used,
         reason = "mutex poisoning indicates a logic bug in task context ownership"

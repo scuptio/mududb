@@ -71,7 +71,7 @@ where
     let session_ref = {
         let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })?;
@@ -91,7 +91,7 @@ async fn async_session(session_id: OID) -> RS<Arc<AMutex<AsyncMududSession>>> {
         .cloned()
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })

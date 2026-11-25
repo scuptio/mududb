@@ -26,7 +26,7 @@ fn cleanup_mgr(app_name: &String) {
 #[cfg_attr(miri, ignore)]
 fn from_sql_text_single_table() {
     let mgr = SchemaMgr::from_sql_text("CREATE TABLE t (id INT PRIMARY KEY, name TEXT);").unwrap();
-    let names = mgr.table_names();
+    let names = mgr.class_names();
     assert!(names.contains(&"t".to_string()));
     assert!(mgr.get(&"t".to_string()).unwrap().is_some());
 }
@@ -38,7 +38,7 @@ fn from_sql_text_multiple_tables() {
         "CREATE TABLE t1 (id INT PRIMARY KEY); CREATE TABLE t2 (id INT PRIMARY KEY);",
     )
     .unwrap();
-    let names = mgr.table_names();
+    let names = mgr.class_names();
     assert!(names.contains(&"t1".to_string()));
     assert!(names.contains(&"t2".to_string()));
 }
@@ -50,7 +50,7 @@ fn from_sql_text_ignores_non_ddl() {
         "INSERT INTO dummy VALUES (1); CREATE TABLE t (id INT PRIMARY KEY, name TEXT);",
     )
     .unwrap();
-    let names = mgr.table_names();
+    let names = mgr.class_names();
     assert_eq!(names, vec!["t".to_string()]);
 }
 
@@ -58,7 +58,7 @@ fn from_sql_text_ignores_non_ddl() {
 #[cfg_attr(miri, ignore)]
 fn from_sql_text_empty_returns_empty_mgr() {
     let mgr = SchemaMgr::from_sql_text("").unwrap();
-    assert!(mgr.table_names().is_empty());
+    assert!(mgr.class_names().is_empty());
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn load_from_ddl_path_reads_only_sql_files() {
 
     let path = dir.to_str().unwrap().to_string();
     let mgr = SchemaMgr::load_from_ddl_path(&path).unwrap();
-    let names = mgr.table_names();
+    let names = mgr.class_names();
     assert!(names.contains(&"a".to_string()));
     assert!(names.contains(&"b".to_string()));
     assert!(!names.contains(&"c".to_string()));
@@ -113,7 +113,7 @@ fn load_from_ddl_path_merges_multiple_files() {
 
     let path = dir.to_str().unwrap().to_string();
     let mgr = SchemaMgr::load_from_ddl_path(&path).unwrap();
-    let names = mgr.table_names();
+    let names = mgr.class_names();
     assert!(names.contains(&"x".to_string()));
     assert!(names.contains(&"y".to_string()));
 }

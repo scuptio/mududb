@@ -3,11 +3,11 @@
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
 use crate::lang_impl::lang::render::Render;
 use crate::lang_impl::lang::template_kind::TemplateKind;
-use crate::lang_impl::python::template_entity_py::TemplateEntityPy;
 use crate::lang_impl::python::template_enum_py::TemplateEnumPy;
 use crate::lang_impl::python::template_file_py::{FileInfoPy, TemplateFilePy};
 use crate::lang_impl::python::template_func_py::{TemplateFuncHeaderPy, TemplateFuncPy};
-use crate::lang_impl::python::template_record_py::TemplateRecordPy;
+use crate::lang_impl::python::template_object_py::TemplateObjectPy;
+use crate::lang_impl::python::template_struct_py::TemplateStructPy;
 use crate::lang_impl::python::template_variant_py::TemplateVariantPy;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use crate::src_gen::wit_def::WitFuncDef;
@@ -16,8 +16,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
-use mudu_binding::table::table_def::TableDef;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
+use mudu_binding::table::class_def::ClassDef;
+use mudu_binding::universal::uni_def::{UniEnumDef, UniStructDef, UniVariantDef};
 use std::sync::Arc;
 
 /// Create a Python renderer.
@@ -29,10 +29,10 @@ struct RenderPy {}
 
 impl Render for RenderPy {
     fn render(&self, template: AbstractTemplate) -> RS<String> {
-        // An entity module is self-contained (it imports the `mududb` guest
+        // An object module is self-contained (it imports the `mududb` guest
         // facade directly), so it bypasses the mpack-prelude file wrapper.
-        if let [TemplateKind::Entity(entity)] = template.elements.as_slice() {
-            return Self::render_entity_py(entity);
+        if let [TemplateKind::Object(object)] = template.elements.as_slice() {
+            return Self::render_object_py(object);
         }
         // Each WIT `use a:b/c-d/c-d` item maps to an import of the generated
         // sibling module named after the type (snake_case of the last
@@ -89,8 +89,8 @@ impl RenderPy {
             let s = match element {
                 TemplateKind::Enum((def, cfg)) => Self::render_enum_py(def, cfg)?,
                 TemplateKind::Variant((def, cfg)) => Self::render_variant_py(def, cfg)?,
-                TemplateKind::Record((def, cfg)) => Self::render_record_py(def, cfg)?,
-                TemplateKind::Entity(entity) => Self::render_entity_py(&entity)?,
+                TemplateKind::Struct((def, cfg)) => Self::render_record_py(def, cfg)?,
+                TemplateKind::Object(object) => Self::render_object_py(&object)?,
                 TemplateKind::Table(_) => {
                     return Err(mudu_error!(
                         ErrorCode::NotImplemented,
@@ -105,8 +105,8 @@ impl RenderPy {
         Ok(code_blocks)
     }
 
-    fn render_record_py(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
-        let template = TemplateRecordPy::from(def, cfg)?;
+    fn render_record_py(def: UniStructDef, cfg: CodegenCfg) -> RS<String> {
+        let template = TemplateStructPy::from(def, cfg)?;
         Self::render_template(template, "record")
     }
 
@@ -120,9 +120,9 @@ impl RenderPy {
         Self::render_template(template, "enum")
     }
 
-    fn render_entity_py(table_schema: &TableDef) -> RS<String> {
-        let template = TemplateEntityPy::from_table_schema(table_schema)?;
-        Self::render_template(template, "entity")
+    fn render_object_py(table_schema: &ClassDef) -> RS<String> {
+        let template = TemplateObjectPy::from_table_schema(table_schema)?;
+        Self::render_template(template, "object")
     }
 
     fn render_func_header_py(funcs: Vec<WitFuncDef>, cfg: CodegenCfg) -> RS<String> {

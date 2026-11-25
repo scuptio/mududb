@@ -478,7 +478,7 @@ fn repo_root() -> RS<PathBuf> {
         }
     }
     Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::EntityNotFound,
+        mudu::error::ErrorCode::ObjectNotFound,
         format!(
             "no .project.home anchor found above {}",
             manifest_dir.display()
@@ -533,7 +533,7 @@ fn ensure_mudud_binary() -> RS<PathBuf> {
         Ok(path)
     } else {
         Err(mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("mudud binary still missing after build: {}", path.display())
         ))
     }

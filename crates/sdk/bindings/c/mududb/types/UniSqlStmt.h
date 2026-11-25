@@ -42,7 +42,7 @@ MP_INLINE void uni_sql_stmt_encode(mp_writer *w, const uni_sql_stmt *value) {
     mpw_str(w, (value->sql_string).data, (value->sql_string).len);
 }
 
-/* Decode one record into `out`, borrowing nothing from the input: every
+/* Decode one struct into `out`, borrowing nothing from the input: every
  * string, blob, array and boxed value is copied into `a`. Lenient: unknown
  * keys are skipped and missing fields keep their zero default (absent
  * `option` fields decode as null). 0 on success, -1 (with the reader's
@@ -81,7 +81,7 @@ MP_INLINE int uni_sql_stmt_decode(mp_reader *r, mp_arena *a, uni_sql_stmt *out) 
     return mpr_ok(r) ? 0 : -1;
 }
 
-/* Decode one record into freshly arena-allocated storage; 0 on failure
+/* Decode one struct into freshly arena-allocated storage; 0 on failure
  * (the reader's sticky error is set). Boxes of this type decode through
  * this function, so headers referencing it by pointer never need its
  * `sizeof`. */

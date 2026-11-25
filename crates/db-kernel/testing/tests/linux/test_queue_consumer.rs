@@ -297,7 +297,7 @@ fn queue_view(http_port: u16, name: &str) -> RS<Value> {
     let data = fetch_server_queues(http_port)?;
     queue_entry(&data, name).ok_or_else(|| {
         mudu::mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("queue {name} missing from the observability endpoint: {data}")
         )
     })
@@ -472,15 +472,15 @@ fn queue_consumer_mutual_exclusion() -> RS<()> {
     assert_eq!(err.ec(), ErrorCode::InvalidArgument);
 
     let err = fx.query("RECEIVE 1 FROM q FOR missing;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     let err = fx
         .client
         .execute_with_oid(fx.session, fx.app.clone(), "ACK q FOR missing TO 0;")
         .unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     let err = fx.exec("CREATE CONSUMER cg ON q;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
     Ok(())
 }
 
@@ -584,10 +584,10 @@ fn queue_consumer_drop_consumer_and_drop_queue_cleanup() -> RS<()> {
 
     fx.exec("DROP CONSUMER cg ON q;")?;
     let err = fx.query("RECEIVE 1 FROM q FOR cg;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     // Dropping the same cursor twice fails.
     let err = fx.exec("DROP CONSUMER cg ON q;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     let view = fx.view("q")?;
     assert!(
         consumer_view(&view, "cg").is_none(),
@@ -616,9 +616,9 @@ fn queue_consumer_drop_consumer_and_drop_queue_cleanup() -> RS<()> {
         "queue and DLQ both left the catalog"
     );
     let err = fx.query("RECEIVE 1 FROM q FOR cg2;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     let err = fx.query("RECEIVE 1 FROM q;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     Ok(())
 }
 

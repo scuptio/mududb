@@ -33,7 +33,7 @@ impl StmtCopyFrom {
     }
 
     /// Return the bare target table name (without the schema qualifier).
-    pub fn copy_to_table_name(&self) -> &String {
+    pub fn copy_to_class_name(&self) -> &String {
         self.table_reference.name()
     }
 

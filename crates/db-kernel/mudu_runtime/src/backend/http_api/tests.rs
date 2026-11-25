@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::app_mgr::AppMgr;
-use crate::backend::mudu_app_mgr::ListOption;
+use crate::backend::app_mgr::ListOption;
 use crate::backend::mudud_cfg::MuduDBCfg;
 use ::catalog::contract::partition_rule::{PartitionBound, PartitionRuleDesc, RangePartitionDef};
 use ::catalog::contract::partition_rule_binding::PartitionPlacement;
@@ -100,7 +100,7 @@ impl HttpApi for MockHttpApi {
     async fn queue_activation_register(&self, request: QueueActivationRequest) -> RS<()> {
         if request.queue == "missing" {
             return Err(mudu::mudu_error!(
-                mudu::error::ErrorCode::EntityNotFound,
+                mudu::error::ErrorCode::ObjectNotFound,
                 "no such queue missing"
             ));
         }
@@ -110,7 +110,7 @@ impl HttpApi for MockHttpApi {
     async fn queue_activation_unregister(&self, queue: String) -> RS<()> {
         if queue == "missing" {
             return Err(mudu::mudu_error!(
-                mudu::error::ErrorCode::EntityNotFound,
+                mudu::error::ErrorCode::ObjectNotFound,
                 "queue missing has no registered activation"
             ));
         }
@@ -459,6 +459,7 @@ async fn kernel_http_api_routes_point_and_range_by_rule_name() {
             key: Some(vec!["12".to_string()]),
             start: None,
             end: None,
+            keys: None,
         })
         .await
         .unwrap();
@@ -472,6 +473,7 @@ async fn kernel_http_api_routes_point_and_range_by_rule_name() {
             key: None,
             start: Some(vec!["50".to_string()]),
             end: Some(vec!["150".to_string()]),
+            keys: None,
         })
         .await
         .unwrap();
@@ -609,6 +611,7 @@ async fn kernel_http_api_rejects_mixed_route_request_shapes() {
             key: Some(vec!["1".to_string()]),
             start: Some(vec!["0".to_string()]),
             end: None,
+            keys: None,
         })
         .await
         .unwrap_err();
@@ -737,6 +740,7 @@ async fn http_api_default_methods_report_not_implemented() {
         key: Some(vec!["1".to_string()]),
         start: None,
         end: None,
+        keys: None,
     };
     assert_eq!(
         api.route_partition(route_req).await.unwrap_err().ec(),

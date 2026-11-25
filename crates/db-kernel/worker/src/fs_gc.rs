@@ -40,7 +40,7 @@ use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::meta::fs_object::FS_OBJECT_STATE_SEALED;
 use ::meta::fs_type_catalog::fs_storage_base;
-use ::xcontract::WorkerXContract;
+use ::xcontract::contract::WorkerXContract;
 
 /// Interval between two fs GC rounds.
 pub const FS_GC_INTERVAL: Duration = Duration::from_secs(60);

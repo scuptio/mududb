@@ -1,4 +1,5 @@
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
@@ -38,6 +39,7 @@ impl TypeDeclare {
 mod tests {
     use super::TypeDeclare;
     use mudu_type::data_type::DataType;
+    use mudu_type::data_type_codec::TypeCodec;
     use mudu_type::type_family::TypeFamily;
 
     #[test]

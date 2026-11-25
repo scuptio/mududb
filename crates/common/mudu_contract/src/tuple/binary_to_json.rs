@@ -3,6 +3,7 @@
 use crate::tuple::datum_desc::DatumDesc;
 use mudu::common::result::RS;
 use mudu::utils::json::JsonValue;
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// Decodes `binary` as the type described by `desc` and renders it as a JSON value.
 pub fn tuple_binary_to_json(binary: &[u8], desc: &DatumDesc) -> RS<JsonValue> {

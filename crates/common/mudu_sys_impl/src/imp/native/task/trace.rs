@@ -52,7 +52,7 @@ impl TaskTrace {
         }
     }
 
-    /// Records a key/value pair on the current task's context; the pair is
+    /// Structs a key/value pair on the current task's context; the pair is
     /// removed when this tracer drops.
     pub fn watch(&self, key: &str, value: &str) {
         let Some(_id) = current_debug_task_id() else {

@@ -8,7 +8,7 @@ use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::index::index_key::key_tuple::KeyTuple;
 use ::xengine::tx_mgr::TxMgr;
 
-use super::commit::write_version_to_kv_store_async;
+use super::version::write_version_to_kv_store_async;
 use super::WorkerStorage;
 
 impl WorkerStorage {

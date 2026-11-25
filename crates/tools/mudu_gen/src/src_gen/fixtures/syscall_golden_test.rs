@@ -247,7 +247,7 @@ fn generated_codec_decodes_golden_corpus() {
     assert_eq!(argv.query.sql_string, "select 1");
     assert_eq!(encode_query_request(&argv).as_slice(), segments[0]);
     let result = decode_query_result(segments[1]).unwrap().unwrap();
-    assert_eq!(result.tuple_desc.record_name, "");
+    assert_eq!(result.tuple_desc.struct_name, "");
     assert!(result.result_set.row_set.is_empty());
 
     // 6 get: bin key/value; request re-encode must be byte-exact.

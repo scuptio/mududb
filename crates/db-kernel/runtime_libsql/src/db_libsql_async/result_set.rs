@@ -14,15 +14,15 @@ use mudu_type::type_family::TypeFamily;
 use std::sync::Arc;
 use tracing::debug;
 
-pub trait ResultSetLease: Send + Sync {
+pub(crate) trait ResultSetLease: Send + Sync {
     fn release(self: Box<Self>);
 }
 
-pub struct LibSQLAsyncResultSet {
+pub(crate) struct LibSQLAsyncResultSet {
     inner: Arc<ResultSetInner>,
 }
 
-pub struct ResultSetInner {
+pub(crate) struct ResultSetInner {
     row: AMutex<Rows>,
     tuple_desc: Arc<TupleFieldDesc>,
     lease: StdMutex<Option<Box<dyn ResultSetLease>>>,

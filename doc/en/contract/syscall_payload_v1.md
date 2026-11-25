@@ -27,7 +27,7 @@ this contract defines the **wire encoding** of those types.
 **Status: implemented and stable.** All 23 message kinds are encoded and
 decoded by the host router in
 [`mudu_binding/src/codec/syscall_payload/`](../../../crates/common/mudu_binding/src/codec/syscall_payload/)
-and dispatched in `mudu_runtime` (`kernel_sync` / `kernel_async`). Guest-side
+and dispatched in `runtime_wasm` (`kernel_sync` / `kernel_async`). Guest-side
 implementations exist for workspace Rust guests, the standalone Rust SDK, the
 C# SDK, AssemblyScript (direct byte-pipe guest with an in-language codec), and
 Python (a
@@ -61,7 +61,7 @@ legacy decoders.
 The same version is pinned into every MPK package: `package.manifest.json`
 carries a `syscall_abi_version: u32` field. The package writer (`mpm_build`)
 always emits `SYSCALL_PAYLOAD_CURRENT_VERSION` (`1`); the loader in
-[`mudu_runtime/src/service/app_package.rs`](../../../crates/db-kernel/mudu_runtime/src/service/app_package.rs)
+[`runtime_wasm/src/service/app_package.rs`](../../../crates/db-kernel/runtime_wasm/src/service/app_package.rs)
 defaults a missing field to `1` and rejects any mismatch with
 `ErrorCode::UnsupportedFormatVersion` ("unsupported syscall ABI version
 {found}, expected {expected}"). `FormatKind::SyscallPayload` is registered in
@@ -193,7 +193,7 @@ numeric updates. Tuples encode as fixed-length MessagePack arrays.
 
 **Exception: `fetch`.** The host WIT function
 `fetch(query-result: list<u8>) -> list<u8>` declared in the runtime world
-([`mudu_runtime/wit/api.wit`](../../../crates/db-kernel/mudu_runtime/wit/api.wit))
+([`runtime_wasm/wit/api.wit`](../../../crates/db-kernel/runtime_wasm/wit/api.wit))
 is **not** routed through MSSP: it takes and returns raw `mp_wire` bytes
 with no 16-byte header. The request is the `mp_wire` encoding of a
 `UniOid` (a field-number map) — exactly the bytes carried in
@@ -201,7 +201,7 @@ with no 16-byte header. The request is the `mp_wire` encoding of a
 response. The response is the `mp_wire` encoding of
 `UniResult<UniResultSet, UniError>` (a one-entry map envelope
 `{0: value}` / `{1: error}`). The host implementation
-(`mudu_runtime::interface::kernel_sync::fetch_internal`) mirrors
+(`runtime_wasm::interface::kernel_sync::fetch_internal`) mirrors
 `sys_interface::api_impl`
 ([`crates/common/sys_interface/src/api_impl/mod.rs`](../../../crates/common/sys_interface/src/api_impl/mod.rs)),
 which remains the wire-shape source of truth. Semantics:
@@ -675,7 +675,7 @@ Deprecation applies to encoding versions; in-version schema evolution
 - `universal` type family (Rust): [`mudu_binding/src/universal/`](../../../crates/common/mudu_binding/src/universal)
 - Legacy hand-written KV codec: [`mudu_binding/src/codec/handle_sys_session.rs`](../../../crates/common/mudu_binding/src/codec/handle_sys_session.rs)
 - SQL request/response codec: [`mudu_binding/src/codec/handle_sys_incoming.rs`](../../../crates/common/mudu_binding/src/codec/handle_sys_incoming.rs), [`handle_sys_outcoming.rs`](../../../crates/common/mudu_binding/src/codec/handle_sys_outcoming.rs)
-- Host syscall entry points: [`mudu_runtime/src/interface/kernel_sync.rs`](../../../crates/db-kernel/mudu_runtime/src/interface/kernel_sync.rs), [`kernel_async.rs`](../../../crates/db-kernel/mudu_runtime/src/interface/kernel_async.rs)
+- Host syscall entry points: [`runtime_wasm/src/interface/kernel_sync.rs`](../../../crates/db-kernel/runtime_wasm/src/interface/kernel_sync.rs), [`kernel_async.rs`](../../../crates/db-kernel/runtime_wasm/src/interface/kernel_async.rs)
 - Golden corpus: [`testing/fixtures/golden/v1/syscall_payload_v1_all.bin`](../../../crates/db-kernel/testing/fixtures/golden/v1/syscall_payload_v1_all.bin)
 - Standalone Rust SDK: [`crates/sdk/mudu_api/rust/`](../../../crates/sdk/mudu_api/rust/)
 - C# SDK: [`crates/sdk/mudu_api/csharp/`](../../../crates/sdk/mudu_api/csharp/)

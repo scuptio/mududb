@@ -31,7 +31,7 @@ impl HttpApi for BackupHttpApi {
         _mod_name: &str,
         _proc_name: &str,
     ) -> RS<(ProcDesc, JsonValue, JsonValue)> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "no such procedure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "no such procedure"))
     }
 
     async fn install_mpk(&self, _mpk_binary: Vec<u8>) -> RS<()> {
@@ -49,7 +49,12 @@ impl HttpApi for BackupHttpApi {
     }
 
     async fn route_partition(&self, _request: PartitionRouteRequest) -> RS<PartitionRouteResponse> {
-        Ok(PartitionRouteResponse { routes: vec![] })
+        Ok(PartitionRouteResponse {
+            routes: vec![],
+            rule_version: 1,
+            topology_version: 0,
+            placement_version: 0,
+        })
     }
 
     async fn backup(&self, label: &str) -> RS<Value> {
@@ -84,11 +89,11 @@ struct FailingHttpApi;
 #[async_trait(?Send)]
 impl HttpApi for FailingHttpApi {
     async fn list_apps(&self) -> RS<Vec<String>> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "mock failure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "mock failure"))
     }
 
     async fn list_procedures(&self, _app_name: &str) -> RS<Vec<String>> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "mock failure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "mock failure"))
     }
 
     async fn procedure_detail(
@@ -97,11 +102,11 @@ impl HttpApi for FailingHttpApi {
         _mod_name: &str,
         _proc_name: &str,
     ) -> RS<(ProcDesc, JsonValue, JsonValue)> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "mock failure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "mock failure"))
     }
 
     async fn install_mpk(&self, _mpk_binary: Vec<u8>) -> RS<()> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "mock failure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "mock failure"))
     }
 
     async fn invoke_json(
@@ -111,7 +116,7 @@ impl HttpApi for FailingHttpApi {
         _proc_name: &str,
         _body: String,
     ) -> RS<Value> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "mock failure"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "mock failure"))
     }
 
     async fn repl_membership(
@@ -273,7 +278,7 @@ async fn failing_backend_surfaces_error_envelopes() {
         assert_eq!(response["ok"], false, "uri {uri}");
         assert_eq!(
             response["status"],
-            ErrorCode::EntityNotFound.to_u32(),
+            ErrorCode::ObjectNotFound.to_u32(),
             "uri {uri}"
         );
     }

@@ -1,3 +1,5 @@
+//! The typed homogeneous [`DataValueArray`] value container.
+
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
 use paste::paste;
@@ -15,7 +17,7 @@ pub enum DataValueArray {
     /// Array of string values.
     String(Vec<String>),
     /// Array of record values, each record being a vector of field values.
-    Record(Vec<Vec<DataValue>>),
+    Struct(Vec<Vec<DataValue>>),
     /// Array of nested arrays.
     Array(Vec<Vec<DataValueArray>>),
 }
@@ -119,5 +121,5 @@ impl_data_value_array_methods! {
     (Vec<f64>, F64, f64),
     (Vec<String>, String, string),
     (Vec<Vec<DataValueArray>>, Array, array),
-    (Vec<Vec<DataValue>>, Record, object)
+    (Vec<Vec<DataValue>>, Struct, object)
 }

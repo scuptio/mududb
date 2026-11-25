@@ -149,47 +149,47 @@ fn mudu_open_returns_database_error_when_mudud_addr_invalid() -> RS<()> {
 }
 
 #[test]
-fn mudu_close_get_put_range_return_entity_not_found_for_missing_session() -> RS<()> {
+fn mudu_close_get_put_range_return_object_not_found_for_missing_session() -> RS<()> {
     let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://127.0.0.1:9999/test", || {
         let session_id = 9999;
 
         let err = match mudu_close(session_id) {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
         );
 
         let err = match mudu_get(session_id, b"key") {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
         );
 
         let err = match mudu_put(session_id, b"key", b"value") {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
         );
 
         let err = match mudu_range(session_id, b"start", b"end") {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
@@ -199,7 +199,7 @@ fn mudu_close_get_put_range_return_entity_not_found_for_missing_session() -> RS<
 }
 
 #[test]
-fn mudu_query_and_command_return_entity_not_found_for_missing_session() -> RS<()> {
+fn mudu_query_and_command_return_object_not_found_for_missing_session() -> RS<()> {
     let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://127.0.0.1:9999/test", || {
@@ -210,7 +210,7 @@ fn mudu_query_and_command_return_entity_not_found_for_missing_session() -> RS<()
             Ok(_) => panic!("expected mudu_query to fail"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
@@ -220,7 +220,7 @@ fn mudu_query_and_command_return_entity_not_found_for_missing_session() -> RS<()
             Ok(_) => panic!("expected mudu_command to fail"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
@@ -249,17 +249,17 @@ fn mudu_batch_returns_not_implemented_with_params() -> RS<()> {
 }
 
 #[test]
-fn mudu_batch_returns_entity_not_found_for_missing_session_with_empty_params() -> RS<()> {
+fn mudu_batch_returns_object_not_found_for_missing_session_with_empty_params() -> RS<()> {
     let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://127.0.0.1:9999/test", || {
         let session_id = 9999;
         let stmt = SQLStmtText::new("INSERT INTO t VALUES (1)".to_string());
         let err = match mudu_batch(session_id, &stmt, &()) {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(
             err.to_string()
                 .contains(&format!("session {} does not exist", session_id))
@@ -282,13 +282,13 @@ fn mudu_query_and_command_forward_params_without_local_validation() -> RS<()> {
             Ok(_) => panic!("expected mudu_query to fail"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         let err = match mudu_command(9999, &stmt, &42i32) {
             Ok(_) => panic!("expected mudu_command to fail"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         Ok(())
     })
 }

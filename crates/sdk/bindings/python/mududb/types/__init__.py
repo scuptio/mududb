@@ -19,7 +19,7 @@ from mududb.generated.uni_data_type import (
     UniDataTypeIdentifier,
     UniDataTypeKind,
     UniDataTypeOption,
-    UniDataTypeRecord,
+    UniDataTypeStruct,
     UniDataTypeResult,
     UniDataTypeScalar,
     UniDataTypeTuple,
@@ -30,7 +30,7 @@ from mududb.generated.uni_data_value import (
     UniDataValueBinary,
     UniDataValueField,
     UniDataValueKind,
-    UniDataValueRecord,
+    UniDataValueStruct,
     UniDataValueScalar,
 )
 from mududb.generated.uni_error import UniError
@@ -49,10 +49,10 @@ from mududb.generated.uni_query_result import (
     UniQueryReturnKind,
     UniQueryReturnOk,
 )
-from mududb.generated.uni_record_type import (
+from mududb.generated.uni_struct_type import (
     UniFieldAttr,
-    UniRecordField,
-    UniRecordType,
+    UniStructField,
+    UniStructType,
 )
 from mududb.generated.uni_result_set import UniResultSet
 from mududb.generated.uni_result_type import UniResultType
@@ -101,7 +101,7 @@ __all__ = [
     "UniDataTypeIdentifier",
     "UniDataTypeKind",
     "UniDataTypeOption",
-    "UniDataTypeRecord",
+    "UniDataTypeStruct",
     "UniDataTypeResult",
     "UniDataTypeScalar",
     "UniDataTypeTuple",
@@ -110,7 +110,7 @@ __all__ = [
     "UniDataValueBinary",
     "UniDataValueField",
     "UniDataValueKind",
-    "UniDataValueRecord",
+    "UniDataValueStruct",
     "UniDataValueScalar",
     "UniError",
     "UniFieldAttr",
@@ -127,8 +127,8 @@ __all__ = [
     "UniQueryReturnErr",
     "UniQueryReturnKind",
     "UniQueryReturnOk",
-    "UniRecordField",
-    "UniRecordType",
+    "UniStructField",
+    "UniStructType",
     "UniResultSet",
     "UniResultType",
     "UniScalar",

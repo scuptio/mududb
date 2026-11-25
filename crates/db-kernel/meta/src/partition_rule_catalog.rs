@@ -11,8 +11,8 @@ use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
@@ -24,8 +24,8 @@ const PARTITION_RULE_CATALOG_TABLE_NAME: &str = "__meta_partition_rule";
 const PARTITION_RULE_CATALOG_RULE_OID_COLUMN_ID: OID = 0x20001;
 const PARTITION_RULE_CATALOG_RULE_COLUMN_ID: OID = 0x20002;
 
-pub(crate) fn partition_rule_catalog_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn partition_rule_catalog_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         PARTITION_RULE_CATALOG_TABLE_ID,
         PARTITION_RULE_CATALOG_TABLE_NAME.to_string(),
         vec![
@@ -96,6 +96,12 @@ pub(crate) fn encode_partition_rule_catalog_value(rule: &PartitionRuleDesc) -> R
 }
 
 pub(crate) fn decode_partition_rule_catalog_key(tuple: &[u8]) -> RS<OID> {
+    if tuple.len() != std::mem::size_of::<OID>() {
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::CorruptedData,
+            "invalid partition_rule catalog key length"
+        ));
+    }
     Ok(endian::read_u128(tuple))
 }
 
@@ -119,6 +125,7 @@ pub(crate) async fn load_partition_rules_from_catalog(
         )
         .await?;
     let mut rules = Vec::with_capacity(rows.len());
+    let mut names = std::collections::BTreeSet::new();
     for (key, value) in rows {
         let key_oid = decode_partition_rule_catalog_key(&key)?;
         let rule = decode_partition_rule_catalog_value(&value)?;
@@ -129,6 +136,12 @@ pub(crate) async fn load_partition_rules_from_catalog(
                     "partition rule catalog key oid {} does not match rule oid {}",
                     key_oid, rule.oid
                 )
+            ));
+        }
+        if !names.insert(rule.name.clone()) {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::CorruptedData,
+                "duplicate name in partition rule catalog"
             ));
         }
         rules.push(rule);

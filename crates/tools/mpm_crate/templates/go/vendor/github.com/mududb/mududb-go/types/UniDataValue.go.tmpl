@@ -18,7 +18,7 @@ type UniDataValueKind uint32
 const (
 	UniDataValueKindScalar UniDataValueKind = 0
 	UniDataValueKindArray  UniDataValueKind = 1
-	UniDataValueKindRecord UniDataValueKind = 2
+	UniDataValueKindStruct UniDataValueKind = 2
 	UniDataValueKindBinary UniDataValueKind = 3
 )
 
@@ -47,13 +47,13 @@ func (UniDataValueArray) uniDataValueKind() UniDataValueKind {
 	return UniDataValueKindArray
 }
 
-type UniDataValueRecord struct {
+type UniDataValueStruct struct {
 	Inner []UniDataValueField
 }
 
-// UniDataValueRecord implements UniDataValue.
-func (UniDataValueRecord) uniDataValueKind() UniDataValueKind {
-	return UniDataValueKindRecord
+// UniDataValueStruct implements UniDataValue.
+func (UniDataValueStruct) uniDataValueKind() UniDataValueKind {
+	return UniDataValueKindStruct
 }
 
 type UniDataValueBinary struct {
@@ -90,7 +90,7 @@ func UniDataValueToValue(x UniDataValue) (any, error) {
 		}
 		_p = _v1
 		return []any{uint64(1), _p}, nil
-	case UniDataValueRecord:
+	case UniDataValueStruct:
 		var _p any
 		_v3 := make([]any, len(_x.Inner))
 		for _i3, _e3 := range _x.Inner {
@@ -158,7 +158,7 @@ func UniDataValueFromValue(v any) (UniDataValue, error) {
 			}
 		}
 		_p = _v1
-		return UniDataValueRecord{Inner: _p}, nil
+		return UniDataValueStruct{Inner: _p}, nil
 	case 3:
 		var _p []byte
 		_p, err = blobFromValue(_s[1])
@@ -179,7 +179,7 @@ type UniDataValueField struct {
 // UniDataValueFieldToValue converts x to its MSSP wire value: the
 // integer-keyed MessagePack map of the 1-based field numbers (WIT
 // declaration order). Option fields are omitted when nil (proto3 presence
-// semantics); []byte fields encode as arrays of u8 (the record-context form
+// semantics); []byte fields encode as arrays of u8 (the struct-context form
 // of list<u8>), NOT as MessagePack bin.
 func UniDataValueFieldToValue(x UniDataValueField) (any, error) {
 	_d := map[uint64]any{}

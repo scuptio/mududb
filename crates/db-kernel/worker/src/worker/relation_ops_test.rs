@@ -59,7 +59,7 @@ fn relation_insert_and_get_roundtrip_autocommit() {
             .unwrap();
         assert!(missing.is_none());
 
-        // A duplicate primary key fails with EntityAlreadyExists.
+        // A duplicate primary key fails with ObjectAlreadyExists.
         let err = worker
             .relation_insert_in_session(
                 session_id,
@@ -70,7 +70,7 @@ fn relation_insert_and_get_roundtrip_autocommit() {
             )
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
     })
     .unwrap()
 }
@@ -241,7 +241,7 @@ fn relation_ops_reject_unknown_tables_and_queues() {
             )
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         let err = worker
             .relation_insert_in_session(

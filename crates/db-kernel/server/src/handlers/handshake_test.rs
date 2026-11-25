@@ -11,18 +11,18 @@ use crate::async_func_task::HandleResult;
 use crate::request_ctx::RequestCtx;
 use crate::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
 use crate::routing::SessionOpenConfig;
-use crate::worker_registry::WorkerIdentity;
+use crate::worker_registry::WorkerIdobject;
 use crate::worker_registry::WorkerRegistry;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::conn::worker_local::{WorkerExecute, WorkerLocal};
 use ::xengine::api::{
     AlterTable, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum,
-    VecSelTerm, XContract,
+    VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -44,7 +44,7 @@ pub(super) struct NullXContract;
 
 #[async_trait]
 impl XContract for NullXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -121,6 +121,8 @@ impl XContract for NullXContract {
     }
 }
 
+impl XContractQueue for NullXContract {}
+
 pub(super) struct NullMetaMgr;
 
 #[async_trait]
@@ -134,7 +136,7 @@ impl MetaMgr for NullMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         unimplemented!()
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -170,7 +172,7 @@ impl MetaMgr for NullMetaMgr {
     async fn list_partition_placements(&self) -> RS<Vec<PartitionPlacement>> {
         unimplemented!()
     }
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         unimplemented!()
     }
 }
@@ -277,7 +279,7 @@ impl RequestResponseWorker for NullWorkerRuntime {
     }
     fn registry(&self) -> Arc<WorkerRegistry> {
         Arc::new(
-            WorkerRegistry::new(vec![WorkerIdentity {
+            WorkerRegistry::new(vec![WorkerIdobject {
                 worker_index: 0,
                 worker_id: 0,
                 partition_ids: vec![],
@@ -462,7 +464,7 @@ fn null_fixtures_cover_their_surface() {
     panics_async(meta.initialize());
     panics_async(meta.get_table_by_id(1));
     panics_async(meta.get_table_by_name("s", "t"));
-    panics_async(meta.create_table(&SchemaTable::new("t".to_string(), vec![], vec![], vec![])));
+    panics_async(meta.create_table(&SchemaClass::new("t".to_string(), vec![], vec![], vec![])));
     panics_async(meta.drop_table(1));
     panics_async(meta.get_partition_rule_by_id(1));
     panics_async(meta.get_partition_rule_by_name("r"));

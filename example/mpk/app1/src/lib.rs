@@ -29,7 +29,7 @@ pub mod generated;
 
 /// Test-only subset of the generated module. The full generated procedure file
 /// contains pre-existing async `#[test]` functions that do not compile on
-/// native targets, so unit tests expose only the generated entity modules.
+/// native targets, so unit tests expose only the generated object modules.
 #[allow(unused, missing_docs)]
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod generated {

@@ -19,7 +19,7 @@ struct Shard {
     // Last successfully persisted content hash; unchanged eviction needs no rewrite.
     persisted: HashMap<u128, u64>,
 }
-pub(super) struct Rows {
+pub struct Rows {
     shards: Vec<AMutex<Shard>>,
     data: Arc<dyn AsyncFile>,
     directory: Arc<dyn AsyncFile>,
@@ -27,7 +27,7 @@ pub(super) struct Rows {
     budget: usize,
 }
 
-pub(super) fn checksum(bytes: &[u8]) -> u64 {
+pub fn checksum(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf29ce484222325, |h, b| {
         (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
     })

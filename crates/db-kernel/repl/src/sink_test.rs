@@ -12,8 +12,6 @@ use ::wal::worker_log::WorkerLogLayout;
 use mudu_contract::protocol::{
     encode_repl_snapshot_offer_frame, LeaderHint, ReplSnapshotOfferFrame,
 };
-use mudu_sys::contract::async_fs::AsyncFs;
-use mudu_sys::default_sys_io_context;
 use mudu_sys::env_var::temp_dir;
 use mudu_utils::oid::gen_oid;
 use std::sync::atomic::AtomicU64;
@@ -26,111 +24,6 @@ fn make_frames(start_lsn: u64, count: u64) -> Vec<Vec<u8>> {
         out.extend(parts);
     }
     out
-}
-
-fn make_frame(lsn: u64, content: &str) -> Vec<u8> {
-    serialize_entry(&content.to_string(), 4096, &AtomicU64::new(lsn))
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap()
-}
-
-fn test_fs() -> Arc<dyn AsyncFs> {
-    default_sys_io_context().provider_arc().fs_arc()
-}
-
-async fn test_staging() -> Arc<StagingStore> {
-    let dir = temp_dir().join(format!("sink-stage-test-{}", gen_oid()));
-    Arc::new(StagingStore::open(dir, test_fs()).await.unwrap())
-}
-
-#[test]
-fn stage_frames_appends_and_tracks_progress() {
-    mudu_sys::task::async_::block_on_tokio_current_thread(async {
-        let staging = test_staging().await;
-        let mut staged = StagingTrack {
-            next_expected: 0,
-            staged_hi: None,
-        };
-        stage_frames(&staging, make_frames(0, 3), &mut staged)
-            .await
-            .unwrap();
-        assert_eq!(staged.next_expected, 3);
-        assert_eq!(staged.staged_hi, Some(2));
-        assert_eq!(staging.max_lsn().unwrap(), Some(LSN::new(2)));
-    })
-    .unwrap()
-}
-
-#[test]
-fn stage_frames_skips_byte_identical_overlap() {
-    mudu_sys::task::async_::block_on_tokio_current_thread(async {
-        let staging = test_staging().await;
-        let mut staged = StagingTrack {
-            next_expected: 0,
-            staged_hi: None,
-        };
-        stage_frames(&staging, make_frames(0, 3), &mut staged)
-            .await
-            .unwrap();
-
-        // A resubscription re-streams lsns 1 and 2 with identical bytes:
-        // the overlap is skipped, nothing is truncated or re-appended.
-        stage_frames(&staging, make_frames(1, 2), &mut staged)
-            .await
-            .unwrap();
-        assert_eq!(staged.next_expected, 3);
-        assert_eq!(staged.staged_hi, Some(2));
-        assert_eq!(staging.max_lsn().unwrap(), Some(LSN::new(2)));
-    })
-    .unwrap()
-}
-
-#[test]
-fn stage_frames_truncates_divergent_tail() {
-    mudu_sys::task::async_::block_on_tokio_current_thread(async {
-        let staging = test_staging().await;
-        let mut staged = StagingTrack {
-            next_expected: 0,
-            staged_hi: None,
-        };
-        stage_frames(&staging, make_frames(0, 3), &mut staged)
-            .await
-            .unwrap();
-
-        // The leader streams different content at lsn 1: the speculative
-        // staged tail is truncated from there and replaced.
-        let divergent = vec![make_frame(1, "leader-content")];
-        stage_frames(&staging, divergent.clone(), &mut staged)
-            .await
-            .unwrap();
-        assert_eq!(staged.next_expected, 2);
-        assert_eq!(staged.staged_hi, Some(1));
-        assert_eq!(staging.max_lsn().unwrap(), Some(LSN::new(1)));
-        assert_eq!(
-            staging.frame_bytes(1).await.unwrap().as_deref(),
-            Some(divergent[0].as_slice())
-        );
-    })
-    .unwrap()
-}
-
-#[test]
-fn stage_frames_rejects_a_stream_gap() {
-    mudu_sys::task::async_::block_on_tokio_current_thread(async {
-        let staging = test_staging().await;
-        let mut staged = StagingTrack {
-            next_expected: 0,
-            staged_hi: None,
-        };
-        let err = stage_frames(&staging, make_frames(5, 1), &mut staged)
-            .await
-            .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::InvalidState);
-        assert!(err.to_string().contains("stream gap"), "unexpected: {err}");
-    })
-    .unwrap()
 }
 
 #[test]
@@ -157,7 +50,7 @@ fn scan_local_crcs_maps_only_the_probe_window() {
 
 fn test_manifest() -> ReplSnapshotManifest {
     ReplSnapshotManifest {
-        version: 1,
+        version: 2,
         worker_index: 0,
         committed_lsn: 41,
         seg_hash: [0; 32],

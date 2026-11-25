@@ -71,7 +71,8 @@ pub fn build_wasi_component_context(worker_local: Option<WorkerLocalRef>) -> Was
 pub mod sync_host {
     use super::WasiContextComponent;
     use crate::service::kernel_function_p2::{
-        host_batch, host_close, host_command, host_delete, host_fetch, host_fs_close,
+        host_batch, host_cache_delete, host_cache_get, host_cache_open, host_cache_put,
+        host_cache_ttl, host_close, host_command, host_delete, host_fetch, host_fs_close,
         host_fs_fstat, host_fs_fsync, host_fs_lseek, host_fs_open, host_fs_pread, host_fs_pwrite,
         host_fs_read, host_fs_readdir, host_fs_stat, host_fs_write, host_get, host_open, host_put,
         host_range, host_relation_get, host_relation_insert, host_relation_update,
@@ -185,6 +186,46 @@ pub mod sync_host {
             control.prepare_host("relation_insert", &relation_insert_in)?;
 
             let output = host_relation_insert(relation_insert_in, self.worker_local());
+            control.leave_host(output)
+        }
+
+        fn cache_open(&mut self, cache_open_in: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+            let control = self.invocation();
+            control.prepare_host("cache_open", &cache_open_in)?;
+
+            let output = host_cache_open(cache_open_in, self.worker_local(), control.app_name());
+            control.leave_host(output)
+        }
+
+        fn cache_get(&mut self, cache_get_in: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+            let control = self.invocation();
+            control.prepare_host("cache_get", &cache_get_in)?;
+
+            let output = host_cache_get(cache_get_in, self.worker_local());
+            control.leave_host(output)
+        }
+
+        fn cache_put(&mut self, cache_put_in: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+            let control = self.invocation();
+            control.prepare_host("cache_put", &cache_put_in)?;
+
+            let output = host_cache_put(cache_put_in, self.worker_local());
+            control.leave_host(output)
+        }
+
+        fn cache_delete(&mut self, cache_delete_in: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+            let control = self.invocation();
+            control.prepare_host("cache_delete", &cache_delete_in)?;
+
+            let output = host_cache_delete(cache_delete_in, self.worker_local());
+            control.leave_host(output)
+        }
+
+        fn cache_ttl(&mut self, cache_ttl_in: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+            let control = self.invocation();
+            control.prepare_host("cache_ttl", &cache_ttl_in)?;
+
+            let output = host_cache_ttl(cache_ttl_in, self.worker_local());
             control.leave_host(output)
         }
 

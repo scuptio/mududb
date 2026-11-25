@@ -1,4 +1,6 @@
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::partition_rpc::PartitionRpcRequest;
 
 impl WorkerXContract {
     /// Register this worker's partition-RPC service on the worker channel
@@ -38,12 +40,12 @@ mod tests {
     };
     use mudu_utils::oid::gen_oid;
 
-    struct RecordingChannel {
+    struct StructingChannel {
         registered: SMutex<usize>,
     }
 
     #[async_trait::async_trait]
-    impl ChannelEndpoint for RecordingChannel {
+    impl ChannelEndpoint for StructingChannel {
         fn local_endpoint(&self) -> EndpointId {
             0
         }
@@ -80,10 +82,12 @@ mod tests {
                 data_dir,
                 async_runtime: None,
                 server_instance_id: 0,
+                cluster_router: None,
+                epoch_oracle: None,
             })
             .unwrap(),
         );
-        let recording = Arc::new(RecordingChannel {
+        let recording = Arc::new(StructingChannel {
             registered: SMutex::new(0),
         });
         let channel: ChannelEndpointRef = recording.clone();

@@ -3,7 +3,7 @@ use crate::tx_mgr::TxMgr;
 use ::catalog::contract::fs_type::FsTypeKind;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use mudu::common::id::{AttrIndex, OID};
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ pub struct PCreateTable {
     /// Transaction the command runs in.
     pub tx_mgr: Arc<dyn TxMgr>,
     /// Schema of the table to create.
-    pub schema: SchemaTable,
+    pub schema: SchemaClass,
     /// Binding of the table to a partition rule, when the table is
     /// partitioned.
     pub partition_binding: Option<TablePartitionBinding>,
@@ -84,7 +84,7 @@ pub struct PCreateQueue {
     pub tx_mgr: Arc<dyn TxMgr>,
     /// Schema of the queue to create; carries the queue kind and the queue
     /// system columns ahead of the payload columns.
-    pub schema: SchemaTable,
+    pub schema: SchemaClass,
     /// Sharding binding of the queue, when it is partitioned.
     pub partition_binding: Option<TablePartitionBinding>,
 }
@@ -96,6 +96,18 @@ pub struct PDropQueue {
     pub tx_mgr: Arc<dyn TxMgr>,
     /// OID of the queue to drop.
     pub oid: OID,
+}
+
+/// Parameters of a create-cache command.
+#[derive(Clone)]
+pub struct PCreateCache {
+    /// Transaction the command runs in.
+    pub tx_mgr: Arc<dyn TxMgr>,
+    /// Schema of the cache to create; carries `SchemaClassKind::Cache` and
+    /// mirrors the `LIKE` table's columns (key and value alike).
+    pub schema: SchemaClass,
+    /// Optional TTL in seconds; `None` means no automatic eviction.
+    pub ttl_secs: Option<u64>,
 }
 
 /// Parameters of a queue `RECEIVE` statement.

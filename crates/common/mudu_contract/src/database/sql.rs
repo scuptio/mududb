@@ -1,8 +1,8 @@
 //! Session context registry and top-level query/command helpers.
 
 use crate::database::db_conn::{DBConnAsync, DBConnSync};
-use crate::database::entity::Entity;
-use crate::database::entity_set::EntitySet;
+use crate::database::object::Object;
+use crate::database::object_set::ObjectSet;
 use crate::database::result_set::{ResultSet, ResultSetAsync};
 use crate::database::sql_params::SQLParams;
 use crate::database::sql_stmt::SQLStmt;
@@ -145,9 +145,9 @@ impl ContextInner {
     fn session_id(&self) -> OID {
         self.session_id
     }
-    fn query<R: Entity>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<EntitySet<R>> {
+    fn query<R: Object>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<ObjectSet<R>> {
         let (rs, rd) = self.conn.expected_sync()?.query(sql, param)?;
-        Ok(EntitySet::<R>::new(rs, rd))
+        Ok(ObjectSet::<R>::new(rs, rd))
     }
 
     fn query_raw(
@@ -310,7 +310,7 @@ impl Context {
             let opt = SessionContext.get_async(&xid).await;
             match opt {
                 Some(e) => e.get().clone(),
-                None => return Err(mudu_error!(ErrorCode::EntityNotFound, "no such context")),
+                None => return Err(mudu_error!(ErrorCode::ObjectNotFound, "no such context")),
             }
         };
         Ok(ctx)
@@ -361,7 +361,7 @@ impl Context {
     }
 
     /// Runs a query and maps the result rows to entities of type `R`.
-    pub fn query<R: Entity>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<EntitySet<R>> {
+    pub fn query<R: Object>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<ObjectSet<R>> {
         self.ensure_usable()?;
         self.inner.query(sql, param)
     }
@@ -427,11 +427,11 @@ impl Context {
 }
 
 /// Runs a query on the context registered under `xid`.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     xid: OID,
     sql: &dyn SQLStmt,
     param: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let r = Context::context(xid);
     let context = rs_option(r, &format!("mudu_query, no such transaction {}", xid))?;
     context.query(sql, param)

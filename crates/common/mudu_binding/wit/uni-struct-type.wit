@@ -1,0 +1,19 @@
+use crate:universal:uni-data-type/uni-data-type;
+
+interface universal {
+record uni-field-attr {
+    attr-name: string,
+    attr-value: string,
+}
+
+record uni-struct-field {
+    field-name: string,
+    field-type: uni-data-type,
+    field-attrs: list<uni-field-attr>
+}
+
+record uni-struct-type {
+    struct-name:string,
+    struct-fields:list<uni-struct-field>
+}
+}

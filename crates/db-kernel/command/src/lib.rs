@@ -6,6 +6,8 @@
 pub mod ack_queue;
 #[cfg(test)]
 mod ack_queue_test;
+/// Create-cache command executor.
+pub mod create_cache;
 /// Create-consumer command executor (`CREATE CONSUMER <consumer> ON <queue>`).
 pub mod create_consumer;
 #[cfg(test)]

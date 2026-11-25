@@ -39,7 +39,7 @@ async fn query_wallet(xid: OID, user_id: i32, not_found: &str) -> RS<Wallets> {
     )
     .await?
     .next_record()?
-    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, not_found))
+    .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, not_found))
 }
 
 /// Applies a partial wallet update; exactly one row must be affected.
@@ -112,7 +112,7 @@ pub async fn transfer_funds(xid: OID, from_user_id: i32, to_user_id: i32, amount
     )
     .await?;
 
-    // 3. Entity the transaction
+    // 3. Object the transaction
     let id = mududb::sys::random::next_uuid_v4_string();
     let insert_rows = mudu_command(
         xid,
@@ -156,7 +156,7 @@ pub async fn create_user(xid: OID, user_id: i32, name: String, email: String) ->
         ));
     }
 
-    // Create wallet with 0 balance, bound through the entity's typed
+    // Create wallet with 0 balance, bound through the object's typed
     // insert parameters.
     let wallet = Wallets::new(user_id, Some(0), Some(now as i32));
     let wallet_created = mudu_command(
@@ -234,7 +234,7 @@ pub async fn update_user(xid: OID, user_id: i32, name: String, email: String) ->
     let updated = mudu_command(xid, sql_stmt!(&sql), sql_params!(&params)).await?;
 
     if updated != 1 {
-        return Err(mudu_error!(ErrorCode::EntityNotFound, "User not found"));
+        return Err(mudu_error!(ErrorCode::ObjectNotFound, "User not found"));
     }
 
     Ok(())
@@ -266,7 +266,7 @@ pub async fn deposit(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     )
     .await?;
 
-    // Entity transaction
+    // Object transaction
     mudu_command(
         xid,
         sql_stmt!(
@@ -313,7 +313,7 @@ pub async fn withdraw(xid: OID, user_id: i32, amount: i32) -> RS<()> {
     )
     .await?;
 
-    // Entity transaction
+    // Object transaction
     mudu_command(
         xid,
         sql_stmt!(
@@ -381,7 +381,7 @@ pub async fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
     )
     .await?;
 
-    // Entity transaction
+    // Object transaction
     mudu_command(
         xid,
         sql_stmt!(
@@ -401,7 +401,7 @@ pub async fn transfer(xid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
 }
 
 /**mudu-proc**/
-/// Records a purchase of `amount` funds by the user.
+/// Structs a purchase of `amount` funds by the user.
 pub async fn purchase(xid: OID, user_id: i32, amount: i32, description: String) -> RS<()> {
     let _ = description;
     if amount <= 0 {
@@ -436,7 +436,7 @@ pub async fn purchase(xid: OID, user_id: i32, amount: i32, description: String) 
     )
     .await?;
 
-    // Entity transaction
+    // Object transaction
     mudu_command(
         xid,
         sql_stmt!(

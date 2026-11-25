@@ -8,13 +8,13 @@ use ::catalog::contract::queue::{
     queue_system_columns, QUEUE_LSN_COLUMN, QUEUE_RECEIVE_COUNT_COLUMN, QUEUE_SEQ_COLUMN,
     QUEUE_STATUS_COLUMN,
 };
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
-use ::xengine::api::XContract;
+use ::xengine::api::{XContract, XContractQueue};
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PCreateQueue;
 use async_trait::async_trait;
@@ -24,7 +24,6 @@ use mudu::error::ErrorCode;
 use mudu_kernel::mudu_conn::mudu_conn_core::MuduConnCore;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -42,24 +41,24 @@ fn payload_column(name: &str, family: TypeFamily) -> SchemaColumn {
     SchemaColumn::new(
         name.to_string(),
         family,
-        DataTypeInfo::from_opt_object(&DataType::default_for(family)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(family)),
     )
 }
 
 /// Builds a queue schema the way the binder does: the four system columns
 /// first, then the payload columns; key is `__seq` alone.
-fn queue_schema(name: &str, payload: Vec<SchemaColumn>) -> SchemaTable {
+fn queue_schema(name: &str, payload: Vec<SchemaColumn>) -> SchemaClass {
     let mut columns = queue_system_columns();
     columns.extend(payload);
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn table_schema(name: &str) -> SchemaTable {
-    let mut schema = SchemaTable::new(
+fn table_schema(name: &str) -> SchemaClass {
+    let mut schema = SchemaClass::new(
         name.to_string(),
         vec![payload_column("k", TypeFamily::I64)],
         vec![0],
@@ -70,7 +69,7 @@ fn table_schema(name: &str) -> SchemaTable {
 }
 
 struct MockMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
 }
 
 impl MockMetaMgr {
@@ -80,15 +79,15 @@ impl MockMetaMgr {
         }
     }
 
-    fn add_schema(&self, schema: SchemaTable) {
+    fn add_schema(&self, schema: SchemaClass) {
         self.schemas.lock().unwrap().insert(schema.id(), schema);
     }
 
-    fn find_by_name(&self, schema: &str, name: &str) -> Option<SchemaTable> {
+    fn find_by_name(&self, schema: &str, name: &str) -> Option<SchemaClass> {
         let schemas = self.schemas.lock().unwrap();
         let exact = schemas
             .values()
-            .find(|s| s.schema() == schema && s.table_name() == name)
+            .find(|s| s.schema() == schema && s.class_name() == name)
             .cloned();
         // Mirror the catalog search path: exact hit wins, then the default
         // schema fallback.
@@ -97,11 +96,11 @@ impl MockMetaMgr {
         }
         schemas
             .values()
-            .find(|s| s.schema() == DEFAULT_SCHEMA && s.table_name() == name)
+            .find(|s| s.schema() == DEFAULT_SCHEMA && s.class_name() == name)
             .cloned()
     }
 
-    fn desc_of(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+    fn desc_of(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
     }
 }
@@ -117,7 +116,7 @@ impl MetaMgr for MockMetaMgr {
         match schema {
             Some(schema) => Self::desc_of(&schema),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -135,12 +134,12 @@ impl MetaMgr for MockMetaMgr {
             .lock()
             .unwrap()
             .values()
-            .find(|s| s.schema() == schema && s.table_name() == name)
+            .find(|s| s.schema() == schema && s.class_name() == name)
             .cloned();
         found.map(|schema| Self::desc_of(&schema)).transpose()
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         self.add_schema(schema.clone());
         Ok(())
     }
@@ -150,20 +149,20 @@ impl MetaMgr for MockMetaMgr {
         Ok(())
     }
 
-    async fn create_queue(&self, schema: &SchemaTable) -> RS<()> {
-        if schema.kind() != SchemaObjectKind::Queue {
+    async fn create_queue(&self, schema: &SchemaClass) -> RS<()> {
+        if schema.kind() != SchemaClassKind::Queue {
             return Err(mudu::mudu_error!(
                 ErrorCode::InvalidArgument,
                 "schema does not carry the queue kind"
             ));
         }
         if self
-            .find_by_name(schema.schema(), schema.table_name())
+            .find_by_name(schema.schema(), schema.class_name())
             .is_some()
         {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityAlreadyExists,
-                format!("queue {} already exists", schema.table_name())
+                ErrorCode::ObjectAlreadyExists,
+                format!("queue {} already exists", schema.class_name())
             ));
         }
         self.add_schema(schema.clone());
@@ -178,7 +177,7 @@ impl MetaMgr for MockMetaMgr {
                 Ok(())
             }
             _ => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such queue {}", queue_id)
             )),
         }
@@ -191,7 +190,7 @@ impl MetaMgr for MockMetaMgr {
         }
     }
 
-    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_queues(&self) -> RS<Vec<SchemaClass>> {
         Ok(self
             .schemas
             .lock()
@@ -269,13 +268,13 @@ struct MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
         unimplemented!()
     }
-    async fn create_queue(&self, _tx_mgr: Arc<dyn TxMgr>, schema: &SchemaTable) -> RS<()> {
+    async fn create_queue(&self, _tx_mgr: Arc<dyn TxMgr>, schema: &SchemaClass) -> RS<()> {
         self.meta.create_queue(schema).await
     }
     async fn drop_queue(&self, _tx_mgr: Arc<dyn TxMgr>, oid: OID) -> RS<()> {
@@ -357,6 +356,10 @@ impl XContract for MockXContract {
     ) -> RS<()> {
         unimplemented!()
     }
+}
+
+#[async_trait]
+impl XContractQueue for MockXContract {
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
         Ok(vec![::xengine::api::QueueShard {
             queue_oid: table_id,
@@ -384,7 +387,7 @@ impl XContract for MockXContract {
     }
 }
 
-fn make_create_queue(schema: SchemaTable, meta: Arc<MockMetaMgr>) -> CreateQueue {
+fn make_create_queue(schema: SchemaClass, meta: Arc<MockMetaMgr>) -> CreateQueue {
     CreateQueue::new(
         PCreateQueue {
             tx_mgr: Arc::new(MockTxMgr),
@@ -454,7 +457,7 @@ fn create_queue_prepare_fails_on_name_collision_with_table() {
 
     let cmd = make_create_queue(queue_schema("dup", Vec::new()), meta);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]
@@ -464,7 +467,7 @@ fn create_queue_prepare_fails_on_name_collision_with_queue() {
 
     let cmd = make_create_queue(queue_schema("dup", Vec::new()), meta);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]
@@ -476,7 +479,7 @@ fn create_queue_run_fails_when_queue_created_concurrently() {
     // run rejects it.
     meta.add_schema(queue_schema("q", Vec::new()));
     let err = block_on(cmd.run()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]

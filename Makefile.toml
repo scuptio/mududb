@@ -25,7 +25,7 @@
 #   cargo make install       # install workspace binaries; extra args pass through to
 #                            #   script/build/install_binaries.py, e.g.
 #                            #   cargo make install --debug | --root /tmp/mudu --dry-run
-#   cargo make install-tools  # install mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli (release, fixed)
+#   cargo make install-tools  # install mpm/mpm-build/mpm-crate/mpm-install/mpm-tool/mgen/mtp/mudud/mcli (release, fixed)
 #   cargo make package-release  # server release tarball into target/release-artifacts/
 #   cargo make package-sdk-registry  # pack npm/NuGet/PyPI packages into target/sdk-dist/registry/
 #                            #   publishing: python3 script/release/publish.py <targets> [--apply]
@@ -116,9 +116,9 @@ command = "cargo"
 args = ["build", "--release"]
 cwd = "${MUDU_ADAPTER_FFI}"
 
-# Reinstall the workspace CLI tools from source (mgen, mtp, mpm-build,
-# mpm-crate, mpm-install, mudud, mcli) so the toolchain cannot drift from
-# the commit.
+# Reinstall the workspace CLI tools from source (mpm, mpm-build, mpm-crate,
+# mpm-install, mpm-tool, mgen, mtp, mudud, mcli) so the toolchain cannot drift
+# from the commit.
 [tasks.install-tools]
 description = "Install the workspace CLI tools from source (fixed release profile)"
 category = "Install"
@@ -197,9 +197,11 @@ cwd = "${GROUP_EXAMPLE}/wallet-c"
 
 # All guest example packages (requires the full external toolchain set).
 [tasks.package-examples]
-description = "Package all guest example packages (needs the full external toolchain set)"
+description = "Package all guest example packages (needs the full external toolchain set); aggregate results + logs; -- --help"
 category = "Package"
-dependencies = ["package-wallet", "package-wallet-as", "package-wallet-cs", "package-wallet-py", "package-wallet-go", "package-wallet-c"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/package_examples.py", "${@}"]
+cwd = "${REPO_ROOT}"
 
 # ---------------------------------------------------------------------------
 # release packaging / publishing
@@ -272,72 +274,101 @@ alias = "build"
 #   cargo make check -- --only deny,arch
 [tasks.check]
 clear = true
-description = "Format, lint, and compile-check all workspaces (see check-* steps; --only accepts combinations)"
+description = "Format, lint, and compile-check all workspaces (see check-* steps; --only accepts combinations); aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/ci/check_all.py", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-fmt]
-description = "cargo fmt --check across all group workspaces"
+description = "cargo fmt --check across all group workspaces; aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "fmt"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "fmt", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-clippy]
-description = "cargo clippy -D warnings across all group workspaces"
+description = "cargo clippy -D warnings across all group workspaces; aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "clippy"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "clippy", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-test-compile]
-description = "cargo test --no-run across all group workspaces"
+description = "cargo test --no-run across all group workspaces; aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-compile"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-compile", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # Local-only deny gate: bans/licenses/sources (deterministic, no advisory DB).
 # The full CI check with the time-varying advisories runs in ci-hardening.yaml
 # (`cargo deny check ... bans licenses advisories sources`), not locally.
 [tasks.check-deny]
-description = "cargo-deny ban/license/source check across all group workspaces"
+description = "cargo-deny ban/license/source check across all group workspaces; aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deny"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deny", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-deps]
-description = "Workspace dependency consistency (versions.toml)"
+description = "Workspace dependency consistency (versions.toml); aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deps"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "deps", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-arch]
-description = "Crate layering check (ARCHITECTURE.md)"
+description = "Crate layering check (ARCHITECTURE.md); aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "arch"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "arch", "${@}"]
 cwd = "${REPO_ROOT}"
 
 [tasks.check-test-feature]
-description = "Test feature kept out of production dependencies"
+description = "Test feature kept out of production dependencies; aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-feature"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "test-feature", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # Fast standalone run of just the code-metrics steps (the same two
 # mudu_metrics invocations that check runs last), for quick iteration when
 # trimming files/functions under the code_metrics.toml limits.
 [tasks.check-metrics]
-description = "Run only the code-metrics checks (mudu_metrics over crates/ and example/)"
+description = "Run only the code-metrics checks (mudu_metrics over crates/ and example/); aggregate results + logs; -- --help"
 category = "Check"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "metrics"]
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "metrics", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Line-count report (mudu_metrics report): a per-language table plus the Rust
+# test/non-test split, scanned over the whole repository. Advisory only.
+[tasks.loc]
+description = "Report code line counts by language and Rust test/non-test split (mudu_metrics report)"
+category = "Metrics"
+command = "cargo"
+args = ["run", "--manifest-path", "${REPO_ROOT}/crates/tools/Cargo.toml", "-p", "mudu_metrics", "--", "report", "--root", "${REPO_ROOT}"]
+cwd = "${REPO_ROOT}"
+
+# Advisory TODO / panic-surface report over hand-written production code
+# (excludes generated code and every form of test code). Never fails.
+[tasks.check-todo-panic]
+description = "Report the TODO / panic-surface budget per crate (advisory); aggregate results + logs; -- --help"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/check_all.py", "--only", "todo-panic", "${@}"]
+cwd = "${REPO_ROOT}"
+
+# Module-level dependency and coupling analysis via mudu_arch over every
+# workspace library crate. Default mode aggregates everything into a single
+# prioritised remediation list; pass `-- --mode report` /
+# `-- --mode pub-visibility` / `-- --mode orphans` for per-crate output.
+[tasks.analyze-modules]
+description = "Aggregated module-coupling remediation list across all workspace crates; -- --mode report|pub-visibility|orphans"
+category = "Check"
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/module_analysis.py", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # `--quiet` after `--` collapses libtest's one-line-per-test output into
@@ -347,55 +378,54 @@ cwd = "${REPO_ROOT}"
 [tasks.test-group-common]
 description = "Run the crates/common workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "common", "${@}"]
 cwd = "${GROUP_COMMON}"
 
 [tasks.test-group-db-kernel]
 description = "Run the crates/db-kernel workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "db-kernel", "${@}"]
 cwd = "${GROUP_DB_KERNEL}"
 
 [tasks.test-group-sdk]
 description = "Run the crates/sdk workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "sdk", "${@}"]
 cwd = "${GROUP_SDK}"
 
 [tasks.test-group-example-mpk]
 description = "Run the example/mpk workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "example-mpk", "${@}"]
 cwd = "${GROUP_EXAMPLE}"
 
 [tasks.test-group-tools]
 description = "Run the crates/tools workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "tools", "${@}"]
 cwd = "${GROUP_TOOLS}"
 
 [tasks.test-mudu-api]
 description = "Run the guest-SDK workspace test suite"
 category = "Test"
-command = "cargo"
-args = ["test", "--workspace", "--", "--quiet"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "--group", "mudu-api", "${@}"]
 cwd = "${MUDU_API_RUST}"
 
 # Aggregator: runs every workspace test suite via script/ci/run_all_tests.py
-# (fail-fast, per-group timing, cargo-style status output). The individual
-# test-group-* tasks above run the same `cargo test --workspace -- --quiet`
-# directly for single-group granularity.
+# (continue after failures, per-group logs and a final report). Single-group
+# tasks use the same runner; --fail-fast restores early exit for debugging.
 [tasks.test]
 clear = true
 description = "Run cargo test --workspace for every workspace"
 category = "Test"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/ci/run_all_tests.py"]
+args = ["${REPO_ROOT}/script/ci/run_all_tests.py", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # End-to-end suite: builds wallet / wallet-as / wallet-cs / wallet-py /
@@ -407,6 +437,16 @@ category = "Test"
 command = "cargo"
 args = ["make", "test"]
 cwd = "${GROUP_DB_KERNEL}/testing"
+
+# Distributed multi-node e2e (single-node restart/crash recovery + multi-node
+# Raft HA / scale-out) over real TCP, inside the pinned dev Docker image. No
+# mpk/wasm toolchain is required. Extra args pass through to the harness.
+[tasks.test-e2e-distributed]
+description = "Distributed multi-node HA/scale-out e2e via Docker (no mpk toolchain); aggregate results + logs; -- --help"
+category = "Test"
+command = "python3"
+args = ["${REPO_ROOT}/script/test/distributed_e2e.py", "${@}"]
+cwd = "${REPO_ROOT}"
 
 # ---------------------------------------------------------------------------
 # coverage
@@ -445,10 +485,10 @@ cwd = "${GROUP_EXAMPLE}/tpcc"
 # throughput-ratio bands against script/bench/baselines/paged-index.json.
 # Wall-clock metrics are recorded in the baseline but never gated.
 [tasks.bench-smoke-paged]
-description = "Paged-index performance gate against the committed baseline"
+description = "Paged-index performance gate against the committed baseline; aggregate results + logs; -- --help"
 category = "Bench"
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/bench/bench_gate.py", "paged-index"]
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "paged-index", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # TPC-C gate: one warehouse at smoke scale in stored-procedure mode against
@@ -456,18 +496,19 @@ cwd = "${REPO_ROOT}"
 # completion, abort rate (baseline + delta) and a sanity TPS floor against
 # script/bench/baselines/tpcc.json; TPS/latency trends are recorded only.
 [tasks.bench-smoke-tpcc]
-description = "TPC-C smoke gate against the committed baseline"
+description = "TPC-C smoke gate against the committed baseline; aggregate results + logs; -- --help"
 category = "Bench"
-dependencies = ["package-tpcc"]
 command = "${PYTHON}"
-args = ["${REPO_ROOT}/script/bench/bench_gate.py", "tpcc"]
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "tpcc", "${@}"]
 cwd = "${REPO_ROOT}"
 
 # Both performance gates (paged-index first, then TPC-C).
 [tasks.bench-smoke]
-description = "Run every performance regression gate at smoke scale"
+description = "Run every performance regression gate at smoke scale; aggregate results + logs; -- --help"
 category = "Bench"
-dependencies = ["bench-smoke-paged", "bench-smoke-tpcc"]
+command = "${PYTHON}"
+args = ["${REPO_ROOT}/script/bench/bench_gate.py", "all", "${@}"]
+cwd = "${REPO_ROOT}"
 
 # Regenerate baselines after an intended change to benchmarked code; review
 # the baseline diff in the same commit (same convention as binding regen).
@@ -499,7 +540,7 @@ dependencies = ["bench-baseline-update-paged", "bench-baseline-update-tpcc"]
 # plus the pinned nightly toolchain (read from .rust-nightly-version), since
 # cargo-udeps only runs on nightly.
 [tasks.udeps]
-description = "Find unused dependencies (cargo-udeps, pinned nightly) across crates/* groups"
+description = "Find unused dependencies (cargo-udeps, pinned nightly) across crates/* groups; aggregate results + logs; -- --help"
 category = "Audit"
 command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/ci/dep_audit.py", "udeps", "${@}"]
@@ -507,7 +548,7 @@ cwd = "${REPO_ROOT}"
 
 # Report stale direct dependencies (cargo-outdated) across all group workspaces.
 [tasks.outdated]
-description = "Report stale direct dependencies (cargo-outdated) across all group workspaces"
+description = "Report stale direct dependencies (cargo-outdated) across all group workspaces; aggregate results + logs; -- --help"
 category = "Audit"
 command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/ci/dep_audit.py", "outdated", "${@}"]
@@ -517,7 +558,7 @@ cwd = "${REPO_ROOT}"
 # drift lives under `cargo make check-deny` (deterministic bans/licenses/sources)
 # and CI (ci-hardening.yaml); see the note there.
 [tasks.dep-audit]
-description = "Run udeps + outdated across all group workspaces"
+description = "Run udeps + outdated across all group workspaces; aggregate results + logs; -- --help"
 category = "Audit"
 command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/ci/dep_audit.py", "all", "${@}"]
@@ -534,7 +575,7 @@ description = "Clean the shared repository-root target/ directory"
 category = "Utility"
 command = "cargo"
 args = ["clean"]
-cwd = "${REPO_ROOT}"
+cwd = "${GROUP_COMMON}"
 
 # Pretty, grouped list of this repository's tasks. `--list-all-steps` shows
 # the raw listing (only hook stubs remain, since core tasks are skipped above).
@@ -558,7 +599,7 @@ cwd = "${REPO_ROOT}"
 
 # Build standalone language SDK distributions without publishing them.
 [tasks.build-sdk]
-description = "Build standalone language SDK distributions (no publishing)"
+description = "Build standalone language SDK distributions (no publishing); aggregate results + logs; -- --help"
 category = "Release"
 command = "${PYTHON}"
 args = ["${REPO_ROOT}/script/sdk/sdk_build.py", "${@}"]

@@ -48,4 +48,51 @@ mod tests {
         client.shutdown().await.unwrap();
         accept_task.await.unwrap();
     }
+    #[tokio::test]
+    async fn backend_listener_rebind_fails_and_shutdown_signals_eof() {
+        use super::super::{TokioTcpListener, TokioTcpStream};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TokioTcpListener::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        assert!(TokioTcpListener::bind(addr).await.is_err());
+        let mut client = TokioTcpStream::connect(addr).await.unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        AsyncWriteExt::shutdown(&mut client).await.unwrap();
+        let mut byte = [0];
+        assert_eq!(server.read(&mut byte).await.unwrap(), 0);
+        drop(listener.into_inner());
+    }
+
+    #[tokio::test]
+    async fn unconnected_backend_stream_reports_missing_peer() {
+        use super::super::TokioTcpStream;
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )
+        .unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let mut stream = TokioTcpStream::from_std(socket.into()).unwrap();
+        assert!(stream.peer_addr().is_err());
+        stream.shutdown().await.unwrap();
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn backend_rejects_non_ip_socket_addresses_and_tcp_options() {
+        use super::super::{TokioTcpListener, TokioTcpStream};
+        let socket =
+            socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let listener = TokioTcpListener::from_std(socket.into()).unwrap();
+        assert!(listener.local_addr().is_err());
+        let socket =
+            socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let stream = TokioTcpStream::from_std(socket.into()).unwrap();
+        assert!(stream.local_addr().is_err());
+        assert!(stream.set_nodelay(true).is_err());
+    }
 }

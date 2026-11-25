@@ -52,16 +52,56 @@ Or run the full check sequence for all five group workspaces from the repository
 cargo make check
 ```
 
+Run all workspace tests with `cargo make test`. Test failures do not stop later
+test targets or workspaces; the command returns a nonzero exit code if any group
+fails. Each run writes complete per-workspace logs plus `summary.txt` and
+`summary.json` under `logs/tests/<timestamp>-<unique-id>/`. The report includes
+failed test names and targets, diagnostic excerpts, exit codes and totals for
+passed/failed/ignored tests and failed workspaces. `failures.log` combines the
+complete output of every failed workspace without truncation. Compilation errors
+and process failures without a test count are listed separately.
+Compilation failures may prevent a workspace's tests from running, but later
+workspaces are still attempted. Ctrl+C stops the run and preserves partial results.
+
+Use `cargo make test -- --fail-fast` for early exit, or
+`cargo make test -- --group db-kernel` for one workspace. The `test-group-*`
+tasks use the same logging runner. `--log-dir <path>` selects the parent directory
+for run logs; every invocation creates a new directory without overwriting old logs.
+Terminal output highlights progress, failures and a final workspace results table
+with elapsed times and clickable report links. Use `--color always` or
+`--color never` to override automatic terminal detection; `NO_COLOR` disables
+colors in auto mode. Log files and saved reports remain plain text.
+
 ### Option B: Dev Container / Docker
 
 If you prefer a containerized environment, build and run the development image:
 
 ```bash
 docker build -f Dockerfile.dev -t mududb-dev .
-docker run -it --rm -v "$(pwd):/workspace" mududb-dev
+docker run -it --rm -v "$(pwd):/workspace" -v mududb-dev-target:/workspace/target mududb-dev
 ```
 
 Or open the project in an editor that supports [Dev Containers](https://containers.dev/) using `.devcontainer/devcontainer.json`.
+
+Container builds must not share the host `target/`. The development image uses
+a Docker volume at `/workspace/target`; the command above, Dev Containers, and
+the distributed E2E driver each use separate named caches. Rebuild existing
+development images and recreate containers after changing this configuration.
+The E2E image build uses its own `/opt/mududb-e2e-target`; local `act` runs use
+copied workspaces (`--bind=false`).
+
+E2E builds require BuildKit. Their target and Cargo download caches are separate
+BuildKit caches, partitioned by architecture and locked during builds. The
+server binary is exported outside the cache before entering the runtime image.
+The driver uses external volumes `e2e_driver-target`, `e2e_driver-registry`, and
+`e2e_driver-git`. The test harness creates these automatically; `down --volumes`
+removes scenario data but preserves these caches. For direct Compose use, create
+the three volumes with `docker volume create <name>` first. Override their names
+with `MUDUDB_E2E_TARGET_VOLUME`, `MUDUDB_E2E_REGISTRY_VOLUME`, and
+`MUDUDB_E2E_GIT_VOLUME` when separate checkouts need separate caches. Existing
+drivers acquire the download-cache mounts on their next recreation. Cache
+cleanup is manual: remove only unused named cache volumes; BuildKit cache
+pruning also discards incremental image-build artifacts.
 
 ### Option C: Manual setup
 
@@ -105,8 +145,9 @@ rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install toml tomli-w
 ```
+
+The transpiler uses Python 3.11+ and the standard library; no pip packages are required.
 
 Reactivate the environment in any new shell with `source .venv/bin/activate`.
 
@@ -128,9 +169,11 @@ python script/build/install_binaries.py
 
 Default installed tools:
 
+- `mpm`: portable project builder
 - `mpm-build`: package builder
 - `mpm-crate`: project scaffolder
 - `mpm-install`: package installer
+- `mpm-tool`: package inspector/verifier/converter
 - `mgen`: source generator
 - `mtp`: transpiler
 - `mudud`: MuduDB server
@@ -163,7 +206,7 @@ mudup --help
 mudup install
 ```
 
-This will install and activate the latest release binaries: `mpm-build`, `mpm-crate`, `mpm-install`, `mgen`, `mtp`, `mudud`, `mcli`.
+This will install and activate the latest release binaries: `mpm`, `mpm-build`, `mpm-crate`, `mpm-install`, `mpm-tool`, `mgen`, `mtp`, `mudud`, `mcli`.
 
 ### 3. Verify installation
 
@@ -377,3 +420,29 @@ Before submitting changes:
 3. Update relevant documentation if your change affects build, configuration, or public behavior.
 
 For the full development setup, see the sections above.
+
+### Reports for long-running tasks
+
+`check` (including `check-*`), `udeps`, `dep-audit`, `outdated`, `bench-smoke`
+(including its per-benchmark tasks), `build-sdk`, `package-examples`, and
+`test-e2e-distributed` continue independent steps after a failure and report
+all outcomes. They run serially to preserve the memory budget and target isolation.
+Use `cargo make <task> -- --help` for options: `--fail-fast`,
+`--log-dir <directory>`, and `--color auto|always|never`.
+
+Each run saves `summary.txt`, `summary.json`, plain per-step logs, and the complete
+failed/advisory output in `failures.log`, under `logs/<task-family>/<unique-run>/`.
+The summary distinguishes passed, failed, skipped, advisory, and interrupted steps,
+with exit codes, diagnostic excerpts, durations, and full log paths. Required failures
+return nonzero after independent work finishes; interruption returns 130.
+
+- `outdated` remains advisory: its errors are recorded but alone do not fail the batch.
+- Distributed e2e saves Compose node logs and cleans up after each scenario. Failed
+  image preparation blocks scenarios; failed cleanup blocks subsequent scenarios.
+- Benchmark execution and comparison remain dependent; smoke runs never update baselines.
+  Explicit `bench-baseline-update*` tasks retain strict failure handling.
+- Example packaging installs shared tools once, then runs each language independently.
+- SDK builds check bindings once and build the requested adapter runtime once. Language
+  prerequisites and validation run independently. Successful language artifacts are retained;
+  a partially failed batch has no publishable `manifest.json`.
+- Pre-commit hooks explicitly use `--fail-fast` to keep the existing fast feedback.

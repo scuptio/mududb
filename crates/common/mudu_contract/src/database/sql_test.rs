@@ -4,7 +4,7 @@
 #[allow(clippy::panic)]
 mod tests {
     use crate::database::db_conn::{DBConnAsync, DBConnSync};
-    use crate::database::entity::Entity;
+    use crate::database::object::Object;
     use crate::database::prepared_stmt::PreparedStmt;
     use crate::database::result_set::{ResultSet, ResultSetAsync};
     use crate::database::sql::{
@@ -680,7 +680,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.err().unwrap().ec(),
-            mudu::error::ErrorCode::EntityNotFound
+            mudu::error::ErrorCode::ObjectNotFound
         );
     }
 

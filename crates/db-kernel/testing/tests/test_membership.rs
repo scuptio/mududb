@@ -16,12 +16,14 @@
 //! replication channel binds real OS sockets (see the sibling mpk test
 //! files' gate comments).
 #![cfg(not(feature = "ds"))]
+#![cfg(feature = "socket")]
 
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{
-    MuduDBCfg, RaftReplCfg, ReplicationCfg, ReplicationPeer, RoutingMode, ServerMode,
+    DataGroupCfg, DataMemberCfg, DataPlaneCfg, DataReplicaCfg, MuduDBCfg, RaftReplCfg, RoutingMode,
+    ServerMode,
 };
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
 use mudu_sys::net::sync::SStdTcpStream;
@@ -347,6 +349,7 @@ struct ClusterNode {
     pg_port: u16,
     tcp_port: u16,
     repl_port: u16,
+    channel_port: u16,
     mpk_dir: PathBuf,
     data_dir: PathBuf,
     server: Option<RunningServer>,
@@ -359,8 +362,8 @@ struct Cluster {
 
 impl Cluster {
     fn new(node_count: usize) -> RS<Option<Self>> {
-        let mut ports = Vec::with_capacity(node_count * 4);
-        for _ in 0..node_count * 4 {
+        let mut ports = Vec::with_capacity(node_count * 5);
+        for _ in 0..node_count * 5 {
             let Some(port) = reserve_port()? else {
                 return Ok(None);
             };
@@ -377,10 +380,11 @@ impl Cluster {
             create_dir_all(&data_dir)?;
             nodes.push(ClusterNode {
                 node_id,
-                http_port: ports[index * 4],
-                pg_port: ports[index * 4 + 1],
-                tcp_port: ports[index * 4 + 2],
-                repl_port: ports[index * 4 + 3],
+                http_port: ports[index * 5],
+                pg_port: ports[index * 5 + 1],
+                tcp_port: ports[index * 5 + 2],
+                repl_port: ports[index * 5 + 3],
+                channel_port: ports[index * 5 + 4],
                 mpk_dir,
                 data_dir,
                 server: None,
@@ -466,6 +470,13 @@ impl Cluster {
     }
 
     fn build_cfg(node: &ClusterNode, peers: &[ClusterNode]) -> MuduDBCfg {
+        let member = |peer: &ClusterNode| DataMemberCfg {
+            name: format!("node-{}", peer.node_id),
+            host: "127.0.0.1".to_string(),
+            channel_port: peer.channel_port,
+            client_port: peer.pg_port,
+            replication_port: peer.repl_port,
+        };
         MuduDBCfg {
             listen_ip: "127.0.0.1".to_string(),
             http_listen_port: node.http_port,
@@ -479,26 +490,27 @@ impl Cluster {
             component_target: Some(ComponentTarget::P2),
             mpk_path: node.mpk_dir.to_string_lossy().into_owned(),
             db_path: node.data_dir.to_string_lossy().into_owned(),
-            replication: Some(ReplicationCfg {
-                node_id: node.node_id,
-                listen_port: node.repl_port,
-                repl_flow_window_segments: 64,
-                snapshot_wal_threshold_bytes: 1024 * 1024 * 1024,
-                gc_check_interval_secs: 60,
-                stream: None,
-                raft: Some(RaftReplCfg {
-                    raft_tick_ms: RAFT_TICK_MS,
-                    election_timeout_ticks: election_ticks(node.node_id),
-                }),
-                peers: peers
-                    .iter()
-                    .map(|peer| ReplicationPeer {
-                        node_id: peer.node_id,
-                        host: "127.0.0.1".to_string(),
-                        port: peer.repl_port,
-                    })
-                    .collect(),
+            name: Some(format!("node-{}", node.node_id)),
+            cluster: Some("cluster".to_string()),
+            channel_listen_port: Some(node.channel_port),
+            topology_version: Some(1),
+            data_plane: Some(DataPlaneCfg {
+                group: vec![DataGroupCfg {
+                    name: "grp-1".to_string(),
+                    worker_count: 1,
+                    replica: DataReplicaCfg {
+                        raft: Some(RaftReplCfg {
+                            tick_ms: RAFT_TICK_MS,
+                            election_timeout_ticks: election_ticks(node.node_id),
+                        }),
+                        stream: None,
+                        member: peers.iter().map(member).collect(),
+                    },
+                }],
+                placements: vec![],
+                rebalance_interval_ms: 0,
             }),
+            control_plane: None,
             ..Default::default()
         }
     }
@@ -592,6 +604,7 @@ impl ClusterNode {
             pg_port: self.pg_port,
             tcp_port: self.tcp_port,
             repl_port: self.repl_port,
+            channel_port: self.channel_port,
             mpk_dir: self.mpk_dir.clone(),
             data_dir: self.data_dir.clone(),
             server: None,

@@ -50,6 +50,9 @@
 /// Re-export of the core `mudu` crate.
 pub use mudu;
 #[cfg(feature = "interface")]
+/// Canonical guest facade `mududb.cache`: the volatile cache handle.
+pub mod cache;
+#[cfg(feature = "interface")]
 /// Canonical guest facade `mududb.db`: the database session handle.
 pub mod db;
 #[cfg(feature = "interface")]

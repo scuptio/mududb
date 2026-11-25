@@ -14,6 +14,7 @@ pub mod operator;
 pub mod partition_router;
 
 mod data_bin;
+mod delta;
 pub use data_bin::DataBin;
 /// Transaction-local staging of a transaction's writes and snapshot.
 pub mod tx_mgr;

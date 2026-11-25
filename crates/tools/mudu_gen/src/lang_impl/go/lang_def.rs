@@ -8,8 +8,8 @@
 //! surface: all integer widths map to `int64` and `Numeric` maps to
 //! `numeric` (generated entities live in the same `main` package as
 //! `mudusys.go`). 128-bit integers have no wire shape in the Go guest;
-//! they are named here for completeness but rejected by the entity wire
-//! classifier (`template_entity_go`) before any code is emitted.
+//! they are named here for completeness but rejected by the object wire
+//! classifier (`template_object_go`) before any code is emitted.
 
 use crate::lang_impl::go::render_go::create_render;
 use crate::lang_impl::lang::non_scalar::NonScalarType;

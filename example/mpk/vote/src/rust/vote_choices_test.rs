@@ -1,7 +1,7 @@
-//! Unit tests for the `rust::vote_choices::VoteChoices` entity.
+//! Unit tests for the `rust::vote_choices::VoteChoices` object.
 
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::vote_choices::object::{VoteChoices, VoteChoicesChange, columns};
@@ -22,12 +22,12 @@ fn assert_same_vote_choices(lhs: &VoteChoices, rhs: &VoteChoices) {
 
 #[test]
 fn vote_choices_lifecycle() {
-    let entity = sample_vote_choices();
-    assert_eq!(entity.choice_id, "choice_id_val");
-    assert_eq!(entity.option_id.as_deref(), Some("option_id_val"));
+    let object = sample_vote_choices();
+    assert_eq!(object.choice_id, "choice_id_val");
+    assert_eq!(object.option_id.as_deref(), Some("option_id_val"));
 
-    // Entity metadata
-    assert_eq!(VoteChoices::table_name(), "vote_choices");
+    // Object metadata
+    assert_eq!(VoteChoices::class_name(), "vote_choices");
     assert_eq!(VoteChoices::TABLE_NAME, "vote_choices");
     assert_eq!(VoteChoices::tuple_desc().fields().len(), 3);
     assert_eq!(
@@ -39,36 +39,36 @@ fn vote_choices_lifecycle() {
 
     // Datum / DatumDyn metadata
     let data_type = VoteChoices::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     let from_tuple = VoteChoices::from_tuple(&tuple).unwrap();
-    assert_same_vote_choices(&from_tuple, &entity);
+    assert_same_vote_choices(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type).unwrap();
+    let value = object.to_value(&data_type).unwrap();
     let from_value = VoteChoices::from_value(&value).unwrap();
-    assert_same_vote_choices(&from_value, &entity);
+    assert_same_vote_choices(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type).unwrap();
+    let binary = object.to_binary(&data_type).unwrap();
     let from_binary = VoteChoices::from_binary(binary.as_ref()).unwrap();
-    assert_same_vote_choices(&from_binary, &entity);
+    assert_same_vote_choices(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type).unwrap();
+    let textual = object.to_textual(&data_type).unwrap();
     let from_textual = VoteChoices::from_textual(textual.as_str()).unwrap();
-    assert_same_vote_choices(&from_textual, &entity);
+    assert_same_vote_choices(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = VoteChoices::from_value(&cloned_value).unwrap();
-    assert_same_vote_choices(&from_cloned, &entity);
+    assert_same_vote_choices(&from_cloned, &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, "choice_id_val");
     assert_eq!(params.1.as_deref(), Some("action_id_val"));
     assert_eq!(params.2.as_deref(), Some("option_id_val"));
@@ -114,15 +114,15 @@ fn vote_choices_lifecycle() {
 
 #[test]
 fn vote_choices_nullable_fields_roundtrip() {
-    let entity = VoteChoices::new("choice_id_val".to_string(), None, None);
-    let tuple = entity.to_tuple().unwrap();
+    let object = VoteChoices::new("choice_id_val".to_string(), None, None);
+    let tuple = object.to_tuple().unwrap();
     assert!(tuple.is_null(1));
     assert!(tuple.is_null(2));
     let restored = VoteChoices::from_tuple(&tuple).unwrap();
-    assert_same_vote_choices(&restored, &entity);
+    assert_same_vote_choices(&restored, &object);
 
-    let value = entity.to_tuple_value().unwrap();
+    let value = object.to_tuple_value().unwrap();
     assert!(value.values()[1].is_null());
     let restored = VoteChoices::from_tuple_value(&value).unwrap();
-    assert_same_vote_choices(&restored, &entity);
+    assert_same_vote_choices(&restored, &object);
 }

@@ -1,0 +1,23 @@
+[package]
+name = "mudu_caf"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2024"
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+ciborium = { workspace = true }
+sha2 = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+wasmparser = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]

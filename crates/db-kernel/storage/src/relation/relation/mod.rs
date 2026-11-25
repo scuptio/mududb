@@ -258,7 +258,9 @@ impl Relation {
     }
 }
 
+mod offline;
 mod open;
+pub use offline::read_persisted_relation_latest;
 mod read;
 mod write;
 

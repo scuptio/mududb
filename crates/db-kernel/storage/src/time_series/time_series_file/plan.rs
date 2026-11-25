@@ -6,7 +6,7 @@ use crate::page::PageId;
 use ::wal::log_frame::frame_lsns;
 use ::wal::pl_batch::PLBatch;
 use ::wal::pl_entry::{
-    PLEntry, PLFileId, PLOp, PLPageInit, PLPageLinks, PLRecord, PLRecordKey, PageDelta,
+    PLEntry, PLFileId, PLOp, PLPageInit, PLPageLinks, PLStruct, PLStructKey, PageDelta,
 };
 use ::wal::worker_log::WorkerLogBackend;
 use mudu::common::result::RS;
@@ -367,9 +367,9 @@ impl TsFileInner {
 }
 
 /// Reads one record (key + payload) from a page in slot order.
-fn page_record(page: &PageBlockRef<'_>, slot_index: usize) -> RS<PLRecord> {
+fn page_record(page: &PageBlockRef<'_>, slot_index: usize) -> RS<PLStruct> {
     let slot = page.slot_ref(slot_index)?;
-    Ok(PLRecord {
+    Ok(PLStruct {
         timestamp: slot.timestamp(),
         tuple_id: slot.tuple_id(),
         payload: page.record_bytes(slot_index)?.to_vec(),
@@ -377,16 +377,16 @@ fn page_record(page: &PageBlockRef<'_>, slot_index: usize) -> RS<PLRecord> {
 }
 
 /// Reads one record key from a page in slot order.
-fn page_record_key(page: &PageBlockRef<'_>, slot_index: usize) -> RS<PLRecordKey> {
+fn page_record_key(page: &PageBlockRef<'_>, slot_index: usize) -> RS<PLStructKey> {
     let slot = page.slot_ref(slot_index)?;
-    Ok(PLRecordKey {
+    Ok(PLStructKey {
         timestamp: slot.timestamp(),
         tuple_id: slot.tuple_id(),
     })
 }
 
 /// Reads every record of a page in slot order.
-fn page_records(page: &PageBlockRef<'_>) -> RS<Vec<PLRecord>> {
+fn page_records(page: &PageBlockRef<'_>) -> RS<Vec<PLStruct>> {
     let count = page.slot_count()?;
     let mut records = Vec::with_capacity(count);
     for slot_index in 0..count {

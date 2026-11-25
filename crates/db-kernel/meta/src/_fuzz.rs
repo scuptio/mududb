@@ -16,8 +16,9 @@ use std::path::PathBuf;
 
 use mudu::common::result::RS;
 
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// Generates arbitrary rows for the schema JSON at `schema_path` and stores
 /// them in a `kv.db` file under `output_path`.
@@ -27,15 +28,15 @@ pub fn fuzz_printable(schema_path: String, output_path: String, u: &mut Unstruct
     }
     let json = sync_read_to_string(&schema_path)
         .unwrap_or_else(|_| panic!("failed to read schema file {}", schema_path));
-    let schema = serde_json::from_str::<SchemaTable>(&json).unwrap();
-    let table_name = schema.table_name().clone();
+    let schema = serde_json::from_str::<SchemaClass>(&json).unwrap();
+    let class_name = schema.class_name().clone();
 
     let mut db_path = PathBuf::from(output_path);
     db_path.push("kv.db");
     let db_path = db_path.as_path().to_str().unwrap().to_string();
     let mut map = HashMap::new();
     let _r = fuzz_data_for_schema(&schema, u, &mut map);
-    write_map_to_db(db_path.clone(), table_name, map)?;
+    write_map_to_db(db_path.clone(), class_name, map)?;
     Ok(())
 }
 
@@ -45,12 +46,12 @@ pub fn fuzz_printable(schema_path: String, output_path: String, u: &mut Unstruct
 pub fn write_data_to_csv(schema_path: String, output_path: String) -> RS<()> {
     let json = sync_read_to_string(&schema_path)
         .unwrap_or_else(|_| panic!("failed to read schema file {}", schema_path));
-    let schema = serde_json::from_str::<SchemaTable>(&json).unwrap();
-    let table_name = schema.table_name().clone();
+    let schema = serde_json::from_str::<SchemaClass>(&json).unwrap();
+    let class_name = schema.class_name().clone();
     let mut db_path = PathBuf::from(output_path.clone());
     db_path.push("kv.db");
     let db_path = db_path.as_path().to_str().unwrap().to_string();
-    let map = read_map_from_db(db_path, table_name)?;
+    let map = read_map_from_db(db_path, class_name)?;
     let output_csv_path = PathBuf::from(output_path.clone());
     let output_csv_path = output_csv_path.to_str().unwrap().to_string();
     write_map_to_csv(output_csv_path, &map)?;
@@ -97,7 +98,7 @@ pub fn format_comma_line(vec: &[String]) -> String {
 /// Generates arbitrary rows for `schema` from the unstructured input `u`
 /// into `key_value_map` until the input is exhausted.
 pub fn fuzz_data_for_schema<'a>(
-    schema: &SchemaTable,
+    schema: &SchemaClass,
     u: &mut Unstructured<'a>,
     key_value_map: &mut HashMap<Vec<String>, Vec<String>>,
 ) -> arbitrary::Result<()> {
@@ -111,7 +112,7 @@ pub fn fuzz_data_for_schema<'a>(
 }
 
 fn fuzz_row_for_schema<'a>(
-    schema: &SchemaTable,
+    schema: &SchemaClass,
     u: &mut Unstructured<'a>,
     key_value_map: &mut HashMap<Vec<String>, Vec<String>>,
 ) -> arbitrary::Result<()> {
@@ -145,18 +146,18 @@ fn fuzz_row_for_schema<'a>(
 fn arb_string<'a>(c: &SchemaColumn, u: &mut Unstructured<'a>) -> arbitrary::Result<String> {
     let dt = c.type_id();
     let f = dt.fn_arb_printable();
-    let data_type = c.type_param().to_data_type().unwrap();
+    let data_type = mudu_type::data_type_codec::to_data_type(c.type_param()).unwrap();
     let s = f(u, &data_type)?;
     Ok(s)
 }
 
 fn write_map_to_db(
     path: String,
-    table_name: String,
+    class_name: String,
     map: HashMap<Vec<String>, Vec<String>>,
 ) -> RS<()> {
     let mut db = FuzzDb::load(&path)?;
-    let table = db.tables.entry(table_name).or_default();
+    let table = db.tables.entry(class_name).or_default();
     for (k, v) in map {
         if !table.iter().any(|row| row.key_items == k) {
             table.push(FuzzRow {
@@ -168,10 +169,10 @@ fn write_map_to_db(
     db.save(&path)
 }
 
-fn read_map_from_db(path: String, table_name: String) -> RS<HashMap<Vec<String>, Vec<String>>> {
+fn read_map_from_db(path: String, class_name: String) -> RS<HashMap<Vec<String>, Vec<String>>> {
     let db = FuzzDb::load(&path)?;
     let mut map = HashMap::new();
-    if let Some(rows) = db.tables.get(&table_name) {
+    if let Some(rows) = db.tables.get(&class_name) {
         for row in rows {
             map.insert(row.key_items.clone(), row.value_items.clone());
         }
@@ -223,11 +224,10 @@ mod tests {
     )]
 
     use super::*;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use mudu_sys::fs::sync::sync_remove_dir_all;
     use mudu_type::data_type::DataType;
-    use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::type_family::TypeFamily;
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -248,12 +248,12 @@ mod tests {
         SchemaColumn::new(
             name.to_string(),
             TypeFamily::I32,
-            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::I32)),
         )
     }
 
-    fn tiny_schema() -> SchemaTable {
-        SchemaTable::new(
+    fn tiny_schema() -> SchemaClass {
+        SchemaClass::new(
             "kv".to_string(),
             vec![i32_column("k"), i32_column("v")],
             vec![0],
@@ -365,7 +365,7 @@ mod tests {
         let db_path = PathBuf::from(output_path).join("kv.db");
         let map = read_map_from_db(
             db_path.to_str().unwrap().to_string(),
-            schema.table_name().clone(),
+            schema.class_name().clone(),
         )
         .unwrap();
         assert!(!map.is_empty());

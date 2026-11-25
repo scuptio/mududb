@@ -40,7 +40,7 @@ pub use universal::uni_fs_stat::UniFsStat;
 pub use universal::uni_oid::UniOid;
 pub use universal::uni_query_argv::UniQueryArgv;
 pub use universal::uni_query_result::UniQueryResult;
-pub use universal::uni_record_type::{UniRecordField, UniRecordType};
+pub use universal::uni_struct_type::{UniStructField, UniStructType};
 pub use universal::uni_relation::UniRelationDelta;
 pub use universal::uni_result::UniResult;
 pub use universal::uni_result_set::UniResultSet;

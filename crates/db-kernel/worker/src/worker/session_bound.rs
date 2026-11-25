@@ -115,6 +115,32 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
             .await
     }
 
+    async fn cache_open(&self, name: &str, app_name: Option<&str>) -> RS<OID> {
+        self.worker.cache_open(name, app_name).await
+    }
+
+    async fn cache_get(&self, cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+        self.worker.cache_get(cache, key)
+    }
+
+    async fn cache_put(
+        &self,
+        cache: OID,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        ttl_secs: Option<u64>,
+    ) -> RS<()> {
+        self.worker.cache_put(cache, key, value, ttl_secs)
+    }
+
+    async fn cache_delete(&self, cache: OID, key: &[u8]) -> RS<bool> {
+        self.worker.cache_delete(cache, key)
+    }
+
+    async fn cache_ttl(&self, cache: OID, key: &[u8]) -> RS<Option<u64>> {
+        self.worker.cache_ttl(cache, key)
+    }
+
     async fn query(
         &self,
         oid: OID,

@@ -124,7 +124,7 @@ fn parse_insert_without_column_list() {
     let StmtType::Command(StmtCommand::Insert(stmt)) = &stmts[0] else {
         panic!("expected insert");
     };
-    assert_eq!(stmt.table_name(), "users");
+    assert_eq!(stmt.class_name(), "users");
     assert!(stmt.columns().is_empty());
     assert_eq!(stmt.values_list().len(), 1);
     assert_eq!(stmt.values_list()[0].len(), 2);
@@ -247,7 +247,7 @@ fn parse_qualified_object_reference_across_statement_kinds() {
     };
     assert_eq!(stmt.table_reference().name(), "users");
     assert_eq!(stmt.table_reference().schema(), Some(&"shop".to_string()));
-    assert_eq!(stmt.table_name(), "users");
+    assert_eq!(stmt.class_name(), "users");
 
     let stmts = parse_sql("update shop.users set id = 2 where id = 1;").unwrap();
     let StmtType::Command(StmtCommand::Update(stmt)) = &stmts[0] else {
@@ -275,7 +275,7 @@ fn parse_qualified_object_reference_across_statement_kinds() {
     };
     assert_eq!(stmt.table_reference().name(), "users");
     assert_eq!(stmt.table_reference().schema(), Some(&"shop".to_string()));
-    assert_eq!(stmt.table_name(), "users");
+    assert_eq!(stmt.class_name(), "users");
 
     let stmts = parse_sql("copy shop.users from 'users.csv';").unwrap();
     let StmtType::Command(StmtCommand::CopyFrom(stmt)) = &stmts[0] else {
@@ -309,7 +309,7 @@ fn parse_drop_table_if_exists() {
     let StmtType::Command(StmtCommand::DropTable(stmt)) = &stmts[0] else {
         panic!("expected drop table");
     };
-    assert_eq!(stmt.table_name(), "users");
+    assert_eq!(stmt.class_name(), "users");
     assert!(stmt.drop_if_exists());
 }
 
@@ -321,7 +321,7 @@ fn parse_copy_from_statement() {
     let StmtType::Command(StmtCommand::CopyFrom(stmt)) = &stmts[0] else {
         panic!("expected copy from");
     };
-    assert_eq!(stmt.copy_to_table_name(), "users");
+    assert_eq!(stmt.copy_to_class_name(), "users");
     assert_eq!(stmt.copy_from_file_path(), "users.csv");
     assert!(stmt.table_columns().is_empty());
 }
@@ -375,7 +375,7 @@ fn parse_copy_to_statement() {
     let StmtType::Command(StmtCommand::CopyTo(stmt)) = &stmts[0] else {
         panic!("expected copy to");
     };
-    assert_eq!(stmt.copy_from_table_name(), "users");
+    assert_eq!(stmt.copy_from_class_name(), "users");
     assert_eq!(stmt.copy_to_file_path(), "users.csv");
     assert!(stmt.table_columns().is_empty());
 }

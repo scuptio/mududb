@@ -5,13 +5,13 @@ use crate::ast::stmt_table_partition::StmtTablePartition;
 /// Payload definition of a `CREATE QUEUE` statement.
 #[derive(Clone, Debug)]
 pub enum QueuePayload {
-    /// Inherit the row format of an existing table (`LIKE <table_name>`).
+    /// Inherit the row format of an existing table (`LIKE <class_name>`).
     Like(String),
     /// Explicit payload column definitions (`(<col> <type>, ...)`).
     Columns(Vec<ColumnDef>),
 }
 
-/// `CREATE QUEUE <name> LIKE <table_name>` or
+/// `CREATE QUEUE <name> LIKE <class_name>` or
 /// `CREATE QUEUE <name> (<col> <type>, ...)` statement AST node, with an
 /// optional `PARTITION BY GLOBAL RULE <rule> REFERENCES (<col>)` suffix that
 /// shards the queue by a payload column.

@@ -6,6 +6,11 @@ pub(super) fn run_worker_thread(plan: WorkerSpawnPlan) -> RS<()> {
     let runtime = CurrentThreadTaskRuntime::new()
         .map_err(|e| mudu_error!(ErrorCode::Tokio, "build tokio worker runtime error", e))?;
     let result = runtime.block_on(run_worker_async(plan));
+    if let Err(error) = &result {
+        // The startup barrier reports only "channel closed"; keep the real
+        // cause in the log.
+        tracing::error!(worker_id, "tokio worker loop failed: {error}");
+    }
     trace!(worker_id, ok = result.is_ok(), "tokio worker loop returned");
 
     trace!(worker_id, "tokio worker thread exiting");
@@ -29,8 +34,9 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
         rpc_ready_tx,
         repl_cfg: worker_repl_cfg,
         stream_ctl: worker_stream_ctl,
-        raft_share: worker_raft_share,
         repl_log_dir,
+        cluster_slot,
+        ..
     } = plan;
     trace!(worker_id, "tokio worker thread starting");
     let (mut session, listener) = build_and_register_worker(
@@ -40,6 +46,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
         all_bus_wakes,
         &worker_repl_cfg,
         &repl_log_dir,
+        cluster_slot,
     )
     .await?;
     let drivers = WorkerDrivers::spawn(&session.worker, session.worker_id, stop_rx.clone())?;
@@ -51,9 +58,7 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
                 worker_id: session.worker_id,
                 replication,
                 worker_index: index,
-                raft_share: worker_raft_share,
                 stream_ctl: worker_stream_ctl,
-                repl_log_dir: &repl_log_dir,
             })
             .await?
         }
@@ -91,7 +96,6 @@ async fn run_worker_async(plan: WorkerSpawnPlan) -> RS<()> {
         .and(driver_results.gc)
         .and(repl_results.seq)
         .and(repl_results.sink)
-        .and(repl_results.applier)
         .and(repl_results.maintain)
         .and(driver_results.archive)
         .and(driver_results.wal_flush)
@@ -112,6 +116,7 @@ async fn build_and_register_worker(
     all_bus_wakes: Vec<Arc<Notify>>,
     worker_repl_cfg: &Option<ReplNodeCfg>,
     repl_log_dir: &str,
+    cluster_slot: super::super::worker_channel::ClusterTransportSlot,
 ) -> RS<(WorkerSession, AsyncTcpListener)> {
     listener.set_nonblocking(true).map_err(|e| {
         mudu_error!(
@@ -138,6 +143,7 @@ async fn build_and_register_worker(
         worker.registry().clone(),
         all_bus_mailboxes,
         all_bus_wakes,
+        cluster_slot,
     );
     let worker_id = worker.worker_id();
     let server_instance_id = worker.server_instance_id();
@@ -175,16 +181,19 @@ async fn build_and_register_worker(
 
 /// Replication healing precondition: the local WAL must not replay content
 /// the raft group never committed (a former leader's flushed tail). Cut it
-/// to the persisted committed point before the backend opens the log and
-/// before recovery replays it.
+/// to the data plane's persisted committed point before the backend opens
+/// the log and before recovery replays it.
 async fn truncate_wal_to_committed_point(worker: &WorkerRuntime, repl_log_dir: &str) -> RS<()> {
     let worker_index = worker_index_as_u32(worker, "replication protocol")?;
-    let staging_dir = StagingStore::dir_for_worker(repl_log_dir, worker_index);
-    if let Some(point) = StagingStore::load_committed_point(&staging_dir)? {
+    let frontier_path = std::path::PathBuf::from(repl_log_dir)
+        .join("data_plane")
+        .join("apply")
+        .join(format!("data-{worker_index}.frontier"));
+    if let Some(point) = ::repl::data_plane::read_wal_resume_point(&frontier_path).await? {
         let fs = default_sys_io_context().provider_arc().fs_arc();
         worker
             .log_layout()
-            .truncate_chunks_from_lsn(fs.as_ref(), point.lsn)
+            .truncate_chunks_from_lsn(fs.as_ref(), point)
             .await?;
     }
     Ok(())
@@ -394,19 +403,4 @@ impl WorkerDrivers {
             archive,
         })
     }
-}
-
-/// Joins a spawned local task: a join failure propagates as `Err`, while a
-/// completed task's own result is returned as a value so the caller can fold
-/// it with sibling results in a fixed order.
-pub(super) async fn join_local_task(handle: LocalTaskJoin, join_err: &'static str) -> RS<RS<()>> {
-    Ok(
-        match handle
-            .await
-            .map_err(|e| mudu_error!(ErrorCode::Tokio, join_err, e))?
-        {
-            Some(result) => result,
-            None => Ok(()),
-        },
-    )
 }

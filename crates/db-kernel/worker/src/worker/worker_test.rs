@@ -11,8 +11,8 @@ use super::*;
 use crate::async_func_runtime::AsyncFuncInvoker;
 use crate::worker::new_session_bound_worker_runtime;
 use crate::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use ::conn::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
@@ -29,12 +29,12 @@ use mudu_utils::oid::gen_oid;
 use std::sync::Arc;
 
 #[derive(Default)]
-struct RecordingProcedureRuntime {
+struct StructingProcedureRuntime {
     calls: SMutex<Vec<(OID, String, Vec<u8>)>>,
 }
 
 #[async_trait]
-impl AsyncFuncInvoker for RecordingProcedureRuntime {
+impl AsyncFuncInvoker for StructingProcedureRuntime {
     async fn invoke(
         &self,
         session_id: OID,
@@ -86,13 +86,15 @@ pub(super) async fn test_worker(
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap()
 }
 
-fn test_schema() -> SchemaTable {
-    SchemaTable::new(
+fn test_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(
@@ -115,7 +117,7 @@ fn test_schema() -> SchemaTable {
 #[cfg_attr(miri, ignore)]
 fn worker_invokes_configured_procedure_runtime() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-        let runtime = Arc::new(RecordingProcedureRuntime::default());
+        let runtime = Arc::new(StructingProcedureRuntime::default());
         let (log_dir, registry) = test_registry(1);
         let worker = test_worker(0, 1, &log_dir, &log_dir, registry, Some(runtime.clone())).await;
 
@@ -312,6 +314,8 @@ async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() 
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();
@@ -326,6 +330,8 @@ async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() 
         data_dir: log_dir.clone(),
         async_runtime: None,
         server_instance_id: 0,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .unwrap();
     let schema = test_schema();
@@ -689,7 +695,7 @@ fn tx_control_nested_begin_fails() {
         let session_id = worker.create_session(1).unwrap();
         sql_execute(&worker, session_id, "BEGIN").await.unwrap();
         let err = sql_execute(&worker, session_id, "BEGIN").await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 
         // The failed nested BEGIN leaves the original transaction usable.
         sql_execute(&worker, session_id, "insert into t values (1, 10);")
@@ -729,11 +735,11 @@ fn tx_control_autocommit_unchanged() {
 
         // COMMIT/ROLLBACK without an active transaction fails.
         let err = sql_execute(&worker, session_a, "COMMIT").await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let err = sql_execute(&worker, session_a, "ROLLBACK")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }

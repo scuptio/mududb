@@ -11,15 +11,15 @@ use mudu_sys::env_var::temp_dir;
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 
 use super::*;
 
-pub(super) fn test_schema() -> SchemaTable {
-    SchemaTable::new(
+pub(super) fn test_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(

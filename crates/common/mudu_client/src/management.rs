@@ -203,6 +203,16 @@ pub struct PartitionRouteEntry {
         deserialize_with = "deserialize_oid_from_unioid"
     )]
     pub worker_id: OID,
+    /// Owning node group (cluster mode only).
+    #[serde(default)]
+    pub group_id: Option<u32>,
+    /// Serving node of the group (cluster mode only).
+    #[serde(default)]
+    pub node_id: Option<u64>,
+    /// Client (pgwire) address of the serving node (cluster mode only), for
+    /// direct client routing.
+    #[serde(default)]
+    pub client_addr: Option<String>,
 }
 
 /// Response from the partition route endpoint.
@@ -210,6 +220,12 @@ pub struct PartitionRouteEntry {
 pub struct PartitionRouteResponse {
     /// Resolved partition routes.
     pub routes: Vec<PartitionRouteEntry>,
+    /// Version of the partition rule the routing used.
+    #[serde(default)]
+    pub rule_version: u64,
+    /// Cluster topology version (0 when the server is not in cluster mode).
+    #[serde(default)]
+    pub topology_version: u64,
 }
 
 /// Fetch the full server topology from the HTTP management API.
@@ -358,6 +374,22 @@ pub async fn route_partition(
         "key": key,
         "start": start,
         "end": end,
+    });
+    let response = post_http_json(http_addr, "/mudu/partition/route", payload).await?;
+    let data = extract_http_api_data(response)?;
+    serde_json::from_value(data).map_err(|e| format!("decode partition route failed: {}", e))
+}
+
+/// Resolve partition routes for a batch of point-lookup keys of a rule:
+/// exactly one route entry per key, in request order.
+pub async fn route_partition_keys(
+    http_addr: &str,
+    rule_name: &str,
+    keys: Vec<Vec<String>>,
+) -> AppResult<PartitionRouteResponse> {
+    let payload = json!({
+        "rule_name": rule_name,
+        "keys": keys,
     });
     let response = post_http_json(http_addr, "/mudu/partition/route", payload).await?;
     let data = extract_http_api_data(response)?;

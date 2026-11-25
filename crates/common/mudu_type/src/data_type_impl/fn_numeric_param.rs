@@ -28,3 +28,19 @@ pub const FN_NUMERIC_PARAM: FnParam = FnParam {
     input: fn_numeric_data_type_param_in,
     default: Some(fn_numeric_data_type_param_default),
 };
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn malformed_numeric_parameters_are_rejected() {
+        for input in [
+            "",
+            "null",
+            "[]",
+            r#"{"precision":"ten","scale":2}"#,
+            r#"{"precision":10}"#,
+        ] {
+            assert!(super::fn_numeric_data_type_param_in(input).is_err());
+        }
+    }
+}

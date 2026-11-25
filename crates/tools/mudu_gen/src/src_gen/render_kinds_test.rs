@@ -11,12 +11,12 @@ use crate::src_gen::create_render::create_render;
 use crate::src_gen::wit_def::WitFuncDef;
 use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_def::{
-    EnumCase, RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef, VariantCase,
+    EnumCase, StructField, UniClassDef, UniEnumDef, UniStructDef, UniVariantDef, VariantCase,
 };
 use mudu_binding::universal::uni_scalar::UniScalar;
 
-fn field(name: &str) -> RecordField {
-    RecordField {
+fn field(name: &str) -> StructField {
+    StructField {
         rf_comments: String::new(),
         rf_name: name.to_string(),
         rf_type: UniDataType::Scalar(UniScalar::I32),
@@ -35,7 +35,7 @@ fn sample_func() -> WitFuncDef {
         func_comments: String::new(),
         func_name: "get-item".to_string(),
         params: vec![field("id")],
-        returns: vec![RecordField {
+        returns: vec![StructField {
             rf_type: result_type,
             ..field("value")
         }],
@@ -86,11 +86,11 @@ fn render_all_kinds(lang: LangKind) -> String {
             },
             cfg.clone(),
         )),
-        TemplateKind::Record((
-            UniRecordDef {
-                record_comments: String::new(),
-                record_name: "Item".to_string(),
-                record_fields: vec![field("id"), field("name")],
+        TemplateKind::Struct((
+            UniStructDef {
+                struct_comments: String::new(),
+                struct_name: "Item".to_string(),
+                struct_fields: vec![field("id"), field("name")],
             },
             cfg.clone(),
         )),
@@ -122,9 +122,9 @@ fn assemblyscript_rejects_table_elements() {
     // The AS backend has no table-template renderer: it must fail cleanly.
     let mut template = AbstractTemplate::new();
     template.elements = vec![TemplateKind::Table((
-        UniTableDef {
+        UniClassDef {
             table_comments: String::new(),
-            table_name: "t".to_string(),
+            class_name: "t".to_string(),
             table_key: vec![],
             table_value: vec![],
         },

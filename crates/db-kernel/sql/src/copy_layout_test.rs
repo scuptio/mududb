@@ -9,31 +9,36 @@ mod tests {
     )]
 
     use crate::copy_layout::CopyLayout;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use ::catalog::contract::table_info::TableInfo;
     use mudu_type::data_type::DataType;
-    use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::type_family::TypeFamily;
 
     fn table_desc() -> std::sync::Arc<::catalog::contract::table_desc::TableDesc> {
-        let schema = SchemaTable::new(
+        let schema = SchemaClass::new(
             "accounts".to_string(),
             vec![
                 SchemaColumn::new(
                     "tenant_id".to_string(),
                     TypeFamily::I32,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::I32,
+                    )),
                 ),
                 SchemaColumn::new(
                     "user_id".to_string(),
                     TypeFamily::I32,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::I32,
+                    )),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
                     TypeFamily::String,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::String,
+                    )),
                 ),
             ],
             vec![0, 1],

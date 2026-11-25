@@ -177,7 +177,7 @@ fn to_data_type_rejects_unknown_types() -> Result<(), Box<dyn Error>> {
         .to_data_type(&custom)
         .err()
         .ok_or("expected an error")?;
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     Ok(())
 }
 

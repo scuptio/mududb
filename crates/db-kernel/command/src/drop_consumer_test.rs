@@ -6,12 +6,12 @@ use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::queue::queue_system_columns;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
-use ::xengine::api::XContract;
+use ::xengine::api::{XContract, XContractQueue};
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PDropConsumer;
 use async_trait::async_trait;
@@ -20,7 +20,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -34,28 +34,28 @@ where
         .block_on(fut)
 }
 
-fn queue_schema(name: &str) -> SchemaTable {
+fn queue_schema(name: &str) -> SchemaClass {
     let columns = queue_system_columns();
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn table_schema(name: &str) -> SchemaTable {
+fn table_schema(name: &str) -> SchemaClass {
     let column = ::catalog::contract::schema_column::SchemaColumn::new(
         "k".to_string(),
         TypeFamily::I64,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I64)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::I64)),
     );
-    let mut schema = SchemaTable::new(name.to_string(), vec![column], vec![0], vec![]);
+    let mut schema = SchemaClass::new(name.to_string(), vec![column], vec![0], vec![]);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
     schema
 }
 
 struct MockMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
 }
 
 impl MockMetaMgr {
@@ -65,13 +65,13 @@ impl MockMetaMgr {
         }
     }
 
-    fn add_schema(&self, schema: SchemaTable) -> OID {
+    fn add_schema(&self, schema: SchemaClass) -> OID {
         let oid = schema.id();
         self.schemas.lock().unwrap().insert(oid, schema);
         oid
     }
 
-    fn desc_of(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+    fn desc_of(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
     }
 }
@@ -87,7 +87,7 @@ impl MetaMgr for MockMetaMgr {
         match schema {
             Some(schema) => Self::desc_of(&schema),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -99,12 +99,12 @@ impl MetaMgr for MockMetaMgr {
             .lock()
             .unwrap()
             .values()
-            .find(|s| s.table_name() == name)
+            .find(|s| s.class_name() == name)
             .cloned();
         found.map(|schema| Self::desc_of(&schema)).transpose()
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         self.add_schema(schema.clone());
         Ok(())
     }
@@ -198,7 +198,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -273,7 +273,10 @@ impl XContract for MockXContract {
     ) -> RS<()> {
         unimplemented!()
     }
+}
 
+#[async_trait]
+impl XContractQueue for MockXContract {
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
         Ok(vec![::xengine::api::QueueShard {
             queue_oid: table_id,
@@ -296,7 +299,7 @@ impl XContract for MockXContract {
         match self.consumers.lock().unwrap().remove(consumer) {
             Some(_) => Ok(()),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {queue_oid}")
             )),
         }
@@ -344,7 +347,7 @@ fn drop_consumer_unknown_cursor_fails() {
     let cmd = make_drop_consumer(queue_oid, "missing", x_contract, meta);
     block_on(cmd.prepare()).unwrap();
     let err = block_on(cmd.run()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -358,7 +361,7 @@ fn drop_consumer_on_plain_table_fails_at_prepare() {
         meta,
     );
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -366,7 +369,7 @@ fn drop_consumer_on_missing_queue_fails_at_prepare() {
     let meta = Arc::new(MockMetaMgr::new());
     let cmd = make_drop_consumer(42, "cg", Arc::new(MockXContract::with_consumers(&[])), meta);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 // Fixture self-tests: drive every mock method so the shared test fixture is
@@ -399,7 +402,7 @@ fn mock_tx_mgr_fixture_covers_its_trait_surface() {
 #[test]
 fn mock_meta_mgr_fixture_covers_its_trait_surface() {
     let meta = MockMetaMgr::new();
-    let schema = ::catalog::contract::schema_table::SchemaTable::new(
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
         "fixture_t".to_string(),
         vec![::catalog::contract::schema_column::SchemaColumn::new(
             "k".to_string(),

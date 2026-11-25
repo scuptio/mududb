@@ -41,12 +41,12 @@ use mudu_binding::universal::uni_fs_open_argv::UniFsOpenArgv;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_query_argv::UniQueryArgv;
 use mudu_binding::universal::uni_query_result::UniQueryResult;
-use mudu_binding::universal::uni_record_type::{UniRecordField, UniRecordType};
 use mudu_binding::universal::uni_result_set::UniResultSet;
 use mudu_binding::universal::uni_scalar::UniScalar;
 use mudu_binding::universal::uni_scalar_value::UniScalarValue;
 use mudu_binding::universal::uni_sql_param::UniSqlParam;
 use mudu_binding::universal::uni_sql_stmt::UniSqlStmt;
+use mudu_binding::universal::uni_struct_type::{UniStructField, UniStructType};
 use mudu_binding::universal::uni_tuple_row::UniTupleRow;
 
 // ---------------------------------------------------------------------------
@@ -92,8 +92,8 @@ fn long_sql() -> String {
     sql
 }
 
-fn field(name: &str, scalar: UniScalar) -> UniRecordField {
-    UniRecordField {
+fn field(name: &str, scalar: UniScalar) -> UniStructField {
+    UniStructField {
         field_name: name.to_string(),
         field_type: UniDataType::from_scalar(scalar),
         field_attrs: vec![],
@@ -102,9 +102,9 @@ fn field(name: &str, scalar: UniScalar) -> UniRecordField {
 
 fn query_result(n_rows: usize) -> UniQueryResult {
     UniQueryResult {
-        tuple_desc: UniRecordType {
-            record_name: "row".to_string(),
-            record_fields: vec![
+        tuple_desc: UniStructType {
+            struct_name: "row".to_string(),
+            struct_fields: vec![
                 field("id", UniScalar::I64),
                 field("name", UniScalar::String),
                 field("data", UniScalar::Blob),
@@ -113,7 +113,7 @@ fn query_result(n_rows: usize) -> UniQueryResult {
                 // The universal value model has no dedicated null variant;
                 // this column stands in for a nullable column and carries the
                 // default placeholder value.
-                UniRecordField {
+                UniStructField {
                     field_name: "misc".to_string(),
                     field_type: UniDataType::from_option(Box::new(UniDataType::from_scalar(
                         UniScalar::String,

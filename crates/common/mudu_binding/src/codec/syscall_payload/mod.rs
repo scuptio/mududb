@@ -1,7 +1,7 @@
 //! SyscallPayload v1 codec: 16-byte MSSP header plus a MessagePack body.
 //!
 //! This module implements the guest→host syscall wire format defined by
-//! `doc/cn/contract/syscall_payload_v1.md`. Every syscall request and every
+//! `doc/zh-CN/contract/syscall_payload_v1.md`. Every syscall request and every
 //! syscall response is a self-describing frame:
 //!
 //! ```text
@@ -140,6 +140,16 @@ pub enum MessageKind {
     RelationUpdate = 22,
     /// `relation-insert` — insert of a relation row; duplicate keys fail.
     RelationInsert = 23,
+    /// `cache-open` — open a volatile cache by name.
+    CacheOpen = 24,
+    /// `cache-get` — point read of a cache entry.
+    CacheGet = 25,
+    /// `cache-put` — insert/update a cache entry with an optional TTL.
+    CachePut = 26,
+    /// `cache-delete` — remove a cache entry.
+    CacheDelete = 27,
+    /// `cache-ttl` — remaining TTL of a cache entry in seconds.
+    CacheTtl = 28,
 }
 
 /// Encodes the fixed 16-byte header for `kind`.

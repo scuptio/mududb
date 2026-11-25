@@ -60,7 +60,7 @@ fn worker_addr_from_topology(
         .worker_addr_by_id(listen_ip, worker_id)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("server topology has no tcp listener for worker id {worker_id}")
             )
         })
@@ -186,10 +186,10 @@ mod tests {
             assert_eq!(resolve_worker_addr(1).unwrap(), "127.0.0.1:9501");
             assert_eq!(resolve_worker_addr(1).unwrap(), "127.0.0.1:9501");
 
-            // Unknown worker ids fail with EntityNotFound.
+            // Unknown worker ids fail with ObjectNotFound.
             assert_eq!(
                 resolve_worker_addr(99).unwrap_err().ec(),
-                ErrorCode::EntityNotFound
+                ErrorCode::ObjectNotFound
             );
 
             // The async variant shares the cache.

@@ -25,21 +25,6 @@ fn channel_registry() -> &'static SMutex<HashMap<(ServerInstanceId, OID), Channe
     REGISTRY.get_or_init(|| SMutex::new(HashMap::new()))
 }
 
-/// Milliseconds since the Unix epoch on the channel clock: the time base of
-/// `deadline_ms` fields and waiter sweeping.
-pub fn channel_now_ms() -> u64 {
-    mudu_sys::time::system_time_now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(u64::MAX as u128) as u64
-}
-
-/// Generates a fresh idempotency key for a logical channel operation.
-pub fn gen_request_id() -> mudu::channel::RequestId {
-    mudu_sys::random::uuid_v4().as_u128()
-}
-
 /// Registers `channel` as endpoint `endpoint_id` under the given server
 /// instance. Any thread may register an endpoint; database workers register
 /// their worker id, other threads register an OID allocated for them (see
@@ -87,7 +72,7 @@ pub fn channel_for(
         .cloned()
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!(
                     "channel for server {} endpoint {} is not registered",
                     server_instance_id, endpoint_id
@@ -186,7 +171,7 @@ pub fn current_channel() -> RS<Channel> {
         let channel = unsafe { &*slot.get() };
         channel.as_ref().cloned().map(Channel::new).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "current channel is not set on this thread"
             )
         })
@@ -199,6 +184,7 @@ mod tests {
 
     use super::*;
     use crate::channel::endpoint::{ChannelEndpoint, KindHandler};
+    use crate::channel::typed::gen_request_id;
     use async_trait::async_trait;
     use mudu::channel::{Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter};
     use std::sync::Arc;
@@ -258,13 +244,13 @@ mod tests {
         drop(guard);
         assert!(closed.closed.load(Ordering::Relaxed));
         let err = channel_for(SERVER, 101).err().unwrap();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     }
 
     #[test]
     fn channel_for_unknown_endpoint_errors() {
         let err = channel_for(SERVER, 0xFFFF_EEEE).err().unwrap();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         // Unregistering an unknown endpoint is a no-op.
         unregister_channel(SERVER, 0xFFFF_EEEE).unwrap();
     }
@@ -272,7 +258,7 @@ mod tests {
     #[test]
     fn current_channel_tracks_the_thread_local_slot() {
         let err = current_channel().err().unwrap();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let channel: ChannelEndpointRef = StubEndpoint::new(7);
         set_current_channel(channel);
         let typed = current_channel().unwrap();

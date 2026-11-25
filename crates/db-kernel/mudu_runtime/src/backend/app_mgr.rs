@@ -1,10 +1,21 @@
-use crate::backend::mudu_app_mgr::ListOption;
 use crate::backend::mudud_cfg::MuduDBCfg;
 use ::worker::async_func_runtime::AsyncFuncInvoker;
 use async_trait::async_trait;
 use mudu::common::result::RS;
 use runtime_wasm::service::app_list::AppList;
 use std::sync::Arc;
+
+/// Options for listing applications.
+#[derive(Default)]
+pub struct ListOption {
+    /// Optional application-name filter.
+    ///
+    /// When this list is empty, the implementation must return all
+    /// applications visible to the manager. When it is non-empty, the
+    /// implementation must only return the named applications that currently
+    /// exist.
+    pub names: Vec<String>,
+}
 
 /// Trait implemented by application managers.
 #[async_trait(?Send)]

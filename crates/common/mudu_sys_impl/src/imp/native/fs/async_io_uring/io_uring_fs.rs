@@ -78,3 +78,30 @@ pub async fn iou_remove_file_if_exists(path: impl AsRef<Path>) -> RS<()> {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test(flavor = "current_thread")]
+    #[allow(clippy::unwrap_used)]
+    async fn path_operations_require_a_worker_ring() {
+        use super::*;
+        assert!(!has_current_worker_ring());
+        let path = Path::new("/unused");
+        assert_eq!(
+            create_dir_all(path).await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            metadata_len(path).await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            path_exists(path).await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            remove_file_if_exists(path).await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+    }
+}

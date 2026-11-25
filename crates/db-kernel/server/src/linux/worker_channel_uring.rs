@@ -1,4 +1,3 @@
-use crate::server_iouring;
 use crate::task;
 use crate::worker_channel_state::{IncomingDispatch, WorkerChannelState};
 use crate::worker_mailbox::WorkerMailboxMsg;
@@ -120,7 +119,7 @@ impl UringWorkerChannel {
             .worker_index_by_worker_id(endpoint)
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such worker id {}", endpoint)
                 )
             })
@@ -164,7 +163,7 @@ impl UringWorkerChannel {
             "worker_channel enqueue mailbox message"
         );
         mailbox.push(msg);
-        server_iouring::notify_mailbox_fd(fd)
+        notify_mailbox_fd(fd)
     }
 }
 
@@ -264,23 +263,32 @@ impl ChannelEndpoint for UringWorkerChannel {
     }
 }
 
+pub(super) fn notify_mailbox_fd(fd: RawFd) -> RS<()> {
+    debug!(fd, "server_iouring notify mailbox fd");
+    notify_event_fd(fd, "write io_uring worker mailbox eventfd error")
+}
+fn notify_event_fd(fd: RawFd, message: &str) -> RS<()> {
+    mudu_sys::sync::blocking::notify_eventfd(fd)
+        .map_err(|e| mudu_error!(ErrorCode::Network, message, e))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
-    use crate::worker_registry::WorkerIdentity;
+    use crate::worker_registry::WorkerIdobject;
     use mudu::channel::ReplyStatus;
 
     fn test_registry() -> Arc<WorkerRegistry> {
         Arc::new(
             WorkerRegistry::new(vec![
-                WorkerIdentity {
+                WorkerIdobject {
                     worker_index: 0,
                     worker_id: 11,
                     partition_ids: vec![101],
                 },
-                WorkerIdentity {
+                WorkerIdobject {
                     worker_index: 1,
                     worker_id: 12,
                     partition_ids: vec![102],
@@ -381,7 +389,7 @@ mod tests {
                 .send(77, OutgoingMessage::new(MessageKind::User(1), vec![]))
                 .await
                 .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         })
         .unwrap()
     }
@@ -462,7 +470,7 @@ mod tests {
         let err = channel
             .register_kind_handler(MessageKind::User(1), handler)
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
         channel
             .unregister_kind_handler(MessageKind::User(1))
             .unwrap();

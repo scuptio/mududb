@@ -352,4 +352,45 @@ mod tests {
         let guard = mutex.lock().await;
         assert_eq!(*guard, 1);
     }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn subsystem_eventfd_reports_counts_and_invalid_descriptors() {
+        let sys = SysSync::new();
+        let fd = sys.eventfd().unwrap();
+        sys.notify_eventfd(fd).unwrap();
+        sys.notify_eventfd(fd).unwrap();
+        assert_eq!(sys.read_eventfd(fd).unwrap(), 2);
+        sys.close_fd(fd).unwrap();
+        assert!(sys.notify_eventfd(-1).is_err());
+        assert!(sys.read_eventfd(-1).is_err());
+        assert!(sys.close_fd(-1).is_err());
+    }
+
+    #[tokio::test]
+    async fn subsystem_factories_preserve_values_and_signals() {
+        let sys = SysSync::new();
+        let mutex = sys.mutex(1);
+        *mutex.lock().unwrap() = 2;
+        assert_eq!(*mutex.lock().unwrap(), 2);
+        let rwlock = sys.rwlock(3);
+        *rwlock.write().unwrap() = 4;
+        assert_eq!(*rwlock.read().unwrap(), 4);
+        let (tx, rx) = sys.channel();
+        tx.send(5).unwrap();
+        assert_eq!(rx.recv().unwrap(), 5);
+        let (tx, rx) = sys.sync_channel(1);
+        tx.send(6).unwrap();
+        assert_eq!(rx.recv().unwrap(), 6);
+        let mutex = sys.async_mutex(7);
+        assert_eq!(*mutex.lock().await, 7);
+        let rwlock = sys.async_rwlock(8);
+        assert_eq!(*rwlock.read().await, 8);
+        let mutex = sys.futures_mutex(9);
+        assert_eq!(*mutex.lock().await, 9);
+        let (tx, mut rx) = sys.stop_channel();
+        assert!(!rx.is_stopped());
+        tx.stop();
+        assert!(rx.changed().await);
+        assert!(rx.is_stopped());
+    }
 }

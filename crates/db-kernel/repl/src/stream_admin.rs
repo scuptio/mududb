@@ -37,7 +37,7 @@ const FOLLOW_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum StreamRoleKind {
     /// Accepts writes and streams its WAL to replicas.
     Primary,
-    /// Applies the primary's stream and serves reads only.
+    /// Applies the Primary's stream and serves reads only.
     Replica,
 }
 
@@ -48,7 +48,7 @@ pub struct StreamRole {
     pub role: StreamRoleKind,
     /// Highest known stream epoch.
     pub epoch: u64,
-    /// Node id of the primary this node is or follows.
+    /// Node id of the Primary this node is or follows.
     pub primary_node_id: u64,
     /// Replication host of the primary.
     pub primary_host: String,
@@ -63,7 +63,7 @@ pub struct StreamRoleView {
     pub role: StreamRoleKind,
     /// The node's current stream epoch.
     pub epoch: u64,
-    /// Node id of the primary this node is or follows.
+    /// Node id of the Primary this node is or follows.
     pub primary_node_id: u64,
 }
 
@@ -174,7 +174,7 @@ pub struct StreamAdminEntry {
     pub self_host: String,
     /// This node's replication port.
     pub repl_port: u16,
-    /// This node's client port (leader hints point at the primary's).
+    /// This node's client port (leader hints point at the Primary's).
     pub client_port: u16,
 }
 
@@ -253,7 +253,7 @@ pub fn stream_promote(node_id: u64, fencing_ok: bool) -> Result<StreamRoleView, 
         primary_port: entry.repl_port,
     };
     store_stream_role(&entry.db_path, &role).map_err(StreamAdminError::internal)?;
-    // Synchronous commit path: the promoted node needs the replica-ack
+    // Synchronous commit path: the promoted node needs the StreamFollower ack
     // waiter installed (it was only installed at startup for the
     // configured primary).
     if entry.ctl.sync() {

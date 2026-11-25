@@ -1,7 +1,7 @@
 //! The slot-array entry that locates one record inside a page.
 
 pub use super::record_slot_core::{
-    RecordSlot, RECORD_SLOT_FLAG_FRAGMENT_MASK, RECORD_SLOT_FLAG_PARTIAL_CONTINUED,
+    StructSlot, RECORD_SLOT_FLAG_FRAGMENT_MASK, RECORD_SLOT_FLAG_PARTIAL_CONTINUED,
     RECORD_SLOT_FLAG_PARTIAL_LAST,
 };
 pub(crate) use super::record_slot_core::{RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_SIZE};
@@ -9,7 +9,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
-impl RecordSlot {
+impl StructSlot {
     /// Decodes a slot from its 32-byte on-page encoding.
     pub fn decode(input: &[u8]) -> RS<Self> {
         if input.len() < RECORD_SLOT_SIZE {
@@ -55,27 +55,27 @@ mod tests {
     )]
 
     use super::{
-        RecordSlot, RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_FLAG_PARTIAL_CONTINUED,
+        StructSlot, RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_FLAG_PARTIAL_CONTINUED,
         RECORD_SLOT_FLAG_PARTIAL_LAST, RECORD_SLOT_SIZE,
     };
-    use crate::page::record_slot_ref::RecordSlotRef;
+    use crate::page::record_slot_ref::StructSlotRef;
 
     #[test]
     fn record_slot_roundtrip() {
-        let mut slot = RecordSlot::new(64, 23, 17, 29);
+        let mut slot = StructSlot::new(64, 23, 17, 29);
         slot.set_check_sum(31);
         slot.set_flag(37);
         slot.set_reserved(41);
 
         let mut encoded = [0u8; RECORD_SLOT_SIZE];
         slot.encode(&mut encoded).unwrap();
-        let decoded = RecordSlot::decode(&encoded).unwrap();
+        let decoded = StructSlot::decode(&encoded).unwrap();
         assert_eq!(decoded, slot);
     }
 
     #[test]
     fn record_slot_low_two_flag_bits_describe_fragment_kind() {
-        let mut slot = RecordSlot::new(64, 23, 17, 29);
+        let mut slot = StructSlot::new(64, 23, 17, 29);
         slot.set_flag(0b1111_0000);
         slot.set_fragment_kind(RECORD_SLOT_FLAG_COMPLETE);
         assert!(slot.is_complete());
@@ -92,14 +92,14 @@ mod tests {
 
     #[test]
     fn record_slot_ref_reads_fields_without_full_decode() {
-        let mut slot = RecordSlot::new(64, 23, 17, 29);
+        let mut slot = StructSlot::new(64, 23, 17, 29);
         slot.set_check_sum(31);
         slot.set_flag(37);
         slot.set_reserved(41);
 
         let mut encoded = [0u8; RECORD_SLOT_SIZE];
         slot.encode(&mut encoded).unwrap();
-        let slot_ref = RecordSlotRef::new(&encoded).unwrap();
+        let slot_ref = StructSlotRef::new(&encoded).unwrap();
         assert_eq!(slot_ref.offset(), 64);
         assert_eq!(slot_ref.size(), 23);
         assert_eq!(slot_ref.timestamp(), 17);
@@ -113,7 +113,7 @@ mod tests {
     fn disk_fixture_and_short_buffers_preserve_all_bytes() {
         // Fixed historical little-endian layout, including unknown flag bits.
         let disk: [u8; 32] = std::array::from_fn(|i| i as u8);
-        let slot = RecordSlot::decode(&disk).unwrap();
+        let slot = StructSlot::decode(&disk).unwrap();
         assert_eq!(slot.offset(), 0x03020100);
         assert_eq!(slot.size(), 0x07060504);
         assert_eq!(slot.timestamp(), 0x0f0e0d0c0b0a0908);
@@ -129,7 +129,7 @@ mod tests {
             let mut short = vec![0xa5; len];
             assert!(slot.encode(&mut short).is_err());
             assert_eq!(short, vec![0xa5; len]);
-            assert!(RecordSlot::decode(&disk[..len]).is_err());
+            assert!(StructSlot::decode(&disk[..len]).is_err());
         }
         for flag in 0..=u16::MAX {
             let mut changed = slot;

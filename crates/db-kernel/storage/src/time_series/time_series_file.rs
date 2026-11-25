@@ -39,7 +39,7 @@ const TS_BUFFER_FRAMES: usize = 512;
 /// The relation layer assigns `file_index` values and WAL only works with this
 /// numeric identity, never with `"key"` / `"value"` strings.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct TimeSeriesFileIdentity {
+pub struct TimeSeriesFileIdobject {
     /// Partition owning the relation this file belongs to.
     pub partition_id: OID,
     /// Table the relation stores.
@@ -51,12 +51,12 @@ pub struct TimeSeriesFileIdentity {
 /// One record of a time-series file: its sort key, payload, and the physical
 /// location it was read from.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TimeSeriesRecord {
-    /// Record timestamp (the primary sort key).
+pub struct TimeSeriesStruct {
+    /// Struct timestamp (the primary sort key).
     pub timestamp: u64,
     /// Tuple id of the record (the secondary sort key).
     pub tuple_id: u64,
-    /// Record payload bytes.
+    /// Struct payload bytes.
     pub payload: Vec<u8>,
     /// Page the record was read from.
     pub page_id: PageId,
@@ -90,7 +90,7 @@ fn page_id_from_raw(raw: u64) -> Option<PageId> {
 pub struct TimeSeriesFile {
     mailbox: Mailbox<TsFileInner>,
     path: PathBuf,
-    identity: Option<TimeSeriesFileIdentity>,
+    identity: Option<TimeSeriesFileIdobject>,
     // Cloned handle kept on the shell so the commit path's WAL flush does
     // not pay a mailbox hop. The backend is shared and internally
     // synchronized.
@@ -101,7 +101,7 @@ impl TimeSeriesFile {
     pub(super) fn from_inner(
         inner: TsFileInner,
         path: PathBuf,
-        identity: Option<TimeSeriesFileIdentity>,
+        identity: Option<TimeSeriesFileIdobject>,
         wal_backend: Option<ChunkedWorkerLogBackend>,
     ) -> RS<Self> {
         Ok(Self {
@@ -112,7 +112,7 @@ impl TimeSeriesFile {
         })
     }
 
-    /// Identity and recovered WAL extent used to reject stale rebuildable indexes.
+    /// Idobject and recovered WAL extent used to reject stale rebuildable indexes.
     pub(crate) async fn index_cache_stamp(&self) -> RS<Vec<u64>> {
         self.mailbox
             .call(|inner| Box::pin(async move { Ok(inner.index_cache_stamp()) }))
@@ -126,7 +126,7 @@ impl TimeSeriesFile {
 
     /// Returns the logical identity of a relation-owned file, or `None` for a
     /// standalone file.
-    pub fn identity(&self) -> Option<&TimeSeriesFileIdentity> {
+    pub fn identity(&self) -> Option<&TimeSeriesFileIdobject> {
         self.identity.as_ref()
     }
 
@@ -161,13 +161,13 @@ impl TimeSeriesFile {
 
     /// Looks up the record with exactly this `timestamp` and `tuple_id`,
     /// walking the page chain from the head (newest) page.
-    pub async fn get(&self, timestamp: u64, tuple_id: u64) -> RS<Option<TimeSeriesRecord>> {
+    pub async fn get(&self, timestamp: u64, tuple_id: u64) -> RS<Option<TimeSeriesStruct>> {
         self.mailbox
             .call(move |inner| Box::pin(async move { inner.get(timestamp, tuple_id).await }))
             .await
     }
 
-    pub(crate) async fn scan_range(&self, begin_ts: u64, end_ts: u64) -> RS<Vec<TimeSeriesRecord>> {
+    pub(crate) async fn scan_range(&self, begin_ts: u64, end_ts: u64) -> RS<Vec<TimeSeriesStruct>> {
         self.mailbox
             .call(move |inner| Box::pin(async move { inner.scan_range(begin_ts, end_ts).await }))
             .await
@@ -262,7 +262,9 @@ impl TimeSeriesFile {
 }
 
 mod io;
+mod offline;
 mod open;
+pub(crate) use offline::read_persisted_records;
 mod page;
 mod plan;
 mod read;

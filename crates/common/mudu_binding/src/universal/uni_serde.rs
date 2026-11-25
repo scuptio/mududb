@@ -27,17 +27,17 @@ use crate::universal::uni_data_type::UniDataType;
 use crate::universal::uni_data_value::{UniDataValue, UniDataValueField};
 use crate::universal::uni_oid::UniOid;
 use crate::universal::uni_procedure_result::UniProcedureResult;
-use crate::universal::uni_record_type::{UniFieldAttr, UniRecordField, UniRecordType};
 use crate::universal::uni_result_type::UniResultType;
 use crate::universal::uni_scalar::UniScalar;
 use crate::universal::uni_scalar_value::UniScalarValue;
+use crate::universal::uni_struct_type::{UniFieldAttr, UniStructField, UniStructType};
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 // ---------------------------------------------------------------------------
-// Records
+// Structs
 // ---------------------------------------------------------------------------
 
 macro_rules! impl_record_serde {
@@ -58,9 +58,9 @@ macro_rules! impl_record_serde {
 
         impl<'de> Deserialize<'de> for $name {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                struct RecordVisitor;
+                struct StructVisitor;
 
-                impl<'de> Visitor<'de> for RecordVisitor {
+                impl<'de> Visitor<'de> for StructVisitor {
                     type Value = $name;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -103,7 +103,7 @@ macro_rules! impl_record_serde {
                 }
 
                 const FIELDS: &[&str] = &[$($fname),+];
-                deserializer.deserialize_struct(stringify!($name), FIELDS, RecordVisitor)
+                deserializer.deserialize_struct(stringify!($name), FIELDS, StructVisitor)
             }
         }
     };
@@ -119,7 +119,7 @@ impl_record_serde!(
 );
 
 impl_record_serde!(
-    UniRecordField,
+    UniStructField,
     3,
     (field_name, "field_name", String, 0),
     (field_type, "field_type", UniDataType, 1),
@@ -127,10 +127,10 @@ impl_record_serde!(
 );
 
 impl_record_serde!(
-    UniRecordType,
+    UniStructType,
     2,
-    (record_name, "record_name", String, 0),
-    (record_fields, "record_fields", Vec<UniRecordField>, 1)
+    (struct_name, "struct_name", String, 0),
+    (struct_fields, "struct_fields", Vec<UniStructField>, 1)
 );
 
 impl_record_serde!(
@@ -169,7 +169,7 @@ impl Serialize for UniDataType {
                 seq.serialize_element(&1u32)?;
                 seq.serialize_element(inner)?;
             }
-            UniDataType::Record(inner) => {
+            UniDataType::Struct(inner) => {
                 seq.serialize_element(&2u32)?;
                 seq.serialize_element(inner)?;
             }
@@ -219,7 +219,7 @@ impl<'de> Deserialize<'de> for UniDataType {
                 match tag {
                     0 => Ok(UniDataType::Scalar(variant_payload(&mut seq)?)),
                     1 => Ok(UniDataType::Array(variant_payload(&mut seq)?)),
-                    2 => Ok(UniDataType::Record(variant_payload(&mut seq)?)),
+                    2 => Ok(UniDataType::Struct(variant_payload(&mut seq)?)),
                     3 => Ok(UniDataType::Option(variant_payload(&mut seq)?)),
                     4 => Ok(UniDataType::Tuple(variant_payload(&mut seq)?)),
                     5 => Ok(UniDataType::Result(variant_payload(&mut seq)?)),
@@ -403,7 +403,7 @@ impl Serialize for UniDataValue {
                 seq.serialize_element(&1u32)?;
                 seq.serialize_element(inner)?;
             }
-            UniDataValue::Record(inner) => {
+            UniDataValue::Struct(inner) => {
                 seq.serialize_element(&2u32)?;
                 seq.serialize_element(inner)?;
             }
@@ -433,7 +433,7 @@ impl<'de> Deserialize<'de> for UniDataValue {
                 match tag {
                     0 => Ok(UniDataValue::Scalar(variant_payload(&mut seq)?)),
                     1 => Ok(UniDataValue::Array(variant_payload(&mut seq)?)),
-                    2 => Ok(UniDataValue::Record(variant_payload(&mut seq)?)),
+                    2 => Ok(UniDataValue::Struct(variant_payload(&mut seq)?)),
                     3 => Ok(UniDataValue::Binary(variant_payload(&mut seq)?)),
                     _ => Err(serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(tag as u64),

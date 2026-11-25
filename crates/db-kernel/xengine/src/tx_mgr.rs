@@ -1,4 +1,4 @@
-use crate::api::DeltaAssign;
+use crate::delta::DeltaAssign;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use mudu::common::id::OID;
@@ -126,7 +126,7 @@ pub trait TxMgr: Send + Sync {
     /// Builds the WAL batch committing this transaction's staged writes.
     fn xl_batch(&self) -> XLBatch;
 
-    /// Record that this transaction holds a statement-level pessimistic write
+    /// Struct that this transaction holds a statement-level pessimistic write
     /// lock on `key` of `relation` on the local worker. Default is a no-op
     /// for tx managers without pessimistic locking.
     fn record_statement_lock(&self, _relation: PhysicalRelationId, _key: Vec<u8>) {}
@@ -145,7 +145,7 @@ pub trait TxMgr: Send + Sync {
         Vec::new()
     }
 
-    /// Record that a remote owner worker granted this transaction
+    /// Struct that a remote owner worker granted this transaction
     /// statement-level locks (so they can be released on rollback).
     fn record_remote_lock_owner(&self, _worker_id: OID) {}
 

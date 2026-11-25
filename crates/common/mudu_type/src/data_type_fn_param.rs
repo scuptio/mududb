@@ -1,4 +1,4 @@
-pub use crate::data_type::DataType;
+use crate::data_type::DataType;
 use crate::type_error::TyErr;
 use std::fmt;
 

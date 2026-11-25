@@ -37,7 +37,7 @@ mod tests {
             format!("{}", ErrorCode::PermissionDenied),
             "Permission denied"
         );
-        assert_eq!(ErrorCode::NotFound.message(), "I/O entity not found");
+        assert_eq!(ErrorCode::NotFound.message(), "I/O object not found");
         assert_eq!(ErrorCode::Internal.message(), "Internal error");
     }
 
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn application_codes_have_no_error_kind() {
         assert!(ErrorCode::Internal.error_kind().is_none());
-        assert!(ErrorCode::EntityNotFound.error_kind().is_none());
+        assert!(ErrorCode::ObjectNotFound.error_kind().is_none());
         assert!(ErrorCode::Database.error_kind().is_none());
     }
 
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn severity_classification_is_consistent() {
         assert_eq!(ErrorCode::InvalidArgument.severity(), Severity::User);
-        assert_eq!(ErrorCode::EntityNotFound.severity(), Severity::User);
+        assert_eq!(ErrorCode::ObjectNotFound.severity(), Severity::User);
         assert_eq!(ErrorCode::TimedOut.severity(), Severity::Transient);
         assert_eq!(ErrorCode::NetworkDown.severity(), Severity::Transient);
         assert_eq!(ErrorCode::Internal.severity(), Severity::Internal);

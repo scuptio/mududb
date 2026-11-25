@@ -9,6 +9,7 @@ use super::queue::{
     make_contract, row_body, row_seq, row_status, run_command, run_query, temp_data_dir,
     wait_for_waiter,
 };
+use crate::contract::WorkerXContract;
 use crate::*;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use ::meta::queue_consumer::queue_consumer_schema;
@@ -173,26 +174,26 @@ fn consumer_and_competing_cursor_are_mutually_exclusive() {
             .unwrap_err();
         assert_eq!(err.ec(), ErrorCode::InvalidArgument);
 
-        // Unknown cursors and duplicate names fail with the entity errors.
+        // Unknown cursors and duplicate names fail with the object errors.
         let err = run_query(&contract, meta.clone(), "receive 1 from q for missing;")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let err = run_command(&contract, meta.clone(), "ack q for missing to 0;")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let err = run_command(&contract, meta.clone(), "create consumer cg on q;")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 
         // Dropping the last cursor returns the queue to competing mode.
         run_command(&contract, meta.clone(), "drop consumer cg on q;").await?;
         let err = run_command(&contract, meta.clone(), "drop consumer cg on q;")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let rows = run_query(&contract, meta.clone(), "receive 1 from q;").await?;
         assert_eq!(rows.len(), 1);
         assert_eq!(row_seq(&rows[0]), 0);
@@ -354,7 +355,7 @@ fn drop_consumer_wakes_parked_receive_for_wait_forever() {
         // The drop woke the waiter; its re-scan fails on the missing cursor
         // instead of hanging forever.
         let err = receiver.await.unwrap().unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(contract.queue_wait_registry().waiter_counts()?.is_empty());
         Ok::<(), mudu::error::MuduError>(())
     })

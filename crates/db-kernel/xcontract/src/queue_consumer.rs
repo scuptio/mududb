@@ -12,7 +12,12 @@
 //! `max(frontier, local(seq) + 1)`. The fan-out GC physically deletes shard
 //! rows below `min(frontier)` over all of the shard's cursors — no consumer
 //! will ever scan them again.
-use super::*;
+#[cfg(test)]
+use crate::consumer_registry::ConsumerRegistry;
+use crate::contract::WorkerXContract;
+use crate::kv::tx::worker_rollback_tx;
+use crate::ops::_begin_tx;
+use crate::queue::resolve_queue_shards;
 use ::catalog::contract::queue::{
     decode_queue_seq, queue_seq_datum, queue_seq_encode, queue_seq_local, QUEUE_PAYLOAD_ATTR_START,
     QUEUE_SEQ_ATTR, QUEUE_SEQ_LOCAL_SENTINEL,
@@ -24,152 +29,20 @@ use ::meta::queue_consumer::{
     QUEUE_CONSUMER_NAME_ATTR, QUEUE_CONSUMER_OID_ATTR, QUEUE_CONSUMER_SHARD_ATTR,
     QUEUE_CONSUMER_TABLE_ID,
 };
-use std::collections::HashMap;
-
-/// `(queue_oid, shard)` → (`consumer` → local frontier).
-type CursorMap = HashMap<(OID, u64), HashMap<String, u64>>;
-
-/// Per-worker cursor cache of queue-shard consumers.
-pub struct ConsumerRegistry {
-    inner: SMutex<CursorMap>,
-}
-
-impl ConsumerRegistry {
-    /// Creates an empty registry.
-    pub fn new() -> Self {
-        Self {
-            inner: SMutex::new(HashMap::new()),
-        }
-    }
-
-    fn lock(&self) -> RS<mudu_sys::sync::SMutexGuard<'_, CursorMap>> {
-        self.inner.lock()
-    }
-
-    /// Whether the cursors of the queue shard are loaded in memory.
-    pub fn is_loaded(&self, queue_oid: OID, shard: u64) -> RS<bool> {
-        Ok(self.lock()?.contains_key(&(queue_oid, shard)))
-    }
-
-    /// Replaces the cache entries of the queue shard (the post-restart
-    /// rebuild from the committed `_queue_consumer` rows).
-    pub fn load(&self, queue_oid: OID, shard: u64, entries: Vec<(String, u64)>) -> RS<()> {
-        self.lock()?
-            .insert((queue_oid, shard), entries.into_iter().collect());
-        Ok(())
-    }
-
-    /// Registers a fresh cursor at frontier 0; a pre-existing entry (a
-    /// phantom left by an aborted create) is reset.
-    pub fn register(&self, queue_oid: OID, shard: u64, name: &str) -> RS<()> {
-        self.lock()?
-            .entry((queue_oid, shard))
-            .or_default()
-            .insert(name.to_string(), 0);
-        Ok(())
-    }
-
-    /// Removes a cursor.
-    pub fn unregister(&self, queue_oid: OID, shard: u64, name: &str) -> RS<()> {
-        if let Some(cursors) = self.lock()?.get_mut(&(queue_oid, shard)) {
-            cursors.remove(name);
-        }
-        Ok(())
-    }
-
-    /// Drops every entry of the queue (all shards).
-    pub fn unregister_queue(&self, queue_oid: OID) -> RS<()> {
-        self.lock()?.retain(|(oid, _), _| *oid != queue_oid);
-        Ok(())
-    }
-
-    /// Reads the frontier of the cursor `name` on the queue shard; `None`
-    /// when the cursor is unknown.
-    pub fn frontier(&self, queue_oid: OID, shard: u64, name: &str) -> RS<Option<u64>> {
-        Ok(self
-            .lock()?
-            .get(&(queue_oid, shard))
-            .and_then(|cursors| cursors.get(name).copied()))
-    }
-
-    /// Advances the frontier of the cursor `name` on the queue shard to
-    /// `max(current, frontier)` under the registry lock and returns the merged
-    /// frontier, so concurrent acks of one cursor can never push the stored
-    /// frontier backwards. `None` when the cursor is unknown.
-    pub fn advance_frontier(
-        &self,
-        queue_oid: OID,
-        shard: u64,
-        name: &str,
-        frontier: u64,
-    ) -> RS<Option<u64>> {
-        let mut guard = self.lock()?;
-        let Some(cursor) = guard
-            .get_mut(&(queue_oid, shard))
-            .and_then(|cursors| cursors.get_mut(name))
-        else {
-            return Ok(None);
-        };
-        *cursor = (*cursor).max(frontier);
-        Ok(Some(*cursor))
-    }
-
-    /// The smallest frontier over all cursors of the queue shard (the fan-out
-    /// GC frontier); `None` when the shard has no cursors.
-    pub fn min_frontier(&self, queue_oid: OID, shard: u64) -> RS<Option<u64>> {
-        Ok(self
-            .lock()?
-            .get(&(queue_oid, shard))
-            .and_then(|cursors| cursors.values().copied().min()))
-    }
-
-    /// The cursors of the queue shard as `(name, frontier)` pairs sorted by
-    /// name.
-    pub fn list(&self, queue_oid: OID, shard: u64) -> RS<Vec<(String, u64)>> {
-        let mut entries: Vec<(String, u64)> = self
-            .lock()?
-            .get(&(queue_oid, shard))
-            .map(|cursors| {
-                cursors
-                    .iter()
-                    .map(|(name, frontier)| (name.clone(), *frontier))
-                    .collect()
-            })
-            .unwrap_or_default();
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(entries)
-    }
-
-    /// Whether the queue shard has at least one cursor.
-    pub fn exists(&self, queue_oid: OID, shard: u64) -> RS<bool> {
-        Ok(self
-            .lock()?
-            .get(&(queue_oid, shard))
-            .map(|cursors| !cursors.is_empty())
-            .unwrap_or(false))
-    }
-
-    /// Whether any shard of the queue has at least one cursor.
-    pub fn exists_queue(&self, queue_oid: OID) -> RS<bool> {
-        Ok(self
-            .lock()?
-            .iter()
-            .any(|((oid, _), cursors)| *oid == queue_oid && !cursors.is_empty()))
-    }
-
-    /// Drops every entry, forcing a lazy rebuild from `_queue_consumer` (used
-    /// when storage is reloaded underneath, e.g. by a snapshot restore).
-    pub fn clear(&self) -> RS<()> {
-        self.lock()?.clear();
-        Ok(())
-    }
-}
-
-impl Default for ConsumerRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use ::xengine::api::{
+    OptRead, OptUpdate, QueueConsumerEntry, QueueShard, RangeData, VecDatum, VecSelTerm, XContract,
+    XContractQueue,
+};
+use ::xengine::partition_router::DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID;
+use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
+use mudu::common::buf::Buf;
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use std::ops::Bound;
+use std::sync::Arc;
+use tracing::debug;
 
 /// Builds the `_queue_consumer` key datum of the cursor `consumer` on the
 /// queue shard.
@@ -202,41 +75,39 @@ fn decode_consumer_row(fields: &[Option<Buf>]) -> RS<Option<(OID, u64, String, u
     }
 }
 
-impl WorkerXContract {
-    /// The `(queue_oid, shard_index)` pairs whose consumer cursor rows the
-    /// transaction stages (create/drop/ack of consumers); empty when the
-    /// write set holds no `_queue_consumer` rows.
-    pub(crate) fn staged_consumer_shards(&self, tx: &dyn TxMgr) -> RS<Vec<(OID, u64)>> {
-        let staged = tx.staged_relation_ops();
-        let Some(rows) = staged.get(&PhysicalRelationId {
-            table_id: QUEUE_CONSUMER_TABLE_ID,
-            partition_id: DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
-        }) else {
-            return Ok(Vec::new());
-        };
-        if rows.is_empty() {
-            return Ok(Vec::new());
-        }
-        let desc = ::meta::queue_consumer::queue_consumer_desc()?;
-        // Tuple field order is canonical (not attribute order): map each key
-        // attribute through its datum index.
-        let oid_field = desc
-            .key_desc()
-            .get_field_desc(desc.get_attr(QUEUE_CONSUMER_OID_ATTR).datum_index());
-        let shard_field = desc
-            .key_desc()
-            .get_field_desc(desc.get_attr(QUEUE_CONSUMER_SHARD_ATTR).datum_index());
-        let mut out: Vec<(OID, u64)> = Vec::new();
-        for key in rows.keys() {
-            let oid = decode_queue_consumer_oid(oid_field.get(key)?)?;
-            let shard = decode_queue_consumer_shard(shard_field.get(key)?)?;
-            out.push((oid, shard));
-        }
-        out.sort_unstable();
-        out.dedup();
-        Ok(out)
+/// Distinct `(queue_oid, shard_index)` pairs of the consumer-table write set.
+pub(crate) fn staged_consumer_shards(tx: &dyn TxMgr) -> RS<Vec<(OID, u64)>> {
+    let staged = tx.staged_relation_ops();
+    let Some(rows) = staged.get(&PhysicalRelationId {
+        table_id: QUEUE_CONSUMER_TABLE_ID,
+        partition_id: DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+    }) else {
+        return Ok(Vec::new());
+    };
+    if rows.is_empty() {
+        return Ok(Vec::new());
     }
+    let desc = ::meta::queue_consumer::queue_consumer_desc()?;
+    // Tuple field order is canonical (not attribute order): map each key
+    // attribute through its datum index.
+    let oid_field = desc
+        .key_desc()
+        .get_field_desc(desc.get_attr(QUEUE_CONSUMER_OID_ATTR).datum_index());
+    let shard_field = desc
+        .key_desc()
+        .get_field_desc(desc.get_attr(QUEUE_CONSUMER_SHARD_ATTR).datum_index());
+    let mut out: Vec<(OID, u64)> = Vec::new();
+    for key in rows.keys() {
+        let oid = decode_queue_consumer_oid(oid_field.get(key)?)?;
+        let shard = decode_queue_consumer_shard(shard_field.get(key)?)?;
+        out.push((oid, shard));
+    }
+    out.sort_unstable();
+    out.dedup();
+    Ok(out)
+}
 
+impl WorkerXContract {
     /// Reads committed cursor rows plus this transaction's staged changes.
     /// The cursor table is unpartitioned; the pinned read reaches its owner
     /// worker from anywhere.
@@ -280,9 +151,9 @@ impl WorkerXContract {
     /// Force-refreshes the cursor cache of the queue shard from the committed
     /// `_queue_consumer` rows (the post-commit consumer-change path).
     pub(crate) async fn reload_consumer_state(&self, queue_oid: OID, shard_index: u64) -> RS<()> {
-        let tx = self._begin_tx()?;
+        let tx = _begin_tx(&self.snapshot_mgr)?;
         let entries = self.consumer_scan_in_tx(tx.clone(), queue_oid).await;
-        let _ = self.worker_rollback_tx(tx);
+        let _ = worker_rollback_tx(&self.tx_lock, &self.snapshot_mgr, tx);
         let shard_entries = entries?
             .into_iter()
             .filter(|entry| entry.shard == shard_index)
@@ -303,9 +174,9 @@ impl WorkerXContract {
         if self.consumer_registry.is_loaded(queue_oid, shard_index)? {
             return Ok(());
         }
-        let tx = self._begin_tx()?;
+        let tx = _begin_tx(&self.snapshot_mgr)?;
         let entries = self.consumer_scan_in_tx(tx.clone(), queue_oid).await;
-        let _ = self.worker_rollback_tx(tx);
+        let _ = worker_rollback_tx(&self.tx_lock, &self.snapshot_mgr, tx);
         let entries = entries?;
         let shard_entries = entries
             .into_iter()
@@ -319,7 +190,7 @@ impl WorkerXContract {
     /// `CREATE CONSUMER`: inserts one cursor row (frontier 0) per shard of the
     /// queue in the caller's transaction; the committed cache refresh happens
     /// after commit. The read-then-insert pair reports a duplicate cursor as
-    /// `EntityAlreadyExists`; the insert itself is the authoritative guard
+    /// `ObjectAlreadyExists`; the insert itself is the authoritative guard
     /// against a concurrently committing create.
     pub(crate) async fn consumer_create_async(
         &self,
@@ -327,7 +198,14 @@ impl WorkerXContract {
         queue_oid: OID,
         consumer: &str,
     ) -> RS<()> {
-        let shards = self.resolve_queue_shards(queue_oid).await?;
+        let shards = resolve_queue_shards(
+            &self.meta_mgr,
+            self.worker_id,
+            &self.cluster_router,
+            self.default_unpartitioned_worker_id,
+            queue_oid,
+        )
+        .await?;
         // Serialize against other cursor mutations of the queue: lock every
         // shard's sentinel in shard order.
         for shard in &shards {
@@ -336,7 +214,7 @@ impl WorkerXContract {
         let existing = self.consumer_scan_in_tx(tx_mgr.clone(), queue_oid).await?;
         if existing.iter().any(|entry| entry.name == consumer) {
             return Err(mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!("consumer {consumer} already exists on queue {queue_oid}")
             ));
         }
@@ -367,7 +245,14 @@ impl WorkerXContract {
         queue_oid: OID,
         consumer: &str,
     ) -> RS<()> {
-        let shards = self.resolve_queue_shards(queue_oid).await?;
+        let shards = resolve_queue_shards(
+            &self.meta_mgr,
+            self.worker_id,
+            &self.cluster_router,
+            self.default_unpartitioned_worker_id,
+            queue_oid,
+        )
+        .await?;
         for shard in &shards {
             self.lock_shard_state(tx_mgr.clone(), shard).await?;
         }
@@ -384,7 +269,7 @@ impl WorkerXContract {
         }
         if deleted == 0 {
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {queue_oid}")
             ));
         }
@@ -414,7 +299,7 @@ impl WorkerXContract {
             .map(|current| current.max(local_seq.saturating_add(1)))
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such consumer {consumer} on queue {}", shard.queue_oid)
                 )
             })?;
@@ -435,7 +320,7 @@ impl WorkerXContract {
             // The cursor was read but its row is gone (a concurrent
             // drop won the race): report the cursor as missing.
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {}", shard.queue_oid)
             ));
         }
@@ -524,12 +409,12 @@ impl WorkerXContract {
     /// non-serving replica the commit is rejected; the serving leader's own
     /// cleanup replicates, so the rejection is safe to ignore.
     pub(crate) async fn drop_queue_consumers_async(&self, queue_oid: OID) -> RS<()> {
-        let tx_mgr = self._begin_tx()?;
+        let tx_mgr = _begin_tx(&self.snapshot_mgr)?;
         let consumers = self.consumer_scan_in_tx(tx_mgr.clone(), queue_oid).await?;
-        let legacy_key = crate::queue_state::legacy_state_key(queue_oid);
+        let legacy_key = crate::queue_types::legacy_state_key(queue_oid);
         let has_legacy = self.storage.kv_get(&legacy_key, None).await?.is_some();
         if consumers.is_empty() && !has_legacy {
-            let _ = self.worker_rollback_tx(tx_mgr);
+            let _ = worker_rollback_tx(&self.tx_lock, &self.snapshot_mgr, tx_mgr);
             return Ok(());
         }
         tx_mgr.delete(legacy_key);
@@ -543,7 +428,7 @@ impl WorkerXContract {
             .await?;
         }
         match self.worker_commit_routed_tx_async(tx_mgr).await {
-            Ok(()) => Ok(()),
+            Ok(_) => Ok(()),
             Err(err) if err.ec() == ErrorCode::DomainViolation => {
                 debug!(
                     queue_oid,

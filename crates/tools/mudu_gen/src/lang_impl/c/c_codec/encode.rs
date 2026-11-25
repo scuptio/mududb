@@ -45,7 +45,7 @@ pub fn c_encode_stmts(
         UniDataType::Box(inner) => {
             c_encode_box(style, inner, expr, indent, depth, out)?;
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("C codec does not support {:?} in this position", ty)

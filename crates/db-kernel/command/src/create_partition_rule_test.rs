@@ -4,8 +4,8 @@ use ::catalog::contract::cmd_exec::CmdExec;
 
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::{PartitionBound, PartitionRuleDesc, RangePartitionDef};
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
@@ -17,6 +17,7 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ where
 }
 
 fn dummy_table_desc() -> Arc<TableDesc> {
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "t".to_string(),
         vec![SchemaColumn::new(
             "k".to_string(),
@@ -150,7 +151,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -173,6 +174,7 @@ fn prepare_succeeds_when_rule_does_not_exist() {
     let cmd = CreatePartitionRule::new(
         make_param(sample_rule("new_rule")),
         Arc::new(MockMetaMgr::new()),
+        None,
     );
     block_on(async { cmd.prepare().await }).unwrap();
 }
@@ -182,16 +184,16 @@ fn prepare_fails_when_rule_already_exists() {
     let meta = Arc::new(MockMetaMgr::new());
     let rule = sample_rule("existing_rule");
     meta.add_rule(rule.clone());
-    let cmd = CreatePartitionRule::new(make_param(rule), meta);
+    let cmd = CreatePartitionRule::new(make_param(rule), meta, None);
     let err = block_on(async { cmd.prepare().await }).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]
 fn run_creates_partition_rule() {
     let meta = Arc::new(MockMetaMgr::new());
     let rule = sample_rule("run_rule");
-    let cmd = CreatePartitionRule::new(make_param(rule.clone()), meta.clone());
+    let cmd = CreatePartitionRule::new(make_param(rule.clone()), meta.clone(), None);
     block_on(async {
         cmd.prepare().await.unwrap();
         cmd.run().await.unwrap();
@@ -229,7 +231,7 @@ fn mock_tx_mgr_fixture_covers_its_trait_surface() {
 #[test]
 fn mock_meta_mgr_fixture_covers_its_trait_surface() {
     let meta = MockMetaMgr::new();
-    let schema = ::catalog::contract::schema_table::SchemaTable::new(
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
         "fixture_t".to_string(),
         vec![::catalog::contract::schema_column::SchemaColumn::new(
             "k".to_string(),

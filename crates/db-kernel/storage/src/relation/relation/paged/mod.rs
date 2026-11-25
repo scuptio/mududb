@@ -1,7 +1,7 @@
 //! Disk-backed row-ID tree and rebuildable async row-version cache.
 mod handle;
 mod manifest;
-pub(super) use handle::Handle;
+pub use handle::Handle;
 mod rows;
 use catalog::contract::data_row::DataRow;
 use index::{
@@ -12,7 +12,7 @@ use mudu::{common::result::RS, error::ErrorCode, mudu_error};
 use mudu_sys::contract::{async_file::AsyncFile, async_fs::AsyncFs, file_options::FileOptions};
 use std::{ops::Bound, path::Path, sync::Arc};
 
-pub(super) struct PagedRelation {
+pub struct PagedRelation {
     tree: PagedBTree<u128>,
     rows: rows::Rows,
     manifest: Arc<dyn AsyncFile>,

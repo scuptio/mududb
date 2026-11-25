@@ -18,7 +18,7 @@ pub const RECORD_SLOT_FLAG_PARTIAL_LAST: u16 = 2;
 /// data area (`offset`/`size`), its sort key (`timestamp`, `tuple_id`), the
 /// payload checksum, and the fragment flag.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RecordSlot {
+pub struct StructSlot {
     offset: u32,
     size: u32,
     timestamp: u64,
@@ -28,7 +28,7 @@ pub struct RecordSlot {
     reserved: u32,
 }
 
-impl RecordSlot {
+impl StructSlot {
     /// Creates a slot for a complete record at `offset` with payload length
     /// `size`, keyed by `timestamp` and `tuple_id`.
     pub fn new(offset: u32, size: u32, timestamp: u64, tuple_id: u64) -> Self {

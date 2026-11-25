@@ -10,15 +10,15 @@ using Xunit;
 namespace mududb.tests;
 
 /// <summary>
-/// Tests for <see cref="RecordBridge"/>: the hand-written transcoder between
-/// the host's uni-data-value record-case envelope and the integer-keyed
-/// MessagePack map the mgen-generated record formatters consume.
+/// Tests for <see cref="StructBridge"/>: the hand-written transcoder between
+/// the host's uni-data-value struct-case envelope and the integer-keyed
+/// MessagePack map the mgen-generated struct formatters consume.
 ///
-/// The Address/Profile DTOs below hand-mirror the mgen C# record template
-/// output (`record.cs.jinja` + `codec_expr_cs.rs`) for this WIT shape:
+/// The Address/Profile DTOs below hand-mirror the mgen C# struct template
+/// output (`struct.cs.jinja` + `codec_expr_cs.rs`) for this WIT shape:
 ///
-///   record address { city: string, zip: string }
-///   record profile {
+///   struct address { city: string, zip: string }
+///   struct profile {
 ///       display-name: string,   // 1
 ///       level: u32,             // 2  (i32 on the host wire)
 ///       vip: bool,              // 3  (i32 0/1 on the host wire)
@@ -30,7 +30,7 @@ namespace mududb.tests;
 ///       nickname: option&lt;string&gt;,// 9 (omitted when null: trailing shrink)
 ///   }
 /// </summary>
-public class RecordBridgeTests
+public class StructBridgeTests
 {
     // ---- mgen-template mirror DTOs ----
 
@@ -261,13 +261,13 @@ public class RecordBridgeTests
         new UniDataValueField { FieldName = name, FieldValue = value };
 
     private static UniDataValue AddressEnvelope(string city, string zip) =>
-        new UniDataValueRecord { Inner = [Field("", Str(city)), Field("", Str(zip))] };
+        new UniDataValueStruct { Inner = [Field("", Str(city)), Field("", Str(zip))] };
 
     /// The host-style profile envelope: positional fields (names empty,
     /// except the first to prove names are ignored), bool as i32, u32 as
     /// i32, blob as the scalar blob case, a null option as the Null scalar.
     private static UniDataValue ProfileEnvelope(bool withHome) =>
-        new UniDataValueRecord
+        new UniDataValueStruct
         {
             Inner = new List<UniDataValueField>
             {
@@ -365,14 +365,14 @@ public class RecordBridgeTests
             w.Write("ace");
         });
 
-    /// The host record-case envelope: `[2, [ {1: "", 2: datum}, ... ]]`
+    /// The host struct-case envelope: `[2, [ {1: "", 2: datum}, ... ]]`
     /// with `[0, [tag, payload]]` scalar datums.
     private static byte[] ExpectedEnvelope(bool withHome, bool withNickname) =>
         WriteRaw((ref MessagePackWriter w) =>
         {
             var fieldCount = 9 - (withNickname ? 0 : 1);
             w.WriteArrayHeader(2);
-            w.Write(2); // UniDataValue::Record
+            w.Write(2); // UniDataValue::Struct
             w.WriteArrayHeader(fieldCount);
             FieldHead(ref w);
             ScalarHead(ref w, 14);
@@ -387,7 +387,7 @@ public class RecordBridgeTests
             if (withHome)
             {
                 w.WriteArrayHeader(2);
-                w.Write(2); // nested record
+                w.Write(2); // nested struct
                 w.WriteArrayHeader(2);
                 FieldHead(ref w);
                 ScalarHead(ref w, 14);
@@ -418,7 +418,7 @@ public class RecordBridgeTests
             w.Write(5000000000L);
             // A byte array leaves the generated C# encoder as MessagePack
             // bin, which the bridge wraps as the Blob scalar; the envelope
-            // serializes the Blob payload as the pinned record-context
+            // serializes the Blob payload as the pinned struct-context
             // array of u8.
             FieldHead(ref w);
             ScalarHead(ref w, 15);
@@ -440,16 +440,16 @@ public class RecordBridgeTests
     // ---- checks ----
 
     [Fact]
-    public void RecordFieldValuesIsByteExact()
+    public void StructFieldValuesIsByteExact()
     {
-        Assert.Equal(ExpectedFieldMap(withHome: true), RecordBridge.RecordFieldValues(ProfileEnvelope(true)));
-        Assert.Equal(ExpectedFieldMap(withHome: false), RecordBridge.RecordFieldValues(ProfileEnvelope(false)));
+        Assert.Equal(ExpectedFieldMap(withHome: true), StructBridge.StructFieldValues(ProfileEnvelope(true)));
+        Assert.Equal(ExpectedFieldMap(withHome: false), StructBridge.StructFieldValues(ProfileEnvelope(false)));
     }
 
     [Fact]
     public void FromValueDecodesTheHostEnvelope()
     {
-        var profile = RecordBridge.FromValue(ProfileEnvelope(true), new ProfileFormatter());
+        var profile = StructBridge.FromValue(ProfileEnvelope(true), new ProfileFormatter());
         Assert.Equal("Ada", profile.DisplayName);
         Assert.Equal(7u, profile.Level);
         Assert.True(profile.Vip); // crossed as i32 1 (no Bool family)
@@ -464,49 +464,49 @@ public class RecordBridgeTests
     [Fact]
     public void FromValueDefaultsMissingFields()
     {
-        var profile = RecordBridge.FromValue(ProfileEnvelope(false), new ProfileFormatter());
+        var profile = StructBridge.FromValue(ProfileEnvelope(false), new ProfileFormatter());
         Assert.Null(profile.Home); // the Null scalar at position 4
         Assert.Equal("ace", profile.Nickname);
     }
 
     [Fact]
-    public void RecordFieldValuesRejectsANonRecord()
+    public void StructFieldValuesRejectsANonStruct()
     {
-        Assert.Throws<InvalidDataException>(() => RecordBridge.RecordFieldValues(I32(1)));
+        Assert.Throws<InvalidDataException>(() => StructBridge.StructFieldValues(I32(1)));
     }
 
     [Fact]
-    public void RecordFromFieldValuesIsByteExact()
+    public void StructFromFieldValuesIsByteExact()
     {
-        var full = RecordBridge.ToValue(SampleProfile(true, true), new ProfileFormatter());
+        var full = StructBridge.ToValue(SampleProfile(true, true), new ProfileFormatter());
         Assert.Equal(ExpectedEnvelope(true, true), SerializeEnvelope(full));
     }
 
     [Fact]
-    public void RecordFromFieldValuesGapFillsAnOmittedOptionWithNull()
+    public void StructFromFieldValuesGapFillsAnOmittedOptionWithNull()
     {
-        var datum = RecordBridge.ToValue(SampleProfile(false, true), new ProfileFormatter());
+        var datum = StructBridge.ToValue(SampleProfile(false, true), new ProfileFormatter());
         Assert.Equal(ExpectedEnvelope(false, true), SerializeEnvelope(datum));
 
         // position 4 is the Null scalar, not a shifted field
-        var record = Assert.IsType<UniDataValueRecord>(datum);
-        Assert.Equal(9, record.Inner.Count);
+        var struct = Assert.IsType<UniDataValueStruct>(datum);
+        Assert.Equal(9, struct.Inner.Count);
         var nullScalar = Assert.IsType<UniScalarValueNull>(
-            Assert.IsType<UniDataValueScalar>(record.Inner[3].FieldValue).Inner);
+            Assert.IsType<UniDataValueScalar>(struct.Inner[3].FieldValue).Inner);
         Assert.Equal(UniScalarValueKind.Null, nullScalar.Kind());
     }
 
     [Fact]
-    public void RecordFromFieldValuesShrinksATrailingOmittedOption()
+    public void StructFromFieldValuesShrinksATrailingOmittedOption()
     {
-        var datum = RecordBridge.ToValue(SampleProfile(false, false), new ProfileFormatter());
+        var datum = StructBridge.ToValue(SampleProfile(false, false), new ProfileFormatter());
         Assert.Equal(ExpectedEnvelope(false, false), SerializeEnvelope(datum));
-        var record = Assert.IsType<UniDataValueRecord>(datum);
-        Assert.Equal(8, record.Inner.Count);
+        var struct = Assert.IsType<UniDataValueStruct>(datum);
+        Assert.Equal(8, struct.Inner.Count);
     }
 
     [Fact]
-    public void RecordFromFieldValuesRejectsU64Overflow()
+    public void StructFromFieldValuesRejectsU64Overflow()
     {
         var bytes = WriteRaw((ref MessagePackWriter w) =>
         {
@@ -514,15 +514,15 @@ public class RecordBridgeTests
             w.Write(1);
             w.Write(ulong.MaxValue);
         });
-        Assert.Throws<InvalidDataException>(() => RecordBridge.RecordFromFieldValues(bytes));
+        Assert.Throws<InvalidDataException>(() => StructBridge.StructFromFieldValues(bytes));
     }
 
     [Fact]
     public void RoundTripPreservesTheProfile()
     {
         var profile = SampleProfile(true, true);
-        var datum = RecordBridge.ToValue(profile, new ProfileFormatter());
-        var decoded = RecordBridge.FromValue(datum, new ProfileFormatter());
+        var datum = StructBridge.ToValue(profile, new ProfileFormatter());
+        var decoded = StructBridge.FromValue(datum, new ProfileFormatter());
         Assert.Equal(profile.DisplayName, decoded.DisplayName);
         Assert.Equal(profile.Level, decoded.Level);
         Assert.Equal(profile.Vip, decoded.Vip);

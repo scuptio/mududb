@@ -33,7 +33,7 @@ impl SysOs {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -49,5 +49,18 @@ mod tests {
         let os = SysOs::new();
         let _default = SysOs;
         let _ring = os.io_uring(8).unwrap();
+    }
+    #[test]
+    #[allow(
+        clippy::default_constructed_unit_structs,
+        reason = "verify default OS facade error propagation"
+    )]
+    fn invalid_ring_size_returns_io_error() {
+        let os = SysOs::default();
+        let result = os.io_uring(u32::MAX);
+        match result {
+            Err(error) => assert_eq!(error.ec(), ErrorCode::Io),
+            Ok(_) => panic!("invalid submission queue size unexpectedly accepted"),
+        }
     }
 }

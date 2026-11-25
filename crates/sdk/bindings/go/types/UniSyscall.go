@@ -36,6 +36,11 @@ const (
 	MessageKindRelationGet    MessageKind = 21
 	MessageKindRelationUpdate MessageKind = 22
 	MessageKindRelationInsert MessageKind = 23
+	MessageKindCacheOpen      MessageKind = 24
+	MessageKindCacheGet       MessageKind = 25
+	MessageKindCachePut       MessageKind = 26
+	MessageKindCacheDelete    MessageKind = 27
+	MessageKindCacheTtl       MessageKind = 28
 )
 
 // WireResult is the wire-level result<T, E> exchanged with the peer: a
@@ -71,7 +76,7 @@ func DecodeHeader(frame []byte) (MessageKind, error) {
 		return 0, err
 	}
 	switch _kind := MessageKind(_raw); _kind {
-	case MessageKindQuery, MessageKindCommand, MessageKindBatch, MessageKindOpenSession, MessageKindCloseSession, MessageKindGet, MessageKindPut, MessageKindDelete, MessageKindRange, MessageKindFsOpen, MessageKindFsClose, MessageKindFsRead, MessageKindFsWrite, MessageKindFsPread, MessageKindFsPwrite, MessageKindFsLseek, MessageKindFsFstat, MessageKindFsStat, MessageKindFsFsync, MessageKindFsReaddir, MessageKindRelationGet, MessageKindRelationUpdate, MessageKindRelationInsert:
+	case MessageKindQuery, MessageKindCommand, MessageKindBatch, MessageKindOpenSession, MessageKindCloseSession, MessageKindGet, MessageKindPut, MessageKindDelete, MessageKindRange, MessageKindFsOpen, MessageKindFsClose, MessageKindFsRead, MessageKindFsWrite, MessageKindFsPread, MessageKindFsPwrite, MessageKindFsLseek, MessageKindFsFstat, MessageKindFsStat, MessageKindFsFsync, MessageKindFsReaddir, MessageKindRelationGet, MessageKindRelationUpdate, MessageKindRelationInsert, MessageKindCacheOpen, MessageKindCacheGet, MessageKindCachePut, MessageKindCacheDelete, MessageKindCacheTtl:
 		return _kind, nil
 	default:
 		return 0, fmt.Errorf("MSSP unknown syscall message kind %d", _raw)
@@ -2128,4 +2133,403 @@ func DecodeRelationInsertResult(frame []byte) (WireResult, error) {
 		return WireResult{Error: &_e}, nil
 	}
 	return WireResult{}, nil
+}
+
+// EncodeCacheOpenRequest encodes the `cache-open` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func EncodeCacheOpenRequest(name string) ([]byte, error) {
+	_body := map[uint64]any{}
+	_body[1] = name
+	return codec.EncodeRequestFrame(uint32(MessageKindCacheOpen), _body)
+}
+
+// DecodeCacheOpenRequest decodes the `cache-open` request frame;
+// missing arguments decode as their proto3-style default.
+func DecodeCacheOpenRequest(frame []byte) (string, error) {
+	var name string
+	_fields, err := codec.DecodeRequestMap(uint32(MessageKindCacheOpen), frame)
+	if err != nil {
+		return name, err
+	}
+	if _raw, _has := _fields[1]; _has {
+		name, err = strChecked(_raw)
+		if err != nil {
+			return name, err
+		}
+	}
+	return name, nil
+}
+
+// EncodeCacheOpenResult encodes the `cache-open` result frame:
+// [0, value] on success, [1, error] on failure.
+func EncodeCacheOpenResult(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := UniErrorToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32(MessageKindCacheOpen), _e)
+	}
+	var _w any
+	_t0, _ok0 := result.Value.(UniOid)
+	if !_ok0 {
+		err := typeError("UniOid", result.Value)
+		return nil, err
+	}
+	_c1, err := UniOidToValue(_t0)
+	if err != nil {
+		return nil, err
+	}
+	_w = _c1
+	return codec.EncodeResultOkFrame(uint32(MessageKindCacheOpen), _w)
+}
+
+// DecodeCacheOpenResult decodes the `cache-open` result frame.
+func DecodeCacheOpenResult(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32(MessageKindCacheOpen), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := UniErrorFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	var _v UniOid
+	_v, err = UniOidFromValue(_payload)
+	if err != nil {
+		return WireResult{}, err
+	}
+	return WireResult{Value: _v}, nil
+}
+
+// EncodeCacheGetRequest encodes the `cache-get` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func EncodeCacheGetRequest(cache UniOid, key []byte) ([]byte, error) {
+	_body := map[uint64]any{}
+	_c0, err := UniOidToValue(cache)
+	if err != nil {
+		return nil, err
+	}
+	_body[1] = _c0
+	_body[2] = key
+	return codec.EncodeRequestFrame(uint32(MessageKindCacheGet), _body)
+}
+
+// DecodeCacheGetRequest decodes the `cache-get` request frame;
+// missing arguments decode as their proto3-style default.
+func DecodeCacheGetRequest(frame []byte) (UniOid, []byte, error) {
+	var cache UniOid
+	var key []byte
+	_fields, err := codec.DecodeRequestMap(uint32(MessageKindCacheGet), frame)
+	if err != nil {
+		return cache, key, err
+	}
+	if _raw, _has := _fields[1]; _has {
+		cache, err = UniOidFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	if _raw, _has := _fields[2]; _has {
+		key, err = blobFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	return cache, key, nil
+}
+
+// EncodeCacheGetResult encodes the `cache-get` result frame:
+// [0, value] on success, [1, error] on failure.
+func EncodeCacheGetResult(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := UniErrorToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32(MessageKindCacheGet), _e)
+	}
+	var _w any
+	if result.Value == nil {
+		_w = nil
+	} else {
+		_t1, err := bytesChecked(result.Value)
+		if err != nil {
+			return nil, err
+		}
+		_w = _t1
+	}
+	return codec.EncodeResultOkFrame(uint32(MessageKindCacheGet), _w)
+}
+
+// DecodeCacheGetResult decodes the `cache-get` result frame.
+func DecodeCacheGetResult(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32(MessageKindCacheGet), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := UniErrorFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	var _v any
+	if _payload != nil {
+		var _t []byte
+		_t, err = blobFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		_v = _t
+	}
+	return WireResult{Value: _v}, nil
+}
+
+// EncodeCachePutRequest encodes the `cache-put` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func EncodeCachePutRequest(cache UniOid, key []byte, value []byte, ttlSecs *uint64) ([]byte, error) {
+	_body := map[uint64]any{}
+	_c0, err := UniOidToValue(cache)
+	if err != nil {
+		return nil, err
+	}
+	_body[1] = _c0
+	_body[2] = key
+	_body[3] = value
+	if ttlSecs != nil {
+		_body[4] = *ttlSecs
+	}
+	return codec.EncodeRequestFrame(uint32(MessageKindCachePut), _body)
+}
+
+// DecodeCachePutRequest decodes the `cache-put` request frame;
+// missing arguments decode as their proto3-style default.
+func DecodeCachePutRequest(frame []byte) (UniOid, []byte, []byte, *uint64, error) {
+	var cache UniOid
+	var key []byte
+	var value []byte
+	var ttlSecs *uint64
+	_fields, err := codec.DecodeRequestMap(uint32(MessageKindCachePut), frame)
+	if err != nil {
+		return cache, key, value, ttlSecs, err
+	}
+	if _raw, _has := _fields[1]; _has {
+		cache, err = UniOidFromValue(_raw)
+		if err != nil {
+			return cache, key, value, ttlSecs, err
+		}
+	}
+	if _raw, _has := _fields[2]; _has {
+		key, err = blobFromValue(_raw)
+		if err != nil {
+			return cache, key, value, ttlSecs, err
+		}
+	}
+	if _raw, _has := _fields[3]; _has {
+		value, err = blobFromValue(_raw)
+		if err != nil {
+			return cache, key, value, ttlSecs, err
+		}
+	}
+	if _raw, _has := _fields[4]; _has {
+		if _raw != nil {
+			var _t1 uint64
+			_t1, err = u64Checked(_raw)
+			if err != nil {
+				return cache, key, value, ttlSecs, err
+			}
+			ttlSecs = &_t1
+		}
+	}
+	return cache, key, value, ttlSecs, nil
+}
+
+// EncodeCachePutResult encodes the `cache-put` result frame:
+// [0, 0] on success, [1, error] on failure.
+func EncodeCachePutResult(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := UniErrorToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32(MessageKindCachePut), _e)
+	}
+	return codec.EncodeUnitResultOkFrame(uint32(MessageKindCachePut)), nil
+}
+
+// DecodeCachePutResult decodes the `cache-put` result frame.
+func DecodeCachePutResult(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32(MessageKindCachePut), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := UniErrorFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	return WireResult{}, nil
+}
+
+// EncodeCacheDeleteRequest encodes the `cache-delete` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func EncodeCacheDeleteRequest(cache UniOid, key []byte) ([]byte, error) {
+	_body := map[uint64]any{}
+	_c0, err := UniOidToValue(cache)
+	if err != nil {
+		return nil, err
+	}
+	_body[1] = _c0
+	_body[2] = key
+	return codec.EncodeRequestFrame(uint32(MessageKindCacheDelete), _body)
+}
+
+// DecodeCacheDeleteRequest decodes the `cache-delete` request frame;
+// missing arguments decode as their proto3-style default.
+func DecodeCacheDeleteRequest(frame []byte) (UniOid, []byte, error) {
+	var cache UniOid
+	var key []byte
+	_fields, err := codec.DecodeRequestMap(uint32(MessageKindCacheDelete), frame)
+	if err != nil {
+		return cache, key, err
+	}
+	if _raw, _has := _fields[1]; _has {
+		cache, err = UniOidFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	if _raw, _has := _fields[2]; _has {
+		key, err = blobFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	return cache, key, nil
+}
+
+// EncodeCacheDeleteResult encodes the `cache-delete` result frame:
+// [0, 0] on success, [1, error] on failure.
+func EncodeCacheDeleteResult(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := UniErrorToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32(MessageKindCacheDelete), _e)
+	}
+	return codec.EncodeUnitResultOkFrame(uint32(MessageKindCacheDelete)), nil
+}
+
+// DecodeCacheDeleteResult decodes the `cache-delete` result frame.
+func DecodeCacheDeleteResult(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32(MessageKindCacheDelete), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := UniErrorFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	return WireResult{}, nil
+}
+
+// EncodeCacheTtlRequest encodes the `cache-ttl` request frame:
+// the integer-keyed MessagePack map of the WIT-declared arguments (1-based
+// parameter numbers).
+func EncodeCacheTtlRequest(cache UniOid, key []byte) ([]byte, error) {
+	_body := map[uint64]any{}
+	_c0, err := UniOidToValue(cache)
+	if err != nil {
+		return nil, err
+	}
+	_body[1] = _c0
+	_body[2] = key
+	return codec.EncodeRequestFrame(uint32(MessageKindCacheTtl), _body)
+}
+
+// DecodeCacheTtlRequest decodes the `cache-ttl` request frame;
+// missing arguments decode as their proto3-style default.
+func DecodeCacheTtlRequest(frame []byte) (UniOid, []byte, error) {
+	var cache UniOid
+	var key []byte
+	_fields, err := codec.DecodeRequestMap(uint32(MessageKindCacheTtl), frame)
+	if err != nil {
+		return cache, key, err
+	}
+	if _raw, _has := _fields[1]; _has {
+		cache, err = UniOidFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	if _raw, _has := _fields[2]; _has {
+		key, err = blobFromValue(_raw)
+		if err != nil {
+			return cache, key, err
+		}
+	}
+	return cache, key, nil
+}
+
+// EncodeCacheTtlResult encodes the `cache-ttl` result frame:
+// [0, value] on success, [1, error] on failure.
+func EncodeCacheTtlResult(result WireResult) ([]byte, error) {
+	if result.Error != nil {
+		_e, err := UniErrorToValue(*result.Error)
+		if err != nil {
+			return nil, err
+		}
+		return codec.EncodeResultErrFrame(uint32(MessageKindCacheTtl), _e)
+	}
+	var _w any
+	if result.Value == nil {
+		_w = nil
+	} else {
+		_t1, err := u64Checked(result.Value)
+		if err != nil {
+			return nil, err
+		}
+		_w = _t1
+	}
+	return codec.EncodeResultOkFrame(uint32(MessageKindCacheTtl), _w)
+}
+
+// DecodeCacheTtlResult decodes the `cache-ttl` result frame.
+func DecodeCacheTtlResult(frame []byte) (WireResult, error) {
+	_ok, _payload, err := codec.DecodeResultBody(uint32(MessageKindCacheTtl), frame)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if !_ok {
+		_e, err := UniErrorFromValue(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		return WireResult{Error: &_e}, nil
+	}
+	var _v any
+	if _payload != nil {
+		var _t uint64
+		_t, err = u64Checked(_payload)
+		if err != nil {
+			return WireResult{}, err
+		}
+		_v = _t
+	}
+	return WireResult{Value: _v}, nil
 }

@@ -35,15 +35,15 @@ pub struct StockCols {
 
 impl __sdk::__query_builder::HasCols for Stock {
     type Cols = StockCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         StockCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            s_w_id: __sdk::__query_builder::Col::new(table_name, "s_w_id"),
-            s_i_id: __sdk::__query_builder::Col::new(table_name, "s_i_id"),
-            s_quantity: __sdk::__query_builder::Col::new(table_name, "s_quantity"),
-            s_ytd: __sdk::__query_builder::Col::new(table_name, "s_ytd"),
-            s_order_cnt: __sdk::__query_builder::Col::new(table_name, "s_order_cnt"),
-            s_remote_cnt: __sdk::__query_builder::Col::new(table_name, "s_remote_cnt"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            s_w_id: __sdk::__query_builder::Col::new(class_name, "s_w_id"),
+            s_i_id: __sdk::__query_builder::Col::new(class_name, "s_i_id"),
+            s_quantity: __sdk::__query_builder::Col::new(class_name, "s_quantity"),
+            s_ytd: __sdk::__query_builder::Col::new(class_name, "s_ytd"),
+            s_order_cnt: __sdk::__query_builder::Col::new(class_name, "s_order_cnt"),
+            s_remote_cnt: __sdk::__query_builder::Col::new(class_name, "s_remote_cnt"),
         }
     }
 }
@@ -58,10 +58,10 @@ pub struct StockIxCols {
 
 impl __sdk::__query_builder::HasIxCols for Stock {
     type IxCols = StockIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         StockIxCols {
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
-            s_w_id: __sdk::__query_builder::IxCol::new(table_name, "s_w_id"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
+            s_w_id: __sdk::__query_builder::IxCol::new(class_name, "s_w_id"),
         }
     }
 }

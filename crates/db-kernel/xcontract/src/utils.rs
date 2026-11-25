@@ -1,4 +1,19 @@
-use super::*;
+use crate::partition_rpc::RpcBound;
+use crate::types::DataBin;
+use crate::x_lock_mgr::XLockMgr;
+use ::catalog::contract::table_desc::TableDesc;
+use ::wal::xl_batch::XLBatch;
+use ::wal::xl_data_op::{XLInsert, XLWrite};
+use ::wal::xl_entry::{TxOp, XLEntry};
+use ::xengine::api::{Filter, Predicate, VecDatum, VecSelTerm};
+use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
+use mudu::common::id::{AttrIndex, OID};
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use std::collections::BTreeMap;
+use std::ops::Bound;
+use std::time::Duration;
 
 // Value-update helpers moved down to `storage` so relation storage can
 // apply deltas under its row lock without depending on the server layer.
@@ -153,6 +168,7 @@ pub(crate) fn single_put_batch(xid: u64, key: Vec<u8>, value: Vec<u8>) -> XLBatc
             })),
             ::wal::xl_entry::TxOp::Commit(::wal::commit_ts::next_commit_timestamp()),
         ],
+        commit_epoch: None,
     }])
 }
 
@@ -171,6 +187,7 @@ pub(crate) fn single_delete_batch(xid: u64, key: Vec<u8>) -> XLBatch {
             )),
             ::wal::xl_entry::TxOp::Commit(::wal::commit_ts::next_commit_timestamp()),
         ],
+        commit_epoch: None,
     }])
 }
 

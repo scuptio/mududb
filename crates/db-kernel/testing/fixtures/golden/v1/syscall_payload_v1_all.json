@@ -32,7 +32,7 @@
       "message_kind_name": "query",
       "direction": "response",
       "expect": {
-        "record_name": "",
+        "struct_name": "",
         "fields": [],
         "eof": false,
         "rows": [],

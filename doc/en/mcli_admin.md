@@ -1,6 +1,6 @@
 # mcli Management Interface (HTTP)
 
-This document describes how to use `mcli` HTTP management commands for app management and partition routing queries.
+This document describes how to use `mcli` management commands for app management, partition routing, replication administration, and backup/recovery. For the data-plane commands (`command`, `shell`, `put`, `get`, `range`, `invoke`, `app-invoke`) and JSON input/output flags, see [mcli Client](mcli.md).
 
 ## Scope
 
@@ -69,6 +69,50 @@ Composite key example:
 
 ```bash
 mcli --http-addr 127.0.0.1:8300 partition-route --rule-name order_rule --key tenant-1,order-100
+```
+
+### 8) Replication administration (`repl`)
+
+```bash
+mcli --http-addr 127.0.0.1:8300 repl add-node --node-id 4 --host 10.0.0.4 --port 19530 --learner
+mcli --http-addr 127.0.0.1:8300 repl promote-learner --node-id 4
+mcli --http-addr 127.0.0.1:8300 repl remove-node --node-id 4
+mcli --http-addr 127.0.0.1:8301 repl promote --fencing-cmd ./fence-old-primary.sh
+mcli --http-addr 127.0.0.1:8301 repl promote --yes
+mcli --http-addr 127.0.0.1:8301 repl follow --primary 10.0.0.2:19527 --primary-node-id 2
+mcli --http-addr 127.0.0.1:8300 repl status
+```
+
+`repl add-node` joins as a voter by default and as a learner with `--learner`.
+`repl promote` requires either `--fencing-cmd` or an explicit `--yes`.
+
+### 9) Base backup administration (`backup`)
+
+Requires `[backup] backup_dir` in `mudud.cfg`.
+
+```bash
+mcli --http-addr 127.0.0.1:8300 backup create --label daily-1
+mcli --http-addr 127.0.0.1:8300 backup list
+mcli --http-addr 127.0.0.1:8300 backup verify --label daily-1
+mcli --http-addr 127.0.0.1:8300 backup delete --label daily-1
+```
+
+### 10) Restore and point-in-time recovery (offline)
+
+`restore` materializes a base backup plus archived WAL into a target directory;
+`pitr` recovers to a specific `--lsn`, `--time` (millis), or `--xid`.
+
+```bash
+mcli restore --label daily-1 --backup-dir /backups --archive-dir /wal-archive --target-dir /restored
+mcli pitr --label daily-1 --backup-dir /backups --archive-dir /wal-archive --target-dir /recovered --time 1700000000000
+```
+
+### 11) Logical dump and restore
+
+```bash
+mcli --http-addr 127.0.0.1:8300 dump --label daily-1 --dir /dumps
+mcli --http-addr 127.0.0.1:8300 restore-logical --label daily-1 --dir /dumps
+mcli --http-addr 127.0.0.1:8300 restore-logical --label daily-1 --dir /dumps --drop
 ```
 
 ## Argument Constraints

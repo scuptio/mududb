@@ -4,8 +4,8 @@ use crate::universal::mp_wire::{FromValue, ToValue, WireError, decode_value, enc
 use crate::universal::uni_data_type::UniDataType;
 use crate::universal::uni_oid::UniOid;
 use crate::universal::uni_query_result::UniQueryResult;
-use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 use crate::universal::uni_result_set::UniResultSet;
+use crate::universal::uni_struct_type::{UniStructField, UniStructType};
 use crate::universal::uni_tuple_row::UniTupleRow;
 use mudu::common::result::RS;
 use mudu::error::{ErrorCode, MuduError};
@@ -98,29 +98,29 @@ fn tuple_value_from_mu(mu_tuple_row: UniTupleRow) -> RS<TupleValue> {
     mu_tuple_row.uni_to()
 }
 
-pub(crate) fn tuple_desc_from_mu(desc: UniRecordType) -> RS<TupleFieldDesc> {
-    let mut vec = Vec::with_capacity(desc.record_fields.len());
-    for field in desc.record_fields {
+pub(crate) fn tuple_desc_from_mu(desc: UniStructType) -> RS<TupleFieldDesc> {
+    let mut vec = Vec::with_capacity(desc.struct_fields.len());
+    for field in desc.struct_fields {
         let ty = field.field_type.uni_to()?;
         vec.push(DatumDesc::new(field.field_name, ty));
     }
     Ok(TupleFieldDesc::new(vec))
 }
 
-pub(crate) fn tuple_desc_to_mu(desc: TupleFieldDesc) -> RS<UniRecordType> {
+pub(crate) fn tuple_desc_to_mu(desc: TupleFieldDesc) -> RS<UniStructType> {
     let mut fields = Vec::with_capacity(desc.fields().len());
     for d in desc.into() {
         let (name, ty) = d.into();
         let mu_ty = UniDataType::uni_from(ty)?;
-        fields.push(UniRecordField {
+        fields.push(UniStructField {
             field_name: name,
             field_type: mu_ty,
             field_attrs: Vec::new(),
         });
     }
-    Ok(UniRecordType {
-        record_name: String::new(),
-        record_fields: fields,
+    Ok(UniStructType {
+        struct_name: String::new(),
+        struct_fields: fields,
     })
 }
 
@@ -155,7 +155,7 @@ mod tests {
         let (batch, desc) = query_outcoming_deserialize(&frame).unwrap();
         assert_eq!(batch.oid(), TEST_OID);
         assert!(batch.is_eof());
-        // Regression: tuple_desc_to_mu used to drop record_fields entirely.
+        // Regression: tuple_desc_to_mu used to drop struct_fields entirely.
         assert_eq!(desc.fields().len(), 2);
         assert_eq!(desc.fields()[0].name(), "c1");
         assert_eq!(desc.fields()[1].name(), "c2");

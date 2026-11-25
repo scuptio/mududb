@@ -1,5 +1,5 @@
 use super::{payload, temp_relation_base, temp_ts_path};
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -75,7 +75,7 @@ fn flush_writes_back_dirty_pages() {
 fn wal_recovers_unflushed_dirty_pages_on_reopen() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-dirty");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 43,
             table_id: 47,
             file_index: 0,

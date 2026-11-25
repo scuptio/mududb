@@ -11,7 +11,7 @@ use crate::async_func_task::HandleResult;
 use crate::request_ctx::RequestCtx;
 use crate::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
 use crate::routing::SessionOpenConfig;
-use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
+use crate::worker_registry::{WorkerIdobject, WorkerRegistry};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::conn::worker_local::{WorkerExecute, WorkerLocal};
@@ -121,7 +121,7 @@ impl RequestResponseWorker for RangeWorker {
     }
     fn registry(&self) -> Arc<WorkerRegistry> {
         Arc::new(
-            WorkerRegistry::new(vec![WorkerIdentity {
+            WorkerRegistry::new(vec![WorkerIdobject {
                 worker_index: 0,
                 worker_id: 0,
                 partition_ids: vec![],

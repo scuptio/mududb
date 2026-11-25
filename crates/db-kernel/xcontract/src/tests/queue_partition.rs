@@ -26,6 +26,7 @@ fn row_body3(row: &TupleRow) -> String {
     .into_string()
 }
 use super::queue::{make_contract, row_seq, run_command, run_query, temp_data_dir};
+use crate::contract::WorkerXContract;
 use crate::*;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 

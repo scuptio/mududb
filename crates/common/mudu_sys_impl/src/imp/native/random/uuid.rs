@@ -97,4 +97,15 @@ mod tests {
         let wrapped = Uuid::from_external(external);
         assert_eq!(wrapped.into_external(), external);
     }
+    #[test]
+    fn conversions_and_formatting_preserve_every_bit() {
+        for value in [0, 1, u128::MAX, 1u128 << 127] {
+            let external = ::uuid::Uuid::from_u128(value);
+            let wrapped = Uuid::from(external);
+            assert_eq!(wrapped.as_bytes(), external.as_bytes());
+            assert_eq!(format!("{wrapped:?}"), format!("{external:?}"));
+            assert_eq!(format!("{wrapped}"), external.to_string());
+            assert_eq!(::uuid::Uuid::from(wrapped), external);
+        }
+    }
 }

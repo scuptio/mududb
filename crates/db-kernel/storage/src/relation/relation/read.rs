@@ -118,7 +118,7 @@ impl RelationInner {
         let record = self.value_file.get(timestamp, tuple_id as u64).await?;
         record.map(|record| record.payload).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("missing value payload ts={timestamp} tuple_id={tuple_id}")
             )
         })
@@ -153,7 +153,7 @@ async fn visible_payloads_async(
         .map(|record| record.payload)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("missing value payload ts={ts} tuple_id={tuple_id}")
             )
         })?;

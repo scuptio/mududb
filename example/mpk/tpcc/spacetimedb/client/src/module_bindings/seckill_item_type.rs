@@ -31,13 +31,13 @@ pub struct SeckillItemCols {
 
 impl __sdk::__query_builder::HasCols for SeckillItem {
     type Cols = SeckillItemCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         SeckillItemCols {
-            si_id: __sdk::__query_builder::Col::new(table_name, "si_id"),
-            si_name: __sdk::__query_builder::Col::new(table_name, "si_name"),
-            si_stock: __sdk::__query_builder::Col::new(table_name, "si_stock"),
-            si_sold: __sdk::__query_builder::Col::new(table_name, "si_sold"),
-            si_price: __sdk::__query_builder::Col::new(table_name, "si_price"),
+            si_id: __sdk::__query_builder::Col::new(class_name, "si_id"),
+            si_name: __sdk::__query_builder::Col::new(class_name, "si_name"),
+            si_stock: __sdk::__query_builder::Col::new(class_name, "si_stock"),
+            si_sold: __sdk::__query_builder::Col::new(class_name, "si_sold"),
+            si_price: __sdk::__query_builder::Col::new(class_name, "si_price"),
         }
     }
 }
@@ -51,9 +51,9 @@ pub struct SeckillItemIxCols {
 
 impl __sdk::__query_builder::HasIxCols for SeckillItem {
     type IxCols = SeckillItemIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         SeckillItemIxCols {
-            si_id: __sdk::__query_builder::IxCol::new(table_name, "si_id"),
+            si_id: __sdk::__query_builder::IxCol::new(class_name, "si_id"),
         }
     }
 }

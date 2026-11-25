@@ -1,0 +1,33 @@
+# MuduDB 格式与协议契约
+
+本目录包含 MuduDB 持久化格式、网络协议与部署制品的正式版本化契约。每份契约是布局、版本、兼容性、升级规则与废弃策略的唯一事实来源。
+
+## 活跃契约
+
+| 契约 | 版本 | 状态 | 实现 |
+|------|------|------|------|
+| Page Header | [v1](page_header_v1.md) | 稳定 | [storage/src/page/format/latest.rs](../../../crates/db-kernel/storage/src/page/format/latest.rs) |
+| Tuple Binary Format | [v1](tuple_binary_v1.md) | 稳定 | [mudu_contract/src/tuple/tuple_binary.rs](../../../crates/common/mudu_contract/src/tuple/tuple_binary.rs) |
+| Log Frame（WAL/XL/PL） | [v1](log_frame_v1.md) | 稳定 | [wal/src/format/latest.rs](../../../crates/db-kernel/wal/src/format/latest.rs) |
+| TCP 协议帧 | [v1](protocol_frame_v1.md) | 稳定 | [mudu_contract/src/protocol/format/latest.rs](../../../crates/common/mudu_contract/src/protocol/format/latest.rs) |
+| MPK 应用包 | [v1](caf_mududb_profile_v1.md) | 稳定 | [runtime_wasm/src/service/app_package.rs](../../../crates/db-kernel/runtime_wasm/src/service/app_package.rs) |
+| 服务端配置 | [v1](mudud_cfg_v1.md) | 稳定 | [mudu_runtime/src/backend/mudud_cfg/mod.rs](../../../crates/db-kernel/mudu_runtime/src/backend/mudud_cfg/mod.rs) |
+| 文件布局 | [v1](file_layout_v1.md) | 稳定 | [storage/src/time_series/time_series_file.rs](../../../crates/db-kernel/storage/src/time_series/time_series_file.rs) |
+| Guest→Host 系统调用负载 | [v1](syscall_payload_v1.md) | 稳定 | [mudu_binding/src/codec/syscall_payload/](../../../crates/common/mudu_binding/src/codec/syscall_payload/)（宿主路由器；注册表在 `mudu/src/compat/mod.rs`） |
+
+## 新增或修改契约
+
+1. 在独立 PR 中提出变更。
+2. 同时更新 `en/` 与 `zh-CN/` 中的对应契约文档。
+3. 更新兼容矩阵、升级规则与废弃策略。
+4. 在 `testing/fixtures/golden/` 中添加或更新 golden fixture。
+5. 添加兼容性与损坏测试。
+6. 确保 CI 通过后再合并。
+
+详细步骤请参考[《如何添加一次格式升级》](how_to_add_format_upgrade.md)。
+
+## English versions
+
+English versions are in [en contracts](../../en/contract/).
+
+- [Queue envelope and durable watermark v1](queue_v1.md)

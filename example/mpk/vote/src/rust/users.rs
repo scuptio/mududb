@@ -1,6 +1,6 @@
 pub mod object {
     use mududb::common::result::RS;
-    use mududb::contract::database::entity::{self, Entity};
+    use mududb::contract::database::object::{self, Object};
 
     use mududb::contract::database::field_change::FieldChange;
 
@@ -28,7 +28,7 @@ pub mod object {
         pub const PHONE: &str = "phone";
     }
 
-    // entity struct definition
+    // object struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Users {
         pub user_id: String,
@@ -114,46 +114,46 @@ pub mod object {
         fn data_type() -> DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity::entity_data_type::<Users>)
+                .get_or_init(object::object_data_type::<Users>)
                 .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity::entity_from_binary(binary)
+            object::object_from_binary(binary)
         }
 
         fn from_value(value: &DataValue) -> RS<Self> {
-            entity::entity_from_value(value)
+            object::object_from_value(value)
         }
 
         fn from_textual(textual: &str) -> RS<Self> {
-            entity::entity_from_textual(textual)
+            object::object_from_textual(textual)
         }
     }
 
     impl DatumDyn for Users {
         fn type_family(&self) -> RS<TypeFamily> {
-            entity::entity_type_family()
+            object::object_type_family()
         }
 
         fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-            entity::entity_to_binary(self, data_type)
+            object::object_to_binary(self, data_type)
         }
 
         fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-            entity::entity_to_textual(self, data_type)
+            object::object_to_textual(self, data_type)
         }
 
         fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-            entity::entity_to_value(self, data_type)
+            object::object_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity::entity_clone_boxed(self)
+            object::object_clone_boxed(self)
         }
     }
 
-    impl Entity for Users {
+    impl Object for Users {
         fn tuple_desc() -> &'static TupleFieldDesc {
             static ONCE_LOCK: std::sync::OnceLock<TupleFieldDesc> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(|| {
@@ -172,41 +172,41 @@ pub mod object {
             })
         }
 
-        fn table_name() -> &'static str {
+        fn class_name() -> &'static str {
             TABLE_NAME
         }
 
         fn from_tuple(row: &TupleField) -> RS<Self> {
             let fields = row.fields();
-            entity::expect_field_count(fields.len(), 2)?;
+            object::expect_field_count(fields.len(), 2)?;
             Ok(Self {
-                user_id: entity::field_from_tuple_binary(TABLE_NAME, columns::USER_ID, &fields[0])?,
+                user_id: object::field_from_tuple_binary(TABLE_NAME, columns::USER_ID, &fields[0])?,
 
-                phone: entity::opt_field_from_tuple_binary(&fields[1])?,
+                phone: object::opt_field_from_tuple_binary(&fields[1])?,
             })
         }
 
         fn from_tuple_value(row: &TupleValue) -> RS<Self> {
             let values = row.values();
-            entity::expect_field_count(values.len(), 2)?;
+            object::expect_field_count(values.len(), 2)?;
             Ok(Self {
-                user_id: entity::field_from_tuple_value(TABLE_NAME, columns::USER_ID, &values[0])?,
+                user_id: object::field_from_tuple_value(TABLE_NAME, columns::USER_ID, &values[0])?,
 
-                phone: entity::opt_field_from_tuple_value(&values[1])?,
+                phone: object::opt_field_from_tuple_value(&values[1])?,
             })
         }
 
         fn to_tuple(&self) -> RS<TupleField> {
             Ok(TupleField::new_nullable(vec![
-                entity::field_to_tuple_binary(&self.user_id)?,
-                entity::opt_field_to_tuple_binary(&self.phone)?,
+                object::field_to_tuple_binary(&self.user_id)?,
+                object::opt_field_to_tuple_binary(&self.phone)?,
             ]))
         }
 
         fn to_tuple_value(&self) -> RS<TupleValue> {
             Ok(TupleValue::from(vec![
-                entity::field_to_tuple_value(&self.user_id)?,
-                entity::opt_field_to_tuple_value(&self.phone)?,
+                object::field_to_tuple_value(&self.user_id)?,
+                object::opt_field_to_tuple_value(&self.phone)?,
             ]))
         }
     }

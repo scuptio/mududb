@@ -7,7 +7,7 @@ use mudu::common::result::RS;
 use mudu_sys::contract::async_fs::AsyncFs;
 use std::{ops::Bound, path::Path, sync::Arc};
 
-pub(super) struct RelationIndex {
+pub struct RelationIndex {
     #[cfg(feature = "paged-index")]
     inner: super::paged::Handle,
     #[cfg(not(feature = "paged-index"))]

@@ -57,7 +57,7 @@ impl CmdExec for CreateConsumer {
         let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if !desc.is_queue() {
             return Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such queue {}", self.param.table_id)
             ));
         }
@@ -75,7 +75,7 @@ impl CmdExec for CreateConsumer {
         }
         // Inserts the `_queue_consumer` rows (frontier 0, one per shard) in
         // the statement's transaction; a duplicate cursor fails with
-        // EntityAlreadyExists.
+        // ObjectAlreadyExists.
         self.x_contract
             .consumer_create(
                 self.param.tx_mgr.clone(),

@@ -1,7 +1,7 @@
 use crate::log_frame::decode_entries_with_pending;
 use crate::log_frame::{deserialize_entry, serialize_entry};
 use crate::lsn::LSN;
-use crate::pl_batch::PLBatch;
+use crate::pl_batch_type::PLBatch;
 use crate::typed_worker_log::{TypedWorkerLog, WorkerLogRecoveryHandler};
 use crate::worker_log::WorkerLogBackend;
 use async_trait::async_trait;
@@ -100,7 +100,7 @@ mod tests {
 
     use super::*;
     use crate::log_frame::{frame_lsns, split_frame, LOG_FRAME_HEADER_SIZE, LOG_FRAME_TAILER_SIZE};
-    use crate::pl_entry::{PLEntry, PLFileId, PLOp, PLRecord, PageDelta};
+    use crate::pl_entry::{PLEntry, PLFileId, PLOp, PLStruct, PageDelta};
     use ::mudu::common::page_id::PageId;
 
     fn sample_batch(entry_count: usize, payload_size: usize) -> PLBatch {
@@ -119,7 +119,7 @@ mod tests {
                         init: None,
                         links: None,
                         removes: Vec::new(),
-                        upserts: vec![PLRecord {
+                        upserts: vec![PLStruct {
                             timestamp: i as u64,
                             tuple_id: 1,
                             payload: vec![i as u8 + 1; payload_size],
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn pl_batch_record_payload_encodes_as_binary_blob() {
-        // `PLRecord::payload` must serialize as one msgpack binary object: a
+        // `PLStruct::payload` must serialize as one msgpack binary object: a
         // per-element sequence encoding would cost one serializer call per
         // payload byte and inflate the WAL on every append. Payload bytes
         // >= 0x80 take two msgpack bytes each in the sequence encoding, so
@@ -210,7 +210,7 @@ mod tests {
                 init: None,
                 links: None,
                 removes: Vec::new(),
-                upserts: vec![PLRecord {
+                upserts: vec![PLStruct {
                     timestamp: 1,
                     tuple_id: 1,
                     payload: vec![0x80u8; 256],

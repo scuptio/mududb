@@ -1,6 +1,6 @@
 pub mod object {
     use mududb::common::result::RS;
-    use mududb::contract::database::entity::{self, Entity};
+    use mududb::contract::database::object::{self, Object};
 
     use mududb::contract::database::field_change::FieldChange;
 
@@ -42,7 +42,7 @@ pub mod object {
         pub const O_STATUS: &str = "o_status";
     }
 
-    // entity struct definition
+    // object struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Orders {
         pub o_id: i32,
@@ -240,46 +240,46 @@ pub mod object {
         fn data_type() -> DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity::entity_data_type::<Orders>)
+                .get_or_init(object::object_data_type::<Orders>)
                 .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity::entity_from_binary(binary)
+            object::object_from_binary(binary)
         }
 
         fn from_value(value: &DataValue) -> RS<Self> {
-            entity::entity_from_value(value)
+            object::object_from_value(value)
         }
 
         fn from_textual(textual: &str) -> RS<Self> {
-            entity::entity_from_textual(textual)
+            object::object_from_textual(textual)
         }
     }
 
     impl DatumDyn for Orders {
         fn type_family(&self) -> RS<TypeFamily> {
-            entity::entity_type_family()
+            object::object_type_family()
         }
 
         fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-            entity::entity_to_binary(self, data_type)
+            object::object_to_binary(self, data_type)
         }
 
         fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-            entity::entity_to_textual(self, data_type)
+            object::object_to_textual(self, data_type)
         }
 
         fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-            entity::entity_to_value(self, data_type)
+            object::object_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity::entity_clone_boxed(self)
+            object::object_clone_boxed(self)
         }
     }
 
-    impl Entity for Orders {
+    impl Object for Orders {
         fn tuple_desc() -> &'static TupleFieldDesc {
             static ONCE_LOCK: std::sync::OnceLock<TupleFieldDesc> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(|| {
@@ -333,43 +333,43 @@ pub mod object {
             })
         }
 
-        fn table_name() -> &'static str {
+        fn class_name() -> &'static str {
             TABLE_NAME
         }
 
         fn from_tuple(row: &TupleField) -> RS<Self> {
             let fields = row.fields();
-            entity::expect_field_count(fields.len(), 9)?;
+            object::expect_field_count(fields.len(), 9)?;
             Ok(Self {
-                o_id: entity::field_from_tuple_binary(TABLE_NAME, columns::O_ID, &fields[0])?,
+                o_id: object::field_from_tuple_binary(TABLE_NAME, columns::O_ID, &fields[0])?,
 
-                o_d_id: entity::field_from_tuple_binary(TABLE_NAME, columns::O_D_ID, &fields[1])?,
+                o_d_id: object::field_from_tuple_binary(TABLE_NAME, columns::O_D_ID, &fields[1])?,
 
-                o_w_id: entity::field_from_tuple_binary(TABLE_NAME, columns::O_W_ID, &fields[2])?,
+                o_w_id: object::field_from_tuple_binary(TABLE_NAME, columns::O_W_ID, &fields[2])?,
 
-                o_c_id: entity::field_from_tuple_binary(TABLE_NAME, columns::O_C_ID, &fields[3])?,
+                o_c_id: object::field_from_tuple_binary(TABLE_NAME, columns::O_C_ID, &fields[3])?,
 
-                o_entry_d: entity::field_from_tuple_binary(
+                o_entry_d: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::O_ENTRY_D,
                     &fields[4],
                 )?,
 
-                o_carrier_id: entity::opt_field_from_tuple_binary(&fields[5])?,
+                o_carrier_id: object::opt_field_from_tuple_binary(&fields[5])?,
 
-                o_ol_cnt: entity::field_from_tuple_binary(
+                o_ol_cnt: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::O_OL_CNT,
                     &fields[6],
                 )?,
 
-                o_all_local: entity::field_from_tuple_binary(
+                o_all_local: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::O_ALL_LOCAL,
                     &fields[7],
                 )?,
 
-                o_status: entity::field_from_tuple_binary(
+                o_status: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::O_STATUS,
                     &fields[8],
@@ -379,37 +379,37 @@ pub mod object {
 
         fn from_tuple_value(row: &TupleValue) -> RS<Self> {
             let values = row.values();
-            entity::expect_field_count(values.len(), 9)?;
+            object::expect_field_count(values.len(), 9)?;
             Ok(Self {
-                o_id: entity::field_from_tuple_value(TABLE_NAME, columns::O_ID, &values[0])?,
+                o_id: object::field_from_tuple_value(TABLE_NAME, columns::O_ID, &values[0])?,
 
-                o_d_id: entity::field_from_tuple_value(TABLE_NAME, columns::O_D_ID, &values[1])?,
+                o_d_id: object::field_from_tuple_value(TABLE_NAME, columns::O_D_ID, &values[1])?,
 
-                o_w_id: entity::field_from_tuple_value(TABLE_NAME, columns::O_W_ID, &values[2])?,
+                o_w_id: object::field_from_tuple_value(TABLE_NAME, columns::O_W_ID, &values[2])?,
 
-                o_c_id: entity::field_from_tuple_value(TABLE_NAME, columns::O_C_ID, &values[3])?,
+                o_c_id: object::field_from_tuple_value(TABLE_NAME, columns::O_C_ID, &values[3])?,
 
-                o_entry_d: entity::field_from_tuple_value(
+                o_entry_d: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::O_ENTRY_D,
                     &values[4],
                 )?,
 
-                o_carrier_id: entity::opt_field_from_tuple_value(&values[5])?,
+                o_carrier_id: object::opt_field_from_tuple_value(&values[5])?,
 
-                o_ol_cnt: entity::field_from_tuple_value(
+                o_ol_cnt: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::O_OL_CNT,
                     &values[6],
                 )?,
 
-                o_all_local: entity::field_from_tuple_value(
+                o_all_local: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::O_ALL_LOCAL,
                     &values[7],
                 )?,
 
-                o_status: entity::field_from_tuple_value(
+                o_status: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::O_STATUS,
                     &values[8],
@@ -419,29 +419,29 @@ pub mod object {
 
         fn to_tuple(&self) -> RS<TupleField> {
             Ok(TupleField::new_nullable(vec![
-                entity::field_to_tuple_binary(&self.o_id)?,
-                entity::field_to_tuple_binary(&self.o_d_id)?,
-                entity::field_to_tuple_binary(&self.o_w_id)?,
-                entity::field_to_tuple_binary(&self.o_c_id)?,
-                entity::field_to_tuple_binary(&self.o_entry_d)?,
-                entity::opt_field_to_tuple_binary(&self.o_carrier_id)?,
-                entity::field_to_tuple_binary(&self.o_ol_cnt)?,
-                entity::field_to_tuple_binary(&self.o_all_local)?,
-                entity::field_to_tuple_binary(&self.o_status)?,
+                object::field_to_tuple_binary(&self.o_id)?,
+                object::field_to_tuple_binary(&self.o_d_id)?,
+                object::field_to_tuple_binary(&self.o_w_id)?,
+                object::field_to_tuple_binary(&self.o_c_id)?,
+                object::field_to_tuple_binary(&self.o_entry_d)?,
+                object::opt_field_to_tuple_binary(&self.o_carrier_id)?,
+                object::field_to_tuple_binary(&self.o_ol_cnt)?,
+                object::field_to_tuple_binary(&self.o_all_local)?,
+                object::field_to_tuple_binary(&self.o_status)?,
             ]))
         }
 
         fn to_tuple_value(&self) -> RS<TupleValue> {
             Ok(TupleValue::from(vec![
-                entity::field_to_tuple_value(&self.o_id)?,
-                entity::field_to_tuple_value(&self.o_d_id)?,
-                entity::field_to_tuple_value(&self.o_w_id)?,
-                entity::field_to_tuple_value(&self.o_c_id)?,
-                entity::field_to_tuple_value(&self.o_entry_d)?,
-                entity::opt_field_to_tuple_value(&self.o_carrier_id)?,
-                entity::field_to_tuple_value(&self.o_ol_cnt)?,
-                entity::field_to_tuple_value(&self.o_all_local)?,
-                entity::field_to_tuple_value(&self.o_status)?,
+                object::field_to_tuple_value(&self.o_id)?,
+                object::field_to_tuple_value(&self.o_d_id)?,
+                object::field_to_tuple_value(&self.o_w_id)?,
+                object::field_to_tuple_value(&self.o_c_id)?,
+                object::field_to_tuple_value(&self.o_entry_d)?,
+                object::opt_field_to_tuple_value(&self.o_carrier_id)?,
+                object::field_to_tuple_value(&self.o_ol_cnt)?,
+                object::field_to_tuple_value(&self.o_all_local)?,
+                object::field_to_tuple_value(&self.o_status)?,
             ]))
         }
     }

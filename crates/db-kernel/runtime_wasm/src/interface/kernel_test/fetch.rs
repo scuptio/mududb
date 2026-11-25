@@ -167,7 +167,7 @@ fn fetch_internal_unknown_cursor_returns_uni_error() {
     let out = fetch_internal(&fetch_cursor(9_100_003));
     match decode_fetch_result(&out) {
         UniResult::Err(err) => {
-            assert_eq!(err.err_code, ErrorCode::EntityNotFound.to_u32())
+            assert_eq!(err.err_code, ErrorCode::ObjectNotFound.to_u32())
         }
         UniResult::Ok(_) => panic!("expected error"),
     }
@@ -209,7 +209,7 @@ async fn async_fetch_internal_unknown_cursor_returns_uni_error() {
     let out = async_fetch_internal(fetch_cursor(9_100_005)).await;
     match decode_fetch_result(&out) {
         UniResult::Err(err) => {
-            assert_eq!(err.err_code, ErrorCode::EntityNotFound.to_u32())
+            assert_eq!(err.err_code, ErrorCode::ObjectNotFound.to_u32())
         }
         UniResult::Ok(_) => panic!("expected error"),
     }

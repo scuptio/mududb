@@ -13,14 +13,14 @@ use crate::bound_stmt::{
 };
 use crate::plan_ctx::PlanCtx;
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::xengine::api::{
     AlterTable, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, TupleRow,
-    VecDatum, VecSelTerm, XContract,
+    VecDatum, VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use async_trait::async_trait;
@@ -30,7 +30,6 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::typed_bin::TypedBin;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
@@ -42,7 +41,7 @@ struct TestMetaMgr {
 }
 
 impl TestMetaMgr {
-    fn new(schema: SchemaTable) -> Self {
+    fn new(schema: SchemaClass) -> Self {
         let table = TableInfo::new(schema).unwrap().table_desc().unwrap();
         let mut tables = HashMap::new();
         tables.insert(table.id(), table);
@@ -69,7 +68,7 @@ impl MetaMgr for TestMetaMgr {
             .get(&oid)
             .cloned()
             .ok_or_else(|| {
-                mudu::mudu_error!(mudu::error::ErrorCode::EntityNotFound, oid.to_string())
+                mudu::mudu_error!(mudu::error::ErrorCode::ObjectNotFound, oid.to_string())
             })
     }
 
@@ -83,7 +82,7 @@ impl MetaMgr for TestMetaMgr {
             .cloned())
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         let table = TableInfo::new(schema.clone())?.table_desc()?;
         self.tables.lock().unwrap().insert(table.id(), table);
         Ok(())
@@ -180,7 +179,7 @@ impl TestXContract {
 
 #[async_trait]
 impl XContract for TestXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -259,24 +258,32 @@ impl XContract for TestXContract {
     }
 }
 
-fn composite_schema() -> SchemaTable {
-    SchemaTable::new(
+impl XContractQueue for TestXContract {}
+
+fn composite_schema() -> SchemaClass {
+    SchemaClass::new(
         "accounts".to_string(),
         vec![
             SchemaColumn::new(
                 "tenant_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "user_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "name".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
         ],
         vec![0, 1],
@@ -472,8 +479,8 @@ fn test_fixtures_cover_their_trait_surfaces() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         meta.initialize().await.unwrap();
         match meta.get_table_by_id(999_999).await {
-            Ok(_) => panic!("expected EntityNotFound for a missing table"),
-            Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound),
+            Ok(_) => panic!("expected ObjectNotFound for a missing table"),
+            Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound),
         }
     })
     .unwrap();

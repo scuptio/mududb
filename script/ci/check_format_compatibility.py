@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release gate: ensure format-related code changes are accompanied by updates
 to the compatibility matrix (mudu/src/compat) and the format contracts
-(doc/en/contract/ and doc/cn/contract/).
+(doc/en/contract/ and doc/zh-CN/contract/).
 
 Cross-platform port of the former script/ci/check_format_compatibility.sh.
 
@@ -30,7 +30,7 @@ FORMAT_PATHS = [
 
 COMPAT_PATH = "crates/common/mudu/src/compat/"
 CONTRACT_EN_PATH = "doc/en/contract/"
-CONTRACT_CN_PATH = "doc/cn/contract/"
+CONTRACT_CN_PATH = "doc/zh-CN/contract/"
 
 
 def git(*args: str) -> List[str]:

@@ -49,7 +49,7 @@ impl CmdExec for DropConsumer {
         let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if !desc.is_queue() {
             return Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such queue {}", self.param.table_id)
             ));
         }
@@ -61,7 +61,7 @@ impl CmdExec for DropConsumer {
         // Re-resolve the queue so a drop between prepare and run fails here.
         self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         // Deletes the `_queue_consumer` rows (every shard) in the statement's
-        // transaction; an unknown cursor fails with EntityNotFound.
+        // transaction; an unknown cursor fails with ObjectNotFound.
         self.x_contract
             .consumer_drop(
                 self.param.tx_mgr.clone(),

@@ -5,8 +5,8 @@ use crate::update_key_value::UpdateKeyValue;
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
@@ -17,7 +17,7 @@ use ::meta::fs_object::{
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum, VecSelTerm,
-    XContract,
+    XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::{PDeleteKeyValue, PInsertKeyValue, PUpdateKeyValue};
@@ -28,6 +28,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
@@ -52,7 +53,7 @@ fn fs_table_desc() -> Arc<TableDesc> {
         DataType::new_no_param(TypeFamily::U128).to_info(),
     );
     photo.set_fs_binding(Some(FsColumnBinding::new(TEST_FS_ID, FsTypeKind::File)));
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "t_fs".to_string(),
         vec![
             SchemaColumn::new(
@@ -74,7 +75,7 @@ fn fs_table_desc() -> Arc<TableDesc> {
 }
 
 fn plain_table_desc() -> Arc<TableDesc> {
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "t_plain".to_string(),
         vec![
             SchemaColumn::new(
@@ -107,11 +108,11 @@ fn fs_relation_id(partition_id: OID) -> PhysicalRelationId {
 
 type StagedOps = BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>;
 
-struct RecordingTxMgr {
+struct StructingTxMgr {
     staged: SMutex<StagedOps>,
 }
 
-impl RecordingTxMgr {
+impl StructingTxMgr {
     fn new() -> Self {
         Self {
             staged: SMutex::new(BTreeMap::new()),
@@ -123,7 +124,7 @@ impl RecordingTxMgr {
     }
 }
 
-impl TxMgr for RecordingTxMgr {
+impl TxMgr for StructingTxMgr {
     fn xid(&self) -> u64 {
         1
     }
@@ -233,7 +234,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -248,7 +249,7 @@ impl XContract for MockXContract {
         Ok(())
     }
     async fn begin_tx(&self) -> RS<Arc<dyn TxMgr>> {
-        Ok(Arc::new(RecordingTxMgr::new()))
+        Ok(Arc::new(StructingTxMgr::new()))
     }
     async fn commit_tx(&self, _tx_mgr: Arc<dyn TxMgr>) -> RS<()> {
         Ok(())
@@ -320,6 +321,8 @@ impl XContract for MockXContract {
     }
 }
 
+impl XContractQueue for MockXContract {}
+
 struct MockMetaMgr {
     table_desc: Arc<TableDesc>,
     partition_worker: Option<OID>,
@@ -349,7 +352,7 @@ impl MetaMgr for MockMetaMgr {
             Ok(self.table_desc.clone())
         } else {
             Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             ))
         }
@@ -357,7 +360,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -379,7 +382,7 @@ fn datum_of(row: &VecDatum, attr: usize) -> Option<Buf> {
 fn insert_assigns_fs_oid_and_stages_pending_row() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let cmd = InsertKeyValue::new(
             PInsertKeyValue {
@@ -430,7 +433,7 @@ fn insert_assigns_fs_oid_and_stages_pending_row() {
 fn insert_rejects_explicit_fs_value() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let cmd = InsertKeyValue::new(
             PInsertKeyValue {
@@ -455,7 +458,7 @@ fn insert_rejects_explicit_fs_value() {
 fn insert_on_remote_partition_is_rejected() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(5));
         let cmd = InsertKeyValue::new(
             PInsertKeyValue {
@@ -481,7 +484,7 @@ fn update_rebinds_fs_column_and_unbinds_old_oid() {
     block_on(async {
         let desc = fs_table_desc();
         let old_oid = gen_fs_oid();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(
             MockXContract::new(0).with_read_key_row(vec![Some(encode_fs_oid_datum(old_oid))]),
         );
@@ -526,7 +529,7 @@ fn update_rebinds_fs_column_and_unbinds_old_oid() {
 fn update_rejects_explicit_fs_value() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let cmd = UpdateKeyValue::new(
             PUpdateKeyValue {
@@ -551,7 +554,7 @@ fn update_rejects_explicit_fs_value() {
 fn update_not_touching_fs_columns_is_unchanged() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let value = VecDatum::new(vec![(2, b"note".to_vec())]);
         let cmd = UpdateKeyValue::new(
@@ -579,7 +582,7 @@ fn delete_unbinds_referenced_fs_objects() {
     block_on(async {
         let desc = fs_table_desc();
         let old_oid = gen_fs_oid();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(
             MockXContract::new(0).with_read_key_row(vec![Some(encode_fs_oid_datum(old_oid))]),
         );
@@ -608,7 +611,7 @@ fn delete_unbinds_referenced_fs_objects() {
 fn delete_of_missing_row_stages_nothing() {
     block_on(async {
         let desc = fs_table_desc();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let cmd = DeleteKeyValue::new(
             PDeleteKeyValue {
@@ -630,7 +633,7 @@ fn plain_table_dml_stages_no_fs_ops() {
     block_on(async {
         let desc = plain_table_desc();
         let table_id = desc.id();
-        let tx_mgr = Arc::new(RecordingTxMgr::new());
+        let tx_mgr = Arc::new(StructingTxMgr::new());
         let x_contract = Arc::new(MockXContract::new(0));
         let meta_mgr = Arc::new(MockMetaMgr::new(desc));
 

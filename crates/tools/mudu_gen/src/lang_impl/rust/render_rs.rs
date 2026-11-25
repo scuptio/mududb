@@ -3,17 +3,17 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case};
-use mudu_binding::table::table_def::TableDef;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
+use mudu_binding::table::class_def::ClassDef;
+use mudu_binding::universal::uni_def::{UniEnumDef, UniStructDef, UniVariantDef};
 use std::sync::Arc;
 
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
 use crate::lang_impl::lang::render::Render;
 use crate::lang_impl::lang::template_kind::TemplateKind;
-use crate::lang_impl::rust::template_entity_rs::TemplateEntityRS;
 use crate::lang_impl::rust::template_enum_rs::TemplateEnumRS;
 use crate::lang_impl::rust::template_func_rs::{TemplateFuncHeaderRS, TemplateFuncRS};
-use crate::lang_impl::rust::template_record_rs::TemplateRecordRS;
+use crate::lang_impl::rust::template_object_rs::TemplateObjectRS;
+use crate::lang_impl::rust::template_struct_rs::TemplateStructRS;
 use crate::lang_impl::rust::template_variant_rs::TemplateVariantRS;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use crate::src_gen::wit_def::WitFuncDef;
@@ -62,7 +62,7 @@ impl RenderRS {
         elements.iter().any(|element| match element {
             TemplateKind::Enum((_, cfg))
             | TemplateKind::Variant((_, cfg))
-            | TemplateKind::Record((_, cfg)) => cfg.impl_serialize,
+            | TemplateKind::Struct((_, cfg)) => cfg.impl_serialize,
             TemplateKind::FuncHeader(_) | TemplateKind::Func(_) => true,
             _ => false,
         })
@@ -80,12 +80,12 @@ impl RenderRS {
                     let s = Self::render_variant_rs(def, cfg)?;
                     code_block.push(s);
                 }
-                TemplateKind::Record((def, cfg)) => {
+                TemplateKind::Struct((def, cfg)) => {
                     let s = Self::render_record_rs(def, cfg)?;
                     code_block.push(s);
                 }
-                TemplateKind::Entity(entity) => {
-                    let s = Self::render_entity_rs(entity)?;
+                TemplateKind::Object(object) => {
+                    let s = Self::render_object_rs(object)?;
                     code_block.push(s);
                 }
                 TemplateKind::Table(_) => {
@@ -125,8 +125,8 @@ impl RenderRS {
         Ok(s)
     }
 
-    fn render_record_rs(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
-        let template = TemplateRecordRS::from(def, cfg)?;
+    fn render_record_rs(def: UniStructDef, cfg: CodegenCfg) -> RS<String> {
+        let template = TemplateStructRS::from(def, cfg)?;
         let s = template
             .render()
             .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust record template error", e))?;
@@ -149,11 +149,11 @@ impl RenderRS {
         Ok(s)
     }
 
-    fn render_entity_rs(table_schema: TableDef) -> RS<String> {
-        let template = TemplateEntityRS::from_table_schema(&table_schema)?;
+    fn render_object_rs(table_schema: ClassDef) -> RS<String> {
+        let template = TemplateObjectRS::from_table_schema(&table_schema)?;
         let s = template
             .render()
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust entity template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render rust object template error", e))?;
         Ok(s)
     }
 

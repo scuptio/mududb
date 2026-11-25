@@ -30,10 +30,10 @@ def record_slot_core.RECORD_SLOT_SIZE : Std.Usize := 32#usize
 @[global_simps, irreducible]
 def record_slot_core.RECORD_SLOT_FLAG_FRAGMENT_MASK : Std.U16 := 3#u16
 
-/-- [mudu_buf_verification::record_slot_core::RecordSlot]
+/-- [mudu_buf_verification::record_slot_core::StructSlot]
     Source: '../../crates/db-kernel/storage/src/page/record_slot_core.rs', lines 21:0-29:1
     Visibility: public -/
-structure record_slot_core.RecordSlot where
+structure record_slot_core.StructSlot where
   offset : Std.U32
   size : Std.U32
   timestamp : Std.U64
@@ -42,10 +42,10 @@ structure record_slot_core.RecordSlot where
   flag : Std.U16
   reserved : Std.U32
 
-/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::RecordSlot}::decode_bytes]:
+/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::StructSlot}::decode_bytes]:
     Source: '../../crates/db-kernel/storage/src/page/record_slot_core.rs', lines 67:4-86:5 -/
-def record_slot_core.RecordSlot.decode_bytes
-  (input : Slice Std.U8) : Result (Option record_slot_core.RecordSlot) := do
+def record_slot_core.StructSlot.decode_bytes
+  (input : Slice Std.U8) : Result (Option record_slot_core.StructSlot) := do
   let i := Slice.len input
   if i < record_slot_core.RECORD_SLOT_SIZE
   then ok none
@@ -110,10 +110,10 @@ def record_slot_core.RecordSlot.decode_bytes
         reserved := i39
       })
 
-/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::RecordSlot}::encode_bytes]:
+/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::StructSlot}::encode_bytes]:
     Source: '../../crates/db-kernel/storage/src/page/record_slot_core.rs', lines 89:4-101:5 -/
-def record_slot_core.RecordSlot.encode_bytes
-  (self : record_slot_core.RecordSlot) (out : Slice Std.U8) :
+def record_slot_core.StructSlot.encode_bytes
+  (self : record_slot_core.StructSlot) (out : Slice Std.U8) :
   Result (Bool × (Slice Std.U8))
   := do
   let i := Slice.len out
@@ -178,19 +178,19 @@ def record_slot_core.RecordSlot.encode_bytes
     let out7 := index_mut_back6 s20
     ok (true, out7)
 
-/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::RecordSlot}::fragment_kind]:
+/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::StructSlot}::fragment_kind]:
     Source: '../../crates/db-kernel/storage/src/page/record_slot_core.rs', lines 111:4-113:5
     Visibility: public -/
-def record_slot_core.RecordSlot.fragment_kind
-  (self : record_slot_core.RecordSlot) : Result Std.U16 := do
+def record_slot_core.StructSlot.fragment_kind
+  (self : record_slot_core.StructSlot) : Result Std.U16 := do
   ok (self.flag &&& record_slot_core.RECORD_SLOT_FLAG_FRAGMENT_MASK)
 
-/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::RecordSlot}::set_fragment_kind]:
+/-- [mudu_buf_verification::record_slot_core::{mudu_buf_verification::record_slot_core::StructSlot}::set_fragment_kind]:
     Source: '../../crates/db-kernel/storage/src/page/record_slot_core.rs', lines 191:4-194:5
     Visibility: public -/
-def record_slot_core.RecordSlot.set_fragment_kind
-  (self : record_slot_core.RecordSlot) (fragment_kind : Std.U16) :
-  Result record_slot_core.RecordSlot
+def record_slot_core.StructSlot.set_fragment_kind
+  (self : record_slot_core.StructSlot) (fragment_kind : Std.U16) :
+  Result record_slot_core.StructSlot
   := do
   let i ← lift (~~~ record_slot_core.RECORD_SLOT_FLAG_FRAGMENT_MASK)
   let i1 ← lift (self.flag &&& i)

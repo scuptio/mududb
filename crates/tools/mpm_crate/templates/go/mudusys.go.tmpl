@@ -19,17 +19,17 @@ import (
 // Frame layout (all header fields big-endian):
 // `magic "MSSP" | version 1 | flags 0 | message_kind`, then one MessagePack
 // body. Request bodies are integer-keyed maps of the WIT-declared arguments
-// (1-based parameter numbers); record arguments nest as their own
+// (1-based parameter numbers); struct arguments nest as their own
 // integer-keyed maps (1-based field numbers). Result bodies are
 // `[ok_tag, value]` with `0` = ok and `1` = `UniError`. Decoding is lenient:
 // keys of any integer width, unknown keys skipped, missing fields defaulted.
 //
-// Composite datums (record/array/binary — user-defined procedure types from
+// Composite datums (struct/array/binary — user-defined procedure types from
 // wit/types.wit) pass through in their typed `types.UniDataValue` form:
-// the mtp-generated adapter unwraps a record parameter through the binding
-// record bridge (`types.RecordFieldValues`) composed with the mgen-generated
-// `XxxFromValue` codec of the gentypes package, and wraps a record result
-// back with `types.RecordFromFieldValues`; the writers below re-emit that
+// the mtp-generated adapter unwraps a struct parameter through the binding
+// struct bridge (`types.StructFieldValues`) composed with the mgen-generated
+// `XxxFromValue` codec of the gentypes package, and wraps a struct result
+// back with `types.StructFromFieldValues`; the writers below re-emit that
 // envelope untouched.
 
 const (
@@ -44,7 +44,7 @@ const (
 const (
 	datScalar uint64 = 0
 	datArray  uint64 = 1
-	datRecord uint64 = 2
+	datStruct uint64 = 2
 	datBinary uint64 = 3
 )
 
@@ -60,16 +60,16 @@ const (
 	scalarNull    uint64 = 21
 )
 
-// muduOid is the uni OID record: two u64 halves, MessagePack map
+// muduOid is the uni OID struct: two u64 halves, MessagePack map
 // `{1: h, 2: l}`.
 type muduOid struct {
 	H uint64
 	L uint64
 }
 
-// uniError is the uni error record carried by the `[1, UniError]` result
+// uniError is the uni error struct carried by the `[1, UniError]` result
 // arm: MessagePack map `{1: err_code, 2: err_msg, 3: err_src, 4: err_loc,
-// 5: err_details}` (details travel as an int array, the record-context
+// 5: err_details}` (details travel as an int array, the struct-context
 // shape of `list<u8>`).
 type uniError struct {
 	Code    uint32
@@ -102,7 +102,7 @@ func sysQuery(oid muduOid, sql string, args ...any) ([][]any, error) {
 	var rows [][]any
 	queryResultCount := reader.readMapHeader()
 	for i := uint32(0); i < queryResultCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 2:
@@ -134,7 +134,7 @@ func sysCommand(oid muduOid, sql string, args ...any) (uint64, error) {
 	var affected uint64
 	commandResultCount := reader.readMapHeader()
 	for i := uint32(0); i < commandResultCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 1:
@@ -155,8 +155,8 @@ func sysCommand(oid muduOid, sql string, args ...any) (uint64, error) {
 // `mp2-*` exports: `{1: procedure, 2: session, 3: param_list}`. Scalar
 // parameters decode to `bool` / `int64` / `float64` / `string` / `[]byte`
 // (the type table the mtp Go front-end supports); composite datums
-// (record/array/binary — user-defined types) keep their typed
-// `types.UniDataValue` form for the record bridge.
+// (struct/array/binary — user-defined types) keep their typed
+// `types.UniDataValue` form for the struct bridge.
 type procedureParam struct {
 	Procedure uint64
 	Session   muduOid
@@ -168,7 +168,7 @@ func decodeProcedureParam(b []byte) (procedureParam, error) {
 	reader := &mpReader{data: b}
 	paramCount := reader.readMapHeader()
 	for i := uint32(0); i < paramCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 1:
@@ -190,12 +190,12 @@ func decodeProcedureParam(b []byte) (procedureParam, error) {
 // encodeProcedureOk encodes the ok arm of
 // `UniResult<UniProcedureResult, UniError>`: the single-entry map
 // `{0: {1: [return_list]}}`, mirroring the hand-written serde impl of
-// `mudu_binding::universal::uni_result::UniResult` with the record-as-map
+// `mudu_binding::universal::uni_result::UniResult` with the struct-as-map
 // `UniProcedureResult` payload. The result type dispatch covers the scalar
 // shapes the mtp Go front-end supports (`int64` / `string` / `float64` /
 // `bool` / `[]byte` / `nil`) plus a `types.UniDataValue` passthrough for
-// record-typed results (the envelope the mtp adapter builds with
-// `types.RecordFromFieldValues`); anything else panics, which the generated
+// struct-typed results (the envelope the mtp adapter builds with
+// `types.StructFromFieldValues`); anything else panics, which the generated
 // `invoke` driver re-encodes as an internal error.
 func encodeProcedureOk(value any) []byte {
 	w := &mpWriter{}
@@ -370,11 +370,11 @@ func openResult(expectedKind uint32, frame []byte) (*mpReader, error) {
 	}
 }
 
-// readRecordKey reads one record-map key. It returns the field number, or
+// readStructKey reads one struct-map key. It returns the field number, or
 // ok == false when the key is not an integer — in that case both the key and
 // its value have already been skipped, mirroring the lenient generated
 // decoders.
-func readRecordKey(reader *mpReader) (int64, bool) {
+func readStructKey(reader *mpReader) (int64, bool) {
 	if !reader.nextIsInteger() {
 		reader.skip()
 		reader.skip()
@@ -389,7 +389,7 @@ func readResultSet(reader *mpReader) [][]any {
 	var rows [][]any
 	resultSetCount := reader.readMapHeader()
 	for i := uint32(0); i < resultSetCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 2:
@@ -409,7 +409,7 @@ func readRows(reader *mpReader) [][]any {
 		var fields []any
 		tupleRowCount := reader.readMapHeader()
 		for k := uint32(0); k < tupleRowCount; k++ {
-			key, ok := readRecordKey(reader)
+			key, ok := readStructKey(reader)
 			switch {
 			case !ok:
 			case key == 1:
@@ -436,7 +436,7 @@ func readOid(reader *mpReader) muduOid {
 	var oid muduOid
 	oidCount := reader.readMapHeader()
 	for i := uint32(0); i < oidCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 1:
@@ -512,7 +512,7 @@ func writeDatumBlob(w *mpWriter, value []byte) {
 	w.writeUInt(datScalar)
 	w.writeArrayHeader(2) // UniScalarValue::Blob
 	w.writeUInt(scalarBlob)
-	// Record-context `list<u8>` encodes as an array of u8 (the pinned host
+	// Struct-context `list<u8>` encodes as an array of u8 (the pinned host
 	// quirk), not as MessagePack bin.
 	w.writeArrayHeader(uint32(len(value)))
 	for _, b := range value {
@@ -530,8 +530,8 @@ func writeDatumNumeric(w *mpWriter, value string) {
 
 // writeDatumTyped writes one typed UniDataValue as the `[tag, payload]`
 // variant form, recursively. It exists for values that are already in
-// UniDataValue form — the record-case envelope the mtp-generated adapter
-// builds for a record-typed result with `types.RecordFromFieldValues` —
+// UniDataValue form — the struct-case envelope the mtp-generated adapter
+// builds for a struct-typed result with `types.StructFromFieldValues` —
 // which must reach the wire untouched.
 func writeDatumTyped(w *mpWriter, datum types.UniDataValue) {
 	switch value := datum.(type) {
@@ -546,9 +546,9 @@ func writeDatumTyped(w *mpWriter, datum types.UniDataValue) {
 		for _, item := range value.Inner {
 			writeDatumTyped(w, item)
 		}
-	case types.UniDataValueRecord:
+	case types.UniDataValueStruct:
 		w.writeArrayHeader(2)
-		w.writeUInt(datRecord)
+		w.writeUInt(datStruct)
 		w.writeArrayHeader(uint32(len(value.Inner)))
 		for _, field := range value.Inner {
 			w.writeMapHeader(2) // UniDataValueField
@@ -560,7 +560,7 @@ func writeDatumTyped(w *mpWriter, datum types.UniDataValue) {
 	case types.UniDataValueBinary:
 		w.writeArrayHeader(2)
 		w.writeUInt(datBinary)
-		// Record-context `list<u8>` encodes as an array of u8, like the Blob
+		// Struct-context `list<u8>` encodes as an array of u8, like the Blob
 		// scalar (the pinned host quirk), not as MessagePack bin.
 		w.writeArrayHeader(uint32(len(value.Inner)))
 		for _, b := range value.Inner {
@@ -651,10 +651,10 @@ type numeric string
 
 // readDatum reads one UniDataValue. A scalar datum unwraps to its native Go
 // value (`bool` / `int64` / `float64` / `string` / `[]byte` / nil); a
-// composite datum (record/array/binary — user-defined procedure types)
+// composite datum (struct/array/binary — user-defined procedure types)
 // keeps its typed `types.UniDataValue` form so the mtp-generated adapter
-// can unwrap it through the binding record bridge
-// (`types.RecordFieldValues`).
+// can unwrap it through the binding struct bridge
+// (`types.StructFieldValues`).
 func readDatum(reader *mpReader) any {
 	datum := readDatumTyped(reader)
 	if reader.err != nil {
@@ -685,13 +685,13 @@ func readDatumTyped(reader *mpReader) types.UniDataValue {
 			items = append(items, readDatumTyped(reader))
 		}
 		return types.UniDataValueArray{Inner: items}
-	case datRecord:
+	case datStruct:
 		fieldCount := reader.readArrayHeader()
 		fields := make([]types.UniDataValueField, 0, fieldCount)
 		for i := uint32(0); i < fieldCount; i++ {
 			fields = append(fields, readDatumField(reader))
 		}
-		return types.UniDataValueRecord{Inner: fields}
+		return types.UniDataValueStruct{Inner: fields}
 	case datBinary:
 		blobCount := reader.readArrayHeader()
 		blob := make([]byte, 0, blobCount)
@@ -712,7 +712,7 @@ func readDatumField(reader *mpReader) types.UniDataValueField {
 	var field types.UniDataValueField
 	fieldCount := reader.readMapHeader()
 	for i := uint32(0); i < fieldCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 1:
@@ -763,7 +763,7 @@ func readScalarTyped(reader *mpReader) types.UniScalarValue {
 	case scalarString:
 		return types.UniScalarValueString{Inner: reader.readString()}
 	case scalarBlob:
-		// Record-context `list<u8>` arrives as an array of u8 (the pinned
+		// Struct-context `list<u8>` arrives as an array of u8 (the pinned
 		// host quirk), not as MessagePack bin.
 		blobCount := reader.readArrayHeader()
 		blob := make([]byte, 0, blobCount)
@@ -852,14 +852,14 @@ func writeUniError(w *mpWriter, code uint32, message string) {
 	w.writeUInt(4)
 	w.writeString("") // err_loc
 	w.writeUInt(5)
-	w.writeArrayHeader(0) // err_details (record-context int array)
+	w.writeArrayHeader(0) // err_details (struct-context int array)
 }
 
 func readUniError(reader *mpReader) uniError {
 	var uniErr uniError
 	errorCount := reader.readMapHeader()
 	for i := uint32(0); i < errorCount; i++ {
-		key, ok := readRecordKey(reader)
+		key, ok := readStructKey(reader)
 		switch {
 		case !ok:
 		case key == 1:

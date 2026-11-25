@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Request sent by a replica to subscribe to the primary's replication stream.
+/// Request sent by a StreamFollower to subscribe to the Primary's replication stream.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplSubscribeReq {
     src_node_id: u64,
@@ -37,14 +37,14 @@ pub struct ReplSubscribeAcceptFrame {
     epoch: u64,
 }
 
-/// Acknowledgement sent by a replica reporting its durable stored LSN.
+/// Acknowledgement sent by a StreamFollower reporting its durable stored LSN.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplAckFrame {
     worker_id: u32,
     stored_lsn: u64,
 }
 
-/// Request sent by a replica to fetch a range of WAL frames it missed.
+/// Request sent by a StreamFollower to fetch a range of WAL frames it missed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplHealFetchReq {
     worker_id: u32,
@@ -76,7 +76,7 @@ pub struct ReplSnapshotFileEntry {
 /// snapshot directory) and shipped inside a `ReplSnapshotOffer` frame.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplSnapshotManifest {
-    /// Manifest format version (currently 1).
+    /// Manifest format version (currently 2, requiring a recovery image).
     pub version: u32,
     /// Replication worker this snapshot belongs to.
     pub worker_index: u32,
@@ -160,7 +160,7 @@ impl ReplSubscribeReq {
         self.worker_id
     }
 
-    /// First LSN the replica needs from the primary.
+    /// First LSN the StreamFollower needs from the Primary.
     pub fn from_lsn(&self) -> u64 {
         self.from_lsn
     }
@@ -258,7 +258,7 @@ impl ReplAckFrame {
         self.worker_id
     }
 
-    /// Highest LSN the replica has stored durably.
+    /// Highest LSN the StreamFollower has stored durably.
     pub fn stored_lsn(&self) -> u64 {
         self.stored_lsn
     }
@@ -317,7 +317,7 @@ impl ReplSnapshotManifest {
     /// filled by the snapshot routine.
     pub fn new(worker_index: u32) -> Self {
         Self {
-            version: 1,
+            version: 2,
             worker_index,
             committed_lsn: 0,
             seg_hash: [0u8; 32],

@@ -125,7 +125,7 @@ mod tests {
         with_adapter_test_db("close_bytes", |_db_path| {
             let oid = next_oid();
             let err = mudu_close_bytes(&host::serialize_close_param(oid)).unwrap_err();
-            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
         });
     }
 
@@ -134,7 +134,7 @@ mod tests {
         with_adapter_test_db("get_bytes", |_db_path| {
             let oid = next_oid();
             let err = mudu_get_bytes(&host::serialize_session_get_param(oid, b"k")).unwrap_err();
-            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
         });
     }
 
@@ -144,7 +144,7 @@ mod tests {
             let oid = next_oid();
             let err =
                 mudu_put_bytes(&host::serialize_session_put_param(oid, b"k", b"v")).unwrap_err();
-            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
         });
     }
 
@@ -154,7 +154,7 @@ mod tests {
             let oid = next_oid();
             let err = mudu_range_bytes(&host::serialize_session_range_param(oid, b"a", b"z"))
                 .unwrap_err();
-            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
         });
     }
 

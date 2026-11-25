@@ -33,7 +33,7 @@ deviation is documented at the code site:
 2. A candidate stepping down at the *same* term keeps its vote
    (`voted_for` is only reset on term change), preventing double voting
    within one term.
-3. A follower's commit index is clamped to `min(leader_commit, match_index)`
+3. A RaftFollower's commit index is clamped to `min(leader_commit, match_index)`
    before being persisted/emitted (upstream persists the unclamped value).
 4. `commit_index` is persisted and restored on recovery (upstream
    reconstructs it from the snapshot index); leaders keep their commit index
@@ -47,18 +47,18 @@ deviation is documented at the code site:
    sent `PreVoteReq` without checking the node's own vote membership).
 8. Snapshot bytes never ride raft messages. Upstream's `ApplyReq` snapshot
    transfer is a stub here: the kernel ships snapshot files over its own
-   replication channel and calls `install_snapshot` locally. A follower
+   replication channel and calls `install_snapshot` locally. A RaftFollower
    answers an `ApplyReq` stub with a rejection-style `AppendResp` resume
    hint (`next_index = own frontier + 1`) so the leader's `AppendReq`
-   flow resumes right above the follower's snapshot frontier instead of
+   flow resumes right above the RaftFollower's snapshot frontier instead of
    walking down through the compacted region.
 9. The node-local `ConfValue.node_id` never travels with configuration
    updates: the core keeps an immutable `local_node_id`, leaders stamp
-   their own id into `conf_new`, and followers rewrite the adopted
+   their own id into `conf_new`, and RaftFollowers rewrite the adopted
    value's `node_id` to their own (upstream adopts the leader's value
    wholesale — latent there only because a static conf never advances its
    version, so the adoption path never fires; a live re-configuration
-   would corrupt every follower's node id).
+   would corrupt every RaftFollower's node id).
 10. Message-acceptance gates (`can_vote`/`can_log`) use the **union** of
     the committed and new configurations (upstream gated on the committed
     configuration only, which drops messages from members that exist only
@@ -95,7 +95,7 @@ the same core/store/event-loop pipeline):
   rotation turns it into an old chunk); deletion needs no fsync of its
   own — a crash simply leaves chunks behind for the next GC round.
 
-Orchestration note: the kernel paces raft compaction so a follower's
+Orchestration note: the kernel paces raft compaction so a RaftFollower's
 installable frontier stays at or above the leader's snapshot frontier —
 the business snapshot point doubles as the raft install frontier, and a
 frontier beyond the local log is accepted through the discard path, so a

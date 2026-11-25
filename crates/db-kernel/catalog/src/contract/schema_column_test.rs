@@ -4,6 +4,7 @@ use crate::contract::fs_type::{FsColumnBinding, FsTypeKind};
 use crate::contract::schema_column::SchemaColumn;
 use mudu::common::id::{AttrIndex, OID};
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 

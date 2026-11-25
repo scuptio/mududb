@@ -242,13 +242,16 @@ mod tests {
             (30, MessageType::ReplSnapshotFetch),
             (31, MessageType::ReplSnapshotResp),
             (32, MessageType::ReplSubscribeAccept),
+            (33, MessageType::ReplStreamPush),
+            (34, MessageType::ReplStreamFetch),
+            (35, MessageType::ReplStreamProgress),
         ];
         for (value, expected) in cases {
             assert_eq!(MessageType::try_from(value).unwrap(), expected);
             assert_eq!(u32::from(expected), value);
         }
         assert!(MessageType::try_from(0).is_err());
-        assert!(MessageType::try_from(33).is_err());
+        assert!(MessageType::try_from(36).is_err());
     }
 
     #[test]
@@ -621,7 +624,7 @@ mod tests {
 
     fn repl_snapshot_offer_roundtrip() {
         let manifest = ReplSnapshotManifest {
-            version: 1,
+            version: 2,
             worker_index: 2,
             committed_lsn: 4095,
             seg_hash: [7u8; 32],

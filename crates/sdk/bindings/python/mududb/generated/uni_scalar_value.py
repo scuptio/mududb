@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):

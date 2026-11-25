@@ -296,7 +296,7 @@ fn queue_view(http_port: u16, name: &str) -> RS<Value> {
     let data = fetch_server_queues(http_port)?;
     queue_entry(&data, name).ok_or_else(|| {
         mudu::mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("queue {name} missing from the observability endpoint: {data}")
         )
     })
@@ -520,7 +520,7 @@ fn queue_receive_wait_forever_wakes_on_enqueue() -> RS<()> {
 }
 
 /// Scenario 6b: `DROP QUEUE` wakes a parked `WAIT FOREVER`, whose re-scan
-/// fails with EntityNotFound instead of hanging.
+/// fails with ObjectNotFound instead of hanging.
 #[cfg_attr(miri, ignore)]
 #[test]
 fn queue_receive_wait_forever_wakes_on_drop() -> RS<()> {
@@ -533,7 +533,7 @@ fn queue_receive_wait_forever_wakes_on_drop() -> RS<()> {
 
     fx.exec("DROP QUEUE q;")?;
     let err = join_receive(receiver).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     // Queue and DLQ are gone; the endpoint reports the explicit empty state.
     let data = fetch_server_queues(fx.ctx.http_port)?;
     assert_eq!(data.get("mode").and_then(Value::as_str), Some("none"));
@@ -712,15 +712,15 @@ fn queue_drop_removes_derived_dlq() -> RS<()> {
         "queue and DLQ both left the catalog"
     );
     let err = fx.query("RECEIVE 1 FROM q;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     let err = fx.query("RECEIVE 1 FROM q_dlq;").unwrap_err();
     assert_eq!(
         err.ec(),
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "the derived DLQ went with its queue"
     );
     let err = fx.exec("DROP QUEUE q;").unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     Ok(())
 }
 

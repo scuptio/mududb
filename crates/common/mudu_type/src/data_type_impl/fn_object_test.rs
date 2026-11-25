@@ -6,7 +6,7 @@ use super::{
 };
 use crate::data_type::DataType;
 use crate::data_type_param_kind::DataTypeParamKind;
-use crate::data_type_param_record::DataTypeParamRecord;
+use crate::data_type_param_struct::DataTypeParamStruct;
 use crate::data_value::DataValue;
 use crate::type_error::TyEC;
 use crate::type_family::TypeFamily;
@@ -16,7 +16,7 @@ use mudu::utils::json::{JsonMap, JsonValue};
 use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
 
 fn person_type() -> DataType {
-    let record = DataTypeParamRecord::new(
+    let record = DataTypeParamStruct::new(
         "person".to_string(),
         vec![
             ("id".to_string(), DataType::new_no_param(TypeFamily::I32)),
@@ -27,9 +27,19 @@ fn person_type() -> DataType {
         ],
     );
     DataType::from_id_param(
-        TypeFamily::Record,
-        Some(DataTypeParamKind::Record(Box::new(record))),
+        TypeFamily::Struct,
+        Some(DataTypeParamKind::Struct(Box::new(record))),
     )
+}
+
+#[test]
+fn record_receive_rejects_every_truncated_header() {
+    let ty = person_type();
+    let header_size = BinSize::size_of() + 2 * BinSlot::size_of();
+    for length in 0..header_size {
+        let error = fn_object_recv(&vec![0; length], &ty).unwrap_err();
+        assert!(matches!(error.ec(), TyEC::InsufficientSpace));
+    }
 }
 
 #[test]
@@ -49,7 +59,7 @@ fn json_input_rejects_non_object_and_missing_fields() {
 fn json_output_rejects_field_count_mismatch() {
     let ty = person_type();
     // only one field while the type expects two
-    let value = DataValue::from_record(vec![DataValue::from_i32(1)]);
+    let value = DataValue::from_struct(vec![DataValue::from_i32(1)]);
     let err = fn_object_out_json(&value, &ty).err().unwrap();
     assert!(matches!(err.ec(), TyEC::TypeConvertFailed));
 }
@@ -94,11 +104,11 @@ fn msgpack_input_rejects_invalid_inputs() {
 #[test]
 fn msgpack_output_rejects_invalid_value() {
     let ty = person_type();
-    let not_record = DataValue::from_i32(1);
-    let err = fn_object_out_msgpack(&not_record, &ty).unwrap_err();
+    let not_struct = DataValue::from_i32(1);
+    let err = fn_object_out_msgpack(&not_struct, &ty).unwrap_err();
     assert!(matches!(err.ec(), TyEC::TypeConvertFailed));
 
-    let wrong_size = DataValue::from_record(vec![DataValue::from_i32(1)]);
+    let wrong_size = DataValue::from_struct(vec![DataValue::from_i32(1)]);
     let err = fn_object_out_msgpack(&wrong_size, &ty).unwrap_err();
     assert!(matches!(err.ec(), TyEC::TypeConvertFailed));
 }
@@ -124,7 +134,7 @@ fn msgpack_roundtrip() {
 #[test]
 fn binary_send_rejects_size_mismatch_and_short_buffer() {
     let ty = person_type();
-    let value = DataValue::from_record(vec![DataValue::from_i32(1)]);
+    let value = DataValue::from_struct(vec![DataValue::from_i32(1)]);
     let err = fn_object_send_to(&value, &ty, &mut []).unwrap_err();
     assert!(matches!(err.ec(), TyEC::TypeConvertFailed));
 

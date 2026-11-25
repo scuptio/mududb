@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Identity and runtime properties of a guest application.
+/// Idobject and runtime properties of a guest application.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppInfo {
     /// Application name.

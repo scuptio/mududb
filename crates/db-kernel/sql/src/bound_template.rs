@@ -32,7 +32,7 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_item::ExprValue;
 use sql_parser::ast::expr_operator::ValueCompare;
@@ -65,13 +65,13 @@ pub enum TemplateDatum {
 
 /// Collects [`ParamSlot`]s while template binding walks a statement.
 #[derive(Default)]
-pub(crate) struct SlotRecorder {
+pub(crate) struct SlotStructer {
     slots: Vec<ParamSlot>,
     next_param_index: usize,
 }
 
-impl SlotRecorder {
-    /// Records one placeholder against `data_type` and returns its slot index.
+impl SlotStructer {
+    /// Structs one placeholder against `data_type` and returns its slot index.
     pub(crate) fn push(&mut self, data_type: DataType, delta_operand: bool) -> u32 {
         let index = self.slots.len() as u32;
         self.slots.push(ParamSlot {
@@ -93,7 +93,7 @@ impl SlotRecorder {
 pub(crate) fn template_from_expr(
     expr: &ExprValue,
     data_type: &DataType,
-    recorder: &mut SlotRecorder,
+    recorder: &mut SlotStructer,
 ) -> RS<TemplateDatum> {
     match expr {
         ExprValue::ValueLiteral(literal) => Ok(TemplateDatum::Const(

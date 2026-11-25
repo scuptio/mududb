@@ -5,7 +5,7 @@
 //! - one ordered series of chunk files `<seq:020>.rlc`;
 //! - each chunk holds frames in the MuduDB log frame format v1
 //!   (see [`crate::frame`], byte-compatible with the kernel WAL);
-//! - every frame series encodes an ordered stream of `StoreRecord`s:
+//! - every frame series encodes an ordered stream of `StoreStruct`s:
 //!   log `Entry` records, `TruncateRight`/`TruncateLeft` markers and
 //!   `State` snapshots (term/vote, commit index, configurations, snapshot
 //!   frontier).
@@ -38,13 +38,19 @@
 //!   current tail chunk is never deleted; its dead bytes are reclaimed
 //!   when rotation turns it into an old chunk.
 
+use mudu_sys::contract::{async_file::AsyncFile, async_fs::AsyncFs, file_options::FileOptions};
+mod async_store;
+/// Injectable asynchronous persistence boundary and its operation future.
+pub use async_store::{AsyncStore, StoreFuture};
+
 use std::collections::BTreeMap;
-use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+#[cfg(test)]
 use mudu_sys::fs::sync as fs_sync;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -94,7 +100,7 @@ impl Default for StoreCfg {
 
 /// Persisted hard state, rewritten as a whole in every `State` record.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-struct StateRecord {
+struct StateStruct {
     current_term: u64,
     voted_for: Option<u64>,
     commit_index: u64,
@@ -106,7 +112,7 @@ struct StateRecord {
 
 /// One record in the ordered store stream.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-enum StoreRecord {
+enum StoreStruct {
     /// One raft log entry.
     Entry(LogEntry),
     /// Drop all persisted entries with index `>= from_index`.
@@ -114,18 +120,20 @@ enum StoreRecord {
     /// Drop all persisted entries with index `<= to_index` (reserved).
     TruncateLeft { to_index: u64 },
     /// Full hard-state snapshot.
-    State(Box<StateRecord>),
+    State(Box<StateStruct>),
 }
 
-/// The persistent raft store. Single-writer (owned by the persist thread).
+/// The persistent raft store. Single-writer, owned by the asynchronous driver.
 pub struct RaftStore {
     dir: PathBuf,
     cfg: StoreCfg,
-    state: StateRecord,
+    state: StateStruct,
     last_entry_index: u64,
     tail_seq: u64,
     tail_offset: u64,
-    tail_file: Option<fs_sync::SFile>,
+    tail_file: Option<Arc<dyn AsyncFile>>,
+    fs: Arc<dyn AsyncFs>,
+    dir_dirty: bool,
     /// Per-chunk maximum entry index it contains (0 = no entries); used to
     /// decide which whole chunks fall entirely below the snapshot
     /// frontier. Contains every known chunk, including the tail.
@@ -138,26 +146,26 @@ pub struct RaftStore {
 }
 
 impl RaftStore {
-    /// Opens (creating if necessary) the store under `dir`.
-    ///
-    /// Returns the store plus the recovered state, or `None` when the store
-    /// is empty (fresh bootstrap).
-    pub fn open(dir: &Path, cfg: StoreCfg) -> RS<(Self, Option<CoreRecovered>)> {
+    /// Opens and repairs a store using Tokio-backed asynchronous IO.
+    /// Recovery must finish before the driver accepts protocol events.
+    pub async fn open_async(dir: &Path, cfg: StoreCfg) -> RS<(Self, Option<CoreRecovered>)> {
+        let fs = mudu_sys::fs::tokio_fs();
         if cfg.chunk_size == 0 || cfg.max_part_size == 0 {
             return Err(mudu_error!(
                 ErrorCode::InvalidArgument,
                 "raft store chunk_size and max_part_size must be non-zero"
             ));
         }
-        fs_sync::create_dir_all(dir)?;
-        let chunks = list_chunks(dir)?;
-        let mut scan = scan_chunks(&chunks)?;
-        repair_torn(&chunks, &mut scan)?;
+        ensure_store_dir(fs.as_ref(), dir).await?;
+        let chunks = list_chunks(fs.as_ref(), dir).await?;
+        let mut scan = scan_chunks(fs.as_ref(), &chunks).await?;
+        repair_torn(fs.as_ref(), &chunks, &mut scan).await?;
+        fs.sync_dir(dir).await?;
         let snapshot_index = scan.state.snapshot_index;
         let log = build_log(snapshot_index, &mut scan.entries)?;
         let last_entry_index = log.last().map(|e| e.index).unwrap_or(snapshot_index);
         let recovered = build_recovered(&scan.state, log, last_entry_index, scan.state_seen)?;
-        let (tail_seq, tail_offset, tail_file) = open_tail(dir, scan.tail)?;
+        let (tail_seq, tail_offset, tail_file) = open_tail(fs.as_ref(), dir, scan.tail).await?;
         debug!(
             "raft store opened at {:?}: {} entries recovered, tail seq {} offset {}",
             dir,
@@ -168,6 +176,8 @@ impl RaftStore {
         Ok((
             Self {
                 dir: dir.to_path_buf(),
+                fs,
+                dir_dirty: false,
                 cfg,
                 state: scan.state,
                 last_entry_index,
@@ -190,25 +200,31 @@ impl RaftStore {
     /// `InstallSnapshot`), whole chunks that lie entirely below the new
     /// frontier are physically reclaimed after the batch is durable
     /// (lazy GC; crash-safe at any point).
-    pub fn apply_batch(&mut self, ops: &[WriteOp]) -> RS<()> {
+    /// Appends one batch and awaits its durable boundary before returning.
+    /// The driver must not cancel this future or reuse the store after an IO error.
+    pub async fn apply_batch_async(&mut self, ops: &[WriteOp]) -> RS<()> {
         let (records, snapshot_advanced) = self.translate_ops(ops);
         if records.is_empty() {
             return Ok(());
         }
-        let mut rotated: Vec<fs_sync::SFile> = Vec::new();
+        let mut rotated: Vec<Arc<dyn AsyncFile>> = Vec::new();
         for record in &records {
-            self.append_record(record, &mut rotated)?;
+            self.append_record(record, &mut rotated).await?;
         }
         if self.cfg.fsync {
             for file in &rotated {
-                file.sync_data()?;
+                file.fsync().await?;
             }
             if let Some(file) = &self.tail_file {
-                file.sync_data()?;
+                file.fsync().await?;
             }
         }
-        if snapshot_advanced {
-            self.gc_compact_chunks()?;
+        if self.cfg.fsync && self.dir_dirty {
+            self.fs.sync_dir(&self.dir).await?;
+            self.dir_dirty = false;
+        }
+        if snapshot_advanced && self.cfg.fsync {
+            self.gc_compact_chunks().await?;
         }
         Ok(())
     }
@@ -217,8 +233,8 @@ impl RaftStore {
     /// stream to append, updating the in-memory state as it goes;
     /// returns the records and whether the snapshot frontier advanced.
     /// The state record (when dirty) is pushed last.
-    fn translate_ops(&mut self, ops: &[WriteOp]) -> (Vec<StoreRecord>, bool) {
-        let mut records: Vec<StoreRecord> = Vec::new();
+    fn translate_ops(&mut self, ops: &[WriteOp]) -> (Vec<StoreStruct>, bool) {
+        let mut records: Vec<StoreStruct> = Vec::new();
         let mut state_dirty = false;
         let mut snapshot_advanced = false;
         for op in ops {
@@ -229,12 +245,12 @@ impl RaftStore {
                     opt,
                 } => {
                     if opt.truncate_left {
-                        records.push(StoreRecord::TruncateLeft {
+                        records.push(StoreStruct::TruncateLeft {
                             to_index: *prev_index,
                         });
                     }
                     if opt.truncate_right && *prev_index < self.last_entry_index {
-                        records.push(StoreRecord::TruncateRight {
+                        records.push(StoreStruct::TruncateRight {
                             from_index: prev_index + 1,
                         });
                         self.last_entry_index = *prev_index;
@@ -244,7 +260,7 @@ impl RaftStore {
                             // already compacted; defensive skip
                             continue;
                         }
-                        records.push(StoreRecord::Entry(entry.clone()));
+                        records.push(StoreStruct::Entry(entry.clone()));
                         self.last_entry_index = entry.index;
                     }
                 }
@@ -286,15 +302,19 @@ impl RaftStore {
             }
         }
         if state_dirty {
-            records.push(StoreRecord::State(Box::new(self.state.clone())));
+            records.push(StoreStruct::State(Box::new(self.state.clone())));
         }
         (records, snapshot_advanced)
     }
 
-    /// Flushes the store (fsync of the tail chunk).
-    pub fn flush(&mut self) -> RS<()> {
+    /// Waits for tail data and directory entries to become durable.
+    pub async fn flush_async(&mut self) -> RS<()> {
         if let Some(file) = &self.tail_file {
-            file.sync_data()?;
+            file.fsync().await?;
+        }
+        if self.dir_dirty {
+            self.fs.sync_dir(&self.dir).await?;
+            self.dir_dirty = false;
         }
         Ok(())
     }
@@ -309,37 +329,41 @@ impl RaftStore {
         (self.state.snapshot_index, self.state.snapshot_term)
     }
 
-    fn append_record(&mut self, record: &StoreRecord, rotated: &mut Vec<fs_sync::SFile>) -> RS<()> {
+    async fn append_record(
+        &mut self,
+        record: &StoreStruct,
+        rotated: &mut Vec<Arc<dyn AsyncFile>>,
+    ) -> RS<()> {
         let payload = rmp_serde::to_vec(record)
             .map_err(|e| mudu_error!(ErrorCode::Encode, "encode raft store record error", e))?;
         let lsn = match record {
-            StoreRecord::Entry(entry) => entry.index,
+            StoreStruct::Entry(entry) => entry.index,
             _ => 0,
         };
         let bytes = serialize_record(&payload, lsn, self.cfg.max_part_size)?;
         if self.tail_file.is_none() {
             let path = chunk_path(&self.dir, self.tail_seq);
-            let file = create_chunk_file(&path)?;
+            let file = create_chunk_file(self.fs.as_ref(), &path).await?;
+            self.dir_dirty = true;
             self.tail_file = Some(file);
             self.tail_offset = 0;
             self.chunk_max.insert(self.tail_seq, 0);
         }
         if self.tail_offset > 0 && self.tail_offset + bytes.len() as u64 > self.cfg.chunk_size {
             // rotate: the record lands entirely in a fresh chunk
-            self.rotate_tail(rotated)?;
+            self.rotate_tail(rotated).await?;
         }
         let file = self
             .tail_file
             .as_mut()
             .ok_or_else(|| mudu_error!(ErrorCode::Internal, "raft store tail file is not open"))?;
-        file.write_all(&bytes)
-            .map_err(|e| mudu_error!(ErrorCode::Io, "write raft chunk error", e))?;
+        file.write_all_at(self.tail_offset, &bytes).await?;
         self.tail_offset += bytes.len() as u64;
         match record {
-            StoreRecord::Entry(entry) => {
+            StoreStruct::Entry(entry) => {
                 self.chunk_max.insert(self.tail_seq, entry.index);
             }
-            StoreRecord::State(_) => {
+            StoreStruct::State(_) => {
                 self.state_chunk_seq = self.tail_seq;
             }
             _ => {}
@@ -349,10 +373,11 @@ impl RaftStore {
 
     /// Rotates to a fresh tail chunk (the previous tail is queued for
     /// fsync in `rotated`).
-    fn rotate_tail(&mut self, rotated: &mut Vec<fs_sync::SFile>) -> RS<()> {
+    async fn rotate_tail(&mut self, rotated: &mut Vec<Arc<dyn AsyncFile>>) -> RS<()> {
         self.tail_seq += 1;
         let path = chunk_path(&self.dir, self.tail_seq);
-        let file = create_chunk_file(&path)?;
+        let file = create_chunk_file(self.fs.as_ref(), &path).await?;
+        self.dir_dirty = true;
         if let Some(old) = self.tail_file.replace(file) {
             rotated.push(old);
         }
@@ -372,7 +397,7 @@ impl RaftStore {
     /// advance retries the reclamation. The current tail is never
     /// deleted; its dead bytes are reclaimed once rotation turns it into
     /// an old chunk.
-    fn gc_compact_chunks(&mut self) -> RS<()> {
+    async fn gc_compact_chunks(&mut self) -> RS<()> {
         let frontier = self.state.snapshot_index;
         if frontier == 0 {
             return Ok(());
@@ -391,17 +416,21 @@ impl RaftStore {
                 frontier
             );
             let mut rotated = Vec::new();
-            self.rotate_tail(&mut rotated)?;
-            let record = StoreRecord::State(Box::new(self.state.clone()));
-            self.append_record(&record, &mut rotated)?;
+            self.rotate_tail(&mut rotated).await?;
+            let record = StoreStruct::State(Box::new(self.state.clone()));
+            self.append_record(&record, &mut rotated).await?;
             if self.cfg.fsync {
                 for file in &rotated {
-                    file.sync_data()?;
+                    file.fsync().await?;
                 }
                 if let Some(file) = &self.tail_file {
-                    file.sync_data()?;
+                    file.fsync().await?;
                 }
             }
+        }
+        if self.dir_dirty {
+            self.fs.sync_dir(&self.dir).await?;
+            self.dir_dirty = false;
         }
         let deletable: Vec<u64> = self
             .chunk_max
@@ -416,8 +445,11 @@ impl RaftStore {
                 "raft store: deleting chunk {} (entirely below snapshot frontier {})",
                 seq, frontier
             );
-            fs_sync::remove_file(chunk_path(&self.dir, seq))?;
+            self.fs
+                .remove_file_if_exists(&chunk_path(&self.dir, seq))
+                .await?;
             self.chunk_max.remove(&seq);
+            self.dir_dirty = true;
         }
         Ok(())
     }
@@ -427,7 +459,7 @@ impl RaftStore {
 /// state record, the surviving entries, the append tail and the
 /// physical-repair bookkeeping.
 struct ScanReplay {
-    state: StateRecord,
+    state: StateStruct,
     entries: BTreeMap<u64, LogEntry>,
     state_seen: bool,
     /// The last fully valid chunk `(seq, valid length)`; the append tail.
@@ -440,8 +472,8 @@ struct ScanReplay {
 
 /// Scans the chunk series in sequence order and replays every record,
 /// stopping at the first torn chunk.
-fn scan_chunks(chunks: &[(u64, PathBuf)]) -> RS<ScanReplay> {
-    let mut state = StateRecord::default();
+async fn scan_chunks(fs: &dyn AsyncFs, chunks: &[(u64, PathBuf)]) -> RS<ScanReplay> {
+    let mut state = StateStruct::default();
     let mut entries: BTreeMap<u64, LogEntry> = BTreeMap::new();
     let mut state_seen = false;
     let mut tail: Option<(u64, u64)> = None;
@@ -450,18 +482,18 @@ fn scan_chunks(chunks: &[(u64, PathBuf)]) -> RS<ScanReplay> {
     let mut state_chunk_seq = 0u64;
 
     for (i, (seq, path)) in chunks.iter().enumerate() {
-        let buf = fs_sync::read(path)?;
+        let buf = fs.read_all(path).await?;
         let scanned = scan_valid_frame_prefix(&buf);
         let records = reassemble_records(&scanned.frames)?;
         chunk_max.insert(*seq, 0);
         for (_lsn, payload) in records {
-            let record: StoreRecord = rmp_serde::from_slice(&payload)
+            let record: StoreStruct = rmp_serde::from_slice(&payload)
                 .map_err(|e| mudu_error!(ErrorCode::Decode, "decode raft store record error", e))?;
             match &record {
-                StoreRecord::Entry(entry) => {
+                StoreStruct::Entry(entry) => {
                     chunk_max.insert(*seq, entry.index);
                 }
-                StoreRecord::State(_) => {
+                StoreStruct::State(_) => {
                     state_chunk_seq = *seq;
                 }
                 _ => {}
@@ -492,22 +524,23 @@ fn scan_chunks(chunks: &[(u64, PathBuf)]) -> RS<ScanReplay> {
 /// Physically repairs the series after a torn scan: truncates the torn
 /// chunk and drops later chunks (their records form no valid prefix
 /// continuation).
-fn repair_torn(chunks: &[(u64, PathBuf)], scan: &mut ScanReplay) -> RS<()> {
+async fn repair_torn(fs: &dyn AsyncFs, chunks: &[(u64, PathBuf)], scan: &mut ScanReplay) -> RS<()> {
     if let Some((i, valid_len)) = scan.torn {
         let (seq, path) = &chunks[i];
         for (_, later) in chunks.iter().skip(i + 1) {
-            fs_sync::remove_file(later)?;
+            fs.remove_file_if_exists(later).await?;
         }
         if valid_len == 0 && i > 0 {
-            fs_sync::remove_file(path)?;
+            fs.remove_file_if_exists(path).await?;
             // tail stays at the previous chunk (set during the scan)
             scan.chunk_max.remove(seq);
             if scan.state_chunk_seq == *seq {
                 scan.state_chunk_seq = 0;
             }
         } else {
-            let file = open_chunk_file(path, false)?;
-            file.set_len(valid_len)?;
+            let file = open_chunk_file(fs, path, false).await?;
+            file.set_len(valid_len).await?;
+            file.fsync().await?;
             scan.tail = Some((*seq, valid_len));
         }
     }
@@ -544,7 +577,7 @@ fn build_log(snapshot_index: u64, entries: &mut BTreeMap<u64, LogEntry>) -> RS<V
 /// Builds the recovered core state from the replayed state record and
 /// the surviving log; `None` for a fresh bootstrap (no state record).
 fn build_recovered(
-    state: &StateRecord,
+    state: &StateStruct,
     log: Vec<LogEntry>,
     last_entry_index: u64,
     state_seen: bool,
@@ -592,18 +625,18 @@ fn build_recovered(
 
 /// Opens the tail chunk for appending at its valid-length offset, or
 /// starts a fresh series at sequence 1 when no chunk survived.
-fn open_tail(dir: &Path, tail: Option<(u64, u64)>) -> RS<(u64, u64, Option<fs_sync::SFile>)> {
-    let (tail_seq, tail_offset, tail_file) = match tail {
+async fn open_tail(
+    fs: &dyn AsyncFs,
+    dir: &Path,
+    tail: Option<(u64, u64)>,
+) -> RS<(u64, u64, Option<Arc<dyn AsyncFile>>)> {
+    match tail {
         Some((seq, offset)) => {
-            let path = chunk_path(dir, seq);
-            let mut file = open_chunk_file(&path, false)?;
-            file.seek(SeekFrom::Start(offset))
-                .map_err(|e| mudu_error!(ErrorCode::Io, "seek raft chunk error", e))?;
-            (seq, offset, Some(file))
+            let file = open_chunk_file(fs, &chunk_path(dir, seq), false).await?;
+            Ok((seq, offset, Some(file)))
         }
-        None => (1, 0, None),
-    };
-    Ok((tail_seq, tail_offset, tail_file))
+        None => Ok((1, 0, None)),
+    }
 }
 
 fn conf_from_value_version(value: &ConfValue, version: &ConfVersion) -> ConfNodeValue {
@@ -611,22 +644,22 @@ fn conf_from_value_version(value: &ConfValue, version: &ConfVersion) -> ConfNode
 }
 
 fn apply_replay(
-    record: StoreRecord,
-    state: &mut StateRecord,
+    record: StoreStruct,
+    state: &mut StateStruct,
     entries: &mut BTreeMap<u64, LogEntry>,
     state_seen: &mut bool,
 ) {
     match record {
-        StoreRecord::Entry(entry) => {
+        StoreStruct::Entry(entry) => {
             entries.insert(entry.index, entry);
         }
-        StoreRecord::TruncateRight { from_index } => {
+        StoreStruct::TruncateRight { from_index } => {
             entries.retain(|idx, _| *idx < from_index);
         }
-        StoreRecord::TruncateLeft { to_index } => {
+        StoreStruct::TruncateLeft { to_index } => {
             entries.retain(|idx, _| *idx > to_index);
         }
-        StoreRecord::State(record) => {
+        StoreStruct::State(record) => {
             *state = *record;
             *state_seen = true;
         }
@@ -637,9 +670,9 @@ fn chunk_path(dir: &Path, seq: u64) -> PathBuf {
     dir.join(format!("{seq:020}{CHUNK_SUFFIX}"))
 }
 
-fn list_chunks(dir: &Path) -> RS<Vec<(u64, PathBuf)>> {
+async fn list_chunks(fs: &dyn AsyncFs, dir: &Path) -> RS<Vec<(u64, PathBuf)>> {
     let mut chunks = Vec::new();
-    for path in fs_sync::read_dir(dir)? {
+    for path in fs.read_dir(dir).await? {
         let name = match path.file_name().and_then(|n| n.to_str()) {
             Some(name) => name.to_string(),
             None => continue,
@@ -654,31 +687,56 @@ fn list_chunks(dir: &Path) -> RS<Vec<(u64, PathBuf)>> {
     Ok(chunks)
 }
 
-fn open_chunk_file(path: &Path, create: bool) -> RS<fs_sync::SFile> {
-    let mut opts = fs_sync::SOpenOptions::new();
-    opts.read(true).write(true);
-    if create {
-        opts.create(true);
+async fn ensure_store_dir(fs: &dyn AsyncFs, dir: &Path) -> RS<()> {
+    let mut missing = Vec::new();
+    let mut ancestor = dir;
+    while !fs.path_exists(ancestor).await? {
+        missing.push(ancestor.to_path_buf());
+        ancestor = ancestor
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
     }
-    opts.open(path)
+    fs.create_dir_all(dir).await?;
+    // Persist newly created entries from the deepest directory back to
+    // the first pre-existing ancestor, including a newly created log_dir.
+    for path in &missing {
+        fs.sync_dir(path).await?;
+    }
+    if !missing.is_empty() {
+        fs.sync_dir(ancestor).await?;
+    }
+    Ok(())
 }
 
-fn create_chunk_file(path: &Path) -> RS<fs_sync::SFile> {
-    let mut opts = fs_sync::SOpenOptions::new();
-    opts.read(true).write(true).create_new(true);
-    match opts.open(path) {
+async fn open_chunk_file(fs: &dyn AsyncFs, path: &Path, create: bool) -> RS<Arc<dyn AsyncFile>> {
+    fs.open(
+        path,
+        FileOptions {
+            read: true,
+            write: true,
+            create,
+            ..FileOptions::default()
+        },
+    )
+    .await
+}
+
+async fn create_chunk_file(fs: &dyn AsyncFs, path: &Path) -> RS<Arc<dyn AsyncFile>> {
+    let options = FileOptions {
+        read: true,
+        write: true,
+        create_new: true,
+        ..FileOptions::default()
+    };
+    match fs.open(path, options).await {
         Ok(file) => Ok(file),
-        Err(e) => {
-            if e.ec() == ErrorCode::AlreadyExists {
-                // a chunk with this sequence exists (e.g. left over from a
-                // torn rotation); open and rewrite it from scratch
-                let file = open_chunk_file(path, false)?;
-                file.set_len(0)?;
-                Ok(file)
-            } else {
-                Err(e)
-            }
+        Err(e) if e.ec() == ErrorCode::AlreadyExists => {
+            let file = open_chunk_file(fs, path, false).await?;
+            file.set_len(0).await?;
+            Ok(file)
         }
+        Err(e) => Err(e),
     }
 }
 

@@ -1,9 +1,9 @@
-//! Replication-mode (non-raft) control for the write gate and the primary's
+//! Stream-mode control for the write gate and the Primary's
 //! synchronous commit path.
 //!
 //! In stream mode (`[replication.stream]`) there is no raft group: the
 //! configured primary commits locally (and optionally waits for a
-//! replica's durable ack), the replicas apply the stream immediately and
+//! StreamFollower's durable ack), the StreamFollowers apply the stream immediately and
 //! stay read-only for clients.
 
 use crate::{ack_watermarks, ReplWorkerState};
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Replication-mode control attached to every worker of a node running
+/// Stream-mode control attached to every worker of a node running
 /// in stream mode. One shared instance per node; role/primary changes are
 /// visible to every worker immediately (the write gate re-reads it per
 /// request, the sink re-evaluates its target every round).
@@ -126,7 +126,7 @@ impl ReplModeCtl {
             .unwrap_or(false)
     }
 
-    /// Whether the primary waits for a replica's durable ack before
+    /// Whether the Primary waits for a StreamFollower's durable ack before
     /// answering a commit.
     pub fn sync(&self) -> bool {
         self.read_inner().map(|inner| inner.sync).unwrap_or(false)
@@ -172,7 +172,7 @@ impl ReplModeCtl {
         self.epoch.clone()
     }
 
-    /// Records a higher stream epoch observed from a primary (sink).
+    /// Structs a higher stream epoch observed from a primary (sink).
     pub(crate) fn note_epoch(&self, epoch: u64) {
         self.epoch.fetch_max(epoch, Ordering::Relaxed);
     }
@@ -205,7 +205,7 @@ impl ReplModeCtl {
         Ok(())
     }
 
-    /// The applied low-water mark of the primary's commit path (snapshot
+    /// The applied low-water mark of the Primary's commit path (snapshot
     /// trigger). Zero on replicas (they snapshot at the sink's resume point).
     pub(crate) fn applied_low_water(&self) -> u64 {
         self.applied_watermark.water()
@@ -222,7 +222,7 @@ impl ReplModeCtl {
     }
 }
 
-/// Waits for a replica of one worker to cover a commit point. Shared by the
+/// Waits for a StreamFollower of one worker to cover a commit point. Shared by the
 /// primary's commit paths; notification-driven (wakes on every recorded
 /// ack), never a polling hot loop.
 #[derive(Clone)]
@@ -246,7 +246,7 @@ impl ReplAckWaiter {
         }
     }
 
-    /// Blocks until any connected replica of this worker reports
+    /// Blocks until any connected StreamFollower of this worker reports
     /// `stored_lsn >= lsn`, or `timeout` elapses. A timeout is a client
     /// error: the commit is durable locally but unconfirmed on replicas.
     pub(crate) async fn wait_cover(&self, lsn: u64, timeout: Duration) -> RS<()> {
@@ -258,11 +258,11 @@ impl ReplAckWaiter {
             }
             let now = *mudu_sys::time::instant_now();
             if now >= deadline {
-                crate::status::note_sync_write_timeout(self.server_instance_id);
+                crate::counters::note_sync_write_timeout(self.server_instance_id);
                 return Err(mudu_error!(
                     ErrorCode::TimedOut,
                     format!(
-                        "synchronous replication timeout: no replica has stored lsn {} within {:?}",
+                        "synchronous replication timeout: no StreamFollower has stored lsn {} within {:?}",
                         lsn, timeout
                     )
                 ));
@@ -271,11 +271,11 @@ impl ReplAckWaiter {
             tokio::select! {
                 _ = self.state.ack_notified() => {}
                 _ = mudu_sys::task::async_::sleep(remaining) => {
-                    crate::status::note_sync_write_timeout(self.server_instance_id);
+                    crate::counters::note_sync_write_timeout(self.server_instance_id);
                     return Err(mudu_error!(
                         ErrorCode::TimedOut,
                         format!(
-                            "synchronous replication timeout: no replica has stored lsn {} within {:?}",
+                            "synchronous replication timeout: no StreamFollower has stored lsn {} within {:?}",
                             lsn, timeout
                         )
                     ));

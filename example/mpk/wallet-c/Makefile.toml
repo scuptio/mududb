@@ -35,7 +35,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in src/procedures.c against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md).
 [tasks.check-sql]
 dependencies = ["prepare"]
 command = "mgen"
@@ -95,7 +95,7 @@ args = [
 # the `mududb:api/system` syscalls declared in the mtp-generated
 # `wit/world.wit`. The mtp-generated `procedures_gen.c` carries the `mp2-*`
 # export wrappers and their arity/kind check preambles. The C binding
-# (mpack.c + mpack_alloc.c + record_bridge.c) is compiled from
+# (mpack.c + mpack_alloc.c + struct_bridge.c) is compiled from
 # ../../../crates/sdk/bindings/c; its `mp_realloc` allocation hook lands on the
 # freestanding `realloc`/`free` shims in src/mudu_sys.c. Headers
 # (string.h/stdbool.h/stdint.h) come from the wasi-sdk sysroot include
@@ -124,7 +124,7 @@ args = [
     "-Wl,--export-memory",
     "${BINDING_DIR}/mududb/codec/mpack.c",
     "${BINDING_DIR}/mududb/codec/mpack_alloc.c",
-    "${BINDING_DIR}/mududb/codec/record_bridge.c",
+    "${BINDING_DIR}/mududb/codec/struct_bridge.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/mudu_sys.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
     "${GENERATED_DIR}/procedures_gen.c",

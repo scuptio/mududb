@@ -80,9 +80,9 @@ pub struct PageDelta {
     /// `None` when the batch did not change the page's links.
     pub links: Option<PLPageLinks>,
     /// Keys of records removed from the page.
-    pub removes: Vec<PLRecordKey>,
-    /// Records inserted or payload-replaced, in page slot order.
-    pub upserts: Vec<PLRecord>,
+    pub removes: Vec<PLStructKey>,
+    /// Structs inserted or payload-replaced, in page slot order.
+    pub upserts: Vec<PLStruct>,
 }
 
 /// Initialization metadata for a newly allocated page.
@@ -111,7 +111,7 @@ pub struct PLPageLinks {
 
 /// The `(timestamp, tuple_id)` key identifying one time-series record.
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
-pub struct PLRecordKey {
+pub struct PLStructKey {
     /// Timestamp component of the record key.
     pub timestamp: u64,
     /// Tuple identifier component of the record key.
@@ -120,7 +120,7 @@ pub struct PLRecordKey {
 
 /// One record carried by a [`PageDelta`].
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
-pub struct PLRecord {
+pub struct PLStruct {
     /// Timestamp component of the record key.
     pub timestamp: u64,
     /// Tuple identifier component of the record key.
@@ -133,7 +133,7 @@ pub struct PLRecord {
     pub payload: Vec<u8>,
 }
 
-/// Serde helper for [`PLRecord::payload`]: encodes the bytes with
+/// Serde helper for [`PLStruct::payload`]: encodes the bytes with
 /// `serialize_bytes` (one msgpack `bin` object, one bulk copy).
 mod payload_serde {
     use serde::de::Visitor;
@@ -180,13 +180,13 @@ mod tests {
 
     #[test]
     fn pl_record_payload_roundtrips_as_a_binary_blob() {
-        let record = PLRecord {
+        let record = PLStruct {
             timestamp: 7,
             tuple_id: 42,
             payload: vec![0, 1, 200, 255],
         };
         let bytes = mudu::common::serde_utils::serialize_to_vec(&record).unwrap();
-        let (decoded, _used): (PLRecord, u64) =
+        let (decoded, _used): (PLStruct, u64) =
             mudu::common::serde_utils::deserialize_from(&bytes).unwrap();
         assert_eq!(decoded, record);
     }

@@ -1,8 +1,8 @@
-//! Unit tests for the `generated::wallets::Wallets` entity.
+//! Unit tests for the `generated::wallets::Wallets` object.
 
 use mududb::common::result::RS;
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::generated::wallets::object::{Wallets, WalletsChange, columns};
@@ -30,12 +30,12 @@ fn expect_update(change: &WalletsChange, pk: i32) -> RS<(String, Vec<Box<dyn Dat
 
 #[test]
 fn wallets_lifecycle() -> RS<()> {
-    let entity = sample_wallets();
-    assert_eq!(entity.user_id, 1);
-    assert_eq!(entity.balance, Some(100));
+    let object = sample_wallets();
+    assert_eq!(object.user_id, 1);
+    assert_eq!(object.balance, Some(100));
 
-    // Entity metadata
-    assert_eq!(Wallets::table_name(), "wallets");
+    // Object metadata
+    assert_eq!(Wallets::class_name(), "wallets");
     assert_eq!(Wallets::TABLE_NAME, "wallets");
     assert_eq!(Wallets::tuple_desc().fields().len(), 3);
     assert_eq!(Wallets::tuple_desc().fields()[0].name(), columns::USER_ID);
@@ -44,36 +44,36 @@ fn wallets_lifecycle() -> RS<()> {
 
     // Datum / DatumDyn metadata
     let data_type = Wallets::data_type();
-    assert_eq!(entity.type_family()?, data_type.type_family());
+    assert_eq!(object.type_family()?, data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple()?;
+    let tuple = object.to_tuple()?;
     let from_tuple = Wallets::from_tuple(&tuple)?;
-    assert_same_wallets(&from_tuple, &entity);
+    assert_same_wallets(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type)?;
+    let value = object.to_value(&data_type)?;
     let from_value = Wallets::from_value(&value)?;
-    assert_same_wallets(&from_value, &entity);
+    assert_same_wallets(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type)?;
+    let binary = object.to_binary(&data_type)?;
     let from_binary = Wallets::from_binary(binary.as_ref())?;
-    assert_same_wallets(&from_binary, &entity);
+    assert_same_wallets(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type)?;
+    let textual = object.to_textual(&data_type)?;
     let from_textual = Wallets::from_textual(textual.as_str())?;
-    assert_same_wallets(&from_textual, &entity);
+    assert_same_wallets(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type)?;
     let from_cloned = Wallets::from_value(&cloned_value)?;
-    assert_same_wallets(&from_cloned, &entity);
+    assert_same_wallets(&from_cloned, &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, 1);
     assert_eq!(params.1, Some(100));
     assert_eq!(params.2, Some(1700000000));
@@ -107,16 +107,16 @@ fn wallets_lifecycle() -> RS<()> {
 
 #[test]
 fn wallets_nullable_fields_roundtrip() -> RS<()> {
-    let entity = Wallets::new(2, None, None);
-    let tuple = entity.to_tuple()?;
+    let object = Wallets::new(2, None, None);
+    let tuple = object.to_tuple()?;
     assert!(tuple.is_null(1));
     assert!(tuple.is_null(2));
     let restored = Wallets::from_tuple(&tuple)?;
-    assert_same_wallets(&restored, &entity);
+    assert_same_wallets(&restored, &object);
 
-    let value = entity.to_tuple_value()?;
+    let value = object.to_tuple_value()?;
     assert!(value.values()[1].is_null());
     let restored = Wallets::from_tuple_value(&value)?;
-    assert_same_wallets(&restored, &entity);
+    assert_same_wallets(&restored, &object);
     Ok(())
 }

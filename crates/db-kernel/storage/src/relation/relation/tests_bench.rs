@@ -259,7 +259,7 @@ async fn bench_version_index_loop(rel: &Relation, rows: &[(Vec<u8>, Option<Vec<u
 async fn bench_wal_isolation(value_bytes: &[Vec<u8>]) {
     use crate::page::PageId;
     use ::wal::pl_batch::{new_pl_batch_writer, PLBatch};
-    use ::wal::pl_entry::{PLEntry, PLFileId, PLOp, PLRecord, PageDelta};
+    use ::wal::pl_entry::{PLEntry, PLFileId, PLOp, PLStruct, PageDelta};
     use ::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBackend, WorkerLogLayout};
     use mudu_utils::oid::gen_oid;
 
@@ -284,7 +284,7 @@ async fn bench_wal_isolation(value_bytes: &[Vec<u8>]) {
             upserts: value_bytes
                 .iter()
                 .enumerate()
-                .map(|(j, v)| PLRecord {
+                .map(|(j, v)| PLStruct {
                     timestamp: 700_000,
                     tuple_id: j as u64 + 1,
                     payload: v.clone(),

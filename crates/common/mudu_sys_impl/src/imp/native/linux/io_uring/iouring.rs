@@ -20,14 +20,6 @@ mod linux {
         exited: bool,
     }
 
-    /// Owned copy of a `sockaddr_storage` with its length, for passing
-    /// socket addresses to io_uring operations.
-    #[derive(Clone, Copy)]
-    pub struct SockAddrBuf {
-        raw: rliburing::sockaddr_storage,
-        len: u32,
-    }
-
     impl IoUring {
         /// Creates a ring with a submission queue of `_entries` entries;
         /// returns the raw (negative) setup error code on failure. Always
@@ -186,56 +178,11 @@ mod linux {
         }
     }
 
-    impl SockAddrBuf {
-        /// Creates a zeroed buffer sized for a full `sockaddr_storage`.
-        pub fn new_empty() -> Self {
-            Self {
-                raw: unsafe { std::mem::zeroed() },
-                len: std::mem::size_of::<rliburing::sockaddr_storage>() as u32,
-            }
-        }
-
-        /// Returns the length of the stored address in bytes.
-        pub fn len(&self) -> usize {
-            self.len as usize
-        }
-
-        /// Returns `true` if no address is stored.
-        pub fn is_empty(&self) -> bool {
-            self.len == 0
-        }
-
-        pub(crate) fn from_raw(raw: rliburing::sockaddr_storage, len: u32) -> Self {
-            Self { raw, len }
-        }
-
-        pub(crate) fn raw(&self) -> &rliburing::sockaddr_storage {
-            &self.raw
-        }
-
-        pub(crate) fn sockaddr_ptr(&self) -> *const rliburing::sockaddr {
-            (&self.raw as *const rliburing::sockaddr_storage).cast()
-        }
-
-        pub(crate) fn sockaddr_mut_ptr(&mut self) -> *mut rliburing::sockaddr {
-            (&mut self.raw as *mut rliburing::sockaddr_storage).cast()
-        }
-
-        pub(crate) fn socklen(&self) -> rliburing::socklen_t {
-            self.len
-        }
-
-        pub(crate) fn socklen_mut_ptr(&mut self) -> *mut rliburing::socklen_t {
-            &mut self.len
-        }
-    }
-
     pub use crate::imp::native::linux::io_uring::completion::Completion as Cqe;
     use crate::imp::native::linux::io_uring::completion::Completion;
     pub use crate::imp::native::linux::io_uring::submission_queue_entry::SubmissionQueueEntry as Sqe;
     use crate::imp::native::linux::io_uring::submission_queue_entry::SubmissionQueueEntry;
     pub use IoUring as Ring;
-    pub use SockAddrBuf as SocketAddrBuf;
 
     #[cfg(test)]
     mod tests {
@@ -275,7 +222,7 @@ mod linux {
 
         #[test]
         fn sock_addr_buf_empty_state() {
-            let buf = super::SockAddrBuf::new_empty();
+            let buf = crate::imp::native::linux::io_uring::sock_addr_buf::SockAddrBuf::new_empty();
             assert_ne!(buf.len(), 0);
             assert!(!buf.is_empty());
         }
@@ -283,6 +230,8 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
+pub use crate::imp::native::linux::io_uring::sock_addr_buf::{SockAddrBuf, SocketAddrBuf};
+#[cfg(target_os = "linux")]
 pub use crate::imp::native::linux::io_uring::submission_queue_entry::SubmissionQueueEntry;
 #[cfg(target_os = "linux")]
-pub use linux::{Cqe, IoUring, Ring, SockAddrBuf, SocketAddrBuf, Sqe};
+pub use linux::{Cqe, IoUring, Ring, Sqe};

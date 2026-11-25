@@ -11,91 +11,19 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 
-use crate::imp::io::user_io::{complete_op, completion_error, op_state, poll_op, OpState};
+use crate::imp::io::user_io::{op_state, poll_op, OpState};
+use crate::imp::native::linux::io_uring::path_io::{
+    PathCreateDirRequest, PathExistsRequest, PathIoRequest, PathMetadataLenRequest,
+    PathRemoveFileRequest,
+};
 use crate::imp::native::linux::io_uring::worker_ring::{
-    has_current_worker_ring, with_current_ring, WorkerLocalRing, WorkerRingOp,
+    has_current_worker_ring, with_current_ring, WorkerRingOp,
 };
 
 #[cfg(feature = "debug_trace")]
 type PendingTaskTrace = crate::task::trace::TaskTrace;
 #[cfg(not(feature = "debug_trace"))]
 type PendingTaskTrace = crate::task::trace::NoopTaskTrace;
-
-/// A path operation queued for submission to the worker ring.
-pub enum PathIoRequest {
-    /// mkdirat for one path segment.
-    CreateDir(PathCreateDirRequest),
-    /// statx to test path existence.
-    PathExists(PathExistsRequest),
-    /// statx to read the file length.
-    MetadataLen(PathMetadataLenRequest),
-    /// unlinkat to remove a file.
-    RemoveFile(PathRemoveFileRequest),
-}
-
-/// A path operation submitted to the ring and not yet completed; keeps
-/// request-owned buffers alive until the CQE arrives.
-pub enum PathInflightOp {
-    /// In-flight mkdirat.
-    CreateDir(Box<PathCreateDirRequest>),
-    /// In-flight statx existence check.
-    PathExists(Box<PathExistsRequest>),
-    /// In-flight statx length query.
-    MetadataLen(Box<PathMetadataLenRequest>),
-    /// In-flight unlinkat.
-    RemoveFile(Box<PathRemoveFileRequest>),
-}
-
-impl PathIoRequest {
-    /// Returns a short static name of the operation kind for tracing.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::CreateDir(_) => "path.mkdir",
-            Self::PathExists(_) => "path.statx.exists",
-            Self::MetadataLen(_) => "path.statx.len",
-            Self::RemoveFile(_) => "path.unlink",
-        }
-    }
-}
-
-impl PathInflightOp {
-    /// Returns a short static name of the operation kind for tracing.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::CreateDir(_) => "path.mkdir",
-            Self::PathExists(_) => "path.statx.exists",
-            Self::MetadataLen(_) => "path.statx.len",
-            Self::RemoveFile(_) => "path.unlink",
-        }
-    }
-}
-
-/// Request to create one directory via mkdirat.
-pub struct PathCreateDirRequest {
-    path: CString,
-    mode: u32,
-    state: Arc<OpState<()>>,
-}
-
-/// Request to test a path's existence via statx.
-pub struct PathExistsRequest {
-    path: CString,
-    statx: Box<libc::statx>,
-    state: Arc<OpState<bool>>,
-}
-
-/// Request to read a file's length via statx.
-pub struct PathMetadataLenRequest {
-    path: CString,
-    statx: Box<libc::statx>,
-    state: Arc<OpState<u64>>,
-}
-
-/// Request to remove a file via unlinkat.
-pub struct PathRemoveFileRequest {
-    path: CString,
-    state: Arc<OpState<()>>,
-}
 
 enum PathFutureState<T> {
     Init,
@@ -125,74 +53,6 @@ pub(crate) struct PathMetadataLenFuture {
 pub(crate) struct PathRemoveFileFuture {
     path: Option<CString>,
     state: PathFutureState<()>,
-}
-
-impl PathCreateDirRequest {
-    fn new(path: CString, mode: u32, state: Arc<OpState<()>>) -> Self {
-        Self { path, mode, state }
-    }
-
-    fn path(&self) -> &CString {
-        &self.path
-    }
-
-    fn mode(&self) -> u32 {
-        self.mode
-    }
-
-    fn finish(self, result: RS<()>) {
-        complete_op(self.state, result);
-    }
-}
-
-impl PathExistsRequest {
-    fn new(path: CString, state: Arc<OpState<bool>>) -> Self {
-        Self {
-            path,
-            statx: Box::new(unsafe { std::mem::zeroed() }),
-            state,
-        }
-    }
-
-    fn path(&self) -> &CString {
-        &self.path
-    }
-
-    fn finish(self, result: RS<bool>) {
-        complete_op(self.state, result);
-    }
-}
-
-impl PathMetadataLenRequest {
-    fn new(path: CString, state: Arc<OpState<u64>>) -> Self {
-        Self {
-            path,
-            statx: Box::new(unsafe { std::mem::zeroed() }),
-            state,
-        }
-    }
-
-    fn path(&self) -> &CString {
-        &self.path
-    }
-
-    fn finish(self, result: RS<u64>) {
-        complete_op(self.state, result);
-    }
-}
-
-impl PathRemoveFileRequest {
-    fn new(path: CString, state: Arc<OpState<()>>) -> Self {
-        Self { path, state }
-    }
-
-    fn path(&self) -> &CString {
-        &self.path
-    }
-
-    fn finish(self, result: RS<()>) {
-        complete_op(self.state, result);
-    }
 }
 
 impl PathCreateDirFuture {
@@ -439,99 +299,6 @@ pub async fn remove_file_if_exists(path: &Path) -> RS<()> {
     PathRemoveFileFuture::new(path_to_cstring(path)?).await
 }
 
-/// Prepares the SQE for a queued path request and returns the inflight op
-/// keeping request-owned buffers alive.
-pub fn submit_path_io(
-    request: PathIoRequest,
-    sqe: &mut crate::imp::native::linux::io_uring::iouring::SubmissionQueueEntry<'_>,
-) -> PathInflightOp {
-    match request {
-        PathIoRequest::CreateDir(request) => {
-            debug!(path = %request.path().to_string_lossy(), "io_path submit mkdirat");
-            sqe.prep_mkdirat(libc::AT_FDCWD, request.path(), request.mode());
-            PathInflightOp::CreateDir(Box::new(request))
-        }
-        PathIoRequest::PathExists(mut request) => {
-            trace!(path = %request.path().to_string_lossy(), "io_path submit statx exists");
-            // The SQE stores the raw path pointer until the ring is submitted,
-            // so it must reference the CString owned by the request. Passing a
-            // temporary clone would leave a dangling pointer once the clone is
-            // dropped at the end of this match arm.
-            let path = &request.path;
-            let statx = request.statx.as_mut() as *mut libc::statx;
-            sqe.prep_statx(libc::AT_FDCWD, path, 0, libc::STATX_BASIC_STATS, statx);
-            PathInflightOp::PathExists(Box::new(request))
-        }
-        PathIoRequest::MetadataLen(mut request) => {
-            trace!(path = %request.path().to_string_lossy(), "io_path submit statx len");
-            // See the PathExists arm above: the SQE must point at the
-            // request-owned CString, not a dropped temporary clone.
-            let path = &request.path;
-            let statx = request.statx.as_mut() as *mut libc::statx;
-            sqe.prep_statx(libc::AT_FDCWD, path, 0, libc::STATX_SIZE, statx);
-            PathInflightOp::MetadataLen(Box::new(request))
-        }
-        PathIoRequest::RemoveFile(request) => {
-            trace!(path = %request.path().to_string_lossy(), "io_path submit unlinkat");
-            sqe.prep_unlinkat(libc::AT_FDCWD, request.path(), 0);
-            PathInflightOp::RemoveFile(Box::new(request))
-        }
-    }
-}
-
-/// Completes an inflight path operation from its CQE result, delivering the
-/// outcome to the waiting task. Returns `Ok(true)` when the op is done.
-pub fn complete_path_io(
-    _op_id: u64,
-    op: PathInflightOp,
-    result: i32,
-    _ring: &WorkerLocalRing,
-) -> RS<bool> {
-    match op {
-        PathInflightOp::CreateDir(request) => {
-            debug!(path = %request.path().to_string_lossy(), result, "io_path complete mkdirat");
-            if result < 0 && result != -libc::EEXIST {
-                request.finish(Err(completion_error("mkdirat", result)));
-            } else {
-                request.finish(Ok(()));
-            }
-            Ok(true)
-        }
-        PathInflightOp::PathExists(request) => {
-            trace!(path = %request.path().to_string_lossy(), result, "io_path complete statx exists");
-            if result == -libc::ENOENT {
-                request.finish(Ok(false));
-            } else if result < 0 {
-                request.finish(Err(completion_error("statx", result)));
-            } else {
-                request.finish(Ok(true));
-            }
-            Ok(true)
-        }
-        PathInflightOp::MetadataLen(request) => {
-            trace!(path = %request.path().to_string_lossy(), result, "io_path complete statx len");
-            if result < 0 {
-                request.finish(Err(completion_error("metalen statx", result)));
-            } else {
-                let len = request.statx.stx_size;
-                request.finish(Ok(len));
-            }
-            Ok(true)
-        }
-        PathInflightOp::RemoveFile(request) => {
-            trace!(path = %request.path().to_string_lossy(), result, "io_path complete unlinkat");
-            if result == -libc::ENOENT {
-                request.finish(Ok(()));
-            } else if result < 0 {
-                request.finish(Err(completion_error("unlinkat", result)));
-            } else {
-                request.finish(Ok(()));
-            }
-            Ok(true)
-        }
-    }
-}
-
 pub(crate) fn path_to_cstring(path: impl AsRef<Path>) -> RS<CString> {
     CString::new(path.as_ref().as_os_str().as_bytes()).map_err(|_| {
         mudu_error!(
@@ -564,6 +331,7 @@ pub(crate) fn path_prefixes(path: impl AsRef<Path>) -> Vec<PathBuf> {
 mod tests {
     use super::*;
     use crate::imp::io::user_io::try_take_op;
+    use crate::imp::native::linux::io_uring::path_io::{complete_path_io, PathInflightOp};
 
     fn test_cstring() -> CString {
         CString::new("/tmp/mudu-iou-path-test").unwrap()
@@ -626,8 +394,6 @@ mod tests {
 
     #[test]
     fn complete_path_io_error_and_edge_results() {
-        let ring = WorkerLocalRing::new();
-
         // mkdirat: a generic negative result is an error.
         let state = op_state();
         let op = PathInflightOp::CreateDir(Box::new(PathCreateDirRequest::new(
@@ -635,7 +401,7 @@ mod tests {
             0o755,
             state.clone(),
         )));
-        assert!(complete_path_io(1, op, -libc::EPERM, &ring).unwrap());
+        assert!(complete_path_io(1, op, -libc::EPERM).unwrap());
         assert!(try_take_op(&state).unwrap().is_err());
 
         // statx exists: ENOENT maps to `false`, other negatives to an error.
@@ -644,7 +410,7 @@ mod tests {
             test_cstring(),
             state.clone(),
         )));
-        assert!(complete_path_io(2, op, -libc::ENOENT, &ring).unwrap());
+        assert!(complete_path_io(2, op, -libc::ENOENT).unwrap());
         assert!(!try_take_op(&state).unwrap().unwrap());
 
         let state = op_state();
@@ -652,7 +418,7 @@ mod tests {
             test_cstring(),
             state.clone(),
         )));
-        assert!(complete_path_io(3, op, -libc::EACCES, &ring).unwrap());
+        assert!(complete_path_io(3, op, -libc::EACCES).unwrap());
         assert!(try_take_op(&state).unwrap().is_err());
 
         // statx len: negative results error out.
@@ -661,7 +427,7 @@ mod tests {
             test_cstring(),
             state.clone(),
         )));
-        assert!(complete_path_io(4, op, -libc::ENOENT, &ring).unwrap());
+        assert!(complete_path_io(4, op, -libc::ENOENT).unwrap());
         assert!(try_take_op(&state).unwrap().is_err());
 
         // unlinkat: ENOENT is success (idempotent removal), others error.
@@ -670,7 +436,7 @@ mod tests {
             test_cstring(),
             state.clone(),
         )));
-        assert!(complete_path_io(5, op, -libc::ENOENT, &ring).unwrap());
+        assert!(complete_path_io(5, op, -libc::ENOENT).unwrap());
         assert!(try_take_op(&state).unwrap().is_ok());
 
         let state = op_state();
@@ -678,7 +444,7 @@ mod tests {
             test_cstring(),
             state.clone(),
         )));
-        assert!(complete_path_io(6, op, -libc::EACCES, &ring).unwrap());
+        assert!(complete_path_io(6, op, -libc::EACCES).unwrap());
         assert!(try_take_op(&state).unwrap().is_err());
     }
 

@@ -74,7 +74,7 @@ async fn accessors_and_connection_lifecycle() {
     .unwrap();
 
     assert_eq!(app.name(), "app");
-    assert!(!app.schema_mgr().table_names().is_empty());
+    assert!(!app.schema_mgr().class_names().is_empty());
     assert!(app.async_runtime().is_none());
     assert!(app.connection(1).is_none());
 
@@ -110,7 +110,7 @@ async fn procedure_and_describe_return_not_found_for_missing_module() {
     assert!(app.procedure("missing", "missing").is_none());
 
     let err = app.describe("missing", "missing").unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 // libsql performs real SQLite file IO outside `mudu_sys`; the
@@ -147,7 +147,7 @@ async fn invoke_rejects_missing_procedure() {
                 .invoke(1, "missing", "missing", param, None)
                 .await
                 .unwrap_err();
-            assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
         })
         .await;
 }
@@ -212,6 +212,7 @@ async fn build_wallet_async_app(label: &str) -> (AppInstImpl, String) {
         sever_mode: Default::default(),
         async_runtime: None,
         defer_initdb: false,
+        trusted_key_fingerprints: Vec::new(),
     })
     .unwrap();
     runtime.instantiate().unwrap();

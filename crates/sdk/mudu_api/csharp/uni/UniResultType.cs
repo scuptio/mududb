@@ -34,7 +34,7 @@ public class UniResultTypeFormatter : IMessagePackFormatter<UniResultType>
 {
     public void Serialize(ref MessagePackWriter writer, UniResultType value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order). WIT option fields are omitted
         // when they hold no value (proto3 presence semantics); decode
         // treats a missing key as the default.

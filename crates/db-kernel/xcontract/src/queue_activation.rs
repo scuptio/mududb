@@ -31,7 +31,16 @@ use mudu_sys::sync::async_::{stop_channel, ANotify, StopRx, StopTx};
 use mudu_sys::task::async_::{build_current_thread_runtime, LocalTaskSet};
 use mudu_sys::task::sync::spawn_thread_named;
 
-use super::*;
+use crate::queue_types::QueueRegistry;
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+#[cfg(test)]
+use mudu::error::ErrorCode;
+#[cfg(test)]
+use mudu::mudu_error;
+use mudu_sys::sync::SMutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 /// Default consecutive-failure budget of an activation before it disables
 /// itself (`max_retry` when the registration does not carry one).
@@ -380,7 +389,7 @@ async fn activation_round(
     }
 }
 
-/// Records one invocation failure: bumps the consecutive-failure count, and
+/// Structs one invocation failure: bumps the consecutive-failure count, and
 /// either arms the backoff timer or — past `max_retry` — disables the
 /// activation with an alarm log. Returns the driver's next wait.
 fn activation_failure(
@@ -428,29 +437,32 @@ fn activation_failure(
     }
 }
 
-impl WorkerXContract {
-    /// Registers (or replaces) the activation of one queue on this worker and
-    /// spawns its driver task. The caller (the management endpoint) routes to
-    /// the worker owning the queue's unpartitioned partition.
-    pub fn queue_activation_register(
-        &self,
-        registration: QueueActivationRegistration,
-        invoker: Arc<dyn QueueActivationInvoker>,
-    ) -> RS<()> {
-        self.activation_registry
-            .register(registration, invoker, self.queue_registry.clone())
-    }
+/// Registers (or replaces) the activation of one queue on this worker and
+/// spawns its driver task. The caller (the management endpoint) routes to
+/// the worker owning the queue's unpartitioned partition.
+pub fn queue_activation_register(
+    activation_registry: &ActivationRegistry,
+    queue_registry: &Arc<QueueRegistry>,
+    registration: QueueActivationRegistration,
+    invoker: Arc<dyn QueueActivationInvoker>,
+) -> RS<()> {
+    activation_registry.register(registration, invoker, queue_registry.clone())
+}
 
-    /// Removes the activation of `queue_oid` and stops its driver task;
-    /// `false` when the queue had no activation.
-    pub fn queue_activation_unregister(&self, queue_oid: OID) -> RS<bool> {
-        self.activation_registry.unregister(queue_oid)
-    }
+/// Removes the activation of `queue_oid` and stops its driver task;
+/// `false` when the queue had no activation.
+pub fn queue_activation_unregister(
+    activation_registry: &ActivationRegistry,
+    queue_oid: OID,
+) -> RS<bool> {
+    activation_registry.unregister(queue_oid)
+}
 
-    /// Point-in-time status of every activation registered on this worker.
-    pub fn queue_activation_list(&self) -> RS<Vec<QueueActivationStatus>> {
-        self.activation_registry.list()
-    }
+/// Point-in-time status of every activation registered on this worker.
+pub fn queue_activation_list(
+    activation_registry: &ActivationRegistry,
+) -> RS<Vec<QueueActivationStatus>> {
+    activation_registry.list()
 }
 
 #[cfg(test)]

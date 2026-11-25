@@ -29,12 +29,12 @@ pub struct HotspotCols {
 
 impl __sdk::__query_builder::HasCols for Hotspot {
     type Cols = HotspotCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         HotspotCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            h_w_id: __sdk::__query_builder::Col::new(table_name, "h_w_id"),
-            h_id: __sdk::__query_builder::Col::new(table_name, "h_id"),
-            h_counter: __sdk::__query_builder::Col::new(table_name, "h_counter"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            h_w_id: __sdk::__query_builder::Col::new(class_name, "h_w_id"),
+            h_id: __sdk::__query_builder::Col::new(class_name, "h_id"),
+            h_counter: __sdk::__query_builder::Col::new(class_name, "h_counter"),
         }
     }
 }
@@ -48,9 +48,9 @@ pub struct HotspotIxCols {
 
 impl __sdk::__query_builder::HasIxCols for Hotspot {
     type IxCols = HotspotIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         HotspotIxCols {
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
         }
     }
 }

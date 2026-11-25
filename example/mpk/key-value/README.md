@@ -10,7 +10,7 @@ Before building, make sure you have:
 
 - [ ] `rustup` + `cargo` + `wasm32-wasip2` target
 - [ ] `cargo-make`
-- [ ] `python3` with `tomli-w` and `toml`
+- [ ] Python 3.11+ (standard library only)
 - [ ] `mgen`, `mtp`, `mpm-build`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 Procedures:
@@ -35,9 +35,7 @@ To build the `.mpk` package, make sure the following tools are installed:
 - `mtp`
 - `mpm-build`
 
-Python packages required by `script/build/transpiler.py`:
-
-- `tomli-w`
+`script/build/transpiler.py` requires Python 3.11+ and no third-party Python packages.
 
 Rust target required:
 
@@ -49,18 +47,6 @@ If `cargo-make` is not installed:
 
 ```bash
 cargo install cargo-make
-```
-
-If `tomli-w` is not installed and your system Python is externally managed, use one of these options.
-
-Install from the OS package manager when available:
-
-
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install tomli-w toml
 ```
 
 `mtp` and `mpm-build` must also be available in `PATH`. In this workspace they are expected to come from the project build/install flow.

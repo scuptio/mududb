@@ -2,18 +2,18 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use sys_interface::fs::{FsDirEntry, FsStat};
 
 /// Execute a query against the session.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     mudu_adapter::syscall::mudu_query(oid, sql, params)
 }
 
@@ -146,4 +146,39 @@ pub fn mudu_fs_fsync(session_id: OID, fd: u32) -> RS<()> {
 pub fn mudu_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEntry>> {
     mudu_adapter::syscall::mudu_fs_readdir(session_id, oid, path)
         .map(|ents| ents.into_iter().map(FsDirEntry::from).collect())
+}
+
+/// Open a volatile cache by name.
+///
+/// The standalone adapter has no worker-local cache store (cache syscalls are
+/// served by the WASM runtime host); this always reports `NotImplemented`.
+pub fn mudu_cache_open(_name: &str) -> RS<OID> {
+    not_implemented_cache()
+}
+
+/// Read a cache entry.
+pub fn mudu_cache_get(_cache: OID, _key: &[u8]) -> RS<Option<Vec<u8>>> {
+    not_implemented_cache()
+}
+
+/// Write a cache entry.
+pub fn mudu_cache_put(_cache: OID, _key: &[u8], _value: &[u8], _ttl_secs: Option<u64>) -> RS<()> {
+    not_implemented_cache()
+}
+
+/// Remove a cache entry.
+pub fn mudu_cache_delete(_cache: OID, _key: &[u8]) -> RS<()> {
+    not_implemented_cache()
+}
+
+/// Read a cache entry's remaining TTL.
+pub fn mudu_cache_ttl(_cache: OID, _key: &[u8]) -> RS<Option<u64>> {
+    not_implemented_cache()
+}
+
+fn not_implemented_cache<T>() -> RS<T> {
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::NotImplemented,
+        "cache syscalls are served by the WASM runtime host, not the standalone adapter"
+    ))
 }

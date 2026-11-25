@@ -9,7 +9,7 @@ use mudu::common::id::AttrIndex;
 
 impl WorkerRuntime {
     /// Resolve a relation (table) name to its descriptor, failing with
-    /// `EntityNotFound` when the table does not exist. The bare name resolves
+    /// `ObjectNotFound` when the table does not exist. The bare name resolves
     /// against the schema of the requesting application (search path
     /// `[current_schema, mududb]` inside the catalog).
     async fn relation_table_desc(&self, app_name: Option<&str>, table: &str) -> RS<Arc<TableDesc>> {
@@ -19,7 +19,7 @@ impl WorkerRuntime {
             .await?;
         let desc = desc.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such relation: {table}")
             )
         })?;
@@ -62,7 +62,12 @@ impl WorkerRuntime {
             )
             .await;
         if result.is_ok() {
-            self.contract.commit_tx(tx_mgr).await?;
+            // A commit error must not leak the transaction's epoch
+            // registration: abort it before propagating.
+            if let Err(err) = self.contract.commit_tx(tx_mgr.clone()).await {
+                let _ = self.contract.abort_tx(tx_mgr).await;
+                return Err(err);
+            }
         } else {
             self.contract.abort_tx(tx_mgr).await?;
         }
@@ -126,7 +131,12 @@ impl WorkerRuntime {
             )
             .await;
         if result.is_ok() {
-            self.contract.commit_tx(tx_mgr).await?;
+            // A commit error must not leak the transaction's epoch
+            // registration: abort it before propagating.
+            if let Err(err) = self.contract.commit_tx(tx_mgr.clone()).await {
+                let _ = self.contract.abort_tx(tx_mgr).await;
+                return Err(err);
+            }
         } else {
             self.contract.abort_tx(tx_mgr).await?;
         }
@@ -134,7 +144,7 @@ impl WorkerRuntime {
     }
 
     /// Insert one relation row through `XContract` (duplicate primary keys
-    /// fail with `EntityAlreadyExists`). Session-transaction and autocommit
+    /// fail with `ObjectAlreadyExists`). Session-transaction and autocommit
     /// handling mirrors [`Self::relation_get_in_session`].
     pub(crate) async fn relation_insert_in_session(
         &self,
@@ -170,7 +180,12 @@ impl WorkerRuntime {
             )
             .await;
         if result.is_ok() {
-            self.contract.commit_tx(tx_mgr).await?;
+            // A commit error must not leak the transaction's epoch
+            // registration: abort it before propagating.
+            if let Err(err) = self.contract.commit_tx(tx_mgr.clone()).await {
+                let _ = self.contract.abort_tx(tx_mgr).await;
+                return Err(err);
+            }
         } else {
             self.contract.abort_tx(tx_mgr).await?;
         }

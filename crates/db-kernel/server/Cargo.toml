@@ -32,12 +32,15 @@ mudu_contract = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
 mudu_utils = { workspace = true }
+mudu_raft = { workspace = true }
 sql_parser = { workspace = true }
 async-trait = { workspace = true }
 crossbeam-queue = { workspace = true }
 futures = { workspace = true }
 lazy_static = { workspace = true }
 libc = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 short-uuid = { workspace = true }
 tokio = { workspace = true }

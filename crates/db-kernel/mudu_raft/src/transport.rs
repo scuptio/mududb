@@ -8,13 +8,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::inbox::RaftSender;
 use mudu::common::result::RS;
-use mudu_sys::sync::sync_::unbounded_channel::ChannelSender;
 use mudu_sys::sync::SMutex;
 
 use crate::core::conf::NID;
 use crate::core::message::RaftMsg;
-use crate::node::RaftIn;
+use crate::inbox::RaftIn;
 
 /// Outbound message transport.
 ///
@@ -34,7 +34,7 @@ pub struct InMemoryNetwork {
 
 #[derive(Default)]
 struct InMemoryNetworkInner {
-    nodes: SMutex<HashMap<NID, ChannelSender<RaftIn>>>,
+    nodes: SMutex<HashMap<NID, RaftSender>>,
     dropped_links: SMutex<HashSet<(NID, NID)>>,
 }
 
@@ -45,7 +45,7 @@ impl InMemoryNetwork {
     }
 
     /// Registers a node's input channel (called when a node starts).
-    pub fn register(&self, node_id: NID, tx: ChannelSender<RaftIn>) -> RS<()> {
+    pub fn register(&self, node_id: NID, tx: RaftSender) -> RS<()> {
         self.inner.nodes.lock()?.insert(node_id, tx);
         Ok(())
     }
@@ -102,7 +102,7 @@ impl InMemoryNetwork {
         }
     }
 
-    fn lookup(&self, node_id: NID) -> Option<ChannelSender<RaftIn>> {
+    fn lookup(&self, node_id: NID) -> Option<RaftSender> {
         match self.inner.nodes.lock() {
             Ok(nodes) => nodes.get(&node_id).cloned(),
             Err(_) => None,

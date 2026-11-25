@@ -4,15 +4,15 @@ MuduDB groups queries, computation and updates into procedures that execute insi
 
 ## Procedures and execution modes
 
-Procedures compile to WebAssembly components and access the host database through system calls. Applications can also run outside the database process through a native adapter. These modes have different entry points and dependencies. See the [SDK capability table](../dev/sdk_distribution.md#language-and-execution-modes) for languages and examples.
+Procedures compile to WebAssembly components and access the host database through system calls. Applications can also run outside the database process through a native adapter. These modes have different entry points and dependencies. See the [SDK capability table](sdk_distribution.md#language-and-execution-modes) for languages and examples.
 
 The [procedure guide](procedure.md) uses the Rust facade to explain queries, parameter binding and transactions. Third-party libraries must support the chosen target and runtime; a native library is not necessarily usable in a Wasm guest.
 
 ## Type and SQL checks
 
-The `Entity` trait maps query results to Rust structs. `mgen` generates entity code from DDL, and the build's `mgen check-sql` step validates supported SQL against that DDL.
+The `Object` trait maps query results to Rust structs. `mgen` generates object code from DDL, and the build's `mgen check-sql` step validates supported SQL against that DDL.
 
-These checks catch some type and query errors. Business rules, permissions, transaction conflicts and returned results still need tests. See the [supported SQL subset](../dev/sql_subset.md).
+These checks catch some type and query errors. Business rules, permissions, transaction conflicts and returned results still need tests. See the [supported SQL subset](sql_subset.md).
 
 ## Packaging and installation
 

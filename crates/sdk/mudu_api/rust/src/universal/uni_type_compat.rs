@@ -47,7 +47,7 @@ impl ParamTypeTag {
 
 /// The parameter/column type compatibility table.
 ///
-/// Rules (documented in `doc/dev/sql_subset.md`):
+/// Rules (documented in `doc/en/sql_subset.md`):
 ///
 /// - `Null` fits every column.
 /// - `Integer` fits integer-family columns and `NUMERIC` (integer families

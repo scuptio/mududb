@@ -16,18 +16,18 @@ pub mod _fuzz {
     )]
 
     use crate::contract::field_info::FieldInfo;
-    use crate::contract::schema_table::SchemaTable;
+    use crate::contract::schema_class::SchemaClass;
     use arbitrary::{Arbitrary, Unstructured};
     use mudu::common::id::AttrIndex;
     use std::collections::HashMap;
 
     /// Fuzz target: arbitrary schemas yield consistent tuple descriptors and
     /// field mappings, and survive a JSON round-trip.
-    pub fn _schema_table(data: &[u8]) {
+    pub fn _schema_class(data: &[u8]) {
         let mut u = Unstructured::new(data);
         let mut vec = vec![];
         while !u.is_empty() {
-            let r = SchemaTable::arbitrary(&mut u);
+            let r = SchemaClass::arbitrary(&mut u);
             let s = match r {
                 Ok(s) => s,
                 Err(_) => break,
@@ -86,11 +86,11 @@ pub mod _fuzz {
             let _sch1 = sch.clone();
             let _str1 = format!("{:?}", _sch1);
             let json_str = serde_json::to_string(sch).unwrap();
-            let _sch2: SchemaTable = serde_json::from_str(&json_str).unwrap();
+            let _sch2: SchemaClass = serde_json::from_str(&json_str).unwrap();
             let _str2 = format!("{:?}", _sch2);
             assert_eq!(_str1, _str2);
             assert_eq!(_sch2.id(), sch.id());
-            assert_eq!(_sch2.table_name(), sch.table_name());
+            assert_eq!(_sch2.class_name(), sch.class_name());
         }
     }
 }

@@ -9,10 +9,12 @@ use super::utils::{
     starts_with_ignore_ascii_case,
 };
 use super::SQLParser;
+use crate::ast::stmt_create_cache::StmtCreateCache;
 use crate::ast::stmt_create_fs_type::{FsTypeKind, StmtCreateFsType};
 use crate::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
 use crate::ast::stmt_create_partition_rule::StmtCreatePartitionRule;
 use crate::ast::stmt_create_table::StmtCreateTable;
+use crate::ast::stmt_create_type::StmtCreateType;
 use crate::ast::stmt_drop_type::StmtDropType;
 use crate::ast::stmt_list::StmtList;
 use crate::ast::stmt_type::{StmtCommand, StmtType};
@@ -81,6 +83,20 @@ impl SQLParser {
             let stmt = self.parse_create_fs_type_custom(normalized)?;
             return Ok(Some(StmtList::new(vec![StmtType::Command(
                 StmtCommand::CreateFsType(stmt),
+            )])));
+        }
+
+        if starts_with_ignore_ascii_case(normalized, "create type ") {
+            let stmt = self.parse_create_type_custom(normalized)?;
+            return Ok(Some(StmtList::new(vec![StmtType::Command(
+                StmtCommand::CreateType(stmt),
+            )])));
+        }
+
+        if starts_with_ignore_ascii_case(normalized, "create cache ") {
+            let stmt = self.parse_create_cache_custom(normalized)?;
+            return Ok(Some(StmtList::new(vec![StmtType::Command(
+                StmtCommand::CreateCache(stmt),
             )])));
         }
 
@@ -256,6 +272,102 @@ impl SQLParser {
         Ok(StmtDropType::new(name.to_string()))
     }
 
+    /// Parse a `CREATE TYPE <name> AS (<col> <type>, ...)` statement.
+    ///
+    /// `CREATE TYPE FILESYSTEM ...` is handled separately (checked first in
+    /// `try_parse_custom_statement`); here `FILESYSTEM` is just a keyword.
+    pub(crate) fn parse_create_type_custom(&self, sql: &str) -> RS<StmtCreateType> {
+        let prefix = "create type ";
+        let rest = sql[prefix.len()..].trim();
+        let name_end = rest
+            .find(|c: char| c.is_whitespace() || c == '(')
+            .ok_or_else(|| {
+                mudu_error!(
+                    ErrorCode::Parse,
+                    "create type must specify AS and a column list"
+                )
+            })?;
+        let name = &rest[..name_end];
+        validate_type_name(name)?;
+        let body = rest[name_end..].trim();
+        if !starts_with_ignore_ascii_case(body, "as") {
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "create type must specify AS and a column list"
+            ));
+        }
+        let after_as = body["as".len()..].trim();
+        if !after_as.starts_with('(') {
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "create type must specify AS and a column list"
+            ));
+        }
+        let close_index = find_matching_paren(after_as, 0)?;
+        // Reuse the standard CREATE TABLE parser for the column list so type
+        // columns share the full type syntax.
+        let create_table_sql = format!("create table {} {}", name, &after_as[..=close_index]);
+        let stmt_list = self.parse_standard(&create_table_sql)?;
+        match stmt_list.stmts().first() {
+            Some(StmtType::Command(StmtCommand::CreateTable(table))) => Ok(StmtCreateType::new(
+                name.to_string(),
+                table.column_def().clone(),
+            )),
+            _ => Err(mudu_error!(
+                ErrorCode::Parse,
+                "failed to parse create type column list"
+            )),
+        }
+    }
+
+    /// Parse a `CREATE CACHE <name> LIKE <table> [TTL <n>]` statement.
+    ///
+    /// A cache only mirrors an existing table via `LIKE`; it never declares
+    /// its own columns.
+    pub(crate) fn parse_create_cache_custom(&self, sql: &str) -> RS<StmtCreateCache> {
+        let prefix = "create cache ";
+        let rest = sql[prefix.len()..].trim();
+        let name_end = rest.find(char::is_whitespace).ok_or_else(|| {
+            mudu_error!(ErrorCode::Parse, "create cache must specify LIKE <table>")
+        })?;
+        let name = &rest[..name_end];
+        validate_type_name(name)?;
+        let body = rest[name_end..].trim();
+        if !starts_with_ignore_ascii_case(body, "like")
+            || !body["like".len()..].starts_with(char::is_whitespace)
+        {
+            return Err(mudu_error!(
+                ErrorCode::Parse,
+                "create cache must specify LIKE <table>"
+            ));
+        }
+        let like_body = body["like".len()..].trim();
+        let table_end = like_body
+            .find(char::is_whitespace)
+            .unwrap_or(like_body.len());
+        let like_name = &like_body[..table_end];
+        validate_type_name(like_name)?;
+
+        let mut ttl_secs = None;
+        let tail = like_body[table_end..].trim();
+        if !tail.is_empty() {
+            if !starts_with_ignore_ascii_case(tail, "ttl") {
+                return Err(mudu_error!(
+                    ErrorCode::Parse,
+                    format!("unexpected trailing token in create cache: {tail}")
+                ));
+            }
+            let ttl_body = tail["ttl".len()..].trim();
+            ttl_secs = Some(parse_u64_token(ttl_body, "cache ttl seconds")?);
+        }
+
+        Ok(StmtCreateCache::new(
+            name.to_string(),
+            like_name.to_string(),
+            ttl_secs,
+        ))
+    }
+
     /// Print a human-readable parse error if the node contains errors.
     pub(crate) fn parse_error(&self, context: &ParseContext, node: &Node) -> RS<()> {
         if node.has_error() {
@@ -389,7 +501,8 @@ pub(crate) fn contains_custom_statement_syntax(sql: &str) -> bool {
     lowered.contains("create partition rule ")
         || lowered.contains("create partition placement ")
         || lowered.contains("partition by global rule ")
-        || lowered.contains("create type filesystem ")
+        || lowered.contains("create type ")
+        || lowered.contains("create cache ")
         || lowered.contains("create queue ")
         || lowered.contains("drop queue ")
         || lowered.contains("create consumer ")

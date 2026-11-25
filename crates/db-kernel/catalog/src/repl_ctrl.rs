@@ -20,11 +20,14 @@ pub trait RaftShareView: Send + Sync {
     /// Hint pointing clients at the current raft leader, if known.
     fn leader_hint(&self) -> Option<LeaderHint>;
 
+    /// The current raft leader's node id, if known (cluster redirect path).
+    fn leader_node_id(&self) -> Option<u64>;
+
     /// The raft term source used to fence xid allocation.
     fn term_source(&self) -> Arc<AtomicU64>;
 }
 
-/// Replication-mode (stream) control surface exposed to the write path.
+/// Stream-mode control surface exposed to the write path.
 pub trait ReplControl: Send + Sync {
     /// Whether this node is the configured primary.
     fn is_primary(&self) -> bool;
@@ -58,13 +61,13 @@ pub trait ReplControl: Send + Sync {
         leader_hint: Option<LeaderHint>,
     ) -> RS<()>;
 
-    /// The configured primary node id, if this node is a replica.
+    /// The configured primary node id, if this node is a StreamFollower.
     fn primary_node_id(&self) -> Option<u64>;
 
-    /// The configured primary address, if this node is a replica.
+    /// The configured primary address, if this node is a StreamFollower.
     fn primary_addr(&self) -> Option<String>;
 
-    /// The applied low-water mark of the primary's commit path.
+    /// The applied low-water mark of the Primary's commit path.
     fn applied_low_water(&self) -> u64;
 
     /// Begin tracking an apply round for the applied low watermark.

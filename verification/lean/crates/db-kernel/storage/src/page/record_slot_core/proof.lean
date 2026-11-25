@@ -6,15 +6,15 @@ namespace record_slot_proof
 
 /-- No write occurs when the destination cannot hold a slot. -/
 theorem write_short (s : Slot) (out : Aeneas.Std.Slice U8) (h : out.length < 32) :
-    record_slot_core.record_slot_core.RecordSlot.encode_bytes s out
+    record_slot_core.record_slot_core.StructSlot.encode_bytes s out
       ⦃ ok out' => ok = false ∧ out' = out ⦄ := by
-  unfold record_slot_core.record_slot_core.RecordSlot.encode_bytes
+  unfold record_slot_core.record_slot_core.StructSlot.encode_bytes
   simp [record_slot_core.record_slot_core.RECORD_SLOT_SIZE, h]
 
 /-- Short input is rejected before any field is read. -/
 theorem read_short (input : Aeneas.Std.Slice U8) (h : input.length < 32) :
-    record_slot_core.record_slot_core.RecordSlot.decode_bytes input ⦃ r => r = none ⦄ := by
-  unfold record_slot_core.record_slot_core.RecordSlot.decode_bytes
+    record_slot_core.record_slot_core.StructSlot.decode_bytes input ⦃ r => r = none ⦄ := by
+  unfold record_slot_core.record_slot_core.StructSlot.decode_bytes
   simp [record_slot_core.record_slot_core.RECORD_SLOT_SIZE, h]
 
 /-- Extending a written prefix replaces only the next field's bytes. -/
@@ -28,9 +28,9 @@ private theorem append_field (original written field : List U8)
 
 /-- Successful writes preserve the suffix after byte 31. -/
 @[step] theorem write_success (s : Slot) (out : Aeneas.Std.Slice U8) (h : 32 ≤ out.length) :
-    record_slot_core.record_slot_core.RecordSlot.encode_bytes s out
+    record_slot_core.record_slot_core.StructSlot.encode_bytes s out
       ⦃ ok out' => ok = true ∧ out'.val = encode s ++ out.val.drop 32 ⦄ := by
-  unfold record_slot_core.record_slot_core.RecordSlot.encode_bytes
+  unfold record_slot_core.record_slot_core.StructSlot.encode_bytes
   simp only [record_slot_core.record_slot_core.RECORD_SLOT_SIZE]
   split
   · scalar_tac
@@ -130,9 +130,9 @@ private theorem append_field (original written field : List U8)
 
 /-- Reading a full slot agrees with the byte-level layout specification. -/
 @[step] theorem read_success (input : Aeneas.Std.Slice U8) (h : 32 ≤ input.length) :
-    record_slot_core.record_slot_core.RecordSlot.decode_bytes input
+    record_slot_core.record_slot_core.StructSlot.decode_bytes input
       ⦃ r => r = some (decode input.val) ⦄ := by
-  unfold record_slot_core.record_slot_core.RecordSlot.decode_bytes
+  unfold record_slot_core.record_slot_core.StructSlot.decode_bytes
   simp only [record_slot_core.record_slot_core.RECORD_SLOT_SIZE]
   split
   · scalar_tac
@@ -307,21 +307,21 @@ private theorem append_field (original written field : List U8)
 
 /-- A fragment update preserves every field except the flag word. -/
 theorem fragment_fields (s : Slot) (kind : U16) :
-    record_slot_core.record_slot_core.RecordSlot.set_fragment_kind s kind ⦃ out =>
+    record_slot_core.record_slot_core.StructSlot.set_fragment_kind s kind ⦃ out =>
       out.offset = s.offset ∧ out.size = s.size ∧ out.timestamp = s.timestamp ∧
       out.tuple_id = s.tuple_id ∧ out.checksum = s.checksum ∧ out.reserved = s.reserved ∧
       (out.flag.bv &&& 3) = (kind.bv &&& 3) ∧
       (out.flag.bv &&& 65532) = (s.flag.bv &&& 65532) ⦄ := by
-  simp [record_slot_core.record_slot_core.RecordSlot.set_fragment_kind,
+  simp [record_slot_core.record_slot_core.StructSlot.set_fragment_kind,
     record_slot_core.record_slot_core.RECORD_SLOT_FLAG_FRAGMENT_MASK]
   simp [lift, UScalar.bv_or, UScalar.bv_and]
   simp [BitVec.and_or_distrib_right, BitVec.and_assoc]
 
 /-- Fragment reads mask exactly the low two bits, including the reserved value 3. -/
 theorem fragment_read (s : Slot) :
-    record_slot_core.record_slot_core.RecordSlot.fragment_kind s ⦃ r =>
+    record_slot_core.record_slot_core.StructSlot.fragment_kind s ⦃ r =>
       r.bv = s.flag.bv &&& 3 ⦄ := by
-  simp [record_slot_core.record_slot_core.RecordSlot.fragment_kind,
+  simp [record_slot_core.record_slot_core.StructSlot.fragment_kind,
     record_slot_core.record_slot_core.RECORD_SLOT_FLAG_FRAGMENT_MASK]
 
 /-- The size of the canonical encoding is independent of the field values. -/
@@ -367,7 +367,7 @@ theorem decode_encode (s : Slot) (tail : List U8) : decode (encode s ++ tail) = 
   have chunk_reserved : [(encode s ++ tail)[28]!, (encode s ++ tail)[29]!, (encode s ++ tail)[30]!, (encode s ++ tail)[31]!] = bytes s.reserved := by
     simp [encode, h_offset, h_size, h_timestamp, h_tuple_id, h_checksum, h_flag, h_reserved]
   cases s
-  simp only [decode, record_slot_core.record_slot_core.RecordSlot.mk.injEq]
+  simp only [decode, record_slot_core.record_slot_core.StructSlot.mk.injEq]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · apply (UScalar.eq_equiv_bv_eq _ _).mpr
     change (BitVec.fromLEBytes ([(encode _ ++ tail)[0]!, (encode _ ++ tail)[1]!, (encode _ ++ tail)[2]!, (encode _ ++ tail)[3]!].map UScalar.bv)).setWidth 32 = _
@@ -454,8 +454,8 @@ theorem encode_decode (input : List U8) (h : input.length = 32) :
 /-- The production writer followed by the production reader is an identity. -/
 theorem roundtrip (s : Slot) (out : Aeneas.Std.Slice U8) (h : 32 ≤ out.length) :
     (do
-      let (written, encoded) ← record_slot_core.record_slot_core.RecordSlot.encode_bytes s out
-      let decoded ← record_slot_core.record_slot_core.RecordSlot.decode_bytes encoded
+      let (written, encoded) ← record_slot_core.record_slot_core.StructSlot.encode_bytes s out
+      let decoded ← record_slot_core.record_slot_core.StructSlot.decode_bytes encoded
       ok (written, decoded)) ⦃ written decoded => written = true ∧ decoded = some s ⦄ := by
   step with write_success as ⟨written, encoded, hw, he⟩
   have hn : 32 ≤ encoded.length := by simp [Aeneas.Std.Slice.length, he]
@@ -465,11 +465,11 @@ theorem roundtrip (s : Slot) (out : Aeneas.Std.Slice U8) (h : 32 ≤ out.length)
 /-- The production decoder and encoder preserve an arbitrary complete disk slot. -/
 theorem disk_roundtrip (input : Aeneas.Std.Slice U8) (h : input.length = 32) :
     (do
-      let decoded ← record_slot_core.record_slot_core.RecordSlot.decode_bytes input
+      let decoded ← record_slot_core.record_slot_core.StructSlot.decode_bytes input
       match decoded with
       | none => ok none
       | some slot =>
-        let (_, encoded) ← record_slot_core.record_slot_core.RecordSlot.encode_bytes slot input
+        let (_, encoded) ← record_slot_core.record_slot_core.StructSlot.encode_bytes slot input
         ok (some encoded)) ⦃ r => r = some input ⦄ := by
   step with read_success as ⟨decoded, hd⟩
   simp only [hd]
@@ -487,16 +487,16 @@ def sanity_slot : Slot :=
 /-- Sanity: a concrete slot survives the production encode/decode pair. -/
 theorem sanity_roundtrip :
     (do
-      let (written, encoded) ← record_slot_core.record_slot_core.RecordSlot.encode_bytes
+      let (written, encoded) ← record_slot_core.record_slot_core.StructSlot.encode_bytes
         sanity_slot (Aeneas.Std.Slice.from (List.replicate 32 0#u8) (by scalar_tac))
-      let decoded ← record_slot_core.record_slot_core.RecordSlot.decode_bytes encoded
+      let decoded ← record_slot_core.record_slot_core.StructSlot.decode_bytes encoded
       ok (written, decoded)) ⦃ written decoded =>
         written = true ∧ decoded = some sanity_slot ⦄ :=
   roundtrip _ _ (by decide)
 
 /-- Sanity: a concrete short buffer is rejected without modification. -/
 theorem sanity_write_short :
-    record_slot_core.record_slot_core.RecordSlot.encode_bytes sanity_slot
+    record_slot_core.record_slot_core.StructSlot.encode_bytes sanity_slot
       (Aeneas.Std.Slice.from [0#u8] (by scalar_tac)) ⦃ ok out' =>
       ok = false ∧ out' = Aeneas.Std.Slice.from [0#u8] (by scalar_tac) ⦄ :=
   write_short _ _ (by decide)

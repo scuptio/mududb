@@ -2,7 +2,7 @@
 //!
 //! Thin wrappers over the fs syscall family with the session id as the first
 //! argument, mirroring the cross-language canonical surface
-//! (`doc/dev/binding_api_surface.md`). The flag and whence constants are the
+//! (`doc/en/binding_api_surface.md`). The flag and whence constants are the
 //! deployed wire values shared with the AssemblyScript binding.
 
 use crate::sys_interface::sync_api;

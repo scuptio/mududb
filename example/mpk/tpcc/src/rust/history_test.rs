@@ -1,7 +1,7 @@
-//! Unit tests for the `rust::history::History` entity.
+//! Unit tests for the `rust::history::History` object.
 
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::mudu::data_type::numeric::Numeric;
 use mududb::types::datum::{Datum, DatumDyn};
 
@@ -33,12 +33,12 @@ fn assert_same_history(lhs: &History, rhs: &History) {
 
 #[test]
 fn history_lifecycle() {
-    let entity = sample_history();
-    assert_eq!(entity.h_id, "h_id_val");
-    assert_eq!(entity.h_w_id, 5);
+    let object = sample_history();
+    assert_eq!(object.h_id, "h_id_val");
+    assert_eq!(object.h_w_id, 5);
 
-    // Entity metadata
-    assert_eq!(History::table_name(), "history");
+    // Object metadata
+    assert_eq!(History::class_name(), "history");
     assert_eq!(History::TABLE_NAME, "history");
     assert_eq!(History::tuple_desc().fields().len(), 8);
     assert_eq!(History::tuple_desc().fields()[0].name(), columns::H_ID);
@@ -47,25 +47,25 @@ fn history_lifecycle() {
 
     // Datum / DatumDyn metadata
     let data_type = History::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple / value / binary / textual roundtrips
-    let tuple = entity.to_tuple().unwrap();
-    assert_same_history(&History::from_tuple(&tuple).unwrap(), &entity);
-    let value = entity.to_value(&data_type).unwrap();
-    assert_same_history(&History::from_value(&value).unwrap(), &entity);
-    let binary = entity.to_binary(&data_type).unwrap();
-    assert_same_history(&History::from_binary(binary.as_ref()).unwrap(), &entity);
-    let textual = entity.to_textual(&data_type).unwrap();
-    assert_same_history(&History::from_textual(textual.as_str()).unwrap(), &entity);
+    let tuple = object.to_tuple().unwrap();
+    assert_same_history(&History::from_tuple(&tuple).unwrap(), &object);
+    let value = object.to_value(&data_type).unwrap();
+    assert_same_history(&History::from_value(&value).unwrap(), &object);
+    let binary = object.to_binary(&data_type).unwrap();
+    assert_same_history(&History::from_binary(binary.as_ref()).unwrap(), &object);
+    let textual = object.to_textual(&data_type).unwrap();
+    assert_same_history(&History::from_textual(textual.as_str()).unwrap(), &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
-    assert_same_history(&History::from_value(&cloned_value).unwrap(), &entity);
+    assert_same_history(&History::from_value(&cloned_value).unwrap(), &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, "h_id_val");
     assert_eq!(params.1, 1);
     assert_eq!(params.7, "h_data_val");

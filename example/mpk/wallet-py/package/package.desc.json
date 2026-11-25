@@ -212,9 +212,9 @@
             },
             {
               "data_type": {
-                "id": "Record",
+                "id": "Struct",
                 "param": {
-                  "Record": {
+                  "Struct": {
                     "name": "Profile",
                     "field": [
                       [
@@ -264,9 +264,9 @@
                       [
                         "home",
                         {
-                          "id": "Record",
+                          "id": "Struct",
                           "param": {
-                            "Record": {
+                            "Struct": {
                               "name": "Address",
                               "field": [
                                 [
@@ -309,9 +309,9 @@
           "fields": [
             {
               "data_type": {
-                "id": "Record",
+                "id": "Struct",
                 "param": {
-                  "Record": {
+                  "Struct": {
                     "name": "Profile",
                     "field": [
                       [
@@ -361,9 +361,9 @@
                       [
                         "home",
                         {
-                          "id": "Record",
+                          "id": "Struct",
                           "param": {
-                            "Record": {
+                            "Struct": {
                               "name": "Address",
                               "field": [
                                 [

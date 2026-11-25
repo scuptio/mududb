@@ -295,7 +295,7 @@ fn uni_data_value_to_json_value(value: UniDataValue) -> RS<Value> {
             .map(uni_data_value_to_json_value)
             .collect::<RS<Vec<_>>>()
             .map(Value::Array),
-        UniDataValue::Record(fields) => fields
+        UniDataValue::Struct(fields) => fields
             .into_iter()
             .map(|f| uni_data_value_to_json_value(f.field_value))
             .collect::<RS<Vec<_>>>()

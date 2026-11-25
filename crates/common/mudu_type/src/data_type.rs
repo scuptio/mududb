@@ -1,30 +1,23 @@
-use crate::type_family::TypeFamily;
+use crate::type_family::{TypeFamily, TypeName};
 
-use crate::data_type_impl::data_type_table::get_fn_param;
-
-use crate::data_type_info::DataTypeInfo;
 use crate::data_type_param_array::DataTypeParamArray;
 use crate::data_type_param_kind::DataTypeParamKind;
 use crate::data_type_param_numeric::DataTypeParamNumeric;
-use crate::data_type_param_record::DataTypeParamRecord;
 use crate::data_type_param_string::DataTypeParamString;
+use crate::data_type_param_struct::DataTypeParamStruct;
 use crate::data_type_param_time::DataTypeParamTime;
 use crate::data_type_param_timestamp::DataTypeParamTimestamp;
 use crate::data_type_param_timestamptz::DataTypeParamTimestampTz;
-use crate::type_error::TyErr;
-use mudu::common::cmp_order::Order;
-use mudu::common::result::RS;
 use paste::paste;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 
 /// A concrete data type: a type family paired with an optional parameter
 /// object (for example `varchar(42)` is family `String` with a string
 /// parameter).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataType {
-    id: TypeFamily,
-    param: Option<DataTypeParamKind>,
+    pub(crate) id: TypeFamily,
+    pub(crate) param: Option<DataTypeParamKind<DataType>>,
 }
 
 unsafe impl Send for DataType {}
@@ -32,27 +25,6 @@ unsafe impl Send for DataType {}
 unsafe impl Sync for DataType {}
 
 impl DataType {
-    /// Creates the type of family `id` with its default parameter.
-    ///
-    /// Panics if `id` is not a scalar type.
-    pub fn default_for(id: TypeFamily) -> DataType {
-        if !id.is_scalar_type() {
-            panic!("DataType::default_for({:?})", id);
-        }
-        let opt = id.opt_fn_param();
-
-        match opt {
-            Some(t) => {
-                if let Some(d) = t.default {
-                    d()
-                } else {
-                    DataType::new_no_param(id)
-                }
-            }
-            None => DataType::new_no_param(id),
-        }
-    }
-
     /// Returns the type family of this type.
     pub fn type_family(&self) -> TypeFamily {
         self.id
@@ -69,25 +41,11 @@ impl DataType {
     }
 
     /// Parses a type from its serializable descriptor.
-    pub fn from_info(info: &DataTypeInfo) -> Result<Self, TyErr> {
-        let opt_param = get_fn_param(info.id.to_u32());
-        if let Some(fn_param) = opt_param {
-            (fn_param.input)(&info.param)
-        } else {
-            Ok(Self {
-                id: info.id,
-                param: None,
-            })
-        }
-    }
-
-    /// Alias of [`DataType::from_info`].
-    pub fn new(info: &DataTypeInfo) -> Result<Self, TyErr> {
-        Self::from_info(info)
-    }
-
     /// Creates a type from a type family and an explicit parameter object.
-    pub fn from_id_param(type_family: TypeFamily, param: Option<DataTypeParamKind>) -> Self {
+    pub fn from_id_param(
+        type_family: TypeFamily,
+        param: Option<DataTypeParamKind<DataType>>,
+    ) -> Self {
         Self {
             id: type_family,
             param,
@@ -105,69 +63,18 @@ impl DataType {
             }
         }
     }
-
-    /// Consumes the type and returns its serializable descriptor.
-    pub fn into_info(self) -> DataTypeInfo {
-        DataTypeInfo {
-            id: self.id,
-            param: self.param.map_or(Default::default(), |p| {
-                p.map(|dt_p| dt_p.se_to_json().unwrap())
-            }),
-        }
-    }
-
-    /// Returns the serializable descriptor of this type.
-    pub fn to_info(&self) -> DataTypeInfo {
-        DataTypeInfo {
-            id: self.id,
-            param: self.param.as_ref().map_or(Default::default(), |p| {
-                p.map(|dt_p| dt_p.se_to_json().unwrap())
-            }),
-        }
-    }
-
-    fn compare(&self, other: &DataType) -> RS<Ordering> {
-        let ord = if !self.id.has_param() && !other.id.has_param() {
-            self.id.cmp(&other.id)
-        } else {
-            let opt_len1 = self.id.fn_send_type_len()(self).map_err(|e| e.to_m_err())?;
-            let opt_len2 = other.id.fn_send_type_len()(other).map_err(|e| e.to_m_err())?;
-            // fixed length type come first
-            match (opt_len1, opt_len2) {
-                (None, Some(_)) => Ordering::Greater,
-                (Some(_), None) => Ordering::Less,
-                (Some(_), Some(_)) => self.compare_inner(other)?,
-                (None, None) => self.compare_inner(other)?,
-            }
-        };
-        Ok(ord)
-    }
-
-    fn compare_inner(&self, other: &DataType) -> RS<Ordering> {
-        let ord = self.id.cmp(&other.id);
-        if ord != Ordering::Equal {
-            Ok(ord)
-        } else {
-            let ord = match (&self.param, &other.param) {
-                (None, Some(_)) => Ordering::Less,
-                (Some(_), None) => Ordering::Greater,
-                (Some(k1), Some(k2)) => k1.cmp_ord(k2)?,
-                (None, None) => Ordering::Equal,
-            };
-            Ok(ord)
-        }
-    }
 }
 
-impl Order for DataType {
-    fn cmp_ord(&self, other: &Self) -> RS<Ordering> {
-        self.compare(other)
+impl TypeName for DataType {
+    fn name(&self) -> String {
+        DataType::name(self)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::DataType;
+    use crate::data_type_codec::TypeCodec;
     use crate::data_type_param_numeric::DataTypeParamNumeric;
     use crate::data_type_param_string::DataTypeParamString;
     use crate::data_type_param_time::DataTypeParamTime;
@@ -292,9 +199,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DataType::default_for(Record)")]
+    #[should_panic(expected = "DataType::default_for(Struct)")]
     fn default_for_record_panics() {
-        let _ = DataType::default_for(TypeFamily::Record);
+        let _ = DataType::default_for(TypeFamily::Struct);
     }
 
     #[test]
@@ -364,6 +271,6 @@ impl_data_type_methods! {
     (DataTypeParamTime, Time, time),
     (DataTypeParamTimestamp, Timestamp, timestamp),
     (DataTypeParamTimestampTz, TimestampTz, timestamptz),
-    (DataTypeParamRecord, Record, record),
-    (DataTypeParamArray, Array, array),
+    (DataTypeParamStruct<DataType>, Struct, struct),
+    (DataTypeParamArray<DataType>, Array, array),
 }

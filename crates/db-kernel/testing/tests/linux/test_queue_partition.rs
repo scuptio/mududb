@@ -205,7 +205,7 @@ fn queue_view(http_port: u16, queue: &str) -> RS<Value> {
         .and_then(|queues| queues.iter().find(|q| q["name"] == queue).cloned())
         .ok_or_else(|| {
             mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("queue {queue} missing from the observability endpoint: {data}")
             )
         })

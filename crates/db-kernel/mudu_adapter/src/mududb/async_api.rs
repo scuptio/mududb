@@ -10,8 +10,8 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_client::client::async_client::{AsyncClient, AsyncClientImpl};
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{
@@ -53,7 +53,7 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     }
     .ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -129,11 +129,11 @@ pub async fn mudu_range_async(
 }
 
 /// Asynchronous version of [`mudu_query`](super::sync_api::mudu_query).
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let sql_text = sql_stmt.to_sql_string();
     let params = to_data_values(params)?;
     let app_name = config::mudud_app_name()
@@ -150,7 +150,7 @@ pub async fn mudu_query_async<R: Entity>(
         .await?;
     let desc = response.row_desc().clone();
     let rows = response.rows().to_vec();
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(rows)),
         Arc::new(desc),
     ))

@@ -16,9 +16,9 @@ pub struct ExtractedSql {
     /// site, when the literal is passed to a query/command call together
     /// with a tuple-style parameter list.
     pub param_arity: Option<usize>,
-    /// Entity type name from the call's turbofish
+    /// Object type name from the call's turbofish
     /// (`mudu_query::<Wallets>`), when present.
-    pub entity: Option<String>,
+    pub object: Option<String>,
     /// Per-position type tags of the parameter tuple elements that are
     /// source literals (`42`, `0L`, `"s"`, `1.5`, `true`, `b".."`);
     /// `None` for non-literal elements. Empty when the parameter shape is
@@ -34,7 +34,7 @@ impl ExtractedSql {
             line,
             column,
             param_arity: None,
-            entity: None,
+            object: None,
             param_literal_tags: Vec::new(),
         }
     }
@@ -54,7 +54,7 @@ impl ExtractedSql {
 ///
 /// In every case the keyword must sit on a word boundary and be followed
 /// by at least one more token: a bare keyword fragment (e.g. the
-/// `"UPDATE "` pieces produced by entity-generated dynamic-SQL builders)
+/// `"UPDATE "` pieces produced by object-generated dynamic-SQL builders)
 /// is not a statement and returns `None`.
 pub fn dml_keyword(content: &str) -> Option<&'static str> {
     let trimmed = content.trim_start();

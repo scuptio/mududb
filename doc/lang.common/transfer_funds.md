@@ -68,7 +68,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
 
-    // 3. Entity the transaction
+    // 3. Object the transaction
     let id = Uuid::new_v4().to_string();
     let insert_rows = mudu_command(
         oid,

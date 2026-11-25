@@ -7,6 +7,7 @@
 //! gives the management layer the channel's timeout/nack semantics.
 
 use super::WorkerRuntime;
+use catalog::contract::queue::{QueueWait, QUEUE_PAYLOAD_ATTR_START};
 use mudu::common::id::{INVALID_OID, OID};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -17,9 +18,8 @@ use mudu_contract::protocol::ProcedureInvokeRequest;
 use mudu_type::data_value::DataValue;
 use mudu_utils::channel::{current_channel, ServiceRouter};
 use std::sync::Arc;
-use xcontract::{
-    ManagementRequest, ManagementResponse, QueueActivationInvoker, QueueConsumerSnapshot,
-};
+use xcontract::management_rpc::{ManagementRequest, ManagementResponse, QueueConsumerSnapshot};
+use xcontract::queue_activation::{QueueActivationInvoker, QueueActivationRegistration};
 
 impl WorkerRuntime {
     /// Registers this worker's management-plane service on its channel
@@ -46,30 +46,7 @@ impl WorkerRuntime {
     ) -> RS<ManagementResponse> {
         match request {
             ManagementRequest::QueueActivationRegister(registration) => {
-                if !self.has_procedure_runtime() {
-                    return Err(mudu_error!(
-                        ErrorCode::NotImplemented,
-                        "the worker owning the queue has no procedure runtime configured; queue activations require one"
-                    ));
-                }
-                // An activation drives keyless receives; a sharded queue has
-                // no single receive target, so activations stay
-                // unpartitioned-only for now.
-                let shards = self
-                    .x_contract()
-                    .queue_shards(registration.queue_oid)
-                    .await?;
-                if shards.len() > 1 {
-                    return Err(mudu_error!(
-                        ErrorCode::NotImplemented,
-                        "queue activation on a partitioned queue is not supported yet"
-                    ));
-                }
-                let invoker =
-                    WorkerActivationInvoker::new(self.clone(), registration.procedure.clone())?;
-                self.contract
-                    .queue_activation_register(registration, Arc::new(invoker))?;
-                Ok(ManagementResponse::Registered)
+                self.handle_queue_activation_register(registration).await
             }
             ManagementRequest::QueueActivationUnregister { queue_oid } => {
                 Ok(ManagementResponse::Unregistered(
@@ -92,7 +69,7 @@ impl WorkerRuntime {
                         }
                         Ok(ManagementResponse::Probe { shards: hosted })
                     }
-                    Err(err) if err.ec() == ErrorCode::EntityNotFound => {
+                    Err(err) if err.ec() == ErrorCode::ObjectNotFound => {
                         Ok(ManagementResponse::Probe { shards: Vec::new() })
                     }
                     Err(err) => Err(err),
@@ -115,7 +92,73 @@ impl WorkerRuntime {
                         .collect(),
                 ))
             }
+            ManagementRequest::ReceiveQueue {
+                queue_oid,
+                consumer,
+                count,
+                wait_forever,
+            } => {
+                self.handle_receive_queue(queue_oid, consumer, count, wait_forever)
+                    .await
+            }
         }
+    }
+
+    async fn handle_queue_activation_register(
+        &self,
+        registration: QueueActivationRegistration,
+    ) -> RS<ManagementResponse> {
+        if !self.has_procedure_runtime() {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "the worker owning the queue has no procedure runtime configured; queue activations require one"
+            ));
+        }
+        // An activation drives keyless receives; a sharded queue has no
+        // single receive target, so activations stay unpartitioned-only for
+        // now.
+        let shards = self
+            .x_contract()
+            .queue_shards(registration.queue_oid)
+            .await?;
+        if shards.len() > 1 {
+            return Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "queue activation on a partitioned queue is not supported yet"
+            ));
+        }
+        let invoker = WorkerActivationInvoker::new(self.clone(), registration.procedure.clone())?;
+        self.contract
+            .queue_activation_register(registration, Arc::new(invoker))?;
+        Ok(ManagementResponse::Registered)
+    }
+
+    async fn handle_receive_queue(
+        &self,
+        queue_oid: OID,
+        consumer: Option<String>,
+        count: u64,
+        wait_forever: bool,
+    ) -> RS<ManagementResponse> {
+        let shard = self.x_contract().queue_receive_shard(queue_oid).await?;
+        self.x_contract().queue_prepare_shard(&shard).await?;
+        let wait = if wait_forever {
+            QueueWait::Forever
+        } else {
+            QueueWait::Timeout(0)
+        };
+        let rows = self
+            .x_contract()
+            .queue_receive_wait(&shard, count, wait, consumer)
+            .await?;
+        // Strip the queue system columns (`__seq`, `__lsn`, `status`,
+        // `receive_count`, `__state_*`): the caller only cares about the
+        // payload columns and decodes them with the queue schema.
+        let payloads = rows
+            .into_iter()
+            .map(|row| row.into_iter().skip(QUEUE_PAYLOAD_ATTR_START).collect())
+            .collect();
+        Ok(ManagementResponse::Received { rows: payloads })
     }
 }
 

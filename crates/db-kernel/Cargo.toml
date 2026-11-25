@@ -27,6 +27,7 @@ members = [
     "runtime_wasm",
     "sys_interface_standalone",
     "testing",
+    "ws_gateway",
 ]
 
 [workspace.package]
@@ -76,10 +77,12 @@ runtime_libsql = { path = "runtime_libsql" }
 runtime_wasm = { path = "runtime_wasm" }
 sys_interface_standalone = { path = "sys_interface_standalone" }
 testing = { path = "testing" }
+ws_gateway = { path = "ws_gateway" }
 
 # Crates from the sibling common workspace.
 mudu = { path = "../common/mudu" }
 mudu_binding = { path = "../common/mudu_binding" }
+mudu_caf = { path = "../common/mudu_caf" }
 mudu_client = { path = "../common/mudu_client" }
 mudu_compat_migrate = { path = "../common/mudu_compat_migrate" }
 mudu_contract = { path = "../common/mudu_contract" }

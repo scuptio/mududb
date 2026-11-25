@@ -66,6 +66,25 @@ pub fn build_multi_thread_runtime() -> RS<TaskRuntime> {
         .map_err(|e| mudu_error!(ErrorCode::Tokio, "create multi thread runtime error", e))
 }
 
+/// Builds one protocol owner executor with a bounded, shared blocking IO pool.
+/// Multiple serialized protocol tasks can share this runtime.
+pub fn build_serial_io_runtime(max_blocking_threads: usize) -> RS<TaskRuntime> {
+    if max_blocking_threads == 0 {
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "blocking IO thread limit must be positive"
+        ));
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .max_blocking_threads(max_blocking_threads)
+        .thread_name("mudu-protocol")
+        .enable_all()
+        .build()
+        .map(TaskRuntime::new)
+        .map_err(|e| mudu_error!(ErrorCode::Tokio, "create serial IO runtime error", e))
+}
+
 /// A current-thread Tokio runtime paired with a [`LocalTaskSet`] for
 /// running `!Send` futures.
 pub struct CurrentThreadTaskRuntime {
@@ -78,6 +97,25 @@ impl CurrentThreadTaskRuntime {
     pub fn new() -> RS<Self> {
         Ok(Self {
             runtime: build_current_thread_runtime()?,
+            local: LocalTaskSet::new(),
+        })
+    }
+
+    /// Creates a local runtime with a bounded blocking IO pool.
+    pub fn with_max_blocking_threads(max_blocking_threads: usize) -> RS<Self> {
+        if max_blocking_threads == 0 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "blocking IO thread limit must be positive"
+            ));
+        }
+        let inner = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(max_blocking_threads)
+            .enable_all()
+            .build()
+            .map_err(|e| mudu_error!(ErrorCode::Tokio, "create local IO runtime error", e))?;
+        Ok(Self {
+            runtime: TaskRuntime::new(inner),
             local: LocalTaskSet::new(),
         })
     }
@@ -249,6 +287,21 @@ mod tests {
         let crt = CurrentThreadTaskRuntime::new().unwrap();
         let _local = crt.local();
         assert_eq!(crt.block_on(async { 5 }), 5);
+    }
+
+    #[test]
+    fn bounded_local_runtime_supports_thread_confined_tasks() {
+        assert!(CurrentThreadTaskRuntime::with_max_blocking_threads(0).is_err());
+        let runtime = CurrentThreadTaskRuntime::with_max_blocking_threads(1).unwrap();
+        runtime.block_on(async {
+            let value = std::rc::Rc::new(17);
+            let task = spawn_local_detached("local-runtime-test", async move {
+                tokio::task::yield_now().await;
+                *value
+            })
+            .unwrap();
+            assert_eq!(task.await.unwrap(), Some(17));
+        });
     }
 
     #[test]

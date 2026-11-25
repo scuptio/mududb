@@ -72,7 +72,7 @@ impl InsertKeyValue {
                 // the KV engine cannot address keyless rows, and equal empty
                 // keys would make every row overwrite the previous one.
                 // Reject with InvalidTuple (a user input/shape error), not
-                // EntityNotFound (nothing was looked up and missed here).
+                // ObjectNotFound (nothing was looked up and missed here).
                 if desc.key_indices().is_empty() {
                     return Err(mudu_error!(
                         ER::InvalidTuple,

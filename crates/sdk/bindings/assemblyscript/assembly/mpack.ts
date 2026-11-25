@@ -15,14 +15,14 @@
 // - Decoding floats is lenient across the 0xCA/0xCB markers in both
 //   directions, matching `rmp_serde::from_slice` (`from_slice::<f32>` accepts
 //   an f64 encoding and vice versa).
-// - Record/request bodies are integer-keyed maps (MSSP v1 revised wire
+// - Struct/request bodies are integer-keyed maps (MSSP v1 revised wire
 //   format): `readMapKey` mirrors the host's lenient key handling (integer
 //   keys of any width, negative or non-integer keys collapse to the
 //   never-used key 0 so the caller skips the value) and `skipValue` consumes
 //   and discards any value (unknown map keys).
 // - `readBool` additionally accepts the integer 0/1 form: a bool crosses the
 //   Mudu procedure byte pipe as an i32 (the host's uni-data-value vocabulary
-//   has no Bool case), so record codecs decoding host-supplied records must
+//   has no Bool case), so struct codecs decoding host-supplied structs must
 //   accept it (the generated decoders call `readBool` for bool fields).
 
 export class MpackWriter {
@@ -233,8 +233,8 @@ export class MpackReader {
     if (b == 0xc2) return false;
     if (b == 0xc3) return true;
     // A bool crosses the procedure byte pipe as an i32 (0/1): accept the
-    // integer form so the generated record codecs decode host-supplied
-    // records (see the module header).
+    // integer form so the generated struct codecs decode host-supplied
+    // structs (see the module header).
     this.pos -= 1;
     if (this.isIntMarker(this.bytes[this.pos])) {
       const v = this.readI64();
@@ -246,7 +246,7 @@ export class MpackReader {
   }
 
   // The next MessagePack marker byte without consuming it (used by the
-  // record bridge's schema-less value parse).
+  // struct bridge's schema-less value parse).
   peekCode(): u8 {
     if (this.pos >= this.bytes.length) {
       throw new Error("mpack: unexpected end of input");
@@ -360,7 +360,7 @@ export class MpackReader {
     throw new Error("mpack: expected map marker, got 0x" + b.toString(16));
   }
 
-  // Reads a record/request map key. Integer keys of any width are returned
+  // Reads a struct/request map key. Integer keys of any width are returned
   // (negative keys collapse to 0); any non-integer key is consumed and also
   // reported as 0. Field numbers are 1-based, so 0 tells the caller to skip
   // the associated value — matching the host's lenient key handling.
@@ -379,7 +379,7 @@ export class MpackReader {
   }
 
   // Consumes one MessagePack value of any shape and discards it (used for
-  // unknown record/request map keys).
+  // unknown struct/request map keys).
   skipValue(): void {
     const b = this.take();
     if (b <= 0x7f || b >= 0xe0) return; // fixint

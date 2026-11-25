@@ -14,6 +14,8 @@ use std::time::Duration;
 // layer does not depend on the server config.
 pub use ::catalog::repl_cfg::{ReplMode, ReplNodeCfg, ReplPeerCfg, ReplRole};
 
+use ::catalog::contract::cluster_topology::ClusterTopology;
+
 /// Default group-commit batching window: how long a queued commit batch may
 /// age before the flush driver flushes it, when byte/frame watermarks are
 /// not met first.
@@ -98,6 +100,11 @@ pub struct ServerCfg {
     queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     replication: Option<ReplNodeCfg>,
+    /// Static cluster topology plus this node's cluster node id.
+    cluster: Option<(u64, ClusterTopology)>,
+    /// Enables the sparse epoch protocol in the control plane (P4 rollout;
+    /// off by default).
+    sparse_epoch: bool,
     backup: Option<BackupCfg>,
 }
 
@@ -132,6 +139,8 @@ impl ServerCfg {
             wal_sync_policy: WalSyncPolicy::Commit,
             queue_limits: (65536, 64 * 1024 * 1024),
             replication: None,
+            cluster: None,
+            sparse_epoch: false,
             backup: None,
         })
     }
@@ -182,10 +191,18 @@ impl ServerCfg {
         self
     }
 
-    /// Attaches a primary-replica replication configuration. `None` keeps the
+    /// Attaches a stream replication configuration. `None` keeps the
     /// server in single-node mode (no replication components are started).
     pub fn with_replication(mut self, replication: Option<ReplNodeCfg>) -> Self {
         self.replication = replication;
+        self
+    }
+
+    /// Attaches the static cluster topology (multi-node-group scale-out):
+    /// the topology plus this node's cluster node id. `None` keeps the
+    /// server as a single self-contained group.
+    pub fn with_cluster(mut self, cluster: Option<(u64, ClusterTopology)>) -> Self {
+        self.cluster = cluster;
         self
     }
 
@@ -193,6 +210,13 @@ impl ServerCfg {
     /// backup-free (WAL GC behaves as before).
     pub fn with_backup(mut self, backup: Option<BackupCfg>) -> Self {
         self.backup = backup;
+        self
+    }
+
+    /// Enables or disables the sparse epoch protocol (P4 rollout; off by
+    /// default).
+    pub fn with_sparse_epoch(mut self, sparse_epoch: bool) -> Self {
+        self.sparse_epoch = sparse_epoch;
         self
     }
 
@@ -336,8 +360,35 @@ impl ServerCfg {
         self.replication.as_ref()
     }
 
+    /// The static cluster topology of this server, when enabled.
+    pub fn cluster(&self) -> Option<&ClusterTopology> {
+        self.cluster.as_ref().map(|(_, topology)| topology)
+    }
+
+    /// This node's cluster node id, when cluster mode is enabled.
+    pub fn cluster_node_id(&self) -> Option<u64> {
+        self.cluster.as_ref().map(|(node_id, _)| *node_id)
+    }
+
+    /// Whether this node is a dedicated control-plane node (it belongs to the
+    /// control set but to no data group, so it runs no business workers).
+    pub fn is_control_node(&self) -> bool {
+        match (self.cluster(), self.cluster_node_id()) {
+            (Some(topology), Some(node_id)) => {
+                topology.role_of(node_id)
+                    == Some(::catalog::contract::cluster_topology::NodeRole::ControlPlane)
+            }
+            _ => false,
+        }
+    }
+
     /// The backup / PITR configuration of this server, when enabled.
     pub fn backup(&self) -> Option<&BackupCfg> {
         self.backup.as_ref()
+    }
+
+    /// Whether the sparse epoch protocol is enabled in the control plane.
+    pub fn sparse_epoch(&self) -> bool {
+        self.sparse_epoch
     }
 }

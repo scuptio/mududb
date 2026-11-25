@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use mudu::common::result::RS;
 use sql_parser::parser::ddl_parser::DDLParser;
 
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_sys::fs;
 use scc::HashMap as SCCHashMap;
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ const DDL_SQL_EXTENSION: &str = "sql";
 /// Manager holding the table schema definitions for an application.
 #[derive(Clone)]
 pub struct SchemaMgr {
-    tables: Arc<HashMap<String, TableDef>>,
+    tables: Arc<HashMap<String, ClassDef>>,
 }
 
 lazy_static! {
@@ -84,12 +84,12 @@ impl SchemaMgr {
     }
 
     /// Looks up a table definition by name.
-    pub fn get(&self, key: &String) -> RS<Option<TableDef>> {
+    pub fn get(&self, key: &String) -> RS<Option<ClassDef>> {
         Ok(self.tables.get(key).cloned())
     }
 
     /// Returns the names of all known tables.
-    pub fn table_names(&self) -> Vec<String> {
+    pub fn class_names(&self) -> Vec<String> {
         self.tables.keys().cloned().collect()
     }
 }
@@ -97,11 +97,11 @@ impl SchemaMgr {
 fn load_table_map_from_sql_text(
     sql_text: &str,
     parser: &DDLParser,
-) -> RS<HashMap<String, TableDef>> {
-    let table_def_list = parser.parse(sql_text)?;
-    let mut tables = HashMap::with_capacity(table_def_list.len());
-    for table_def in table_def_list {
-        tables.insert(table_def.table_name().clone(), table_def);
+) -> RS<HashMap<String, ClassDef>> {
+    let class_def_list = parser.parse(sql_text)?;
+    let mut tables = HashMap::with_capacity(class_def_list.len());
+    for class_def in class_def_list {
+        tables.insert(class_def.class_name().clone(), class_def);
     }
     Ok(tables)
 }
@@ -112,10 +112,10 @@ fn load_table_map_from_sql_text(
 struct RuntimeSchemaLookup;
 
 impl ::server::app_schema_lookup::AppSchemaLookup for RuntimeSchemaLookup {
-    fn schema(&self, app_name: &str) -> Option<Vec<TableDef>> {
+    fn schema(&self, app_name: &str) -> Option<Vec<ClassDef>> {
         let mgr = SchemaMgr::get_mgr(&app_name.to_string())?;
         let mut tables = Vec::new();
-        for name in mgr.table_names() {
+        for name in mgr.class_names() {
             if let Ok(Some(def)) = mgr.get(&name) {
                 tables.push(def);
             }

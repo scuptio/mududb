@@ -1,8 +1,8 @@
 //! A lightweight context wrapping a synchronous connection.
 
 use crate::database::db_conn::DBConnSync;
-use crate::database::entity::Entity;
-use crate::database::entity_set::EntitySet;
+use crate::database::object::Object;
+use crate::database::object_set::ObjectSet;
 use crate::database::sql_params::SQLParams;
 use crate::database::sql_stmt::SQLStmt;
 use mudu::common::result::RS;
@@ -25,9 +25,9 @@ impl Context {
     }
 
     /// Runs a query and maps the result rows to entities of type `R`.
-    pub fn query<R: Entity>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<EntitySet<R>> {
+    pub fn query<R: Object>(&self, sql: &dyn SQLStmt, param: &dyn SQLParams) -> RS<ObjectSet<R>> {
         let (rs, ds) = self.conn.query(sql, param)?;
-        let r = EntitySet::<R>::new(rs, ds);
+        let r = ObjectSet::<R>::new(rs, ds);
         Ok(r)
     }
 

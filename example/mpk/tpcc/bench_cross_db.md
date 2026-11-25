@@ -67,7 +67,7 @@ entry benchmarks the procedure client against a tokio server in the same run.
 
 For the MuduDB configurations:
 
-- `tcp_multi_port = true` is enabled (port sharding).
+- `tcp_multi_port = true` is enabled (per-worker port routing).
 - `worker_threads` is set to the current CPU core limit.
 - Warehouse partitioning is **enabled**: the benchmark creates a partition rule
   with one range partition per worker by default (each covering a contiguous

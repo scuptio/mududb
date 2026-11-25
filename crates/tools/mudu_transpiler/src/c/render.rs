@@ -5,7 +5,7 @@
 //! from the marker annotation (arity plus `mudu_datum.kind` per parameter),
 //! and the `mp2-<kebab>` export wrapper that drives `mudu_run_proc`.
 //!
-//! Record parameters pass through as the `MUDU_DATUM_RECORD` datum kind (the
+//! Struct parameters pass through as the `MUDU_DATUM_STRUCT` datum kind (the
 //! procedure decodes the envelope itself, composing the binding's record
 //! bridge with the mgen-generated `<type>_decode`); enum parameters ride as
 //! plain `MUDU_DATUM_I64` ordinals; an `option<T>` parameter additionally
@@ -14,7 +14,7 @@
 //! `--type-import`, which makes the wiring visible to (and validated by) the
 //! wrapper translation unit's compile.
 
-use crate::c::procedure::{CProcedure, CValueType};
+use crate::c::types::{CProcedure, CValueType};
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -44,10 +44,7 @@ struct AdapterProcedure {
 /// types header (`--type-import`, e.g. `"gentypes/Types.h"`); it is required
 /// exactly when a procedure signature references a user-defined type from
 /// `--type-wit`.
-pub(super) fn render_adapter_source(
-    procedures: &[CProcedure],
-    type_import: Option<&str>,
-) -> RS<String> {
+pub fn render_adapter_source(procedures: &[CProcedure], type_import: Option<&str>) -> RS<String> {
     let uses_custom_types = procedures.iter().any(|procedure| {
         procedure
             .params
@@ -100,7 +97,7 @@ impl AdapterProcedure {
 }
 
 /// The `mudu_datum.kind` guard for one parameter: record parameters pass
-/// through as `MUDU_DATUM_RECORD`, enum parameters as `MUDU_DATUM_I64`, and
+/// through as `MUDU_DATUM_STRUCT`, enum parameters as `MUDU_DATUM_I64`, and
 /// an option parameter additionally accepts `MUDU_DATUM_NULL`.
 fn datum_check(index: usize, value_type: &CValueType) -> String {
     let kind_check = format!("param->params[{index}].kind != {}", value_type.datum_kind());

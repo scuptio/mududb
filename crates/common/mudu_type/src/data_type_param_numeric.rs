@@ -148,4 +148,33 @@ mod tests {
         let n = DataTypeParamNumeric::new(10, 2);
         assert_eq!(n.name(), "numeric(10, 2)");
     }
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn dynamic_numeric_parameter_roundtrip_and_ordering() {
+        use mudu::common::cmp_order::Order;
+        use std::cmp::Ordering;
+        let original = DataTypeParamNumeric::new(12, 4);
+        let clone = original.clone_boxed();
+        assert_eq!(clone.name(), "numeric(12, 4)");
+        let mut restored = DataTypeParamNumeric::default();
+        restored.de_from_json(&clone.se_to_json().unwrap()).unwrap();
+        assert_eq!(restored.precision(), 12);
+        assert_eq!(restored.scale(), 4);
+        assert_eq!(restored.cmp_ord(&original).unwrap(), Ordering::Equal);
+        assert_eq!(
+            original.compare(&DataTypeParamNumeric::new(13, 0)),
+            Ordering::Less
+        );
+        assert_eq!(
+            original.compare(&DataTypeParamNumeric::new(12, 3)),
+            Ordering::Greater
+        );
+        assert!(
+            restored
+                .de_from_json(r#"{"precision":"invalid","scale":1}"#)
+                .is_err()
+        );
+        assert_eq!(restored.precision(), 12);
+        assert_eq!(restored.scale(), 4);
+    }
 }

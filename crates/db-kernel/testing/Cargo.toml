@@ -13,6 +13,10 @@ workspace = true
 # Integration tests that exercise real-OS semantics the simulator cannot
 # provide are gated with `#[cfg(not(feature = "ds"))]`.
 ds = ["mudu_sys/ds", "mudu_runtime/ds"]
+# Enables the real-socket distributed e2e tests (multi-node HA/scale-out over
+# real TCP). Off by default so the deterministic / sandboxed `cargo test`
+# skips them; run via `cargo make test-e2e-distributed` (Docker).
+socket = []
 
 [dependencies]
 mudu_runtime = { workspace = true }
@@ -35,6 +39,7 @@ tracing = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+worker = { workspace = true }
 backup = { workspace = true }
 mudu_tui = { workspace = true }
 rmp-serde = { workspace = true }

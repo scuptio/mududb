@@ -1,12 +1,12 @@
 use crate:universal:uni-scalar/uni-scalar;
-use crate:universal:uni-record-type/uni-record-type;
+use crate:universal:uni-struct-type/uni-struct-type;
 use crate:universal:uni-result-type/uni-result-type;
 
 interface universal {
 variant uni-data-type {
     scalar(uni-scalar),
     array(box<uni-data-type>),
-    record(uni-record-type),
+    struct(uni-struct-type),
     option(box<uni-data-type>),
     tuple(list<uni-data-type>),
     result(uni-result-type),

@@ -1,8 +1,8 @@
-//! Unit tests for the `rust::transactions::Transactions` entity.
+//! Unit tests for the `rust::transactions::Transactions` object.
 
 use mududb::common::result::RS;
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::transactions::object::{Transactions, TransactionsChange, columns};
@@ -40,12 +40,12 @@ fn expect_update(change: &TransactionsChange, pk: String) -> RS<(String, Vec<Box
 
 #[test]
 fn transactions_lifecycle() -> RS<()> {
-    let entity = sample_transactions();
-    assert_eq!(entity.trans_id, "trans_id_val");
-    assert_eq!(entity.amount, Some(100));
+    let object = sample_transactions();
+    assert_eq!(object.trans_id, "trans_id_val");
+    assert_eq!(object.amount, Some(100));
 
-    // Entity metadata
-    assert_eq!(Transactions::table_name(), "transactions");
+    // Object metadata
+    assert_eq!(Transactions::class_name(), "transactions");
     assert_eq!(Transactions::TABLE_NAME, "transactions");
     assert_eq!(Transactions::tuple_desc().fields().len(), 6);
     assert_eq!(
@@ -57,36 +57,36 @@ fn transactions_lifecycle() -> RS<()> {
 
     // Datum / DatumDyn metadata
     let data_type = Transactions::data_type();
-    assert_eq!(entity.type_family()?, data_type.type_family());
+    assert_eq!(object.type_family()?, data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple()?;
+    let tuple = object.to_tuple()?;
     let from_tuple = Transactions::from_tuple(&tuple)?;
-    assert_same_transactions(&from_tuple, &entity);
+    assert_same_transactions(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type)?;
+    let value = object.to_value(&data_type)?;
     let from_value = Transactions::from_value(&value)?;
-    assert_same_transactions(&from_value, &entity);
+    assert_same_transactions(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type)?;
+    let binary = object.to_binary(&data_type)?;
     let from_binary = Transactions::from_binary(binary.as_ref())?;
-    assert_same_transactions(&from_binary, &entity);
+    assert_same_transactions(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type)?;
+    let textual = object.to_textual(&data_type)?;
     let from_textual = Transactions::from_textual(textual.as_str())?;
-    assert_same_transactions(&from_textual, &entity);
+    assert_same_transactions(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type)?;
     let from_cloned = Transactions::from_value(&cloned_value)?;
-    assert_same_transactions(&from_cloned, &entity);
+    assert_same_transactions(&from_cloned, &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, "trans_id_val");
     assert_eq!(params.1.as_deref(), Some("deposit"));
     assert_eq!(params.4, Some(100));
@@ -128,16 +128,16 @@ fn transactions_lifecycle() -> RS<()> {
 
 #[test]
 fn transactions_nullable_fields_roundtrip() -> RS<()> {
-    let entity = Transactions::new("trans_id_val".to_string(), None, None, None, None, None);
-    let tuple = entity.to_tuple()?;
+    let object = Transactions::new("trans_id_val".to_string(), None, None, None, None, None);
+    let tuple = object.to_tuple()?;
     assert!(tuple.is_null(1));
     assert!(tuple.is_null(5));
     let restored = Transactions::from_tuple(&tuple)?;
-    assert_same_transactions(&restored, &entity);
+    assert_same_transactions(&restored, &object);
 
-    let value = entity.to_tuple_value()?;
+    let value = object.to_tuple_value()?;
     assert!(value.values()[1].is_null());
     let restored = Transactions::from_tuple_value(&value)?;
-    assert_same_transactions(&restored, &entity);
+    assert_same_transactions(&restored, &object);
     Ok(())
 }

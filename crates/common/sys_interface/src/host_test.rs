@@ -1,14 +1,179 @@
-//! Cross-session coverage of the relation/fs host helper wrappers, kept
-//! beside `host.rs`'s own tests only for file-size reasons.
+//! Tests for the `host.rs` host helper wrappers, kept in a separate file for
+//! file-size reasons.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::host::*;
 use mudu_binding::codec::syscall_payload;
+use mudu_binding::codec::syscall_payload::MessageKind;
 use mudu_binding::system::{command_invoke, query_invoke};
+use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
 use mudu_contract::tuple::tuple_datum::TupleDatum;
 use mudu_contract::tuple::tuple_value::TupleValue;
 use mudu_type::data_value::DataValue;
+
+#[test]
+fn kv_get_roundtrip() {
+    let encoded = serialize_session_get_param(7, b"k1");
+    let (kind, _) = syscall_payload::decode_frame(&encoded).unwrap();
+    assert_eq!(kind, MessageKind::Get);
+    let (oid, key) = deserialize_session_get_param(&encoded).unwrap();
+    assert_eq!(oid, 7);
+    assert_eq!(key, b"k1");
+
+    let encoded_result = serialize_get_result(Some(b"v1"));
+    let decoded_result = deserialize_get_result(&encoded_result).unwrap();
+    assert_eq!(decoded_result, Some(b"v1".to_vec()));
+
+    let encoded_none = serialize_get_result(None);
+    assert_eq!(deserialize_get_result(&encoded_none).unwrap(), None);
+}
+
+#[test]
+fn kv_range_roundtrip() {
+    let encoded = serialize_session_range_param(3, b"a", b"z");
+    let (kind, _) = syscall_payload::decode_frame(&encoded).unwrap();
+    assert_eq!(kind, MessageKind::Range);
+    let (oid, start, end) = deserialize_session_range_param(&encoded).unwrap();
+    assert_eq!(oid, 3);
+    assert_eq!((start, end), (b"a".to_vec(), b"z".to_vec()));
+
+    let encoded_result = serialize_range_result(&[
+        (b"a".to_vec(), b"1".to_vec()),
+        (b"b".to_vec(), b"2".to_vec()),
+    ]);
+    let decoded_result = deserialize_range_result(&encoded_result).unwrap();
+    assert_eq!(
+        decoded_result,
+        vec![
+            (b"a".to_vec(), b"1".to_vec()),
+            (b"b".to_vec(), b"2".to_vec())
+        ]
+    );
+}
+
+#[test]
+fn open_and_open_argv_helpers_roundtrip() {
+    let oid = invoke_host_open(|input| {
+        let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
+        assert_eq!(kind, MessageKind::Open);
+        assert_eq!(deserialize_open_param(&input).unwrap().worker_oid(), 0);
+        Ok(serialize_open_result(15))
+    })
+    .unwrap();
+    assert_eq!(oid, 15);
+
+    let argv = UniSessionOpenArgv::new(7);
+    let oid = invoke_host_open_argv(&argv, |input| {
+        let decoded = deserialize_open_param(&input).unwrap();
+        assert_eq!(decoded.worker_oid(), 7);
+        Ok(serialize_open_result(21))
+    })
+    .unwrap();
+    assert_eq!(oid, 21);
+}
+
+#[test]
+fn session_put_and_close_helpers_roundtrip() {
+    invoke_host_session_put(5, b"k", b"v", |input| {
+        let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
+        assert_eq!(kind, MessageKind::Put);
+        let (oid, key, value) = deserialize_session_put_param(&input).unwrap();
+        assert_eq!(oid, 5);
+        assert_eq!((key, value), (b"k".to_vec(), b"v".to_vec()));
+        Ok(serialize_put_result())
+    })
+    .unwrap();
+
+    invoke_host_close(9, |input| {
+        let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
+        assert_eq!(kind, MessageKind::Close);
+        assert_eq!(deserialize_close_param(&input).unwrap(), 9);
+        Ok(serialize_close_result())
+    })
+    .unwrap();
+}
+
+#[test]
+fn command_and_query_helpers_decode_serialized_results() {
+    let stmt = SQLStmtText::new("SELECT 1".to_string());
+
+    let affected = invoke_host_command(3, &stmt, &(), |input| {
+        let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
+        assert_eq!(oid, 3);
+        Ok(command_invoke::serialize_command_result(Ok(5)))
+    })
+    .unwrap();
+    assert_eq!(affected, 5);
+
+    let records = invoke_host_query::<i32, _>(4, &stmt, &(), |input| {
+        let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
+        assert_eq!(oid, 4);
+        Ok(query_invoke::serialize_query_result(Ok((
+            mudu_contract::database::result_batch::ResultBatch::from(
+                4,
+                vec![TupleValue::from(vec![DataValue::from_i32(8)])],
+                true,
+            ),
+            <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
+        ))))
+    })
+    .unwrap();
+    assert_eq!(records.next_record().unwrap(), Some(8));
+}
+
+#[test]
+fn async_host_helpers_roundtrip_sync_payload_shapes() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let stmt = SQLStmtText::new("SELECT 1".to_string());
+
+        let oid = async_invoke_host_open(|input: Vec<u8>| async move {
+            let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
+            assert_eq!(kind, MessageKind::Open);
+            Ok(serialize_open_result(31))
+        })
+        .await
+        .unwrap();
+        assert_eq!(oid, 31);
+
+        let affected = async_invoke_host_batch(6, &stmt, &(), |input: Vec<u8>| async move {
+            let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
+            assert_eq!(oid, 6);
+            Ok(command_invoke::serialize_command_result(Ok(2)))
+        })
+        .await
+        .unwrap();
+        assert_eq!(affected, 2);
+
+        let records =
+            async_invoke_host_query::<i32, _>(8, &stmt, &(), |input: Vec<u8>| async move {
+                let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
+                assert_eq!(oid, 8);
+                Ok(query_invoke::serialize_query_result(Ok((
+                    mudu_contract::database::result_batch::ResultBatch::from(
+                        8,
+                        vec![TupleValue::from(vec![DataValue::from_i32(13)])],
+                        true,
+                    ),
+                    <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
+                ))))
+            })
+            .await
+            .unwrap();
+        assert_eq!(records.next_record().unwrap(), Some(13));
+
+        let got = async_invoke_host_session_get(9, b"k", |input: Vec<u8>| async move {
+            let (oid, key) = deserialize_session_get_param(&input).unwrap();
+            assert_eq!(oid, 9);
+            assert_eq!(key, b"k");
+            Ok(serialize_get_result(Some(b"v")))
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, Some(b"v".to_vec()));
+    })
+    .unwrap();
+}
 
 #[test]
 fn session_range_and_batch_helpers_roundtrip() {

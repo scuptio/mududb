@@ -1,5 +1,5 @@
 use super::temp_relation_base;
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 use mudu_sys::common::provider_type::ProviderType;
 use mudu_sys::provider::create_io_provider;
 use mudu_sys::task::async_::block_on_async_current;
@@ -13,7 +13,7 @@ fn wal_recovers_relation_file_after_data_loss() {
 }
 async fn _wal_recovers_relation_file_after_data_loss() {
     let base = temp_relation_base("recover");
-    let identity = TimeSeriesFileIdentity {
+    let identity = TimeSeriesFileIdobject {
         partition_id: 7,
         table_id: 11,
         file_index: 0,
@@ -54,7 +54,7 @@ fn wal_recovers_empty_file_from_create_record() {
 }
 async fn _wal_recovers_empty_file_from_create_record() {
     let base = temp_relation_base("create");
-    let identity = TimeSeriesFileIdentity {
+    let identity = TimeSeriesFileIdobject {
         partition_id: 17,
         table_id: 23,
         file_index: 1,
@@ -84,7 +84,7 @@ async fn _wal_recovers_empty_file_from_create_record() {
 fn wal_recovers_relation_file_after_data_loss_async() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-async");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 27,
             table_id: 31,
             file_index: 2,
@@ -123,7 +123,7 @@ fn wal_recovers_relation_file_after_data_loss_async() {
 fn wal_recovers_relation_file_with_injected_async_fs() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-async-fs");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 37,
             table_id: 41,
             file_index: 3,
@@ -180,7 +180,7 @@ fn wal_replays_terminal_delete_before_open() {
 }
 async fn _wal_replays_terminal_delete_before_open() {
     let base = temp_relation_base("delete");
-    let identity = TimeSeriesFileIdentity {
+    let identity = TimeSeriesFileIdobject {
         partition_id: 29,
         table_id: 31,
         file_index: 0,

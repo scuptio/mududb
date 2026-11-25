@@ -1,4 +1,6 @@
 #[cfg(test)]
+use crate::contract::WorkerXContract;
+#[cfg(test)]
 use crate::*;
 #[cfg(test)]
 use ::catalog::contract::schema_column::SchemaColumn;
@@ -7,7 +9,7 @@ use ::catalog::contract::table_info::TableInfo;
 #[cfg(test)]
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 #[cfg(test)]
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 #[cfg(test)]
 use mudu_type::data_type_info::DataTypeInfo;
 #[cfg(test)]
@@ -28,6 +30,8 @@ mod repl_route;
 #[cfg(test)]
 mod tuple_update;
 #[cfg(test)]
+mod utils;
+#[cfg(test)]
 mod wal_replay;
 
 #[cfg(test)]
@@ -41,8 +45,8 @@ where
 }
 
 #[cfg(test)]
-fn test_schema() -> SchemaTable {
-    SchemaTable::new(
+fn test_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(
@@ -86,47 +90,60 @@ fn datum_string(v: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
-fn wallet_users_schema() -> SchemaTable {
+fn wallet_users_schema() -> SchemaClass {
     use ::catalog::contract::schema_column::SchemaColumn;
-    use mudu_type::data_type_info::DataTypeInfo;
 
-    SchemaTable::new(
+    SchemaClass::new(
         "users".to_string(),
         vec![
             SchemaColumn::new(
                 "user_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "name".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
             SchemaColumn::new(
                 "phone".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
             SchemaColumn::new(
                 "email".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
             SchemaColumn::new(
                 "password".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
             SchemaColumn::new(
                 "created_at".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "updated_at".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
         ],
         vec![0],
@@ -155,12 +172,12 @@ async fn read_i32_value(
 }
 
 #[cfg(test)]
-fn meta_table(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+fn meta_table(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
     TableInfo::new(schema.clone())?.table_desc()
 }
 
 #[cfg(test)]
-async fn make_contract_with_table(schema: &SchemaTable) -> RS<(Arc<WorkerXContract>, OID)> {
+async fn make_contract_with_table(schema: &SchemaClass) -> RS<(Arc<WorkerXContract>, OID)> {
     let meta_mgr = Arc::new(TestMetaMgr::new());
     let table_id = schema.id();
     let contract = WorkerXContract::with_log(meta_mgr, None)?;

@@ -11,13 +11,13 @@ use mudu::mudu_error;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 
 /// In-memory [`MetaMgr`] fixture for tests and fuzz targets.
 pub struct TestMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
     tables: SMutex<HashMap<OID, Arc<TableDesc>>>,
     rules: SMutex<HashMap<OID, PartitionRuleDesc>>,
     bindings: SMutex<HashMap<OID, TablePartitionBinding>>,
@@ -64,7 +64,7 @@ impl MetaMgr for TestMetaMgr {
             .unwrap()
             .get(&oid)
             .cloned()
-            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, format!("no such table {}", oid)))
+            .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, format!("no such table {}", oid)))
     }
 
     async fn get_table_by_name(&self, _schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
@@ -77,7 +77,7 @@ impl MetaMgr for TestMetaMgr {
             .cloned())
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         let table = TableInfo::new(schema.clone())?.table_desc()?;
         self.schemas
             .lock()
@@ -93,7 +93,7 @@ impl MetaMgr for TestMetaMgr {
         Ok(())
     }
 
-    async fn create_queue(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_queue(&self, schema: &SchemaClass) -> RS<()> {
         if !schema.is_queue() {
             return Err(mudu_error!(
                 ErrorCode::InvalidArgument,
@@ -113,7 +113,7 @@ impl MetaMgr for TestMetaMgr {
             .unwrap_or(false);
         if !is_queue {
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such queue {}", queue_id)
             ));
         }
@@ -127,7 +127,7 @@ impl MetaMgr for TestMetaMgr {
         }
     }
 
-    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_queues(&self) -> RS<Vec<SchemaClass>> {
         Ok(self
             .schemas
             .lock()
@@ -138,11 +138,16 @@ impl MetaMgr for TestMetaMgr {
             .collect())
     }
 
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         Ok(self.schemas.lock().unwrap().values().cloned().collect())
     }
 
     async fn create_partition_rule(&self, rule: &PartitionRuleDesc) -> RS<()> {
+        self.rules.lock().unwrap().insert(rule.oid, rule.clone());
+        Ok(())
+    }
+
+    async fn update_partition_rule(&self, rule: &PartitionRuleDesc) -> RS<()> {
         self.rules.lock().unwrap().insert(rule.oid, rule.clone());
         Ok(())
     }
@@ -155,7 +160,7 @@ impl MetaMgr for TestMetaMgr {
             .cloned()
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such partition rule {}", oid)
                 )
             })

@@ -30,7 +30,7 @@ Run from the repository root:
 This single command runs the full pipeline:
 
 1. Reinstalls the workspace CLI tools (`mgen`, `mtp`, `mpm-build`, etc.) from source so the toolchain stays in sync with the current commit.
-2. `mgen entity ...` — generates typed Rust entity bindings from `sql/ddl.sql`.
+2. `mgen object ...` — generates typed Rust object bindings from `sql/ddl.sql`.
 3. `mgen check-sql ...` — statically checks SQL literals in the procedure sources against the DDL.
 4. `mtp` transpiles synchronous procedure code into async WebAssembly wrappers.
 5. Formats the generated sources with `cargo fmt`.
@@ -155,4 +155,4 @@ tables and procedures.
 - Read [`concepts.md`](concepts.md) for the terminology used above.
 - Read [`procedure.md`](procedure.md) to learn how to write your own procedures.
 - Try the [`example/key-value`](../../example/mpk/key-value/README.md) example for a smaller project that uses the key/value API.
-- Adding support for a new guest language? Follow [`dev/new_guest_language.md`](../dev/new_guest_language.md).
+- Adding support for a new guest language? Follow [`new_guest_language.md`](new_guest_language.md).

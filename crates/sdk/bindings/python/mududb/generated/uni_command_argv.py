@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -164,13 +164,13 @@ class UniCommandArgv:
     oid: UniOid = field(default_factory=lambda: UniOid())
     command: UniSqlStmt = field(default_factory=lambda: UniSqlStmt())
     param_list: UniSqlParam = field(default_factory=lambda: UniSqlParam())
-    param_desc: Optional[UniRecordType] = None
+    param_desc: Optional[UniStructType] = None
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def uni_command_argv_to_value(x: UniCommandArgv) -> dict:
     d = {
@@ -181,7 +181,7 @@ def uni_command_argv_to_value(x: UniCommandArgv) -> dict:
     # WIT option fields are omitted when None (proto3 presence semantics);
     # decode treats a missing key as the default.
     if x.param_desc is not None:
-        d[4] = (None if x.param_desc is None else uni_record_type_to_value(x.param_desc))
+        d[4] = (None if x.param_desc is None else uni_struct_type_to_value(x.param_desc))
     return d
 
 
@@ -189,7 +189,7 @@ def uni_command_argv_from_value(v) -> UniCommandArgv:
     x = UniCommandArgv()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.oid = uni_oid_from_value(_val)
@@ -198,17 +198,17 @@ def uni_command_argv_from_value(v) -> UniCommandArgv:
         elif _key == 3:
             x.param_list = uni_sql_param_from_value(_val)
         elif _key == 4:
-            x.param_desc = (None if _val is None else uni_record_type_from_value(_val))
+            x.param_desc = (None if _val is None else uni_struct_type_from_value(_val))
     return x
 
 
 
 # Sibling-module imports live at the END of the module on purpose: WIT type
-# references can be mutually recursive across files (e.g. uni-record-type <
+# references can be mutually recursive across files (e.g. uni-struct-type <
 # -> uni-data-type), and bottom imports make every name resolvable once the
 # import graph settles. All uses are deferred (function bodies, default
 # factories, lazily-evaluated annotations), so this is safe.
 from .uni_oid import UniOid, uni_oid_from_value, uni_oid_to_value
 from .uni_sql_stmt import UniSqlStmt, uni_sql_stmt_from_value, uni_sql_stmt_to_value
 from .uni_sql_param import UniSqlParam, uni_sql_param_from_value, uni_sql_param_to_value
-from .uni_record_type import UniRecordType, uni_record_type_from_value, uni_record_type_to_value
+from .uni_struct_type import UniStructType, uni_struct_type_from_value, uni_struct_type_to_value

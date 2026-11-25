@@ -1,6 +1,8 @@
 //! SQLite backend implementation.
 
 use crate::config;
+pub use crate::connection::open_connection;
+use crate::connection::{SESSION_CONNECTIONS, connection_for};
 use crate::kv;
 use crate::result_set::LocalResultSet;
 use crate::sql::{
@@ -15,8 +17,8 @@ use mudu_binding::universal::uni_relation::{
     RELATION_DELTA_OP_ADD, RELATION_DELTA_OP_ADD_DEFERRED, RELATION_DELTA_OP_SUB,
     RELATION_DELTA_OP_SUB_DEFERRED, RELATION_DELTA_OP_SUB_WRAP_DEFERRED, UniRelationDelta,
 };
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
@@ -26,104 +28,8 @@ use mudu_sys::time::system_time_now;
 use mudu_type::data_type::DataType;
 use rusqlite::Connection;
 use rusqlite::params_from_iter;
-use scc::HashMap as SccHashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
-
-use lazy_static::lazy_static;
-
-/// Pinned per-session connection.
-type ConnectionRef = Arc<SMutex<Connection>>;
-
-lazy_static! {
-    /// Sticky per-session connections. A mudu session is a sticky connection
-    /// (a multi-statement `BEGIN` … `COMMIT` transaction is issued as
-    /// separate commands on one session), so `mudu_open` pins its connection
-    /// here and every operation on the session goes through it; `mudu_close`
-    /// removes it (dropping the connection rolls back any open transaction).
-    /// The key carries the database path: session ids are SQLite rowids,
-    /// which restart from 1 in every fresh database file, so an id alone
-    /// only identifies a session together with the file it was opened in —
-    /// keying by id alone silently routes operations to the wrong database
-    /// after the configured db path changes with live sessions.
-    static ref SESSION_CONNECTIONS: SccHashMap<(PathBuf, OID), ConnectionRef> = SccHashMap::new();
-}
-
-/// Returns the connection operations on `session_id` must use: the pinned
-/// session connection when this process opened the session against the
-/// currently configured database path, otherwise a fresh one (the session
-/// row may live in a database file shared across processes).
-pub(crate) fn connection_for(session_id: OID) -> RS<ConnectionRef> {
-    let key = (config::db_path(), session_id);
-    if let Some(entry) = SESSION_CONNECTIONS.get_sync(&key) {
-        return Ok(Arc::clone(entry.get()));
-    }
-    Ok(Arc::new(SMutex::new(open_connection()?)))
-}
-
-/// Opens a SQLite connection using the configured database path.
-pub fn open_connection() -> RS<Connection> {
-    let path = config::db_path();
-    if let Some(parent) = path.parent() {
-        mudu_sys::fs::sync::sync_create_dir_all(parent)?;
-    }
-
-    let conn = Connection::open(&path)
-        .map_err(|e| mudu_error!(ErrorCode::Database, "open sqlite connection error", e))?;
-    // Schema DDL runs once per (process, db path): previously every
-    // connection ran it, and parallel openers tripped over each other
-    // ("database is locked") despite the busy timeout. The set guard is
-    // HELD during the DDL: a concurrent opener must not skip ahead and
-    // write into a table that does not exist yet. `journal_mode` is
-    // persisted in the db file, but `busy_timeout` / `synchronous` are
-    // per-connection, so those still run on every open.
-    let mut paths = initialized_paths().lock()?;
-    if paths.insert(path.clone()) {
-        let result = initialize_schema(&conn);
-        drop(paths);
-        result?;
-    } else {
-        drop(paths);
-        conn.execute_batch("PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;")
-            .map_err(|e| {
-                mudu_error!(ErrorCode::Database, "configure sqlite connection error", e)
-            })?;
-    }
-    Ok(conn)
-}
-
-/// db paths whose schema was already initialized by this process.
-fn initialized_paths() -> &'static SMutex<std::collections::HashSet<std::path::PathBuf>> {
-    static PATHS: std::sync::OnceLock<SMutex<std::collections::HashSet<std::path::PathBuf>>> =
-        std::sync::OnceLock::new();
-    PATHS.get_or_init(|| SMutex::new(std::collections::HashSet::new()))
-}
-
-fn initialize_schema(conn: &Connection) -> RS<()> {
-    conn.execute_batch(
-        r#"
-        -- The database file may be shared by many connections (processes,
-        -- pool sessions): wait for a busy writer instead of failing the
-        -- whole connect with "database is locked" (SQLITE_BUSY).
-        PRAGMA busy_timeout = 5000;
-        PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
-
-        CREATE TABLE IF NOT EXISTS mudu_session (
-            session_id INTEGER PRIMARY KEY,
-            created_at INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS mudu_kv (
-            k BLOB PRIMARY KEY,
-            v BLOB NOT NULL
-        );
-        "#,
-    )
-    .map_err(|e| mudu_error!(ErrorCode::Database, "initialize sqlite schema error", e))?;
-    Ok(())
-}
 
 /// Creates a new SQLite-backed session.
 ///
@@ -227,11 +133,11 @@ pub async fn mudu_range_async(
 }
 
 /// Executes a query on a SQLite session and returns the resulting record set.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     kv::ensure_session_exists(oid)?;
     let conn = connection_for(oid)?;
     let conn = conn.lock()?;
@@ -252,18 +158,18 @@ pub fn mudu_query<R: Entity>(
         tuple_rows.push(read_sqlite_row(row, &desc)?);
     }
 
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(tuple_rows)),
         Arc::new(desc),
     ))
 }
 
 /// Asynchronous version of [`mudu_query`].
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let _trace = mudu_utils::task_trace!();
     let sql_text = sql.to_sql_string();
     let sqlite_params = to_sqlite_values(params)?;
@@ -289,7 +195,7 @@ pub async fn mudu_query_async<R: Entity>(
             Ok((desc, tuple_rows))
         })
         .await??;
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(tuple_rows)),
         Arc::new(desc),
     ))
@@ -425,7 +331,7 @@ fn relation_table_columns(conn: &Connection, table: &str) -> RS<Vec<RelationColu
     }
     if introspected.is_empty() {
         return Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such relation: {table}")
         ));
     }
@@ -455,7 +361,7 @@ fn relation_column<'a>(
         .find(|column| column.attr == attr)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such attribute {attr} on relation {table}")
             )
         })
@@ -703,7 +609,7 @@ fn relation_insert_blocking(
             rusqlite::Error::SqliteFailure(err, _)
                 if err.code == rusqlite::ErrorCode::ConstraintViolation =>
             {
-                mudu_error!(ErrorCode::EntityAlreadyExists, "existing key")
+                mudu_error!(ErrorCode::ObjectAlreadyExists, "existing key")
             }
             other => mudu_error!(
                 ErrorCode::Database,

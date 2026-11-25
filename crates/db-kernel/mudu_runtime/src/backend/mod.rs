@@ -17,10 +17,16 @@ mod http_api_test;
 mod incoming_session;
 mod initdb_drain;
 mod management_thread;
+/// The migration driver (phase 3 scale-out).
+pub(crate) mod migration_driver;
+/// Split/merge bodies of the migration driver.
+pub(crate) mod migration_split_merge;
 /// Mudu application manager implementation.
 pub mod mudu_app_mgr;
 /// MuduDB server configuration.
 pub mod mudud_cfg;
+/// The rebalance scheduler (phase 3 §9.4).
+pub(crate) mod rebalance;
 mod session;
 mod session_ctx;
 #[cfg(test)]

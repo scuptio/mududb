@@ -160,7 +160,7 @@ fn bind_bench() {
     .unwrap()
 }
 
-fn users_schema_in(schema_ns: &str) -> SchemaTable {
+fn users_schema_in(schema_ns: &str) -> SchemaClass {
     let mut schema = schema();
     schema.set_schema(schema_ns.to_string());
     schema
@@ -253,7 +253,7 @@ fn bind_create_table_lands_in_current_schema() {
             panic!("expected create table");
         };
         assert_eq!(create.schema.schema(), "shop");
-        assert_eq!(create.schema.table_name(), "orders");
+        assert_eq!(create.schema.class_name(), "orders");
     })
     .unwrap()
 }
@@ -309,7 +309,7 @@ fn bind_drop_table_qualified_miss_does_not_fall_back() {
             .bind(parse_stmt("drop table shop.users;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         let bound = binder
             .bind(parse_stmt("drop table if exists shop.users;"), &())

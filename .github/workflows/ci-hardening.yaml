@@ -27,12 +27,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Check formatting
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_formatting bash {0}
+        id: check_formatting
         run: |
           mkdir -p logs
           set -o pipefail
@@ -43,12 +53,28 @@ jobs:
             done
           } 2>&1 | tee logs/hardening-fmt.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
+
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
 
       # Same checksum-pinning pattern as the Gitleaks install in
       # secret-scan.yaml; bump the version and the hash together. The
@@ -56,12 +82,15 @@ jobs:
       # returns 504s for minutes at a time; the cache is skipped under act,
       # which has no cache service.
       - name: Cache checksum-pinned actionlint
+        id: cache_checksum_pinned_actionlint
         if: env.ACT != 'true'
         uses: actions/cache@v4
         with:
           path: ~/actionlint-bin
           key: actionlint-1.7.12-8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
       - name: Install checksum-pinned actionlint
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_checksum_pinned_actionlint bash {0}
+        id: install_checksum_pinned_actionlint
         run: |
           set -euo pipefail
           tool_dir="$HOME/actionlint-bin"
@@ -82,7 +111,18 @@ jobs:
           echo "$tool_dir" >> "$GITHUB_PATH"
 
       - name: Lint GitHub Actions workflows
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run lint_github_actions_workflows bash {0}
+        id: lint_github_actions_workflows
         run: actionlint -oneline .github/workflows/*.yaml
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   cargo-deny:
     name: cargo-deny - ${{ matrix.group }}
@@ -94,34 +134,65 @@ jobs:
         group: [ crates/common, crates/db-kernel, crates/sdk, example/mpk, crates/tools ]
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Install cargo-deny
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_deny bash {0}
+        id: install_cargo_deny
         run: cargo install cargo-deny --version 0.19.9 --locked
 
       - name: Run cargo-deny
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_cargo_deny bash {0}
+        id: run_cargo_deny
         working-directory: ${{ matrix.group }}
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
           cargo deny check --config ${{ github.workspace }}/deny.toml bans licenses advisories sources 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/hardening-deny.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   workspace-invariants:
     name: workspace-invariants
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       # versions.toml is the single source of truth for shared external deps;
       # check_arch.py enforces the ARCHITECTURE.md crate layering.
       - name: Check workspace invariants
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_workspace_invariants bash {0}
+        id: check_workspace_invariants
         run: |
           mkdir -p logs
           set -o pipefail
@@ -132,6 +203,8 @@ jobs:
       # mudu_metrics walks crates/**/*.rs and example/**/*.rs (skipping
       # generated code).
       - name: Check code metrics
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_code_metrics bash {0}
+        id: check_code_metrics
         run: |
           mkdir -p logs
           set -o pipefail
@@ -140,17 +213,36 @@ jobs:
           cargo run --manifest-path crates/tools/Cargo.toml -p mudu_metrics -- \
             --root example --config code_metrics.toml 2>&1 | tee logs/hardening-metrics-example.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   cargo-hack:
     name: cargo-hack
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Install cargo-hack
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_hack bash {0}
+        id: install_cargo_hack
         run: cargo install cargo-hack --version 0.6.45 --locked
 
       # The workspace currently has pre-existing feature-interaction issues in
@@ -158,6 +250,8 @@ jobs:
       # individual feature combinations. Keep this job visible but non-blocking
       # until those upstream/feature issues are resolved.
       - name: Check feature combinations
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_feature_combinations bash {0}
+        id: check_feature_combinations
         run: |
           mkdir -p logs
           set -o pipefail
@@ -169,22 +263,43 @@ jobs:
           } 2>&1 | tee logs/hardening-hack.log
         continue-on-error: true
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   cargo-outdated:
     name: cargo-outdated
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Install cargo-outdated
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_outdated bash {0}
+        id: install_cargo_outdated
         run: cargo install cargo-outdated --version 0.19.0 --locked
 
       # Kept visible but non-blocking until this job is re-measured on a
       # fresh runner.
       - name: Check outdated dependencies
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_outdated_dependencies bash {0}
+        id: check_outdated_dependencies
         run: |
           mkdir -p logs
           set -o pipefail
@@ -197,3 +312,11 @@ jobs:
             done
           } 2>&1 | tee logs/hardening-outdated.log
         continue-on-error: true
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

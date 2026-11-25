@@ -15,6 +15,7 @@
 pub mod backend;
 pub mod codec;
 pub mod config;
+mod connection;
 pub mod kv;
 pub mod local_fs;
 pub mod mududb;

@@ -59,7 +59,7 @@ impl TemplateFuncHeaderPy {
         let kinds = sigs
             .iter()
             .map(|sig| KindInfoPy {
-                comments: crate::lang_impl::python::template_record_py::indent_comments(
+                comments: crate::lang_impl::python::template_struct_py::indent_comments(
                     &py_comments(&sig.func_comments),
                     4,
                 ),

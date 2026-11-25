@@ -9,7 +9,7 @@
 //!
 //! The extracted literals are checked by the language-independent core in
 //! `sql_parser::check`; each language front-end additionally records
-//! call-site context (bind-parameter arity, result entity type) for the
+//! call-site context (bind-parameter arity, result object type) for the
 //! enhancement checks implemented by [`crate::src_check::check_driver`].
 
 /// The `check-sql` driver: schema loading, file walking, checking, and

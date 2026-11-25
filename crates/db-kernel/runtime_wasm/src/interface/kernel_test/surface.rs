@@ -94,8 +94,8 @@ impl TxMgr for NullTxMgr {
     }
 }
 
-fn schema() -> SchemaTable {
-    SchemaTable::new("t".to_string(), vec![], vec![], vec![])
+fn schema() -> SchemaClass {
+    SchemaClass::new("t".to_string(), vec![], vec![], vec![])
 }
 
 fn datum() -> VecDatum {

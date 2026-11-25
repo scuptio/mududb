@@ -23,12 +23,12 @@ impl SQLParser {
     ) -> RS<StmtInsert> {
         let opt = node.child_by_field_name(ts_field_name::OBJECT_REFERENCE);
         let c = rs_option(opt, "no object reference in insert statement")?;
-        let table_name = self.visit_object_reference(context, c)?;
+        let class_name = self.visit_object_reference(context, c)?;
 
         let opt = node.child_by_field_name(ts_field_name::INSERT_VALUES);
         let c = rs_option(opt, "no insert values clause in insert statement")?;
         let (columns, values) = self.visit_insert_values(context, c)?;
-        let stmt = StmtInsert::new(table_name, columns, values);
+        let stmt = StmtInsert::new(class_name, columns, values);
         Ok(stmt)
     }
 

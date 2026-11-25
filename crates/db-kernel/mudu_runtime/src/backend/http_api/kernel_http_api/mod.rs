@@ -1,15 +1,20 @@
 mod apps;
 mod backup;
+mod partition_move;
+mod partition_split;
 mod queue_activation;
 mod queues;
+mod receive_queue;
 mod repl;
 mod topology;
 
 use super::{
-    AsyncKernelInvokeClientFactory, HttpApi, KernelInvokeClientFactory, PartitionRouteRequest,
-    PartitionRouteResponse, QueueActivationRequest, ReplFollowRequest, ReplMembershipRequest,
-    ReplMembershipResponse, ReplPromoteRequest, ReplRoleResponse, ServerQueueActivationsResponse,
-    ServerQueuesResponse, ServerReplicationResponse, ServerTopology,
+    AsyncKernelInvokeClientFactory, HttpApi, KernelInvokeClientFactory, PartitionMergeRequest,
+    PartitionMoveAbortRequest, PartitionMoveRequest, PartitionMoveResponse, PartitionRouteRequest,
+    PartitionRouteResponse, PartitionSplitRequest, QueueActivationRequest, ReplFollowRequest,
+    ReplMembershipRequest, ReplMembershipResponse, ReplPromoteRequest, ReplRoleResponse,
+    ServerQueueActivationsResponse, ServerQueuesResponse, ServerReplicationResponse,
+    ServerTopology,
 };
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::mudud_cfg::MuduDBCfg;
@@ -68,10 +73,7 @@ impl KernelHttpApi {
                 e
             )
         })?;
-        let raft_node_id = cfg
-            .replication
-            .as_ref()
-            .map(|replication| replication.node_id);
+        let raft_node_id = cfg.name.as_deref().map(crate::backend::mudud_cfg::fnv1a64);
         let backup_dir = cfg
             .backup
             .as_ref()
@@ -164,13 +166,13 @@ impl KernelHttpApi {
                 .default_global_worker_id()
                 .ok_or_else(|| {
                     mudu::mudu_error!(
-                        mudu::error::ErrorCode::EntityNotFound,
+                        mudu::error::ErrorCode::ObjectNotFound,
                         "worker registry has no default global worker"
                     )
                 });
         }
         Err(mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no worker placement for partition {}", partition_id)
         ))
     }
@@ -219,6 +221,22 @@ impl HttpApi for KernelHttpApi {
         KernelHttpApi::route_partition(self, request).await
     }
 
+    async fn move_partition(&self, request: PartitionMoveRequest) -> RS<PartitionMoveResponse> {
+        KernelHttpApi::move_partition(self, request).await
+    }
+
+    async fn abort_partition_move(&self, request: PartitionMoveAbortRequest) -> RS<()> {
+        KernelHttpApi::abort_partition_move(self, request).await
+    }
+
+    async fn split_partition(&self, request: PartitionSplitRequest) -> RS<PartitionMoveResponse> {
+        KernelHttpApi::split_partition(self, request).await
+    }
+
+    async fn merge_partitions(&self, request: PartitionMergeRequest) -> RS<PartitionMoveResponse> {
+        KernelHttpApi::merge_partitions(self, request).await
+    }
+
     async fn server_topology(&self) -> RS<ServerTopology> {
         KernelHttpApi::server_topology(self).await
     }
@@ -229,6 +247,15 @@ impl HttpApi for KernelHttpApi {
 
     async fn server_queues(&self) -> RS<ServerQueuesResponse> {
         KernelHttpApi::server_queues(self).await
+    }
+
+    async fn receive_queue(
+        &self,
+        queue: &str,
+        consumer: Option<&str>,
+        wait_forever: bool,
+    ) -> RS<Vec<Value>> {
+        KernelHttpApi::receive_queue(self, queue, consumer, wait_forever).await
     }
 
     async fn queue_activation_register(&self, request: QueueActivationRequest) -> RS<()> {

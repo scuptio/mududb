@@ -59,7 +59,7 @@ fn fs_syscalls_require_an_active_transaction() {
             .fs_open(0xDEAD_BEEFu128, oid, "", O_WRONLY)
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         // Read-only helpers require the transaction too.
         let err = f.service.fs_stat(plain, oid, "").await.unwrap_err();

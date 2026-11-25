@@ -15,7 +15,7 @@
 #include <string.h>
 
 #include "mududb/codec/mpack.h"
-#include "mududb/types/UniRecordType.h"
+#include "mududb/types/UniStructType.h"
 #include "mududb/types/UniResultSet.h"
 
 #ifdef __cplusplus
@@ -58,7 +58,7 @@ struct uni_query_return {
 };
 
 struct uni_query_result {
-    uni_record_type tuple_desc;
+    uni_struct_type tuple_desc;
     uni_result_set result_set;
 };
 
@@ -157,12 +157,12 @@ MP_INLINE uni_query_return *uni_query_return_decode_new(mp_reader *r, mp_arena *
 MP_INLINE void uni_query_result_encode(mp_writer *w, const uni_query_result *value) {
     mpw_map_header(w, 2u);
     mpw_u64(w, 1u);
-    uni_record_type_encode(w, &(value->tuple_desc));
+    uni_struct_type_encode(w, &(value->tuple_desc));
     mpw_u64(w, 2u);
     uni_result_set_encode(w, &(value->result_set));
 }
 
-/* Decode one record into `out`, borrowing nothing from the input: every
+/* Decode one struct into `out`, borrowing nothing from the input: every
  * string, blob, array and boxed value is copied into `a`. Lenient: unknown
  * keys are skipped and missing fields keep their zero default (absent
  * `option` fields decode as null). 0 on success, -1 (with the reader's
@@ -176,7 +176,7 @@ MP_INLINE int uni_query_result_decode(mp_reader *r, mp_arena *a, uni_query_resul
             if (mpr_next_is_integer(r)) {
                 uint64_t key = mpr_u64(r);
                 if (key == 1u) {
-                    uni_record_type_decode(r, a, &(out->tuple_desc));
+                    uni_struct_type_decode(r, a, &(out->tuple_desc));
                 } else if (key == 2u) {
                     uni_result_set_decode(r, a, &(out->result_set));
                 } else {
@@ -191,7 +191,7 @@ MP_INLINE int uni_query_result_decode(mp_reader *r, mp_arena *a, uni_query_resul
     return mpr_ok(r) ? 0 : -1;
 }
 
-/* Decode one record into freshly arena-allocated storage; 0 on failure
+/* Decode one struct into freshly arena-allocated storage; 0 on failure
  * (the reader's sticky error is set). Boxes of this type decode through
  * this function, so headers referencing it by pointer never need its
  * `sizeof`. */

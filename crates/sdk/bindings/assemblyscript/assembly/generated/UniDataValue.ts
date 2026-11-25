@@ -12,7 +12,7 @@ export enum UniDataValueKind {
 
     Array = 1,
 
-    Record = 2,
+    Struct = 2,
 
     Binary = 3,
 
@@ -47,13 +47,13 @@ export class UniDataValueArray extends UniDataValue {
     }
 }
 
-export class UniDataValueRecord extends UniDataValue {
+export class UniDataValueStruct extends UniDataValue {
     
     inner: Array<UniDataValueField> = new Array<UniDataValueField>(0);
     
     constructor() {
         super();
-        this.kind = UniDataValueKind.Record;
+        this.kind = UniDataValueKind.Struct;
     }
 }
 
@@ -92,11 +92,11 @@ export class UniDataValueCodec {
                 break;
             }
             
-            case UniDataValueKind.Record: {
+            case UniDataValueKind.Struct: {
                 
-                                writer.writeArrayHeader((value as UniDataValueRecord).inner.length);
-                for (let i = 0; i < (value as UniDataValueRecord).inner.length; i++) {
-                    const item = (value as UniDataValueRecord).inner[i];
+                                writer.writeArrayHeader((value as UniDataValueStruct).inner.length);
+                for (let i = 0; i < (value as UniDataValueStruct).inner.length; i++) {
+                    const item = (value as UniDataValueStruct).inner[i];
                     UniDataValueFieldCodec.encode(item, writer);
                 }
                 
@@ -151,7 +151,7 @@ export class UniDataValueCodec {
             
             case 2: {
                 
-                const value = new UniDataValueRecord();
+                const value = new UniDataValueStruct();
                                 {
                     const n = reader.readArrayHeader() as i32;
                     const arr = new Array<UniDataValueField>(n);

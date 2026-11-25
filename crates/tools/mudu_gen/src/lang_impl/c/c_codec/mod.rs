@@ -39,7 +39,7 @@ pub struct CCodecStyle {
     pub bytes_as_array: bool,
 }
 
-/// Record/variant definition context: `list<u8>` is a MessagePack array.
+/// Struct/variant definition context: `list<u8>` is a MessagePack array.
 pub const C_STYLE_RECORD: CCodecStyle = CCodecStyle {
     bytes_as_array: true,
 };

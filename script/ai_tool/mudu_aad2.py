@@ -33,7 +33,7 @@ class Session:
         # or specify api key by Ark(api_key="${YOUR_API_KEY}").
         # Note: If you use an API key, this API key will not be refreshed.
         # To prevent the API from expiring and failing after some time, choose an API key with no expiration date.
-        # 2.If you authorize your endpoint with Volcengine Identity and Access Management（IAM),
+        # 2.If you authorize your endpoint with Volcengine Idobject and Access Management（IAM),
         # set your api key to environment variable "VOLC_ACCESSKEY", "VOLC_SECRETKEY"
         # or specify ak&sk by Ark(ak="${YOUR_AK}", sk="${YOUR_SK}").
         # To get your ak&sk, please refer to this document(https://www.volcengine.com/docs/6291/65568)

@@ -16,7 +16,7 @@ else
     PYTHON=python
 fi
 
-"$PYTHON" "$REPO_ROOT/script/ci/check_all.py" --only fmt,clippy,deny
+"$PYTHON" "$REPO_ROOT/script/ci/check_all.py" --only fmt,clippy,deny --fail-fast
 
 # Verification drift gate: when staged changes touch sources covered by
 # verification/targets.toml, re-extract them and require the committed

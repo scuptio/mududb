@@ -28,23 +28,29 @@ fn rule_with_bounds(name: &str) -> PartitionRuleDesc {
 }
 
 fn partitioned_binder() -> Binder {
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "orders".to_string(),
         vec![
             SchemaColumn::new(
                 "region_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "order_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "amount".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
         ],
         vec![0, 1],
@@ -156,7 +162,7 @@ fn bind_create_table_fails_when_partition_rule_not_found() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -180,7 +186,7 @@ fn bind_create_table_fails_when_partition_reference_column_not_found() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }

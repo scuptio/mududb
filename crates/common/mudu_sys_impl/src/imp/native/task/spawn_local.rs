@@ -7,7 +7,7 @@ use tokio::task::LocalSet;
 use tokio::time::sleep as tokio_sleep;
 use tracing::trace;
 
-use super::async_::TASK_ID;
+use super::id::TASK_ID;
 use super::{id, TaskContext, TaskJoinHandle, TaskRuntime};
 
 /// Spawns a `!Send` future as a named task on the current thread's local
@@ -285,5 +285,49 @@ mod tests {
         )
         .await;
         assert!(matches!(cancelled, Err(TaskFailed::Cancel)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_local_task_drops_future_without_running_it() {
+        use crate::imp::sync::async_::notify_wait;
+        let set = LocalTaskSet::new();
+        let (notifier, waiter) = notify_wait();
+        notifier.notify_all();
+        let handle = set
+            .spawn(waiter, "cancelled", std::future::pending::<()>())
+            .unwrap();
+        assert_eq!(set.run_until(handle).await.unwrap(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[allow(clippy::arc_with_non_send_sync)]
+    fn thread_confined_tasks_use_worker_registry_and_background_does_not_block_drain() {
+        use crate::imp::io::worker_ring::{
+            set_current_worker_ring, unset_current_worker_ring, WorkerLocalRing,
+        };
+        use std::{cell::Cell, rc::Rc, sync::Arc};
+        struct ResetRing;
+        impl Drop for ResetRing {
+            fn drop(&mut self) {
+                unset_current_worker_ring();
+            }
+        }
+        let ring = Arc::new(WorkerLocalRing::new());
+        set_current_worker_ring(ring.clone());
+        let _reset = ResetRing;
+        let value = Rc::new(Cell::new(0));
+        let task_value = value.clone();
+        super::spawn_thread_confined_task("foreground", async move {
+            task_value.set(42);
+        })
+        .unwrap();
+        super::spawn_thread_confined_background_task("background", std::future::pending()).unwrap();
+        let registry = ring.worker_task_registry();
+        assert!(!registry.is_drained_of_blocking());
+        let completed = registry.poll_ready();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(value.get(), 42);
+        assert!(registry.is_drained_of_blocking());
+        assert!(!registry.is_empty());
     }
 }

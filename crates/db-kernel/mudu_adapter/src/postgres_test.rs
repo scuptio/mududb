@@ -70,14 +70,14 @@ fn mudu_open_async_reports_database_error_when_postgres_url_invalid() -> RS<()> 
 }
 
 #[test]
-fn mudu_close_reports_entity_not_found_for_unknown_session() -> RS<()> {
+fn mudu_close_reports_object_not_found_for_unknown_session() -> RS<()> {
     let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     let err = match postgres::mudu_close(0xDEAD_BEEF_u128) {
-        Ok(_) => panic!("expected entity not found error"),
+        Ok(_) => panic!("expected object not found error"),
         Err(e) => e,
     };
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     Ok(())
 }
 

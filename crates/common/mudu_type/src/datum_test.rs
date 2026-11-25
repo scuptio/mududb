@@ -1,8 +1,8 @@
 #[cfg(test)]
 #[allow(clippy::borrowed_box)]
 mod tests {
-    use crate::array::new_array_type;
     use crate::data_type::DataType;
+    use crate::data_type_impl::data_type_create::create_array_type;
     use crate::datum::{
         AsDatumDynRef, Datum, DatumDyn, binary_from_typed, binary_to_typed, value_from_typed,
         value_to_typed,
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn new_array_type_creates_array_data_type() {
         let inner = DataType::new_no_param(TypeFamily::I64);
-        let array_type = new_array_type(inner);
+        let array_type = create_array_type(inner);
         assert_eq!(array_type.type_family(), TypeFamily::Array);
     }
 

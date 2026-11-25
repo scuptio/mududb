@@ -76,7 +76,7 @@ them isolated:
 
 ## Verification
 
-The model is pinned by tests in `mudu_runtime`:
+The model is pinned by tests in `runtime_wasm`:
 
 - `service/concurrent_wasm_suspension_test.rs` — two instances suspended
   mid-hostcall interleave on one OS thread (ordered host-call log), with a

@@ -98,7 +98,7 @@ public static class {{ exports_class }}
     }
 {% endif %}{% for helper in record_helpers %}    private static {{ helper.type_name }} {{ helper.helper_name }}(object? value)
     {
-        var reader = new MessagePackReader(MuduSys.RecordFieldValues(value));
+        var reader = new MessagePackReader(MuduSys.StructFieldValues(value));
         return new {{ helper.formatter_name }}().Deserialize(ref reader, null!);
     }
 {% endfor %}{% for cast in casts %}

@@ -1,8 +1,8 @@
 //! Deterministic multi-node tests: whole clusters run in one process over
 //! [`InMemoryNetwork`], with time driven exclusively by injected ticks
 //! (`manual_ticks = true`), so no test ever sleeps. Synchronization uses
-//! blocking channel waits (`watch_status` / `watch_committed` / propose
-//! waiters) with generous timeouts as failure guards only.
+//! async status/commit subscriptions driven by the test runtime. Proposal
+//! timeouts are failure guards only.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -14,12 +14,18 @@ use crate::core::role::RaftRole;
 use crate::entry::ReplEntry;
 use crate::transport::InMemoryNetwork;
 use crate::{
-    ConfNodeValue, ConfVersion, NodeStatus, RaftCfg, RaftHandle, RaftTuning, TermIndex,
-    UpdateConfWaiter,
+    raft_log_dir, ConfNodeValue, ConfVersion, NodeStatus, RaftCfg, RaftHandle, RaftStore,
+    RaftTuning, StoreCfg, TermIndex, UpdateConfWaiter,
 };
 
 const WAIT: Duration = Duration::from_secs(20);
 const ELECTION_TIMEOUT_TICKS: u64 = 4;
+
+fn wait<F: std::future::Future>(future: F) -> Option<F::Output> {
+    mudu_sys::task::async_::build_current_thread_runtime()
+        .unwrap()
+        .block_on(mudu_sys::timeout(WAIT, future))
+}
 
 struct TestCluster {
     network: InMemoryNetwork,
@@ -47,7 +53,20 @@ impl TestCluster {
     }
 
     fn start_node_in_dir(&mut self, node_id: u64, peers: &[u64], log_dir: PathBuf) {
-        let mut cfg = RaftCfg::new(node_id, peers.to_vec(), 5, ELECTION_TIMEOUT_TICKS, log_dir);
+        self.start_node_full(node_id, peers, &[], log_dir);
+    }
+
+    fn start_node_with_learners(&mut self, node_id: u64, peers: &[u64], learners: &[u64]) {
+        let dir = tempfile::tempdir().unwrap();
+        let log_dir = dir.path().to_path_buf();
+        self.start_node_full(node_id, peers, learners, log_dir.clone());
+        self._dirs.insert(node_id, dir);
+        self.log_dirs.insert(node_id, log_dir);
+    }
+
+    fn start_node_full(&mut self, node_id: u64, peers: &[u64], learners: &[u64], log_dir: PathBuf) {
+        let mut cfg = RaftCfg::new(node_id, peers.to_vec(), 5, ELECTION_TIMEOUT_TICKS, log_dir)
+            .with_learners(learners.to_vec());
         cfg.manual_ticks = true;
         cfg.tuning = RaftTuning {
             // small chunks so tests observe rotation and GC
@@ -82,14 +101,14 @@ impl TestCluster {
 
     fn wait_role(&self, node_id: u64, role: RaftRole) -> NodeStatus {
         let handle = self.handle(node_id);
-        let rx = handle.watch_status();
+        let mut rx = handle.watch_status_async().unwrap();
         loop {
             let status = handle.status();
             if status.role == role {
                 return status;
             }
-            match rx.recv_timeout(WAIT) {
-                Ok(Some(_)) => continue,
+            match wait(rx.changed()) {
+                Some(Ok(())) => continue,
                 other => panic!(
                     "node {node_id} did not reach role {role:?}; status {status:?}, recv {other:?}"
                 ),
@@ -99,14 +118,14 @@ impl TestCluster {
 
     fn wait_commit_index(&self, node_id: u64, index: u64) -> NodeStatus {
         let handle = self.handle(node_id);
-        let rx = handle.watch_status();
+        let mut rx = handle.watch_status_async().unwrap();
         loop {
             let status = handle.status();
             if status.commit_index >= index {
                 return status;
             }
-            match rx.recv_timeout(WAIT) {
-                Ok(Some(_)) => continue,
+            match wait(rx.changed()) {
+                Some(Ok(())) => continue,
                 other => panic!(
                     "node {node_id} did not reach commit index {index}; status {status:?}, recv {other:?}"
                 ),
@@ -120,13 +139,13 @@ impl TestCluster {
     }
 
     fn recv_committed(
-        rx: &mudu_sys::SyncReceiver<(u64, ReplEntry)>,
+        rx: &mut mudu_sys::tokio::sync::mpsc::Receiver<(u64, ReplEntry)>,
         n: usize,
     ) -> Vec<(u64, ReplEntry)> {
         let mut out = Vec::with_capacity(n);
         for _ in 0..n {
-            match rx.recv_timeout(WAIT) {
-                Ok(Some(v)) => out.push(v),
+            match wait(rx.recv()) {
+                Some(Some(v)) => out.push(v),
                 other => panic!(
                     "expected {n} committed entries, got {} ({other:?})",
                     out.len()
@@ -152,7 +171,7 @@ fn single_node_bootstrap_leader_propose_commit() {
     assert_eq!(status.term, 1);
     assert_eq!(c.handle(1).leader_id(), Some(1));
 
-    let watcher = c.handle(1).watch_committed();
+    let mut watcher = c.handle(1).watch_committed_async().unwrap();
     let entry = ReplEntry::CommitVec {
         term: 1,
         per_worker: vec![(0, 7, [1u8; 32]), (1, 9, [2u8; 32])],
@@ -162,7 +181,7 @@ fn single_node_bootstrap_leader_propose_commit() {
     assert_eq!(index, 1);
     assert_eq!(term, 1);
 
-    let committed = TestCluster::recv_committed(&watcher, 1);
+    let committed = TestCluster::recv_committed(&mut watcher, 1);
     assert_eq!(committed, vec![(1, entry)]);
     assert_eq!(c.handle(1).commit_index(), 1);
     c.stop_node(1);
@@ -176,7 +195,7 @@ fn three_node_election_and_propose_commits_on_majority() {
     }
     c.elect(1);
 
-    let watcher3 = c.handle(3).watch_committed();
+    let mut watcher3 = c.handle(3).watch_committed_async().unwrap();
     for i in 1..=3u64 {
         let waiter = c.handle(1).propose(TestCluster::barrier(1)).unwrap();
         let (index, _term) = waiter.recv().unwrap();
@@ -186,7 +205,7 @@ fn three_node_election_and_propose_commits_on_majority() {
     c.tick(1, 2);
     // majority commit: node 2 converges
     c.wait_commit_index(2, 3);
-    let committed3 = TestCluster::recv_committed(&watcher3, 3);
+    let committed3 = TestCluster::recv_committed(&mut watcher3, 3);
     let indices: Vec<u64> = committed3.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![1, 2, 3]);
 
@@ -207,7 +226,7 @@ fn leader_kill_reelection_and_committed_survives() {
         c.start_node(id, &[1, 2, 3]);
     }
     c.elect(1);
-    let watcher3 = c.handle(3).watch_committed();
+    let mut watcher3 = c.handle(3).watch_committed_async().unwrap();
     for _ in 0..2 {
         c.handle(1)
             .propose(TestCluster::barrier(1))
@@ -231,7 +250,7 @@ fn leader_kill_reelection_and_committed_survives() {
     c.tick(2, 2);
 
     // node 3 observed every committed entry in order
-    let committed3 = TestCluster::recv_committed(&watcher3, 3);
+    let committed3 = TestCluster::recv_committed(&mut watcher3, 3);
     let indices: Vec<u64> = committed3.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![1, 2, 3]);
     c.stop_node(2);
@@ -245,7 +264,7 @@ fn isolated_follower_heals_and_catches_up() {
         c.start_node(id, &[1, 2, 3]);
     }
     c.elect(1);
-    let watcher3 = c.handle(3).watch_committed();
+    let mut watcher3 = c.handle(3).watch_committed_async().unwrap();
 
     // isolate follower 3 and commit five entries on {1,2}
     c.network.isolate(3).unwrap();
@@ -263,7 +282,7 @@ fn isolated_follower_heals_and_catches_up() {
     // heal: heartbeats from the leader bring node 3 back via AppendReq
     c.network.heal_all().unwrap();
     c.tick(1, 4);
-    let committed3 = TestCluster::recv_committed(&watcher3, 5);
+    let committed3 = TestCluster::recv_committed(&mut watcher3, 5);
     let indices: Vec<u64> = committed3.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![1, 2, 3, 4, 5]);
     c.wait_commit_index(3, 5);
@@ -280,7 +299,7 @@ fn restart_recovers_term_log_and_rejoins() {
         c.start_node(id, &[1, 2, 3]);
     }
     c.elect(1);
-    let watcher3 = c.handle(3).watch_committed();
+    let mut watcher3 = c.handle(3).watch_committed_async().unwrap();
     for _ in 0..3 {
         c.handle(1)
             .propose(TestCluster::barrier(1))
@@ -304,17 +323,17 @@ fn restart_recovers_term_log_and_rejoins() {
     assert_eq!(status.role, RaftRole::Follower);
 
     // the node rejoins and catches up on new proposals
-    let watcher3b = c.handle(3).watch_committed();
+    let mut watcher3b = c.handle(3).watch_committed_async().unwrap();
     let waiter = c.handle(1).propose(TestCluster::barrier(1)).unwrap();
     let (index, _term) = waiter.recv().unwrap();
     assert_eq!(index, 4);
     c.tick(1, 2);
-    let committed = TestCluster::recv_committed(&watcher3b, 1);
+    let committed = TestCluster::recv_committed(&mut watcher3b, 1);
     assert_eq!(committed[0].0, 4);
     c.wait_commit_index(3, 4);
 
     // the restarted node kept its old committed stream intact
-    let old = TestCluster::recv_committed(&watcher3, 3);
+    let old = TestCluster::recv_committed(&mut watcher3, 3);
     let indices: Vec<u64> = old.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![1, 2, 3]);
 
@@ -468,14 +487,14 @@ impl TestCluster {
     /// Waits until `node_id`'s committed conf version reaches `version`.
     fn wait_conf_committed(&self, node_id: u64, version: &ConfVersion) {
         let handle = self.handle(node_id);
-        let rx = handle.watch_status();
+        let mut rx = handle.watch_status_async().unwrap();
         loop {
             let status = handle.status();
             if status.conf_version_committed >= *version {
                 return;
             }
-            match rx.recv_timeout(WAIT) {
-                Ok(Some(_)) => continue,
+            match wait(rx.changed()) {
+                Some(Ok(())) => continue,
                 other => panic!(
                     "node {node_id} did not reach conf version {version:?}; status {status:?}, recv {other:?}"
                 ),
@@ -486,6 +505,70 @@ impl TestCluster {
     fn committed_conf(&self, node_id: u64) -> ConfNodeValue {
         self.handle(node_id).conf().unwrap().0
     }
+}
+
+#[test]
+fn bootstrap_learners_replicate_without_voting() {
+    let mut c = TestCluster::new();
+    // Every node bootstraps the identical voter/learner split: {1,2,3} vote,
+    // node 4 replicates the log as a learner.
+    for id in [1, 2, 3] {
+        c.start_node_with_learners(id, &[1, 2, 3], &[4]);
+    }
+    c.start_node_with_learners(4, &[1, 2, 3], &[4]);
+
+    c.elect(1);
+    assert_eq!(c.committed_conf(1).node.nid_vote, vec![1, 2, 3]);
+    assert_eq!(c.committed_conf(1).node.nid_log, vec![1, 2, 3, 4]);
+    assert_eq!(c.committed_conf(4).node.nid_log, vec![1, 2, 3, 4]);
+
+    // The learner receives and commits replicated entries.
+    let mut watcher4 = c.handle(4).watch_committed_async().unwrap();
+    let waiter = c.handle(1).propose(TestCluster::barrier(1)).unwrap();
+    let (index, _) = waiter.recv().unwrap();
+    c.tick(1, 2);
+    let committed4 = TestCluster::recv_committed(&mut watcher4, 1);
+    assert_eq!(committed4[0].0, index);
+
+    // A bootstrap learner never campaigns and never becomes leader.
+    c.tick(4, ELECTION_TIMEOUT_TICKS * 3);
+    assert_eq!(c.handle(4).role(), RaftRole::Follower);
+    assert_eq!(c.handle(4).term(), 1);
+    let rejected = c.handle(4).propose(TestCluster::barrier(1)).unwrap();
+    assert!(rejected.recv().is_err());
+
+    // The learner's survival is irrelevant to quorum: stop it and the
+    // cluster keeps committing.
+    c.stop_node(4);
+    let waiter = c.handle(1).propose(TestCluster::barrier(1)).unwrap();
+    waiter.recv().unwrap();
+
+    for id in [1, 2, 3] {
+        c.stop_node(id);
+    }
+}
+
+#[test]
+fn bootstrap_rejects_overlapping_or_unknown_membership() {
+    let c = TestCluster::new();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = RaftCfg::new(
+        1,
+        vec![1, 2],
+        5,
+        ELECTION_TIMEOUT_TICKS,
+        dir.path().to_path_buf(),
+    )
+    .with_learners(vec![2]);
+    assert!(RaftHandle::start(cfg, c.network.transport(1)).is_err());
+    let cfg = RaftCfg::new(
+        3,
+        vec![1, 2],
+        5,
+        ELECTION_TIMEOUT_TICKS,
+        dir.path().to_path_buf(),
+    );
+    assert!(RaftHandle::start(cfg, c.network.transport(3)).is_err());
 }
 
 #[test]
@@ -507,7 +590,7 @@ fn update_conf_add_learner_promote_and_elect() {
 
     // a fresh node joins with the full peer list
     c.start_node(4, &[1, 2, 3, 4]);
-    let watcher4 = c.handle(4).watch_committed();
+    let mut watcher4 = c.handle(4).watch_committed_async().unwrap();
 
     // join as learner: replicates but does not vote
     let (value, vote, log) = c.committed_conf(1).derive_add_learner(4).unwrap();
@@ -525,7 +608,7 @@ fn update_conf_add_learner_promote_and_elect() {
     let (index, _) = proposed.recv().unwrap();
     assert_eq!(index, 4);
     c.tick(1, 4);
-    let committed4 = TestCluster::recv_committed(&watcher4, 4);
+    let committed4 = TestCluster::recv_committed(&mut watcher4, 4);
     assert_eq!(committed4.len(), 4);
     assert_eq!(committed4[3].0, 4);
 
@@ -688,5 +771,85 @@ fn update_conf_waiter_fails_explicitly_when_leader_stops() {
 
     for id in [2, 3, 4] {
         c.stop_node(id);
+    }
+}
+
+#[test]
+fn stream_progress_reference_survives_store_recovery() {
+    use crate::stream::{GroupCommit, GroupId, MembershipVersion, StreamId, StreamProgress};
+    let mut c = TestCluster::new();
+    c.start_node(1, &[1]);
+    c.elect(1);
+    let (old, new) = c.handle(1).conf().unwrap();
+    let entry = ReplEntry::GroupCommit(GroupCommit {
+        cluster_id: 7,
+        group_id: GroupId(11),
+        group_generation: 1,
+        membership_version: MembershipVersion::from_conf(&old, &new),
+        registry_version: 1,
+        progress: vec![StreamProgress {
+            stream_id: StreamId(9),
+            stream_generation: 2,
+            end_lsn: 42,
+            segment_digest: [3; 32],
+        }],
+    });
+    let mut watch = c.handle(1).watch_committed_async().unwrap();
+    c.handle(1).propose(entry.clone()).unwrap().recv().unwrap();
+    assert_eq!(
+        TestCluster::recv_committed(&mut watch, 1),
+        vec![(1, entry.clone())]
+    );
+    c.stop_node(1);
+    let dir = c.log_dirs[&1].clone();
+    let (_store, recovered) = wait(RaftStore::open_async(
+        &raft_log_dir(&dir),
+        StoreCfg::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    let recovered = recovered.unwrap();
+    assert_eq!(recovered.commit_index, 1);
+    assert_eq!(recovered.log[0].value, entry);
+}
+
+#[test]
+fn committed_replay_pages_exclude_uncommitted_suffixes() {
+    let mut cluster = TestCluster::new();
+    for id in [1, 2, 3] {
+        cluster.start_node(id, &[1, 2, 3]);
+    }
+    cluster.elect(1);
+    cluster
+        .handle(1)
+        .propose(TestCluster::barrier(1))
+        .unwrap()
+        .recv()
+        .unwrap();
+    cluster.network.isolate(1).unwrap();
+    let uncommitted = cluster.handle(1).propose(TestCluster::barrier(1)).unwrap();
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime().unwrap();
+    runtime.block_on(async {
+        let page = cluster
+            .handle(1)
+            .read_committed_async(0, 256)
+            .await
+            .unwrap();
+        assert_eq!(page.committed_index, 1);
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].0.index, 1);
+        assert!(cluster
+            .handle(1)
+            .read_committed_async(1, 256)
+            .await
+            .unwrap()
+            .entries
+            .is_empty());
+        assert!(cluster.handle(1).read_committed_async(0, 0).await.is_err());
+    });
+    cluster.stop_node(1);
+    assert!(uncommitted.recv().is_err());
+    for id in [2, 3] {
+        cluster.stop_node(id);
     }
 }

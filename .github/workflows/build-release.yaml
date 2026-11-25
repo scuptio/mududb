@@ -39,11 +39,19 @@ jobs:
 
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Resolve Release Version
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run version bash {0}
         id: version
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "${GITHUB_REF_NAME}" ]]; then
@@ -56,10 +64,12 @@ jobs:
           echo "Resolved version: ${VERSION}"
 
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         if: matrix.os == 'ubuntu-latest'
         uses: ./.github/actions/rust-stable-setup
 
       - name: Cache Cargo Registry
+        id: cache_cargo_registry
         uses: actions/cache@v4
         with:
           path: |
@@ -75,6 +85,8 @@ jobs:
       # binaries, collect binaries + prerequisite scripts, write the manifest,
       # and emit the tarball, checksums, and changelog.
       - name: Package Release
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run package_release bash {0}
+        id: package_release
         run: |
           python3 script/release/package_release.py \
             --version "${{ steps.version.outputs.version }}" \
@@ -82,6 +94,8 @@ jobs:
             --repository "${{ github.repository }}"
 
       - name: Normalize Local Artifact Ownership
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run normalize_local_artifact_ownership bash {0}
+        id: normalize_local_artifact_ownership
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ARTIFACT_ROOT="target/release-artifacts"
@@ -96,6 +110,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
+        id: create_github_release
         if: ${{ env.GITHUB_TOKEN != '' }}
         uses: softprops/action-gh-release@v2
         with:
@@ -110,11 +125,15 @@ jobs:
           generate_release_notes: false
 
       - name: Skip GitHub Release
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run skip_github_release bash {0}
+        id: skip_github_release
         if: ${{ env.GITHUB_TOKEN == '' }}
         run: |
           echo "GITHUB_TOKEN is not set; skipping GitHub release publishing."
 
       - name: Verify Release Assets
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run verify_release_assets bash {0}
+        id: verify_release_assets
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ARTIFACT_DIR="target/release-artifacts/${VERSION}"
@@ -124,3 +143,11 @@ jobs:
           echo ""
           echo "Checksums:"
           cat "${ARTIFACT_DIR}"/*.sha256 || true
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

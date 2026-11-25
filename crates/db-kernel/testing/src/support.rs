@@ -6,20 +6,19 @@ use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::sync::SMutex;
 use mudu_sys::task::async_::TaskRuntime;
-#[cfg(not(feature = "ds"))]
 use mudu_sys::task::sync::SJoinHandle;
 use mudu_sys::task::sync::spawn_thread;
 use mudu_type::data_value::DataValue;
 use mudu_utils::debug::debug_serve;
-#[cfg(not(feature = "ds"))]
-use mudu_utils::notifier::Notifier;
-use mudu_utils::notifier::{NotifyWait, Waiter};
+use mudu_utils::notifier::{Notifier, NotifyWait, Waiter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
+
+pub use crate::in_process_server::InProcessServer;
 /// Returns `true` when the current host can run a backend in the requested mode.
 pub fn supports_server_mode(server_mode: ServerMode) -> bool {
     match server_mode {
@@ -88,6 +87,41 @@ pub fn wait_until_backend_ready(waiter: Waiter, service_name: &str, timeout: Dur
         )
     })?;
     Ok(())
+}
+
+/// Waits until every port in `ports` can be bound on the loopback address,
+/// or `timeout` elapses.
+///
+/// In-process server restarts reuse the same ports: a stopped server's
+/// sockets — worker listeners, loopback client connections, the shutdown
+/// probe's own connections — can outlive the server thread in states that
+/// SO_REUSEADDR does not cover (ESTABLISHED, FIN_WAIT2), so a fixed sleep
+/// races their teardown and the restart dies with EADDRINUSE. Probing with a
+/// bind that sets SO_REUSEADDR exactly predicts the server's own bind: it
+/// succeeds over lingering TIME_WAIT sockets and fails only while a live
+/// socket still holds the port.
+pub fn wait_until_ports_bindable(ports: &[u16], timeout: Duration) -> RS<()> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    loop {
+        let mut busy = Vec::new();
+        for &port in ports {
+            if StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).is_err() {
+                busy.push(port);
+            }
+        }
+        if busy.is_empty() {
+            return Ok(());
+        }
+        if mudu_sys::time::instant_now() >= deadline {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                format!(
+                    "ports {busy:?} are still busy {timeout:?} after the previous server stopped"
+                )
+            ));
+        }
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
+    }
 }
 
 /// Waits for an in-process backend server to finish startup, racing the
@@ -811,7 +845,7 @@ fn repo_root() -> RS<PathBuf> {
         }
     }
     Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::EntityNotFound,
+        mudu::error::ErrorCode::ObjectNotFound,
         format!(
             "no .project.home anchor found above {}",
             manifest_dir.display()
@@ -862,7 +896,7 @@ pub fn ensure_mudud_binary() -> RS<PathBuf> {
         Ok(path)
     } else {
         Err(mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("mudud binary still missing after build: {}", path.display())
         ))
     }

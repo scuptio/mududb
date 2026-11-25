@@ -14,7 +14,7 @@ async fn async_relation_syscalls_round_trip() {
     let insert_out = async_relation_insert_internal_with_worker_local(insert_in, None).await;
     decode_relation_insert_result(&insert_out).unwrap();
 
-    // Duplicate primary key: EntityAlreadyExists in the error envelope.
+    // Duplicate primary key: ObjectAlreadyExists in the error envelope.
     let dup_in = encode_relation_insert_request(
         sid.clone(),
         "district",
@@ -23,7 +23,7 @@ async fn async_relation_syscalls_round_trip() {
     );
     let dup_out = async_relation_insert_internal_with_worker_local(dup_in, None).await;
     let err = decode_relation_insert_result(&dup_out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 
     let get_in = encode_relation_get_request(
         sid.clone(),
@@ -110,23 +110,23 @@ fn sync_relation_syscalls_round_trip() {
 #[test]
 fn relation_syscalls_require_task_context() {
     // Without a registered task context the frame's session id resolves
-    // to nothing and the syscall reports EntityNotFound.
+    // to nothing and the syscall reports ObjectNotFound.
     let missing = UniOid::from_oid(987_654_321);
     let get_in = encode_relation_get_request(missing.clone(), "t", &[(0, &b"k"[..])], &[0]);
     let out = relation_get_internal_with_worker_local(&get_in, None);
     let err = decode_relation_get_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     let update_in =
         encode_relation_update_request(missing.clone(), "t", &[(0, &b"k"[..])], &[], &[]);
     let out = relation_update_internal_with_worker_local(&update_in, None);
     let err = decode_relation_update_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     let insert_in = encode_relation_insert_request(missing, "t", &[(0, &b"k"[..])], &[]);
     let out = relation_insert_internal_with_worker_local(&insert_in, None);
     let err = decode_relation_insert_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[tokio::test]
@@ -135,7 +135,7 @@ async fn async_relation_syscalls_require_task_context_and_relation_support() {
     let get_in = encode_relation_get_request(missing, "t", &[(0, &b"k"[..])], &[0]);
     let out = async_relation_get_internal_with_worker_local(get_in, None).await;
     let err = decode_relation_get_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     // The trait default (FakeWorkerLocal does not override relation_*)
     // reports NotImplemented once the task context resolves.

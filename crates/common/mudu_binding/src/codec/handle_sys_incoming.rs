@@ -2,9 +2,9 @@ use crate::codec::adapter::{oid_from_mu, oid_to_mu};
 use crate::codec::syscall_payload;
 use crate::universal::uni_command_argv::UniCommandArgv;
 use crate::universal::uni_query_argv::UniQueryArgv;
-use crate::universal::uni_record_type::UniRecordType;
 use crate::universal::uni_sql_param::UniSqlParam;
 use crate::universal::uni_sql_stmt::UniSqlStmt;
+use crate::universal::uni_struct_type::UniStructType;
 use crate::universal::uni_type_compat::{param_type_compatible, uni_data_type_name};
 use crate::universal::uni_type_compat_impl::param_type_tag_of_value;
 use mudu::common::id::OID;
@@ -68,7 +68,7 @@ pub fn incoming_serialize(
 /// Build the `param-desc` wire field from the sender's parameter tuple
 /// descriptor. Rust senders always have one; senders without descriptor
 /// capability (AssemblyScript, the C# hand encoder) emit `None` instead.
-fn param_desc_mu(param: &dyn SQLParams) -> RS<Option<UniRecordType>> {
+fn param_desc_mu(param: &dyn SQLParams) -> RS<Option<UniStructType>> {
     let desc = param.param_tuple_desc()?;
     Ok(Some(crate::codec::handle_sys_outcoming::tuple_desc_to_mu(
         desc,
@@ -80,24 +80,24 @@ fn param_desc_mu(param: &dyn SQLParams) -> RS<Option<UniRecordType>> {
 /// compatible with the declared field type (the shared compatibility
 /// table). A sender that emits no `param-desc` (`None`) skips the check.
 fn check_param_desc_consistency(
-    param_desc: Option<&UniRecordType>,
+    param_desc: Option<&UniStructType>,
     params: &SQLParamValue,
 ) -> RS<()> {
     let Some(desc) = param_desc else {
         return Ok(());
     };
     let values = params.params();
-    if desc.record_fields.len() != values.len() {
+    if desc.struct_fields.len() != values.len() {
         return Err(mudu_error!(
             ErrorCode::InvalidType,
             format!(
                 "param-desc has {} field(s) but {} parameter value(s) were received",
-                desc.record_fields.len(),
+                desc.struct_fields.len(),
                 values.len()
             )
         ));
     }
-    for (index, (field, value)) in desc.record_fields.iter().zip(values.iter()).enumerate() {
+    for (index, (field, value)) in desc.struct_fields.iter().zip(values.iter()).enumerate() {
         let tag = param_type_tag_of_value(value);
         if !param_type_compatible(tag, &field.field_type) {
             return Err(mudu_error!(
@@ -212,21 +212,21 @@ mod tests {
     }
 
     use crate::universal::uni_data_type::UniDataType;
-    use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
     use crate::universal::uni_scalar::UniScalar;
     use crate::universal::uni_sql_param::UniSqlParam;
     use crate::universal::uni_sql_stmt::UniSqlStmt;
+    use crate::universal::uni_struct_type::{UniStructField, UniStructType};
     use mudu_type::data_value::DataValue;
 
     fn frame_with_desc(
         values: Vec<DataValue>,
         param_desc: Option<Vec<(&str, UniScalar)>>,
     ) -> Vec<u8> {
-        let fields = param_desc.map(|fields| UniRecordType {
-            record_name: String::new(),
-            record_fields: fields
+        let fields = param_desc.map(|fields| UniStructType {
+            struct_name: String::new(),
+            struct_fields: fields
                 .into_iter()
-                .map(|(name, scalar)| UniRecordField {
+                .map(|(name, scalar)| UniStructField {
                     field_name: name.to_string(),
                     field_type: UniDataType::from_scalar(scalar),
                     field_attrs: Vec::new(),
@@ -249,7 +249,7 @@ mod tests {
         // The frame carries the sender's parameter descriptor.
         let argument = syscall_payload::decode_query_request(&frame).unwrap();
         let desc = argument.param_desc.expect("param_desc must be present");
-        assert_eq!(desc.record_fields.len(), 2);
+        assert_eq!(desc.struct_fields.len(), 2);
 
         let (_oid, _stmt, params) = query_incoming_deserialize(&frame).unwrap();
         assert_eq!(params.size(), 2);

@@ -21,16 +21,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Check format compatibility
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_format_compatibility bash {0}
+        id: check_format_compatibility
         run: |
           mkdir -p logs
           set -o pipefail
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
           python3 ./script/ci/check_format_compatibility.py "${BASE_REF}" 2>&1 | tee logs/compat-format.log
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   golden-fixtures:
     name: Golden fixture compatibility tests
@@ -41,12 +59,21 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Cache Cargo registry
+        id: cache_cargo_registry
         uses: actions/cache@v4
         with:
           path: |
@@ -57,26 +84,46 @@ jobs:
             ${{ runner.os }}-cargo-stable
 
       - name: Run golden fixture tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_golden_fixture_tests bash {0}
+        id: run_golden_fixture_tests
         working-directory: crates/db-kernel
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
           cargo test -p testing --test compat_golden 2>&1 | tee ${{ github.workspace }}/logs/compat-golden.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   csharp-corpus:
     name: C# corpus compatibility tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup .NET SDK
+        id: setup_net_sdk
         uses: actions/setup-dotnet@v4
         with:
           # Mudu.Api.Tests/Mudu.Api.Tests.csproj targets net8.0.
           dotnet-version: '8.0.x'
 
       - name: Cache NuGet packages
+        id: cache_nuget_packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -85,20 +132,39 @@ jobs:
             ${{ runner.os }}-nuget
 
       - name: Run C# corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_c_corpus_tests bash {0}
+        id: run_c_corpus_tests
         working-directory: crates/sdk/mudu_api/csharp
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
           dotnet test Mudu.Api.Tests 2>&1 | tee ${{ github.workspace }}/logs/compat-csharp-corpus.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   as-corpus:
     name: AssemblyScript corpus compatibility tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup Node.js
+        id: setup_node_js
         uses: actions/setup-node@v4
         with:
           # assemblyscript devDependency requires node >= 18.
@@ -107,10 +173,14 @@ jobs:
           cache-dependency-path: crates/sdk/bindings/assemblyscript/package-lock.json
 
       - name: Install dependencies
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_dependencies bash {0}
+        id: install_dependencies
         working-directory: crates/sdk/bindings/assemblyscript
         run: npm ci
 
       - name: Run AssemblyScript corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_assemblyscript_corpus_tests bash {0}
+        id: run_assemblyscript_corpus_tests
         working-directory: crates/sdk/bindings/assemblyscript
         run: |
           mkdir -p ${{ github.workspace }}/logs
@@ -121,19 +191,38 @@ jobs:
             node run_lenient_decode_test.mjs
           } 2>&1 | tee ${{ github.workspace }}/logs/compat-as-corpus.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   py-corpus:
     name: Python corpus compatibility tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup Python
+        id: setup_python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
       - name: Run Python corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_python_corpus_tests bash {0}
+        id: run_python_corpus_tests
         working-directory: crates/sdk/bindings/python
         run: |
           mkdir -p ${{ github.workspace }}/logs
@@ -145,15 +234,33 @@ jobs:
             python3 run_lenient_decode_test.py
           } 2>&1 | tee ${{ github.workspace }}/logs/compat-py-corpus.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   c-corpus:
     name: C corpus compatibility tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
+
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
 
       # GitHub-hosted runners ship clang; local act images may not.
       - name: Install clang (if missing)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_clang_if_missing bash {0}
+        id: install_clang_if_missing
         run: |
           if command -v clang >/dev/null 2>&1 && command -v clang++ >/dev/null 2>&1; then
             exit 0
@@ -167,6 +274,8 @@ jobs:
           fi
 
       - name: Run C corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_c_corpus_tests bash {0}
+        id: run_c_corpus_tests
         working-directory: crates/sdk/bindings/c
         run: |
           mkdir -p ${{ github.workspace }}/logs
@@ -175,19 +284,38 @@ jobs:
             make check CC=clang CXX=clang++
           } 2>&1 | tee ${{ github.workspace }}/logs/compat-c-corpus.log
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   go-corpus:
     name: Go corpus compatibility tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup Go
+        id: setup_go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
 
       - name: Run Go corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_go_corpus_tests bash {0}
+        id: run_go_corpus_tests
         working-directory: crates/sdk/bindings/go
         run: |
           mkdir -p ${{ github.workspace }}/logs
@@ -198,3 +326,11 @@ jobs:
             test -z "$(gofmt -l .)"
             go test ./...
           } 2>&1 | tee ${{ github.workspace }}/logs/compat-go-corpus.log
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

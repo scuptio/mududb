@@ -55,7 +55,6 @@ mod stmt_delete_test;
 /// Column definition AST node.
 pub mod column_def;
 
-mod expr_arithmetic;
 #[cfg(test)]
 mod parser_test;
 /// `ACK` statement AST node.
@@ -66,6 +65,8 @@ mod stmt_ack_test;
 pub mod stmt_copy_from;
 /// `COPY ... TO` statement AST node.
 pub mod stmt_copy_to;
+/// `CREATE CACHE ... LIKE ...` statement AST node.
+pub mod stmt_create_cache;
 /// `CREATE CONSUMER` statement AST node.
 pub mod stmt_create_consumer;
 #[cfg(test)]
@@ -82,6 +83,8 @@ mod stmt_create_partition_rule_test;
 pub mod stmt_create_queue;
 #[cfg(test)]
 mod stmt_create_queue_test;
+/// `CREATE TYPE ... AS (...)` statement AST node.
+pub mod stmt_create_type;
 /// `DROP` statement enum.
 pub mod stmt_drop;
 /// `DROP CONSUMER` statement AST node.

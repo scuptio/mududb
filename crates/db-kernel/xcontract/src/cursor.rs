@@ -1,4 +1,6 @@
 use super::*;
+use crate::types::VecCursor;
+use crate::types::VecCursorInner;
 
 impl Clone for VecCursor {
     // `SMutex::lock` returns `RS`; `Clone` cannot propagate the error, and the

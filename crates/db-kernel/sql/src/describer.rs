@@ -48,7 +48,7 @@ impl Describer {
     ) -> RS<TupleFieldDesc> {
         let queue = meta_mgr.get_queue(current_schema, stmt.name()).await?;
         let desc = queue.ok_or_else(|| {
-            mudu_error!(ER::EntityNotFound, format!("no such queue {}", stmt.name()))
+            mudu_error!(ER::ObjectNotFound, format!("no such queue {}", stmt.name()))
         })?;
         Ok(::catalog::contract::queue::queue_envelope_tuple_desc(
             desc.as_ref(),
@@ -82,7 +82,7 @@ impl Describer {
         };
         opt.ok_or_else(|| {
             mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such table {}", reference.name())
             )
         })

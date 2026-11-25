@@ -1,4 +1,4 @@
-pub struct LibSQLParam {
+pub(crate) struct LibSQLParam {
     inner: Vec<libsql::Value>,
 }
 

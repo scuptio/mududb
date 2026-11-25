@@ -13,6 +13,7 @@
 #![warn(clippy::todo)]
 #![warn(clippy::unimplemented)]
 
+mod lang;
 pub mod scaffold;
 pub mod templates;
 

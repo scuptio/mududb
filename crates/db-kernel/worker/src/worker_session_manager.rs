@@ -9,7 +9,7 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::SMutex;
 use mudu_utils::oid::new_xid;
 use scc::HashMap as SccHashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// Session registry of one worker: session ownership by connection, the
@@ -22,12 +22,27 @@ pub struct WorkerSessionManager {
     active_sessions: Arc<AtomicUsize>,
     meta_mgr: Arc<dyn MetaMgr>,
     async_runtime: Option<Arc<dyn AsyncIoProvider>>,
+    /// Clean up a session's still-open transaction on close (rolls it back,
+    /// which releases its epoch registration — otherwise a dropped client
+    /// connection with an open transaction pins the cluster epoch barrier
+    /// forever).
+    tx_cleanup: SessionTxCleanupSlot,
 }
+
+/// The session-close transaction cleanup hook slot.
+type SessionTxCleanupSlot = SMutex<Option<SessionTxCleanup>>;
+
+/// The session-close transaction cleanup hook.
+type SessionTxCleanup = Arc<dyn Fn(Arc<dyn TxMgr>) + Send + Sync>;
 
 pub(crate) struct SessionContext {
     tx_manager: SMutex<Option<Arc<dyn TxMgr>>>,
     mudu_conn_core: Arc<MuduConnCore>,
     is_admin: bool,
+    /// Read-your-writes watermark (epoch design doc §5.2): the oracle
+    /// current epoch captured at this session's last successful commit; a
+    /// fresh session transaction waits it stable before registering.
+    last_commit_epoch: AtomicU64,
 }
 
 impl WorkerSessionManager {
@@ -45,6 +60,24 @@ impl WorkerSessionManager {
             active_sessions,
             meta_mgr,
             async_runtime,
+            tx_cleanup: SMutex::new(None),
+        }
+    }
+
+    /// Installs the transaction cleanup hook (the worker's contract aborts
+    /// the tx).
+    pub(crate) fn set_tx_cleanup(&self, cleanup: SessionTxCleanup) {
+        if let Ok(mut slot) = self.tx_cleanup.lock() {
+            *slot = Some(cleanup);
+        }
+    }
+
+    /// Runs the cleanup hook over a session's open transaction, if any.
+    fn cleanup_session_tx(&self, session: &SessionContext) {
+        if let Ok(Some(tx)) = session.take_tx_manager() {
+            if let Ok(Some(cleanup)) = self.tx_cleanup.lock().map(|slot| slot.clone()) {
+                cleanup(tx);
+            }
         }
     }
 
@@ -88,8 +121,10 @@ impl WorkerSessionManager {
             .map(|entry| *entry.get())
         {
             Some(owner_conn_id) if owner_conn_id == conn_id => {
+                if let Some((_, session)) = self.session_contexts.remove_sync(&session_id) {
+                    self.cleanup_session_tx(&session);
+                }
                 let removed_owner = self.session_owner.remove_sync(&session_id).is_some();
-                let _ = self.session_contexts.remove_sync(&session_id);
                 if let Some(conn_sessions) = self.connection_sessions.get_sync(&conn_id) {
                     let conn_sessions = conn_sessions.get().clone();
                     let _ = conn_sessions.remove_sync(&session_id);
@@ -116,10 +151,12 @@ impl WorkerSessionManager {
         let mut closed = Vec::new();
         if let Some((_conn_id, session_ids)) = self.connection_sessions.remove_sync(&conn_id) {
             session_ids.iter_sync(|session_id, _| {
+                if let Some((_, session)) = self.session_contexts.remove_sync(session_id) {
+                    self.cleanup_session_tx(&session);
+                }
                 if self.session_owner.remove_sync(session_id).is_some() {
                     self.active_sessions.fetch_sub(1, Ordering::Relaxed);
                 }
-                let _ = self.session_contexts.remove_sync(session_id);
                 closed.push(*session_id);
                 true
             });
@@ -133,7 +170,7 @@ impl WorkerSessionManager {
             .map(|entry| *entry.get())
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("session {} does not exist", session_id)
                 )
             })
@@ -151,7 +188,7 @@ impl WorkerSessionManager {
             Ok(())
         } else {
             Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             ))
         }
@@ -163,7 +200,7 @@ impl WorkerSessionManager {
             .map(|entry| entry.get().clone())
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("session {} does not exist", session_id)
                 )
             })
@@ -193,7 +230,7 @@ impl WorkerSessionManager {
                 )
             )),
             None => Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )),
         }
@@ -210,7 +247,7 @@ impl WorkerSessionManager {
         let session = self.session_context(session_id)?;
         if session.tx_manager_cloned()?.is_some() {
             return Err(mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!("session {} already has an active transaction", session_id)
             ));
         }
@@ -218,11 +255,29 @@ impl WorkerSessionManager {
         Ok(())
     }
 
+    /// The session's read-your-writes watermark: the epoch its next
+    /// transaction must wait stable before registering (0 = nothing
+    /// committed yet).
+    pub(crate) fn session_commit_epoch(&self, session_id: OID) -> RS<u64> {
+        Ok(self
+            .session_context(session_id)?
+            .last_commit_epoch
+            .load(Ordering::Relaxed))
+    }
+
+    /// Struct the epoch watermark of the session's successful commit.
+    pub(crate) fn note_session_commit_epoch(&self, session_id: OID, epoch: u64) -> RS<()> {
+        self.session_context(session_id)?
+            .last_commit_epoch
+            .fetch_max(epoch, Ordering::Relaxed);
+        Ok(())
+    }
+
     pub(crate) fn take_session_tx(&self, session_id: OID) -> RS<Arc<dyn TxMgr>> {
         let session = self.session_context(session_id)?;
         session.take_tx_manager()?.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} has no active transaction", session_id)
             )
         })
@@ -267,6 +322,7 @@ impl SessionContext {
             tx_manager: SMutex::new(None),
             mudu_conn_core: Arc::new(MuduConnCore::new(meta_mgr, async_runtime, is_admin)?),
             is_admin,
+            last_commit_epoch: AtomicU64::new(0),
         })
     }
 

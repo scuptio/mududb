@@ -59,7 +59,7 @@ import { UniFsStat } from "../generated/UniFsStat";
 import { UniFsDirent, UniFsDirentCodec } from "../generated/UniFsDirent";
 import { UniError, UniErrorCodec } from "../generated/UniError";
 import { UniResultSet, UniResultSetCodec } from "../generated/UniResultSet";
-import { UniRecordField } from "../generated/UniRecordType";
+import { UniStructField } from "../generated/UniStructType";
 import { UniTupleRow } from "../generated/UniTupleRow";
 import { UniDataValue, UniDataValueScalar } from "../generated/UniDataValue";
 import { UniScalarValueU32 } from "../generated/UniScalarValue";
@@ -305,7 +305,7 @@ function dataTypeName(t: UniDataType): string {
   throw new Error("field_type serialization not covered by the sidecar conventions");
 }
 
-function recordFieldJson(f: UniRecordField): string {
+function recordFieldJson(f: UniStructField): string {
   const attrs = new Array<string>(f.field_attrs.length);
   for (let i = 0; i < f.field_attrs.length; i++) {
     const a = f.field_attrs[i];
@@ -317,16 +317,16 @@ function recordFieldJson(f: UniRecordField): string {
 }
 
 function queryResultJson(r: UniQueryResult): string {
-  const fields = new Array<string>(r.tuple_desc.record_fields.length);
-  for (let i = 0; i < r.tuple_desc.record_fields.length; i++) {
-    fields[i] = recordFieldJson(r.tuple_desc.record_fields[i]);
+  const fields = new Array<string>(r.tuple_desc.struct_fields.length);
+  for (let i = 0; i < r.tuple_desc.struct_fields.length; i++) {
+    fields[i] = recordFieldJson(r.tuple_desc.struct_fields[i]);
   }
   // The sidecar conventions do not define a rendering for query rows; every
   // corpus/lenient frame carries an empty row set.
   if (r.result_set.row_set.length !== 0) {
     throw new Error("query row serialization not covered by the sidecar conventions");
   }
-  return "{\"record_name\":" + jsonStr(r.tuple_desc.record_name)
+  return "{\"struct_name\":" + jsonStr(r.tuple_desc.struct_name)
     + ",\"fields\":[" + joinJson(fields) + "]"
     + ",\"eof\":" + boolJson(r.result_set.eof)
     + ",\"rows\":[]"
@@ -805,7 +805,7 @@ export function reencodeGetErrResponse(frame: Uint8Array): Uint8Array {
   return encodeGetResult(decodeGetResult(frame));
 }
 
-// ---- record/variant codec spot checks (compared in the runner against an
+// ---- struct/variant codec spot checks (compared in the runner against an
 // independent JS MessagePack encoding) ----
 
 // UniError with a non-empty err_details: pins the quirk that err_details
@@ -874,7 +874,7 @@ export function encodeRelationDeltaSpot(): Uint8Array {
   );
 }
 
-// fs dirent record.
+// fs dirent struct.
 export function encodeFsDirentSpot(): Uint8Array {
   const d = new UniFsDirent();
   d.name = "a.txt";

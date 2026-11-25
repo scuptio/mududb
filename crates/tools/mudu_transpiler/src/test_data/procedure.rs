@@ -11,7 +11,7 @@ use mudu::common::result::RS;
 use mudu::common::id::OID;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::{sql_params, sql_stmt};
 use mudu_sys::random::next_uuid_v4_string;
 use sys_interface::sync_api::{mudu_command, mudu_query};
@@ -85,14 +85,14 @@ pub fn cast_vote(xid: OID, user_id: String, vote_id: String, option_ids: Vec<Str
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(mudu_error!(ErrorCode::InvalidState, "Voting has ended".to_string()));
     }
 
     // Check user hasn't voted or has withdrawn previous vote
-    let mut rs:EntitySet<_> = mudu_query::<VoteActions>(
+    let mut rs:ObjectSet<_> = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(&"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"),
         sql_params!(&(user_id.clone(), vote_id.clone())),
@@ -146,7 +146,7 @@ pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found".to_string()))?;
 
     if Utc::now().timestamp() > vote.get_end_time().unwrap() as i64 {
         return Err(mudu_error!(ErrorCode::InvalidState, "Voting has ended, cannot withdraw".to_string()));
@@ -156,7 +156,7 @@ pub fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()> {
         xid,
         sql_stmt!(&"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"),
         sql_params!(&(user_id, vote_id)),
-    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "No active vote to withdraw".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "No active vote to withdraw".to_string()))?;
 
     let action_id = active_action.get_action_id().as_ref().unwrap().clone();
     mudu_command(
@@ -178,7 +178,7 @@ pub fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
         xid,
         sql_stmt!(&"SELECT * FROM votes WHERE vote_id = ?"),
         sql_params!(&(vote_id.clone(), )),
-    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found".to_string()))?;
+    )?.next()?.ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found".to_string()))?;
 
     let now = Utc::now().timestamp();
     let vote_ended = now > vote.get_end_time().unwrap() as i64;

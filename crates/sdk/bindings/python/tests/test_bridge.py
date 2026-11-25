@@ -1,19 +1,19 @@
-"""Unit tests for `mududb.codec.bridge`: the uni-data-value record envelope
+"""Unit tests for `mududb.codec.bridge`: the uni-data-value struct envelope
 <-> positional wire-value model conversions used by procedure adapters for
-user-defined (mgen-generated) record types."""
+user-defined (mgen-generated) struct types."""
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mududb.codec.bridge import record_field_values, record_from_field_values
+from mududb.codec.bridge import struct_field_values, record_from_field_values
 from mududb.codec.mpack import F32
 from mududb.generated.uni_data_value import (
     UniDataValueArray,
     UniDataValueBinary,
     UniDataValueField,
-    UniDataValueRecord,
+    UniDataValueStruct,
     UniDataValueScalar,
 )
 from mududb.generated.uni_scalar_value import (
@@ -37,33 +37,33 @@ def _field(value, name=""):
     return UniDataValueField(field_name=name, field_value=value)
 
 
-class TestRecordFieldValues(unittest.TestCase):
+class TestStructFieldValues(unittest.TestCase):
     def test_unwraps_positional_field_map(self):
-        uv = UniDataValueRecord(
+        uv = UniDataValueStruct(
             inner=[
                 _field(_scalar(UniScalarValueString(inner="Ada"))),
                 _field(_scalar(UniScalarValueI32(inner=7))),
                 _field(_scalar(UniScalarValueBool(inner=True))),
             ]
         )
-        self.assertEqual(record_field_values(uv), {1: "Ada", 2: 7, 3: True})
+        self.assertEqual(struct_field_values(uv), {1: "Ada", 2: 7, 3: True})
 
     def test_field_names_are_ignored(self):
         # The host drops field names (positional semantics); a guest that
         # sends names decodes identically.
-        uv = UniDataValueRecord(
+        uv = UniDataValueStruct(
             inner=[_field(_scalar(UniScalarValueI64(inner=3)), name="left-over")]
         )
-        self.assertEqual(record_field_values(uv), {1: 3})
+        self.assertEqual(struct_field_values(uv), {1: 3})
 
     def test_nested_shapes_recurse(self):
-        home = UniDataValueRecord(
+        home = UniDataValueStruct(
             inner=[
                 _field(_scalar(UniScalarValueString(inner="sh"))),
                 _field(_scalar(UniScalarValueString(inner="200"))),
             ]
         )
-        uv = UniDataValueRecord(
+        uv = UniDataValueStruct(
             inner=[
                 _field(
                     UniDataValueArray(
@@ -79,12 +79,12 @@ class TestRecordFieldValues(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            record_field_values(uv),
+            struct_field_values(uv),
             {1: ["a", "b"], 2: {1: "sh", 2: "200"}, 3: b"\x01\x02", 4: None},
         )
 
     def test_scalar_widths_and_128bit(self):
-        uv = UniDataValueRecord(
+        uv = UniDataValueStruct(
             inner=[
                 _field(_scalar(UniScalarValueF32(inner=1.5))),
                 _field(_scalar(UniScalarValueF64(inner=-2.5))),
@@ -93,22 +93,22 @@ class TestRecordFieldValues(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            record_field_values(uv), {1: 1.5, 2: -2.5, 3: 300, 4: b"\xff"}
+            struct_field_values(uv), {1: 1.5, 2: -2.5, 3: 300, 4: b"\xff"}
         )
 
     def test_non_record_rejected(self):
         with self.assertRaises(TypeError):
-            record_field_values(_scalar(UniScalarValueI32(inner=1)))
+            struct_field_values(_scalar(UniScalarValueI32(inner=1)))
         with self.assertRaises(TypeError):
-            record_field_values(UniDataValueArray(inner=[]))
+            struct_field_values(UniDataValueArray(inner=[]))
         with self.assertRaises(TypeError):
-            record_field_values({1: "not an envelope"})
+            struct_field_values({1: "not an envelope"})
 
 
-class TestRecordFromFieldValues(unittest.TestCase):
+class TestStructFromFieldValues(unittest.TestCase):
     def test_wraps_positional_map(self):
         uv = record_from_field_values({1: "Ada", 2: 7, 3: True})
-        self.assertIsInstance(uv, UniDataValueRecord)
+        self.assertIsInstance(uv, UniDataValueStruct)
         self.assertEqual(len(uv.inner), 3)
         for field in uv.inner:
             # the wire is positional: names are empty, like the host emits
@@ -189,7 +189,7 @@ class TestRecordFromFieldValues(unittest.TestCase):
                 ]
             ),
         )
-        self.assertIsInstance(home, UniDataValueRecord)
+        self.assertIsInstance(home, UniDataValueStruct)
         self.assertEqual(
             [f.field_value for f in home.inner],
             [
@@ -217,7 +217,7 @@ class TestRecordFromFieldValues(unittest.TestCase):
             6: None,
         }
         self.assertEqual(
-            record_field_values(record_from_field_values(values)), values
+            struct_field_values(record_from_field_values(values)), values
         )
 
 

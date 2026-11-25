@@ -78,7 +78,7 @@ impl SQLParser {
         Ok(None)
     }
 
-    /// Parse a `CREATE QUEUE <name> LIKE <table_name>` or
+    /// Parse a `CREATE QUEUE <name> LIKE <class_name>` or
     /// `CREATE QUEUE <name> (<col> <type>, ...)` statement, each optionally
     /// followed by `PARTITION BY GLOBAL RULE <rule> REFERENCES (<col>)` to
     /// shard the queue by a payload column.
@@ -126,10 +126,10 @@ impl SQLParser {
             let table_end = like_body
                 .find(char::is_whitespace)
                 .unwrap_or(like_body.len());
-            let table_name = &like_body[..table_end];
-            validate_type_name(table_name)?;
+            let class_name = &like_body[..table_end];
+            validate_type_name(class_name)?;
             let mut stmt =
-                StmtCreateQueue::new(name.to_string(), QueuePayload::Like(table_name.to_string()));
+                StmtCreateQueue::new(name.to_string(), QueuePayload::Like(class_name.to_string()));
             if let Some(partition) = parse_queue_partition_tail(like_body[table_end..].trim())? {
                 stmt.set_partition(partition);
             }

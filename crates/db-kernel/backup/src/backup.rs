@@ -140,7 +140,8 @@ pub(crate) async fn run_base_backup(
             backup_dir,
             label,
             &manifest,
-        )?;
+        )
+        .await?;
         entries.push(BackupWorkerEntry {
             worker_index: *worker_index,
             worker_id: worker.worker_id(),
@@ -162,7 +163,7 @@ pub(crate) async fn run_base_backup(
 /// Copies the live snapshot version (just produced by
 /// [`take_worker_snapshot`]) into the backup directory, writing the manifest
 /// last so an incomplete copy is never treated as a valid backup.
-fn copy_snapshot_into_backup(
+async fn copy_snapshot_into_backup(
     worker: &WorkerRuntime,
     worker_index: u32,
     committed_lsn: u64,
@@ -177,6 +178,21 @@ fn copy_snapshot_into_backup(
     );
     let dst_dir =
         backup_worker_dir(backup_dir, label, worker_index).join(format!("v{committed_lsn}"));
+    ::repl::snapshot::verify_snapshot_files(&src_dir, manifest)?;
+    let seal = dst_dir.join("manifest.mp");
+    if mudu_sys::fs::sync::sync_path_exists(&seal) {
+        let existing: mudu_contract::protocol::ReplSnapshotManifest =
+            rmp_serde::from_slice(&mudu_sys::fs::sync::read(&seal)?).map_err(|e| {
+                mudu_error!(ErrorCode::Decode, "decode existing backup manifest", e)
+            })?;
+        if existing != *manifest {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "refusing to overwrite a sealed backup"
+            ));
+        }
+        return ::repl::snapshot::verify_snapshot_files(&dst_dir, &existing);
+    }
     if mudu_sys::fs::sync::sync_path_exists(&dst_dir) {
         mudu_sys::fs::sync::sync_remove_dir_all(&dst_dir)?;
     }
@@ -198,16 +214,7 @@ fn copy_snapshot_into_backup(
         }
         write_file_sync(&dst, &bytes)?;
     }
-    // Manifest last, mirroring the snapshot publish rule.
-    let manifest_bytes = rmp_serde::to_vec(manifest).map_err(|e| {
-        mudu_error!(
-            ErrorCode::Encode,
-            "encode backup snapshot manifest error",
-            e
-        )
-    })?;
-    write_file_sync(&dst_dir.join("manifest.mp"), &manifest_bytes)?;
-    Ok(())
+    ::repl::snapshot::seal_snapshot(&dst_dir, manifest).await
 }
 
 /// Serializes and writes the backup label to `backup/<label>/BACKUP_LABEL`.
@@ -399,12 +406,15 @@ pub fn delete_backup(backup_dir: &str, label: &str) -> RS<bool> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use mudu_sys::env_var::temp_dir;
 
-    async fn test_worker_runtime(dir: &str, archive_dir: Option<String>) -> WorkerRuntime {
+    pub(crate) async fn test_worker_runtime(
+        dir: &str,
+        archive_dir: Option<String>,
+    ) -> WorkerRuntime {
         use ::catalog::repl_cfg::ReplRole;
         use ::wal::worker_log::{WalSyncPolicy, WorkerLogBatching};
         use ::worker::worker::{WorkerRuntime as WT, WorkerRuntimeParams};
@@ -429,6 +439,8 @@ mod tests {
             repl_leader_hint: None,
             raft_share: None,
             archive_dir,
+            cluster_router: None,
+            epoch_oracle: None,
         })
         .await
         .unwrap()

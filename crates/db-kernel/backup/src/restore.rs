@@ -12,7 +12,7 @@
 //! restored KV is then written back into the target's own WAL so a
 //! single-node server started on the target directory re-derives it on its
 //! next recovery, and the final state is sealed into a snapshot so a
-//! replication-mode server can also resume from it.
+//! stream-mode server can also resume from it.
 
 use crate::backup::load_backup_label;
 use ::repl::snapshot::{install_snapshot_relation_files, read_kv_dump};
@@ -24,7 +24,7 @@ use ::wal::xl_data_op::{XLDelete, XLInsert, XLWrite};
 use ::wal::xl_entry::{TxOp, XLEntry};
 use ::worker::server_cfg::ReplRole;
 use ::worker::worker::{WorkerRuntime, WorkerRuntimeParams};
-use ::worker::worker_registry::{WorkerIdentity, WorkerRegistry};
+use ::worker::worker_registry::{WorkerIdobject, WorkerRegistry};
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -103,13 +103,21 @@ fn load_backup_manifest(
 ) -> RS<ReplSnapshotManifest> {
     let dir = backup_worker_snapshot_dir(backup_dir, label, worker_index, base_lsn);
     let bytes = mudu_sys::fs::sync::read(dir.join("manifest.mp"))?;
-    rmp_serde::from_slice(&bytes).map_err(|e| {
+    let manifest: ReplSnapshotManifest = rmp_serde::from_slice(&bytes).map_err(|e| {
         mudu_error!(
             ErrorCode::Decode,
             "decode backup snapshot manifest error",
             e
         )
-    })
+    })?;
+    if manifest.worker_index != worker_index || manifest.committed_lsn != base_lsn {
+        return Err(mudu_error!(
+            ErrorCode::CorruptedData,
+            "backup snapshot identity mismatch"
+        ));
+    }
+    ::repl::snapshot::verify_snapshot_files(&dir, &manifest)?;
+    Ok(manifest)
 }
 
 /// Sorted archived chunk paths of one worker, plus the `(lsn, seq)` pairs.
@@ -202,7 +210,7 @@ fn resolve_target_lsn(
         RestoreTarget::Lsn(_) => unreachable!("handled above"),
         RestoreTarget::Time(_) | RestoreTarget::Xid(_) => stop_lsn.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "no commit in the archive satisfies the recovery target"
             )
         }),
@@ -248,33 +256,58 @@ async fn persist_kv_to_wal(worker: &WorkerRuntime) -> RS<()> {
     let Some(log) = worker.worker_log()? else {
         return Ok(());
     };
-    let entries = worker.storage().dump_kv_latest().await;
-    // Chunk the dump into bounded batches so a huge KV store does not become
-    // one giant WAL entry.
+    let storage = worker.storage();
+    let guard = storage.capture_participant_snapshot().await?;
+    if storage.has_participant_history()? {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            "restored participant history requires a durable participant recovery base"
+        ));
+    }
+    let water = guard.recovery_watermarks()?;
+    let entries = storage.dump_kv_latest().await;
     const BATCH_KEYS: usize = 512;
     for chunk in entries.chunks(BATCH_KEYS) {
-        let mut ops = Vec::with_capacity(chunk.len() + 2);
-        ops.push(TxOp::Begin);
-        for (key, _, value) in chunk {
-            ops.push(TxOp::Write(match value {
-                Some(value) => XLWrite::Insert(XLInsert {
-                    table_id: 0,
-                    partition_id: 0,
-                    tuple_id: 0,
-                    key: key.clone(),
-                    value: value.clone(),
-                }),
-                None => XLWrite::Delete(XLDelete {
-                    table_id: 0,
-                    partition_id: 0,
-                    tuple_id: 0,
-                    key: key.clone(),
-                }),
-            }));
-        }
-        ops.push(TxOp::Commit(CommitTimestamp::ZERO));
-        append_xl_batch_async(&log, &XLBatch::new(vec![XLEntry { xid: 0, ops }])).await?;
+        let entries = chunk
+            .iter()
+            .map(|(key, stamp, value)| {
+                let write = match value {
+                    Some(value) => XLWrite::Insert(XLInsert {
+                        table_id: 0,
+                        partition_id: 0,
+                        tuple_id: 0,
+                        key: key.clone(),
+                        value: value.clone(),
+                    }),
+                    None => XLWrite::Delete(XLDelete {
+                        table_id: 0,
+                        partition_id: 0,
+                        tuple_id: 0,
+                        key: key.clone(),
+                    }),
+                };
+                let epoch =
+                    (*stamp >= catalog::contract::epoch_oracle::EPOCH_XID_BASE).then_some(*stamp);
+                XLEntry {
+                    xid: if epoch.is_some() { 0 } else { *stamp },
+                    ops: vec![TxOp::Write(write), TxOp::Commit(CommitTimestamp::ZERO)],
+                    commit_epoch: epoch,
+                }
+            })
+            .collect();
+        append_xl_batch_async(&log, &XLBatch::new(entries)).await?;
     }
+    // A relation-only or empty KV image still needs allocation/visibility
+    // clocks after the next restart. Never derive these solely from KV rows.
+    append_xl_batch_async(
+        &log,
+        &XLBatch::new(vec![XLEntry {
+            xid: water.max_xid,
+            ops: vec![],
+            commit_epoch: (water.applied_epoch != 0).then_some(water.applied_epoch),
+        }]),
+    )
+    .await?;
     log.flush_async().await?;
     Ok(())
 }
@@ -302,7 +335,7 @@ async fn restore_worker(
     seed_gc_frontier(target_dir, entry.worker_id, target_lsn)?;
 
     // 3. Build a headless worker over the target directory.
-    let identity = WorkerIdentity {
+    let identity = WorkerIdobject {
         worker_index: entry.worker_index as usize,
         worker_id: entry.worker_id,
         partition_ids: entry.partition_ids.clone(),
@@ -325,13 +358,27 @@ async fn restore_worker(
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await?;
     worker.initialize().await?;
     worker.bootstrap_storage_async().await?;
     // 4. Seed the in-memory KV store from the base backup dump.
     let kv = read_kv_dump(&snapshot_dir)?;
-    worker.storage().restore_kv_latest(kv).await?;
+    {
+        let storage = worker.storage();
+        let guard = storage.capture_participant_snapshot().await?;
+        let install = guard.begin_install()?;
+        guard.restore_kv_latest(kv).await?;
+        ::repl::snapshot::restore_snapshot_recovery_metadata(
+            &worker,
+            &snapshot_dir,
+            &manifest,
+            &guard,
+        )?;
+        install.complete();
+    }
 
     // 5. Replay the archived WAL up to the resolved target.
     let (replayed_batches, last_commit_ts, _eof_lsn) = replay_archived_wal(
@@ -393,7 +440,7 @@ pub async fn restore_backup(
 ) -> RS<RestoreReport> {
     let Some(backup) = load_backup_label(backup_dir, label)? else {
         return Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such backup {label}")
         ));
     };
@@ -425,7 +472,7 @@ pub async fn restore_backup(
     let identities = backup
         .workers
         .iter()
-        .map(|entry| WorkerIdentity {
+        .map(|entry| WorkerIdobject {
             worker_index: entry.worker_index as usize,
             worker_id: entry.worker_id,
             partition_ids: entry.partition_ids.clone(),
@@ -466,6 +513,7 @@ mod tests {
                 })),
                 TxOp::Commit(CommitTimestamp(commit_ts)),
             ],
+            commit_epoch: None,
         }]);
         let frames = serialize_batch(&batch, 4096, next_lsn).unwrap();
         let mut bytes = Vec::new();
@@ -531,3 +579,6 @@ mod tests {
         mudu_sys::fs::sync::sync_remove_dir_all(&archive_dir).unwrap();
     }
 }
+
+#[cfg(test)]
+mod recovery_tests;

@@ -17,18 +17,17 @@
 //! replication channel binds real OS sockets (see the sibling mpk test
 //! files' gate comments).
 #![cfg(not(feature = "ds"))]
+#![cfg(feature = "socket")]
 
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
-use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{
-    MuduDBCfg, RaftReplCfg, ReplicationCfg, ReplicationPeer, RoutingMode, ServerMode,
+    DataGroupCfg, DataMemberCfg, DataPlaneCfg, DataReplicaCfg, MuduDBCfg, NODE_ID_FILE_NAME,
+    RaftReplCfg, RoutingMode, ServerMode,
 };
-use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
-use mudu_sys::net::sync::SStdTcpStream;
-use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
+use mudu_sys::fs::sync::{create_dir_all, read_to_string, remove_dir_all};
+use mudu_sys::task::sync::{sleep_blocking, spawn_thread};
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
 use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -43,6 +42,17 @@ const REPL_WAIT: Duration = Duration::from_secs(30);
 #[cfg_attr(miri, ignore)]
 #[test]
 fn raft_ha_failover_rpo0_rejoin_and_tail_heal() -> RS<()> {
+    run_with_epoch_sparse(false)
+}
+
+/// The same HA scenario on the sparse epoch path (P4 rollout coverage).
+#[cfg_attr(miri, ignore)]
+#[test]
+fn raft_ha_failover_rpo0_rejoin_and_tail_heal_sparse_epoch() -> RS<()> {
+    run_with_epoch_sparse(true)
+}
+
+fn run_with_epoch_sparse(epoch_sparse: bool) -> RS<()> {
     log_setup("info");
     let _test_guard = test_runtime_domain_lock().lock().map_err(|_| {
         mudu::mudu_error!(
@@ -50,15 +60,21 @@ fn raft_ha_failover_rpo0_rejoin_and_tail_heal() -> RS<()> {
             "test runtime domain lock poisoned"
         )
     })?;
-    let Some(mut cluster) = Cluster::new()? else {
+    let Some(mut cluster) = Cluster::new_with_epoch_sparse(epoch_sparse)? else {
         eprintln!("skip raft ha test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
+    run_failover_scenario(&mut cluster)?;
+    drop(cluster);
+    Ok(())
+}
 
+fn run_failover_scenario(cluster: &mut Cluster) -> RS<()> {
     // ---------------------------------------------------------------
     // (a) writes on the leader replicate to both followers
     // ---------------------------------------------------------------
     cluster.start_all()?;
+    cluster.resolve_runtime_ids()?;
     let leader_id = cluster.wait_leader()?;
     let followers: Vec<u64> = cluster
         .nodes
@@ -80,7 +96,7 @@ fn raft_ha_failover_rpo0_rejoin_and_tail_heal() -> RS<()> {
     // election window, and every acknowledged write survives (RPO=0)
     // ---------------------------------------------------------------
     let (new_leader_id, mut committed) =
-        kill_leader_and_writes_survive(&mut cluster, leader_id, &followers, &batch_a)?;
+        kill_leader_and_writes_survive(cluster, leader_id, &followers, &batch_a)?;
 
     // ---------------------------------------------------------------
     // (c) restart the killed node: it rejoins, catches up to the
@@ -96,9 +112,7 @@ fn raft_ha_failover_rpo0_rejoin_and_tail_heal() -> RS<()> {
     // reuses the LSN range; the rejoining old leader truncates its
     // uncommitted tail and converges.
     // ---------------------------------------------------------------
-    uncommitted_tail_heals_after_rejoin(&mut cluster, new_leader_id, &mut committed)?;
-
-    drop(cluster);
+    uncommitted_tail_heals_after_rejoin(cluster, new_leader_id, &mut committed)?;
     Ok(())
 }
 
@@ -146,7 +160,7 @@ fn uncommitted_tail_heals_after_rejoin(
         .filter(|node_id| *node_id != second_leader)
         .collect();
     for follower in &tail_followers {
-        ::repl::test_hook_set_sink_paused(*follower, true);
+        ::repl::test_hook_set_sink_paused(cluster.runtime_id(*follower)?, true);
     }
     let (blocked_key, blocked_value) = (b"ha-d-blocked".to_vec(), b"lost".to_vec());
     let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -184,7 +198,7 @@ fn uncommitted_tail_heals_after_rejoin(
         "a commit that never passed the majority gate must not complete"
     );
     for follower in &tail_followers {
-        ::repl::test_hook_set_sink_paused(*follower, false);
+        ::repl::test_hook_set_sink_paused(cluster.runtime_id(*follower)?, false);
     }
     let third_leader = cluster.wait_leader_among(&tail_followers)?;
     assert_ne!(third_leader, second_leader);
@@ -220,51 +234,31 @@ fn make_batch(prefix: &str, count: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
         .collect()
 }
 
-struct RunningServer {
-    stop: Notifier,
-    http_port: u16,
-    tcp_port: u16,
-    handle: Option<SJoinHandle<RS<()>>>,
-}
-
-impl Drop for RunningServer {
-    fn drop(&mut self) {
-        self.stop.notify_all();
-        if let Some(handle) = self.handle.take() {
-            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
-            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.http_port));
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.tcp_port));
-                sleep_blocking(Duration::from_millis(25));
-            }
-            let join_result = handle.join().expect("join server thread");
-            if let Err(err) = join_result {
-                panic!("server stopped with error: {err}");
-            }
-        }
-    }
-}
-
 struct ClusterNode {
     node_id: u64,
     http_port: u16,
     pg_port: u16,
     tcp_port: u16,
     repl_port: u16,
+    channel_port: u16,
     mpk_dir: PathBuf,
     data_dir: PathBuf,
-    server: Option<RunningServer>,
+    server: Option<InProcessServer>,
 }
 
 struct Cluster {
     nodes: Vec<ClusterNode>,
     base_dir: PathBuf,
+    epoch_sparse: bool,
+    /// Runtime-id (name-derived, persisted) → fixture node id; populated by
+    /// `resolve_runtime_ids` after the first boot.
+    runtime_ids: std::collections::HashMap<u64, u64>,
 }
 
 impl Cluster {
-    fn new() -> RS<Option<Self>> {
-        let mut ports = Vec::with_capacity(12);
-        for _ in 0..12 {
+    fn new_with_epoch_sparse(epoch_sparse: bool) -> RS<Option<Self>> {
+        let mut ports = Vec::with_capacity(15);
+        for _ in 0..15 {
             let Some(port) = reserve_port()? else {
                 return Ok(None);
             };
@@ -281,16 +275,22 @@ impl Cluster {
             create_dir_all(&data_dir)?;
             nodes.push(ClusterNode {
                 node_id,
-                http_port: ports[index * 4],
-                pg_port: ports[index * 4 + 1],
-                tcp_port: ports[index * 4 + 2],
-                repl_port: ports[index * 4 + 3],
+                http_port: ports[index * 5],
+                pg_port: ports[index * 5 + 1],
+                tcp_port: ports[index * 5 + 2],
+                repl_port: ports[index * 5 + 3],
+                channel_port: ports[index * 5 + 4],
                 mpk_dir,
                 data_dir,
                 server: None,
             });
         }
-        Ok(Some(Self { nodes, base_dir }))
+        Ok(Some(Self {
+            nodes,
+            base_dir,
+            epoch_sparse,
+            runtime_ids: std::collections::HashMap::new(),
+        }))
     }
 
     fn node(&self, node_id: u64) -> &ClusterNode {
@@ -302,7 +302,7 @@ impl Cluster {
 
     fn start_all(&mut self) -> RS<()> {
         for index in 0..self.nodes.len() {
-            let server = Self::start_server(&self.nodes[index], &self.nodes)?;
+            let server = Self::start_server(&self.nodes[index], &self.nodes, self.epoch_sparse)?;
             self.nodes[index].server = Some(server);
         }
         Ok(())
@@ -314,7 +314,7 @@ impl Cluster {
             .iter()
             .position(|node| node.node_id == node_id)
             .expect("cluster node must exist");
-        let server = Self::start_server(&self.nodes[index], &self.nodes)?;
+        let server = Self::start_server(&self.nodes[index], &self.nodes, self.epoch_sparse)?;
         self.nodes[index].server = Some(server);
         Ok(())
     }
@@ -329,35 +329,22 @@ impl Cluster {
         Ok(())
     }
 
-    fn start_server(node: &ClusterNode, nodes: &[ClusterNode]) -> RS<RunningServer> {
-        let cfg = Self::build_cfg(node, nodes);
-        let (stop, waiter) = notify_wait();
-        let (ready, _ready_waiter) = notify_wait();
-        let ready_probe = ready.clone();
-        let handle = spawn_thread(move || {
-            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        })?;
-        // Race the readiness conditions against the server thread's exit: a
-        // startup failure (e.g. a listen port lost to a parallel test
-        // process) surfaces with the thread's own error immediately instead
-        // of burning the whole readiness budget on a port that never opens.
-        let handle = wait_test_server_ready(
-            node.http_port,
-            node.tcp_port,
-            &stop,
-            &ready_probe,
-            handle,
-            backend_startup_timeout(),
-        )?;
-        Ok(RunningServer {
-            stop,
-            http_port: node.http_port,
-            tcp_port: node.tcp_port,
-            handle: Some(handle),
-        })
+    fn start_server(
+        node: &ClusterNode,
+        nodes: &[ClusterNode],
+        epoch_sparse: bool,
+    ) -> RS<InProcessServer> {
+        InProcessServer::start(Self::build_cfg(node, nodes, epoch_sparse))
     }
 
-    fn build_cfg(node: &ClusterNode, nodes: &[ClusterNode]) -> MuduDBCfg {
+    fn build_cfg(node: &ClusterNode, nodes: &[ClusterNode], epoch_sparse: bool) -> MuduDBCfg {
+        let member = |peer: &ClusterNode| DataMemberCfg {
+            name: format!("node-{}", peer.node_id),
+            host: "127.0.0.1".to_string(),
+            channel_port: peer.channel_port,
+            client_port: peer.pg_port,
+            replication_port: peer.repl_port,
+        };
         MuduDBCfg {
             listen_ip: "127.0.0.1".to_string(),
             http_listen_port: node.http_port,
@@ -371,26 +358,28 @@ impl Cluster {
             component_target: Some(ComponentTarget::P2),
             mpk_path: node.mpk_dir.to_string_lossy().into_owned(),
             db_path: node.data_dir.to_string_lossy().into_owned(),
-            replication: Some(ReplicationCfg {
-                node_id: node.node_id,
-                listen_port: node.repl_port,
-                repl_flow_window_segments: 64,
-                snapshot_wal_threshold_bytes: 1024 * 1024 * 1024,
-                gc_check_interval_secs: 60,
-                stream: None,
-                raft: Some(RaftReplCfg {
-                    raft_tick_ms: RAFT_TICK_MS,
-                    election_timeout_ticks: ELECTION_TIMEOUT_TICKS,
-                }),
-                peers: nodes
-                    .iter()
-                    .map(|peer| ReplicationPeer {
-                        node_id: peer.node_id,
-                        host: "127.0.0.1".to_string(),
-                        port: peer.repl_port,
-                    })
-                    .collect(),
+            name: Some(format!("node-{}", node.node_id)),
+            cluster: Some("cluster".to_string()),
+            channel_listen_port: Some(node.channel_port),
+            topology_version: Some(1),
+            data_plane: Some(DataPlaneCfg {
+                group: vec![DataGroupCfg {
+                    name: "grp-1".to_string(),
+                    worker_count: 1,
+                    replica: DataReplicaCfg {
+                        raft: Some(RaftReplCfg {
+                            tick_ms: RAFT_TICK_MS,
+                            election_timeout_ticks: ELECTION_TIMEOUT_TICKS,
+                        }),
+                        stream: None,
+                        member: nodes.iter().map(member).collect(),
+                    },
+                }],
+                placements: vec![],
+                rebalance_interval_ms: 0,
             }),
+            control_plane: None,
+            epoch_sparse,
             ..Default::default()
         }
     }
@@ -402,13 +391,55 @@ impl Cluster {
             .collect()
     }
 
+    /// Resolves each node's runtime id (the name-derived, persisted node id)
+    /// after the first boot: the topology endpoints report runtime ids, while
+    /// the fixture ids identify the nodes of this test cluster.
+    fn resolve_runtime_ids(&mut self) -> RS<()> {
+        for node in &self.nodes {
+            let runtime_id: u64 = read_to_string(node.data_dir.join(NODE_ID_FILE_NAME))?
+                .trim()
+                .parse()
+                .map_err(|e| {
+                    mudu::mudu_error!(mudu::error::ErrorCode::Parse, "parse node id error", e)
+                })?;
+            self.runtime_ids.insert(runtime_id, node.node_id);
+        }
+        Ok(())
+    }
+
+    /// Maps a fixture node id to the runtime id (the name-derived, persisted
+    /// node id) the replication hooks are keyed by.
+    fn runtime_id(&self, node_id: u64) -> RS<u64> {
+        self.runtime_ids
+            .iter()
+            .find(|(_, fixture)| **fixture == node_id)
+            .map(|(runtime, _)| *runtime)
+            .ok_or_else(|| {
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::ObjectNotFound,
+                    format!("no cluster node with fixture id {node_id}")
+                )
+            })
+    }
+
+    /// Maps a topology-reported runtime id back to the fixture node id.
+    fn fixture_id(&self, runtime_id: u64) -> RS<u64> {
+        self.runtime_ids.get(&runtime_id).copied().ok_or_else(|| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::ObjectNotFound,
+                format!("no cluster node with runtime id {runtime_id}")
+            )
+        })
+    }
+
     fn wait_leader(&self) -> RS<u64> {
         let all: Vec<u64> = self.nodes.iter().map(|node| node.node_id).collect();
         self.wait_leader_among(&all)
     }
 
     fn wait_leader_among(&self, among: &[u64]) -> RS<u64> {
-        wait_until_leader_serving(&self.topology_nodes(among), LEADER_WAIT)
+        let runtime_id = wait_until_leader_serving(&self.topology_nodes(among), LEADER_WAIT)?;
+        self.fixture_id(runtime_id)
     }
 
     fn client(&self, node_id: u64) -> RS<(SyncClient, u128)> {

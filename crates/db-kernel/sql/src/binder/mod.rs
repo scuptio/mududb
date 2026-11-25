@@ -1,12 +1,12 @@
 use crate::bound_stmt::{
-    BoundAck, BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateConsumer, BoundCreateFsType,
-    BoundCreatePartitionPlacement, BoundCreatePartitionRule, BoundCreateQueue, BoundCreateTable,
-    BoundDropConsumer, BoundDropQueue, BoundDropTable, BoundDropType, BoundQuery, BoundReceive,
-    BoundStmt,
+    BoundAck, BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateCache, BoundCreateConsumer,
+    BoundCreateFsType, BoundCreatePartitionPlacement, BoundCreatePartitionRule, BoundCreateQueue,
+    BoundCreateTable, BoundDropConsumer, BoundDropQueue, BoundDropTable, BoundDropType, BoundQuery,
+    BoundReceive, BoundStmt,
 };
 use crate::bound_template::{
     template_from_expr, BoundTemplate, DeleteTemplate, InsertRowTemplate, InsertTemplate,
-    ParamSlot, PredicateTemplate, ResidualTemplate, SelectTemplate, SetValueTemplate, SlotRecorder,
+    ParamSlot, PredicateTemplate, ResidualTemplate, SelectTemplate, SetValueTemplate, SlotStructer,
     StmtTemplate, TemplateDatum, UpdateTemplate,
 };
 use crate::copy_layout::CopyLayout;
@@ -19,8 +19,8 @@ use ::catalog::contract::queue::{
     is_queue_system_column, queue_envelope_tuple_desc, queue_system_columns,
     QUEUE_PAYLOAD_ATTR_START, QUEUE_SEQ_COLUMN, QUEUE_SEQ_MAX_SHARD,
 };
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::command::fs_hook::has_fs_bound_columns;
 use ::xengine::api::DeltaOp;
@@ -29,7 +29,6 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_compare::ExprCompare;
 use sql_parser::ast::expr_item::{ExprItem, ExprValue};
@@ -38,6 +37,7 @@ use sql_parser::ast::expr_operator::{Arithmetic, ValueCompare};
 use sql_parser::ast::expression::ExprType;
 use sql_parser::ast::object_ref::ObjectRef;
 use sql_parser::ast::stmt_ack::StmtAck;
+use sql_parser::ast::stmt_create_cache::StmtCreateCache;
 use sql_parser::ast::stmt_create_consumer::StmtCreateConsumer;
 use sql_parser::ast::stmt_create_fs_type::{FsTypeKind as AstFsTypeKind, StmtCreateFsType};
 use sql_parser::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
@@ -60,6 +60,7 @@ mod ddl;
 mod dml;
 mod queue;
 
+pub use ddl::is_create_cache_stmt;
 pub use queue::is_receive_wait_stmt;
 
 /// Binds parsed SQL statements against the catalog, producing bound
@@ -98,7 +99,7 @@ impl Binder {
     pub async fn bind_ref(&self, stmt: &StmtType, params: &dyn SQLParams) -> RS<BoundStmt> {
         match stmt {
             StmtType::Select(stmt) => {
-                let mut recorder = SlotRecorder::default();
+                let mut recorder = SlotStructer::default();
                 let template = self.bind_select_template(stmt, &mut recorder).await?;
                 BoundTemplate::new(StmtTemplate::Select(template), recorder.into_slots())
                     .fill(params)
@@ -122,7 +123,7 @@ impl Binder {
     /// the result can be cached (keyed by SQL text and catalog version) and
     /// re-executed with different parameters via [`BoundTemplate::fill`].
     pub async fn bind_template(&self, stmt: &StmtType) -> RS<Option<BoundTemplate>> {
-        let mut recorder = SlotRecorder::default();
+        let mut recorder = SlotStructer::default();
         let stmt = match stmt {
             StmtType::Select(stmt) => {
                 StmtTemplate::Select(self.bind_select_template(stmt, &mut recorder).await?)
@@ -161,7 +162,7 @@ impl Binder {
         stmt: &StmtInsert,
         params: &dyn SQLParams,
     ) -> RS<BoundCommand> {
-        let mut recorder = SlotRecorder::default();
+        let mut recorder = SlotStructer::default();
         let template = self.bind_insert_template(stmt, &mut recorder).await?;
         Self::fill_command(
             StmtTemplate::Insert(template),
@@ -175,7 +176,7 @@ impl Binder {
         stmt: &StmtUpdate,
         params: &dyn SQLParams,
     ) -> RS<BoundCommand> {
-        let mut recorder = SlotRecorder::default();
+        let mut recorder = SlotStructer::default();
         let template = self.bind_update_template(stmt, &mut recorder).await?;
         Self::fill_command(
             StmtTemplate::Update(template),
@@ -189,7 +190,7 @@ impl Binder {
         stmt: &StmtDelete,
         params: &dyn SQLParams,
     ) -> RS<BoundCommand> {
-        let mut recorder = SlotRecorder::default();
+        let mut recorder = SlotStructer::default();
         let template = self.bind_delete_template(stmt, &mut recorder).await?;
         Self::fill_command(
             StmtTemplate::Delete(template),
@@ -232,6 +233,13 @@ impl Binder {
                 Ok(BoundCommand::CreateFsType(Self::bind_create_fs_type(&stmt)))
             }
             StmtCommand::DropType(stmt) => Ok(BoundCommand::DropType(Self::bind_drop_type(&stmt))),
+            StmtCommand::CreateType(_) => Err(mudu_error!(
+                ER::Internal,
+                "CREATE TYPE ... AS (...) is a codegen-only declaration; runtime registration is not implemented"
+            )),
+            StmtCommand::CreateCache(stmt) => Ok(BoundCommand::CreateCache(
+                self.bind_create_cache(stmt).await?,
+            )),
             StmtCommand::CreateQueue(stmt) => Ok(BoundCommand::CreateQueue(
                 self.bind_create_queue(stmt).await?,
             )),
@@ -275,7 +283,7 @@ impl Binder {
                 SchemaColumn::new(
                     column.column_name().clone(),
                     ty.type_family(),
-                    DataTypeInfo::from_opt_object(&ty),
+                    mudu_type::data_type_codec::from_opt_object(&ty),
                 )
             }
         };
@@ -297,13 +305,13 @@ impl Binder {
             .get_fs_type_by_name(name)
             .await?
             .ok_or_else(|| {
-                mudu_error!(ER::EntityNotFound, format!("unknown type name {}", name))
+                mudu_error!(ER::ObjectNotFound, format!("unknown type name {}", name))
             })?;
         let ty = DataType::new_no_param(TypeFamily::U128);
         let mut schema_column = SchemaColumn::new(
             column.column_name().clone(),
             ty.type_family(),
-            DataTypeInfo::from_opt_object(&ty),
+            mudu_type::data_type_codec::from_opt_object(&ty),
         );
         schema_column.set_fs_binding(Some(FsColumnBinding::new(desc.fs_id(), desc.kind())));
         Ok(schema_column)
@@ -313,7 +321,7 @@ impl Binder {
         let total = table_desc.fields().len();
         (0..total)
             .find(|attr| table_desc.get_attr(*attr).name() == name)
-            .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("cannot find column {}", name)))
+            .ok_or_else(|| mudu_error!(ER::ObjectNotFound, format!("cannot find column {}", name)))
     }
 
     /// Resolve a statement's table reference: a qualified `schema.table`
@@ -338,7 +346,7 @@ impl Binder {
     async fn resolve_table(&self, reference: &ObjectRef) -> RS<Arc<TableDesc>> {
         self.resolve_table_opt(reference).await?.ok_or_else(|| {
             mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such table {}", reference.name())
             )
         })

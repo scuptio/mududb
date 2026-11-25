@@ -21,7 +21,7 @@ export {
   fsWrite,
 } from "./fs";
 export { decodeProcedureParam, encodeProcedureErr, encodeProcedureOk, encodeProcedureOkUni } from "./procedure";
-export { isNullDatum, recordFieldValues, recordFromFieldValues } from "./record";
+export { isNullDatum, recordFieldValues, recordFromFieldValues } from "./struct";
 export { MpackReader, MpackWriter } from "./mpack";
 export { UniDataValue } from "./generated/UniDataValue";
 export { Result, ResultSet, Row, procedureResultErr, procedureResultOk } from "./result";

@@ -41,8 +41,9 @@ pub mod typed;
 
 pub use endpoint::{ChannelCallbackFuture, ChannelEndpoint, ChannelEndpointRef, KindHandler};
 pub use registry::{
-    EndpointGuard, channel_for, channel_now_ms, current_channel, gen_request_id, register_channel,
-    set_current_channel, spawn_endpoint, spawn_endpoint_for_current_thread, unregister_channel,
-    unset_current_channel,
+    EndpointGuard, channel_for, current_channel, register_channel, set_current_channel,
+    spawn_endpoint, spawn_endpoint_for_current_thread, unregister_channel, unset_current_channel,
 };
-pub use typed::{Channel, EndpointRef, ServiceHandle, ServiceRouter};
+pub use typed::{
+    Channel, EndpointRef, ServiceHandle, ServiceRouter, channel_now_ms, gen_request_id,
+};

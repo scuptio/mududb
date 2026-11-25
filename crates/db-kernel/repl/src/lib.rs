@@ -1,13 +1,13 @@
-//! Primary-replica streaming replication with Raft fault tolerance.
+//! Replication with Raft fault tolerance over generic log streams.
 //!
 //! Every cluster node runs a node-level replication listener ([`source`])
-//! that streams worker WAL frames to subscribed followers and multiplexes
-//! raft traffic; each follower worker runs a sink ([`sink`]) that stages
-//! streamed frames and an applier ([`applier`]) that promotes
-//! raft-committed frames into the worker WAL; the raft group itself runs in
-//! [`raft_service`]; the leader's commit path is quorum-gated by the
-//! per-worker [`commit_sequencer`]; leader-election healing lives in
-//! [`heal`].
+//! that multiplexes raft traffic, stream push/fetch and snapshots; each
+//! worker's WAL maps to one data stream of the node group's replication
+//! group ([`data_plane`]): the leader's commit driver cuts commit segments
+//! into the stream (payload outside Raft, `GroupCommit` progress inside),
+//! and every replica's apply driver promotes committed segments into the
+//! worker WAL and replays them. The stream-mode (non-raft) Primary/StreamFollower
+//! path is unchanged.
 
 #![warn(missing_docs)]
 
@@ -16,17 +16,24 @@ pub mod sink;
 /// Node-level replication listener serving WAL streams and raft traffic.
 pub mod source;
 
-/// Promote applier: moves raft-committed frames from staging into the
-/// worker WAL.
-pub mod applier;
-/// Per-worker commit sequencer on the raft leader.
-pub mod commit_sequencer;
-/// Replication-mode (non-raft) control for the write gate and the primary's
+mod background;
+/// The combined control + data shared group (S-02).
+pub mod combined;
+/// The unified control plane: one Raft group committing only stream
+/// progress, with catalog/epoch records on external log streams.
+pub mod control_plane;
+#[cfg(test)]
+mod control_task_tests;
+mod counters;
+/// Stream-mode control for the write gate and the Primary's
 /// synchronous commit path.
 pub mod ctl;
-/// Leader-elect heal: converges every worker to the last raft-committed
-/// vector before client writes are ungated.
-pub mod heal;
+/// The data-plane replication streams: each worker's WAL as a data stream,
+/// plus the group's `tx_decision` stream.
+pub mod data_plane;
+mod durable_quorum;
+/// Durable, worker-independent stream registration and progress recovery.
+pub mod log_stream;
 /// Per-worker replication maintenance: periodic WAL/staging prefix GC and
 /// snapshot triggers.
 pub mod maintain;
@@ -45,14 +52,11 @@ pub mod stream_admin;
 /// Monotonic frame cursor over a worker log's chunk files.
 pub mod wal_cursor;
 
-pub use applier::run_repl_applier;
-pub use commit_sequencer::{new_commit_sequencer, run_commit_sequencer};
 pub use raft_service::{start_raft_service, RaftShare};
 pub use sink::{run_repl_sink, SinkDriver};
 pub use source::spawn_repl_source;
 pub use staging::StagingStore;
 
-use crate::seg_hash::SegHash;
 use ::catalog::frame::try_decode_next_frame;
 use ::wal::lsn::LSN;
 use ::worker::worker::WorkerRuntime;
@@ -63,143 +67,30 @@ use mudu::mudu_error;
 use mudu_contract::protocol::Frame;
 use mudu_raft::RaftHandle;
 use mudu_sys::sync::async_::stop_flag::StopRx;
-use mudu_sys::sync::{SMutex, SRwLock};
+use mudu_sys::sync::SMutex;
 use mudu_sys::tokio;
 use mudu_sys::tokio::io::{AsyncRead, AsyncReadExt};
-use mudu_sys::tokio::sync::mpsc::UnboundedSender;
-use mudu_sys::tokio::sync::oneshot;
 use mudu_sys::tokio::sync::Notify;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-/// Messages for a worker's promote applier task.
-pub enum ApplierMsg {
-    /// Promote the worker's chain to this raft-committed point. `respond`
-    /// is set by the leader-elect heal, which waits for the promotion.
-    /// `raft_term` / `raft_index` locate the CommitVec entry in the raft
-    /// log (the snapshot manifest's install frontier).
-    Promote {
-        /// The raft-committed LSN to promote the chain to.
-        lsn: u64,
-        /// Segment hash at `lsn`.
-        hash: SegHash,
-        /// Raft term of the promote point's CommitVec entry.
-        raft_term: u64,
-        /// Raft index of the promote point's CommitVec entry.
-        raft_index: u64,
-        /// Completion channel, set by the leader-elect heal.
-        respond: Option<oneshot::Sender<RS<()>>>,
-    },
-    /// Committed frames fetched from a voter by the heal flow; the applier
-    /// consumes them before falling back to waiting on the stream.
-    HealFrames {
-        /// The fetched committed frames, in LSN order.
-        frames: Vec<Vec<u8>>,
-    },
-    /// Drop every staged frame beyond the current committed point
-    /// (leader-elect heal discards the speculative staged tail).
-    DiscardStaging {
-        /// Completion channel.
-        respond: Option<oneshot::Sender<RS<()>>>,
-    },
-    /// Install a fetched snapshot: replace storage content, GC the WAL
-    /// below the snapshot point and re-anchor the chain at it. The sink
-    /// fetched and verified the files; the applier mutates serially.
-    InstallSnapshot {
-        /// The verified snapshot manifest.
-        manifest: mudu_contract::protocol::ReplSnapshotManifest,
-        /// Directory holding the fetched snapshot files.
-        snapshot_dir: std::path::PathBuf,
-        /// Completion channel.
-        respond: oneshot::Sender<RS<()>>,
-    },
-}
-
 /// Shared per-worker replication state, attached at worker registration and
 /// filled in as the worker's replication tasks start.
+/// Shared per-worker replication state, attached at worker registration.
 pub struct ReplWorkerState {
-    /// The worker's committed chain state `(lsn, seg_hash)`, owned by the
-    /// applier (single writer) and read by the sink (subscribe point), the
-    /// sequencer (chain continuation) and the heal flow.
-    chain: SRwLock<(u64, SegHash)>,
-    /// Staging store, attached when the sink starts.
-    staging: SRwLock<Option<Arc<StagingStore>>>,
-    /// Applier channel, attached when the applier starts.
-    applier_tx: SRwLock<Option<UnboundedSender<ApplierMsg>>>,
-    /// Wakes the commit sequencer when a new ack watermark arrives.
+    /// Wakes a waiter when a new ack watermark arrives (stream-mode sync
+    /// commits).
     ack_notify: Notify,
-    /// Wakes the applier when the sink stages new frames.
-    staging_notify: Notify,
 }
 
 impl ReplWorkerState {
     fn new() -> Self {
         Self {
-            chain: SRwLock::new((0, seg_hash::ZERO_SEG_HASH)),
-            staging: SRwLock::new(None),
-            applier_tx: SRwLock::new(None),
             ack_notify: Notify::new(),
-            staging_notify: Notify::new(),
         }
     }
 
-    /// The current committed chain point.
-    pub fn chain(&self) -> RS<(u64, SegHash)> {
-        Ok(*self
-            .chain
-            .read()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl chain lock poisoned"))?)
-    }
-
-    /// Advances the committed chain point (applier only).
-    pub fn set_chain(&self, lsn: u64, hash: SegHash) -> RS<()> {
-        *self
-            .chain
-            .write()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl chain lock poisoned"))? =
-            (lsn, hash);
-        Ok(())
-    }
-
-    /// The staging store, when the sink has attached it.
-    pub fn staging(&self) -> RS<Option<Arc<StagingStore>>> {
-        Ok(self
-            .staging
-            .read()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl staging lock poisoned"))?
-            .clone())
-    }
-
-    /// Attaches the staging store (sink startup).
-    pub fn set_staging(&self, staging: Arc<StagingStore>) -> RS<()> {
-        *self
-            .staging
-            .write()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl staging lock poisoned"))? =
-            Some(staging);
-        Ok(())
-    }
-
-    /// The applier channel, when the applier has attached it.
-    pub fn applier_tx(&self) -> RS<Option<UnboundedSender<ApplierMsg>>> {
-        Ok(self
-            .applier_tx
-            .read()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl applier lock poisoned"))?
-            .clone())
-    }
-
-    /// Attaches the applier channel (applier startup).
-    pub fn set_applier_tx(&self, tx: UnboundedSender<ApplierMsg>) -> RS<()> {
-        *self
-            .applier_tx
-            .write()
-            .map_err(|_| mudu_error!(ErrorCode::Internal, "repl applier lock poisoned"))? =
-            Some(tx);
-        Ok(())
-    }
-
-    /// Wakes a sequencer waiting on ack watermarks.
+    /// Wakes a waiter waiting on ack watermarks.
     pub fn notify_ack(&self) {
         self.ack_notify.notify_one();
     }
@@ -207,16 +98,6 @@ impl ReplWorkerState {
     /// Waits for the next ack watermark arrival.
     pub async fn ack_notified(&self) {
         self.ack_notify.notified().await;
-    }
-
-    /// Wakes the applier waiting for newly staged frames (sink append).
-    pub fn notify_staging(&self) {
-        self.staging_notify.notify_one();
-    }
-
-    /// Waits for the next staging-append wake.
-    pub async fn staging_notified(&self) {
-        self.staging_notify.notified().await;
     }
 }
 
@@ -293,7 +174,7 @@ pub fn repl_worker(
         })
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!(
                     "repl worker for server {} worker index {} is not registered",
                     server_instance_id, worker_index
@@ -311,7 +192,7 @@ fn repl_ack_state() -> &'static SMutex<ReplAckWatermarks> {
     STATE.get_or_init(|| SMutex::new(HashMap::new()))
 }
 
-/// Records the durable stored LSN reported by a replica (`src_node_id`) for
+/// Structs the durable stored LSN reported by a replica (`src_node_id`) for
 /// the given worker, and wakes that worker's commit sequencer.
 pub fn record_repl_ack(
     server_instance_id: ServerInstanceId,
@@ -363,7 +244,7 @@ pub fn clear_ack_watermarks(server_instance_id: ServerInstanceId) -> RS<()> {
 
 /// Currently connected subscribers of a worker's replication stream
 /// (source side), used by the WAL GC: only connected subscribers hold the
-/// leader's WAL back — a disconnected replica rejoins through the snapshot
+/// leader's WAL back — a disconnected StreamFollower rejoins through the snapshot
 /// offer when its resume point fell below the GC frontier.
 type ReplSubscribers = HashMap<(ServerInstanceId, u32), HashMap<u64, ()>>;
 
@@ -480,6 +361,34 @@ pub fn note_snapshot_offer_served() {
 pub fn note_snapshot_restore_completed() {
     snapshot_test_hooks()
         .restores_completed
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Test-hook counter for the snapshot-GC vs commit/apply race: incremented
+/// whenever the commit driver or the apply scheduler observes a log prefix
+/// reclaimed underneath it (`worker log ended before segment lsn` /
+/// `committed data missing from local log`).
+#[derive(Default)]
+struct GcRaceTestHook {
+    detected: std::sync::atomic::AtomicU64,
+}
+
+fn gc_race_test_hook() -> &'static GcRaceTestHook {
+    static HOOK: OnceLock<GcRaceTestHook> = OnceLock::new();
+    HOOK.get_or_init(GcRaceTestHook::default)
+}
+
+/// Test hook: number of snapshot-GC race detections in this process.
+pub fn test_hook_gc_race_detected() -> u64 {
+    gc_race_test_hook()
+        .detected
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Increments the snapshot-GC race counter.
+pub fn note_gc_race_detected() {
+    gc_race_test_hook()
+        .detected
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
@@ -633,12 +542,14 @@ pub fn test_hook_set_sink_paused(node_id: u64, paused: bool) {
     }
 }
 
-/// Scans the worker log and returns its next LSN (highest frame LSN + 1,
-/// or 0 when empty) plus the trailing not-yet-terminated entry frames (seed
+/// Scans the WAL suffix at `from_lsn`, the verified recovery-base resume
+/// point (zero without a base). Returns a next LSN no lower than that point
+/// plus the trailing not-yet-terminated entry frames (seed
 /// for XL reassembly; empty when the log ends at an entry boundary, which
 /// is always the case for a tx-aligned committed prefix).
 pub async fn scan_worker_log_tail(
     log: &::wal::worker_log::ChunkedWorkerLogBackend,
+    from_lsn: u64,
 ) -> RS<(u64, Vec<Vec<u8>>, Option<LSN>)> {
     use ::wal::worker_log::{scan_valid_frame_prefix, WorkerLogBackend};
     use ::wal::xl_batch::decode_xl_batches_with_pending;
@@ -658,13 +569,19 @@ pub async fn scan_worker_log_tail(
                 "worker log scan dropped un-persisted tail"
             );
         }
-        decode_xl_batches_with_pending(&prefix.frames, &mut pending, &mut pending_start)?;
+        let mut frames = Vec::new();
+        for frame in prefix.frames {
+            if ::wal::log_frame::frame_lsn(&frame)?.as_u64() >= from_lsn {
+                frames.push(frame);
+            }
+        }
+        decode_xl_batches_with_pending(&frames, &mut pending, &mut pending_start)?;
         if let Some(lsn) = prefix.max_lsn {
             max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
         }
     }
     Ok((
-        max_lsn.map_or(0, |lsn| lsn.as_u64().saturating_add(1)),
+        max_lsn.map_or(from_lsn, |lsn| lsn.as_u64().saturating_add(1).max(from_lsn)),
         pending,
         pending_start,
     ))
@@ -700,3 +617,5 @@ pub async fn read_next_frame<R: AsyncRead + Unpin>(
         read_buf.extend_from_slice(&chunk[..read]);
     }
 }
+
+pub mod durable_io;

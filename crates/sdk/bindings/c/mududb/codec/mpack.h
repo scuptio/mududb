@@ -3,7 +3,7 @@
  * exactly the wire shapes the `uni-*.wit` messages use (see
  * `mudu_binding::codec::syscall_payload` on the host side).
  *
- * MSSP v1 shapes: records and request argument lists are MessagePack maps
+ * MSSP v1 shapes: structs and request argument lists are MessagePack maps
  * keyed by the 1-based field/parameter numbers (WIT declaration order);
  * variants stay `[tag, payload]` 2-arrays; result bodies are
  * `[ok_tag, value]` with `0` = ok and `1` = `UniError`. Writes are canonical
@@ -135,7 +135,7 @@ void mpr_fail(mp_reader *r);    /* flag a semantic violation (e.g. unknown tag) 
 int mpr_done(const mp_reader *r); /* 1 when the input was consumed exactly */
 /* The marker byte of the next value without consuming it (e.g. 0x80-0x8f is
  * fixmap); -1 when the input is exhausted or the reader is already in error.
- * Lets a generic value dispatcher (the record bridge) choose the read
+ * Lets a generic value dispatcher (the struct bridge) choose the read
  * function for the upcoming value. */
 int mpr_peek_code(mp_reader *r);
 
@@ -151,7 +151,7 @@ double mpr_f64(mp_reader *r);  /* f32 or f64 marker */
 /* Bool marker — or, as a lenient read, ANY MessagePack integer family with
  * value 0 or 1: bool fields cross the Mudu procedure byte pipe as i32 0/1
  * (the host's uni-data-value vocabulary has no Bool case), and the generated
- * record codecs decode them through this function. Any other integer (or a
+ * struct codecs decode them through this function. Any other integer (or a
  * non-bool/non-integer marker) sets the sticky error flag. */
 int mpr_bool(mp_reader *r);
 /* Consume a nil marker if one is next; 1 when consumed, 0 otherwise. */
@@ -164,7 +164,7 @@ const uint8_t *mpr_bin(mp_reader *r, uint32_t *out_len);
 /* Copy `len` raw bytes (no MessagePack marker); -1 (sticky error) on a
  * short read. Used for MSSP headers. */
 int mpr_raw(mp_reader *r, uint8_t *out, uint32_t len);
-/* Record/request map keys are field numbers; a non-integer key is meant to
+/* Struct/request map keys are field numbers; a non-integer key is meant to
  * be skipped together with its value (lenient decode, mirroring the
  * generated host decoders). */
 int mpr_next_is_integer(mp_reader *r);

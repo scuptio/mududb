@@ -27,7 +27,7 @@
 - `mududb::contract` — contract/schema helpers from `mudu_contract`, including the `sql_params!` and `sql_stmt!` macros.
 - `mududb::binding` — binding support from `mudu_binding`.
 - `mududb::codec` / `mududb::sql` — canonical aliases of `binding` / `contract`, matching the cross-language module paths (`mududb.codec` / `mududb.sql`) used by the AssemblyScript, C#, and Python bindings.
-- `mududb::db` (requires `interface`) — canonical guest facade: the `Database` session handle (`open`/`open_uri`/`close`/`query`/`command`/`batch`), operation-aligned with the other languages (see `doc/dev/binding_api_surface.md`).
+- `mududb::db` (requires `interface`) — canonical guest facade: the `Database` session handle (`open`/`open_uri`/`close`/`query`/`command`/`batch`), operation-aligned with the other languages (see `doc/en/binding_api_surface.md`).
 - `mududb::fs` (requires `interface`) — canonical fs facade: the 11 fs operations plus `FS_O_*` / `FS_SEEK_*` constants.
 - `mududb::result` (requires `interface`) — canonical row-based query results: `ResultSet` / `Row` with index- and name-based access.
 - `mududb::sys` — system-call exports from `mudu_sys`.

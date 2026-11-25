@@ -1,5 +1,18 @@
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::kv::log_cloned;
+use crate::kv::tx::worker_rollback_tx;
+use crate::queue::resolve_queue_shards;
+use crate::queue_consumer::staged_consumer_shards;
+use crate::queue_state::{publish_queue_state, staged_shard_states};
+use crate::queue_types::shard_key;
+use crate::queue_types::QueueShardId;
+use crate::queue_wait_registry::queue_wait_wake_tables;
+use crate::types::not_serving_leader_error;
+use crate::types::ReplCommitRoute;
 use crate::utils::acquire_commit_locks;
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
 use ::wal::format::latest::frame_lsns;
 
 /// Whether every commit must force its own WAL flush round (one fsync per
@@ -12,6 +25,66 @@ fn force_flush_every_commit() -> bool {
         mudu_sys::env_var::var("MUDU_WAL_FORCE_FLUSH")
             .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
     })
+}
+
+/// Raft-mode autocommit commit: enqueue into the group-commit queue and
+/// stage through the worker's commit sequencer (which applies the
+/// prepared batch after the segment is raft-committed), then drive the
+/// flush round and await durability exactly like the tx commit path.
+pub(crate) async fn stage_autocommit(
+    log: &ChunkedWorkerLogBackend,
+    sequencer: &Arc<dyn CommitSequencer>,
+    prepared: ::storage::prepared_commit::PreparedWorkerCommit,
+) -> RS<()> {
+    let frames = log.serialize_entry(prepared.batch())?;
+    let lsns = frame_lsns(&frames)?;
+    let frame_count = frames.len();
+    let byte_len = frames.iter().map(Vec::len).sum();
+    let last_lsn = log.enqueue_group_commit(frames, lsns, false).await?;
+    let wait = sequencer.stage(prepared, frame_count, byte_len, last_lsn)?;
+    wait.await.map_err(|e| {
+        mudu_error!(
+            ErrorCode::ChannelClosed,
+            "commit sequencer waiter closed before completing the commit",
+            e
+        )
+    })??;
+    log.drive_group_commit_flush().await?;
+    let last_allocated = log.last_allocated_lsn();
+    log.wait_group_commit_advanced(last_allocated).await
+}
+
+/// Acquire the commit locks for `tx`'s write set under `lock_owner` and
+/// prepare the commit (write-write conflict checks), returning the
+/// storage/log handles and the prepared commit for the enqueue/apply
+/// critical section.
+async fn lock_and_prepare_commit(
+    tx_lock: &XLockMgr,
+    storage: &Arc<WorkerStorage>,
+    log: &SMutex<Option<ChunkedWorkerLogBackend>>,
+    tx: &Arc<dyn TxMgr>,
+    lock_owner: OID,
+) -> RS<(
+    Arc<WorkerStorage>,
+    Option<ChunkedWorkerLogBackend>,
+    ::storage::prepared_commit::PreparedWorkerCommit,
+)> {
+    let _t = task_trace!();
+    let write_ops = tx.write_ops();
+    _t.watch("procedure.worker_commit.stage", "tx_lock_try_lock");
+    {
+        let _stage =
+            ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::CommitLocks);
+        acquire_commit_locks(tx_lock, lock_owner, &write_ops).await?;
+    }
+    _t.watch("procedure.worker_commit.stage", "prepare_commit_start");
+    let prepared = {
+        let _stage =
+            ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::CommitPrepare);
+        storage.prepare_commit_async(tx.as_ref()).await?
+    };
+    _t.watch("procedure.worker_commit.stage", "prepare_commit_done");
+    Ok((storage.clone(), log_cloned(log)?, prepared))
 }
 
 impl WorkerXContract {
@@ -32,7 +105,7 @@ impl WorkerXContract {
                 .storage
                 .prepare_worker_kv_commit(snapshot, xid, items, batch)
                 .await?;
-            (self.storage.clone(), self.log_cloned()?, prepared)
+            (self.storage.clone(), log_cloned(&self.log)?, prepared)
         };
         if let Some(log) = log {
             let route = self.repl_commit_route()?;
@@ -44,7 +117,7 @@ impl WorkerXContract {
                 match &route {
                     ReplCommitRoute::Reject => return Err(not_serving_leader_error()),
                     ReplCommitRoute::Sequencer(sequencer) => {
-                        self.stage_autocommit(&log, sequencer, prepared).await?;
+                        stage_autocommit(&log, sequencer, prepared).await?;
                         return Ok(true);
                     }
                     ReplCommitRoute::Direct | ReplCommitRoute::DirectSync(..) => {
@@ -80,31 +153,10 @@ impl WorkerXContract {
     /// stage through the worker's commit sequencer (which applies the
     /// prepared batch after the segment is raft-committed), then drive the
     /// flush round and await durability exactly like the tx commit path.
-    pub(super) async fn stage_autocommit(
+    pub(crate) async fn worker_commit_tx_async(
         &self,
-        log: &ChunkedWorkerLogBackend,
-        sequencer: &Arc<dyn CommitSequencer>,
-        prepared: ::storage::prepared_commit::PreparedWorkerCommit,
-    ) -> RS<()> {
-        let frames = log.serialize_entry(prepared.batch())?;
-        let lsns = frame_lsns(&frames)?;
-        let frame_count = frames.len();
-        let byte_len = frames.iter().map(Vec::len).sum();
-        let last_lsn = log.enqueue_group_commit(frames, lsns, false).await?;
-        let wait = sequencer.stage(prepared, frame_count, byte_len, last_lsn)?;
-        wait.await.map_err(|e| {
-            mudu_error!(
-                ErrorCode::ChannelClosed,
-                "commit sequencer waiter closed before completing the commit",
-                e
-            )
-        })??;
-        log.drive_group_commit_flush().await?;
-        let last_allocated = log.last_allocated_lsn();
-        log.wait_group_commit_advanced(last_allocated).await
-    }
-
-    pub(crate) async fn worker_commit_tx_async(&self, tx: Arc<dyn TxMgr>) -> RS<()> {
+        tx: Arc<dyn TxMgr>,
+    ) -> RS<Option<catalog::contract::epoch_oracle::CommitEpoch>> {
         let lock_owner = tx.xid() as OID;
         self.worker_commit_tx_with_lock_owner_async(tx, lock_owner)
             .await
@@ -112,23 +164,19 @@ impl WorkerXContract {
 
     /// Commit `tx`, acquiring/releasing the commit locks under `lock_owner`.
     /// Local commits pass the transaction xid; the `CommitWriteSet` handoff
-    /// receiver passes the coordinator's statement-lock token so the commit
-    /// runs under the locks the coordinator already holds here (re-entrant
-    /// acquisition) and every one of them — including statement locks whose
-    /// keys never entered the write set — is released on return.
+    /// receiver passes the coordinator's statement-lock token (re-entrant
+    /// acquisition) and releases every lock on return.
     ///
     /// Critical section order: commit locks -> prepare -> enqueue (LSN
-    /// allocation) -> apply -> unlock. The flush drive (inline
-    /// write+fsync) and the group-commit durability wait both happen
-    /// AFTER the locks are released, so the batch/fsync latency is not
-    /// serialized behind per-key commit locks. LSNs are still allocated
-    /// inside the critical section, which keeps WAL order equal to apply
-    /// order.
+    /// allocation) -> apply -> unlock. Flush drive and durability wait happen
+    /// AFTER the locks release, so fsync latency is not serialized behind
+    /// per-key commit locks; LSN allocation stays inside the critical section
+    /// to keep WAL order equal to apply order.
     pub(crate) async fn worker_commit_tx_with_lock_owner_async(
         &self,
         tx: Arc<dyn TxMgr>,
         lock_owner: OID,
-    ) -> RS<()> {
+    ) -> RS<Option<catalog::contract::epoch_oracle::CommitEpoch>> {
         let _t = task_trace!();
         let _stage_total =
             ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::CommitTotal);
@@ -142,35 +190,29 @@ impl WorkerXContract {
         if tx.is_empty() {
             _t.watch("procedure.worker_commit.stage", "rollback_empty_tx");
             self.tx_lock.release_all(lock_owner)?;
-            return self.worker_rollback_tx(tx);
+            worker_rollback_tx(&self.tx_lock, &self.snapshot_mgr, tx)?;
+            return Ok(None);
         }
-        // Compute the replication commit route before taking the commit
-        // locks: replicas reject early without touching the lock manager.
-        let repl_route = self.repl_commit_route()?;
-        // Stream-mode primary: bracket the append/apply span so the
-        // snapshot watermark only claims fully applied LSNs.
-        let track_ctl = if matches!(
-            repl_route,
-            ReplCommitRoute::Direct | ReplCommitRoute::DirectSync(..)
-        ) {
-            let ctl = self.repl_ctl()?;
-            if let Some(ctl) = &ctl {
-                ctl.apply_track_begin();
-            }
-            ctl
-        } else {
-            None
-        };
+        // The epoch the commit stamps versions with (the transaction's
+        // joined epoch), captured before the commit machinery consumes the
+        // transaction; returned to the caller for the read-your-writes
+        // watermark of the session/contract.
+        let commit_epoch = tx.snapshot().epoch();
+        // Compute the replication commit route and begin apply tracking
+        // before taking the commit locks: replicas reject early without
+        // touching the lock manager.
+        let (repl_route, track_ctl) = self.commit_route_and_track_begin()?;
         _t.watch("procedure.worker_commit.stage", "build_write_ops");
         tx.build_write_ops();
         // Queue wakeups are resolved against the write set here (the cleanup
         // below consumes the transaction); the vectors stay empty — costing
         // one atomic load — while no receiver is parked, no activation is
         // registered, and no watermark or cursor row is staged.
-        let queue_wake_shards = self.queue_wait_wake_tables(tx.as_ref());
-        let queue_states = self.staged_shard_states(tx.as_ref()).await?;
-        let consumer_shards = self.staged_consumer_shards(tx.as_ref())?;
-        let (storage, log, prepared) = self.lock_and_prepare_commit(&tx, lock_owner).await?;
+        let (queue_wake_shards, queue_states, consumer_shards) =
+            self.collect_commit_queue_state(tx.as_ref()).await?;
+        let (storage, log, prepared) =
+            lock_and_prepare_commit(&self.tx_lock, &self.storage, &self.log, &tx, lock_owner)
+                .await?;
         trace!("log flush {}", xid);
         let result = commit_enqueue_apply_locked(&storage, &log, &repl_route, prepared).await;
         if let (Some(ctl), Some(log)) = (&track_ctl, log.as_ref()) {
@@ -178,14 +220,21 @@ impl WorkerXContract {
         }
         if result.is_ok() {
             for (shard, next, frontier, depth, bytes) in &queue_states {
-                self.publish_queue_state(*shard, *next, *frontier, *depth, *bytes)?;
+                publish_queue_state(
+                    &self.queue_registry,
+                    *shard,
+                    *next,
+                    *frontier,
+                    *depth,
+                    *bytes,
+                )?;
             }
         }
         trace!("log flush done {}", xid);
         _t.watch("procedure.worker_commit.stage", "tx_lock_release");
         self.tx_lock.release_all(lock_owner)?;
         _t.watch("procedure.worker_commit.stage", "rollback_tx_cleanup");
-        self.worker_rollback_tx(tx)?;
+        worker_rollback_tx(&self.tx_lock, &self.snapshot_mgr, tx)?;
         if let Some(log) = log.as_ref() {
             // Drive the group-commit flush round (inline write+fsync on tokio
             // workers) only after the commit locks are released, so the fsync
@@ -204,15 +253,59 @@ impl WorkerXContract {
         if let (Some(log), Some(last_lsn)) = (&log, last_lsn) {
             wait_commit_durable(log, last_lsn, &repl_route).await?;
         }
-        Ok(())
+        // No epoch-barrier wait here: read-your-writes is a begin-side gate
+        // (the session/procedure begin waits out its recorded commit
+        // watermark; design doc §5.2). Waiting at commit would deadlock
+        // against any enclosing transaction registered in the same epoch on
+        // this oracle (e.g. the statement tx of a remote RECEIVE).
+        Ok(commit_epoch)
+    }
+
+    /// Collect the commit's queue wake tables, staged shard watermarks and
+    /// staged consumer shards before the commit machinery consumes the
+    /// transaction.
+    async fn collect_commit_queue_state(
+        &self,
+        tx: &dyn TxMgr,
+    ) -> RS<(
+        Vec<QueueShardId>,
+        Vec<(QueueShardId, u64, u64, u64, u64)>,
+        Vec<(OID, u64)>,
+    )> {
+        let queue_wake_shards =
+            queue_wait_wake_tables(&self.queue_wait_registry, &self.activation_registry, tx);
+        let queue_states = staged_shard_states(&self.meta_mgr, tx).await?;
+        let consumer_shards = staged_consumer_shards(tx)?;
+        Ok((queue_wake_shards, queue_states, consumer_shards))
+    }
+
+    /// Compute the replication commit route and, on the stream-mode Primary
+    /// routes, bracket the append/apply span (apply tracking) so the
+    /// snapshot watermark only claims fully applied LSNs. Runs before the
+    /// commit locks are taken: replicas reject early without touching the
+    /// lock manager.
+    fn commit_route_and_track_begin(&self) -> RS<(ReplCommitRoute, Option<Arc<dyn ReplControl>>)> {
+        let repl_route = self.repl_commit_route()?;
+        let track_ctl = if matches!(
+            repl_route,
+            ReplCommitRoute::Direct | ReplCommitRoute::DirectSync(..)
+        ) {
+            let ctl = self.repl_ctl()?;
+            if let Some(ctl) = &ctl {
+                ctl.apply_track_begin();
+            }
+            ctl
+        } else {
+            None
+        };
+        Ok((repl_route, track_ctl))
     }
 
     /// Post-commit queue notifications: refresh the consumer cursor caches of
     /// the shards whose cursor rows the commit wrote, publish the committed
     /// watermarks, and wake the parked receivers/activations of each written
-    /// shard — locally, or on the shard owner through `QueueWake` (wake
-    /// delivery failures are logged, never fail the committed transaction:
-    /// `WAIT <ms>` receivers re-scan on their deadline).
+    /// shard — locally or on the shard owner through `QueueWake` (delivery
+    /// failures are logged, never failing the committed transaction).
     pub(crate) async fn notify_committed_queues(
         &self,
         consumer_shards: &[(OID, u64)],
@@ -221,12 +314,16 @@ impl WorkerXContract {
     ) -> RS<()> {
         if !consumer_shards.is_empty() {
             for (queue_oid, shard_index) in consumer_shards {
-                let Some(shard) = self
-                    .resolve_queue_shards(*queue_oid)
-                    .await?
-                    .into_iter()
-                    .find(|shard| shard.shard_index == *shard_index)
-                else {
+                let Some(shard) = resolve_queue_shards(
+                    &self.meta_mgr,
+                    self.worker_id,
+                    &self.cluster_router,
+                    self.default_unpartitioned_worker_id,
+                    *queue_oid,
+                )
+                .await?
+                .into_iter()
+                .find(|shard| shard.shard_index == *shard_index) else {
                     continue;
                 };
                 if shard.worker_id == self.worker_id {
@@ -304,40 +401,7 @@ impl WorkerXContract {
         }
         Ok(())
     }
-
-    /// Acquire the commit locks for `tx`'s write set under `lock_owner` and
-    /// prepare the commit (write-write conflict checks), returning the
-    /// storage/log handles and the prepared commit for the enqueue/apply
-    /// critical section.
-    async fn lock_and_prepare_commit(
-        &self,
-        tx: &Arc<dyn TxMgr>,
-        lock_owner: OID,
-    ) -> RS<(
-        Arc<WorkerStorage>,
-        Option<ChunkedWorkerLogBackend>,
-        ::storage::prepared_commit::PreparedWorkerCommit,
-    )> {
-        let _t = task_trace!();
-        let write_ops = tx.write_ops();
-        _t.watch("procedure.worker_commit.stage", "tx_lock_try_lock");
-        {
-            let _stage =
-                ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::CommitLocks);
-            acquire_commit_locks(&self.tx_lock, lock_owner, &write_ops).await?;
-        }
-        _t.watch("procedure.worker_commit.stage", "prepare_commit_start");
-        let prepared = {
-            let _stage = ::catalog::stage_stats::StageGuard::new(
-                ::catalog::stage_stats::Stage::CommitPrepare,
-            );
-            self.storage.prepare_commit_async(tx.as_ref()).await?
-        };
-        _t.watch("procedure.worker_commit.stage", "prepare_commit_done");
-        Ok((self.storage.clone(), self.log_cloned()?, prepared))
-    }
 }
-
 /// The commit critical section (runs under the commit locks): enqueue the
 /// prepared batch into the WAL, allocating LSNs, stage it through the commit
 /// sequencer on the raft leader path (which applies after the segment is
@@ -444,7 +508,7 @@ async fn wait_commit_durable(
     }
     _t.watch("procedure.worker_execute.stage", "wal_wait_durable_done");
     // sync replication: the commit is durable locally and applied;
-    // only the replica-ack wait decides what the client hears.
+    // only the StreamFollower ack wait decides what the client hears.
     if let ReplCommitRoute::DirectSync(waiter, timeout) = repl_route {
         waiter.wait_cover(last_lsn.as_u64(), *timeout).await?;
     }

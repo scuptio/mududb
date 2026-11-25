@@ -37,7 +37,7 @@ lazy_static! {
             ("_x_log_append", _unimplemented_fuzz),
         ];
         #[cfg(any(test, fuzzing))]
-        v.push(("_schema_table", ::catalog::contract::_schema_table));
+        v.push(("_schema_class", ::catalog::contract::_schema_class));
         v
     };
     static ref FUZZ_RUN: HashMap<&'static str, FuzzRun> = {
@@ -78,14 +78,14 @@ fn _fuzz_write_data(name: &str, data: &[u8]) {
 mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    /// Regression test: `_schema_table` must be registered in the fuzz dispatch
-    /// table so that `_target("_schema_table", ...)` does not panic with
-    /// "test _schema_table not found".
+    /// Regression test: `_schema_class` must be registered in the fuzz dispatch
+    /// table so that `_target("_schema_class", ...)` does not panic with
+    /// "test _schema_class not found".
     #[test]
     fn dispatch_table_contains_expected_targets() {
         let names: std::collections::HashSet<&str> =
             super::_FUZZ_RUN.iter().map(|(name, _)| *name).collect();
-        assert!(names.contains("_schema_table"));
+        assert!(names.contains("_schema_class"));
         assert!(names.contains("_de_en_x_l_up_tuple"));
         assert!(names.contains("_delta_apply"));
         assert!(names.contains("_de_en_x_l_batch"));
@@ -109,7 +109,7 @@ mod tests {
             &[0xff; 64],
             b"hello world",
             &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            // Minimized `_schema_table` crash (numeric family fixed-length
+            // Minimized `_schema_class` crash (numeric family fixed-length
             // flag mismatch), found by the nightly cargo-fuzz job.
             &[
                 0x6c, 0x0b, 0x08, 0xff, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,

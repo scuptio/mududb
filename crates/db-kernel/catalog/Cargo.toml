@@ -25,6 +25,8 @@ arbitrary = { workspace = true, optional = true }
 test_utils = { workspace = true, optional = true }
 serde_json = { workspace = true }
 
+rmp-serde = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 rmp-serde = { workspace = true }

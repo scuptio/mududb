@@ -3,13 +3,13 @@
 use super::context::ParseContext;
 use super::error::ts_node_context_string;
 use super::SQLParser;
-use crate::ast::expr_arithmetic::ExprArithmetic;
 use crate::ast::expr_compare::ExprCompare;
 use crate::ast::expr_item::{ExprItem, ExprValue};
 use crate::ast::expr_literal::ExprLiteral;
 use crate::ast::expr_logical::ExprLogical;
 use crate::ast::expr_name::ExprName;
 use crate::ast::expr_operator::Operator;
+use crate::ast::expression::ExprArithmetic;
 use crate::ast::expression::ExprType;
 use crate::ts_const::{ts_field_name, ts_kind_name};
 use mudu::common::result::RS;

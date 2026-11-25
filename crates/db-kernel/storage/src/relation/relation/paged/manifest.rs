@@ -8,7 +8,7 @@ use mudu_sys::contract::async_file::AsyncFile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct Manifest {
+pub struct Manifest {
     pub format: u32,
     pub stamp: Vec<u64>,
     pub tree: [u64; 5],
@@ -47,7 +47,7 @@ fn number(bytes: &[u8], at: usize) -> u64 {
 
 /// Invalidate durably before any cache/authority mutation. Torn manifests
 /// cannot become valid: close writes the body durably before the clean byte.
-pub(super) async fn consume(file: &dyn AsyncFile) -> RS<Option<Manifest>> {
+pub async fn consume(file: &dyn AsyncFile) -> RS<Option<Manifest>> {
     let len = file.file_len().await?;
     let candidate = if len >= 17 {
         let header = file.read_exact_at(0, 17).await?;
@@ -70,7 +70,7 @@ pub(super) async fn consume(file: &dyn AsyncFile) -> RS<Option<Manifest>> {
     Ok(candidate.filter(|m| m.format == 1 && m.next_tuple != 0))
 }
 
-pub(super) async fn publish(file: &dyn AsyncFile, manifest: &Manifest) -> RS<()> {
+pub async fn publish(file: &dyn AsyncFile, manifest: &Manifest) -> RS<()> {
     let bytes = serde_json::to_vec(manifest)
         .map_err(|e| mudu_error!(ErrorCode::Encode, "encode index checkpoint", e))?;
     file.write_all_at(0, &[0]).await?;

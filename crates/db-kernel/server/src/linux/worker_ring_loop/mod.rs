@@ -12,8 +12,6 @@ use crate::loop_mailbox::{
 use crate::loop_user_io::{
     handle_completion as handle_user_io_completion, submit as submit_user_io, LoopUserIoCtx,
 };
-use crate::server_iouring;
-use crate::server_iouring::RecoveryCoordinator;
 use crate::task;
 use crate::worker::flush_worker_dirty_pages;
 use crate::worker::WorkerRuntime;
@@ -36,6 +34,7 @@ use crossbeam_queue::SegQueue;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
+use mudu_utils::notifier::Notifier;
 use mudu_utils::scoped_task_trace;
 use mudu_utils::task_context::TaskContext;
 use std::collections::HashMap;
@@ -45,14 +44,107 @@ use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use mudu_sys::sync::SMutex;
+use mudu_sys::sync::{SCondvar, SMutex};
 use std::time::Duration;
 
 #[cfg(all(test, not(feature = "ds")))]
 use mudu_sys::net::sync::StdTcpListener;
 use tracing::{debug, error, trace};
 
+pub(crate) fn sockaddr_to_socket_addr(
+    storage: &mudu_sys::io::iouring::SockAddrBuf,
+) -> RS<std::net::SocketAddr> {
+    mudu_sys::io::net::sockaddr_to_socket_addr(storage)
+}
+
+pub(crate) struct RecoveryCoordinator {
+    total_workers: usize,
+    ready_notifier: Option<Notifier>,
+    state: SMutex<RecoveryState>,
+    condvar: SCondvar,
+}
+#[derive(Default)]
+struct RecoveryState {
+    recovered_workers: usize,
+    failed: bool,
+}
+
+impl RecoveryCoordinator {
+    pub fn new(total_workers: usize, ready_notifier: Option<Notifier>) -> Self {
+        Self {
+            total_workers,
+            ready_notifier,
+            state: SMutex::new(RecoveryState::default()),
+            condvar: SCondvar::new(),
+        }
+    }
+
+    pub(crate) fn worker_succeeded(&self) -> RS<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| mudu_error!(ErrorCode::Internal, "recovery coordinator lock poisoned"))?;
+        if state.failed {
+            return Err(mudu_error!(
+                ErrorCode::Thread,
+                "worker recovery aborted because another worker failed"
+            ));
+        }
+        state.recovered_workers += 1;
+        trace!(
+            recovered_workers = state.recovered_workers,
+            total_workers = self.total_workers,
+            "iouring recovery coordinator worker reached barrier"
+        );
+        if state.recovered_workers == self.total_workers {
+            // In io_uring mode the listener can start accepting sockets before
+            // every worker has finished WAL recovery. Publish readiness only
+            // after the final worker reaches the common recovery barrier so
+            // callers do not race listener availability with service
+            // availability.
+            if let Some(ready_notifier) = &self.ready_notifier {
+                trace!("iouring recovery coordinator publishing ready barrier");
+                ready_notifier.notify_all();
+            }
+            self.condvar.notify_all();
+            return Ok(());
+        }
+        // Recovery must be complete on every worker before the service loop
+        // starts. If one worker fails recovery, wake everybody and abort
+        // instead of leaving the successful workers stuck forever.
+        while !state.failed && state.recovered_workers < self.total_workers {
+            trace!(
+                recovered_workers = state.recovered_workers,
+                total_workers = self.total_workers,
+                "iouring recovery coordinator waiting for peers"
+            );
+            state = self.condvar.wait(state).map_err(|err| {
+                mudu_error!(
+                    ErrorCode::Internal,
+                    "recovery coordinator condvar wait poisoned",
+                    err
+                )
+            })?;
+        }
+        if state.failed {
+            return Err(mudu_error!(
+                ErrorCode::Thread,
+                "worker recovery aborted because another worker failed"
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn worker_failed(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.failed = true;
+            self.condvar.notify_all();
+        }
+    }
+}
+
 mod bootstrap;
+mod bootstrap_waker;
 #[cfg(test)]
 mod callbacks;
 mod completion;

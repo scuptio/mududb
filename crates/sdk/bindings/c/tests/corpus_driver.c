@@ -15,8 +15,8 @@
  *   - lenient_decode_v1 (8 vectors): non-canonical frames (integer width
  *     widening, reordered/unknown/non-integer map keys, missing
  *     fields/params) decode to the sidecar `expect` shape.
- *   - record bridge (self-contained, no fixture): the
- *     `mududb/codec/record_bridge.{h,c}` envelope <-> integer-keyed-map
+ *   - struct bridge (self-contained, no fixture): the
+ *     `mududb/codec/struct_bridge.{h,c}` envelope <-> integer-keyed-map
  *     conversions, plus the bool-as-i32 `mpr_bool` leniency they rely on.
  *
  * The sidecar JSON is the single source of truth for semantic equality;
@@ -45,7 +45,7 @@
 
 #include "mini_json.h"
 #include "mududb/codec/mpack.h"
-#include "mududb/codec/record_bridge.h"
+#include "mududb/codec/struct_bridge.h"
 #include "mududb/types/UniCommandArgv.h"
 #include "mududb/types/UniCommandResult.h"
 #include "mududb/types/UniDataType.h"
@@ -639,7 +639,7 @@ static int put_data_type_name(mj_buf *b, const uni_data_type *t) {
     return 0;
 }
 
-static int put_record_field(mj_buf *b, const uni_record_field *f) {
+static int put_struct_field(mj_buf *b, const uni_struct_field *f) {
     uint32_t i;
     mj_buf_puts(b, "{\"field_attrs\":[");
     for (i = 0; i < f->field_attrs.len; i++) {
@@ -669,17 +669,18 @@ static int put_query_result(mj_buf *b, const uni_query_result *r) {
     mj_buf_puts(b, ",\"eof\":");
     mj_buf_puts(b, r->result_set.eof ? "true" : "false");
     mj_buf_puts(b, ",\"fields\":[");
-    for (i = 0; i < r->tuple_desc.record_fields.len; i++) {
+    for (i = 0; i < r->tuple_desc.struct_fields.len; i++) {
         if (i) {
             mj_buf_ch(b, ',');
         }
-        if (put_record_field(b, &r->tuple_desc.record_fields.items[i]) != 0) {
+        if (put_struct_field(b, &r->tuple_desc.struct_fields.items[i]) != 0) {
             return -1;
         }
     }
-    mj_buf_puts(b, "],\"record_name\":");
-    put_json_str(b, r->tuple_desc.record_name);
-    mj_buf_puts(b, ",\"rows\":[]}");
+    mj_buf_puts(b, "],\"rows\":[]");
+    mj_buf_puts(b, ",\"struct_name\":");
+    put_json_str(b, r->tuple_desc.struct_name);
+    mj_buf_puts(b, "}");
     return 0;
 }
 
@@ -1966,11 +1967,11 @@ static void run_lenient_decode(void) {
     free_fixture(&f);
 }
 
-/* ---- record bridge ----
+/* ---- struct bridge ----
  *
  * Self-contained (no fixture): the bridge converts between the host's
- * `uni-data-value` record-case envelope and the integer-keyed MessagePack
- * map shape the mgen-generated record codecs consume/produce. Envelopes are
+ * `uni-data-value` struct-case envelope and the integer-keyed MessagePack
+ * map shape the mgen-generated struct codecs consume/produce. Envelopes are
  * built on the stack (the write side only borrows); read-side products land
  * in a local arena.
  */
@@ -1999,7 +2000,7 @@ static uni_scalar_value mk_i32_scalar(int32_t n) {
     return v;
 }
 
-/* The wallet-shaped record: {display-name: "Ada", level: 7, vip-as-i32: 1,
+/* The wallet-shaped struct: {display-name: "Ada", level: 7, vip-as-i32: 1,
  * tags: ["a", "b"], home: {city: "sh", zip: "200"}} — the envelope the host
  * hands a guest (positional entries, empty names). */
 static uni_data_value mk_profile_envelope(uni_scalar_value *scalars,
@@ -2027,9 +2028,9 @@ static uni_data_value mk_profile_envelope(uni_scalar_value *scalars,
     home_fields[1].field_name = mp_str_from(0, 0);
     home_fields[1].field_value = values[6];
     memset(&home, 0, sizeof(home));
-    home.kind = UNI_DATA_VALUE_RECORD;
-    home.as.record.items = home_fields;
-    home.as.record.len = 2;
+    home.kind = UNI_DATA_VALUE_STRUCT;
+    home.as.struct_.items = home_fields;
+    home.as.struct_.len = 2;
 
     memset(&envelope, 0, sizeof(envelope));
     fields[0].field_name = mp_str_from(0, 0);
@@ -2044,13 +2045,13 @@ static uni_data_value mk_profile_envelope(uni_scalar_value *scalars,
     fields[3].field_value.as.array.len = 2;
     fields[4].field_name = mp_str_from(0, 0);
     fields[4].field_value = home;
-    envelope.kind = UNI_DATA_VALUE_RECORD;
-    envelope.as.record.items = fields;
-    envelope.as.record.len = 5;
+    envelope.kind = UNI_DATA_VALUE_STRUCT;
+    envelope.as.struct_.items = fields;
+    envelope.as.struct_.len = 5;
     return envelope;
 }
 
-static void run_record_bridge_write(void) {
+static void run_struct_bridge_write(void) {
     static const uint8_t expected[] = {
         0x85, /* map(5) */
         0x01, 0xa3, 'A', 'd', 'a', /* 1: "Ada" */
@@ -2067,12 +2068,12 @@ static void run_record_bridge_write(void) {
         mk_profile_envelope(scalars, values, home_fields, fields);
     mp_writer w;
     mpw_init(&w);
-    check_true("bridge write", "rc", mp_record_bridge_write(&envelope, &w) == 0);
+    check_true("bridge write", "rc", mp_struct_bridge_write(&envelope, &w) == 0);
     check_bytes("bridge write", w.buf, w.len, expected, sizeof(expected));
     mpw_free(&w);
 }
 
-static void run_record_bridge_write_edge(void) {
+static void run_struct_bridge_write_edge(void) {
     uni_scalar_value scalars[2];
     uni_data_value_field fields[1];
     uni_data_value envelope;
@@ -2083,52 +2084,52 @@ static void run_record_bridge_write_edge(void) {
     scalars[0].kind = UNI_SCALAR_VALUE_NULL;
     fields[0].field_name = mp_str_from(0, 0);
     fields[0].field_value = mk_scalar(&scalars[0]);
-    envelope.kind = UNI_DATA_VALUE_RECORD;
-    envelope.as.record.items = fields;
-    envelope.as.record.len = 1;
+    envelope.kind = UNI_DATA_VALUE_STRUCT;
+    envelope.as.struct_.items = fields;
+    envelope.as.struct_.len = 1;
     {
         static const uint8_t expected[] = {0x81, 0x01, 0xc0};
         mpw_init(&w);
-        check_true("bridge write null", "rc", mp_record_bridge_write(&envelope, &w) == 0);
+        check_true("bridge write null", "rc", mp_struct_bridge_write(&envelope, &w) == 0);
         check_bytes("bridge write null", w.buf, w.len, expected, sizeof(expected));
         mpw_free(&w);
     }
 
-    /* blob -> the record-context array of u8 (NOT a bin blob) */
+    /* blob -> the struct-context array of u8 (NOT a bin blob) */
     {
         static const uint8_t blob[] = {0x01, 0x02, 0x03};
         static const uint8_t expected[] = {0x81, 0x01, 0x93, 0x01, 0x02, 0x03};
         scalars[0].kind = UNI_SCALAR_VALUE_BLOB;
         scalars[0].as.blob = mp_bin_from(blob, sizeof(blob));
         mpw_init(&w);
-        check_true("bridge write blob", "rc", mp_record_bridge_write(&envelope, &w) == 0);
+        check_true("bridge write blob", "rc", mp_struct_bridge_write(&envelope, &w) == 0);
         check_bytes("bridge write blob", w.buf, w.len, expected, sizeof(expected));
         mpw_free(&w);
     }
 
-    /* 128-bit integers have no C record codec: flagged, rc -1 */
+    /* 128-bit integers have no C struct codec: flagged, rc -1 */
     {
         static const uint8_t wide[] = {0};
         scalars[0].kind = UNI_SCALAR_VALUE_U128;
         scalars[0].as.u128 = mp_bin_from(wide, sizeof(wide));
         mpw_init(&w);
-        check_true("bridge write u128", "rc", mp_record_bridge_write(&envelope, &w) == -1);
+        check_true("bridge write u128", "rc", mp_struct_bridge_write(&envelope, &w) == -1);
         check_true("bridge write u128", "writer flagged", !mpw_ok(&w));
         mpw_free(&w);
     }
 
-    /* a non-record envelope is an error */
+    /* a non-struct envelope is an error */
     {
         uni_data_value scalar_envelope = mk_scalar(&scalars[0]);
         mpw_init(&w);
-        check_true("bridge write non-record", "rc",
-                   mp_record_bridge_write(&scalar_envelope, &w) == -1);
-        check_true("bridge write non-record", "writer flagged", !mpw_ok(&w));
+        check_true("bridge write non-struct", "rc",
+                   mp_struct_bridge_write(&scalar_envelope, &w) == -1);
+        check_true("bridge write non-struct", "writer flagged", !mpw_ok(&w));
         mpw_free(&w);
     }
 }
 
-static void run_record_bridge_bool_leniency(void) {
+static void run_struct_bridge_bool_leniency(void) {
     static const uint8_t one[] = {0x01};
     static const uint8_t zero[] = {0x00};
     static const uint8_t wide_one[] = {0xce, 0x00, 0x00, 0x00, 0x01};
@@ -2152,7 +2153,7 @@ static void run_record_bridge_bool_leniency(void) {
     check_true("bool leniency", "-1 rejected", !mpr_ok(&r));
 }
 
-static void run_record_bridge_read(void) {
+static void run_struct_bridge_read(void) {
     /* the same wallet shape, with the bool field as a MessagePack bool (the
      * generated encoders write) */
     static const uint8_t bytes[] = {
@@ -2166,19 +2167,19 @@ static void run_record_bridge_read(void) {
     const uni_data_value_field *f;
     mpr_init(&r, bytes, sizeof(bytes));
     mpa_init(&a);
-    check_true("bridge read", "rc", mp_record_bridge_read(&r, &a, &out) == 0);
+    check_true("bridge read", "rc", mp_struct_bridge_read(&r, &a, &out) == 0);
     check_true("bridge read", "consumed", mpr_done(&r));
-    check_true("bridge read", "record case", out.kind == UNI_DATA_VALUE_RECORD);
-    if (out.kind != UNI_DATA_VALUE_RECORD) {
+    check_true("bridge read", "struct case", out.kind == UNI_DATA_VALUE_STRUCT);
+    if (out.kind != UNI_DATA_VALUE_STRUCT) {
         mpa_free(&a);
         return;
     }
-    check_true("bridge read", "field count", out.as.record.len == 5);
-    if (out.as.record.len != 5) {
+    check_true("bridge read", "field count", out.as.struct_.len == 5);
+    if (out.as.struct_.len != 5) {
         mpa_free(&a);
         return;
     }
-    f = out.as.record.items;
+    f = out.as.struct_.items;
     check_true("bridge read", "names empty",
                f[0].field_name.len == 0 && f[1].field_name.len == 0
                    && f[4].field_name.len == 0);
@@ -2202,24 +2203,24 @@ static void run_record_bridge_read(void) {
                    && f[3].field_value.as.array.items[1].as.scalar->as.string.len == 1
                    && f[3].field_value.as.array.items[1].as.scalar->as.string.data[0]
                           == 'b');
-    check_true("bridge read", "nested record",
-               f[4].field_value.kind == UNI_DATA_VALUE_RECORD
-                   && f[4].field_value.as.record.len == 2
-                   && f[4].field_value.as.record.items[0].field_value.as.scalar->kind
+    check_true("bridge read", "nested struct",
+               f[4].field_value.kind == UNI_DATA_VALUE_STRUCT
+                   && f[4].field_value.as.struct_.len == 2
+                   && f[4].field_value.as.struct_.items[0].field_value.as.scalar->kind
                           == UNI_SCALAR_VALUE_STRING
                    && f[4]
-                              .field_value.as.record.items[0]
+                              .field_value.as.struct_.items[0]
                               .field_value.as.scalar->as.string.len
                           == 2
                    && memcmp(f[4]
-                                     .field_value.as.record.items[0]
+                                     .field_value.as.struct_.items[0]
                                      .field_value.as.scalar->as.string.data,
                                  "sh", 2)
                           == 0);
     mpa_free(&a);
 }
 
-static void run_record_bridge_read_edge(void) {
+static void run_struct_bridge_read_edge(void) {
     mp_reader r;
     mp_arena a;
     uni_data_value out;
@@ -2229,16 +2230,16 @@ static void run_record_bridge_read_edge(void) {
         static const uint8_t gap[] = {0x82, 0x01, 0xa1, 'x', 0x03, 0x09};
         mpr_init(&r, gap, sizeof(gap));
         mpa_init(&a);
-        check_true("bridge read gap", "rc", mp_record_bridge_read(&r, &a, &out) == 0);
-        check_true("bridge read gap", "count", out.as.record.len == 3);
-        if (out.as.record.len == 3) {
+        check_true("bridge read gap", "rc", mp_struct_bridge_read(&r, &a, &out) == 0);
+        check_true("bridge read gap", "count", out.as.struct_.len == 3);
+        if (out.as.struct_.len == 3) {
             check_true("bridge read gap", "gap is null",
-                       out.as.record.items[1].field_value.as.scalar->kind
+                       out.as.struct_.items[1].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_NULL);
             check_true("bridge read gap", "after gap",
-                       out.as.record.items[2].field_value.as.scalar->kind
+                       out.as.struct_.items[2].field_value.as.scalar->kind
                                == UNI_SCALAR_VALUE_I32
-                           && out.as.record.items[2].field_value.as.scalar->as.i32 == 9);
+                           && out.as.struct_.items[2].field_value.as.scalar->as.i32 == 9);
         }
         mpa_free(&a);
     }
@@ -2252,29 +2253,29 @@ static void run_record_bridge_read_edge(void) {
         static const uint8_t small_neg[] = {0x81, 0x01, 0xd0, 0xfb}; /* -5 */
         mpr_init(&r, big, sizeof(big));
         mpa_init(&a);
-        check_true("bridge read widths", "u64 rc", mp_record_bridge_read(&r, &a, &out) == 0);
+        check_true("bridge read widths", "u64 rc", mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read widths", "u64 -> i64",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_I64
-                       && out.as.record.items[0].field_value.as.scalar->as.i64
+                       && out.as.struct_.items[0].field_value.as.scalar->as.i64
                               == 1099511627776LL);
         mpa_free(&a);
         mpr_init(&r, neg, sizeof(neg));
         mpa_init(&a);
-        check_true("bridge read widths", "i64 rc", mp_record_bridge_read(&r, &a, &out) == 0);
+        check_true("bridge read widths", "i64 rc", mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read widths", "i64 stays i64",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_I64
-                       && out.as.record.items[0].field_value.as.scalar->as.i64
+                       && out.as.struct_.items[0].field_value.as.scalar->as.i64
                               == -8589934592LL);
         mpa_free(&a);
         mpr_init(&r, small_neg, sizeof(small_neg));
         mpa_init(&a);
-        check_true("bridge read widths", "i8 rc", mp_record_bridge_read(&r, &a, &out) == 0);
+        check_true("bridge read widths", "i8 rc", mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read widths", "i8 -> i32",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_I32
-                       && out.as.record.items[0].field_value.as.scalar->as.i32 == -5);
+                       && out.as.struct_.items[0].field_value.as.scalar->as.i32 == -5);
         mpa_free(&a);
     }
 
@@ -2288,38 +2289,38 @@ static void run_record_bridge_read_edge(void) {
         mpr_init(&r, f32b, sizeof(f32b));
         mpa_init(&a);
         check_true("bridge read scalars", "f32 rc",
-                   mp_record_bridge_read(&r, &a, &out) == 0);
+                   mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read scalars", "f32",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_F32
-                       && out.as.record.items[0].field_value.as.scalar->as.f32 == 1.0f);
+                       && out.as.struct_.items[0].field_value.as.scalar->as.f32 == 1.0f);
         mpa_free(&a);
         mpr_init(&r, f64b, sizeof(f64b));
         mpa_init(&a);
         check_true("bridge read scalars", "f64 rc",
-                   mp_record_bridge_read(&r, &a, &out) == 0);
+                   mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read scalars", "f64",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_F64
-                       && out.as.record.items[0].field_value.as.scalar->as.f64 == 1.0);
+                       && out.as.struct_.items[0].field_value.as.scalar->as.f64 == 1.0);
         mpa_free(&a);
         mpr_init(&r, binb, sizeof(binb));
         mpa_init(&a);
         check_true("bridge read scalars", "bin rc",
-                   mp_record_bridge_read(&r, &a, &out) == 0);
+                   mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read scalars", "bin -> blob",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                            == UNI_SCALAR_VALUE_BLOB
-                       && out.as.record.items[0].field_value.as.scalar->as.blob.len == 2
-                       && out.as.record.items[0].field_value.as.scalar->as.blob.data[0]
+                       && out.as.struct_.items[0].field_value.as.scalar->as.blob.len == 2
+                       && out.as.struct_.items[0].field_value.as.scalar->as.blob.data[0]
                               == 0xaa);
         mpa_free(&a);
         mpr_init(&r, nilb, sizeof(nilb));
         mpa_init(&a);
         check_true("bridge read scalars", "nil rc",
-                   mp_record_bridge_read(&r, &a, &out) == 0);
+                   mp_struct_bridge_read(&r, &a, &out) == 0);
         check_true("bridge read scalars", "nil -> null",
-                   out.as.record.items[0].field_value.as.scalar->kind
+                   out.as.struct_.items[0].field_value.as.scalar->kind
                        == UNI_SCALAR_VALUE_NULL);
         mpa_free(&a);
     }
@@ -2332,27 +2333,27 @@ static void run_record_bridge_read_edge(void) {
         static const uint8_t count_big[] = {0xde, 0x13, 0x88}; /* map16, 5000 entries */
         mpr_init(&r, not_map, sizeof(not_map));
         mpa_init(&a);
-        check_true("bridge read errors", "non-map", mp_record_bridge_read(&r, &a, &out) == -1);
+        check_true("bridge read errors", "non-map", mp_struct_bridge_read(&r, &a, &out) == -1);
         mpa_free(&a);
         mpr_init(&r, key_zero, sizeof(key_zero));
         mpa_init(&a);
         check_true("bridge read errors", "key 0 skipped",
-                   mp_record_bridge_read(&r, &a, &out) == 0 && out.as.record.len == 0);
+                   mp_struct_bridge_read(&r, &a, &out) == 0 && out.as.struct_.len == 0);
         mpa_free(&a);
         mpr_init(&r, key_big, sizeof(key_big));
         mpa_init(&a);
         check_true("bridge read errors", "key over bound",
-                   mp_record_bridge_read(&r, &a, &out) == -1);
+                   mp_struct_bridge_read(&r, &a, &out) == -1);
         mpa_free(&a);
         mpr_init(&r, count_big, sizeof(count_big));
         mpa_init(&a);
         check_true("bridge read errors", "count over bound",
-                   mp_record_bridge_read(&r, &a, &out) == -1);
+                   mp_struct_bridge_read(&r, &a, &out) == -1);
         mpa_free(&a);
     }
 }
 
-static void run_record_bridge_roundtrip(void) {
+static void run_struct_bridge_roundtrip(void) {
     /* read (host-vocabulary normalization) then write: the bool marker and
      * the gap come back in the canonical positional form */
     static const uint8_t input[] = {0x83, 0x01, 0xa1, 'x', 0x03, 0xc3, 0x04, 0x02};
@@ -2364,21 +2365,21 @@ static void run_record_bridge_roundtrip(void) {
     mp_writer w;
     mpr_init(&r, input, sizeof(input));
     mpa_init(&a);
-    check_true("bridge roundtrip", "read rc", mp_record_bridge_read(&r, &a, &out) == 0);
+    check_true("bridge roundtrip", "read rc", mp_struct_bridge_read(&r, &a, &out) == 0);
     mpw_init(&w);
-    check_true("bridge roundtrip", "write rc", mp_record_bridge_write(&out, &w) == 0);
+    check_true("bridge roundtrip", "write rc", mp_struct_bridge_write(&out, &w) == 0);
     check_bytes("bridge roundtrip", w.buf, w.len, expected, sizeof(expected));
     mpw_free(&w);
     mpa_free(&a);
 }
 
-static void run_record_bridge(void) {
-    run_record_bridge_write();
-    run_record_bridge_write_edge();
-    run_record_bridge_bool_leniency();
-    run_record_bridge_read();
-    run_record_bridge_read_edge();
-    run_record_bridge_roundtrip();
+static void run_struct_bridge(void) {
+    run_struct_bridge_write();
+    run_struct_bridge_write_edge();
+    run_struct_bridge_bool_leniency();
+    run_struct_bridge_read();
+    run_struct_bridge_read_edge();
+    run_struct_bridge_roundtrip();
 }
 
 int main(void) {
@@ -2390,7 +2391,7 @@ int main(void) {
     run_mp_primitives();
     run_syscall_corpus();
     run_lenient_decode();
-    run_record_bridge();
+    run_struct_bridge();
     printf("%ld checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

@@ -1,6 +1,6 @@
 //! Tree-sitter parser for the C front-end.
 
-use crate::c::procedure::{CParam, CProcedure, CValueType};
+use crate::c::types::{CParam, CProcedure, CValueType};
 use crate::common::ident::is_valid_identifier;
 use crate::common::type_registry::TypeRegistry;
 use mudu::common::result::RS;

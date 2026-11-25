@@ -158,7 +158,7 @@ fn run_wallet_procedure_checks(ctx: &TestContext, spec: &WalletGuestSpec) -> RS<
 
 // update_profile exercises a user-defined record type (wit/types.wit) end to
 // end: the nested JSON argument converts through the desc's
-// DataTypeParamRecord into the positional record envelope, the guest decodes
+// DataTypeParamStruct into the positional record envelope, the guest decodes
 // it through the binding record bridge plus the mgen-generated codec, stores
 // it, and returns the stored record. `vip` is a bool in WIT but crosses the
 // JSON/desc surface as i32 (0/1) — the host has no boolean data-type family.
@@ -452,7 +452,7 @@ impl TestContext {
             .and_then(|row| row_string(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("user name not found for user_id={user_id}")
                 )
             })
@@ -467,7 +467,7 @@ impl TestContext {
             .and_then(|row| row_i64(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("wallet balance not found for user_id={user_id}")
                 )
             })

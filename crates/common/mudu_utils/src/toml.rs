@@ -16,7 +16,8 @@ pub fn to_toml_str<S: Serialize>(object: &S) -> RS<String> {
 /// Serializes `object` to TOML and writes it to the file at `path`.
 ///
 /// Returns an error if serialization or the file write fails.
-pub fn write_toml<S: Serialize, P: AsRef<Path>>(object: &S, path: P) -> RS<()> {
+#[cfg(test)]
+pub(crate) fn write_toml<S: Serialize, P: AsRef<Path>>(object: &S, path: P) -> RS<()> {
     let toml_string = to_toml_str(object)?;
     mudu_sys::fs::sync::write(path.as_ref(), toml_string)?;
     Ok(())

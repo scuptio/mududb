@@ -46,7 +46,7 @@ pub trait ChannelEndpoint: Send + Sync {
     /// Registers `handler` for envelopes of `kind` arriving with
     /// [`DeliveryMode::Request`](mudu::channel::DeliveryMode::Request) or
     /// [`DeliveryMode::FireAndForget`](mudu::channel::DeliveryMode::FireAndForget);
-    /// fails with `EntityAlreadyExists` when the kind is taken.
+    /// fails with `ObjectAlreadyExists` when the kind is taken.
     ///
     /// Low-level building block of the typed layer; prefer
     /// `Channel::serve`.

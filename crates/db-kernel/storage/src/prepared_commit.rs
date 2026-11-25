@@ -13,6 +13,11 @@ use std::collections::BTreeMap;
 pub struct PreparedWorkerCommit {
     /// Transaction id of the commit.
     pub xid: u64,
+    /// Commit epoch the versions stamp with when an epoch oracle drove the
+    /// commit (phase 0.2 of the epoch MVCC design); `None` keeps the
+    /// pre-epoch xid stamping. Replicas and recovery stamp identically
+    /// because the value travels in the WAL entry.
+    pub commit_epoch: Option<u64>,
     /// Per-relation write set: row key to new value (`None` deletes the row).
     pub relation_rows: BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     /// Per-relation deferred delta assignments, keyed by row key.

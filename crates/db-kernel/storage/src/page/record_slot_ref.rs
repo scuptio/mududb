@@ -1,7 +1,7 @@
 //! Zero-copy reader for one record slot inside a page buffer.
 
 use crate::page::record_slot::{
-    RecordSlot, RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_FLAG_FRAGMENT_MASK,
+    StructSlot, RECORD_SLOT_FLAG_COMPLETE, RECORD_SLOT_FLAG_FRAGMENT_MASK,
     RECORD_SLOT_FLAG_PARTIAL_CONTINUED, RECORD_SLOT_FLAG_PARTIAL_LAST, RECORD_SLOT_SIZE,
 };
 use byteorder::{ByteOrder, LittleEndian};
@@ -10,14 +10,14 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use std::cmp::Ordering;
 
-/// `RecordSlotRef` is a zero-copy slot reader backed by the original page bytes.
+/// `StructSlotRef` is a zero-copy slot reader backed by the original page bytes.
 /// It is used on hot paths such as slot binary search where only a subset of
 /// fields is needed and decoding the whole slot array would be wasted work.
-pub struct RecordSlotRef<'a> {
+pub struct StructSlotRef<'a> {
     slot: &'a [u8],
 }
 
-impl<'a> RecordSlotRef<'a> {
+impl<'a> StructSlotRef<'a> {
     /// Creates a slot reader over the 32-byte on-page encoding of one slot.
     pub fn new(slot: &'a [u8]) -> RS<Self> {
         if slot.len() < RECORD_SLOT_SIZE {
@@ -86,15 +86,15 @@ impl<'a> RecordSlotRef<'a> {
         self.fragment_kind() == RECORD_SLOT_FLAG_PARTIAL_LAST
     }
 
-    pub(crate) fn cmp_key(&self, other: &RecordSlot) -> Ordering {
+    pub(crate) fn cmp_key(&self, other: &StructSlot) -> Ordering {
         self.timestamp()
             .cmp(&other.timestamp())
             .then_with(|| self.tuple_id().cmp(&other.tuple_id()))
             .then_with(|| self.offset().cmp(&other.offset()))
     }
 
-    pub(crate) fn to_owned(&self) -> RecordSlot {
-        RecordSlot::from_raw(
+    pub(crate) fn to_owned(&self) -> StructSlot {
+        StructSlot::from_raw(
             self.offset(),
             self.size(),
             self.timestamp(),
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn slot_ref_reads_every_field_and_fragment_kinds() {
         let raw = sample_slot(RECORD_SLOT_FLAG_COMPLETE);
-        let slot = RecordSlotRef::new(&raw).unwrap();
+        let slot = StructSlotRef::new(&raw).unwrap();
         assert_eq!(slot.offset(), 100);
         assert_eq!(slot.size(), 64);
         assert_eq!(slot.timestamp(), 1000);
@@ -141,22 +141,22 @@ mod tests {
         assert!(!slot.is_partial_last());
 
         let continued_raw = sample_slot(RECORD_SLOT_FLAG_PARTIAL_CONTINUED);
-        let continued = RecordSlotRef::new(&continued_raw).unwrap();
+        let continued = StructSlotRef::new(&continued_raw).unwrap();
         assert!(continued.is_partial_continued());
         assert!(!continued.is_complete());
         let last_raw = sample_slot(RECORD_SLOT_FLAG_PARTIAL_LAST);
-        let last = RecordSlotRef::new(&last_raw).unwrap();
+        let last = StructSlotRef::new(&last_raw).unwrap();
         assert!(last.is_partial_last());
 
         // Short buffers are rejected.
-        assert!(RecordSlotRef::new(&raw[..16]).is_err());
+        assert!(StructSlotRef::new(&raw[..16]).is_err());
 
         // cmp_key orders by timestamp, then tuple id, then offset.
         let owned = slot.to_owned();
         assert_eq!(slot.cmp_key(&owned), Ordering::Equal);
         let mut other_raw = sample_slot(RECORD_SLOT_FLAG_COMPLETE);
         LittleEndian::write_u64(&mut other_raw[16..24], 8);
-        let other = RecordSlotRef::new(&other_raw).unwrap();
+        let other = StructSlotRef::new(&other_raw).unwrap();
         assert_eq!(slot.cmp_key(&other.to_owned()), Ordering::Less);
     }
 }

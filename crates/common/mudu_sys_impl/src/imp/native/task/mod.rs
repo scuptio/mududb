@@ -15,11 +15,11 @@ pub mod trace;
 
 pub use async_::{
     block_on_async_current, block_on_tokio_current_thread, build_current_thread_runtime,
-    build_multi_thread_runtime, current_poll_task_id, has_tokio_runtime, sleep, spawn_blocking,
-    spawn_local_detached, spawn_local_task, spawn_task, spawn_task_detached, this_task_id, timeout,
-    try_this_task_id, wait_for_shutdown_signal, CurrentThreadTaskRuntime, LocalTaskSet,
-    PollTaskIdGuard, TaskAsync, TaskFailed, TaskJoinError, TaskJoinHandle, TaskRuntime,
-    TaskRuntimeEnterGuard,
+    build_multi_thread_runtime, build_serial_io_runtime, current_poll_task_id, has_tokio_runtime,
+    sleep, spawn_blocking, spawn_local_detached, spawn_local_task, spawn_task, spawn_task_detached,
+    this_task_id, timeout, try_this_task_id, wait_for_shutdown_signal, CurrentThreadTaskRuntime,
+    LocalTaskSet, PollTaskIdGuard, TaskAsync, TaskFailed, TaskJoinError, TaskJoinHandle,
+    TaskRuntime, TaskRuntimeEnterGuard,
 };
 pub use context::TaskContext;
 pub use id::{new_task_id, TaskID};

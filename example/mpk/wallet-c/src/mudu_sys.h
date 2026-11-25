@@ -50,10 +50,10 @@ enum mudu_datum_kind {
      * envelope, positionally ordered (WIT declaration order, names dropped
      * by the host). The pointer references the binding's decode arena,
      * which lives in the guest arena until the guest call ends; a procedure
-     * decodes it through the record bridge (`mp_record_bridge_write`)
+     * decodes it through the record bridge (`mp_struct_bridge_write`)
      * composed with the mgen-generated `<type>_decode`, and builds a return
-     * record symmetrically (`<type>_encode` + `mp_record_bridge_read`). */
-    MUDU_DATUM_RECORD = 4
+     * record symmetrically (`<type>_encode` + `mp_struct_bridge_read`). */
+    MUDU_DATUM_STRUCT = 4
 };
 
 typedef struct {
@@ -62,14 +62,14 @@ typedef struct {
     double f64;
     const char *str;
     uint32_t str_len;
-    const uni_data_value *record; /* MUDU_DATUM_RECORD payload (arena-owned) */
+    const uni_data_value *struct_; /* MUDU_DATUM_STRUCT payload (arena-owned) */
 } mudu_datum;
 
 mudu_datum mudu_null(void);
 mudu_datum mudu_i64(int64_t value);
 mudu_datum mudu_f64(double value);
 mudu_datum mudu_str(const char *data, uint32_t len);
-mudu_datum mudu_record(const uni_data_value *value);
+mudu_datum mudu_struct(const uni_data_value *value);
 
 /* Guest error: set by the syscall wrappers and procedures, encoded as the
  * `{1: UniError}` arm of the procedure result by `mudu_run_proc`. */

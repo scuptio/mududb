@@ -1,6 +1,6 @@
 use super::{payload, temp_relation_base, temp_ts_path};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 
 #[test]
 fn insert_batch_equivalent_to_single_row_inserts() {
@@ -75,7 +75,7 @@ fn insert_batch_equivalent_to_single_row_inserts() {
 fn insert_batch_wal_recovers_after_data_loss() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-batch");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 53,
             table_id: 59,
             file_index: 0,
@@ -249,7 +249,7 @@ async fn write_mixed_batches(
 fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-mixed");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 61,
             table_id: 67,
             file_index: 0,
@@ -307,7 +307,7 @@ fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
 fn wal_replay_after_full_flush_leaves_data_file_byte_stable() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-stable");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 71,
             table_id: 73,
             file_index: 0,

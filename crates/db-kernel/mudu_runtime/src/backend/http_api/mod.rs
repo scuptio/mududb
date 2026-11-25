@@ -85,6 +85,40 @@ pub trait HttpApi: Send + Sync {
         ))
     }
 
+    /// Moves one partition to another node group (phase 3: online copy,
+    /// epoch-barrier cutover, placement flip, source cleanup).
+    async fn move_partition(&self, _request: PartitionMoveRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition move is not supported"
+        ))
+    }
+
+    /// Splits one partition at a split point (phase 3 §9.3).
+    async fn split_partition(&self, _request: PartitionSplitRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition split is not supported"
+        ))
+    }
+
+    /// Merges two adjacent partitions of one rule (phase 3 §9.3).
+    async fn merge_partitions(&self, _request: PartitionMergeRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition merge is not supported"
+        ))
+    }
+
+    /// Aborts an in-flight partition move: the fence lifts and the source
+    /// keeps the partition.
+    async fn abort_partition_move(&self, _request: PartitionMoveAbortRequest) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition move abort is not supported"
+        ))
+    }
+
     /// Returns the worker/replication topology view of this server.
     async fn server_topology(&self) -> RS<ServerTopology> {
         Err(mudu_error!(
@@ -132,6 +166,25 @@ pub trait HttpApi: Send + Sync {
         Err(mudu_error!(
             ErrorCode::NotImplemented,
             "queue activation status is not supported"
+        ))
+    }
+
+    /// Receives rows from a queue shard, optionally blocking for a message.
+    ///
+    /// This is the native `RECEIVE ... FOR <consumer> [WAIT FOREVER]` long-poll
+    /// that the WebSocket gateway loops on to fan events out to clients. The
+    /// returned values are the payload rows encoded as JSON objects (the queue
+    /// system columns `__seq`/`__lsn` are stripped by the caller). Wiring the
+    /// kernel receive path behind this method is the P1 follow-up.
+    async fn receive_queue(
+        &self,
+        _queue: &str,
+        _consumer: Option<&str>,
+        _wait_forever: bool,
+    ) -> RS<Vec<Value>> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue receive is not yet wired to the kernel"
         ))
     }
 

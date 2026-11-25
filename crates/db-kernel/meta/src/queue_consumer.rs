@@ -22,13 +22,12 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::tuple::typed_bin::TypedBin;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
 
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 
@@ -56,7 +55,7 @@ pub const QUEUE_CONSUMER_FRONTIER_ATTR: AttrIndex = 3;
 ///
 /// Public so test fixtures (e.g. `catalog-testing`'s `TestMetaMgr`) can
 /// register the built-in table the way `MetaMgrImpl::initialize_inner` does.
-pub fn queue_consumer_schema() -> SchemaTable {
+pub fn queue_consumer_schema() -> SchemaClass {
     let columns = [
         (QUEUE_CONSUMER_OID_COLUMN_ID, "queue_oid", TypeFamily::U128),
         (QUEUE_CONSUMER_SHARD_COLUMN_ID, "shard", TypeFamily::I64),
@@ -78,13 +77,13 @@ pub fn queue_consumer_schema() -> SchemaTable {
             oid,
             name.to_string(),
             family,
-            DataTypeInfo::from_opt_object(&ty),
+            mudu_type::data_type_codec::from_opt_object(&ty),
         );
         column.set_nullable(false);
         column
     })
     .collect();
-    SchemaTable::new_with_oid(
+    SchemaClass::new_with_oid(
         QUEUE_CONSUMER_TABLE_ID,
         QUEUE_CONSUMER_TABLE_NAME.to_string(),
         columns,

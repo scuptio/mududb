@@ -293,7 +293,7 @@ impl TestContext {
             .and_then(|row| row_string(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("user name not found for user_id={user_id}")
                 )
             })
@@ -308,7 +308,7 @@ impl TestContext {
             .and_then(|row| row_i64(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("wallet balance not found for user_id={user_id}")
                 )
             })

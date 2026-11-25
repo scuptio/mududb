@@ -5,6 +5,7 @@
 //! the lazy runtime rebuild (with crash redelivery) after a reopen.
 
 use super::block_on;
+use crate::contract::WorkerXContract;
 use crate::*;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use mudu_sys::env_var::temp_dir;
@@ -44,6 +45,8 @@ pub(super) fn make_contract_on_partition(
             data_dir,
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         },
     )?))
 }
@@ -643,7 +646,7 @@ fn drop_queue_wakes_parked_wait_forever() {
         // The dropped queue woke the waiter; its rescan fails instead of
         // hanging forever.
         let err = receiver.await.unwrap().unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(contract.queue_wait_registry().waiter_counts()?.is_empty());
         Ok::<(), mudu::error::MuduError>(())
     })

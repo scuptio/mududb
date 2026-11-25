@@ -1,5 +1,5 @@
 use super::discover_procedures;
-use crate::assemblyscript::procedure::{AsValueType, normalize_type_name};
+use crate::assemblyscript::types::{AsValueType, normalize_type_name};
 use mudu::error::ErrorCode;
 use std::error::Error;
 
@@ -230,7 +230,7 @@ export function update(oid: oid, profile: Profile, note: string | null, mode: ge
     let procs = discover_procedures(code, Some(&registry))?;
     assert_eq!(procs.len(), 1);
     let profile = match &procs[0].params[1].value_type {
-        AsValueType::Record(custom) => custom,
+        AsValueType::Struct(custom) => custom,
         other => return Err(format!("expected a record type, got {other:?}").into()),
     };
     assert_eq!(profile.name, "Profile");
@@ -259,7 +259,7 @@ export function getProfile(oid: oid): Result<Profile> {
     let procs = discover_procedures(code, Some(&registry))?;
     assert!(procs[0].returns_result);
     let profile = match &procs[0].return_value_type {
-        AsValueType::Record(custom) => custom,
+        AsValueType::Struct(custom) => custom,
         other => return Err(format!("expected a record return type, got {other:?}").into()),
     };
     assert_eq!(profile.name, "Profile");
@@ -362,7 +362,7 @@ export function bad(oid: oid, count: i64 | null): i64 { return 0; }
 }
 
 #[test]
-fn u128_record_fields_are_unknown_wit_types() -> Result<(), Box<dyn Error>> {
+fn u128_struct_fields_are_unknown_wit_types() -> Result<(), Box<dyn Error>> {
     // WIT scalar keywords stop at 64 bits: `u128` in a record field parses
     // as a type identifier and the registry reports it as unknown (128-bit
     // record fields are therefore unreachable in guests).
@@ -392,7 +392,7 @@ export function update(oid: oid, value: HasOid): i64 { return 0; }
 }
 
 #[test]
-fn rejects_blob_record_fields_in_result_position() -> Result<(), Box<dyn Error>> {
+fn rejects_blob_struct_fields_in_result_position() -> Result<(), Box<dyn Error>> {
     let dir = mudu_sys::env_var::temp_dir().join(format!(
         "mtp_as_blob_types_{}",
         mudu_sys::time::system_time_now()

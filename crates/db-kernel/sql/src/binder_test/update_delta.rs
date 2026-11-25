@@ -9,18 +9,22 @@
 use super::*;
 
 fn counter_binder() -> Binder {
-    binder_arc(Arc::new(TestMetaMgr::new(SchemaTable::new(
+    binder_arc(Arc::new(TestMetaMgr::new(SchemaClass::new(
         "counters".to_string(),
         vec![
             SchemaColumn::new(
                 "id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "count".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
         ],
         vec![0],
@@ -29,20 +33,22 @@ fn counter_binder() -> Binder {
 }
 
 fn money_binder() -> Binder {
-    binder_arc(Arc::new(TestMetaMgr::new(SchemaTable::new(
+    binder_arc(Arc::new(TestMetaMgr::new(SchemaClass::new(
         "accounts".to_string(),
         vec![
             SchemaColumn::new(
                 "id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "balance".to_string(),
                 TypeFamily::Numeric,
-                DataTypeInfo::from_opt_object(&DataType::from_numeric(DataTypeParamNumeric::new(
-                    12, 2,
-                ))),
+                mudu_type::data_type_codec::from_opt_object(&DataType::from_numeric(
+                    DataTypeParamNumeric::new(12, 2),
+                )),
             ),
         ],
         vec![0],
@@ -253,18 +259,20 @@ fn bind_update_accepts_string_encoded_numeric_delta_placeholder() {
         // NUMERIC params arrive type-erased as strings over the wire; the
         // binder must accept them for delta assignments on numeric columns.
         let bal_type = DataType::from_numeric(DataTypeParamNumeric::new(12, 2));
-        let schema = SchemaTable::new(
+        let schema = SchemaClass::new(
             "accounts2".to_string(),
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
                     TypeFamily::I32,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::I32,
+                    )),
                 ),
                 SchemaColumn::new(
                     "bal".to_string(),
                     TypeFamily::Numeric,
-                    DataTypeInfo::from_opt_object(&bal_type),
+                    mudu_type::data_type_codec::from_opt_object(&bal_type),
                 ),
             ],
             vec![0],

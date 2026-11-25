@@ -6,5 +6,5 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
-& python (Join-Path $RepoRoot "script/ci/check_all.py") --only fmt,clippy,deny
+& python (Join-Path $RepoRoot "script/ci/check_all.py") --only fmt,clippy,deny --fail-fast
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

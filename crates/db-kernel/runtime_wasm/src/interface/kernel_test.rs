@@ -5,7 +5,7 @@ use super::kernel_sync::*;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::conn::mudu_conn_async::MuduConnAsync;
@@ -13,7 +13,7 @@ use ::conn::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
 use ::xengine::DataBin;
 use ::xengine::api::{
     AlterTable, DeltaOp, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData,
-    VecDatum, VecSelTerm, XContract,
+    VecDatum, VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::TxMgr;
 use async_trait::async_trait;
@@ -46,7 +46,7 @@ use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_result::UniResult;
 use mudu_binding::universal::uni_result_set::UniResultSet;
 use mudu_contract::database::db_conn::DBConnSync;
-use mudu_contract::database::entity::Entity;
+use mudu_contract::database::object::Object;
 use mudu_contract::database::result_set::{ResultSet, ResultSetAsync};
 use mudu_contract::database::sql::{Context, DBConn};
 use mudu_contract::database::sql_params::SQLParams;
@@ -72,7 +72,7 @@ struct NullXContract;
 
 #[async_trait]
 impl XContract for NullXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -149,6 +149,8 @@ impl XContract for NullXContract {
     }
 }
 
+impl XContractQueue for NullXContract {}
+
 struct NullMetaMgr;
 
 #[async_trait]
@@ -162,7 +164,7 @@ impl MetaMgr for NullMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         unimplemented!()
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -198,7 +200,7 @@ impl MetaMgr for NullMetaMgr {
     async fn list_partition_placements(&self) -> RS<Vec<PartitionPlacement>> {
         unimplemented!()
     }
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         unimplemented!()
     }
 }
@@ -361,7 +363,7 @@ impl SessionAwareWorkerLocal {
             Ok(())
         } else {
             Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             ))
         }
@@ -597,7 +599,7 @@ impl WorkerLocal for RelationWorkerLocal {
         let id = relation_key_bytes(table, &key);
         if rows.contains_key(&id) {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 "existing key"
             ));
         }
@@ -656,7 +658,7 @@ impl ::conn::worker_local::WorkerFsService for MockFsService {
     async fn fs_open(&self, _session_id: OID, oid: OID, path: &str, _flags: u32) -> RS<u32> {
         if path == "/missing" {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "no such fs object"
             ));
         }
@@ -765,7 +767,7 @@ impl ::conn::worker_local::WorkerFsService for MockFsService {
     async fn fs_stat(&self, _session_id: OID, oid: OID, path: &str) -> RS<UniFsStat> {
         if path == "/missing" {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "no such fs object"
             ));
         }

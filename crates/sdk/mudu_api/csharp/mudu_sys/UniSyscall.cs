@@ -85,6 +85,21 @@ public enum MessageKind : uint
     
     RelationInsert = 23,
     
+    
+    CacheOpen = 24,
+    
+    
+    CacheGet = 25,
+    
+    
+    CachePut = 26,
+    
+    
+    CacheDelete = 27,
+    
+    
+    CacheTtl = 28,
+    
 }
 
 /// Outcome of a decoded MSSP result body: either the success value or the
@@ -121,7 +136,7 @@ public readonly struct SyscallResult<T>
 /// kind) followed by a single MessagePack body. Request bodies are
 /// integer-keyed MessagePack maps of the WIT-declared arguments (1-based
 /// parameter numbers); result bodies are `[ok_tag, value]` pairs with `0` =
-/// ok and `1` = err; unit results use the `[0, 0]` placeholder form. Record
+/// ok and `1` = err; unit results use the `[0, 0]` placeholder form. Struct
 /// arguments nest as their own integer-keyed maps.
 ///
 /// Error style: frame/header/structural violations (bad magic, unsupported
@@ -835,7 +850,7 @@ public static class UniCodec
         if (type == typeof(byte[]))
         {
             // Func-level blobs are MessagePack bin; the array-of-int form is
-            // accepted leniently (it is the record-context shape of
+            // accepted leniently (it is the struct-context shape of
             // `list<u8>`).
             if (reader.NextMessagePackType == MessagePackType.Array)
             {
@@ -1070,14 +1085,6 @@ public static class UniCodec
                 new UniQueryReturnFormatter().Serialize(ref writer, v, null!);
                 return true;
             
-            case UniRecordField v:
-                new UniRecordFieldFormatter().Serialize(ref writer, v, null!);
-                return true;
-            
-            case UniRecordType v:
-                new UniRecordTypeFormatter().Serialize(ref writer, v, null!);
-                return true;
-            
             case UniResultSet v:
                 new UniResultSetFormatter().Serialize(ref writer, v, null!);
                 return true;
@@ -1100,6 +1107,14 @@ public static class UniCodec
             
             case UniSqlStmt v:
                 new UniSqlStmtFormatter().Serialize(ref writer, v, null!);
+                return true;
+            
+            case UniStructField v:
+                new UniStructFieldFormatter().Serialize(ref writer, v, null!);
+                return true;
+            
+            case UniStructType v:
+                new UniStructTypeFormatter().Serialize(ref writer, v, null!);
                 return true;
             
             case UniTupleRow v:
@@ -1243,20 +1258,6 @@ public static class UniCodec
         }
 
         
-        if (type == typeof(UniRecordField))
-        {
-            dto = new UniRecordFieldFormatter().Deserialize(ref reader, null!);
-            return true;
-        }
-
-        
-        if (type == typeof(UniRecordType))
-        {
-            dto = new UniRecordTypeFormatter().Deserialize(ref reader, null!);
-            return true;
-        }
-
-        
         if (type == typeof(UniResultSet))
         {
             dto = new UniResultSetFormatter().Deserialize(ref reader, null!);
@@ -1295,6 +1296,20 @@ public static class UniCodec
         if (type == typeof(UniSqlStmt))
         {
             dto = new UniSqlStmtFormatter().Deserialize(ref reader, null!);
+            return true;
+        }
+
+        
+        if (type == typeof(UniStructField))
+        {
+            dto = new UniStructFieldFormatter().Deserialize(ref reader, null!);
+            return true;
+        }
+
+        
+        if (type == typeof(UniStructType))
+        {
+            dto = new UniStructTypeFormatter().Deserialize(ref reader, null!);
             return true;
         }
 
@@ -2165,6 +2180,193 @@ public static partial class UniSyscall
     public static UniError? DecodeRelationInsertResult(byte[] frame, MessagePackSerializerOptions? options = null)
     {
         return SyscallPayload.DecodeUnitResultFrame(MessageKind.RelationInsert, frame, options);
+    }
+    
+}
+
+
+public static partial class UniSyscall
+{
+    
+    /// Encodes a `CacheOpen` request frame.
+    public static byte[] EncodeCacheOpenRequest(string name, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.CacheOpen, name, options);
+    }
+
+    /// Decodes a `CacheOpen` request frame's argument map into its
+    /// positional values.
+    public static string DecodeCacheOpenRequest(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<string>(
+            SyscallPayload.ExpectFrame(MessageKind.CacheOpen, frame), options);
+    }
+    
+
+    
+    /// Encodes a `CacheOpen` result frame: body `[0, value]` or
+    /// `[1, error]`.
+    public static byte[] EncodeCacheOpenResult(SyscallResult<UniOid> result, MessagePackSerializerOptions? options = null)
+    {
+        return result.IsOk
+            ? SyscallPayload.EncodeResultFrame(MessageKind.CacheOpen, result.Value!, options)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.CacheOpen, result.Error.GetValueOrDefault(), options);
+    }
+
+    /// Decodes a `CacheOpen` result frame.
+    public static SyscallResult<UniOid> DecodeCacheOpenResult(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeResultFrame<UniOid>(MessageKind.CacheOpen, frame, options);
+    }
+    
+}
+
+
+public static partial class UniSyscall
+{
+    
+    /// Encodes a `CacheGet` request frame.
+    public static byte[] EncodeCacheGetRequest(UniOid cache, byte[] key, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.CacheGet, cache, key, options);
+    }
+
+    /// Decodes a `CacheGet` request frame's argument map into its
+    /// positional values.
+    public static (UniOid, byte[]) DecodeCacheGetRequest(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<UniOid, byte[]>(
+            SyscallPayload.ExpectFrame(MessageKind.CacheGet, frame), options);
+    }
+    
+
+    
+    /// Encodes a `CacheGet` result frame: body `[0, value]` or
+    /// `[1, error]`.
+    public static byte[] EncodeCacheGetResult(SyscallResult<byte[]?> result, MessagePackSerializerOptions? options = null)
+    {
+        return result.IsOk
+            ? SyscallPayload.EncodeResultFrame(MessageKind.CacheGet, result.Value!, options)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.CacheGet, result.Error.GetValueOrDefault(), options);
+    }
+
+    /// Decodes a `CacheGet` result frame.
+    public static SyscallResult<byte[]?> DecodeCacheGetResult(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeResultFrame<byte[]?>(MessageKind.CacheGet, frame, options);
+    }
+    
+}
+
+
+public static partial class UniSyscall
+{
+    
+    /// Encodes a `CachePut` request frame.
+    public static byte[] EncodeCachePutRequest(UniOid cache, byte[] key, byte[] value, ulong? ttlSecs, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.CachePut, cache, key, value, ttlSecs, options);
+    }
+
+    /// Decodes a `CachePut` request frame's argument map into its
+    /// positional values.
+    public static (UniOid, byte[], byte[], ulong?) DecodeCachePutRequest(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<UniOid, byte[], byte[], ulong?>(
+            SyscallPayload.ExpectFrame(MessageKind.CachePut, frame), options);
+    }
+    
+
+    
+    /// Encodes a `CachePut` unit result frame: body `[0, 0]` or
+    /// `[1, error]`; pass `null` for success.
+    public static byte[] EncodeCachePutResult(UniError? error, MessagePackSerializerOptions? options = null)
+    {
+        return error is null
+            ? SyscallPayload.EncodeUnitResultFrame(MessageKind.CachePut)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.CachePut, error.Value, options);
+    }
+
+    /// Decodes a `CachePut` unit result frame, returning the carried
+    /// error or `null` on success.
+    public static UniError? DecodeCachePutResult(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeUnitResultFrame(MessageKind.CachePut, frame, options);
+    }
+    
+}
+
+
+public static partial class UniSyscall
+{
+    
+    /// Encodes a `CacheDelete` request frame.
+    public static byte[] EncodeCacheDeleteRequest(UniOid cache, byte[] key, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.CacheDelete, cache, key, options);
+    }
+
+    /// Decodes a `CacheDelete` request frame's argument map into its
+    /// positional values.
+    public static (UniOid, byte[]) DecodeCacheDeleteRequest(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<UniOid, byte[]>(
+            SyscallPayload.ExpectFrame(MessageKind.CacheDelete, frame), options);
+    }
+    
+
+    
+    /// Encodes a `CacheDelete` unit result frame: body `[0, 0]` or
+    /// `[1, error]`; pass `null` for success.
+    public static byte[] EncodeCacheDeleteResult(UniError? error, MessagePackSerializerOptions? options = null)
+    {
+        return error is null
+            ? SyscallPayload.EncodeUnitResultFrame(MessageKind.CacheDelete)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.CacheDelete, error.Value, options);
+    }
+
+    /// Decodes a `CacheDelete` unit result frame, returning the carried
+    /// error or `null` on success.
+    public static UniError? DecodeCacheDeleteResult(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeUnitResultFrame(MessageKind.CacheDelete, frame, options);
+    }
+    
+}
+
+
+public static partial class UniSyscall
+{
+    
+    /// Encodes a `CacheTtl` request frame.
+    public static byte[] EncodeCacheTtlRequest(UniOid cache, byte[] key, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.EncodeRequestFrame(MessageKind.CacheTtl, cache, key, options);
+    }
+
+    /// Decodes a `CacheTtl` request frame's argument map into its
+    /// positional values.
+    public static (UniOid, byte[]) DecodeCacheTtlRequest(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeRequestBody<UniOid, byte[]>(
+            SyscallPayload.ExpectFrame(MessageKind.CacheTtl, frame), options);
+    }
+    
+
+    
+    /// Encodes a `CacheTtl` result frame: body `[0, value]` or
+    /// `[1, error]`.
+    public static byte[] EncodeCacheTtlResult(SyscallResult<ulong?> result, MessagePackSerializerOptions? options = null)
+    {
+        return result.IsOk
+            ? SyscallPayload.EncodeResultFrame(MessageKind.CacheTtl, result.Value!, options)
+            : SyscallPayload.EncodeResultErrorFrame(MessageKind.CacheTtl, result.Error.GetValueOrDefault(), options);
+    }
+
+    /// Decodes a `CacheTtl` result frame.
+    public static SyscallResult<ulong?> DecodeCacheTtlResult(byte[] frame, MessagePackSerializerOptions? options = null)
+    {
+        return SyscallPayload.DecodeResultFrame<ulong?>(MessageKind.CacheTtl, frame, options);
     }
     
 }

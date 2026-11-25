@@ -49,6 +49,7 @@ fn sample_batch() -> XLBatch {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }])
 }
 
@@ -103,6 +104,7 @@ fn worker_log_decodes_multiple_frames_from_single_chunk_payload() {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
     let mut bytes = Vec::new();
     let next_lsn = AtomicU64::new(0);
@@ -185,6 +187,7 @@ fn sample_xl_batch_1() -> XLBatch {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }])
 }
 

@@ -8,9 +8,10 @@ use mudu::mudu_error;
 use mudu_utils::channel::{Channel, channel_for};
 use std::sync::Arc;
 use std::time::Duration;
-use xcontract::{
-    ManagementRequest, ManagementResponse, QUEUE_ACTIVATION_BATCH_DEFAULT,
-    QUEUE_ACTIVATION_MAX_RETRY_DEFAULT, QueueActivationRegistration, QueueActivationStatus,
+use xcontract::management_rpc::{ManagementRequest, ManagementResponse};
+use xcontract::queue_activation::{
+    QUEUE_ACTIVATION_BATCH_DEFAULT, QUEUE_ACTIVATION_MAX_RETRY_DEFAULT,
+    QueueActivationRegistration, QueueActivationStatus,
 };
 
 /// Timeout of one management-plane ask.
@@ -27,7 +28,10 @@ const MANAGEMENT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 /// on the owning worker's thread (thread affinity by mechanism, not by
 /// convention), with the channel's timeout and nack semantics.
 impl KernelHttpApi {
-    /// The typed channel view of this server's management gateway endpoint.
+    /// The typed channel view of this server's management endpoint: in
+    /// cluster mode the node endpoint (its derived id is topology-known, so
+    /// cross-node asks route their responses back over the cluster
+    /// transport); otherwise the node-local management gateway.
     pub(super) fn management_channel(&self) -> RS<Channel> {
         let server_instance_id = self.server_instance_id.ok_or_else(|| {
             mudu_error!(
@@ -35,10 +39,23 @@ impl KernelHttpApi {
                 "queue activations are not available on this node"
             )
         })?;
-        Ok(Channel::new(channel_for(
-            server_instance_id,
-            server::MANAGEMENT_GATEWAY_ENDPOINT_ID,
-        )?))
+        let gateway = server::MANAGEMENT_GATEWAY_ENDPOINT_ID;
+        let endpoint_id =
+            match ::server::server::cluster_directory::cluster_directory_for(server_instance_id) {
+                Some(directory) => {
+                    let node_endpoint = catalog::contract::derive_oid::derive_node_endpoint(
+                        directory.self_node_id(),
+                    );
+                    // The node endpoint registers when the cluster control
+                    // plane starts; before that, the gateway still serves.
+                    match channel_for(server_instance_id, node_endpoint) {
+                        Ok(_) => node_endpoint,
+                        Err(_) => gateway,
+                    }
+                }
+                None => gateway,
+            };
+        Ok(Channel::new(channel_for(server_instance_id, endpoint_id)?))
     }
 
     /// Asks worker `worker_id` one management request and awaits its reply.
@@ -122,7 +139,7 @@ impl KernelHttpApi {
     }
 
     /// Removes the activation of the queue `queue` from whichever worker
-    /// holds it. Fails with `EntityNotFound` when the queue or the activation
+    /// holds it. Fails with `ObjectNotFound` when the queue or the activation
     /// does not exist.
     pub(super) async fn queue_activation_unregister(&self, queue: String) -> RS<()> {
         let desc = self.resolve_queue_by_name(&queue).await?;
@@ -142,7 +159,7 @@ impl KernelHttpApi {
         }
         if !removed {
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("queue {} has no registered activation", desc.name())
             ));
         }
@@ -184,13 +201,13 @@ impl KernelHttpApi {
 
     /// Resolves a queue reference: a `schema.name`-qualified name hits
     /// exactly; a bare name must match exactly one queue across the catalog.
-    async fn resolve_queue_by_name(
+    pub(super) async fn resolve_queue_by_name(
         &self,
         queue: &str,
     ) -> RS<Arc<::catalog::contract::table_desc::TableDesc>> {
         if let Some((schema, name)) = queue.split_once('.') {
             return self.meta_mgr.get_queue(schema, name).await?.ok_or_else(|| {
-                mudu_error!(ErrorCode::EntityNotFound, format!("no such queue {queue}"))
+                mudu_error!(ErrorCode::ObjectNotFound, format!("no such queue {queue}"))
             });
         }
         let matches: Vec<_> = self
@@ -198,18 +215,18 @@ impl KernelHttpApi {
             .list_queues()
             .await?
             .into_iter()
-            .filter(|schema| schema.table_name() == queue)
+            .filter(|schema| schema.class_name() == queue)
             .collect();
         match matches.len() {
             1 => self
                 .meta_mgr
-                .get_queue(matches[0].schema(), matches[0].table_name())
+                .get_queue(matches[0].schema(), matches[0].class_name())
                 .await?
                 .ok_or_else(|| {
-                    mudu_error!(ErrorCode::EntityNotFound, format!("no such queue {queue}"))
+                    mudu_error!(ErrorCode::ObjectNotFound, format!("no such queue {queue}"))
                 }),
             0 => Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such queue {queue}")
             )),
             _ => Err(mudu_error!(
@@ -221,7 +238,7 @@ impl KernelHttpApi {
         }
     }
 
-    fn live_workers(&self) -> RS<Vec<(Arc<WorkerRuntime>, u32)>> {
+    pub(super) fn live_workers(&self) -> RS<Vec<(Arc<WorkerRuntime>, u32)>> {
         let server_instance_id = self.server_instance_id.ok_or_else(|| {
             mudu_error!(
                 ErrorCode::InvalidState,

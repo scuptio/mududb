@@ -12,7 +12,7 @@ use ::catalog::contract::queue::{
     queue_system_columns, QUEUE_LSN_COLUMN, QUEUE_PAYLOAD_ATTR_START, QUEUE_RECEIVE_COUNT_COLUMN,
     QUEUE_SEQ_COLUMN, QUEUE_STATUS_COLUMN,
 };
-use ::catalog::contract::schema_table::SchemaObjectKind;
+use ::catalog::contract::schema_class::SchemaClassKind;
 
 fn queue_i32_rule(name: &str) -> PartitionRuleDesc {
     PartitionRuleDesc::new_range(
@@ -33,29 +33,29 @@ fn queue_i32_rule(name: &str) -> PartitionRuleDesc {
     )
 }
 
-fn queue_schema(name: &str) -> SchemaTable {
+fn queue_schema(name: &str) -> SchemaClass {
     let columns = queue_system_columns();
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
-    schema.set_kind(SchemaObjectKind::Queue);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn queue_schema_with_payload(name: &str) -> SchemaTable {
+fn queue_schema_with_payload(name: &str) -> SchemaClass {
     let mut columns = queue_system_columns();
     columns.push(SchemaColumn::new(
         "body".to_string(),
         TypeFamily::String,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::String)),
     ));
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
-    schema.set_kind(SchemaObjectKind::Queue);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn assert_system_column_layout(schema: &SchemaTable, payload_names: &[&str]) {
-    assert_eq!(schema.kind(), SchemaObjectKind::Queue);
+fn assert_system_column_layout(schema: &SchemaClass, payload_names: &[&str]) {
+    assert_eq!(schema.kind(), SchemaClassKind::Queue);
     assert!(schema.is_queue());
     assert_eq!(schema.key_indices(), &vec![0]);
     assert_eq!(
@@ -107,7 +107,7 @@ fn bind_create_queue_with_columns_builds_system_layout() {
             panic!("expected create queue");
         };
         let schema = &create.schema;
-        assert_eq!(schema.table_name(), "jobs");
+        assert_eq!(schema.class_name(), "jobs");
         assert_eq!(schema.schema(), &DEFAULT_SCHEMA.to_string());
         assert_system_column_layout(schema, &["body", "retries"]);
         let body = &schema.columns()[6];
@@ -205,7 +205,7 @@ fn bind_create_queue_like_unknown_table_fails() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -238,7 +238,7 @@ fn bind_drop_queue_fails_on_plain_table() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -252,7 +252,7 @@ fn bind_drop_queue_fails_when_missing() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -311,14 +311,14 @@ fn bind_receive_fails_on_missing_queue_and_plain_table() {
             .bind(parse_stmt("receive from missing;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         // `users` is a plain table, not a queue.
         let err = binder()
             .bind(parse_stmt("receive from users;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -467,14 +467,14 @@ fn bind_create_consumer_fails_on_missing_queue_and_plain_table() {
             .bind(parse_stmt("create consumer cg1 on missing;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         // `users` is a plain table, not a queue.
         let err = binder()
             .bind(parse_stmt("create consumer cg1 on users;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -507,7 +507,7 @@ fn bind_drop_consumer_fails_when_missing() {
             .bind(parse_stmt("drop consumer cg1 on missing;"), &())
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -671,7 +671,7 @@ fn bind_create_queue_partition_rejects_bad_clauses() {
             )
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }

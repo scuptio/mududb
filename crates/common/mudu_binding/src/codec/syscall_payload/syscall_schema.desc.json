@@ -34,7 +34,7 @@
             3,
             [
               6,
-              "uni-record-type"
+              "uni-struct-type"
             ]
           ]
         }
@@ -391,7 +391,7 @@
             3,
             [
               6,
-              "uni-record-type"
+              "uni-struct-type"
             ]
           ]
         }
@@ -405,7 +405,7 @@
           "name": "tuple-desc",
           "data_type": [
             6,
-            "uni-record-type"
+            "uni-struct-type"
           ]
         },
         {
@@ -414,62 +414,6 @@
           "data_type": [
             6,
             "uni-result-set"
-          ]
-        }
-      ]
-    },
-    {
-      "name": "uni-record-field",
-      "fields": [
-        {
-          "number": 1,
-          "name": "field-name",
-          "data_type": [
-            0,
-            14
-          ]
-        },
-        {
-          "number": 2,
-          "name": "field-type",
-          "data_type": [
-            6,
-            "uni-data-type"
-          ]
-        },
-        {
-          "number": 3,
-          "name": "field-attrs",
-          "data_type": [
-            1,
-            [
-              6,
-              "uni-field-attr"
-            ]
-          ]
-        }
-      ]
-    },
-    {
-      "name": "uni-record-type",
-      "fields": [
-        {
-          "number": 1,
-          "name": "record-name",
-          "data_type": [
-            0,
-            14
-          ]
-        },
-        {
-          "number": 2,
-          "name": "record-fields",
-          "data_type": [
-            1,
-            [
-              6,
-              "uni-record-field"
-            ]
           ]
         }
       ]
@@ -583,6 +527,62 @@
       ]
     },
     {
+      "name": "uni-struct-field",
+      "fields": [
+        {
+          "number": 1,
+          "name": "field-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "field-type",
+          "data_type": [
+            6,
+            "uni-data-type"
+          ]
+        },
+        {
+          "number": 3,
+          "name": "field-attrs",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-field-attr"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uni-struct-type",
+      "fields": [
+        {
+          "number": 1,
+          "name": "struct-name",
+          "data_type": [
+            0,
+            14
+          ]
+        },
+        {
+          "number": 2,
+          "name": "struct-fields",
+          "data_type": [
+            1,
+            [
+              6,
+              "uni-struct-field"
+            ]
+          ]
+        }
+      ]
+    },
+    {
       "name": "uni-tuple-row",
       "fields": [
         {
@@ -646,10 +646,10 @@
         },
         {
           "tag": 2,
-          "name": "record",
+          "name": "struct",
           "payload_type": [
             6,
-            "uni-record-type"
+            "uni-struct-type"
           ]
         },
         {
@@ -732,7 +732,7 @@
         },
         {
           "tag": 2,
-          "name": "record",
+          "name": "struct",
           "payload_type": [
             1,
             [
@@ -2086,6 +2086,222 @@
             5,
             {
               "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cache-open",
+      "message_kind": 24,
+      "params": [
+        {
+          "number": 1,
+          "name": "name",
+          "data_type": [
+            0,
+            14
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                6,
+                "uni-oid"
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cache-get",
+      "message_kind": 25,
+      "params": [
+        {
+          "number": 1,
+          "name": "cache",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                3,
+                [
+                  7,
+                  0
+                ]
+              ],
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cache-put",
+      "message_kind": 26,
+      "params": [
+        {
+          "number": 1,
+          "name": "cache",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "number": 3,
+          "name": "value",
+          "data_type": [
+            7,
+            0
+          ]
+        },
+        {
+          "number": 4,
+          "name": "ttl-secs",
+          "data_type": [
+            3,
+            [
+              0,
+              7
+            ]
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cache-delete",
+      "message_kind": 27,
+      "params": [
+        {
+          "number": 1,
+          "name": "cache",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": null,
+              "err": [
+                6,
+                "uni-error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cache-ttl",
+      "message_kind": 28,
+      "params": [
+        {
+          "number": 1,
+          "name": "cache",
+          "data_type": [
+            6,
+            "uni-oid"
+          ]
+        },
+        {
+          "number": 2,
+          "name": "key",
+          "data_type": [
+            7,
+            0
+          ]
+        }
+      ],
+      "results": [
+        {
+          "number": 1,
+          "name": "",
+          "data_type": [
+            5,
+            {
+              "ok": [
+                3,
+                [
+                  0,
+                  7
+                ]
+              ],
               "err": [
                 6,
                 "uni-error"

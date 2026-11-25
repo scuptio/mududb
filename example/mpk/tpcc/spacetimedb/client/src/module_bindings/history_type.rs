@@ -39,17 +39,17 @@ pub struct HistoryCols {
 
 impl __sdk::__query_builder::HasCols for History {
     type Cols = HistoryCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         HistoryCols {
-            h_seq: __sdk::__query_builder::Col::new(table_name, "h_seq"),
-            h_id: __sdk::__query_builder::Col::new(table_name, "h_id"),
-            h_c_id: __sdk::__query_builder::Col::new(table_name, "h_c_id"),
-            h_c_d_id: __sdk::__query_builder::Col::new(table_name, "h_c_d_id"),
-            h_c_w_id: __sdk::__query_builder::Col::new(table_name, "h_c_w_id"),
-            h_d_id: __sdk::__query_builder::Col::new(table_name, "h_d_id"),
-            h_w_id: __sdk::__query_builder::Col::new(table_name, "h_w_id"),
-            h_amount: __sdk::__query_builder::Col::new(table_name, "h_amount"),
-            h_data: __sdk::__query_builder::Col::new(table_name, "h_data"),
+            h_seq: __sdk::__query_builder::Col::new(class_name, "h_seq"),
+            h_id: __sdk::__query_builder::Col::new(class_name, "h_id"),
+            h_c_id: __sdk::__query_builder::Col::new(class_name, "h_c_id"),
+            h_c_d_id: __sdk::__query_builder::Col::new(class_name, "h_c_d_id"),
+            h_c_w_id: __sdk::__query_builder::Col::new(class_name, "h_c_w_id"),
+            h_d_id: __sdk::__query_builder::Col::new(class_name, "h_d_id"),
+            h_w_id: __sdk::__query_builder::Col::new(class_name, "h_w_id"),
+            h_amount: __sdk::__query_builder::Col::new(class_name, "h_amount"),
+            h_data: __sdk::__query_builder::Col::new(class_name, "h_data"),
         }
     }
 }
@@ -63,9 +63,9 @@ pub struct HistoryIxCols {
 
 impl __sdk::__query_builder::HasIxCols for History {
     type IxCols = HistoryIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         HistoryIxCols {
-            h_seq: __sdk::__query_builder::IxCol::new(table_name, "h_seq"),
+            h_seq: __sdk::__query_builder::IxCol::new(class_name, "h_seq"),
         }
     }
 }

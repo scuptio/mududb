@@ -9,7 +9,7 @@ use mudu_type::type_family::TypeFamily;
 
 /// Get schema information for a SQL query result set
 /// This function executes the query with LIMIT 0 to get only the structure without data
-pub async fn desc_projection(stmt: &Statement) -> Result<Vec<DatumDesc>, MuduError> {
+pub(crate) async fn desc_projection(stmt: &Statement) -> Result<Vec<DatumDesc>, MuduError> {
     let columns = stmt.columns();
     let mut schema = Vec::with_capacity(columns.len());
     for column in columns {

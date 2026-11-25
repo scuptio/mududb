@@ -19,7 +19,7 @@ Before building, make sure you have:
 
 - [ ] `rustup` + `cargo` + `wasm32-wasip2` target
 - [ ] `cargo-make`
-- [ ] `python3` with `tomli-w` and `toml`
+- [ ] Python 3.11+ (standard library only)
 - [ ] `mgen`, `mtp`, `mpm-build`, `mudud`, `mcli` in `PATH` (install via `python script/build/install_binaries.py` from the repo root)
 
 The SQL avoids SQLite-only constructs such as `INSERT OR REPLACE` / `INSERT OR IGNORE`

@@ -232,7 +232,7 @@ impl ActivationFixture {
             .cloned()
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("queue {name} missing from the observability endpoint")
                 )
             })
@@ -376,7 +376,7 @@ fn queue_activation_register_unknown_queue_fails() -> RS<()> {
     assert_eq!(response["ok"], false);
     assert_eq!(
         response["status"], 50009,
-        "unknown queue registration reports EntityNotFound: {response}"
+        "unknown queue registration reports ObjectNotFound: {response}"
     );
 
     // The schema-qualified form resolves the same queue (the fixture's app
@@ -387,7 +387,7 @@ fn queue_activation_register_unknown_queue_fails() -> RS<()> {
     let response = fx.unregister("q")?;
     assert_eq!(response["status"], 0);
 
-    // Unregistering twice fails with EntityNotFound.
+    // Unregistering twice fails with ObjectNotFound.
     let response = fx.unregister("q")?;
     assert_eq!(response["ok"], false);
     assert_eq!(response["status"], 50009);

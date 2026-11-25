@@ -160,11 +160,11 @@ fn open_result_roundtrip_and_errors() {
     assert_eq!(err.ec(), ErrorCode::Decode);
 
     let payload = serialize_error_result(mudu::mudu_error!(
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "missing session"
     ));
     let err = deserialize_open_result(&payload).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]

@@ -5,7 +5,7 @@
 // the target type), a bool also decodes from its procedure byte-pipe form
 // (the i32 0/1 of the host's uni-data-value vocabulary), blobs accept both
 // the bin and the array-of-int form, maps accept both the read-side
-// map[any]any and the value-model map[uint64]any, non-integer record map
+// map[any]any and the value-model map[uint64]any, non-integer struct map
 // keys are skipped and missing fields keep their proto3-style default.
 // Encode takes already-typed Go values and converts them to the wire value
 // model of the codec package.
@@ -167,7 +167,7 @@ func boolChecked(v any) (bool, error) {
 	// A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the
 	// host's uni-data-value vocabulary has no Bool case (its desc declares
 	// the I32 family). Accept the integer form so the generated codecs can
-	// decode host-supplied records.
+	// decode host-supplied structs.
 	n, err := i64Checked(v)
 	if err != nil {
 		return false, typeError("bool", v)
@@ -255,7 +255,7 @@ func blobFromValue(v any) ([]byte, error) {
 	}
 }
 
-// blobToArrayValue converts a blob to the record-context wire form: a
+// blobToArrayValue converts a blob to the struct-context wire form: a
 // MessagePack ARRAY of u8 ([]any of uint8), not a bin.
 func blobToArrayValue(b []byte) []any {
 	out := make([]any, len(b))
@@ -295,7 +295,7 @@ func expectMap(v any) (map[any]any, error) {
 	case map[any]any:
 		return m, nil
 	case map[uint64]any:
-		// the value-model map form: an XxxToValue result or the record
+		// the value-model map form: an XxxToValue result or the struct
 		// bridge output fed back to a decoder — the same integer-keyed map
 		// with the keys typed
 		out := make(map[any]any, len(m))
@@ -322,7 +322,7 @@ func expectSeq(v any, n int) ([]any, error) {
 	return nil, typeError(fmt.Sprintf("a %d-element array", n), v)
 }
 
-// mapKeyUint converts a wire record/request map key to its field number.
+// mapKeyUint converts a wire struct/request map key to its field number.
 // Integer keys of any width are returned (negative keys report not-ok); any
 // non-integer key reports not-ok, so the caller skips the associated value —
 // matching the host's lenient key handling. Field numbers are 1-based.

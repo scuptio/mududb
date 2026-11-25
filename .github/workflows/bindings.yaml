@@ -9,7 +9,7 @@ name: Bindings
 #
 # Publishing (tags as-v* / cs-v* / py-v*): each job re-runs the consistency
 # gate, then publishes its package. Registry credentials come from secrets /
-# trusted publishing; see doc/dev/binding_api_surface.md for setup.
+# trusted publishing; see doc/en/binding_api_surface.md for setup.
 #
 # Manual rehearsal: workflow_dispatch with dry_run=true (the default) also
 # runs the publish jobs, but the registry upload is replaced by a harmless
@@ -66,25 +66,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Setup Node
+        id: setup_node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Setup .NET
+        id: setup_net
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: regen-clean check
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run regen_clean_check bash {0}
+        id: regen_clean_check
         run: python3 script/ci/check_bindings_regen.py
 
       - name: Python corpus + unit tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run python_corpus_unit_tests bash {0}
+        id: python_corpus_unit_tests
         working-directory: crates/sdk/bindings/python
         run: |
           python3 -m unittest discover tests -v
@@ -93,14 +107,19 @@ jobs:
           python3 run_lenient_decode_test.py
 
       - name: Install guest build tools
+        id: install_guest_build_tools
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-make,wasm-tools@1.252.0
 
       - name: Verify wasm-tools
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run verify_wasm_tools bash {0}
+        id: verify_wasm_tools
         run: wasm-tools --version
 
       - name: Python guest component build (wallet-py)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run python_guest_component_build_wallet_py bash {0}
+        id: python_guest_component_build_wallet_py
         run: |
           pipx install componentize-py==0.25.1
           # Minimal runner images (e.g. act) lack pipx's bin dir on PATH.
@@ -109,6 +128,8 @@ jobs:
           cd example/mpk/wallet-py && cargo make package
 
       - name: AssemblyScript corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run assemblyscript_corpus_tests bash {0}
+        id: assemblyscript_corpus_tests
         working-directory: crates/sdk/bindings/assemblyscript
         run: |
           npm ci
@@ -117,14 +138,19 @@ jobs:
           node run_lenient_decode_test.mjs
 
       - name: C# corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run c_corpus_tests bash {0}
+        id: c_corpus_tests
         run: dotnet test crates/sdk/mudu_api/csharp/Mudu.Api.Tests/Mudu.Api.Tests.csproj
 
       - name: Setup Go
+        id: setup_go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
 
       - name: Go corpus tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run go_corpus_tests bash {0}
+        id: go_corpus_tests
         working-directory: crates/sdk/bindings/go
         run: |
           go build ./...
@@ -133,8 +159,19 @@ jobs:
           go test ./...
 
       - name: C corpus tests (C99 + C++17 header compiles, golden corpus)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run c_corpus_tests_c99_c_17_header_compiles_golden_corpus bash {0}
+        id: c_corpus_tests_c99_c_17_header_compiles_golden_corpus
         working-directory: crates/sdk/bindings/c
         run: make check CC=clang CXX=clang++
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   publish-npm:
     name: publish @mududb/mududb (npm)
@@ -148,9 +185,17 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup Node
+        id: setup_node
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -159,19 +204,34 @@ jobs:
       # Packing is credential-free (script/release/pack_registry.py);
       # publishing verifies tag/version/hashes before any upload.
       - name: Pack npm package
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run pack_npm_package bash {0}
+        id: pack_npm_package
         run: python3 script/release/pack_registry.py npm
 
       - name: Dry-run publish to npm
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run dry_run_publish_to_npm bash {0}
+        id: dry_run_publish_to_npm
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         # --dry-run skips the upload; publish.py sets a placeholder
         # NODE_AUTH_TOKEN because setup-node's registry-url .npmrc references it.
         run: python3 script/release/publish.py npm
 
       - name: Publish to npm
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run publish_to_npm bash {0}
+        id: publish_to_npm
         if: startsWith(github.ref, 'refs/tags/as-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: python3 script/release/publish.py npm --tag "${GITHUB_REF_NAME}" --apply
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   publish-nuget:
     name: publish mududb (NuGet)
@@ -182,25 +242,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup .NET
+        id: setup_net
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Pack NuGet package
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run pack_nuget_package bash {0}
+        id: pack_nuget_package
         run: python3 script/release/pack_registry.py nuget
 
       - name: Dry-run push (local folder feed)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run dry_run_push_local_folder_feed bash {0}
+        id: dry_run_push_local_folder_feed
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         run: python3 script/release/publish.py nuget
 
       - name: Push to nuget.org
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run push_to_nuget_org bash {0}
+        id: push_to_nuget_org
         if: startsWith(github.ref, 'refs/tags/cs-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: python3 script/release/publish.py nuget --tag "${GITHUB_REF_NAME}" --apply
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   publish-pypi:
     name: publish mududb (PyPI)
@@ -213,20 +296,42 @@ jobs:
       id-token: write # PyPI trusted publishing
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Install packaging tools
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_packaging_tools bash {0}
+        id: install_packaging_tools
         run: python3 -m pip install --upgrade build twine
 
       - name: Pack distributions
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run pack_distributions bash {0}
+        id: pack_distributions
         run: python3 script/release/pack_registry.py pypi
 
       - name: Dry-run check distributions
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run dry_run_check_distributions bash {0}
+        id: dry_run_check_distributions
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         run: python3 script/release/publish.py pypi
 
       - name: Publish to PyPI
+        id: publish_to_pypi
         if: startsWith(github.ref, 'refs/tags/py-v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: target/sdk-dist/registry/pypi/
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

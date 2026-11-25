@@ -11,7 +11,7 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
 use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_function::FunctionArg;
@@ -235,5 +235,5 @@ pub(crate) fn attr_index_by_name(table_desc: &TableDesc, name: &str) -> RS<AttrI
     let total = table_desc.fields().len();
     (0..total)
         .find(|attr| table_desc.get_attr(*attr).name() == name)
-        .ok_or_else(|| mudu_error!(ER::EntityNotFound, format!("cannot find column {}", name)))
+        .ok_or_else(|| mudu_error!(ER::ObjectNotFound, format!("cannot find column {}", name)))
 }

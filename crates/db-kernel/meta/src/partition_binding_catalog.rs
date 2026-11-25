@@ -11,8 +11,8 @@ use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
 use ::catalog::contract::partition_rule_binding::TablePartitionBinding;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
@@ -24,8 +24,8 @@ const PARTITION_BINDING_CATALOG_TABLE_NAME: &str = "__meta_table_partition_bindi
 const PARTITION_BINDING_CATALOG_TABLE_OID_COLUMN_ID: OID = 0x30001;
 const PARTITION_BINDING_CATALOG_BINDING_COLUMN_ID: OID = 0x30002;
 
-pub(crate) fn partition_binding_catalog_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn partition_binding_catalog_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         PARTITION_BINDING_CATALOG_TABLE_ID,
         PARTITION_BINDING_CATALOG_TABLE_NAME.to_string(),
         vec![
@@ -148,6 +148,16 @@ pub(crate) async fn write_partition_binding_to_catalog(
     relation.write_value(key, value, xid).await?;
     // Catalog relations have no background flush driver: drain the queued
     // PL frames so the DDL is durable when it returns.
+    relation.flush_wal_async().await
+}
+
+pub(crate) async fn delete_partition_binding_from_catalog(
+    relation: &Relation,
+    table_id: OID,
+    xid: u64,
+) -> RS<()> {
+    let key = encode_partition_binding_catalog_key(table_id)?;
+    relation.write_delete(key, xid).await?;
     relation.flush_wal_async().await
 }
 

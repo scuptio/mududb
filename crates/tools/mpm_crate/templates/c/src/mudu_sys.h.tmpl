@@ -39,21 +39,21 @@ extern "C" {
 typedef uni_oid mudu_oid;
 
 /* One SQL datum: the scalar subset of `UniDataValue` this guest speaks,
- * plus the record passthrough for user-defined record parameters/returns.
+ * plus the struct passthrough for user-defined struct parameters/returns.
  * Strings are byte slices, not necessarily NUL-terminated. */
 enum mudu_datum_kind {
     MUDU_DATUM_NULL = 0,
     MUDU_DATUM_I64 = 1,
     MUDU_DATUM_F64 = 2,
     MUDU_DATUM_STR = 3,
-    /* A user-defined record: the decoded `uni_data_value` record-case
+    /* A user-defined struct: the decoded `uni_data_value` struct-case
      * envelope, positionally ordered (WIT declaration order, names dropped
      * by the host). The pointer references the binding's decode arena,
      * which lives in the guest arena until the guest call ends; a procedure
-     * decodes it through the record bridge (`mp_record_bridge_write`)
+     * decodes it through the struct bridge (`mp_struct_bridge_write`)
      * composed with the mgen-generated `<type>_decode`, and builds a return
-     * record symmetrically (`<type>_encode` + `mp_record_bridge_read`). */
-    MUDU_DATUM_RECORD = 4
+     * struct symmetrically (`<type>_encode` + `mp_struct_bridge_read`). */
+    MUDU_DATUM_STRUCT = 4
 };
 
 typedef struct {
@@ -62,17 +62,17 @@ typedef struct {
     double f64;
     const char *str;
     uint32_t str_len;
-    const uni_data_value *record; /* MUDU_DATUM_RECORD payload (arena-owned) */
+    const uni_data_value *struct_; /* MUDU_DATUM_STRUCT payload (arena-owned) */
 } mudu_datum;
 
 mudu_datum mudu_null(void);
 mudu_datum mudu_i64(int64_t value);
 mudu_datum mudu_f64(double value);
 mudu_datum mudu_str(const char *data, uint32_t len);
-mudu_datum mudu_record(const uni_data_value *value);
+mudu_datum mudu_struct(const uni_data_value *value);
 
-/* Byte-slice string carried by the generated entity row structs
- * (mgen entity, generated/entity/<table>.h): not necessarily
+/* Byte-slice string carried by the generated object row structs
+ * (mgen object, generated/object/<table>.h): not necessarily
  * NUL-terminated; the memory borrows from the caller, the procedure
  * parameters or the arena — nothing is copied and nothing is freed. */
 typedef struct {

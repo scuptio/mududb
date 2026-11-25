@@ -70,11 +70,11 @@ fn fs_open_frame_for(session: UniOid) -> Vec<u8> {
 #[test]
 fn fs_syscalls_without_task_context_return_error_frames() {
     // fs-open resolves the task context's connection: with no context
-    // registered the frame reports EntityNotFound.
+    // registered the frame reports ObjectNotFound.
     let out =
         fs_open_internal_with_worker_local(&fs_open_frame_for(UniOid::from_oid(8_200_020)), None);
     let err = decode_fs_open_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     // The fd/path-based fs syscalls still resolve through the passed
     // worker-local interface, which is absent here.
@@ -203,14 +203,14 @@ async fn async_kv_operations_without_worker_local_return_error_frames() {
 
 #[tokio::test]
 async fn async_fs_open_error_paths_return_error_frames() {
-    // No task context registered: EntityNotFound in the MSSP error envelope.
+    // No task context registered: ObjectNotFound in the MSSP error envelope.
     let out = async_fs_open_internal_with_worker_local(
         fs_open_frame_for(UniOid::from_oid(8_200_022)),
         None,
     )
     .await;
     let err = decode_fs_open_result(&out).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
     // Task context bound to a worker without an fs service (trait
     // default): NotImplemented.
@@ -325,7 +325,7 @@ async fn async_fs_metadata_and_close_paths() {
     .await;
     assert_eq!(
         decode_fs_stat_result(&out).unwrap_err().ec(),
-        ErrorCode::EntityNotFound
+        ErrorCode::ObjectNotFound
     );
     let out = async_fs_readdir_internal_with_worker_local(
         encode_fs_readdir_request(oid.clone(), "/"),

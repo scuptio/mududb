@@ -1,11 +1,12 @@
 ## System Calls in Mudu Procedures
 
-Mudu procedures can call four groups of system APIs:
+Mudu procedures can call five groups of system APIs:
 
 - Session management syscalls
 - SQL APIs for relational CRUD operations
 - KV APIs for session-scoped key-value access
 - Filesystem APIs for session-level file access
+- Cache APIs for volatile, non-replicated cache access
 
 The stable syscall entry points are:
 
@@ -76,27 +77,27 @@ content="[Query API](../lang.common/mudu_query.md#L-L)"
 -->
 ```rust
 // sync_api
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 
 // async_api
-pub async fn mudu_query<R: Entity>(
+pub async fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 ```
 <!--quote_end-->
 
 `query` performs R2O (relation to object) mapping automatically, returning a result set of objects implementing the
-`Entity` trait.
+`Object` trait.
 
 ### 2. `command`
 
@@ -310,6 +311,58 @@ Relative path within the object.
 #### fd
 
 File descriptor returned by `mudu_fs_open`.
+
+## Cache APIs
+
+The cache APIs read and write volatile, non-replicated cache entries. A cache
+is declared with `CREATE CACHE name LIKE table [TTL n]` (see
+[the SQL subset](sql_subset.md)); entries live in worker memory only and are
+dropped on restart. These syscalls are implemented in the WASM (`mudud`)
+runtime; the standalone native adapters return `NotImplemented`.
+
+```rust
+// sync_api (async_api entries have the same names as async fns)
+pub fn mudu_cache_open(name: &str) -> RS<OID> {
+    /* ... */
+}
+pub fn mudu_cache_get(cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+    /* ... */
+}
+pub fn mudu_cache_put(cache: OID, key: &[u8], value: &[u8], ttl_secs: Option<u64>) -> RS<()> {
+    /* ... */
+}
+pub fn mudu_cache_delete(cache: OID, key: &[u8]) -> RS<()> {
+    /* ... */
+}
+pub fn mudu_cache_ttl(cache: OID, key: &[u8]) -> RS<Option<u64>> {
+    /* ... */
+}
+```
+
+- `mudu_cache_open` opens the named cache and returns its handle (`OID`).
+- `mudu_cache_get` / `mudu_cache_put` read / write a raw-bytes entry; a
+  per-call `ttl_secs` overrides the cache's declared default TTL, and `None`
+  uses that default.
+- `mudu_cache_delete` removes an entry; `mudu_cache_ttl` returns an entry's
+  remaining TTL in seconds (`None` when it does not expire).
+
+### Parameters for Cache APIs
+
+#### name
+
+Cache name declared by `CREATE CACHE`.
+
+#### cache
+
+Cache handle returned by `mudu_cache_open`.
+
+#### key / value
+
+Raw key / value bytes.
+
+#### ttl_secs
+
+Optional per-entry TTL in seconds.
 
 ## mtp Sync-to-Async Constraints
 

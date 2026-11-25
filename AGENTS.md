@@ -9,16 +9,18 @@ The repository root is **not** a cargo workspace. Crates are grouped under
 `Cargo.toml` / `Cargo.lock`:
 
 - `crates/common` — foundation (`mudu`), sys abstraction (`mudu_sys*`), types,
-  bindings, contract, SQL parser, client
+  bindings, contract, SQL parser, client, CAF container codec (`mudu_caf`)
 - `crates/db-kernel` — the kernel is split into `mudu_kernel` (thin facade) +
-  fourteen kernel crates (`catalog`, `index`, `wal`,
+  sixteen kernel crates (`catalog`, `index`, `page_buffer`, `wal`,
   `xengine`, `storage`, `meta`, `command`,
   `sql`, `conn`, `xcontract`, `worker`,
-  `repl`, `backup`, `server`), plus `mudu_runtime`
+  `repl`, `backup`, `server`, `ws_gateway`
+  (WebSocket gateway)), plus `mudu_runtime`
   (pgwire/HTTP serving backend), `runtime_wasm` (WASM procedure host),
   `runtime_libsql` (libsql connector),
   `mudud`, `mudu_adapter`, `mudu_raft` (Raft consensus, a vendored port of
-  scuptio/scupt-raft), `testing`, `catalog-testing` (catalog test fixtures)
+  scuptio/scupt-raft), `sys_interface_standalone`, `testing`,
+  `catalog-testing` (catalog test fixtures)
 - `crates/sdk` — `mududb` SDK, `bindings/*`, `mudu_api*`
 - `example/mpk` — separate consumer workspace for the guest-SDK examples
   (`app1`, `wallet`, `vote`, `key-value`, `ycsb`, `tpcc`)
@@ -27,7 +29,7 @@ The repository root is **not** a cargo workspace. Crates are grouped under
 - `crates/bindings` — standalone cdylib workspace `mudu_adapter_ffi` (native
   adapter ABI), isolated from the shared `target/`
 - `verification/` — Aeneas + Lean formal verification (design:
-  `doc/dev/formal_verification.md`; operations: `verification/README.md`).
+  `doc/en/formal_verification.md`; operations: `verification/README.md`).
   `extract/` is the Cargo extraction entry (zero-dependency standalone
   workspace), `lean/` the pinned Lean project (per-module
   `generated.lean`/`spec.lean`/`proof.lean` mirroring the production paths),
@@ -38,7 +40,10 @@ The repository root is **not** a cargo workspace. Crates are grouped under
 - `script/` — build/CI/bench automation; `script/ai_tool/` holds AI-assisted
   development prompts and helpers (not part of any build)
 
-Cross-group path dependencies use the `../../<group>/<crate>` form. All
+Cross-group path dependencies are declared in each group workspace's
+`[workspace.dependencies]` block using the `../<group>/<crate>` form (member
+crates consume them via `workspace = true`); a few member-level direct
+dependencies use the `../../<group>/<crate>` form. All
 workspaces share the repository-root `target/` directory (root
 `.cargo/config.toml` sets `[build] target-dir = "target"`). Run cargo commands
 per workspace, e.g. `cd crates/db-kernel && cargo test --workspace`.
@@ -51,7 +56,7 @@ this project's tasks):
 - `cargo make` / `cargo make build` — release build of the four `crates/`
   group workspaces plus the standalone `crates/sdk/mudu_api/rust` workspace
   (compile only); `cargo make dist` additionally runs `install-tools`
-  (mgen/mtp/mpm-build/mpm-crate/mpm-install/mudud/mcli into `~/.cargo/bin`)
+  (mgen/mtp/mpm-build/mpm-crate/mpm-install/mpm-tool/mudud/mcli into `~/.cargo/bin`)
   and packages the `wallet.mpk` example
 - `cargo make install` — install the workspace binaries via
   `script/build/install_binaries.py` with argument pass-through
@@ -73,10 +78,14 @@ this project's tasks):
   plus the repo invariants (delegates to `script/ci/check_all.py`); split into
   single steps via `check-fmt` / `check-clippy` / `check-test-compile` /
   `check-deny` / `check-deps` / `check-arch` / `check-test-feature` /
-  `check-metrics`, or combine arbitrarily with `cargo make check -- --only fmt,clippy`
+  `check-metrics` / `check-todo-panic`, or combine arbitrarily with
+  `cargo make check -- --only fmt,clippy`
 - `cargo make check-metrics` — only the code-metrics steps of `check`
   (`mudu_metrics` over `crates/` and `example/`), for quick iteration against
   the `code_metrics.toml` line limits
+- `cargo make check-todo-panic` — advisory per-crate TODO / panic-surface
+  report over hand-written production code (`script/ci/check_todo_panic.py`;
+  excludes generated files and all test code, never fails)
 - `cargo make test` — `cargo test --workspace` for every workspace
   (delegates to `script/ci/run_all_tests.py`; the `test-group-*` tasks run a
   single group)
@@ -102,8 +111,9 @@ this project's tasks):
 - `cargo make udeps` / `outdated` / `dep-audit` — dependency hygiene
   (unused deps via cargo-udeps on the pinned nightly, stale direct deps via
   cargo-outdated), run per group workspace by `script/ci/dep_audit.py`; each
-  accepts `--group <id>`. `udeps` is fail-fast; `outdated` is advisory and
-  continues past a group it cannot process. cargo-deny drift lives in `check`
+  accepts `--group <id>`. Independent workspaces continue after failure;
+  `udeps` fails the final result and `outdated` remains advisory. Both save
+  complete logs and summaries under `logs/dependency-audit/`. cargo-deny drift lives in `check`
   as `check-deny` (deterministic bans/licenses/sources locally; the
   time-varying advisories check runs only in CI, `ci-hardening.yaml`)
 - `cargo make package-wallet-as` / `package-wallet-cs` / `package-examples` —
@@ -161,7 +171,7 @@ target dir instead of re-adding cdylib to the shared one.
    steps 2–4 (in check mode) sequentially across all group/example workspaces.
 6. When you change the mgen entity template or SQL in example procedure
    sources, run `cargo make check-sql` in the affected examples to validate
-   SQL literals against `sql/ddl.sql` (see `doc/dev/sql_subset.md`).
+   SQL literals against `sql/ddl.sql` (see `doc/en/sql_subset.md`).
 
 ## Memory-Constrained Environments
 
@@ -271,7 +281,7 @@ When adding a new crate, always include a `license = "..."` field and prefer wor
 ## Language Bindings (AS / C# / Python / C / Go / Rust)
 
 The bindings share one source of truth and one naming scheme; keep them that
-way (full details: `doc/dev/binding_api_surface.md`).
+way (full details: `doc/en/binding_api_surface.md`).
 
 - **Source of truth**: `crates/common/mudu_binding/wit/` (23 × `uni-*.wit`).
   Type or wire-format changes happen only there; all six languages'
@@ -293,8 +303,8 @@ way (full details: `doc/dev/binding_api_surface.md`).
   user-defined procedure types (`--type-wit`; AS `assembly/record.ts`, C#
   `mudu_sys/RecordBridge.cs`, py `codec/bridge.py`, C
   `codec/record_bridge.{h,c}`, Go `types/bridge.go` — authoring guide:
-  `doc/dev/custom_types.md`) are hand-written, following the canonical
-  surface table in `doc/dev/binding_api_surface.md`. Update that document
+  `doc/en/custom_types.md`) are hand-written, following the canonical
+  surface table in `doc/en/binding_api_surface.md`. Update that document
   first when adding a facade capability. The facade exists in all four
   guest languages: AS (reference), C#, Rust (`mududb::db/fs/result`), and
   Python (`mududb.db/sql/result/fs/sys`, running in componentize-py
@@ -331,3 +341,13 @@ way (full details: `doc/dev/binding_api_surface.md`).
 
 - Add doc comments to new public items.
 - For core crates, enable `#![warn(missing_docs)]` only after the crate is fully documented to avoid `-D warnings` failures.
+
+### Terminology glossary
+
+- Follow the organizational convention of the [PostgreSQL Glossary](https://www.postgresql.org/docs/current/glossary.html): alphabetized entries, no sequential entry numbers, and named cross-references. This governs presentation, not MuduDB's definitions.
+- `doc/en/terminology.md` is canonical; update `doc/zh-CN/terminology.zh-CN.md` in the same change. Keep definitions, explicit anchors, and entry order aligned. Chinese definition headings include the canonical English name.
+- Write displayed English term names with spaces instead of hyphens and capitalize the first letter of every word, for example `Control Plane Client` and `Single Replica Set Deployment`. Preserve acronyms (`LSN`, `HA`) and established internal capitalization (`RaftFollower`). Apply this spelling to headings, indexes, and named term references; do not change URL anchors, code identifiers, configuration keys, or ordinary prose merely to match display typography.
+- Sort both the index and definitions by canonical English title, case-insensitively (spaces retain their literal ordering). Re-sort after display-name changes. The Chinese version follows that order, not pinyin. Keep architecture explanations outside the alphabetical definitions.
+- Do not introduce or restore `Txx` entry numbers. Cite a term by name with its explicit semantic anchor, such as `terminology.md#partition`; preserve existing anchors when reordering or renaming entries, including `#lsn` and `#epoch`.
+- Define each concept once. Give abbreviations and accepted aliases alphabetized “See” / “参见” entries linking to the canonical definition; distinguish these from retired names that must not be treated as aliases.
+- When reorganizing terminology, inspect repository references and update affected links and wording in the same change. Verify alphabetical order, bilingual entry/anchor parity, unique anchors, and glossary link targets. Documentation-only changes do not require Rust build checks.

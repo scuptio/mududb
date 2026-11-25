@@ -23,7 +23,7 @@ You do not create or parse OIDs manually; they are provided by the runtime when 
 
 ## MPK Package
 
-An **MPK** file (`.mpk`) is a MuduDB application package. It is a ZIP archive that contains:
+An **MPK** file (`.mpk`) is a MuduDB application package. It is a flat CAF container that contains:
 
 - Application metadata (name, version, language).
 - `ddl.sql` — schema definitions.
@@ -57,7 +57,7 @@ mcli --addr 127.0.0.1:9527 --http-addr 127.0.0.1:8300 app-invoke \
 |------|---------|------------------|
 | `mudud` | The MuduDB server. | Always, to run the database. |
 | `mcli` | TCP protocol client and HTTP management CLI. | To run SQL interactively, install packages, and invoke procedures. |
-| `mgen` | Source generator. Creates Rust entity types from SQL DDL, and statically checks SQL in procedure sources against the DDL (`check-sql`). | When your application has SQL tables and wants typed query results and build-time SQL validation. |
+| `mgen` | Source generator. Creates Rust object types from SQL DDL, and statically checks SQL in procedure sources against the DDL (`check-sql`). | When your application has SQL tables and wants typed query results and build-time SQL validation. |
 | `mtp` | Transpiler. Transforms Rust/AssemblyScript source into Mudu procedure format and generates async wrappers. | Whenever you write or change a `/**mudu-proc**/` function. |
 | `mpm-build` | Package builder. Produces `.mpk` files from DDL, descriptors, and WASM modules. | Before deploying an application to `mudud`. |
 | `mpm-install` | Package installer. Uploads a local `.mpk` to a running server; a thin wrapper over `mcli app-install`'s HTTP endpoint. | To install a built `.mpk` into `mudud`. |

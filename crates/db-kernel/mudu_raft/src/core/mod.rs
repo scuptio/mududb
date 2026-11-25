@@ -504,6 +504,43 @@ impl RaftCore {
         self.commit_index
     }
 
+    /// Returns at most 256 locally committed entries after a cursor, using the
+    /// recovery byte budget (a single oversized legacy entry is returned alone).
+    /// The snapshot frontier tells the caller whether a service snapshot is
+    /// needed before these entries can be replayed. No IO or protocol step occurs.
+    pub fn read_committed(&self, after: u64, limit: usize) -> crate::replay::CommittedBatch {
+        let mut entries = Vec::new();
+        let mut bytes = 0usize;
+        for entry in self
+            .log
+            .iter()
+            .filter(|entry| entry.index > after && entry.index <= self.commit_index)
+            .take(limit.min(256))
+        {
+            let charge = entry
+                .value
+                .replay_bytes()
+                .saturating_add(std::mem::size_of::<TermIndex>());
+            if !entries.is_empty() && bytes.saturating_add(charge) > crate::replay::MAX_REPLAY_BYTES
+            {
+                break;
+            }
+            bytes = bytes.saturating_add(charge);
+            entries.push((
+                TermIndex {
+                    term: entry.term,
+                    index: entry.index,
+                },
+                entry.value.clone(),
+            ));
+        }
+        crate::replay::CommittedBatch {
+            snapshot: self.snapshot_max_index_term,
+            committed_index: self.commit_index,
+            entries,
+        }
+    }
+
     /// The known leader hint (volatile).
     pub fn leader_id(&self) -> Option<NID> {
         self.leader_id

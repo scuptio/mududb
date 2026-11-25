@@ -58,7 +58,7 @@ where
     Ok(())
 }
 
-fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
+fn load_package_from_file<P: AsRef<Path>>(path_ref: P, trusted: &[String]) -> RS<AppPackage> {
     let path_buf = PathBuf::from(path_ref.as_ref());
     // Use the `mudu_sys` metadata wrapper rather than `std::fs` (see above).
     let is_file = fs::sync::sync_metadata(&path_buf)
@@ -72,7 +72,7 @@ fn load_package_from_file<P: AsRef<Path>>(path_ref: P) -> RS<AppPackage> {
     }
     if let Some(ext) = path_buf.extension() {
         if ext.to_ascii_lowercase() == file_name::APP_PACKAGE_EXTENSION {
-            let app_package = AppPackage::load(&path_buf)?;
+            let app_package = AppPackage::load_trusted(&path_buf, trusted)?;
             Ok(app_package)
         } else {
             Err(mudu_error!(
@@ -134,7 +134,8 @@ impl RuntimeSimple {
     }
 
     async fn init_mpk<P: AsRef<Path>>(&self, path: P, defer_initdb: bool) -> RS<String> {
-        let app_package = load_package_from_file(path.as_ref())?;
+        let app_package =
+            load_package_from_file(path.as_ref(), &self.rt_opt.trusted_key_fingerprints)?;
         let modules = self.wt_runtime.compile_modules(&app_package)?;
         let app_instance = AppInstImpl::build(
             &self.db_path,
@@ -211,7 +212,7 @@ impl RuntimeSimple {
         let mut first_error = None;
         for app in apps {
             if let Err(e) = app.drain_initdb().await {
-                tracing::error!(app = %app.name(), "deferred initdb drain failed: {}", e);
+                tracing::debug!(app = %app.name(), "deferred initdb drain failed: {}", e);
                 if first_error.is_none() {
                     first_error = Some(e);
                 }

@@ -3,7 +3,7 @@
 const SQL_GET_BY_PK: &str = "SELECT user_id, balance, updated_at FROM wallets WHERE user_id = ?";
 
 fn delete_wallet(xid: u64, user_id: i32) {
-    // Entity-generated dynamic SQL fragments must be skipped.
+    // Object-generated dynamic SQL fragments must be skipped.
     let fragment = ["UPDATE ", "wallets", " SET ", "balance = ?"].concat();
     let _ = fragment;
     // format! templates have holes and must be skipped.

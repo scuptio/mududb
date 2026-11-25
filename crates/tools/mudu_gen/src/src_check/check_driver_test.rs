@@ -68,7 +68,7 @@ fn good_fixture_produces_no_diagnostics() {
 fn unknown_column_is_flagged_with_location() {
     let outcome = run("rust", "bad_column.rs");
     // The unknown column is reported, and it also breaks the result-shape
-    // comparison with the `Wallets` entity.
+    // comparison with the `Wallets` object.
     assert_eq!(outcome.error_count, 2);
     let lines = rendered_lines(&outcome);
     assert_eq!(lines.len(), 2);

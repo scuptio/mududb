@@ -1,7 +1,7 @@
 """{{project_name}} procedures, written against the canonical Python facade
-(`mududb.db` / `mududb.sql`) and the mgen-generated entity modules (e.g.
+(`mududb.db` / `mududb.sql`) and the mgen-generated object modules (e.g.
 `items.py`, regenerated from sql/ddl.sql by the `generate` build task).
-update_item_info demonstrates a user-defined record type (wit/types.wit,
+update_item_info demonstrates a user-defined struct type (wit/types.wit,
 generated into `gentypes.py` by mgen) as a procedure parameter and return
 type.
 
@@ -33,15 +33,15 @@ def create_item(session: UniOid, item_id: int, name: str) -> int:
     return item_id
 
 
-# update_item_info stores a user-defined record argument and returns the
-# stored record. The `item-info` record type is declared in wit/types.wit
+# update_item_info stores a user-defined struct argument and returns the
+# stored struct. The `item-info` struct type is declared in wit/types.wit
 # and generated into `gentypes.py` by mgen; the mtp adapter decodes the
-# positional record envelope through the binding record bridge
-# (mududb.codec.bridge.record_field_values) composed with
-# gentypes.item_info_from_value, and encodes the returned record
+# positional struct envelope through the binding struct bridge
+# (mududb.codec.bridge.struct_field_values) composed with
+# gentypes.item_info_from_value, and encodes the returned struct
 # symmetrically.
 #
-# Storage design: the record flattens into the `item_info` table columns
+# Storage design: the struct flattens into the `item_info` table columns
 # (bool/u32 as INT — the host carries both as i32); the label list lands in
 # the `item_info_labels` side table keyed by (item_id, idx) — the engine
 # requires a complete key for DELETE and has no ORDER BY, so
@@ -93,7 +93,7 @@ def update_item_info(session: UniOid, item_id: int, info: ItemInfo) -> ItemInfo:
     return _query_item_info(db, item_id)
 
 
-# _query_item_info rebuilds the stored item-info record: the flat columns
+# _query_item_info rebuilds the stored item-info struct: the flat columns
 # and the side-table labels re-sorted by idx.
 def _query_item_info(db: Database, item_id: int) -> ItemInfo:
     rows = db.query(

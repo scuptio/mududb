@@ -1,6 +1,6 @@
 use super::io::{ensure_time_series_file_exists_async, page_offset};
 use super::page::{empty_page_image, finalize_page_image_checksum, stamp_page_image_lsn};
-use super::{TimeSeriesFile, TimeSeriesFileIdentity};
+use super::{TimeSeriesFile, TimeSeriesFileIdobject};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_block_ref_mut::PageBlockRefMut;
 use ::wal::lsn::LSN;
@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 pub(super) async fn new_relation_wal_backend(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
 ) -> RS<ChunkedWorkerLogBackend> {
     new_relation_wal_backend_with_provider(
         base_path,
@@ -39,7 +39,7 @@ pub(super) async fn new_relation_wal_backend(
 
 pub(super) async fn new_relation_wal_backend_with_provider(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     provider: Arc<dyn AsyncIoProvider>,
 ) -> RS<ChunkedWorkerLogBackend> {
     scoped_task_trace!();
@@ -54,7 +54,7 @@ pub(super) async fn new_relation_wal_backend_with_provider(
     ChunkedWorkerLogBackend::new_direct_with_provider(layout, provider).await
 }
 
-fn time_series_log_oid(identity: &TimeSeriesFileIdentity) -> OID {
+fn time_series_log_oid(identity: &TimeSeriesFileIdobject) -> OID {
     identity.partition_id.rotate_left(17)
         ^ identity.table_id.rotate_left(53)
         ^ (identity.file_index as u128).rotate_left(97)
@@ -63,7 +63,7 @@ fn time_series_log_oid(identity: &TimeSeriesFileIdentity) -> OID {
 
 pub(super) async fn recover_relation_file(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     backend: &ChunkedWorkerLogBackend,
 ) -> RS<()> {
     recover_relation_file_async(default_sys_io_context().fs(), base_path, identity, backend).await
@@ -72,7 +72,7 @@ pub(super) async fn recover_relation_file(
 pub(super) async fn recover_relation_file_async(
     fs: Arc<dyn AsyncFs>,
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     backend: &ChunkedWorkerLogBackend,
 ) -> RS<()> {
     scoped_task_trace!();
@@ -331,7 +331,7 @@ impl AsyncWorkerLogRecoveryHandler<PLBatch> for RelationWalRecoveryHandler {
 
 pub(super) async fn append_file_create_async(
     backend: &ChunkedWorkerLogBackend,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
 ) -> RS<()> {
     let writer = new_pl_batch_writer(backend.clone());
     writer

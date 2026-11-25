@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
-use xcontract::WorkerXContract;
+use xcontract::contract::WorkerXContract;
 use xengine::api::XContract;
 
 #[test]

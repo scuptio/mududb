@@ -18,7 +18,7 @@ type UniDataTypeKind uint32
 const (
 	UniDataTypeKindScalar     UniDataTypeKind = 0
 	UniDataTypeKindArray      UniDataTypeKind = 1
-	UniDataTypeKindRecord     UniDataTypeKind = 2
+	UniDataTypeKindStruct     UniDataTypeKind = 2
 	UniDataTypeKindOption     UniDataTypeKind = 3
 	UniDataTypeKindTuple      UniDataTypeKind = 4
 	UniDataTypeKindResult     UniDataTypeKind = 5
@@ -52,13 +52,13 @@ func (UniDataTypeArray) uniDataTypeKind() UniDataTypeKind {
 	return UniDataTypeKindArray
 }
 
-type UniDataTypeRecord struct {
-	Inner UniRecordType
+type UniDataTypeStruct struct {
+	Inner UniStructType
 }
 
-// UniDataTypeRecord implements UniDataType.
-func (UniDataTypeRecord) uniDataTypeKind() UniDataTypeKind {
-	return UniDataTypeKindRecord
+// UniDataTypeStruct implements UniDataType.
+func (UniDataTypeStruct) uniDataTypeKind() UniDataTypeKind {
+	return UniDataTypeKindStruct
 }
 
 type UniDataTypeOption struct {
@@ -134,9 +134,9 @@ func UniDataTypeToValue(x UniDataType) (any, error) {
 		}
 		_p = _c1
 		return []any{uint64(1), _p}, nil
-	case UniDataTypeRecord:
+	case UniDataTypeStruct:
 		var _p any
-		_c2, err := UniRecordTypeToValue(_x.Inner)
+		_c2, err := UniStructTypeToValue(_x.Inner)
 		if err != nil {
 			return nil, err
 		}
@@ -215,12 +215,12 @@ func UniDataTypeFromValue(v any) (UniDataType, error) {
 		}
 		return UniDataTypeArray{Inner: _p}, nil
 	case 2:
-		var _p UniRecordType
-		_p, err = UniRecordTypeFromValue(_s[1])
+		var _p UniStructType
+		_p, err = UniStructTypeFromValue(_s[1])
 		if err != nil {
 			return nil, err
 		}
-		return UniDataTypeRecord{Inner: _p}, nil
+		return UniDataTypeStruct{Inner: _p}, nil
 	case 3:
 		var _p UniDataType
 		_p, err = UniDataTypeFromValue(_s[1])

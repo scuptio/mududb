@@ -45,18 +45,18 @@ MP_INLINE uni_scalar_value *uni_scalar_value_decode_new(mp_reader *r, mp_arena *
 typedef enum {
     UNI_DATA_VALUE_SCALAR = 0u,
     UNI_DATA_VALUE_ARRAY = 1u,
-    UNI_DATA_VALUE_RECORD = 2u,
+    UNI_DATA_VALUE_STRUCT = 2u,
     UNI_DATA_VALUE_BINARY = 3u,
 } uni_data_value_kind;
 
 typedef struct { uni_data_value *items; uint32_t len; } uni_data_value_array_list;
-typedef struct { uni_data_value_field *items; uint32_t len; } uni_data_value_record_list;
+typedef struct { uni_data_value_field *items; uint32_t len; } uni_data_value_struct__list;
 struct uni_data_value {
     uni_data_value_kind kind;
     union {
         uni_scalar_value * scalar;
         uni_data_value_array_list array;
-        uni_data_value_record_list record;
+        uni_data_value_struct__list struct_;
         mp_bin binary;
     } as;
 };
@@ -87,10 +87,10 @@ MP_INLINE void uni_data_value_encode(mp_writer *w, const uni_data_value *value) 
             uni_data_value_encode(w, &((value->as.array).items[i0]));
         }
         break;
-    case UNI_DATA_VALUE_RECORD:
-        mpw_array_header(w, (value->as.record).len);
-        for (uint32_t i0 = 0; i0 < (value->as.record).len; i0++) {
-            uni_data_value_field_encode(w, &((value->as.record).items[i0]));
+    case UNI_DATA_VALUE_STRUCT:
+        mpw_array_header(w, (value->as.struct_).len);
+        for (uint32_t i0 = 0; i0 < (value->as.struct_).len; i0++) {
+            uni_data_value_field_encode(w, &((value->as.struct_).items[i0]));
         }
         break;
     case UNI_DATA_VALUE_BINARY:
@@ -147,7 +147,7 @@ MP_INLINE int uni_data_value_decode(mp_reader *r, mp_arena *a, uni_data_value *v
             }
             break;
         case 2u:
-            value->kind = UNI_DATA_VALUE_RECORD;
+            value->kind = UNI_DATA_VALUE_STRUCT;
             {
                 uint32_t n0 = mpr_array_header(r);
                 uni_data_value_field *p0 = (uni_data_value_field *)mpa_alloc(a, sizeof(uni_data_value_field) * (size_t)n0);
@@ -157,8 +157,8 @@ MP_INLINE int uni_data_value_decode(mp_reader *r, mp_arena *a, uni_data_value *v
                     for (uint32_t i0 = 0; i0 < n0; i0++) {
                         uni_data_value_field_decode(r, a, &(p0[i0]));
                     }
-                    (value->as.record).items = p0;
-                    (value->as.record).len = n0;
+                    (value->as.struct_).items = p0;
+                    (value->as.struct_).len = n0;
                 }
             }
             break;
@@ -214,7 +214,7 @@ MP_INLINE void uni_data_value_field_encode(mp_writer *w, const uni_data_value_fi
     uni_data_value_encode(w, &(value->field_value));
 }
 
-/* Decode one record into `out`, borrowing nothing from the input: every
+/* Decode one struct into `out`, borrowing nothing from the input: every
  * string, blob, array and boxed value is copied into `a`. Lenient: unknown
  * keys are skipped and missing fields keep their zero default (absent
  * `option` fields decode as null). 0 on success, -1 (with the reader's
@@ -255,7 +255,7 @@ MP_INLINE int uni_data_value_field_decode(mp_reader *r, mp_arena *a, uni_data_va
     return mpr_ok(r) ? 0 : -1;
 }
 
-/* Decode one record into freshly arena-allocated storage; 0 on failure
+/* Decode one struct into freshly arena-allocated storage; 0 on failure
  * (the reader's sticky error is set). Boxes of this type decode through
  * this function, so headers referencing it by pointer never need its
  * `sizeof`. */

@@ -1,8 +1,8 @@
 use crate::value_update::{
     apply_value_update, apply_value_update_with_deltas, encode_sub_wrap_literal,
 };
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::xengine::api::{DeltaAssign, DeltaOp, VecDatum};
@@ -30,7 +30,7 @@ fn test_desc() -> Arc<TableDesc> {
             DataTypeInfo::from_text(family, param.to_string()),
         )
     };
-    TableInfo::new(SchemaTable::new(
+    TableInfo::new(SchemaClass::new(
         "t".to_string(),
         vec![
             col("id", TypeFamily::I32, ""),

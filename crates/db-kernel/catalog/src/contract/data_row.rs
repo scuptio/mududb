@@ -237,7 +237,7 @@ impl DataRow {
         let mut guard = self.inner.lock().await;
         let latest = guard.read_latest()?.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "deferred delta update on a row with no committed version"
             )
         })?;

@@ -12,6 +12,8 @@ mod data_binary_test;
 pub mod data_textual;
 /// The `DataType` concrete type descriptor.
 pub mod data_type;
+/// Serialization codec between `DataType` and `DataTypeInfo`.
+pub mod data_type_codec;
 #[cfg(any(test, feature = "arbitrary"))]
 mod data_type_fn_arbitrary;
 /// Comparison function pointers of data types.
@@ -32,6 +34,8 @@ pub mod datum;
 mod datum_test;
 /// The `TypeFamily` implementation-family identifier.
 pub mod type_family;
+/// Pure metadata (kind, name, fixed-length) for `TypeFamily`.
+pub mod type_family_meta;
 
 /// Conversion function pointers of data types.
 pub mod data_type_fn_convert;
@@ -50,6 +54,9 @@ pub mod data_type_param;
 pub mod len_kind;
 #[cfg(test)]
 mod len_kind_test;
+/// Per-family function-table accessors for [`TypeFamily`] (kept off the enum so
+/// the type-family definition stays free of conversion/comparison types).
+pub mod type_family_ext;
 mod type_kind;
 
 /// Shared type parameter name constants.
@@ -80,10 +87,10 @@ mod data_type_param_kind_test;
 
 /// The `DataTypeParamNumeric` numeric type parameter.
 pub mod data_type_param_numeric;
-/// The `DataTypeParamRecord` record type parameter.
-pub mod data_type_param_record;
+/// The `DataTypeParamStruct` record type parameter.
+pub mod data_type_param_struct;
 #[cfg(test)]
-mod data_type_param_record_test;
+mod data_type_param_struct_test;
 
 /// The `DataTypeParamString` string type parameter.
 pub mod data_type_param_string;
@@ -105,10 +112,10 @@ pub mod data_type_param_timestamptz;
 #[cfg(test)]
 mod data_type_param_timestamptz_test;
 
-/// Record type construction.
-pub mod record;
 /// The `ScalarType` scalar type descriptor.
 pub mod scalar_type;
+/// Struct type construction.
+pub mod struct_type;
 
 #[cfg(test)]
 mod scalar_type_test;

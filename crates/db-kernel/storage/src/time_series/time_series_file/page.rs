@@ -1,4 +1,4 @@
-use super::TimeSeriesRecord;
+use super::TimeSeriesStruct;
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_block_ref_mut::PageBlockRefMut;
 use crate::page::page_header::PAGE_HEADER_SIZE;
@@ -42,7 +42,7 @@ pub(super) fn build_entries_page_image(
     page_id: PageId,
     prev_page_id: PageId,
     next_page_id: PageId,
-    entries: &[TimeSeriesRecord],
+    entries: &[TimeSeriesStruct],
     tuple_format_version: u32,
     tuple_schema_hash: u64,
     tuple_flags: u64,
@@ -83,7 +83,7 @@ pub(super) fn empty_page_image(
     Ok(page_buf)
 }
 
-pub(super) fn page_entries_fit(entries: &[TimeSeriesRecord]) -> bool {
+pub(super) fn page_entries_fit(entries: &[TimeSeriesStruct]) -> bool {
     let mut buf = vec![0u8; PAGE_SIZE];
     let mut page = PageBlockRefMut::new(&mut buf);
     if page.init_empty(PageId::new(0)).is_err() {
@@ -141,21 +141,21 @@ mod tests {
     #[test]
     fn build_entries_page_image_sorts_records_and_preserves_links() {
         let entries = vec![
-            TimeSeriesRecord {
+            TimeSeriesStruct {
                 timestamp: 30,
                 tuple_id: 1,
                 payload: b"ccc".to_vec(),
                 page_id: PageId::new(0),
                 slot_index: 0,
             },
-            TimeSeriesRecord {
+            TimeSeriesStruct {
                 timestamp: 10,
                 tuple_id: 2,
                 payload: b"aaa".to_vec(),
                 page_id: PageId::new(0),
                 slot_index: 0,
             },
-            TimeSeriesRecord {
+            TimeSeriesStruct {
                 timestamp: 20,
                 tuple_id: 3,
                 payload: b"bbb".to_vec(),
@@ -217,14 +217,14 @@ mod tests {
     #[test]
     fn page_entries_fit_few_small_records_returns_true() {
         let entries = vec![
-            TimeSeriesRecord {
+            TimeSeriesStruct {
                 timestamp: 1,
                 tuple_id: 1,
                 payload: b"a".to_vec(),
                 page_id: PageId::new(0),
                 slot_index: 0,
             },
-            TimeSeriesRecord {
+            TimeSeriesStruct {
                 timestamp: 2,
                 tuple_id: 2,
                 payload: b"bb".to_vec(),
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn page_entries_fit_one_oversized_record_returns_false() {
-        let entries = vec![TimeSeriesRecord {
+        let entries = vec![TimeSeriesStruct {
             timestamp: 1,
             tuple_id: 1,
             payload: vec![0u8; PAGE_SIZE],
@@ -250,8 +250,8 @@ mod tests {
     #[test]
     fn page_entries_fit_many_small_records_exceeding_capacity_returns_false() {
         let payload = vec![0u8; 100];
-        let entries: Vec<TimeSeriesRecord> = (0..100)
-            .map(|i| TimeSeriesRecord {
+        let entries: Vec<TimeSeriesStruct> = (0..100)
+            .map(|i| TimeSeriesStruct {
                 timestamp: i as u64,
                 tuple_id: i as u64,
                 payload: payload.clone(),
@@ -266,7 +266,7 @@ mod tests {
     fn page_entries_fit_boundary_exact_true_one_more_byte_false() {
         let mut size = 1;
         loop {
-            let entries = vec![TimeSeriesRecord {
+            let entries = vec![TimeSeriesStruct {
                 timestamp: 1,
                 tuple_id: 1,
                 payload: vec![0u8; size],
@@ -279,14 +279,14 @@ mod tests {
             size += 1;
         }
         assert!(size > 1);
-        let exact = vec![TimeSeriesRecord {
+        let exact = vec![TimeSeriesStruct {
             timestamp: 1,
             tuple_id: 1,
             payload: vec![0u8; size - 1],
             page_id: PageId::new(0),
             slot_index: 0,
         }];
-        let too_large = vec![TimeSeriesRecord {
+        let too_large = vec![TimeSeriesStruct {
             timestamp: 1,
             tuple_id: 1,
             payload: vec![0u8; size],

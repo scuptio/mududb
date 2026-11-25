@@ -9,15 +9,15 @@ use ::catalog::contract::queue::{
     queue_seq_datum, queue_status_datum, QUEUE_RECEIVE_COUNT_ATTR, QUEUE_SEQ_ATTR,
     QUEUE_STATUS_ATTR, QUEUE_STATUS_CLAIMED, QUEUE_STATUS_READY,
 };
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     OptDelete, OptInsert, OptRead, OptUpdate, Predicate, QueueWaiter as _, RSCursor, RangeData,
-    TupleRow, VecDatum, VecSelTerm, XContract,
+    TupleRow, VecDatum, VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PReceiveQueue;
@@ -29,7 +29,6 @@ use mudu::error::ErrorCode;
 use mudu_sys::sync::SMutex;
 use mudu_sys::time::instant_now;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -45,17 +44,17 @@ where
 
 /// Builds the queue schema the binder produces: four system columns plus a
 /// single `body` payload column.
-fn queue_schema(name: &str) -> SchemaTable {
+fn queue_schema(name: &str) -> SchemaClass {
     let mut columns = ::catalog::contract::queue::queue_system_columns();
     columns.push(SchemaColumn::new(
         "body".to_string(),
         TypeFamily::String,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::String)),
     ));
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
@@ -242,7 +241,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -317,7 +316,10 @@ impl XContract for MockXContract {
     ) -> RS<()> {
         unimplemented!()
     }
+}
 
+#[async_trait]
+impl XContractQueue for MockXContract {
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
         Ok(vec![Self::mock_shard(table_id)])
     }
@@ -386,7 +388,7 @@ impl XContract for MockXContract {
         let frontier = self
             .consumer_frontier_in_tx(Arc::new(MockTxMgr), shard, consumer)
             .await?
-            .ok_or_else(|| mudu::mudu_error!(ErrorCode::EntityNotFound, "no such consumer"))?;
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::ObjectNotFound, "no such consumer"))?;
         let store = self.store.lock().unwrap();
         Ok(store
             .rows
@@ -423,7 +425,7 @@ impl XContract for MockXContract {
                         .consumer_frontier_in_tx(Arc::new(MockTxMgr), shard, name)
                         .await?
                         .ok_or_else(|| {
-                            mudu::mudu_error!(ErrorCode::EntityNotFound, "no such consumer")
+                            mudu::mudu_error!(ErrorCode::ObjectNotFound, "no such consumer")
                         })?;
                     let base = frontier.max(scan_from);
                     let store = self.store.lock().unwrap();
@@ -480,7 +482,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -810,7 +812,7 @@ fn receive_for_unknown_consumer_fails() {
     });
     let exec = make_receive_full(x_contract, meta, 1, None, Some("missing".to_string()));
     let err = block_on(exec.open()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]

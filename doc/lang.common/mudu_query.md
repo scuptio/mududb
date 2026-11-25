@@ -5,20 +5,20 @@ lang="rust"
 -->
 ```rust
 // sync_api
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 
 // async_api
-pub async fn mudu_query<R: Entity>(
+pub async fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 ```

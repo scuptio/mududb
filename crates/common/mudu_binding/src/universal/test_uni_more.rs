@@ -6,9 +6,9 @@ mod tests {
     };
     use crate::universal::uni_data_type::UniDataType;
     use crate::universal::uni_data_value::UniDataValue;
-    use crate::universal::uni_record_type::UniRecordType;
     use crate::universal::uni_scalar::UniScalar;
     use crate::universal::uni_scalar_value::UniScalarValue;
+    use crate::universal::uni_struct_type::UniStructType;
     use crate::universal::uni_tuple_row::UniTupleRow;
 
     #[test]
@@ -225,9 +225,9 @@ mod tests {
         let str_col = UniDataType::Scalar(UniScalar::String);
         let blob_col = UniDataType::Scalar(UniScalar::Blob);
         let binary_rec = UniDataType::Binary;
-        let record_col = UniDataType::Record(UniRecordType {
-            record_name: "r".to_string(),
-            record_fields: vec![],
+        let record_col = UniDataType::Struct(UniStructType {
+            struct_name: "r".to_string(),
+            struct_fields: vec![],
         });
         assert!(param_type_compatible(ParamTypeTag::Null, &record_col));
         assert!(!param_type_compatible(ParamTypeTag::Boolean, &int_col));
@@ -272,10 +272,10 @@ mod tests {
             "U32"
         );
         assert_eq!(uni_data_type_name(&UniDataType::Binary), "BINARY");
-        let record = UniDataType::Record(UniRecordType {
-            record_name: "r".to_string(),
-            record_fields: vec![],
+        let record = UniDataType::Struct(UniStructType {
+            struct_name: "r".to_string(),
+            struct_fields: vec![],
         });
-        assert!(uni_data_type_name(&record).starts_with("Record"));
+        assert!(uni_data_type_name(&record).starts_with("Struct"));
     }
 }

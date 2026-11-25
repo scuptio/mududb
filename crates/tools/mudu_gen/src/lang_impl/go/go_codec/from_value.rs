@@ -47,7 +47,7 @@ pub(super) fn from_value_at(
         UniDataType::Box(inner) => {
             from_value_at(inner, src, dst, tmp, ind, err_ret, lines)?;
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Go wire conversion for {ty:?} is not implemented")

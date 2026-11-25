@@ -89,7 +89,7 @@ async fn command_and_query_roundtrip_through_mssp_frames() {
         &row.fields[1],
         UniDataValue::Scalar(UniScalarValue::String(name)) if name == "alice"
     ));
-    assert_eq!(result.tuple_desc.record_fields.len(), 2);
+    assert_eq!(result.tuple_desc.struct_fields.len(), 2);
 
     // Error frames also decode: an unknown table surfaces as the `Err`
     // variant with the host message.

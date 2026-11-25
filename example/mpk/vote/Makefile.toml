@@ -9,7 +9,7 @@ PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/${TARGET}/${PR
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files",
         "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
         "${CARGO_MAKE_WORKING_DIRECTORY}/sql/type.sql",
@@ -52,7 +52,7 @@ args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
 
 
 # Statically check every SQL string literal in src/rust against the DDL
-# schema (see doc/dev/sql_subset.md). type.sql defines the result-shape
+# schema (see doc/en/sql_subset.md). type.sql defines the result-shape
 # entities (vote_result, vote_history_item) alongside ddl.sql.
 [tasks.check-sql]
 dependencies = ["generate"]

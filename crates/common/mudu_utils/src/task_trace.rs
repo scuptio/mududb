@@ -63,7 +63,7 @@ impl TaskTrace {
         }
     }
 
-    /// Records the `key`/`value` pair on the current task's context.
+    /// Structs the `key`/`value` pair on the current task's context.
     ///
     /// The key is remembered by this guard and removed from the context when
     /// the guard is dropped. Does nothing if the current task has no context.

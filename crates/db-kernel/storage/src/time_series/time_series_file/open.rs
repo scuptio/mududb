@@ -4,7 +4,7 @@ use super::wal::{
     append_file_create_async, new_relation_wal_backend, new_relation_wal_backend_with_provider,
     recover_relation_file, recover_relation_file_async,
 };
-use super::{TimeSeriesFile, TimeSeriesFileIdentity, FILE_MODE_644};
+use super::{TimeSeriesFile, TimeSeriesFileIdobject, FILE_MODE_644};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_header::{PageHeader, NONE_PAGE_ID};
 use crate::page::PageId;
@@ -44,7 +44,7 @@ impl TimeSeriesFile {
     #[cfg(test)]
     pub(crate) async fn open_relation_file<P: AsRef<Path>>(
         base_path: P,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
@@ -62,7 +62,7 @@ impl TimeSeriesFile {
     pub(crate) async fn open_relation_file_with_sys_io_context<P: AsRef<Path>>(
         sys: Arc<SysIoContext>,
         base_path: P,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
@@ -81,7 +81,7 @@ impl TimeSeriesFile {
     pub(crate) async fn open_relation_file_with_fs<P: AsRef<Path>>(
         fs: Arc<dyn AsyncFs>,
         base_path: P,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
@@ -100,7 +100,7 @@ impl TimeSeriesFile {
         fs: Arc<dyn AsyncFs>,
         wal_provider: Arc<dyn AsyncIoProvider>,
         base_path: P,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
@@ -142,7 +142,7 @@ impl TimeSeriesFile {
     /// Sync version of `TimeSeriesFile::open_relation_file`.
     pub async fn open_relation_file_sync<P: AsRef<Path>>(
         base_path: P,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         tuple_schema_hash: u64,
         create_if_missing: bool,
     ) -> RS<Self> {
@@ -225,7 +225,7 @@ impl TimeSeriesFile {
     async fn open_inner(
         fs: Option<Arc<dyn AsyncFs>>,
         path: PathBuf,
-        identity: Option<TimeSeriesFileIdentity>,
+        identity: Option<TimeSeriesFileIdobject>,
         wal_backend: Option<ChunkedWorkerLogBackend>,
         tuple_schema_hash: u64,
         create_if_missing: bool,
@@ -280,7 +280,7 @@ impl TimeSeriesFile {
     }
 }
 
-async fn load_chain_metadata(
+pub(super) async fn load_chain_metadata(
     file: &SysFile,
     page_count: PageId,
     expected_schema_hash: u64,

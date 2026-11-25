@@ -17,15 +17,15 @@ use crate::universal::mp_wire::{
     to_array, to_option, to_tuple2, to_tuple3,
 };
 use crate::universal::uni_oid::UniOid;
-use crate::universal::uni_record_type::UniRecordType;
 use crate::universal::uni_sql_param::UniSqlParam;
 use crate::universal::uni_sql_stmt::UniSqlStmt;
+use crate::universal::uni_struct_type::UniStructType;
 #[derive(Debug, Clone)]
 pub struct UniCommandArgv {
     pub oid: UniOid,
     pub command: UniSqlStmt,
     pub param_list: UniSqlParam,
-    pub param_desc: Option<UniRecordType>,
+    pub param_desc: Option<UniStructType>,
 }
 impl Default for UniCommandArgv {
     fn default() -> Self {
@@ -81,7 +81,7 @@ impl crate::universal::mp_wire::FromValue for UniCommandArgv {
                 2 => command = Some(UniSqlStmt::from_value(val)?),
                 3 => param_list = Some(UniSqlParam::from_value(val)?),
                 4 => {
-                    param_desc = Some(from_option(val, |item| UniRecordType::from_value(item))?);
+                    param_desc = Some(from_option(val, |item| UniStructType::from_value(item))?);
                 }
                 _ => {}
             }

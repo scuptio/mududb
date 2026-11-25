@@ -434,11 +434,11 @@ pub fn read_money(
     Ok(value.expect_numeric().clone())
 }
 
-/// Wraps a not-found relation row as an `EntityNotFound` error.
+/// Wraps a not-found relation row as an `ObjectNotFound` error.
 pub fn require_row(row: Option<Vec<Option<Vec<u8>>>>, table: &str) -> RS<Vec<Option<Vec<u8>>>> {
     row.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("relation row not found: {table}")
         )
     })

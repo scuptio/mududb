@@ -5,7 +5,7 @@ use super::super::{
 use super::KernelHttpApi;
 use super::queue_activation::activation_status_to_dto;
 use ::catalog::contract::queue::queue_dlq_name;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::worker::worker::WorkerRuntime;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
@@ -13,7 +13,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use xcontract::{ManagementRequest, ManagementResponse, QueueConsumerSnapshot};
+use xcontract::management_rpc::{ManagementRequest, ManagementResponse, QueueConsumerSnapshot};
 
 /// Queue observability endpoint (`GET /mudu/server/queues`).
 impl KernelHttpApi {
@@ -61,7 +61,7 @@ impl KernelHttpApi {
     async fn collect_consumer_lists(
         &self,
         workers: &[(Arc<WorkerRuntime>, u32)],
-        schemas: &[SchemaTable],
+        schemas: &[SchemaClass],
     ) -> RS<HashMap<OID, Vec<QueueConsumerSnapshot>>> {
         let mut consumers: HashMap<OID, Vec<QueueConsumerSnapshot>> = HashMap::new();
         for schema in schemas {
@@ -92,7 +92,7 @@ impl KernelHttpApi {
     async fn consumer_list_of(
         &self,
         worker: &Arc<WorkerRuntime>,
-        schema: &SchemaTable,
+        schema: &SchemaClass,
     ) -> RS<Vec<QueueConsumerSnapshot>> {
         match self
             .ask_worker(
@@ -113,8 +113,9 @@ impl KernelHttpApi {
     async fn collect_queue_stats(
         &self,
         workers: &[(Arc<WorkerRuntime>, u32)],
-    ) -> RS<HashMap<OID, Vec<(u32, ::xcontract::QueueRuntimeSnapshot)>>> {
-        let mut stats: HashMap<OID, Vec<(u32, ::xcontract::QueueRuntimeSnapshot)>> = HashMap::new();
+    ) -> RS<HashMap<OID, Vec<(u32, ::xcontract::queue_types::QueueRuntimeSnapshot)>>> {
+        let mut stats: HashMap<OID, Vec<(u32, ::xcontract::queue_types::QueueRuntimeSnapshot)>> =
+            HashMap::new();
         for (worker, worker_index) in workers {
             match self
                 .ask_worker(worker.worker_id(), ManagementRequest::QueueStats)
@@ -166,8 +167,8 @@ impl KernelHttpApi {
     /// activation registration (absent while the queue has none).
     async fn assemble_queue_status(
         &self,
-        schemas: &[SchemaTable],
-        stats: &HashMap<OID, Vec<(u32, ::xcontract::QueueRuntimeSnapshot)>>,
+        schemas: &[SchemaClass],
+        stats: &HashMap<OID, Vec<(u32, ::xcontract::queue_types::QueueRuntimeSnapshot)>>,
         consumers: &HashMap<OID, Vec<QueueConsumerSnapshot>>,
         activations: &HashMap<OID, ServerQueueActivation>,
     ) -> RS<ServerQueuesResponse> {
@@ -175,7 +176,7 @@ impl KernelHttpApi {
             .iter()
             .map(|schema| {
                 (
-                    (schema.schema().clone(), schema.table_name().clone()),
+                    (schema.schema().clone(), schema.class_name().clone()),
                     schema.id(),
                 )
             })
@@ -185,11 +186,11 @@ impl KernelHttpApi {
         // schema.
         let dlq_names: HashSet<(String, String)> = schemas
             .iter()
-            .map(|schema| (schema.schema().clone(), queue_dlq_name(schema.table_name())))
+            .map(|schema| (schema.schema().clone(), queue_dlq_name(schema.class_name())))
             .collect();
         let mut queues = Vec::new();
         for schema in schemas {
-            let key = (schema.schema().clone(), schema.table_name().clone());
+            let key = (schema.schema().clone(), schema.class_name().clone());
             if dlq_names.contains(&key) {
                 continue;
             }
@@ -209,8 +210,8 @@ impl KernelHttpApi {
     /// cursor list, and activation registration.
     async fn assemble_one_queue(
         &self,
-        schema: &SchemaTable,
-        stats: &HashMap<OID, Vec<(u32, ::xcontract::QueueRuntimeSnapshot)>>,
+        schema: &SchemaClass,
+        stats: &HashMap<OID, Vec<(u32, ::xcontract::queue_types::QueueRuntimeSnapshot)>>,
         consumers: &HashMap<OID, Vec<QueueConsumerSnapshot>>,
         activations: &HashMap<OID, ServerQueueActivation>,
         oid_by_name: &HashMap<(String, String), OID>,
@@ -221,7 +222,7 @@ impl KernelHttpApi {
                 format!(
                     "queue {}.{} has no runtime on any live worker",
                     schema.schema(),
-                    schema.table_name()
+                    schema.class_name()
                 )
             ));
         };
@@ -243,7 +244,7 @@ impl KernelHttpApi {
             .collect();
         shards.sort_by_key(|shard| shard.shard);
         let dlq_depth = oid_by_name
-            .get(&(schema.schema().clone(), queue_dlq_name(schema.table_name())))
+            .get(&(schema.schema().clone(), queue_dlq_name(schema.class_name())))
             .map(|dlq_oid| {
                 stats
                     .get(dlq_oid)
@@ -274,7 +275,7 @@ impl KernelHttpApi {
             .unwrap_or_default();
         Ok(ServerQueueStatus {
             schema: schema.schema().clone(),
-            name: schema.table_name().clone(),
+            name: schema.class_name().clone(),
             queue_id: schema.id(),
             worker_index: shard_stats.first().map(|(index, _)| *index).unwrap_or(0),
             depth: shards.iter().map(|shard| shard.depth).sum(),

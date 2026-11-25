@@ -152,7 +152,6 @@ impl KernelHttpApi {
                 sync_write_timeouts: status.counters.sync_write_timeouts,
                 snapshots_taken: status.counters.snapshots_taken,
                 wal_chunks_reclaimed: status.counters.wal_chunks_reclaimed,
-                staging_chunks_reclaimed: status.counters.staging_chunks_reclaimed,
                 snapshot_offers_served: status.counters.snapshot_offers_served,
                 snapshot_restores_completed: status.counters.snapshot_restores_completed,
             },
@@ -169,57 +168,154 @@ impl KernelHttpApi {
             .await?
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("no such partition rule {}", request.rule_name)
                 )
             })?;
 
-        let partition_ids = if let Some(key) = request.key {
+        // The live cluster directory of this server, when the kernel runs in
+        // cluster mode (registered at startup; `None` for single-group).
+        let directory = self
+            .server_instance_id
+            .and_then(::server::server::cluster_directory::cluster_directory_for);
+
+        let partition_ids = self.resolve_route_request_partitions(&rule, request)?;
+
+        let mut routes = Vec::with_capacity(partition_ids.len());
+        for partition_id in partition_ids {
+            let (group_id, node_id, client_addr, cluster_worker) =
+                Self::cluster_route_entry(&rule, partition_id, directory.as_deref());
+            // Cluster mode resolves the worker through the directory (the
+            // catalog placement only exists in single-group mode).
+            let worker_id = match cluster_worker {
+                Some(worker) => worker,
+                None => self.resolve_partition_worker(partition_id).await?,
+            };
+            routes.push(PartitionRouteEntry {
+                partition_id,
+                worker_id,
+                group_id,
+                node_id,
+                client_addr,
+            });
+        }
+        Ok(PartitionRouteResponse {
+            routes,
+            rule_version: rule.version,
+            topology_version: directory
+                .as_ref()
+                .map(|directory| {
+                    use ::catalog::contract::cluster_router::ClusterRouter;
+                    directory.topology_version()
+                })
+                .unwrap_or(0),
+            placement_version: directory
+                .as_ref()
+                .map(|directory| {
+                    use ::catalog::contract::cluster_router::ClusterRouter;
+                    directory.placement_version()
+                })
+                .unwrap_or(0),
+        })
+    }
+
+    /// Resolves the request's key/range form to partition ids.
+    fn resolve_route_request_partitions(
+        &self,
+        rule: &::catalog::contract::partition_rule::PartitionRuleDesc,
+        request: PartitionRouteRequest,
+    ) -> RS<Vec<mudu::common::id::OID>> {
+        if let Some(keys) = request.keys {
+            if request.key.is_some() || request.start.is_some() || request.end.is_some() {
+                return Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Parse,
+                    "partition route request cannot mix `keys` with `key`/`start`/`end`"
+                ));
+            }
+            // Batch point lookups: exactly one partition per key, in order.
+            let mut ids = Vec::with_capacity(keys.len());
+            for key in keys {
+                ids.push(
+                    self.partition_router.route_rule_exact_partition(
+                        rule,
+                        &key.into_iter()
+                            .map(|value| value.into_bytes())
+                            .collect::<Vec<_>>(),
+                    )?,
+                );
+            }
+            return Ok(ids);
+        }
+        if let Some(key) = request.key {
             if request.start.is_some() || request.end.is_some() {
                 return Err(mudu::mudu_error!(
                     mudu::error::ErrorCode::Parse,
                     "partition route request cannot specify both key and range"
                 ));
             }
-            vec![
+            return Ok(vec![
                 self.partition_router.route_rule_exact_partition(
-                    &rule,
+                    rule,
                     &key.into_iter()
                         .map(|value| value.into_bytes())
                         .collect::<Vec<_>>(),
                 )?,
-            ]
-        } else {
-            let start = match request.start {
-                Some(values) => Bound::Included(
-                    values
-                        .into_iter()
-                        .map(|value| value.into_bytes())
-                        .collect::<Vec<_>>(),
-                ),
-                None => Bound::Unbounded,
-            };
-            let end = match request.end {
-                Some(values) => Bound::Excluded(
-                    values
-                        .into_iter()
-                        .map(|value| value.into_bytes())
-                        .collect::<Vec<_>>(),
-                ),
-                None => Bound::Unbounded,
-            };
-            self.partition_router
-                .route_rule_range_partitions(&rule, &start, &end)?
-        };
-
-        let mut routes = Vec::with_capacity(partition_ids.len());
-        for partition_id in partition_ids {
-            let worker_id = self.resolve_partition_worker(partition_id).await?;
-            routes.push(PartitionRouteEntry {
-                partition_id,
-                worker_id,
-            });
+            ]);
         }
-        Ok(PartitionRouteResponse { routes })
+        let start = match request.start {
+            Some(values) => Bound::Included(
+                values
+                    .into_iter()
+                    .map(|value| value.into_bytes())
+                    .collect::<Vec<_>>(),
+            ),
+            None => Bound::Unbounded,
+        };
+        let end = match request.end {
+            Some(values) => Bound::Excluded(
+                values
+                    .into_iter()
+                    .map(|value| value.into_bytes())
+                    .collect::<Vec<_>>(),
+            ),
+            None => Bound::Unbounded,
+        };
+        self.partition_router
+            .route_rule_range_partitions(rule, &start, &end)
+    }
+
+    /// Cluster-mode route detail of one partition: owning group, its serving
+    /// node, the node's client address (for direct client routing), and the
+    /// worker endpoint id derived from the serving node.
+    fn cluster_route_entry(
+        rule: &::catalog::contract::partition_rule::PartitionRuleDesc,
+        partition_id: mudu::common::id::OID,
+        directory: Option<&::server::server::cluster_directory::ClusterDirectory>,
+    ) -> (
+        Option<u64>,
+        Option<u64>,
+        Option<String>,
+        Option<mudu::common::id::OID>,
+    ) {
+        use ::catalog::contract::cluster_router::ClusterRouter;
+        let Some(directory) = directory else {
+            return (None, None, None, None);
+        };
+        let Some(def) = rule
+            .partitions
+            .iter()
+            .find(|partition| partition.partition_id == partition_id)
+        else {
+            return (None, None, None, None);
+        };
+        let Some((group_id, worker_index)) = directory.placement(&rule.name, &def.name) else {
+            return (None, None, None, None);
+        };
+        let node_id = directory.serving_node(group_id);
+        let client_addr = node_id
+            .and_then(|node| directory.node_client_addr(node))
+            .map(|(host, port)| format!("{}:{}", host, port));
+        let worker_id = directory.resolve_group_worker(group_id, worker_index).ok();
+        (Some(group_id), node_id, client_addr, worker_id)
     }
 }

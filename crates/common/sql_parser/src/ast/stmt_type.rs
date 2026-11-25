@@ -1,12 +1,14 @@
 use crate::ast::stmt_ack::StmtAck;
 use crate::ast::stmt_copy_from::StmtCopyFrom;
 use crate::ast::stmt_copy_to::StmtCopyTo;
+use crate::ast::stmt_create_cache::StmtCreateCache;
 use crate::ast::stmt_create_consumer::StmtCreateConsumer;
 use crate::ast::stmt_create_fs_type::StmtCreateFsType;
 use crate::ast::stmt_create_partition_placement::StmtCreatePartitionPlacement;
 use crate::ast::stmt_create_partition_rule::StmtCreatePartitionRule;
 use crate::ast::stmt_create_queue::StmtCreateQueue;
 use crate::ast::stmt_create_table::StmtCreateTable;
+use crate::ast::stmt_create_type::StmtCreateType;
 use crate::ast::stmt_delete::StmtDelete;
 use crate::ast::stmt_drop_consumer::StmtDropConsumer;
 use crate::ast::stmt_drop_queue::StmtDropQueue;
@@ -45,6 +47,10 @@ pub enum StmtCommand {
     DropTable(StmtDropTable),
     /// `CREATE TYPE FILESYSTEM FILE|DIRECTORY` statement.
     CreateFsType(StmtCreateFsType),
+    /// `CREATE TYPE ... AS (...)` statement (transient type declaration).
+    CreateType(StmtCreateType),
+    /// `CREATE CACHE ... LIKE ...` statement (volatile cache declaration).
+    CreateCache(StmtCreateCache),
     /// `DROP TYPE` statement.
     DropType(StmtDropType),
     /// `COPY ... TO` statement.

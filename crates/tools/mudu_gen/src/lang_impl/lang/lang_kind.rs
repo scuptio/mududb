@@ -1,12 +1,5 @@
 //! Target language enumeration and helpers.
 
-use mudu::common::result::RS;
-use mudu_binding::universal::uni_scalar::UniScalar;
-
-use crate::lang_impl;
-use crate::lang_impl::lang::lang_data_type::uni_data_type_to_name;
-use mudu_binding::universal::uni_data_type::UniDataType;
-
 /// Supported target languages.
 #[derive(Debug, PartialOrd, PartialEq, Eq, Copy, Clone)]
 pub enum LangKind {
@@ -49,16 +42,6 @@ impl LangKind {
             "go" => Some(LangKind::Go),
             _ => None,
         }
-    }
-
-    /// Return the language-specific name of a scalar type.
-    pub fn name_of_scalar(&self, p: &UniScalar) -> RS<String> {
-        Ok(lang_impl::lang_scalar_name(self, p))
-    }
-
-    /// Return the language-specific name of a WIT data type.
-    pub fn name_of_wit_type(&self, wit_type: &UniDataType) -> RS<String> {
-        uni_data_type_to_name(wit_type, self)
     }
 
     /// Return the file extension for the language.

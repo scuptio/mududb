@@ -23,3 +23,29 @@ pub async fn install_package(server: &str, path: &Path) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn upload_failure_preserves_package_and_server_context() -> anyhow::Result<()> {
+        let path = mudu_sys::env_var::temp_dir().join(format!(
+            "mpm-install-error-{}.mpk",
+            mudu_utils::oid::gen_oid()
+        ));
+        mudu_sys::fs::sync::sync_write(&path, b"package bytes")?;
+        let path_for_future = path.clone();
+        let result = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            super::install_package("[invalid-address", &path_for_future).await
+        })?;
+        mudu_sys::fs::sync::sync_remove_file(&path)?;
+        let error = match result {
+            Err(error) => error,
+            Ok(()) => anyhow::bail!("invalid HTTP address must fail"),
+        };
+        let chain = format!("{error:#}");
+        assert!(chain.contains("failed to install"), "{chain}");
+        assert!(chain.contains("[invalid-address"), "{chain}");
+        assert!(chain.contains("install failed"), "{chain}");
+        Ok(())
+    }
+}

@@ -6,6 +6,8 @@
 
 pub mod mp_core;
 pub mod mp_wire;
+#[cfg(test)]
+mod struct_defaults_test;
 pub mod test_uni;
 pub mod test_uni_more;
 pub mod uni_command_argv;
@@ -45,7 +47,6 @@ pub mod uni_query_result;
 pub mod uni_query_return;
 pub mod uni_range_argv;
 pub mod uni_range_result;
-pub mod uni_record_type;
 pub mod uni_relation;
 pub mod uni_result;
 pub mod uni_result_set;
@@ -63,6 +64,7 @@ pub mod uni_sql_param;
 pub mod uni_sql_param_impl;
 pub mod uni_sql_stmt;
 pub mod uni_sql_stmt_impl;
+pub mod uni_struct_type;
 pub mod uni_tuple_row;
 pub mod uni_tuple_row_impl;
 pub mod uni_type_compat;

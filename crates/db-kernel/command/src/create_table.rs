@@ -70,19 +70,19 @@ impl _InnerCreateTable {
     }
 
     async fn prepare(&self) -> RS<()> {
-        let table_name = self.param.schema.table_name().clone();
+        let class_name = self.param.schema.class_name().clone();
         // The collision check is scoped exactly to the schema the new table
         // belongs to: another application may own a same-named table, and a
         // same-named table in the default schema is shadowed, not an error.
         if self
             .meta_mgr
-            .get_table_exact(self.param.schema.schema(), &table_name)
+            .get_table_exact(self.param.schema.schema(), &class_name)
             .await?
             .is_some()
         {
             return Err(mudu_error!(
-                ER::EntityAlreadyExists,
-                format!("table {} already exists", table_name)
+                ER::ObjectAlreadyExists,
+                format!("table {} already exists", class_name)
             ));
         }
         Ok(())
@@ -90,15 +90,25 @@ impl _InnerCreateTable {
 
     async fn run(&mut self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
-        trace!(table = %self.param.schema.table_name(), "create_table command run start");
+        trace!(table = %self.param.schema.class_name(), "create_table command run start");
+        // Cluster mode: catalog DDL travels the MetaGroup's replicated log so
+        // every node applies it; the local apply lands before this returns.
+        if let Some(meta_group) = self.x_contract.meta_group() {
+            return meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::CreateTable {
+                    schema: self.param.schema.clone(),
+                    binding: self.param.partition_binding.clone(),
+                })
+                .await;
+        }
         self.x_contract
             .create_table(self.param.tx_mgr.clone(), &self.param.schema)
             .await?;
-        trace!(table = %self.param.schema.table_name(), "create_table storage create finished");
+        trace!(table = %self.param.schema.class_name(), "create_table storage create finished");
         if let Some(binding) = &self.param.partition_binding {
             self.meta_mgr.bind_table_partition(binding).await?;
         }
-        trace!(table = %self.param.schema.table_name(), "create_table command run done");
+        trace!(table = %self.param.schema.class_name(), "create_table command run done");
         Ok(())
     }
 }

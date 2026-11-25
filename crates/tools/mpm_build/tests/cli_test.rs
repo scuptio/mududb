@@ -56,6 +56,7 @@ fn binary_creates_package_successfully() -> Result<()> {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(output.exists());
+    assert!(dir.path().join("binapp.mpk.zip").exists());
     Ok(())
 }
 

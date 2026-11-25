@@ -49,7 +49,7 @@ function queryLabels(id: Oid, item_id: i64): Array<ItemInfoLabels> {
 }
 
 /**
- * Rebuild the stored item-info record: the flat entity columns plus the
+ * Rebuild the stored item-info struct: the flat object columns plus the
  * side-table labels.
  */
 function queryItemInfo(id: Oid, item_id: i64): ItemInfo {

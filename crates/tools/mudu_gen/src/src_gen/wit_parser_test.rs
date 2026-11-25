@@ -31,7 +31,7 @@ fn parser_accepts_minimal_interface() {
     let wit = parser.parse_text(source).unwrap();
     assert_eq!(wit.interface.len(), 1);
     assert_eq!(wit.records.len(), 1);
-    assert_eq!(wit.records[0].record_name, "point");
+    assert_eq!(wit.records[0].struct_name, "point");
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn parser_accepts_table_definition() {
     let parser = WitParser::new();
     let wit = parser.parse_text(source).unwrap();
     assert_eq!(wit.tables.len(), 1);
-    assert_eq!(wit.tables[0].table_name, "my-table");
+    assert_eq!(wit.tables[0].class_name, "my-table");
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn parser_maps_s8_to_i8_scalar() {
     let wit = parser.parse_text(source).unwrap();
     assert_eq!(wit.records.len(), 1);
     assert!(matches!(
-        wit.records[0].record_fields[0].rf_type,
+        wit.records[0].struct_fields[0].rf_type,
         UniDataType::Scalar(UniScalar::I8)
     ));
 }
@@ -150,7 +150,7 @@ fn parser_maps_list_u8_to_binary() {
     let wit = parser.parse_text(source).unwrap();
     assert_eq!(wit.records.len(), 1);
     assert!(matches!(
-        wit.records[0].record_fields[0].rf_type,
+        wit.records[0].struct_fields[0].rf_type,
         UniDataType::Binary
     ));
 }
@@ -167,7 +167,7 @@ fn parser_maps_box_to_box_type() {
     let wit = parser.parse_text(source).unwrap();
     assert_eq!(wit.records.len(), 1);
     assert!(matches!(
-        wit.records[0].record_fields[0].rf_type,
+        wit.records[0].struct_fields[0].rf_type,
         UniDataType::Box(_)
     ));
 }
@@ -218,7 +218,7 @@ fn parser_assigns_one_based_field_numbers_in_declaration_order() {
     let wit = parser.parse_text(source).unwrap();
 
     let record_numbers: Vec<u32> = wit.records[0]
-        .record_fields
+        .struct_fields
         .iter()
         .map(|f| f.rf_number)
         .collect();

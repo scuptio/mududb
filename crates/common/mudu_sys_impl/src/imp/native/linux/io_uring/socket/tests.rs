@@ -152,7 +152,7 @@ async fn socket_without_current_ring_returns_error() {
     let err = socket(libc::AF_INET, libc::SOCK_STREAM, 0)
         .await
         .unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -191,4 +191,37 @@ fn socket_full_tcp_roundtrip_through_real_ring() {
     });
     // `None` means io_uring is unavailable on this host; the harness logged it.
     let _ = result;
+}
+
+#[tokio::test]
+async fn failed_socket_completions_propagate_and_do_not_requeue() {
+    use super::request::{SocketCloseRequest, SocketInflightOp, SocketShutdownRequest};
+    use super::ring_io::complete_socket_io;
+    use crate::imp::io::user_io::{op_state, poll_op};
+    let ring = WorkerLocalRing::new();
+    let state = op_state();
+    let request = SocketCloseRequest::new(-1, state.clone());
+    assert!(complete_socket_io(
+        1,
+        SocketInflightOp::Close(Box::new(request)),
+        -libc::EBADF,
+        &ring
+    )
+    .unwrap());
+    assert!(std::future::poll_fn(|cx| poll_op(&state, cx))
+        .await
+        .is_err());
+    let state = op_state();
+    let request = SocketShutdownRequest::new(-1, libc::SHUT_RDWR, state.clone());
+    assert!(complete_socket_io(
+        2,
+        SocketInflightOp::Shutdown(Box::new(request)),
+        -libc::ENOTCONN,
+        &ring
+    )
+    .unwrap());
+    assert!(std::future::poll_fn(|cx| poll_op(&state, cx))
+        .await
+        .is_err());
+    assert!(ring.take_pending().unwrap().is_none());
 }

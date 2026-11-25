@@ -1,0 +1,19 @@
+use crate::pl_entry::PLEntry;
+use serde::{Deserialize, Serialize};
+
+/// A batch of physical log entries.
+///
+/// [`PLBatch`] groups physical log records that describe updates to
+/// corresponding pages in files.
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+pub struct PLBatch {
+    /// Physical log entries carried by this batch.
+    pub entries: Vec<PLEntry>,
+}
+
+impl PLBatch {
+    /// Creates a batch from already-built entries.
+    pub fn new(entries: Vec<PLEntry>) -> Self {
+        Self { entries }
+    }
+}

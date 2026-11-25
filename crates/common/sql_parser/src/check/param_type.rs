@@ -19,8 +19,8 @@ use crate::ast::stmt_update::{AssignedValue, Assignment};
 use crate::check::checker::{find_column, find_table};
 use crate::check::placeholder::placeholder_spans;
 use mudu::common::result::RS;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_binding::table::column_def::ColumnDef;
-use mudu_binding::table::table_def::TableDef;
 
 pub use mudu_binding::universal::uni_type_compat::{
     param_type_compatible, uni_data_type_name, ParamTypeTag,
@@ -35,7 +35,7 @@ pub use mudu_binding::universal::uni_type_compat_impl::param_type_tag_of_value;
 /// to all-`None`.
 pub fn param_target_columns<'a>(
     sql: &str,
-    schema: &'a [TableDef],
+    schema: &'a [ClassDef],
 ) -> RS<Vec<Option<&'a ColumnDef>>> {
     let span_count = placeholder_spans(sql)?.len();
     let parser = SQLParser::new()?;
@@ -55,44 +55,44 @@ pub fn param_target_columns<'a>(
 
 fn map_stmt_columns<'a>(
     stmt: &StmtType,
-    schema: &'a [TableDef],
+    schema: &'a [ClassDef],
     out: &mut Vec<Option<&'a ColumnDef>>,
 ) {
     match stmt {
         StmtType::Select(select) => {
-            let table_def = find_table(schema, select.get_table_reference().name());
+            let class_def = find_table(schema, select.get_table_reference().name());
             for predicate in select.get_where_predicate() {
-                map_compare_columns(predicate, table_def, out);
+                map_compare_columns(predicate, class_def, out);
             }
         }
         StmtType::Command(command) => match command {
             StmtCommand::Insert(insert) => {
-                let table_def = find_table(schema, insert.table_name());
+                let class_def = find_table(schema, insert.class_name());
                 for row in insert.values_list() {
                     for (position, value) in row.iter().enumerate() {
                         if matches!(value, ExprValue::ValuePlaceholder) {
                             let column = insert
                                 .columns()
                                 .get(position)
-                                .and_then(|name| column_of(table_def, name));
+                                .and_then(|name| column_of(class_def, name));
                             out.push(column);
                         }
                     }
                 }
             }
             StmtCommand::Update(update) => {
-                let table_def = find_table(schema, update.get_table_reference().name());
+                let class_def = find_table(schema, update.get_table_reference().name());
                 for assignment in update.get_set_values() {
-                    map_assignment_columns(assignment, table_def, out);
+                    map_assignment_columns(assignment, class_def, out);
                 }
                 for predicate in update.get_where_predicate() {
-                    map_compare_columns(predicate, table_def, out);
+                    map_compare_columns(predicate, class_def, out);
                 }
             }
             StmtCommand::Delete(delete) => {
-                let table_def = find_table(schema, delete.get_table_reference().name());
+                let class_def = find_table(schema, delete.get_table_reference().name());
                 for predicate in delete.get_where_predicate() {
-                    map_compare_columns(predicate, table_def, out);
+                    map_compare_columns(predicate, class_def, out);
                 }
             }
             _ => {}
@@ -102,10 +102,10 @@ fn map_stmt_columns<'a>(
 
 fn map_assignment_columns<'a>(
     assignment: &Assignment,
-    table_def: Option<&'a TableDef>,
+    class_def: Option<&'a ClassDef>,
     out: &mut Vec<Option<&'a ColumnDef>>,
 ) {
-    let target = column_of(table_def, assignment.get_column_reference());
+    let target = column_of(class_def, assignment.get_column_reference());
     match assignment.get_set_value() {
         AssignedValue::Value(ExprValue::ValuePlaceholder) => out.push(target),
         AssignedValue::Value(_) => {}
@@ -154,30 +154,30 @@ fn map_expr_columns_side<'a>(
 
 fn map_compare_columns<'a>(
     compare: &ExprCompare,
-    table_def: Option<&'a TableDef>,
+    class_def: Option<&'a ClassDef>,
     out: &mut Vec<Option<&'a ColumnDef>>,
 ) {
     // A placeholder takes the column of the *other* side of the comparison;
     // `? = ?` and column-less sides map to None.
-    let right_column = item_column(compare.right(), table_def);
+    let right_column = item_column(compare.right(), class_def);
     map_expr_columns_side(compare.left(), right_column, out);
-    let left_column = item_column(compare.left(), table_def);
+    let left_column = item_column(compare.left(), class_def);
     map_expr_columns_side(compare.right(), left_column, out);
 }
 
-fn item_column<'a>(item: &ExprItem, table_def: Option<&'a TableDef>) -> Option<&'a ColumnDef> {
+fn item_column<'a>(item: &ExprItem, class_def: Option<&'a ClassDef>) -> Option<&'a ColumnDef> {
     match item {
-        ExprItem::ItemName(name) => column_of(table_def, name.name()),
+        ExprItem::ItemName(name) => column_of(class_def, name.name()),
         _ => None,
     }
 }
 
-fn column_of<'a>(table_def: Option<&'a TableDef>, name: &str) -> Option<&'a ColumnDef> {
+fn column_of<'a>(class_def: Option<&'a ClassDef>, name: &str) -> Option<&'a ColumnDef> {
     let unqualified = match name.rsplit_once('.') {
         Some((_, column)) => column,
         None => name,
     };
-    table_def.and_then(|def| find_column(def, unqualified))
+    class_def.and_then(|def| find_column(def, unqualified))
 }
 
 #[cfg(test)]

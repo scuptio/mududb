@@ -153,7 +153,7 @@ pub struct LocalCollector {
 }
 
 impl LocalCollector {
-    /// Record `ns` nanoseconds for `stage`.
+    /// Struct `ns` nanoseconds for `stage`.
     #[inline]
     pub fn record(&mut self, stage: TxnStage, ns: u64) {
         self.buckets[stage.as_index()].add(ns);
@@ -238,7 +238,7 @@ pub fn should_sample() -> bool {
         .is_multiple_of(rate)
 }
 
-/// RAII performance span. Records elapsed time when dropped.
+/// RAII performance span. Structs elapsed time when dropped.
 pub struct PerfSpan(Option<PerfSpanInner>);
 
 struct PerfSpanInner {

@@ -21,9 +21,8 @@
 //! come from raft.
 
 use crate::ctl::ReplModeCtl;
-use crate::raft_service::RaftShare;
-use crate::staging::{staged_frame_lsn, StagingStore};
-use crate::{read_next_frame, scan_worker_log_tail, ApplierMsg, ReplWorkerState};
+use crate::staging::staged_frame_lsn;
+use crate::{read_next_frame, scan_worker_log_tail};
 use ::wal::lsn::LSN;
 use ::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogBackend};
 use ::wal::xl_batch::decode_xl_batches_with_pending;
@@ -42,7 +41,6 @@ use mudu_sys::net::AsyncTcpStream;
 use mudu_sys::sync::async_::stop_flag::StopRx;
 use mudu_sys::tokio;
 use mudu_sys::tokio::io::AsyncWriteExt;
-use std::sync::Arc;
 use std::time::Duration;
 use tracing::{trace, warn};
 
@@ -53,23 +51,11 @@ const REPL_RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
 /// target (self is leader, no leader known, or the sink is paused).
 const REPL_IDLE_POLL: Duration = Duration::from_millis(100);
 
-/// Budget of one applier-side snapshot install round-trip.
-const RESTORE_APPLY_TIMEOUT: Duration = Duration::from_secs(120);
-
 /// What the sink does with received frames and how it picks its stream
-/// target.
+/// target: stream mode appends to the worker WAL and replays immediately,
+/// targeting the current primary (read from the shared control). (Raft mode
+/// is served by the data plane's streams now.)
 pub enum SinkDriver {
-    /// Raft mode: stage into the staging store (the applier promotes
-    /// raft-committed frames), targeting the current raft leader.
-    Raft {
-        /// The raft share: leader discovery and the sink-pause flag.
-        share: Arc<RaftShare>,
-        /// The staging store received frames land in.
-        staging: Arc<StagingStore>,
-        /// The worker's shared replication state (chain point, applier
-        /// channel).
-        state: Arc<ReplWorkerState>,
-    },
     /// Stream mode: append to the worker WAL and replay immediately,
     /// targeting the current primary (read from the shared control).
     Stream {
@@ -116,7 +102,7 @@ pub async fn run_repl_sink(
         )
     })?;
     trace!(worker_index, "replication sink starting");
-    let mut direct_state = init_direct_state(&driver).await?;
+    let mut direct_state = init_direct_state(&driver, &worker).await?;
     // The latest snapshot point this worker reached (local or restored);
     // stream replicas snapshot when the resume point crosses it by the
     // configured threshold.
@@ -128,6 +114,12 @@ pub async fn run_repl_sink(
     // and trigger the overlap probe (CRC byte-compare of the tail window).
     let mut last_target_addr: Option<String> = None;
     while !stop_rx.is_stopped() {
+        if worker.storage().requires_recovery() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "interrupted storage mutation requires recovery before replication"
+            ));
+        }
         let Some(target) = select_target(&driver, direct_state.as_ref())? else {
             idle_wait(&mut stop_rx).await;
             continue;
@@ -157,7 +149,7 @@ pub async fn run_repl_sink(
             &mut direct_state,
             &mut last_snapshot_lsn,
         )
-        .await;
+        .await?;
         if reconnect_backoff_stopped(&stop_rx).await {
             break;
         }
@@ -168,10 +160,17 @@ pub async fn run_repl_sink(
 
 /// Stream mode: resume state derived once from the local WAL and carried
 /// across reconnects (raft mode stages instead and carries none).
-async fn init_direct_state(driver: &SinkDriver) -> RS<Option<DirectResumeState>> {
+async fn init_direct_state(
+    driver: &SinkDriver,
+    worker: &WorkerRuntime,
+) -> RS<Option<DirectResumeState>> {
     match driver {
         SinkDriver::Stream { log, ctl, .. } => {
-            let (resume, pending_frames, pending_start_lsn) = scan_worker_log_tail(log).await?;
+            let (resume, pending_frames, pending_start_lsn) = scan_worker_log_tail(
+                log,
+                crate::snapshot::recovery_base_resume(worker)?.unwrap_or(0),
+            )
+            .await?;
             Ok(Some(DirectResumeState {
                 resume,
                 pending_frames,
@@ -181,7 +180,6 @@ async fn init_direct_state(driver: &SinkDriver) -> RS<Option<DirectResumeState>>
                 known_epoch: ctl.epoch(),
             }))
         }
-        SinkDriver::Raft { .. } => Ok(None),
     }
 }
 
@@ -207,7 +205,8 @@ fn note_target_change(
 }
 
 /// Handles one ended stream round: an offered snapshot is restored inline.
-/// Failures only log; the next round resubscribes.
+/// Transport failures resubscribe; interrupted live mutations stop replication
+/// so a new stream cannot continue from partially installed state.
 async fn handle_stream_outcome(
     worker: &WorkerRuntime,
     driver: &SinkDriver,
@@ -216,7 +215,7 @@ async fn handle_stream_outcome(
     stream_result: RS<StreamOutcome>,
     direct_state: &mut Option<DirectResumeState>,
     last_snapshot_lsn: &mut u64,
-) {
+) -> RS<()> {
     match stream_result {
         Ok(StreamOutcome::Interrupted) => {}
         Ok(StreamOutcome::Offered(manifest)) => {
@@ -231,6 +230,9 @@ async fn handle_stream_outcome(
             )
             .await
             {
+                if worker.storage().requires_recovery() {
+                    return Err(err);
+                }
                 warn!(
                     worker_index,
                     "snapshot restore failed, resubscribing: {}", err
@@ -238,12 +240,16 @@ async fn handle_stream_outcome(
             }
         }
         Err(err) => {
+            if worker.storage().requires_recovery() {
+                return Err(err);
+            }
             warn!(
                 worker_index,
                 "replication stream interrupted, resubscribing: {}", err
             );
         }
     }
+    Ok(())
 }
 
 /// Sleeps out the reconnect backoff; returns `true` when the sink was
@@ -272,6 +278,16 @@ async fn restore_from_offer(
     direct_state: &mut Option<DirectResumeState>,
     last_snapshot_lsn: &mut u64,
 ) -> RS<()> {
+    // Installing rows must not race a new participant WAL reservation or
+    // participant apply after the empty-history check.
+    let participant_storage = worker.storage();
+    let snapshot_guard = participant_storage.capture_participant_snapshot().await?;
+    if worker.storage().has_participant_history()? {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            "cannot replace participant state with a snapshot lacking participant history"
+        ));
+    }
     let data_dir = worker.storage().relation_path().to_string();
     let version_dir =
         crate::snapshot::snapshot_version_dir(&data_dir, worker_index, manifest.committed_lsn);
@@ -279,47 +295,30 @@ async fn restore_from_offer(
     let resume = manifest.resume_lsn();
     let committed_lsn = manifest.committed_lsn;
     match driver {
-        SinkDriver::Raft { state, .. } => {
-            let tx = state.applier_tx()?.ok_or_else(|| {
-                mudu_error!(
-                    ErrorCode::InvalidState,
-                    "snapshot restore: applier not running"
-                )
-            })?;
-            let (respond_tx, respond_rx) = mudu_sys::tokio::sync::oneshot::channel();
-            tx.send(ApplierMsg::InstallSnapshot {
-                manifest,
-                snapshot_dir: version_dir,
-                respond: respond_tx,
-            })
-            .map_err(|_| mudu_error!(ErrorCode::ChannelClosed, "applier channel closed"))?;
-            match mudu_sys::timeout(RESTORE_APPLY_TIMEOUT, respond_rx).await {
-                Some(Ok(result)) => result?,
-                Some(Err(_closed)) => {
-                    return Err(mudu_error!(
-                        ErrorCode::ChannelClosed,
-                        "applier dropped the snapshot install"
-                    ));
-                }
-                None => {
-                    return Err(mudu_error!(
-                        ErrorCode::TimedOut,
-                        "snapshot install timed out at the applier"
-                    ));
-                }
-            }
-        }
         SinkDriver::Stream { log, .. } => {
             // Drain old dirty pages before the files are replaced, then
             // reload catalog + relations + kv from the snapshot and reclaim
             // the WAL it covers.
+            let install = snapshot_guard.begin_install()?;
             ::worker::worker::flush_worker_dirty_pages(worker).await?;
-            crate::snapshot::install_snapshot_relation_files(&data_dir, &version_dir, &manifest)
-                .await?;
+            let journal = crate::snapshot::InstallJournal::begin(
+                &data_dir,
+                worker.worker_id(),
+                &worker.partition_ids(),
+                &manifest,
+            )
+            .await?;
+            journal.install_files().await?;
             worker.meta_mgr().initialize().await?;
-            worker.storage().reload_relations_from_disk().await?;
+            snapshot_guard.reload_relations_from_disk().await?;
             let kv = crate::snapshot::read_kv_dump(&version_dir)?;
-            worker.storage().restore_kv_latest(kv).await?;
+            snapshot_guard.restore_kv_latest(kv).await?;
+            crate::snapshot::restore_snapshot_recovery_metadata(
+                worker,
+                &version_dir,
+                &manifest,
+                &snapshot_guard,
+            )?;
             if log.next_lsn().as_u64() > resume {
                 log.truncate_from_lsn(LSN::new(resume)).await?;
             }
@@ -332,6 +331,9 @@ async fn restore_from_offer(
                 state.pending_frames.clear();
                 state.pending_start_lsn = None;
             }
+            log.resume_from_snapshot(LSN::new(resume))?;
+            journal.complete().await?;
+            install.complete();
         }
     }
     *last_snapshot_lsn = committed_lsn.max(*last_snapshot_lsn);
@@ -359,46 +361,13 @@ struct DirectResumeState {
 }
 
 /// Picks the stream target for one round: the current raft leader (raft
-/// mode) or the configured primary (replication mode). `None` while this
+/// mode) or the configured primary (stream mode). `None` while this
 /// node is the primary/leader, no leader is known, or the sink is paused.
 fn select_target(
     driver: &SinkDriver,
     direct_state: Option<&DirectResumeState>,
 ) -> RS<Option<StreamTarget>> {
     match driver {
-        SinkDriver::Raft {
-            share,
-            staging,
-            state,
-        } => {
-            if share.sink_paused() {
-                return Ok(None);
-            }
-            if share.role() == mudu_raft::RaftRole::Leader {
-                return Ok(None);
-            }
-            let Some(addr) = share.leader_id().and_then(|leader| {
-                if leader == share.node_id() {
-                    None
-                } else {
-                    share.peer_addr(leader)
-                }
-            }) else {
-                return Ok(None);
-            };
-            // The chain cell is the resume point: the next LSN to commit.
-            let from_lsn = state.chain()?.0;
-            let staged_next = staging
-                .max_lsn()?
-                .map(|lsn| lsn.as_u64().saturating_add(1))
-                .unwrap_or(0);
-            let next_expected = staged_next.max(from_lsn);
-            Ok(Some(StreamTarget {
-                addr,
-                from_lsn,
-                next_expected,
-            }))
-        }
         SinkDriver::Stream { ctl, .. } => {
             if ctl.is_primary() {
                 return Ok(None);
@@ -462,7 +431,6 @@ async fn connect_and_subscribe(
         next_request_id: 1,
     };
     let (self_node_id, src_epoch) = match driver {
-        SinkDriver::Raft { share, .. } => (share.node_id(), 0),
         SinkDriver::Stream { node_id, ctl, .. } => (*node_id, ctl.epoch()),
     };
     let subscribe = encode_repl_subscribe_request(
@@ -505,7 +473,8 @@ async fn verify_acceptance(
     match first.header().message_type() {
         MessageType::ReplSubscribeAccept => {
             let accept = decode_repl_subscribe_accept_frame(first)?;
-            if let SinkDriver::Stream { ctl, .. } = driver {
+            let SinkDriver::Stream { ctl, .. } = driver;
+            {
                 if let Some(expected) = ctl.primary_node_id() {
                     if accept.node_id() != expected {
                         return Err(mudu_error!(
@@ -579,13 +548,6 @@ async fn stream_from_leader(
         addr: &target.addr,
         direct_state,
         last_snapshot_lsn,
-        staged: StagingTrack {
-            next_expected: target.next_expected,
-            staged_hi: match driver {
-                SinkDriver::Raft { staging, .. } => staging.max_lsn()?.map(|lsn| lsn.as_u64()),
-                SinkDriver::Stream { .. } => None,
-            },
-        },
     };
     while let Some(frame) = read_next_frame(
         &mut conn.stream,
@@ -595,21 +557,13 @@ async fn stream_from_leader(
     )
     .await?
     {
-        if let SinkDriver::Raft { share, .. } = driver {
-            if share.sink_paused() {
-                return Ok(StreamOutcome::Interrupted);
-            }
-        }
         match frame.header().message_type() {
             MessageType::ReplBatch => {
                 // Stream mode: drop the connection when the control flipped
                 // (this node was promoted) or the primary changed (follow).
-                if let SinkDriver::Stream { ctl, .. } = driver {
-                    if ctl.is_primary()
-                        || ctl.primary_addr().as_deref() != Some(target.addr.as_str())
-                    {
-                        return Ok(StreamOutcome::Interrupted);
-                    }
+                let SinkDriver::Stream { ctl, .. } = driver;
+                if ctl.is_primary() || ctl.primary_addr().as_deref() != Some(target.addr.as_str()) {
+                    return Ok(StreamOutcome::Interrupted);
                 }
                 let Some(stored_lsn) = round.store_batch(&frame).await? else {
                     continue;
@@ -664,7 +618,6 @@ struct StreamRound<'a> {
     addr: &'a str,
     direct_state: &'a mut Option<DirectResumeState>,
     last_snapshot_lsn: &'a mut u64,
-    staged: StagingTrack,
 }
 
 impl StreamRound<'_> {
@@ -685,22 +638,6 @@ impl StreamRound<'_> {
         }
         let driver = self.driver;
         match driver {
-            SinkDriver::Raft { staging, state, .. } => {
-                stage_frames(staging, batch.into_frames(), &mut self.staged).await?;
-                staging.flush().await?;
-                state.notify_staging();
-                // Ack only what is durably staged: the leader's
-                // majority gate reads this as "stored", so an ack
-                // must never claim content the follower lacks.
-                let Some(stored_lsn) = self.staged.staged_hi else {
-                    trace!(
-                        worker_index = self.worker_index,
-                        "skipping repl ack: nothing staged yet (unexpected)"
-                    );
-                    return Ok(None);
-                };
-                Ok(Some(stored_lsn))
-            }
             SinkDriver::Stream {
                 ctl,
                 log,
@@ -788,7 +725,7 @@ impl StreamRound<'_> {
     }
 }
 
-/// Records a higher stream epoch seen from the primary: tracks it in the
+/// Structs a higher stream epoch seen from the primary: tracks it in the
 /// resume state and the shared control, and persists it (epoch changes are
 /// rare, so the fsync per change is cheap).
 async fn note_stream_epoch(
@@ -905,54 +842,6 @@ async fn scan_local_crcs(
         }
     }
     Ok(out)
-}
-
-/// The sink's staging progress within one stream: the next LSN it expects
-/// and the highest LSN it has staged durably (the ack watermark).
-struct StagingTrack {
-    next_expected: u64,
-    staged_hi: Option<u64>,
-}
-
-/// Stages one batch of leader frames. Frames below the next expected LSN
-/// are byte-compared (divergence heal): identical frames are skipped, and
-/// the first mismatch truncates the speculative staged tail from that LSN
-/// before the leader's content is staged in its place.
-async fn stage_frames(
-    staging: &Arc<StagingStore>,
-    frames: Vec<Vec<u8>>,
-    staged: &mut StagingTrack,
-) -> RS<()> {
-    for frame in frames {
-        let lsn = staged_frame_lsn(&frame)?.as_u64();
-        if lsn < staged.next_expected {
-            let staged_crc = staging.frame_crc(lsn)?;
-            if staged_crc == Some(crc64(&frame)) {
-                continue;
-            }
-            warn!(
-                lsn,
-                "replication divergence: staged frame conflicts with the leader, truncating staged tail"
-            );
-            staging.truncate_from(lsn).await?;
-            staged.next_expected = lsn;
-            staged.staged_hi = (lsn > 0).then_some(lsn - 1);
-        }
-        if lsn != staged.next_expected {
-            return Err(mudu_error!(
-                ErrorCode::InvalidState,
-                format!(
-                    "replication stream gap: staged up to lsn {} but the leader streamed lsn {}",
-                    staged.next_expected.saturating_sub(1),
-                    lsn
-                )
-            ));
-        }
-        staging.append_frames(&[frame]).await?;
-        staged.staged_hi = Some(lsn);
-        staged.next_expected = lsn.saturating_add(1);
-    }
-    Ok(())
 }
 
 /// Maps an error frame from the leader into a local error, appending the

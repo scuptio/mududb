@@ -39,6 +39,11 @@ SUPPORTED_BINS: List[Dict[str, str]] = [
         "description": "package installer",
     },
     {
+        "package": "mpm_tool",
+        "bin": "mpm-tool",
+        "description": "package inspector/verifier/converter",
+    },
+    {
         "package": "mudu_gen",
         "bin": "mgen",
         "description": "source generator",

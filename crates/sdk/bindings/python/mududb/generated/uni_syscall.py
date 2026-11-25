@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -193,6 +193,11 @@ class MessageKind(IntEnum):
     RELATION_GET = 21
     RELATION_UPDATE = 22
     RELATION_INSERT = 23
+    CACHE_OPEN = 24
+    CACHE_GET = 25
+    CACHE_PUT = 26
+    CACHE_DELETE = 27
+    CACHE_TTL = 28
 
 
 # Wire-level `result<T, E>` exchanged with the peer: a success carries
@@ -1072,10 +1077,163 @@ def decode_relation_insert_result(frame: bytes) -> WireResult:
     return decode_unit_result_frame(MessageKind.RELATION_INSERT, frame)
 
 
+def encode_cache_open_request(name: str) -> bytes:
+    return encode_request_frame(
+        MessageKind.CACHE_OPEN,
+        {
+            1: _str_checked(name),
+        },
+    )
+
+
+def decode_cache_open_request(frame: bytes) -> str:
+    fields = decode_request_map(MessageKind.CACHE_OPEN, frame)
+    name = decode_field(fields, 1, lambda _v: _str_checked(_v), lambda: "")
+    return name
+
+
+def encode_cache_open_result(result: WireResult) -> bytes:
+    # success payload: `[0, value]`; failure: `[1, error]`
+    return encode_result_frame(
+        MessageKind.CACHE_OPEN,
+        result,
+        lambda value: uni_oid_to_value(value),
+    )
+
+
+def decode_cache_open_result(frame: bytes) -> WireResult:
+    raw = decode_result_frame(MessageKind.CACHE_OPEN, frame)
+    if raw.is_ok:
+        return WireResult.ok(uni_oid_from_value(raw.value))
+    return raw
+
+
+def encode_cache_get_request(cache: UniOid, key: bytes) -> bytes:
+    return encode_request_frame(
+        MessageKind.CACHE_GET,
+        {
+            1: uni_oid_to_value(cache),
+            2: _bytes_checked(key),
+        },
+    )
+
+
+def decode_cache_get_request(frame: bytes) -> tuple[UniOid, bytes]:
+    fields = decode_request_map(MessageKind.CACHE_GET, frame)
+    cache = decode_field(fields, 1, lambda _v: uni_oid_from_value(_v), lambda: UniOid())
+    key = decode_field(fields, 2, lambda _v: _blob_from_value(_v), lambda: b"")
+    return (cache, key)
+
+
+def encode_cache_get_result(result: WireResult) -> bytes:
+    # success payload: `[0, value]`; failure: `[1, error]`
+    return encode_result_frame(
+        MessageKind.CACHE_GET,
+        result,
+        lambda value: (None if value is None else _bytes_checked(value)),
+    )
+
+
+def decode_cache_get_result(frame: bytes) -> WireResult:
+    raw = decode_result_frame(MessageKind.CACHE_GET, frame)
+    if raw.is_ok:
+        return WireResult.ok((None if raw.value is None else _blob_from_value(raw.value)))
+    return raw
+
+
+def encode_cache_put_request(cache: UniOid, key: bytes, value: bytes, ttl_secs: Optional[int]) -> bytes:
+    return encode_request_frame(
+        MessageKind.CACHE_PUT,
+        {
+            1: uni_oid_to_value(cache),
+            2: _bytes_checked(key),
+            3: _bytes_checked(value),
+            4: (None if ttl_secs is None else _u64_checked(ttl_secs)),
+        },
+    )
+
+
+def decode_cache_put_request(frame: bytes) -> tuple[UniOid, bytes, bytes, Optional[int]]:
+    fields = decode_request_map(MessageKind.CACHE_PUT, frame)
+    cache = decode_field(fields, 1, lambda _v: uni_oid_from_value(_v), lambda: UniOid())
+    key = decode_field(fields, 2, lambda _v: _blob_from_value(_v), lambda: b"")
+    value = decode_field(fields, 3, lambda _v: _blob_from_value(_v), lambda: b"")
+    ttl_secs = decode_field(fields, 4, lambda _v: (None if _v is None else _u64_checked(_v)), lambda: None)
+    return (cache, key, value, ttl_secs)
+
+
+def encode_cache_put_result(result: WireResult) -> bytes:
+    # unit success payload: `[0, 0]`; failure: `[1, error]`
+    return encode_unit_result_frame(MessageKind.CACHE_PUT, result)
+
+
+def decode_cache_put_result(frame: bytes) -> WireResult:
+    return decode_unit_result_frame(MessageKind.CACHE_PUT, frame)
+
+
+def encode_cache_delete_request(cache: UniOid, key: bytes) -> bytes:
+    return encode_request_frame(
+        MessageKind.CACHE_DELETE,
+        {
+            1: uni_oid_to_value(cache),
+            2: _bytes_checked(key),
+        },
+    )
+
+
+def decode_cache_delete_request(frame: bytes) -> tuple[UniOid, bytes]:
+    fields = decode_request_map(MessageKind.CACHE_DELETE, frame)
+    cache = decode_field(fields, 1, lambda _v: uni_oid_from_value(_v), lambda: UniOid())
+    key = decode_field(fields, 2, lambda _v: _blob_from_value(_v), lambda: b"")
+    return (cache, key)
+
+
+def encode_cache_delete_result(result: WireResult) -> bytes:
+    # unit success payload: `[0, 0]`; failure: `[1, error]`
+    return encode_unit_result_frame(MessageKind.CACHE_DELETE, result)
+
+
+def decode_cache_delete_result(frame: bytes) -> WireResult:
+    return decode_unit_result_frame(MessageKind.CACHE_DELETE, frame)
+
+
+def encode_cache_ttl_request(cache: UniOid, key: bytes) -> bytes:
+    return encode_request_frame(
+        MessageKind.CACHE_TTL,
+        {
+            1: uni_oid_to_value(cache),
+            2: _bytes_checked(key),
+        },
+    )
+
+
+def decode_cache_ttl_request(frame: bytes) -> tuple[UniOid, bytes]:
+    fields = decode_request_map(MessageKind.CACHE_TTL, frame)
+    cache = decode_field(fields, 1, lambda _v: uni_oid_from_value(_v), lambda: UniOid())
+    key = decode_field(fields, 2, lambda _v: _blob_from_value(_v), lambda: b"")
+    return (cache, key)
+
+
+def encode_cache_ttl_result(result: WireResult) -> bytes:
+    # success payload: `[0, value]`; failure: `[1, error]`
+    return encode_result_frame(
+        MessageKind.CACHE_TTL,
+        result,
+        lambda value: (None if value is None else _u64_checked(value)),
+    )
+
+
+def decode_cache_ttl_result(frame: bytes) -> WireResult:
+    raw = decode_result_frame(MessageKind.CACHE_TTL, frame)
+    if raw.is_ok:
+        return WireResult.ok((None if raw.value is None else _u64_checked(raw.value)))
+    return raw
+
+
 
 
 # Sibling-module imports live at the END of the module on purpose: WIT type
-# references can be mutually recursive across files (e.g. uni-record-type <
+# references can be mutually recursive across files (e.g. uni-struct-type <
 # -> uni-data-type), and bottom imports make every name resolvable once the
 # import graph settles. All uses are deferred (function bodies, default
 # factories, lazily-evaluated annotations), so this is safe.

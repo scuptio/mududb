@@ -1,9 +1,10 @@
-use crate::array::new_array_type;
 use crate::data_binary::DataBinary;
 use crate::data_textual::DataTextual;
 use crate::data_type::DataType;
+use crate::data_type_impl::data_type_create::create_array_type;
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use mudu::common::result::RS;
 use mudu::data_type::date::DateValue;
 use mudu::data_type::numeric::Numeric;
@@ -31,6 +32,11 @@ pub trait Datum: DatumDyn + Clone + 'static {
 
     /// Parses a value of this type from its textual representation.
     fn from_textual(textual: &str) -> RS<Self>;
+}
+
+/// Creates a `DataValue` from any type implementing `Datum`.
+pub fn data_value_from_datum<T: Datum>(datum: T, type_obj: &DataType) -> RS<DataValue> {
+    datum.to_value(type_obj)
 }
 
 /// Object-safe view of a datum: runtime conversion between the value,
@@ -167,7 +173,7 @@ pub fn value_from_typed<T: Datum, S: AsRef<str>>(t: &T, _type_str: S) -> RS<Data
 
 impl<D: Datum> Datum for Vec<D> {
     fn data_type() -> DataType {
-        new_array_type(D::data_type())
+        create_array_type(D::data_type())
     }
 
     fn from_binary(binary: &[u8]) -> RS<Self> {

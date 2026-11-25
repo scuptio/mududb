@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::{block_on, datum, key_row, meta_table, read_i32_value, test_schema, value_row};
+use crate::contract::WorkerXContract;
 use crate::utils::{build_key_tuple, build_value_tuple};
+use crate::worker_storage::WorkerStorage;
+use crate::worker_tx_manager::WorkerTxManager;
 use crate::*;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use ::wal::worker_log::decode_frames;
@@ -133,6 +136,7 @@ async fn _iouring_xcontract_replay_restores_worker_kv_and_relation_rows() -> RS<
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     contract.replay_worker_log_batch(batch).await.unwrap();
@@ -181,6 +185,8 @@ async fn _cross_partition_recovery_is_coordinator_driven() -> RS<()> {
                 .to_string(),
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         })?;
         let ddl_tx = contract.begin_tx().await?;
         contract.create_table(ddl_tx.clone(), &schema).await?;
@@ -202,6 +208,7 @@ async fn _cross_partition_recovery_is_coordinator_driven() -> RS<()> {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     contract.replay_worker_log_batch(batch).await?;
@@ -253,6 +260,7 @@ async fn _iouring_xcontract_replay_applies_worker_kv_delete() {
             )),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     contract.replay_worker_log_batch(batch).await.unwrap();

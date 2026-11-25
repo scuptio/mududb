@@ -208,3 +208,51 @@ where
 {
     file::flush_submit_payload_fd(file.fd, payload)
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn file_operations_without_worker_ring_return_not_implemented() {
+        assert!(!has_current_worker_ring());
+        // No descriptor is owned: the invalid fd makes Drop harmless.
+        let file = IoUringFile::new_from_fd(-1);
+        assert_eq!(
+            iou_open("/unused", libc::O_RDONLY, 0)
+                .await
+                .err()
+                .unwrap()
+                .ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            file.read_exact_at(0, 1).await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            file.write_all_at(0, b"x").await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            file.file_len().await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            file.fsync().await.unwrap_err().ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            iou_write_submit_option(&file, vec![1], 0, OptionWrite::default())
+                .err()
+                .unwrap()
+                .ec(),
+            ErrorCode::NotImplemented
+        );
+        assert_eq!(
+            iou_flush_submit(&file).err().unwrap().ec(),
+            ErrorCode::NotImplemented
+        );
+    }
+}

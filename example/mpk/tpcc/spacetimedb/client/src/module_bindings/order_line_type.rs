@@ -41,18 +41,18 @@ pub struct OrderLineCols {
 
 impl __sdk::__query_builder::HasCols for OrderLine {
     type Cols = OrderLineCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         OrderLineCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            ol_o_id: __sdk::__query_builder::Col::new(table_name, "ol_o_id"),
-            ol_d_id: __sdk::__query_builder::Col::new(table_name, "ol_d_id"),
-            ol_w_id: __sdk::__query_builder::Col::new(table_name, "ol_w_id"),
-            ol_number: __sdk::__query_builder::Col::new(table_name, "ol_number"),
-            ol_i_id: __sdk::__query_builder::Col::new(table_name, "ol_i_id"),
-            ol_supply_w_id: __sdk::__query_builder::Col::new(table_name, "ol_supply_w_id"),
-            ol_delivery_d: __sdk::__query_builder::Col::new(table_name, "ol_delivery_d"),
-            ol_quantity: __sdk::__query_builder::Col::new(table_name, "ol_quantity"),
-            ol_amount: __sdk::__query_builder::Col::new(table_name, "ol_amount"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            ol_o_id: __sdk::__query_builder::Col::new(class_name, "ol_o_id"),
+            ol_d_id: __sdk::__query_builder::Col::new(class_name, "ol_d_id"),
+            ol_w_id: __sdk::__query_builder::Col::new(class_name, "ol_w_id"),
+            ol_number: __sdk::__query_builder::Col::new(class_name, "ol_number"),
+            ol_i_id: __sdk::__query_builder::Col::new(class_name, "ol_i_id"),
+            ol_supply_w_id: __sdk::__query_builder::Col::new(class_name, "ol_supply_w_id"),
+            ol_delivery_d: __sdk::__query_builder::Col::new(class_name, "ol_delivery_d"),
+            ol_quantity: __sdk::__query_builder::Col::new(class_name, "ol_quantity"),
+            ol_amount: __sdk::__query_builder::Col::new(class_name, "ol_amount"),
         }
     }
 }
@@ -66,9 +66,9 @@ pub struct OrderLineIxCols {
 
 impl __sdk::__query_builder::HasIxCols for OrderLine {
     type IxCols = OrderLineIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         OrderLineIxCols {
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
         }
     }
 }

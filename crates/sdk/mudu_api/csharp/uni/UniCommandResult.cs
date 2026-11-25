@@ -93,7 +93,7 @@ public class UniCommandReturnErr : UniCommandReturn
 public class UniCommandReturnFormatter : IMessagePackFormatter<UniCommandReturn?>
 {
     /// The proto3-style default instance of the variant: the first declared
-    /// case carrying its own default payload. Record fields of this variant
+    /// case carrying its own default payload. Struct fields of this variant
     /// type initialize to this value, so a field missing from the wire map
     /// decodes to the default case instead of null.
     public static UniCommandReturn DefaultInstance()
@@ -194,7 +194,7 @@ public class UniCommandResultFormatter : IMessagePackFormatter<UniCommandResult>
 {
     public void Serialize(ref MessagePackWriter writer, UniCommandResult value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(1);
         

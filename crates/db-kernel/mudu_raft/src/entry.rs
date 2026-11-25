@@ -39,15 +39,47 @@ pub enum ReplEntry {
         /// Number of ids in the run.
         count: u64,
     },
+    /// Business-independent progress references; stream payloads live outside Raft.
+    GroupCommit(crate::stream::GroupCommit),
+    /// Protocol management record bootstrapping the durable stream registry.
+    StreamRegistry(crate::stream::RegistryChange),
 }
 
 impl ReplEntry {
+    /// Encoded size of the entry payload, for replay byte accounting.
+    pub fn replay_bytes(&self) -> usize {
+        let heap = match self {
+            Self::CommitVec { per_worker, .. } => per_worker
+                .len()
+                .saturating_mul(std::mem::size_of::<(u32, u64, [u8; 32])>()),
+            Self::GroupCommit(commit) => commit
+                .progress
+                .len()
+                .saturating_mul(std::mem::size_of::<crate::stream::StreamProgress>()),
+            Self::StreamRegistry(change) => match &change.operation {
+                crate::stream::RegistryOp::Register(descriptor) => {
+                    descriptor.kind.len().saturating_add(
+                        descriptor
+                            .requires
+                            .len()
+                            .saturating_mul(std::mem::size_of::<crate::stream::StreamId>()),
+                    )
+                }
+                _ => 0,
+            },
+            Self::Barrier { .. } | Self::XidAlloc { .. } => 0,
+        };
+        std::mem::size_of::<Self>().saturating_add(heap)
+    }
+
     /// The term recorded inside the entry payload, if the variant carries one.
     pub fn payload_term(&self) -> Option<u64> {
         match self {
             ReplEntry::CommitVec { term, .. } => Some(*term),
             ReplEntry::Barrier { term } => Some(*term),
             ReplEntry::XidAlloc { .. } => None,
+            ReplEntry::GroupCommit(_) => None,
+            ReplEntry::StreamRegistry(_) => None,
         }
     }
 }

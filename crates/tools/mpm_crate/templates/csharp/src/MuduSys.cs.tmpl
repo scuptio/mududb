@@ -5,7 +5,7 @@ using {{pascal_name}}World.wit.Imports.mududb.api;
 namespace {{pascal_name}};
 
 /// <summary>
-/// The uni OID record: two u64 halves, MessagePack map `{1: h, 2: l}`.
+/// The uni OID struct: two u64 halves, MessagePack map `{1: h, 2: l}`.
 /// </summary>
 internal readonly struct MuduOid(ulong h, ulong l)
 {
@@ -15,21 +15,21 @@ internal readonly struct MuduOid(ulong h, ulong l)
 }
 
 /// <summary>
-/// The decoded form of a `uni-data-value` record-case envelope: the
+/// The decoded form of a `uni-data-value` struct-case envelope: the
 /// positional field values in WIT declaration order (the field names ride
 /// along on the wire but are positional-only here, mirroring the host,
 /// which drops them). Produced by <see cref="MuduSys.DecodeProcedureParam"/>
-/// for a record parameter; consumed by <see cref="MuduSys.RecordFieldValues"/>.
+/// for a struct parameter; consumed by <see cref="MuduSys.StructFieldValues"/>.
 /// </summary>
-internal sealed class MuduRecordValue(global::System.Collections.Generic.List<object?> fields)
+internal sealed class MuduStructValue(global::System.Collections.Generic.List<object?> fields)
 {
     public global::System.Collections.Generic.List<object?> Fields { get; } = fields;
 }
 
 /// <summary>
-/// The uni error record carried by the `[1, UniError]` result arm:
+/// The uni error struct carried by the `[1, UniError]` result arm:
 /// MessagePack map `{1: err_code, 2: err_msg, 3: err_src, 4: err_loc, 5:
-/// err_details}` (details travel as an int array, the record-context shape
+/// err_details}` (details travel as an int array, the struct-context shape
 /// of `list<u8>`).
 /// </summary>
 internal sealed class MuduUniError(uint code, string message)
@@ -49,17 +49,17 @@ internal sealed class MuduUniError(uint code, string message)
 /// Frame layout (all header fields big-endian):
 /// `magic "MSSP" | version 1 | flags 0 | message_kind`, then one MessagePack
 /// body. Request bodies are integer-keyed maps of the WIT-declared arguments
-/// (1-based parameter numbers); record arguments nest as their own
+/// (1-based parameter numbers); struct arguments nest as their own
 /// integer-keyed maps (1-based field numbers). Result bodies are
 /// `[ok_tag, value]` with `0` = ok and `1` = `UniError`. Decoding is lenient:
 /// keys of any integer width, unknown keys skipped, missing fields defaulted.
 ///
-/// The record-bridge methods (<see cref="RecordFieldValues"/> /
-/// <see cref="EncodeProcedureOkRecord"/>) transcode between the positional
-/// `uni-data-value` record-case envelope of user-defined procedure types
+/// The struct-bridge methods (<see cref="StructFieldValues"/> /
+/// <see cref="EncodeProcedureOkStruct"/>) transcode between the positional
+/// `uni-data-value` struct-case envelope of user-defined procedure types
 /// (`wit/types.wit`) and the integer-keyed field maps the mgen-generated
 /// `XxxFormatter` codecs consume/produce — the template-side counterpart of
-/// the SDK's `mududb.codec.RecordBridge`.
+/// the SDK's `mududb.codec.StructBridge`.
 /// </summary>
 internal static class MuduSys
 {
@@ -72,7 +72,7 @@ internal static class MuduSys
     // UniDataValue discriminants (`uni_data_value.rs`).
     private const uint DatScalar = 0;
     private const uint DatArray = 1;
-    private const uint DatRecord = 2;
+    private const uint DatStruct = 2;
     private const uint DatBinary = 3;
 
     // UniScalarValue discriminants used by this guest (`uni_scalar_value.rs`).
@@ -104,7 +104,7 @@ internal static class MuduSys
         var queryResultCount = reader2.ReadMapHeader();
         for (uint i = 0; i < queryResultCount; i++)
         {
-            switch (ReadRecordKey(reader2))
+            switch (ReadStructKey(reader2))
             {
                 case 2:
                     rows = ReadResultSet(reader2);
@@ -138,7 +138,7 @@ internal static class MuduSys
         var commandResultCount = reader2.ReadMapHeader();
         for (uint i = 0; i < commandResultCount; i++)
         {
-            switch (ReadRecordKey(reader2))
+            switch (ReadStructKey(reader2))
             {
                 case 1:
                     affected = reader2.ReadUInt();
@@ -159,8 +159,8 @@ internal static class MuduSys
     /// Decodes the `UniProcedureParam` the host passes to `mp2-*` exports:
     /// `{1: procedure, 2: session, 3: param_list}`. Scalar parameters decode
     /// to `bool` / `long` / `double` / `string` / `byte[]` (the type table
-    /// the mtp C# front-end supports); a record parameter decodes to
-    /// <see cref="MuduRecordValue"/> (positional field values), an array
+    /// the mtp C# front-end supports); a struct parameter decodes to
+    /// <see cref="MuduStructValue"/> (positional field values), an array
     /// parameter to `List&lt;object?&gt;`.
     public static (ulong Procedure, MuduOid Session, object?[] Params) DecodeProcedureParam(byte[] bytes)
     {
@@ -171,7 +171,7 @@ internal static class MuduSys
         var paramCount = reader.ReadMapHeader();
         for (uint i = 0; i < paramCount; i++)
         {
-            switch (ReadRecordKey(reader))
+            switch (ReadStructKey(reader))
             {
                 case 1:
                     procedure = reader.ReadUInt();
@@ -196,7 +196,7 @@ internal static class MuduSys
     /// Encodes the ok arm of `UniResult<UniProcedureResult, UniError>`: the
     /// single-entry map `{0: {1: [return_list]}}`, mirroring the hand-written
     /// serde impl of `mudu_binding::universal::uni_result::UniResult` with
-    /// the record-as-map `UniProcedureResult` payload.
+    /// the struct-as-map `UniProcedureResult` payload.
     public static byte[] EncodeProcedureOk(long value)
     {
         return EncodeProcedureOkOne(writer => WriteDatumI64(writer, value));
@@ -221,7 +221,7 @@ internal static class MuduSys
         return EncodeProcedureOkOne(writer => WriteDatumF64(writer, value));
     }
 
-    /// Ok arm carrying a byte-array result (record-context u8-array form).
+    /// Ok arm carrying a byte-array result (struct-context u8-array form).
     public static byte[] EncodeProcedureOk(byte[] value)
     {
         return EncodeProcedureOkOne(writer => WriteDatumBlob(writer, value));
@@ -233,14 +233,14 @@ internal static class MuduSys
         return EncodeProcedureOkOne(writer => WriteDatumI32(writer, value));
     }
 
-    /// Ok arm carrying a user-defined record result: parses the
+    /// Ok arm carrying a user-defined struct result: parses the
     /// integer-keyed field map bytes a generated `XxxFormatter.Serialize`
     /// produced and re-encodes them as the positional `uni-data-value`
-    /// record-case envelope the host expects back.
-    public static byte[] EncodeProcedureOkRecord(byte[] fieldMapBytes)
+    /// struct-case envelope the host expects back.
+    public static byte[] EncodeProcedureOkStruct(byte[] fieldMapBytes)
     {
-        var record = ReadWireRecord(new Mp.Reader(fieldMapBytes));
-        return EncodeProcedureOkOne(writer => WriteDatumEnvelopeRecord(writer, record));
+        var struct = ReadWireStruct(new Mp.Reader(fieldMapBytes));
+        return EncodeProcedureOkOne(writer => WriteDatumEnvelopeStruct(writer, struct));
     }
 
     /// Encodes the err arm: `{1: UniError}`.
@@ -253,31 +253,31 @@ internal static class MuduSys
         return writer.ToArray();
     }
 
-    // ---- record bridge (user-defined procedure types) ----
+    // ---- struct bridge (user-defined procedure types) ----
 
-    /// Unwraps a decoded record-case envelope (<see cref="MuduRecordValue"/>)
+    /// Unwraps a decoded struct-case envelope (<see cref="MuduStructValue"/>)
     /// into the integer-keyed MessagePack map bytes (position i becomes key
     /// i+1, the WIT declaration order) a generated `XxxFormatter.Deserialize`
     /// reads. Field values transcode to the plain MessagePack wire model
-    /// recursively (nested records become nested integer-keyed maps, arrays
+    /// recursively (nested structs become nested integer-keyed maps, arrays
     /// become MessagePack arrays, byte strings become MessagePack bin — the
     /// form the generated formatters read — and the Null scalar becomes
-    /// nil). A non-record input is an error. This is the template-side
-    /// counterpart of the SDK's `mududb.codec.RecordBridge`.
-    public static byte[] RecordFieldValues(object? value)
+    /// nil). A non-struct input is an error. This is the template-side
+    /// counterpart of the SDK's `mududb.codec.StructBridge`.
+    public static byte[] StructFieldValues(object? value)
     {
-        if (value is not MuduRecordValue record)
+        if (value is not MuduStructValue struct)
         {
             throw new global::System.IO.InvalidDataException(
-                $"expected a UniDataValue record, got {value?.GetType()}");
+                $"expected a UniDataValue struct, got {value?.GetType()}");
         }
 
         var writer = new Mp.Writer();
-        writer.WriteMapHeader((uint)record.Fields.Count);
-        for (var i = 0; i < record.Fields.Count; i++)
+        writer.WriteMapHeader((uint)struct.Fields.Count);
+        for (var i = 0; i < struct.Fields.Count; i++)
         {
             writer.WriteUInt((ulong)(i + 1));
-            WriteDatumWire(writer, record.Fields[i]);
+            WriteDatumWire(writer, struct.Fields[i]);
         }
 
         return writer.ToArray();
@@ -295,7 +295,7 @@ internal static class MuduSys
         return writer.ToArray();
     }
 
-    // ---- envelope -> wire (RecordFieldValues) ----
+    // ---- envelope -> wire (StructFieldValues) ----
 
     private static void WriteDatumWire(Mp.Writer writer, object? value)
     {
@@ -318,16 +318,16 @@ internal static class MuduSys
                 return;
             case byte[] bytes:
                 // The generated formatters read `blob` fields with
-                // ReadBytes: the bin form, never the record-context
+                // ReadBytes: the bin form, never the struct-context
                 // u8-array form the host sends.
                 writer.WriteBin(bytes);
                 return;
-            case MuduRecordValue record:
-                writer.WriteMapHeader((uint)record.Fields.Count);
-                for (var i = 0; i < record.Fields.Count; i++)
+            case MuduStructValue struct:
+                writer.WriteMapHeader((uint)struct.Fields.Count);
+                for (var i = 0; i < struct.Fields.Count; i++)
                 {
                     writer.WriteUInt((ulong)(i + 1));
-                    WriteDatumWire(writer, record.Fields[i]);
+                    WriteDatumWire(writer, struct.Fields[i]);
                 }
 
                 return;
@@ -341,13 +341,13 @@ internal static class MuduSys
                 return;
             default:
                 throw new global::System.IO.InvalidDataException(
-                    $"record bridge: unsupported datum {value.GetType()}");
+                    $"struct bridge: unsupported datum {value.GetType()}");
         }
     }
 
-    // ---- wire -> envelope (EncodeProcedureOkRecord) ----
+    // ---- wire -> envelope (EncodeProcedureOkStruct) ----
 
-    private static MuduRecordValue ReadWireRecord(Mp.Reader reader)
+    private static MuduStructValue ReadWireStruct(Mp.Reader reader)
     {
         var byKey = new global::System.Collections.Generic.SortedDictionary<long, object?>();
         var count = reader.ReadMapHeader();
@@ -387,7 +387,7 @@ internal static class MuduSys
             fields.Add(datum);
         }
 
-        return new MuduRecordValue(fields);
+        return new MuduStructValue(fields);
     }
 
     private static object? ReadWireDatum(Mp.Reader reader)
@@ -451,17 +451,17 @@ internal static class MuduSys
 
         if ((code & 0xf0) == 0x80 || code == 0xde || code == 0xdf)
         {
-            return ReadWireRecord(reader);
+            return ReadWireStruct(reader);
         }
 
         throw new global::System.IO.InvalidDataException(
-            $"record bridge: unsupported MessagePack marker 0x{code:x2}");
+            $"struct bridge: unsupported MessagePack marker 0x{code:x2}");
     }
 
     /// Writes one value of the decoded object model as a full
     /// `uni-data-value` envelope, in the host's transactable scalar
     /// vocabulary: booleans as i32 (0/1), integers as i32 or i64 by range,
-    /// byte strings in the record-context u8-array form, the Null scalar
+    /// byte strings in the struct-context u8-array form, the Null scalar
     /// for null.
     private static void WriteDatumEnvelope(Mp.Writer writer, object? value)
     {
@@ -488,8 +488,8 @@ internal static class MuduSys
             case byte[] bytes:
                 WriteDatumBlob(writer, bytes);
                 return;
-            case MuduRecordValue record:
-                WriteDatumEnvelopeRecord(writer, record);
+            case MuduStructValue struct:
+                WriteDatumEnvelopeStruct(writer, struct);
                 return;
             case global::System.Collections.Generic.List<object?> array:
                 writer.WriteArrayHeader(2); // UniDataValue::Array
@@ -503,16 +503,16 @@ internal static class MuduSys
                 return;
             default:
                 throw new global::System.IO.InvalidDataException(
-                    $"record bridge: unsupported datum {value.GetType()}");
+                    $"struct bridge: unsupported datum {value.GetType()}");
         }
     }
 
-    private static void WriteDatumEnvelopeRecord(Mp.Writer writer, MuduRecordValue record)
+    private static void WriteDatumEnvelopeStruct(Mp.Writer writer, MuduStructValue struct)
     {
-        writer.WriteArrayHeader(2); // UniDataValue::Record
-        writer.WriteUInt(DatRecord);
-        writer.WriteArrayHeader((uint)record.Fields.Count);
-        foreach (var field in record.Fields)
+        writer.WriteArrayHeader(2); // UniDataValue::Struct
+        writer.WriteUInt(DatStruct);
+        writer.WriteArrayHeader((uint)struct.Fields.Count);
+        foreach (var field in struct.Fields)
         {
             writer.WriteMapHeader(2); // UniDataValueField
             writer.WriteUInt(1);
@@ -617,10 +617,10 @@ internal static class MuduSys
         return null;
     }
 
-    /// Reads one record-map key. Returns the field number, or `null` when
+    /// Reads one struct-map key. Returns the field number, or `null` when
     /// the key is not an integer — in that case both the key and its value
     /// have already been skipped, mirroring the lenient generated decoders.
-    private static long? ReadRecordKey(Mp.Reader reader)
+    private static long? ReadStructKey(Mp.Reader reader)
     {
         if (!reader.NextIsInteger())
         {
@@ -640,7 +640,7 @@ internal static class MuduSys
         var resultSetCount = reader.ReadMapHeader();
         for (uint i = 0; i < resultSetCount; i++)
         {
-            switch (ReadRecordKey(reader))
+            switch (ReadStructKey(reader))
             {
                 case 2:
                     rows = ReadRows(reader);
@@ -667,7 +667,7 @@ internal static class MuduSys
             var tupleRowCount = reader.ReadMapHeader();
             for (uint k = 0; k < tupleRowCount; k++)
             {
-                switch (ReadRecordKey(reader))
+                switch (ReadStructKey(reader))
                 {
                     case 1:
                         fields = ReadFields(reader);
@@ -705,7 +705,7 @@ internal static class MuduSys
         var oidCount = reader.ReadMapHeader();
         for (uint i = 0; i < oidCount; i++)
         {
-            switch (ReadRecordKey(reader))
+            switch (ReadStructKey(reader))
             {
                 case 1:
                     h = reader.ReadUInt();
@@ -787,7 +787,7 @@ internal static class MuduSys
         writer.WriteUInt(DatScalar);
         writer.WriteArrayHeader(2); // UniScalarValue::Blob
         writer.WriteUInt(ScalarBlob);
-        // Record-context `list<u8>` encodes as an array of u8 (the pinned
+        // Struct-context `list<u8>` encodes as an array of u8 (the pinned
         // host quirk), not as MessagePack bin.
         writer.WriteArrayHeader((uint)value.Length);
         foreach (var b in value)
@@ -824,7 +824,7 @@ internal static class MuduSys
 
                 return items;
             }
-            case DatRecord:
+            case DatStruct:
             {
                 var fieldCount = reader.ReadArrayHeader();
                 var fields = new global::System.Collections.Generic.List<object?>((int)fieldCount);
@@ -836,7 +836,7 @@ internal static class MuduSys
                     var entryCount = reader.ReadMapHeader();
                     for (uint k = 0; k < entryCount; k++)
                     {
-                        switch (ReadRecordKey(reader))
+                        switch (ReadStructKey(reader))
                         {
                             case 2:
                                 fieldValue = ReadDatum(reader);
@@ -852,11 +852,11 @@ internal static class MuduSys
                     fields.Add(fieldValue);
                 }
 
-                return new MuduRecordValue(fields);
+                return new MuduStructValue(fields);
             }
             case DatBinary:
             {
-                // Record-context `list<u8>` arrives as an array of u8 (the
+                // Struct-context `list<u8>` arrives as an array of u8 (the
                 // pinned host quirk), not as MessagePack bin.
                 var binCount = reader.ReadArrayHeader();
                 var bin = new byte[binCount];
@@ -903,7 +903,7 @@ internal static class MuduSys
                 return reader.ReadString();
             case ScalarBlob:
             {
-                // Record-context `list<u8>` arrives as an array of u8 (the
+                // Struct-context `list<u8>` arrives as an array of u8 (the
                 // pinned host quirk), not as MessagePack bin.
                 var blobCount = reader.ReadArrayHeader();
                 var blob = new byte[blobCount];
@@ -935,7 +935,7 @@ internal static class MuduSys
         writer.WriteUInt(4);
         writer.WriteString(string.Empty); // err_loc
         writer.WriteUInt(5);
-        writer.WriteArrayHeader(0); // err_details (record-context int array)
+        writer.WriteArrayHeader(0); // err_details (struct-context int array)
     }
 
     private static MuduUniError ReadUniError(Mp.Reader reader)
@@ -945,7 +945,7 @@ internal static class MuduSys
         var errorCount = reader.ReadMapHeader();
         for (uint i = 0; i < errorCount; i++)
         {
-            switch (ReadRecordKey(reader))
+            switch (ReadStructKey(reader))
             {
                 case 1:
                     code = (uint)reader.ReadUInt();

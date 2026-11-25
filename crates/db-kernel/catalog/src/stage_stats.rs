@@ -263,7 +263,7 @@ fn record(stage: Stage, wall_ns: u64, cpu_ns: u64) {
     });
 }
 
-/// Records a pre-computed value (not a guard-measured span) into a stage,
+/// Structs a pre-computed value (not a guard-measured span) into a stage,
 /// e.g. queueing delay derived from a stored timestamp. No-op when stats
 /// are disabled. CPU time is recorded as zero.
 pub fn record_value(stage: Stage, wall_ns: u64) {

@@ -51,8 +51,8 @@ use ::conn::worker_local::WorkerFsService;
 use ::meta::fs_object::{
     decode_fs_object_row, encode_fs_object_key, FsObjectRow, FS_OBJECT_TABLE_ID,
 };
+use ::xcontract::contract::WorkerXContract;
 use ::xcontract::worker_storage::collect_fs_object_partition_ids;
-use ::xcontract::WorkerXContract;
 use ::xengine::tx_mgr::TxMgr;
 
 /// Maximum payload of a single fs read or write syscall (16 MiB).

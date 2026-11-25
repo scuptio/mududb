@@ -3,15 +3,15 @@ use crate::insert_key_value::InsertKeyValue;
 use ::catalog::contract::cmd_exec::CmdExec;
 
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum, VecSelTerm,
-    XContract,
+    XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PInsertKeyValue;
@@ -20,6 +20,7 @@ use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::sync::{
@@ -37,7 +38,7 @@ where
 }
 
 fn dummy_table_desc() -> Arc<TableDesc> {
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "t".to_string(),
         vec![SchemaColumn::new(
             "k".to_string(),
@@ -134,7 +135,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -215,6 +216,8 @@ impl XContract for MockXContract {
     }
 }
 
+impl XContractQueue for MockXContract {}
+
 struct MockMetaMgr {
     table: Arc<TableDesc>,
 }
@@ -236,7 +239,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -268,7 +271,7 @@ fn prepare_fails_for_table_without_primary_key() {
     // A keyless table binds every insert row to an empty key; the error must
     // name the real cause (no primary key), not a lookup failure.
     let keyless = {
-        let schema = SchemaTable::new(
+        let schema = SchemaClass::new(
             "log".to_string(),
             vec![SchemaColumn::new(
                 "msg".to_string(),
@@ -345,7 +348,7 @@ use ::catalog::contract::queue::{
     decode_queue_lsn, decode_queue_receive_count, decode_queue_seq, decode_queue_status,
     queue_system_columns, QUEUE_STATUS_READY,
 };
-use ::catalog::contract::schema_table::SchemaObjectKind;
+use ::catalog::contract::schema_class::SchemaClassKind;
 use mudu_sys::sync::SMutex;
 use std::collections::HashMap;
 
@@ -357,8 +360,8 @@ fn queue_table_desc() -> Arc<TableDesc> {
         DataType::default_for(TypeFamily::String).to_info(),
     ));
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new("q".to_string(), columns, vec![0], value_indices);
-    schema.set_kind(SchemaObjectKind::Queue);
+    let mut schema = SchemaClass::new("q".to_string(), columns, vec![0], value_indices);
+    schema.set_kind(SchemaClassKind::Queue);
     TableInfo::new(schema).unwrap().table_desc().unwrap()
 }
 
@@ -370,7 +373,7 @@ fn string_datum(value: &str) -> Buf {
     .unwrap()
 }
 
-/// Records inserted key/value datums and implements the queue sequence
+/// Structs inserted key/value datums and implements the queue sequence
 /// allocator with a configurable depth cap.
 type InsertedRows = Vec<(Vec<(usize, Buf)>, Vec<(usize, Buf)>)>;
 
@@ -396,7 +399,7 @@ impl QueueMockXContract {
 
 #[async_trait]
 impl XContract for QueueMockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -479,6 +482,21 @@ impl XContract for QueueMockXContract {
         Ok(())
     }
 
+    async fn insert_on_partition(
+        &self,
+        tx: Arc<dyn TxMgr>,
+        table_id: OID,
+        _partition_id: OID,
+        key: &VecDatum,
+        value: &VecDatum,
+    ) -> RS<()> {
+        self.insert(tx, table_id, key, value, &OptInsert::default())
+            .await
+    }
+}
+
+#[async_trait]
+impl XContractQueue for QueueMockXContract {
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
         Ok(vec![::xengine::api::QueueShard {
             queue_oid: table_id,
@@ -509,18 +527,6 @@ impl XContract for QueueMockXContract {
         let first = *next;
         *next += count;
         Ok(first)
-    }
-
-    async fn insert_on_partition(
-        &self,
-        tx: Arc<dyn TxMgr>,
-        table_id: OID,
-        _partition_id: OID,
-        key: &VecDatum,
-        value: &VecDatum,
-    ) -> RS<()> {
-        self.insert(tx, table_id, key, value, &OptInsert::default())
-            .await
     }
 }
 

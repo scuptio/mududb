@@ -2,6 +2,13 @@
 
 This guide describes the full workflow for evolving a persistent or wire format from version `n` to `n+1`.
 
+The router currently registers identity handlers for Page, LogFrame,
+ProtocolFrame, TupleBinary and SyscallPayload. The examples below describe how to
+add a future migration; they do not mean an old-format upgrade tool already exists.
+The router remains in the `mudu_kernel` facade, while page/WAL handlers live in
+the owning `storage`/`wal` crates. The control-plane breaking cutover does not
+promise legacy format import.
+
 ## 1. When a Format Upgrade Is Needed
 
 A format version bump is usually required when:
@@ -36,7 +43,7 @@ Add golden fixtures and round-trip tests
 Every format has bilingual contract documents:
 
 - English: `doc/en/contract/<name>_v{n+1}.md`
-- Chinese: `doc/cn/contract/<name>_v{n+1}.md`
+- Chinese: `doc/zh-CN/contract/<name>_v{n+1}.md`
 
 The new document must contain:
 
@@ -45,7 +52,7 @@ The new document must contain:
 - A changelog describing differences from the previous version.
 - For removed fields: describe default values or tombstone semantics; mark any field as `irreversible` if rollback cannot reconstruct it.
 
-Also update `doc/en/contract/README.md` and `doc/cn/contract/README.md` to list the new document.
+Also update `doc/en/contract/README.md` and `doc/zh-CN/contract/README.md` to list the new document.
 
 ## 4. Implement the Migrate Handler
 
@@ -53,13 +60,14 @@ Migrate handlers live in the crate that owns the format's encode/decode code, ne
 
 | FormatKind          | Migrate directory                                       |
 |---------------------|---------------------------------------------------------|
-| `Page`              | `mudu_kernel/src/storage/page/migrate/`                 |
-| `LogFrame`          | `mudu_kernel/src/wal/migrate/`                          |
-| `ProtocolFrame`     | `mudu_contract/src/protocol/migrate/`                   |
-| `TupleBinary`       | `mudu_contract/src/tuple/migrate/`                      |
+| `Page`              | `crates/db-kernel/storage/src/page/migrate/`                 |
+| `LogFrame`          | `crates/db-kernel/wal/src/migrate/`                          |
+| `ProtocolFrame`     | `crates/common/mudu_contract/src/protocol/migrate/`                   |
+| `TupleBinary`       | `crates/common/mudu_contract/src/tuple/migrate/`                      |
+| `SyscallPayload` | `crates/common/mudu_binding/src/codec/syscall_payload/migrate/` |
 | `FileLayout`        | No independent migrate; compatibility relies on page/log frame migrations |
-| `MpkManifest`       | Reserved; not implemented yet                           |
-| `ServerConfig`      | Reserved; not implemented yet                           |
+| `MpkManifest`       | No migration handler registered in the kernel router                           |
+| `ServerConfig`      | No migration handler registered in the kernel router                           |
 
 The `FormatKind::Page` migrate handler must operate on the **complete page binary** at the configured page size (default 4 KiB), not just the 128-byte page header.  When the page format evolves, the slot array, tailer, and record payloads may also change.
 
@@ -109,7 +117,7 @@ Constraints:
 The global [`CompatibilityRouter`] is installed by `mudu_kernel::compat::install_compatibility_router()`. When adding a format upgrade, update that function:
 
 ```rust
-// mudu_kernel/src/compat.rs
+// crates/db-kernel/mudu_kernel/src/compat.rs
 router.register(FormatKind::Page, page_migrate::v1_to_v2());
 ```
 
@@ -121,7 +129,7 @@ router.set_supported_window(FormatKind::Page, 1, 2);
 
 ## 6. Update the Current Version Constant and CompatibilityMatrix
 
-Each format has a static current-version constant in `mudu/src/compat/mod.rs`, e.g.:
+Each format has a static current-version constant in `crates/common/mudu/src/compat/mod.rs`, e.g.:
 
 ```rust
 pub const PAGE_CURRENT_VERSION: u32 = 1;
@@ -171,12 +179,12 @@ let decoded = PageHeader::decode(&migrated)?;
 
 ## 8. Checklist
 
-- [ ] Added `doc/en/contract/<name>_v{n+1}.md` and `doc/cn/contract/<name>_v{n+1}.md`.
+- [ ] Added `doc/en/contract/<name>_v{n+1}.md` and `doc/zh-CN/contract/<name>_v{n+1}.md`.
 - [ ] Updated the `README.md` index in both languages.
 - [ ] Implemented `upgrade` / `rollback` in the owning crate's `migrate/` directory.
 - [ ] `upgrade` / `rollback` are pure functions with no IO.
-- [ ] Updated the router registration and supported window in `mudu_kernel/src/compat.rs`.
-- [ ] Updated `CompatibilityMatrix` in `mudu/src/compat/mod.rs`.
+- [ ] Updated the router registration and supported window in `crates/db-kernel/mudu_kernel/src/compat.rs`.
+- [ ] Updated `CompatibilityMatrix` in `crates/common/mudu/src/compat/mod.rs`.
 - [ ] Added unit tests for upgrade/rollback round-trip.
 - [ ] Added or updated golden fixtures.
 - [ ] `cargo test --workspace` passes.

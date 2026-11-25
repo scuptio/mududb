@@ -272,7 +272,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
         adapter.contains("private static global::WalletCs.Types.Profile AsProfile(object? value)")
     );
     assert!(
-        adapter.contains("var reader = new MessagePackReader(MuduSys.RecordFieldValues(value));")
+        adapter.contains("var reader = new MessagePackReader(MuduSys.StructFieldValues(value));")
     );
     assert!(adapter.contains(
         "return new global::WalletCs.Types.ProfileFormatter().Deserialize(ref reader, null!);"
@@ -285,7 +285,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
         "new global::WalletCs.Types.ProfileFormatter().Serialize(ref writer, (global::WalletCs.Types.Profile)value!, null!);"
     ));
     assert!(
-        adapter.contains("return MuduSys.EncodeProcedureOkRecord(buffer.WrittenMemory.ToArray());")
+        adapter.contains("return MuduSys.EncodeProcedureOkStruct(buffer.WrittenMemory.ToArray());")
     );
     // the lifted scalar result uses an EncodeProcedureOk overload through
     // InvokeObj; the long result keeps the legacy Invoke shape
@@ -379,9 +379,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
     });
     let i32_type = serde_json::json!({ "id": "I32", "param": null });
     let address_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Address",
                 "field": [
                     ["city", string_type],
@@ -391,9 +391,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
         }
     });
     let profile_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Profile",
                 "field": [
                     ["display-name", string_type],

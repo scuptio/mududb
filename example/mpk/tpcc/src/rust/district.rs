@@ -1,6 +1,6 @@
 pub mod object {
     use mududb::common::result::RS;
-    use mududb::contract::database::entity::{self, Entity};
+    use mududb::contract::database::object::{self, Object};
 
     use mududb::contract::database::field_change::FieldChange;
 
@@ -38,7 +38,7 @@ pub mod object {
         pub const D_LAST_DELIVERY_O_ID: &str = "d_last_delivery_o_id";
     }
 
-    // entity struct definition
+    // object struct definition
     #[derive(Debug, Clone, Default)]
     pub struct District {
         pub d_id: i32,
@@ -220,46 +220,46 @@ pub mod object {
         fn data_type() -> DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity::entity_data_type::<District>)
+                .get_or_init(object::object_data_type::<District>)
                 .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity::entity_from_binary(binary)
+            object::object_from_binary(binary)
         }
 
         fn from_value(value: &DataValue) -> RS<Self> {
-            entity::entity_from_value(value)
+            object::object_from_value(value)
         }
 
         fn from_textual(textual: &str) -> RS<Self> {
-            entity::entity_from_textual(textual)
+            object::object_from_textual(textual)
         }
     }
 
     impl DatumDyn for District {
         fn type_family(&self) -> RS<TypeFamily> {
-            entity::entity_type_family()
+            object::object_type_family()
         }
 
         fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-            entity::entity_to_binary(self, data_type)
+            object::object_to_binary(self, data_type)
         }
 
         fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-            entity::entity_to_textual(self, data_type)
+            object::object_to_textual(self, data_type)
         }
 
         fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-            entity::entity_to_value(self, data_type)
+            object::object_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity::entity_clone_boxed(self)
+            object::object_clone_boxed(self)
         }
     }
 
-    impl Entity for District {
+    impl Object for District {
         fn tuple_desc() -> &'static TupleFieldDesc {
             static ONCE_LOCK: std::sync::OnceLock<TupleFieldDesc> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(|| {
@@ -316,31 +316,31 @@ pub mod object {
             })
         }
 
-        fn table_name() -> &'static str {
+        fn class_name() -> &'static str {
             TABLE_NAME
         }
 
         fn from_tuple(row: &TupleField) -> RS<Self> {
             let fields = row.fields();
-            entity::expect_field_count(fields.len(), 7)?;
+            object::expect_field_count(fields.len(), 7)?;
             Ok(Self {
-                d_id: entity::field_from_tuple_binary(TABLE_NAME, columns::D_ID, &fields[0])?,
+                d_id: object::field_from_tuple_binary(TABLE_NAME, columns::D_ID, &fields[0])?,
 
-                d_w_id: entity::field_from_tuple_binary(TABLE_NAME, columns::D_W_ID, &fields[1])?,
+                d_w_id: object::field_from_tuple_binary(TABLE_NAME, columns::D_W_ID, &fields[1])?,
 
-                d_name: entity::field_from_tuple_binary(TABLE_NAME, columns::D_NAME, &fields[2])?,
+                d_name: object::field_from_tuple_binary(TABLE_NAME, columns::D_NAME, &fields[2])?,
 
-                d_tax: entity::field_from_tuple_binary(TABLE_NAME, columns::D_TAX, &fields[3])?,
+                d_tax: object::field_from_tuple_binary(TABLE_NAME, columns::D_TAX, &fields[3])?,
 
-                d_ytd: entity::field_from_tuple_binary(TABLE_NAME, columns::D_YTD, &fields[4])?,
+                d_ytd: object::field_from_tuple_binary(TABLE_NAME, columns::D_YTD, &fields[4])?,
 
-                d_next_o_id: entity::field_from_tuple_binary(
+                d_next_o_id: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::D_NEXT_O_ID,
                     &fields[5],
                 )?,
 
-                d_last_delivery_o_id: entity::field_from_tuple_binary(
+                d_last_delivery_o_id: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::D_LAST_DELIVERY_O_ID,
                     &fields[6],
@@ -350,25 +350,25 @@ pub mod object {
 
         fn from_tuple_value(row: &TupleValue) -> RS<Self> {
             let values = row.values();
-            entity::expect_field_count(values.len(), 7)?;
+            object::expect_field_count(values.len(), 7)?;
             Ok(Self {
-                d_id: entity::field_from_tuple_value(TABLE_NAME, columns::D_ID, &values[0])?,
+                d_id: object::field_from_tuple_value(TABLE_NAME, columns::D_ID, &values[0])?,
 
-                d_w_id: entity::field_from_tuple_value(TABLE_NAME, columns::D_W_ID, &values[1])?,
+                d_w_id: object::field_from_tuple_value(TABLE_NAME, columns::D_W_ID, &values[1])?,
 
-                d_name: entity::field_from_tuple_value(TABLE_NAME, columns::D_NAME, &values[2])?,
+                d_name: object::field_from_tuple_value(TABLE_NAME, columns::D_NAME, &values[2])?,
 
-                d_tax: entity::field_from_tuple_value(TABLE_NAME, columns::D_TAX, &values[3])?,
+                d_tax: object::field_from_tuple_value(TABLE_NAME, columns::D_TAX, &values[3])?,
 
-                d_ytd: entity::field_from_tuple_value(TABLE_NAME, columns::D_YTD, &values[4])?,
+                d_ytd: object::field_from_tuple_value(TABLE_NAME, columns::D_YTD, &values[4])?,
 
-                d_next_o_id: entity::field_from_tuple_value(
+                d_next_o_id: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::D_NEXT_O_ID,
                     &values[5],
                 )?,
 
-                d_last_delivery_o_id: entity::field_from_tuple_value(
+                d_last_delivery_o_id: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::D_LAST_DELIVERY_O_ID,
                     &values[6],
@@ -378,25 +378,25 @@ pub mod object {
 
         fn to_tuple(&self) -> RS<TupleField> {
             Ok(TupleField::new_nullable(vec![
-                entity::field_to_tuple_binary(&self.d_id)?,
-                entity::field_to_tuple_binary(&self.d_w_id)?,
-                entity::field_to_tuple_binary(&self.d_name)?,
-                entity::field_to_tuple_binary(&self.d_tax)?,
-                entity::field_to_tuple_binary(&self.d_ytd)?,
-                entity::field_to_tuple_binary(&self.d_next_o_id)?,
-                entity::field_to_tuple_binary(&self.d_last_delivery_o_id)?,
+                object::field_to_tuple_binary(&self.d_id)?,
+                object::field_to_tuple_binary(&self.d_w_id)?,
+                object::field_to_tuple_binary(&self.d_name)?,
+                object::field_to_tuple_binary(&self.d_tax)?,
+                object::field_to_tuple_binary(&self.d_ytd)?,
+                object::field_to_tuple_binary(&self.d_next_o_id)?,
+                object::field_to_tuple_binary(&self.d_last_delivery_o_id)?,
             ]))
         }
 
         fn to_tuple_value(&self) -> RS<TupleValue> {
             Ok(TupleValue::from(vec![
-                entity::field_to_tuple_value(&self.d_id)?,
-                entity::field_to_tuple_value(&self.d_w_id)?,
-                entity::field_to_tuple_value(&self.d_name)?,
-                entity::field_to_tuple_value(&self.d_tax)?,
-                entity::field_to_tuple_value(&self.d_ytd)?,
-                entity::field_to_tuple_value(&self.d_next_o_id)?,
-                entity::field_to_tuple_value(&self.d_last_delivery_o_id)?,
+                object::field_to_tuple_value(&self.d_id)?,
+                object::field_to_tuple_value(&self.d_w_id)?,
+                object::field_to_tuple_value(&self.d_name)?,
+                object::field_to_tuple_value(&self.d_tax)?,
+                object::field_to_tuple_value(&self.d_ytd)?,
+                object::field_to_tuple_value(&self.d_next_o_id)?,
+                object::field_to_tuple_value(&self.d_last_delivery_o_id)?,
             ]))
         }
     }

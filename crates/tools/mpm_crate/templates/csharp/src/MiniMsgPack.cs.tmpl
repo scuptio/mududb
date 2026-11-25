@@ -20,7 +20,7 @@ namespace {{pascal_name}};
 /// is unusable inside the guest. The uni DTO tag numbers below are verified
 /// against the Rust host sources (`uni_scalar_value.rs`, `uni_data_value.rs`).
 ///
-/// MSSP v1 shapes: records and request argument lists are MessagePack maps
+/// MSSP v1 shapes: structs and request argument lists are MessagePack maps
 /// keyed by the 1-based field/parameter numbers (WIT declaration order);
 /// variants stay `[tag, payload]` 2-arrays. Writes are canonical (shortest
 /// integer/str/bin form, matching rmp_serde); reads are lenient (integer
@@ -215,9 +215,9 @@ internal static class Mp
         }
 
         /// Writes a MessagePack bin (bin8/16/32 by length). The mgen-generated
-        /// record codecs read `blob` fields with `MessagePackReader.ReadBytes`,
-        /// which accepts the bin form only — the record bridge therefore
-        /// transcodes byte strings to bin (never the record-context u8-array
+        /// struct codecs read `blob` fields with `MessagePackReader.ReadBytes`,
+        /// which accepts the bin form only — the struct bridge therefore
+        /// transcodes byte strings to bin (never the struct-context u8-array
         /// form) on the way into a generated formatter.
         public void WriteBin(byte[] value)
         {
@@ -402,7 +402,7 @@ internal static class Mp
         }
 
         /// Reports whether the next value belongs to the MessagePack integer
-        /// family (fixint or any int/uint width). Record/request map keys are
+        /// family (fixint or any int/uint width). Struct/request map keys are
         /// field numbers, so a non-integer key is skipped with its value
         /// (lenient decode).
         public bool NextIsInteger()
@@ -414,7 +414,7 @@ internal static class Mp
         }
 
         /// The MessagePack marker byte of the next value without consuming
-        /// it; the record bridge's wire-datum reader dispatches on it.
+        /// it; the struct bridge's wire-datum reader dispatches on it.
         public byte PeekCode() => Peek();
 
         public string ReadString()

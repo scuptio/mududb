@@ -1,6 +1,7 @@
 use crate::data_type::DataType;
 use crate::datum::DatumDyn;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::Unstructured;
 
 const SEED_COUNT: u64 = 32;
@@ -20,7 +21,7 @@ fn supported_scalar_type_ids() -> &'static [TypeFamily] {
 }
 
 fn supported_complex_type_ids() -> &'static [TypeFamily] {
-    &[TypeFamily::Array, TypeFamily::Record]
+    &[TypeFamily::Array, TypeFamily::Struct]
 }
 
 fn seed_bytes(seed: u64, len: usize) -> Vec<u8> {
@@ -274,7 +275,7 @@ fn supported_complex_printable_values_parse_back() {
 
 /// The family-level fixed-length flag must agree with the parametrized
 /// binary length function for every generated parameter object.
-/// Regression test: the `_schema_table` fuzz target found that `Numeric`
+/// Regression test: the `_schema_class` fuzz target found that `Numeric`
 /// declared `fixed_length: None` while `fn_numeric_len` always returns
 /// a fixed 16-byte length.
 #[test]
@@ -293,7 +294,7 @@ fn family_fixed_len_flag_matches_parametrized_type_len() {
         TypeFamily::Timestamp,
         TypeFamily::TimestampTz,
         TypeFamily::Array,
-        TypeFamily::Record,
+        TypeFamily::Struct,
         TypeFamily::Binary,
     ];
     for &id in &all {

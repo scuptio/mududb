@@ -1,4 +1,4 @@
-//! Unit tests for the generated (`wasm32` target) entity modules, compiled
+//! Unit tests for the generated (`wasm32` target) object modules, compiled
 //! natively through the `cfg(test)` shim in `lib.rs`.
 
 mod options;

@@ -29,7 +29,7 @@ public class UniProcedureResultFormatter : IMessagePackFormatter<UniProcedureRes
 {
     public void Serialize(ref MessagePackWriter writer, UniProcedureResult value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(1);
         

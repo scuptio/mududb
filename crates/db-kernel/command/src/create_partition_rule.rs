@@ -16,14 +16,23 @@ pub struct CreatePartitionRule {
 struct InnerCreatePartitionRule {
     param: PCreatePartitionRule,
     meta_mgr: Arc<dyn MetaMgr>,
+    meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
 }
 
 impl CreatePartitionRule {
     /// Creates an executor for the create-partition-rule command `param`,
     /// reading and writing the partition-rule catalog through `meta_mgr`.
-    pub fn new(param: PCreatePartitionRule, meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    pub fn new(
+        param: PCreatePartitionRule,
+        meta_mgr: Arc<dyn MetaMgr>,
+        meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
+    ) -> Self {
         Self {
-            inner: AMutex::new(InnerCreatePartitionRule { param, meta_mgr }),
+            inner: AMutex::new(InnerCreatePartitionRule {
+                param,
+                meta_mgr,
+                meta_group,
+            }),
         }
     }
 }
@@ -55,7 +64,7 @@ impl InnerCreatePartitionRule {
             .is_some()
         {
             return Err(mudu_error!(
-                ER::EntityAlreadyExists,
+                ER::ObjectAlreadyExists,
                 format!("partition rule {} already exists", self.param.rule.name)
             ));
         }
@@ -63,6 +72,13 @@ impl InnerCreatePartitionRule {
     }
 
     async fn run(&self) -> RS<()> {
+        if let Some(meta_group) = &self.meta_group {
+            return meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::CreatePartitionRule {
+                    rule: self.param.rule.clone(),
+                })
+                .await;
+        }
         self.meta_mgr.create_partition_rule(&self.param.rule).await
     }
 }

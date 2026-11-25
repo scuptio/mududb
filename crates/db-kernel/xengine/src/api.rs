@@ -1,12 +1,13 @@
+use crate::data_bin::DataBin;
+pub use crate::delta::{DeltaAssign, DeltaOp};
 use async_trait::async_trait;
 use std::ops::Bound;
 use std::sync::Arc;
 
-use crate::data_bin::DataBin;
 use crate::operator::Operator;
 use crate::tx_mgr::TxMgr;
 use ::catalog::contract::queue::{QueueWait, QUEUE_SEQ_SHARD_SHIFT};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -130,86 +131,11 @@ pub enum Predicate {
 /// alter table parameter
 pub enum AlterTable {}
 
-/// Sign of a restricted `SET col = col <+|-> <literal>` update assignment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeltaOp {
-    /// `col = col + literal`
-    Add,
-    /// `col = col - literal`
-    Sub,
-    /// `col = col + literal`, evaluated atomically at COMMIT APPLY time
-    /// instead of under the statement lock at statement time. Only valid for
-    /// assignments that commute with every other concurrent writer of the
-    /// row; see `OptUpdate::delta_assignments`.
-    AddDeferred,
-    /// `col = col - literal`, deferred like [`DeltaOp::AddDeferred`].
-    SubDeferred,
-    /// Deferred conditional restock: `col = col - q; if col < floor { col + wrap }`.
-    /// The literal packs three big-endian i64s `[q, floor, wrap]`. Two such
-    /// updates always commute when `wrap > floor` (the result is
-    /// `((current - floor - q) mod wrap) + floor`, order-invariant), so they
-    /// are evaluated at COMMIT APPLY time without any statement lock.
-    SubWrapDeferred,
-}
-
-impl DeltaOp {
-    /// Whether this assignment is evaluated at COMMIT APPLY time (lock-free)
-    /// rather than at statement time under the statement lock.
-    pub fn is_deferred(self) -> bool {
-        matches!(
-            self,
-            DeltaOp::AddDeferred | DeltaOp::SubDeferred | DeltaOp::SubWrapDeferred
-        )
-    }
-
-    /// Wire op code used in the relation-update payload and `XLUpdate::delta`.
-    pub fn op_code(self) -> u8 {
-        match self {
-            DeltaOp::Add => 0,
-            DeltaOp::Sub => 1,
-            DeltaOp::AddDeferred => 2,
-            DeltaOp::SubDeferred => 3,
-            DeltaOp::SubWrapDeferred => 4,
-        }
-    }
-
-    /// Decodes a wire op code back into a [`DeltaOp`].
-    pub fn from_op_code(op: u8) -> RS<DeltaOp> {
-        match op {
-            0 => Ok(DeltaOp::Add),
-            1 => Ok(DeltaOp::Sub),
-            2 => Ok(DeltaOp::AddDeferred),
-            3 => Ok(DeltaOp::SubDeferred),
-            4 => Ok(DeltaOp::SubWrapDeferred),
-            other => Err(mudu_error!(
-                ErrorCode::Decode,
-                format!("unknown relation delta op {other}")
-            )),
-        }
-    }
-}
-
 /**
 - optional parameter for read operation
  */
 #[derive(Clone, Debug, Default)]
 pub struct OptRead {}
-
-/// A restricted expression assignment (`SET col = col <+|-> <integer literal
-/// or ?>`).
-///
-/// Unlike an absolute assignment carried by [`VecDatum`], the new column value
-/// is computed from the latest committed value read under the statement lock,
-/// which makes the update an atomic increment/decrement.
-#[derive(Clone, Debug)]
-pub struct DeltaAssign {
-    /// Target column attribute index.
-    pub attr: AttrIndex,
-    /// Whether to add or subtract the operand.
-    pub op: DeltaOp,
-    /// Operand encoded in the column's binary format.
-    pub literal: DataBin,
-}
 
 /**
 - optional parameter for update operation
@@ -239,53 +165,12 @@ pub struct OptInsert {}
 pub struct OptDelete {}
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Transactional relational execution interface used by the kernel.
-///
-/// [`XContract`] is the storage-facing contract behind SQL execution and the
-/// worker-local runtime. All stable schema objects are addressed by immutable
-/// object identifiers such as [`OID`], while each write/read statement is
-/// executed inside a transaction identified by a [`TxMgr`] handle.
-///
-/// Conventions:
-/// - `table_id` always identifies the target table by OID.
-/// - `pred_key` carries exact primary-key components for point operations.
-/// - `pred_non_key` refines the operation with additional non-key predicates.
-/// - `select` lists projected columns for read operations.
-/// - row-count return values report how many visible rows were affected.
+/// Queue runtime operations of [`XContract`]: shard routing, enqueue
+/// reservations, receive/claim rounds, dead-letter transfer, and the named
+/// consumer cursors. Split out of `XContract` to keep both within the code
+/// metrics limits; `XContract: XContractQueue` keeps callers unchanged.
 #[async_trait]
-pub trait XContract: Send + Sync {
-    /// Creates a table described by `schema`.
-    ///
-    /// `tx_mgr` is accepted for interface uniformity; implementations may treat
-    /// DDL as autocommit if transactional DDL is not supported.
-    async fn create_table(&self, tx_mgr: Arc<dyn TxMgr>, schema: &SchemaTable) -> RS<()>;
-
-    /// Drops the table identified by `oid`.
-    async fn drop_table(&self, tx_mgr: Arc<dyn TxMgr>, oid: OID) -> RS<()>;
-
-    /// Creates a queue described by `schema`, which carries the queue kind
-    /// and the queue system columns ahead of the payload columns.
-    ///
-    /// The default fails with `NotImplemented`; `WorkerXContract` implements
-    /// it by sharing the create-table storage chain.
-    async fn create_queue(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "create queue is not implemented"
-        ))
-    }
-
-    /// Drops the queue identified by `oid`.
-    ///
-    /// The default fails with `NotImplemented`; `WorkerXContract` implements
-    /// it by sharing the drop-table storage chain.
-    async fn drop_queue(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "drop queue is not implemented"
-        ))
-    }
-
+pub trait XContractQueue: Send + Sync {
     /// The shard layout of the queue `table_id`: one shard per partition of
     /// the bound rule, or the single shard 0 for an unpartitioned queue.
     async fn queue_shards(&self, _table_id: OID) -> RS<Vec<QueueShard>> {
@@ -315,7 +200,7 @@ pub trait XContract: Send + Sync {
             .find(|shard| shard.shard_index == shard_index)
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("queue {table_id} has no shard {shard_index} (sequence {seq})")
                 )
             })
@@ -374,67 +259,6 @@ pub trait XContract: Send + Sync {
         ))
     }
 
-    /// Insert pinned to an explicit partition (local or remote-owned).
-    async fn insert_on_partition(
-        &self,
-        _tx: Arc<dyn TxMgr>,
-        _table_id: OID,
-        _partition_id: OID,
-        _key: &VecDatum,
-        _value: &VecDatum,
-    ) -> RS<()> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "partition-pinned insert is not implemented"
-        ))
-    }
-
-    /// Update pinned to an explicit partition (local or remote-owned).
-    async fn update_on_partition(
-        &self,
-        _tx: Arc<dyn TxMgr>,
-        _table_id: OID,
-        _partition_id: OID,
-        _key: &VecDatum,
-        _values: &VecDatum,
-        _opt: &OptUpdate,
-    ) -> RS<usize> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "partition-pinned update is not implemented"
-        ))
-    }
-
-    /// Delete pinned to an explicit partition (local or remote-owned).
-    async fn delete_on_partition(
-        &self,
-        _tx: Arc<dyn TxMgr>,
-        _table_id: OID,
-        _partition_id: OID,
-        _key: &VecDatum,
-    ) -> RS<usize> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "partition-pinned delete is not implemented"
-        ))
-    }
-
-    /// Range scan pinned to an explicit partition (local or remote-owned).
-    async fn read_range_on_partition(
-        &self,
-        _tx: Arc<dyn TxMgr>,
-        _table_id: OID,
-        _partition_id: OID,
-        _range: &RangeData,
-        _select: &VecSelTerm,
-        _opt: &OptRead,
-    ) -> RS<Arc<dyn RSCursor>> {
-        Err(mudu_error!(
-            ErrorCode::NotImplemented,
-            "partition-pinned read is not implemented"
-        ))
-    }
-
     /// Runs a `RECEIVE ... WAIT` against one shard: autonomous claim rounds
     /// commit on the owner worker between parks, so the park itself holds no
     /// transaction or locks. Local shards run the loop in-process; remote
@@ -468,7 +292,7 @@ pub trait XContract: Send + Sync {
     /// caller's transaction: scans the shard in local `__seq` order and
     /// claims up to `count` ready rows; poison rows come back among the
     /// claimed ones for the caller to dead-letter through
-    /// [`XContract::queue_dlq_transfer`].
+    /// [`XContractQueue::queue_dlq_transfer`].
     async fn queue_claim_round(
         &self,
         _tx: Arc<dyn TxMgr>,
@@ -483,7 +307,7 @@ pub trait XContract: Send + Sync {
 
     /// One fan-out scan round of the consumer cursor `consumer` on one
     /// shard: read-only rows at or past the cursor frontier (capped at
-    /// `count`). Fails with `ErrorCode::EntityNotFound` for an unknown
+    /// `count`). Fails with `ErrorCode::ObjectNotFound` for an unknown
     /// cursor.
     async fn queue_consumer_scan(
         &self,
@@ -559,7 +383,7 @@ pub trait XContract: Send + Sync {
     /// Registers the named consumer cursor `consumer` on the queue
     /// `queue_oid` in `tx_mgr` (one `_queue_consumer` row per shard, frontier
     /// 0), switching the queue to fan-out mode. Fails with
-    /// `ErrorCode::EntityAlreadyExists` when the cursor already exists.
+    /// `ErrorCode::ObjectAlreadyExists` when the cursor already exists.
     ///
     /// The default fails with `NotImplemented`; `WorkerXContract` implements
     /// it as ordinary transactional DML on the `_queue_consumer` system
@@ -577,7 +401,7 @@ pub trait XContract: Send + Sync {
     }
 
     /// Removes the named consumer cursor `consumer` of the queue `queue_oid`
-    /// in `tx_mgr` (every shard row). Fails with `ErrorCode::EntityNotFound`
+    /// in `tx_mgr` (every shard row). Fails with `ErrorCode::ObjectNotFound`
     /// when the cursor does not exist.
     ///
     /// The default fails with `NotImplemented`.
@@ -633,7 +457,7 @@ pub trait XContract: Send + Sync {
     /// shard past local `seq` (monotonic, never backwards) in `tx_mgr`, then
     /// garbage-collects the shard: rows with a local `__seq` every consumer
     /// of the shard has acknowledged are physically deleted in the same
-    /// transaction. Fails with `ErrorCode::EntityNotFound` when the cursor
+    /// transaction. Fails with `ErrorCode::ObjectNotFound` when the cursor
     /// does not exist. Returns the number of queue rows deleted by the GC.
     ///
     /// The default fails with `NotImplemented`.
@@ -647,6 +471,122 @@ pub trait XContract: Send + Sync {
         Err(mudu_error!(
             ErrorCode::NotImplemented,
             "queue consumer ack is not implemented"
+        ))
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// Transactional relational execution interface used by the kernel.
+///
+/// [`XContract`] is the storage-facing contract behind SQL execution and the
+/// worker-local runtime. All stable schema objects are addressed by immutable
+/// object identifiers such as [`OID`], while each write/read statement is
+/// executed inside a transaction identified by a [`TxMgr`] handle.
+///
+/// Conventions:
+/// - `table_id` always identifies the target table by OID.
+/// - `pred_key` carries exact primary-key components for point operations.
+/// - `pred_non_key` refines the operation with additional non-key predicates.
+/// - `select` lists projected columns for read operations.
+/// - row-count return values report how many visible rows were affected.
+#[async_trait]
+pub trait XContract: XContractQueue + Send + Sync {
+    /// The cluster's MetaGroup handle for catalog DDL (phase 1b); `None`
+    /// outside cluster mode, where DDL executes locally.
+    fn meta_group(&self) -> Option<Arc<dyn catalog::contract::meta_op::MetaGroupApi>> {
+        None
+    }
+
+    /// Creates a table described by `schema`.
+    ///
+    /// `tx_mgr` is accepted for interface uniformity; implementations may treat
+    /// DDL as autocommit if transactional DDL is not supported.
+    async fn create_table(&self, tx_mgr: Arc<dyn TxMgr>, schema: &SchemaClass) -> RS<()>;
+
+    /// Drops the table identified by `oid`.
+    async fn drop_table(&self, tx_mgr: Arc<dyn TxMgr>, oid: OID) -> RS<()>;
+
+    /// Creates a queue described by `schema`, which carries the queue kind
+    /// and the queue system columns ahead of the payload columns.
+    ///
+    /// The default fails with `NotImplemented`; `WorkerXContract` implements
+    /// it by sharing the create-table storage chain.
+    async fn create_queue(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "create queue is not implemented"
+        ))
+    }
+
+    /// Drops the queue identified by `oid`.
+    ///
+    /// The default fails with `NotImplemented`; `WorkerXContract` implements
+    /// it by sharing the drop-table storage chain.
+    async fn drop_queue(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "drop queue is not implemented"
+        ))
+    }
+
+    /// Insert pinned to an explicit partition (local or remote-owned).
+    async fn insert_on_partition(
+        &self,
+        _tx: Arc<dyn TxMgr>,
+        _table_id: OID,
+        _partition_id: OID,
+        _key: &VecDatum,
+        _value: &VecDatum,
+    ) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition-pinned insert is not implemented"
+        ))
+    }
+
+    /// Update pinned to an explicit partition (local or remote-owned).
+    async fn update_on_partition(
+        &self,
+        _tx: Arc<dyn TxMgr>,
+        _table_id: OID,
+        _partition_id: OID,
+        _key: &VecDatum,
+        _values: &VecDatum,
+        _opt: &OptUpdate,
+    ) -> RS<usize> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition-pinned update is not implemented"
+        ))
+    }
+
+    /// Delete pinned to an explicit partition (local or remote-owned).
+    async fn delete_on_partition(
+        &self,
+        _tx: Arc<dyn TxMgr>,
+        _table_id: OID,
+        _partition_id: OID,
+        _key: &VecDatum,
+    ) -> RS<usize> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition-pinned delete is not implemented"
+        ))
+    }
+
+    /// Range scan pinned to an explicit partition (local or remote-owned).
+    async fn read_range_on_partition(
+        &self,
+        _tx: Arc<dyn TxMgr>,
+        _table_id: OID,
+        _partition_id: OID,
+        _range: &RangeData,
+        _select: &VecSelTerm,
+        _opt: &OptRead,
+    ) -> RS<Arc<dyn RSCursor>> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition-pinned read is not implemented"
         ))
     }
 

@@ -16,445 +16,215 @@
 //! worker-KV watermark format rebuild from their live relation rows on first
 //! use.
 
-use std::collections::HashMap;
+use crate::lifecycle_cluster::resolve_partition_worker;
+use crate::ops::_begin_tx;
 
+use ::catalog::contract::cluster_router::ClusterRouter;
+use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::queue::{
     queue_seq_datum, queue_seq_local, queue_seq_shard, queue_status_datum, QUEUE_SEQ_ATTR,
     QUEUE_STATUS_ATTR, QUEUE_STATUS_READY,
 };
-use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use super::*;
+use crate::contract::WorkerXContract;
+use crate::queue_state::{publish_queue_state, read_legacy_state, read_shard_sentinel_committed};
+use crate::queue_types::{
+    ensure_local_shard_owner, shard_key, QueueRegistry, QueueRuntimeSnapshot,
+};
+use crate::queue_wait_registry::QueueWaitRegistry;
+use ::xengine::api::{QueueShard, VecDatum};
+use ::xengine::partition_router::{PartitionRouter, DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID};
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use tracing::debug;
 
-/// Identifies one queue shard: the queue relation oid plus the oid of the
-/// partition hosting the shard (`0` for an unpartitioned queue).
-pub type QueueShardId = (OID, OID);
-
-/// Registry key of one shard placement.
-pub fn shard_key(shard: &QueueShard) -> QueueShardId {
-    (shard.queue_oid, shard.partition_id)
+/// Per-shard runtime stats of this worker for the observability endpoint:
+/// counters of every loaded shard plus its parked-waiter count.
+pub fn queue_runtime_snapshot(
+    queue_registry: &QueueRegistry,
+    queue_wait_registry: &QueueWaitRegistry,
+) -> RS<Vec<QueueRuntimeSnapshot>> {
+    let waiter_counts = queue_wait_registry.waiter_counts()?;
+    Ok(queue_registry
+        .snapshot()?
+        .into_iter()
+        .map(|((table_id, partition_id), runtime)| QueueRuntimeSnapshot {
+            table_id,
+            partition_id,
+            next_seq: runtime.next_seq(),
+            acked_frontier: runtime.acked_frontier(),
+            depth: runtime.depth(),
+            bytes: runtime.bytes(),
+            overflow_count: runtime.overflow_count(),
+            waiters: waiter_counts
+                .get(&(table_id, partition_id))
+                .copied()
+                .unwrap_or(0),
+        })
+        .collect())
 }
 
-/// Runtime counters of one queue shard.
-///
-/// `acked_frontier` is in "every local `__seq` below this value is done"
-/// units, so a fresh shard starts at `(next_seq = 0, acked_frontier = 0)`
-/// with depth 0. All sequences here are per-shard local values (without the
-/// shard bits).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct QueueRuntime {
-    next_seq: u64,
-    acked_frontier: u64,
-    depth: u64,
-    bytes: u64,
-    overflow_count: u64,
+/// Resolves the shard layout of a queue: one shard per partition of the
+/// bound rule (in rule order), or the single shard 0 on partition 0 for
+/// an unpartitioned queue. A partition without placement information
+/// resolves to this worker (the `resolve_partition_worker` convention:
+/// no placement means local).
+pub(crate) async fn resolve_queue_shards(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    worker_id: OID,
+    cluster_router: &Option<Arc<dyn ClusterRouter>>,
+    default_unpartitioned_worker_id: OID,
+    queue_oid: OID,
+) -> RS<Vec<QueueShard>> {
+    let Some(binding) = meta_mgr.get_table_partition_binding(queue_oid).await? else {
+        let worker_id = resolve_partition_worker(
+            cluster_router,
+            meta_mgr,
+            default_unpartitioned_worker_id,
+            DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+        )
+        .await?
+        .unwrap_or(worker_id);
+        return Ok(vec![QueueShard {
+            queue_oid,
+            shard_index: 0,
+            partition_id: DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
+            worker_id,
+        }]);
+    };
+    let rule = meta_mgr.get_partition_rule_by_id(binding.rule_id).await?;
+    let mut shards = Vec::with_capacity(rule.partitions.len());
+    for (index, partition) in rule.partitions.iter().enumerate() {
+        // No placement information means local (the
+        // `resolve_partition_worker` convention).
+        let worker_id = resolve_partition_worker(
+            cluster_router,
+            meta_mgr,
+            default_unpartitioned_worker_id,
+            partition.partition_id,
+        )
+        .await?
+        .unwrap_or(worker_id);
+        shards.push(QueueShard {
+            queue_oid,
+            shard_index: index as u64,
+            partition_id: partition.partition_id,
+            worker_id,
+        });
+    }
+    Ok(shards)
 }
 
-impl QueueRuntime {
-    /// The next local sequence number to allocate.
-    pub fn next_seq(&self) -> u64 {
-        self.next_seq
-    }
-
-    /// The acked frontier: every local `__seq` below it is acknowledged.
-    pub fn acked_frontier(&self) -> u64 {
-        self.acked_frontier
-    }
-
-    /// The number of committed message rows retained by the shard.
-    pub fn depth(&self) -> u64 {
-        self.depth
-    }
-}
-
-/// Point-in-time copy of one queue shard's runtime state for the
-/// observability endpoint: the counters plus the number of parked
-/// `RECEIVE ... WAIT` waiters.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QueueRuntimeSnapshot {
-    table_id: OID,
+/// Resolves the shard of `queue_oid` hosted on `partition_id` and verifies
+/// this worker owns it (the partition-RPC handlers' entry gate).
+pub(crate) async fn resolve_local_queue_shard(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    worker_id: OID,
+    cluster_router: &Option<Arc<dyn ClusterRouter>>,
+    default_unpartitioned_worker_id: OID,
+    queue_oid: OID,
     partition_id: OID,
-    next_seq: u64,
-    acked_frontier: u64,
-    depth: u64,
-    bytes: u64,
-    overflow_count: u64,
-    waiters: u64,
+) -> RS<QueueShard> {
+    let shard = resolve_queue_shards(
+        meta_mgr,
+        worker_id,
+        cluster_router,
+        default_unpartitioned_worker_id,
+        queue_oid,
+    )
+    .await?
+    .into_iter()
+    .find(|shard| shard.partition_id == partition_id)
+    .ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::ObjectNotFound,
+            format!("queue {queue_oid} has no shard on partition {partition_id}")
+        )
+    })?;
+    ensure_local_shard_owner(&shard, worker_id)?;
+    Ok(shard)
 }
 
-impl QueueRuntimeSnapshot {
-    /// The queue's table OID.
-    pub fn table_id(&self) -> OID {
-        self.table_id
+/// Routes one enqueue payload row to its shard: the queue's partition
+/// column value decides through the bound range rule; an unpartitioned
+/// queue resolves to its single shard.
+pub(crate) async fn route_payload_shard(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    worker_id: OID,
+    cluster_router: &Option<Arc<dyn ClusterRouter>>,
+    default_unpartitioned_worker_id: OID,
+    partition_router: &PartitionRouter,
+    queue_oid: OID,
+    payload: &VecDatum,
+) -> RS<QueueShard> {
+    let shards = resolve_queue_shards(
+        meta_mgr,
+        worker_id,
+        cluster_router,
+        default_unpartitioned_worker_id,
+        queue_oid,
+    )
+    .await?;
+    if shards.len() == 1 {
+        return Ok(shards[0]);
     }
-
-    /// The partition hosting this shard (`0` for an unpartitioned queue).
-    pub fn partition_id(&self) -> OID {
-        self.partition_id
-    }
-
-    /// The next local sequence number to allocate.
-    pub fn next_seq(&self) -> u64 {
-        self.next_seq
-    }
-
-    /// The acked frontier: every local `__seq` below it is acknowledged.
-    pub fn acked_frontier(&self) -> u64 {
-        self.acked_frontier
-    }
-
-    /// The number of committed message rows retained by the shard.
-    pub fn depth(&self) -> u64 {
-        self.depth
-    }
-
-    /// Encoded payload bytes currently retained by the shard.
-    pub fn bytes(&self) -> u64 {
-        self.bytes
-    }
-
-    /// Rejected enqueue attempts since this process started.
-    pub fn overflow_count(&self) -> u64 {
-        self.overflow_count
-    }
-
-    /// The number of parked `RECEIVE ... WAIT` waiters.
-    pub fn waiters(&self) -> u64 {
-        self.waiters
-    }
+    let desc = meta_mgr.get_table_by_id(queue_oid).await?;
+    let partition_id = partition_router
+        .route_exact_partition(queue_oid, desc.as_ref(), payload)
+        .await?
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidState,
+                format!("queue {queue_oid} payload did not route to any partition")
+            )
+        })?;
+    shards
+        .into_iter()
+        .find(|shard| shard.partition_id == partition_id)
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidState,
+                format!("queue {queue_oid} has no shard on partition {partition_id}")
+            )
+        })
 }
 
-/// Per-worker registry of queue-shard runtime counters, keyed by
-/// [`QueueShardId`].
-pub struct QueueRegistry {
-    inner: SMutex<HashMap<QueueShardId, QueueRuntime>>,
-    limits: SMutex<(u64, u64)>,
-    /// Round-robin cursor of keyless `RECEIVE` statements: queue oid → next
-    /// shard index to drain.
-    receive_cursor: SMutex<HashMap<OID, u64>>,
-}
-
-impl QueueRegistry {
-    /// Creates an empty registry.
-    pub fn new() -> Self {
-        Self {
-            inner: SMutex::new(HashMap::new()),
-            limits: SMutex::new((65536, 64 * 1024 * 1024)),
-            receive_cursor: SMutex::new(HashMap::new()),
-        }
-    }
-
-    /// The next shard index a keyless `RECEIVE` of the queue drains
-    /// (rotating over `shard_count` shards).
-    pub fn rotate_receive_shard(&self, queue_oid: OID, shard_count: u64) -> RS<u64> {
-        let mut guard = self.receive_cursor.lock()?;
-        let cursor = guard.entry(queue_oid).or_insert(0);
-        let shard = *cursor % shard_count.max(1);
-        *cursor = cursor.wrapping_add(1);
-        Ok(shard)
-    }
-
-    fn lock(&self) -> RS<mudu_sys::sync::SMutexGuard<'_, HashMap<QueueShardId, QueueRuntime>>> {
-        self.inner.lock()
-    }
-
-    /// Registers a freshly created queue shard; a pre-existing entry is kept.
-    pub fn register(&self, shard: QueueShardId) -> RS<()> {
-        self.lock()?.entry(shard).or_default();
-        Ok(())
-    }
-
-    pub(crate) fn set_durable(
-        &self,
-        shard: QueueShardId,
-        next_seq: u64,
-        frontier: u64,
-        depth: u64,
-        bytes: u64,
-    ) -> RS<()> {
-        let mut entries = self.lock()?;
-        let overflow_count = entries.get(&shard).map_or(0, |entry| entry.overflow_count);
-        entries.insert(
-            shard,
-            QueueRuntime {
-                next_seq,
-                acked_frontier: frontier,
-                depth,
-                bytes,
-                overflow_count,
-            },
-        );
-        Ok(())
-    }
-
-    /// Sets per-shard message and encoded-payload byte limits.
-    pub fn configure_limits(&self, messages: u64, bytes: u64) -> RS<()> {
-        if messages == 0 || bytes == 0 {
-            return Err(mudu_error!(
-                ErrorCode::InvalidArgument,
-                "queue limits must be positive"
-            ));
-        }
-        *self.limits.lock()? = (messages, bytes);
-        Ok(())
-    }
-    pub(crate) fn limits(&self) -> RS<(u64, u64)> {
-        Ok(*self.limits.lock()?)
-    }
-    pub(crate) fn record_overflow(&self, shard: QueueShardId) -> RS<()> {
-        let mut entries = self.lock()?;
-        let state = entries.entry(shard).or_default();
-        state.overflow_count = state.overflow_count.saturating_add(1);
-        Ok(())
-    }
-
-    /// Drops the runtime state of one shard.
-    pub fn unregister(&self, shard: QueueShardId) -> RS<()> {
-        self.lock()?.remove(&shard);
-        Ok(())
-    }
-
-    /// Drops the runtime state of every shard of a dropped queue.
-    pub fn unregister_queue(&self, table_id: OID) -> RS<()> {
-        self.lock()?.retain(|(oid, _), _| *oid != table_id);
-        Ok(())
-    }
-
-    /// Allocates `count` consecutive local sequence numbers for `shard`,
-    /// returning the first of them. Fails with [`ErrorCode::QueueFull`] when
-    /// the allocation would push the shard depth past `max_depth`. Unknown
-    /// shards start empty (the create path registers explicitly; the lazy
-    /// rebuild covers restarts).
-    pub fn alloc(&self, shard: QueueShardId, count: u64, max_depth: u64) -> RS<u64> {
-        if count == 0 {
-            return Err(mudu_error!(
-                ErrorCode::InvalidArgument,
-                "queue sequence allocation of zero sequences"
-            ));
-        }
-        let mut guard = self.lock()?;
-        let runtime = guard.entry(shard).or_default();
-        if runtime.depth() + count > max_depth {
-            return Err(mudu_error!(
-                ErrorCode::QueueFull,
+/// Resolves the shard of `queue_oid` hosting the sequence `seq`.
+pub(crate) async fn resolve_queue_shard_of_seq(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    worker_id: OID,
+    cluster_router: &Option<Arc<dyn ClusterRouter>>,
+    default_unpartitioned_worker_id: OID,
+    queue_oid: OID,
+    seq: u64,
+) -> RS<QueueShard> {
+    let shard_index = queue_seq_shard(seq);
+    let shards = resolve_queue_shards(
+        meta_mgr,
+        worker_id,
+        cluster_router,
+        default_unpartitioned_worker_id,
+        queue_oid,
+    )
+    .await?;
+    shards
+        .into_iter()
+        .find(|shard| shard.shard_index == shard_index)
+        .ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::ObjectNotFound,
                 format!(
-                    "queue {} is full: depth {} + {} exceeds the cap {}",
-                    shard.0,
-                    runtime.depth(),
-                    count,
-                    max_depth
+                    "queue {} has no shard {} (sequence {})",
+                    queue_oid, shard_index, seq
                 )
-            ));
-        }
-        let first = runtime.next_seq;
-        runtime.next_seq += count;
-        runtime.depth += count;
-        Ok(first)
-    }
-
-    /// Advances the acked frontier of `shard` past local `seq` (clamped at
-    /// the allocation watermark so a mis-targeted ACK can never push the
-    /// depth arithmetic negative).
-    pub fn advance_acked_frontier(&self, shard: QueueShardId, seq: u64) -> RS<()> {
-        let mut guard = self.lock()?;
-        let runtime = guard.entry(shard).or_default();
-        let previous = runtime.acked_frontier;
-        runtime.acked_frontier = runtime
-            .acked_frontier
-            .max(seq.saturating_add(1))
-            .min(runtime.next_seq);
-        runtime.depth = runtime
-            .depth
-            .saturating_sub(runtime.acked_frontier - previous);
-        Ok(())
-    }
-
-    /// Rebuilds the counters of `shard` from the committed relation
-    /// head/tail after a restart: `min_seq`/`max_seq` are the smallest and
-    /// largest live local `__seq` values; everything below `min_seq` was
-    /// acknowledged and physically deleted.
-    pub fn rebuild(&self, shard: QueueShardId, min_seq: u64, max_seq: u64) -> RS<()> {
-        let mut guard = self.lock()?;
-        guard.insert(
-            shard,
-            QueueRuntime {
-                next_seq: max_seq + 1,
-                acked_frontier: min_seq,
-                depth: max_seq - min_seq + 1,
-                bytes: 0,
-                overflow_count: 0,
-            },
-        );
-        Ok(())
-    }
-
-    /// Reads the counters of `shard`, when loaded.
-    pub fn get(&self, shard: QueueShardId) -> RS<Option<QueueRuntime>> {
-        Ok(self.lock()?.get(&shard).copied())
-    }
-
-    /// Point-in-time copy of every registered shard's counters.
-    pub fn snapshot(&self) -> RS<Vec<(QueueShardId, QueueRuntime)>> {
-        Ok(self
-            .lock()?
-            .iter()
-            .map(|(id, runtime)| (*id, *runtime))
-            .collect())
-    }
-
-    /// Whether `shard` has runtime counters loaded.
-    pub fn contains(&self, shard: QueueShardId) -> RS<bool> {
-        Ok(self.lock()?.contains_key(&shard))
-    }
-
-    /// Drops every entry, forcing a lazy rebuild from the relations (used
-    /// when storage is reloaded underneath, e.g. by a snapshot restore).
-    pub fn clear(&self) -> RS<()> {
-        self.lock()?.clear();
-        Ok(())
-    }
-}
-
-impl Default for QueueRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+            )
+        })
 }
 
 impl WorkerXContract {
-    /// Resolves the shard layout of a queue: one shard per partition of the
-    /// bound rule (in rule order), or the single shard 0 on partition 0 for
-    /// an unpartitioned queue. A partition without placement information
-    /// resolves to this worker (the `resolve_partition_worker` convention:
-    /// no placement means local).
-    pub(crate) async fn resolve_queue_shards(&self, queue_oid: OID) -> RS<Vec<QueueShard>> {
-        let Some(binding) = self.meta_mgr.get_table_partition_binding(queue_oid).await? else {
-            let worker_id = self
-                .resolve_partition_worker(DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID)
-                .await?
-                .unwrap_or(self.worker_id);
-            return Ok(vec![QueueShard {
-                queue_oid,
-                shard_index: 0,
-                partition_id: DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID,
-                worker_id,
-            }]);
-        };
-        let rule = self
-            .meta_mgr
-            .get_partition_rule_by_id(binding.rule_id)
-            .await?;
-        let mut shards = Vec::with_capacity(rule.partitions.len());
-        for (index, partition) in rule.partitions.iter().enumerate() {
-            // No placement information means local (the
-            // `resolve_partition_worker` convention).
-            let worker_id = self
-                .resolve_partition_worker(partition.partition_id)
-                .await?
-                .unwrap_or(self.worker_id);
-            shards.push(QueueShard {
-                queue_oid,
-                shard_index: index as u64,
-                partition_id: partition.partition_id,
-                worker_id,
-            });
-        }
-        Ok(shards)
-    }
-
-    /// Routes one enqueue payload row to its shard: the queue's partition
-    /// column value decides through the bound range rule; an unpartitioned
-    /// queue resolves to its single shard.
-    pub(crate) async fn route_payload_shard(
-        &self,
-        queue_oid: OID,
-        payload: &VecDatum,
-    ) -> RS<QueueShard> {
-        let shards = self.resolve_queue_shards(queue_oid).await?;
-        if shards.len() == 1 {
-            return Ok(shards[0]);
-        }
-        let desc = self.meta_mgr.get_table_by_id(queue_oid).await?;
-        let partition_id = self
-            .partition_router
-            .route_exact_partition(queue_oid, desc.as_ref(), payload)
-            .await?
-            .ok_or_else(|| {
-                mudu_error!(
-                    ErrorCode::InvalidState,
-                    format!("queue {queue_oid} payload did not route to any partition")
-                )
-            })?;
-        shards
-            .into_iter()
-            .find(|shard| shard.partition_id == partition_id)
-            .ok_or_else(|| {
-                mudu_error!(
-                    ErrorCode::InvalidState,
-                    format!("queue {queue_oid} has no shard on partition {partition_id}")
-                )
-            })
-    }
-
-    /// Resolves the shard of `queue_oid` hosting the sequence `seq`.
-    pub(crate) async fn resolve_queue_shard_of_seq(
-        &self,
-        queue_oid: OID,
-        seq: u64,
-    ) -> RS<QueueShard> {
-        let shard_index = queue_seq_shard(seq);
-        let shards = self.queue_shards(queue_oid).await?;
-        shards
-            .into_iter()
-            .find(|shard| shard.shard_index == shard_index)
-            .ok_or_else(|| {
-                mudu_error!(
-                    ErrorCode::EntityNotFound,
-                    format!(
-                        "queue {} has no shard {} (sequence {})",
-                        queue_oid, shard_index, seq
-                    )
-                )
-            })
-    }
-
-    /// Resolves the shard of `queue_oid` hosted on `partition_id` and
-    /// verifies this worker owns it (the partition-RPC handlers' entry gate).
-    pub(crate) async fn resolve_local_queue_shard(
-        &self,
-        queue_oid: OID,
-        partition_id: OID,
-    ) -> RS<QueueShard> {
-        let shard = self
-            .resolve_queue_shards(queue_oid)
-            .await?
-            .into_iter()
-            .find(|shard| shard.partition_id == partition_id)
-            .ok_or_else(|| {
-                mudu_error!(
-                    ErrorCode::EntityNotFound,
-                    format!("queue {queue_oid} has no shard on partition {partition_id}")
-                )
-            })?;
-        self.ensure_local_shard_owner(&shard)?;
-        Ok(shard)
-    }
-
-    /// Rejects queue runtime operations when this worker does not host the
-    /// shard's partition.
-    pub(crate) fn ensure_local_shard_owner(&self, shard: &QueueShard) -> RS<()> {
-        if shard.worker_id != self.worker_id {
-            return Err(mudu_error!(
-                ErrorCode::NotImplemented,
-                format!(
-                    "queue {} shard {} runs on worker {}; worker {} cannot serve it locally",
-                    shard.queue_oid, shard.shard_index, shard.worker_id, self.worker_id
-                )
-            ));
-        }
-        Ok(())
-    }
-
     /// Rebuilds the runtime counters of one queue shard from its committed
     /// relation rows; registers fresh counters for a shard without live rows.
     /// Rows still marked `claimed` (their claiming transaction crashed between
@@ -466,15 +236,24 @@ impl WorkerXContract {
     /// before log recovery, so an eager bootstrap scan could miss committed
     /// rows).
     pub(crate) async fn rebuild_queue_shard_runtime_async(&self, shard: QueueShard) -> RS<()> {
-        self.ensure_local_shard_owner(&shard)?;
-        let sentinel = self.read_shard_sentinel_committed(&shard).await?;
+        ensure_local_shard_owner(&shard, self.worker_id)?;
+        let sentinel = read_shard_sentinel_committed(
+            &self.meta_mgr,
+            &self.storage,
+            &self.snapshot_mgr,
+            &self.tx_lock,
+            self.worker_id,
+            &shard,
+        )
+        .await?;
         let scan = self
             .storage
             .queue_rebuild_scan_async(shard.queue_oid, shard.partition_id)
             .await?;
         match (&sentinel, &scan) {
             (Some(state), _) => {
-                self.publish_queue_state(
+                publish_queue_state(
+                    &self.queue_registry,
                     shard_key(&shard),
                     state.next,
                     state.frontier,
@@ -493,13 +272,14 @@ impl WorkerXContract {
                 // A pre-sentinel database may still hold the watermark in the
                 // legacy worker-KV record (unpartitioned queues only).
                 let legacy = if shard.partition_id == DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID {
-                    self.read_legacy_state(shard.queue_oid).await?
+                    read_legacy_state(&self.storage, shard.queue_oid).await?
                 } else {
                     None
                 };
                 match legacy {
                     Some(state) => {
-                        self.publish_queue_state(
+                        publish_queue_state(
+                            &self.queue_registry,
                             shard_key(&shard),
                             state.next,
                             state.frontier,
@@ -529,7 +309,7 @@ impl WorkerXContract {
     /// is safe to ignore.
     async fn reset_claimed_rows_async(&self, shard: &QueueShard, seqs: &[u64]) -> RS<()> {
         let desc = self.meta_mgr.get_table_by_id(shard.queue_oid).await?;
-        let tx_mgr = self._begin_tx()?;
+        let tx_mgr = _begin_tx(&self.snapshot_mgr)?;
         for seq in seqs {
             self.update_pinned(
                 desc.clone(),
@@ -547,7 +327,7 @@ impl WorkerXContract {
             .await?;
         }
         match self.worker_commit_routed_tx_async(tx_mgr).await {
-            Ok(()) => Ok(()),
+            Ok(_) => Ok(()),
             Err(err) if err.ec() == ErrorCode::DomainViolation => {
                 debug!(
                     queue_oid = shard.queue_oid,
@@ -567,30 +347,6 @@ impl WorkerXContract {
             return Ok(());
         }
         self.rebuild_queue_shard_runtime_async(*shard).await
-    }
-
-    /// Per-shard runtime stats of this worker for the observability endpoint:
-    /// counters of every loaded shard plus its parked-waiter count.
-    pub fn queue_runtime_snapshot(&self) -> RS<Vec<QueueRuntimeSnapshot>> {
-        let waiter_counts = self.queue_wait_registry.waiter_counts()?;
-        Ok(self
-            .queue_registry
-            .snapshot()?
-            .into_iter()
-            .map(|((table_id, partition_id), runtime)| QueueRuntimeSnapshot {
-                table_id,
-                partition_id,
-                next_seq: runtime.next_seq(),
-                acked_frontier: runtime.acked_frontier(),
-                depth: runtime.depth,
-                bytes: runtime.bytes,
-                overflow_count: runtime.overflow_count,
-                waiters: waiter_counts
-                    .get(&(table_id, partition_id))
-                    .copied()
-                    .unwrap_or(0),
-            })
-            .collect())
     }
 }
 

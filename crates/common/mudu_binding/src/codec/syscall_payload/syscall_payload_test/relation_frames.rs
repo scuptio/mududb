@@ -90,6 +90,6 @@ fn relation_insert_frames_roundtrip() {
         MessageKind::RelationInsert,
         encode_relation_insert_result,
         decode_relation_insert_result,
-        ErrorCode::EntityAlreadyExists,
+        ErrorCode::ObjectAlreadyExists,
     );
 }

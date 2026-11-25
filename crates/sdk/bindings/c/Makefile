@@ -17,7 +17,7 @@ CPPFLAGS += -I.
 BUILD := build
 DRIVER := $(BUILD)/corpus_driver
 HEADERS := $(wildcard mududb/codec/*.h mududb/types/*.h)
-RUNTIME := mududb/codec/mpack.c mududb/codec/mpack_alloc.c mududb/codec/record_bridge.c
+RUNTIME := mududb/codec/mpack.c mududb/codec/mpack_alloc.c mududb/codec/struct_bridge.c
 
 .PHONY: all test test-c test-cpp check clean
 

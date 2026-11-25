@@ -122,7 +122,9 @@ class PreflightTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Bind mode is disabled", result.stderr)
         self.assertFalse(marker.exists())
-        self.assertFalse((self.root / "logs").exists())
+        reports = list((self.root / "logs/act").glob("*/summary.txt"))
+        self.assertEqual(len(reports), 1)
+        self.assertIn("result: FAILURE", reports[0].read_text())
 
     def test_wrapper_success_and_failure_with_isolation(self):
         scripts = self.root / "script/ci"

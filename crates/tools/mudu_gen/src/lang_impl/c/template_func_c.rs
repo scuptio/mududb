@@ -525,7 +525,7 @@ mod tests {
     use askama::Template;
     use mudu::common::result::RS;
     use mudu_binding::universal::uni_data_type::UniDataType;
-    use mudu_binding::universal::uni_def::RecordField;
+    use mudu_binding::universal::uni_def::StructField;
     use mudu_binding::universal::uni_result_type::UniResultType;
 
     fn cfg() -> CodegenCfg {
@@ -535,8 +535,8 @@ mod tests {
         cfg
     }
 
-    fn field(name: &str, ty: UniDataType) -> RecordField {
-        RecordField::new(String::new(), name.to_string(), ty)
+    fn field(name: &str, ty: UniDataType) -> StructField {
+        StructField::new(String::new(), name.to_string(), ty)
     }
 
     fn result_ty(ok: Option<UniDataType>) -> UniDataType {

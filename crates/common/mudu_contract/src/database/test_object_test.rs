@@ -3,8 +3,8 @@
 #[allow(clippy::expect_used)]
 #[allow(clippy::panic)]
 mod tests {
-    use crate::database::entity::Entity;
     use crate::database::field_change::FieldChange;
+    use crate::database::object::Object;
     use crate::database::test_object::object::{Item, ItemChange, columns};
     use mudu_type::datum::{Datum, DatumDyn};
     use mudu_type::type_family::TypeFamily;
@@ -90,8 +90,8 @@ mod tests {
     }
 
     #[test]
-    fn item_entity_metadata() {
-        assert_eq!(<Item as Entity>::table_name(), "item");
+    fn item_object_metadata() {
+        assert_eq!(<Item as Object>::class_name(), "item");
         assert_eq!(Item::TABLE_NAME, "item");
         assert_eq!(
             Item::SQL_GET_BY_PK,
@@ -99,7 +99,7 @@ mod tests {
         );
         assert!(Item::SQL_INSERT.starts_with("INSERT INTO item"));
         assert_eq!(Item::SQL_DELETE_BY_PK, "DELETE FROM item WHERE i_id = ?");
-        let desc = <Item as Entity>::tuple_desc();
+        let desc = <Item as Object>::tuple_desc();
         assert_eq!(desc.fields().len(), 5);
         assert_eq!(desc.fields()[0].name(), columns::I_ID);
         assert_eq!(desc.fields()[2].name(), columns::I_PRICE);
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn item_datum_type_family_and_clone_boxed() {
         let item = sample_item();
-        assert_eq!(item.type_family().unwrap(), TypeFamily::Record);
+        assert_eq!(item.type_family().unwrap(), TypeFamily::Struct);
 
         let boxed = item.clone_boxed();
         let value = boxed.to_value(&Item::data_type()).unwrap();

@@ -490,3 +490,98 @@ fn top_level_helpers_exposed() {
     assert!(!super::path_exists(&dir));
     cleanup(&dir);
 }
+
+#[test]
+fn exclusive_append_and_readonly_file_options() {
+    let dir = temp_dir("open-options");
+    let fs = make_fs();
+    fs.create_dir_all(&dir).unwrap();
+    let path = dir.join("file");
+    let mut file = SOpenOptions::default()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(b"original").unwrap();
+    file.flush().unwrap();
+    assert!(SOpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .is_err());
+    drop(file);
+    let mut append = SOpenOptions::new().append(true).open(&path).unwrap();
+    append.write_all(b" appended").unwrap();
+    append.sync_data().unwrap();
+    drop(append);
+    let readonly = SFile::open(&path).unwrap();
+    assert!(readonly.set_len(0).is_err());
+    assert_eq!(readonly.metadata().unwrap().len(), 17);
+    assert!(!format!("{readonly:?}").is_empty());
+    drop(readonly);
+    let truncated = SOpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
+    assert_eq!(truncated.metadata().unwrap().len(), 0);
+    drop(truncated);
+    assert!(SOpenOptions::new().open(&path).is_err());
+    fs.remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn positioned_io_reports_eof_and_readonly_write_errors() {
+    let dir = temp_dir("positioned-errors");
+    let fs = make_fs();
+    fs.create_dir_all(&dir).unwrap();
+    let path = dir.join("file");
+    fs.write(&path, b"data").unwrap();
+    let file = SyncSysFile::from_std(std::fs::File::open(&path).unwrap());
+    assert!(file.read_exact_at(0, 5).is_err());
+    assert!(file.write_all_at(0, b"bad").is_err());
+    assert_eq!(file.read_exact_at(0, 4).unwrap(), b"data");
+    assert_eq!(file.file_len().unwrap(), 4);
+    file.close().unwrap();
+    drop(file);
+    fs.remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_operations_propagate_nonregular_file_errors() {
+    use std::os::fd::OwnedFd;
+    let (stream, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let fd: OwnedFd = stream.into();
+    let file = SFile::from_inner(std::fs::File::from(fd));
+    assert!(file.sync_all().is_err());
+    assert!(file.sync_data().is_err());
+}
+
+#[test]
+fn filesystem_facade_propagates_missing_paths_and_wrong_object_types() {
+    let dir = temp_dir("path-errors");
+    let fs = make_fs();
+    let missing = dir.join("missing");
+    assert!(fs.read_all(&missing).is_err());
+    assert!(fs.read_to_string(&missing).is_err());
+    assert!(fs.metadata_len(&missing).is_err());
+    assert!(fs.metadata(&missing).is_err());
+    assert!(fs.read_dir(&missing).is_err());
+    assert!(fs.read_dir_entries(&missing).is_err());
+    assert!(fs.open(&missing).is_err());
+    assert!(fs.open_sys_file(&missing).is_err());
+    assert!(fs.create(&missing).is_err());
+    assert!(fs.write(&missing, b"data").is_err());
+    assert!(fs.copy(&missing, &dir).is_err());
+    assert!(fs
+        .open_sys_file_with_options(&missing, std::fs::OpenOptions::new().read(true))
+        .is_err());
+    fs.create_dir_all(&dir).unwrap();
+    let file = dir.join("file");
+    fs.write(&file, &[0xff]).unwrap();
+    assert!(fs.read_to_string(&file).is_err());
+    assert!(fs.create_dir_all(&file.join("child")).is_err());
+    assert_eq!(fs.read_all(&file).unwrap(), vec![0xff]);
+    fs.remove_dir_all(&dir).unwrap();
+}

@@ -7,8 +7,8 @@
 //! channel layer. One kind ([`catalog::contract::channel_kinds::MANAGEMENT_RPC`]) carries the
 //! whole request/response enum pair.
 
-use crate::queue::QueueRuntimeSnapshot;
 use crate::queue_activation::{QueueActivationRegistration, QueueActivationStatus};
+use crate::queue_types::QueueRuntimeSnapshot;
 use catalog::contract::channel_kinds;
 use mudu::common::id::OID;
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,19 @@ pub enum ManagementRequest {
     QueueConsumerList {
         /// Table OID of the queue.
         queue_oid: OID,
+    },
+    /// Receives rows from one queue shard, optionally blocking for a message.
+    /// This is the native `RECEIVE ... [FOR <consumer>] [WAIT FOREVER]` that
+    /// the WebSocket gateway loops on to fan events out to clients.
+    ReceiveQueue {
+        /// Table OID of the queue.
+        queue_oid: OID,
+        /// Named consumer cursor (fan-out mode); `None` competes for rows.
+        consumer: Option<String>,
+        /// Maximum rows to receive in one round.
+        count: u64,
+        /// Block until at least one message is available.
+        wait_forever: bool,
     },
 }
 
@@ -69,6 +82,16 @@ pub enum ManagementResponse {
     Stats(Vec<QueueRuntimeSnapshot>),
     /// The queue's named consumer cursors hosted on this worker.
     Consumers(Vec<QueueConsumerSnapshot>),
+    /// Rows received from a queue, as raw payload-column bytes per row (the
+    /// queue system columns `__seq`/`__lsn`/`status`/`receive_count`/
+    /// `__state_*` are stripped by the worker; the caller decodes them with
+    /// the queue's schema). A row is `None` when the receive timed out or
+    /// the queue is empty.
+    Received {
+        /// One payload row; each element is one payload column's bytes
+        /// (`None` for a NULL column).
+        rows: Vec<Vec<Option<Vec<u8>>>>,
+    },
 }
 
 // Every management operation is safe to replay: registration is an upsert,

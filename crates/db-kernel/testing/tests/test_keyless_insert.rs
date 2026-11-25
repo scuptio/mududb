@@ -1,7 +1,7 @@
 //! End-to-end coverage for INSERT into a table without a primary key: the
 //! KV engine cannot address keyless rows, so the statement must fail with a
 //! clear `InvalidTuple` error naming the missing primary key — not with an
-//! `EntityNotFound` lookup error. Runs a real mudud server session, which
+//! `ObjectNotFound` lookup error. Runs a real mudud server session, which
 //! Miri cannot emulate.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

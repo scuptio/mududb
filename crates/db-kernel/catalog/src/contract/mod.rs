@@ -6,11 +6,30 @@
 
 /// Central registry of the kernel's channel message kinds (block `0x71xx`).
 pub mod channel_kinds;
+/// Cluster routing contract between the transaction layer and the directory.
+pub mod cluster_router;
+/// Static cluster topology types (node groups, static placements).
+pub mod cluster_topology;
+/// Unified control-plane constants and wire types (stream identities, push/fetch RPC).
+pub mod control_plane;
+/// Name-derived deterministic OIDs for cluster-consistent object identity.
+pub mod derive_oid;
+/// Epoch control-plane wire types (heartbeats, epoch-advance log).
+pub mod epoch_op;
+/// Epoch oracle contract (logical commit order source).
+pub mod epoch_oracle;
 /// Log sequence number type.
 pub mod lsn;
 /// Tests for [`lsn`].
 #[cfg(test)]
 pub mod lsn_test;
+/// Catalog operation log and the control-plane service contract.
+pub mod meta_op;
+/// Runtime partition adoption contract (partition moves).
+pub mod partition_adoption;
+/// Cross-shard transaction decision contracts (coordinator data group).
+pub mod tx_decision;
+pub mod tx_decision_state;
 /// Transaction key-lock manager contract.
 pub mod x_lock_mgr;
 
@@ -45,16 +64,16 @@ pub mod fs_type;
 pub mod query_exec;
 /// Queue system-column layout constants and builders.
 pub mod queue;
+/// Table schema descriptor and tuple-descriptor derivation.
+pub mod schema_class;
+/// Tests for [`schema_table`].
+#[cfg(test)]
+pub mod schema_class_test;
 /// Column schema descriptor.
 pub mod schema_column;
 /// Tests for [`schema_column`].
 #[cfg(test)]
 pub mod schema_column_test;
-/// Table schema descriptor and tuple-descriptor derivation.
-pub mod schema_table;
-/// Tests for [`schema_table`].
-#[cfg(test)]
-pub mod schema_table_test;
 /// MVCC snapshot visibility types.
 pub mod snapshot;
 /// Session context contract.
@@ -73,7 +92,7 @@ mod test_schema;
 /// Per-worker snapshot and xid allocation.
 pub mod worker_snapshot;
 #[cfg(any(test, feature = "test", fuzzing))]
-pub use self::test_schema::_fuzz::_schema_table;
+pub use self::test_schema::_fuzz::_schema_class;
 
 /// Commit timestamp range of a tuple version.
 pub mod timestamp;
@@ -82,9 +101,14 @@ pub mod timestamp;
 pub mod timestamp_test;
 /// Delta between consecutive tuple versions.
 pub mod version_delta;
+#[cfg(test)]
+mod version_tests;
 /// A single tuple version with its commit timestamp.
 pub mod version_tuple;
 /// Async waiter contract.
 pub mod waiter;
 /// Fuzz targets for update-delta encode/decode.
 pub mod xl_d_up_tuple;
+
+#[cfg(test)]
+mod tx_decision_state_tests;

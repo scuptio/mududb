@@ -1,24 +1,25 @@
-use crate::data_type::DataType;
 use crate::data_type_param::{DTPStatic, DataTypeParamDyn};
-use crate::type_family::TypeFamily;
+use crate::type_family::TypeName;
 use mudu::common::cmp_order::Order;
 use mudu::common::result::RS;
 use mudu::utils;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::fmt::Debug;
 
 /// The parameter of the `Array` type: the element data type and an optional
 /// maximum size.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataTypeParamArray {
-    data_type: DataType,
+pub struct DataTypeParamArray<T> {
+    data_type: T,
     max_size: Option<u32>,
 }
 
-impl DataTypeParamArray {
+impl<T> DataTypeParamArray<T> {
     /// Creates an array parameter with element type `data_type` and no
     /// maximum size.
-    pub fn new(data_type: DataType) -> DataTypeParamArray {
+    pub fn new(data_type: T) -> DataTypeParamArray<T> {
         Self {
             data_type,
             max_size: None,
@@ -26,25 +27,28 @@ impl DataTypeParamArray {
     }
 
     /// Returns the element data type.
-    pub fn data_type(&self) -> &DataType {
+    pub fn data_type(&self) -> &T {
         &self.data_type
     }
 
     /// Consumes the parameter and returns the element data type.
-    pub fn into_data_type(self) -> DataType {
+    pub fn into_data_type(self) -> T {
         self.data_type
     }
 }
-impl Default for DataTypeParamArray {
+
+impl<T: Default> Default for DataTypeParamArray<T> {
     fn default() -> Self {
         Self {
-            data_type: DataType::default_for(TypeFamily::I32),
+            data_type: T::default(),
             max_size: None,
         }
     }
 }
 
-impl DataTypeParamDyn for DataTypeParamArray {
+impl<T: Clone + Serialize + DeserializeOwned + TypeName + Debug + Send + Sync + 'static>
+    DataTypeParamDyn for DataTypeParamArray<T>
+{
     fn clone_boxed(&self) -> Box<dyn DataTypeParamDyn> {
         Box::new(self.clone())
     }
@@ -65,10 +69,13 @@ impl DataTypeParamDyn for DataTypeParamArray {
     }
 }
 
-impl Order for DataTypeParamArray {
+impl<T: Order> Order for DataTypeParamArray<T> {
     fn cmp_ord(&self, other: &Self) -> RS<Ordering> {
         self.data_type.cmp_ord(&other.data_type)
     }
 }
 
-impl DTPStatic for DataTypeParamArray {}
+impl<T: Clone + Serialize + DeserializeOwned + TypeName + Order + Debug + Send + Sync + 'static>
+    DTPStatic for DataTypeParamArray<T>
+{
+}

@@ -1,11 +1,11 @@
 use ::catalog::contract::fs_type::FsTypeKind;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::xengine::api::DeltaOp;
 use mudu::common::id::{AttrIndex, OID};
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use sql_parser::ast::expr_operator::ValueCompare;
 use sql_parser::ast::stmt_receive::ReceiveWait;
 use std::ops::Bound;
@@ -48,6 +48,8 @@ pub enum BoundCommand {
     CreateQueue(BoundCreateQueue),
     /// A bound DROP QUEUE statement.
     DropQueue(BoundDropQueue),
+    /// A bound CREATE CACHE statement.
+    CreateCache(BoundCreateCache),
     /// A bound CREATE CONSUMER statement.
     CreateConsumer(BoundCreateConsumer),
     /// A bound DROP CONSUMER statement.
@@ -162,7 +164,7 @@ pub struct BoundCreatePartitionPlacement {
 #[derive(Clone, Debug)]
 pub struct BoundCreateTable {
     /// Schema of the table to create.
-    pub schema: SchemaTable,
+    pub schema: SchemaClass,
     /// Partition binding of the table, when the table is partitioned.
     pub partition_binding: Option<TablePartitionBinding>,
 }
@@ -194,11 +196,11 @@ pub struct BoundDropType {
 /// A bound CREATE QUEUE statement.
 #[derive(Clone, Debug)]
 pub struct BoundCreateQueue {
-    /// Schema of the queue to create. Carries `SchemaObjectKind::Queue` and
+    /// Schema of the queue to create. Carries `SchemaClassKind::Queue` and
     /// the queue system columns (key `__seq`; value headers `__lsn`,
     /// `status`, `receive_count`, `__state_hi`, `__state_lo`) ahead of the
     /// payload columns.
-    pub schema: SchemaTable,
+    pub schema: SchemaClass,
     /// Sharding binding of the queue, when it carries a
     /// `PARTITION BY GLOBAL RULE ... REFERENCES (...)` clause.
     pub partition_binding: Option<TablePartitionBinding>,
@@ -209,6 +211,18 @@ pub struct BoundCreateQueue {
 pub struct BoundDropQueue {
     /// OID of the queue to drop.
     pub oid: OID,
+}
+
+/// A bound CREATE CACHE statement (`CREATE CACHE <name> LIKE <table>
+/// [TTL n]`): a volatile, non-replicated cache mirroring the `LIKE` table's
+/// shape.
+#[derive(Clone, Debug)]
+pub struct BoundCreateCache {
+    /// Schema of the cache to create. Carries `SchemaClassKind::Cache` and
+    /// mirrors the `LIKE` table's columns (key and value alike).
+    pub schema: SchemaClass,
+    /// Optional TTL in seconds; `None` means no automatic eviction.
+    pub ttl_secs: Option<u64>,
 }
 
 /// A bound CREATE CONSUMER statement (`CREATE CONSUMER <consumer> ON

@@ -232,7 +232,7 @@ fn rust_param_type(ty: &UniDataType) -> RS<String> {
             format!("&{}", uni_data_type_to_name(ty, &LangKind::Rust)?)
         }
         UniDataType::Box(inner) => rust_param_type(inner)?,
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             uni_data_type_to_name(ty, &LangKind::Rust)?
         }
     };

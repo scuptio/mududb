@@ -17,35 +17,36 @@
 //! into a snapshot offer instead of a stream, which is what bounds the
 //! WAL for slow/absent replicas.
 
-use crate::applier::worker_index_of;
+/// The worker's replication index as `u32`.
+fn worker_index_of(worker: &WorkerRuntime) -> RS<u32> {
+    u32::try_from(worker.worker_index()).map_err(|_| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Parse,
+            "worker index does not fit the replication protocol"
+        )
+    })
+}
+use crate::connected_subscriber_acks;
 use crate::ctl::ReplModeCtl;
-use crate::raft_service::RaftShare;
 use crate::seg_hash::ZERO_SEG_HASH;
 use crate::snapshot::{load_latest_manifest, take_worker_snapshot};
-use crate::staging::StagingStore;
-use crate::{connected_subscriber_acks, ReplWorkerState};
 use ::wal::worker_log::{ChunkedWorkerLogBackend, WorkerLogLayout};
 use ::worker::worker::WorkerRuntime;
 use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu_sys::sync::async_::stop_flag::StopRx;
 use mudu_sys::tokio;
-use std::sync::Arc;
 use std::time::Duration;
 use tracing::{trace, warn};
 
 /// Role-specific inputs of the maintenance loop.
 pub enum MaintainDriver {
-    /// Raft mode: the GC watermark reads the chain cell (and, on the
-    /// leader, the connected subscribers' ack watermarks); staging is
-    /// prefix-GC'd to the chain point.
+    /// Raft mode: the GC watermark reads the worker's committed WAL point
+    /// from the data-plane service (resolved lazily; the service starts
+    /// after the replication listener).
     Raft {
-        /// The raft share: role/leadership and the connected subscribers.
-        share: Arc<RaftShare>,
-        /// The staging store, prefix-GC'd to the chain point.
-        staging: Arc<StagingStore>,
-        /// The worker's shared replication state (the chain cell).
-        state: Arc<ReplWorkerState>,
+        /// The worker index this maintenance loop serves.
+        worker_index: u32,
     },
     /// Stream mode: the primary snapshots at the applied low-water mark;
     /// the replica only GCs (its snapshots happen in the sink).
@@ -112,9 +113,6 @@ pub async fn run_repl_maintenance(
         )
         .await?;
         gc_wal_prefix(server_instance_id, worker_index, &log, &layout, gc_point).await;
-        if let MaintainDriver::Raft { staging, state, .. } = &driver {
-            gc_staging_prefix(server_instance_id, worker_index, staging, state).await?;
-        }
     }
 }
 
@@ -162,7 +160,7 @@ async fn gc_wal_prefix(
     match layout.gc_prefix_chunks(log.fs().as_ref(), gc_point).await {
         Ok((freed, chunks)) => {
             if freed > 0 {
-                crate::status::note_wal_chunks_reclaimed(server_instance_id, chunks);
+                crate::counters::note_wal_chunks_reclaimed(server_instance_id, chunks);
                 trace!(worker_index, gc_point, freed, "worker WAL prefix reclaimed");
             }
         }
@@ -170,31 +168,6 @@ async fn gc_wal_prefix(
             warn!(worker_index, "worker WAL GC failed: {err}");
         }
     }
-}
-
-/// Reclaims the staging prefix below the chain point (raft mode); failures
-/// only log.
-async fn gc_staging_prefix(
-    server_instance_id: ServerInstanceId,
-    worker_index: u32,
-    staging: &Arc<StagingStore>,
-    state: &Arc<ReplWorkerState>,
-) -> RS<()> {
-    let chain = state.chain()?.0;
-    if chain == 0 {
-        return Ok(());
-    }
-    match staging.gc_prefix(chain).await {
-        Ok(reclaimed) => {
-            if reclaimed > 0 {
-                crate::status::note_staging_chunks_reclaimed(server_instance_id, reclaimed);
-            }
-        }
-        Err(err) => {
-            warn!(worker_index, "staging prefix GC failed: {err}");
-        }
-    }
-    Ok(())
 }
 
 /// The first LSN to keep for this worker (see the module doc).
@@ -205,15 +178,38 @@ async fn gc_watermark(
     driver: &MaintainDriver,
     last_snapshot_lsn: u64,
 ) -> RS<u64> {
-    let snapshot_keep = last_snapshot_lsn.saturating_add(1);
+    if worker.storage().requires_recovery() || worker.storage().has_participant_history()? {
+        return Ok(0);
+    }
+    let snapshot_keep = crate::snapshot::recovery_base_resume(worker)?
+        .unwrap_or(0)
+        .min(last_snapshot_lsn.saturating_add(1));
     let local_keep = match driver {
-        MaintainDriver::Raft { share, state, .. } => {
-            let chain = state.chain()?.0;
-            if share.role() == mudu_raft::RaftRole::Leader {
-                min_subscriber_keep(server_instance_id, worker_index)?
-                    .map_or(chain, |acks_keep| acks_keep.min(chain))
-            } else {
-                chain
+        MaintainDriver::Raft { worker_index } => {
+            // The stream log (never prefix-GC'd yet) is the catch-up source
+            // for lagging replicas, so the local WAL GC no longer gates on
+            // connected subscribers. Until the data plane is up, keep
+            // everything (watermark 0). The service registers before the
+            // worker's data machine is installed (`run_data_worker_bootstrap`
+            // waits for the service, then installs), so a registered but not
+            // yet installed worker also keeps everything and retries next
+            // round instead of failing the maintenance task.
+            match crate::data_plane::data_plane_for(server_instance_id) {
+                Some(service) => match service.wal_resume(*worker_index) {
+                    Ok(resume) => {
+                        // A live commit-driver read pins the floor: never
+                        // reclaim below its in-flight segment position.
+                        let floor = service.wal_read_floor(*worker_index);
+                        if floor > 0 {
+                            resume.min(floor)
+                        } else {
+                            resume
+                        }
+                    }
+                    Err(err) if err.ec() == mudu::error::ErrorCode::InvalidState => 0,
+                    Err(err) => return Err(err),
+                },
+                None => 0,
             }
         }
         MaintainDriver::Stream { ctl } => {

@@ -60,6 +60,11 @@ pub enum MessageKind {
     RelationGet = 21,
     RelationUpdate = 22,
     RelationInsert = 23,
+    CacheOpen = 24,
+    CacheGet = 25,
+    CachePut = 26,
+    CacheDelete = 27,
+    CacheTtl = 28,
 }
 impl MessageKind {
     /// Convert a raw header value into a message kind.
@@ -88,6 +93,11 @@ impl MessageKind {
             21 => Some(MessageKind::RelationGet),
             22 => Some(MessageKind::RelationUpdate),
             23 => Some(MessageKind::RelationInsert),
+            24 => Some(MessageKind::CacheOpen),
+            25 => Some(MessageKind::CacheGet),
+            26 => Some(MessageKind::CachePut),
+            27 => Some(MessageKind::CacheDelete),
+            28 => Some(MessageKind::CacheTtl),
             _ => None,
         }
     }
@@ -1412,4 +1422,225 @@ pub fn encode_relation_insert_result(result: &UniResult<()>) -> Vec<u8> {
 /// Decodes a `relation_insert` unit result frame.
 pub fn decode_relation_insert_result(frame: &[u8]) -> Result<UniResult<()>, SyscallFrameError> {
     decode_unit_result_frame(MessageKind::RelationInsert, frame)
+}
+/// Encodes a `cache_open` request frame.
+pub fn encode_cache_open_request(name: &str) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::CacheOpen,
+        Value::Map(vec![(Value::from(1u32), (name).to_value())]),
+    )
+}
+/// Decodes a `cache_open` request frame into its positional arguments.
+pub fn decode_cache_open_request(frame: &[u8]) -> Result<String, SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::CacheOpen, frame)?;
+    let name = decode_field(&fields, 1, |v: &Value| String::from_value(v))?;
+    Ok(name)
+}
+/// Encodes a `cache_open` result frame: body `[0u8, value]` or
+/// `[1u8, error]`.
+///
+/// Forwards to [`encode_cache_open_result_ref`]; kept concrete so
+/// error-only calls (`&Err(e)`) need no type annotation.
+pub fn encode_cache_open_result(result: &UniResult<UniOid>) -> Vec<u8> {
+    encode_cache_open_result_ref(result)
+}
+/// Borrow variant of [`encode_cache_open_result`], generic over
+/// `T: Borrow<UniOid>`: callers holding only a reference to
+/// the success value (e.g. `UniResult<&UniOid>`) encode
+/// without cloning the payload.
+pub fn encode_cache_open_result_ref<T>(result: &UniResult<T>) -> Vec<u8>
+where
+    T: core::borrow::Borrow<UniOid>,
+{
+    encode_result_frame(
+        MessageKind::CacheOpen,
+        map_result_ref(result, |value| {
+            (core::borrow::Borrow::<UniOid>::borrow(value)).to_value()
+        }),
+    )
+}
+/// Decodes a `cache_open` result frame.
+pub fn decode_cache_open_result(frame: &[u8]) -> Result<UniResult<UniOid>, SyscallFrameError> {
+    match decode_result_frame(MessageKind::CacheOpen, frame)? {
+        Ok(value) => match UniOid::from_value(&value) {
+            Ok(value) => Ok(Ok(value)),
+            Err(error) => Err(wire_error_to_frame(error)),
+        },
+        Err(error) => Ok(Err(error)),
+    }
+}
+/// Encodes a `cache_get` request frame.
+pub fn encode_cache_get_request(cache: &UniOid, key: &[u8]) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::CacheGet,
+        Value::Map(vec![
+            (Value::from(1u32), (cache).to_value()),
+            (Value::from(2u32), Value::Bin((key).to_vec())),
+        ]),
+    )
+}
+/// Decodes a `cache_get` request frame into its positional arguments.
+pub fn decode_cache_get_request(frame: &[u8]) -> Result<(UniOid, Vec<u8>), SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::CacheGet, frame)?;
+    let cache = decode_field(&fields, 1, |v: &Value| UniOid::from_value(v))?;
+    let key = decode_field(&fields, 2, |v: &Value| (v).as_bin())?;
+    Ok((cache, key))
+}
+/// Encodes a `cache_get` result frame: body `[0u8, value]` or
+/// `[1u8, error]`.
+///
+/// Forwards to [`encode_cache_get_result_ref`]; kept concrete so
+/// error-only calls (`&Err(e)`) need no type annotation.
+pub fn encode_cache_get_result(result: &UniResult<Option<Vec<u8>>>) -> Vec<u8> {
+    encode_cache_get_result_ref(result)
+}
+/// Borrow variant of [`encode_cache_get_result`], generic over
+/// `T: Borrow<Option<Vec<u8>>>`: callers holding only a reference to
+/// the success value (e.g. `UniResult<&Option<Vec<u8>>>`) encode
+/// without cloning the payload.
+pub fn encode_cache_get_result_ref<T>(result: &UniResult<T>) -> Vec<u8>
+where
+    T: core::borrow::Borrow<Option<Vec<u8>>>,
+{
+    encode_result_frame(
+        MessageKind::CacheGet,
+        map_result_ref(result, |value| {
+            to_option(
+                core::borrow::Borrow::<Option<Vec<u8>>>::borrow(value),
+                |item| Value::Bin((item).to_vec()),
+            )
+        }),
+    )
+}
+/// Decodes a `cache_get` result frame.
+pub fn decode_cache_get_result(
+    frame: &[u8],
+) -> Result<UniResult<Option<Vec<u8>>>, SyscallFrameError> {
+    match decode_result_frame(MessageKind::CacheGet, frame)? {
+        Ok(value) => match from_option(&value, |item| (item).as_bin()) {
+            Ok(value) => Ok(Ok(value)),
+            Err(error) => Err(wire_error_to_frame(error)),
+        },
+        Err(error) => Ok(Err(error)),
+    }
+}
+/// Encodes a `cache_put` request frame.
+pub fn encode_cache_put_request(
+    cache: &UniOid,
+    key: &[u8],
+    value: &[u8],
+    ttl_secs: &Option<u64>,
+) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::CachePut,
+        Value::Map(vec![
+            (Value::from(1u32), (cache).to_value()),
+            (Value::from(2u32), Value::Bin((key).to_vec())),
+            (Value::from(3u32), Value::Bin((value).to_vec())),
+            (
+                Value::from(4u32),
+                to_option(ttl_secs, |item| (item).to_value()),
+            ),
+        ]),
+    )
+}
+/// Decodes a `cache_put` request frame into its positional arguments.
+pub fn decode_cache_put_request(
+    frame: &[u8],
+) -> Result<(UniOid, Vec<u8>, Vec<u8>, Option<u64>), SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::CachePut, frame)?;
+    let cache = decode_field(&fields, 1, |v: &Value| UniOid::from_value(v))?;
+    let key = decode_field(&fields, 2, |v: &Value| (v).as_bin())?;
+    let value = decode_field(&fields, 3, |v: &Value| (v).as_bin())?;
+    let ttl_secs = decode_field(&fields, 4, |v: &Value| {
+        from_option(v, |item| u64::from_value(item))
+    })?;
+    Ok((cache, key, value, ttl_secs))
+}
+/// Encodes a `cache_put` unit result frame: body `[0u8, 0u8]` or
+/// `[1u8, error]`.
+pub fn encode_cache_put_result(result: &UniResult<()>) -> Vec<u8> {
+    encode_unit_result_frame(MessageKind::CachePut, result)
+}
+/// Decodes a `cache_put` unit result frame.
+pub fn decode_cache_put_result(frame: &[u8]) -> Result<UniResult<()>, SyscallFrameError> {
+    decode_unit_result_frame(MessageKind::CachePut, frame)
+}
+/// Encodes a `cache_delete` request frame.
+pub fn encode_cache_delete_request(cache: &UniOid, key: &[u8]) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::CacheDelete,
+        Value::Map(vec![
+            (Value::from(1u32), (cache).to_value()),
+            (Value::from(2u32), Value::Bin((key).to_vec())),
+        ]),
+    )
+}
+/// Decodes a `cache_delete` request frame into its positional arguments.
+pub fn decode_cache_delete_request(frame: &[u8]) -> Result<(UniOid, Vec<u8>), SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::CacheDelete, frame)?;
+    let cache = decode_field(&fields, 1, |v: &Value| UniOid::from_value(v))?;
+    let key = decode_field(&fields, 2, |v: &Value| (v).as_bin())?;
+    Ok((cache, key))
+}
+/// Encodes a `cache_delete` unit result frame: body `[0u8, 0u8]` or
+/// `[1u8, error]`.
+pub fn encode_cache_delete_result(result: &UniResult<()>) -> Vec<u8> {
+    encode_unit_result_frame(MessageKind::CacheDelete, result)
+}
+/// Decodes a `cache_delete` unit result frame.
+pub fn decode_cache_delete_result(frame: &[u8]) -> Result<UniResult<()>, SyscallFrameError> {
+    decode_unit_result_frame(MessageKind::CacheDelete, frame)
+}
+/// Encodes a `cache_ttl` request frame.
+pub fn encode_cache_ttl_request(cache: &UniOid, key: &[u8]) -> Vec<u8> {
+    encode_request_frame(
+        MessageKind::CacheTtl,
+        Value::Map(vec![
+            (Value::from(1u32), (cache).to_value()),
+            (Value::from(2u32), Value::Bin((key).to_vec())),
+        ]),
+    )
+}
+/// Decodes a `cache_ttl` request frame into its positional arguments.
+pub fn decode_cache_ttl_request(frame: &[u8]) -> Result<(UniOid, Vec<u8>), SyscallFrameError> {
+    let fields = decode_request_map(MessageKind::CacheTtl, frame)?;
+    let cache = decode_field(&fields, 1, |v: &Value| UniOid::from_value(v))?;
+    let key = decode_field(&fields, 2, |v: &Value| (v).as_bin())?;
+    Ok((cache, key))
+}
+/// Encodes a `cache_ttl` result frame: body `[0u8, value]` or
+/// `[1u8, error]`.
+///
+/// Forwards to [`encode_cache_ttl_result_ref`]; kept concrete so
+/// error-only calls (`&Err(e)`) need no type annotation.
+pub fn encode_cache_ttl_result(result: &UniResult<Option<u64>>) -> Vec<u8> {
+    encode_cache_ttl_result_ref(result)
+}
+/// Borrow variant of [`encode_cache_ttl_result`], generic over
+/// `T: Borrow<Option<u64>>`: callers holding only a reference to
+/// the success value (e.g. `UniResult<&Option<u64>>`) encode
+/// without cloning the payload.
+pub fn encode_cache_ttl_result_ref<T>(result: &UniResult<T>) -> Vec<u8>
+where
+    T: core::borrow::Borrow<Option<u64>>,
+{
+    encode_result_frame(
+        MessageKind::CacheTtl,
+        map_result_ref(result, |value| {
+            to_option(core::borrow::Borrow::<Option<u64>>::borrow(value), |item| {
+                (item).to_value()
+            })
+        }),
+    )
+}
+/// Decodes a `cache_ttl` result frame.
+pub fn decode_cache_ttl_result(frame: &[u8]) -> Result<UniResult<Option<u64>>, SyscallFrameError> {
+    match decode_result_frame(MessageKind::CacheTtl, frame)? {
+        Ok(value) => match from_option(&value, |item| u64::from_value(item)) {
+            Ok(value) => Ok(Ok(value)),
+            Err(error) => Err(wire_error_to_frame(error)),
+        },
+        Err(error) => Ok(Err(error)),
+    }
 }

@@ -33,7 +33,7 @@ Installs all dependencies required to run MuduDB:
 |----------|----------|
 | System packages | python3, pip, python-is-python3, build-essential, curl, liburing-dev, clang, libclang-dev, llvm-dev, pkgconf, iproute2 |
 | Rust | pinned stable toolchain (with rustfmt, clippy, x86_64-unknown-linux-gnu and wasm32-wasip2 targets) + auxiliary nightly toolchain |
-| Python | toml, tomli-w |
+| Python | 3.11+ |
 | Tools | cargo-make |
 
 > Implementation reference: `script/shell/install_deps.sh` (a thin wrapper for
@@ -47,7 +47,7 @@ Installs all dependencies required to run MuduDB:
 `cargo make dist` additionally packages and installs:
 
 1. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mpm, mpm-build, mpm-crate, mpm-install, mgen, mtp, mudud, mcli) by copying the freshly built artifacts (unchanged ones are skipped)
-2. `cargo make package` in `example/mpk/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
+2. `cargo make package` in `example/mpk/wallet` — regenerates object code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
 
 The wallet `Makefile.toml` reinstalls the workspace CLI tools from source before generating code, so the package is always built with the current commit's toolchain.
 

@@ -11,7 +11,7 @@ impl KernelHttpApi {
     pub(super) async fn list_apps(&self) -> RS<Vec<String>> {
         let list = self
             .app_mgr
-            .list(&crate::backend::mudu_app_mgr::ListOption::default())
+            .list(&crate::backend::app_mgr::ListOption::default())
             .await?;
         Ok(list.apps.into_iter().map(|app| app.info.name).collect())
     }
@@ -49,7 +49,7 @@ impl KernelHttpApi {
             .cloned()
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("no such procedure {}/{}/{}", app_name, mod_name, proc_name)
                 )
             })?;

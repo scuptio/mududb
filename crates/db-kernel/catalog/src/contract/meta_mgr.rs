@@ -1,14 +1,34 @@
 use async_trait::async_trait;
 use mudu::common::id::OID;
 use mudu::error::ErrorCode;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use crate::contract::partition_rule::PartitionRuleDesc;
 use crate::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use crate::contract::schema_table::SchemaTable;
+use crate::contract::schema_class::SchemaClass;
 use crate::contract::table_desc::TableDesc;
 use mudu::common::result::RS;
+
+/// A complete, versioned snapshot of the catalog definitions. Built-in system
+/// tables are omitted (added by code), so a data-plane node can fetch this and
+/// rebuild its local catalog.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CatalogSnapshot {
+    /// The catalog version at the snapshot cut.
+    pub version: u64,
+    /// User table and queue schemas (built-ins excluded).
+    pub schemas: Vec<SchemaClass>,
+    /// Partition rules.
+    pub rules: Vec<PartitionRuleDesc>,
+    /// Table partition bindings.
+    pub bindings: Vec<TablePartitionBinding>,
+    /// Partition placements.
+    pub placements: Vec<PartitionPlacement>,
+    /// Filesystem types.
+    pub fs_types: Vec<FsTypeDesc>,
+}
 
 /// Catalog metadata manager: table schemas, partition
 /// rules/bindings/placements, and filesystem types.
@@ -55,15 +75,15 @@ pub trait MetaMgr: Send + Sync {
     }
 
     /// Creates a table from its schema.
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()>;
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()>;
 
     /// Drops the table with the given oid.
     async fn drop_table(&self, table_id: OID) -> RS<()>;
 
     /// Creates a queue from its schema, which shall carry
-    /// `SchemaObjectKind::Queue`. Queues share the `(schema, name)` namespace
+    /// `SchemaClassKind::Queue`. Queues share the `(schema, name)` namespace
     /// with tables. The default fails with `NotImplemented`.
-    async fn create_queue(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_queue(&self, _schema: &SchemaClass) -> RS<()> {
         Err(mudu::mudu_error!(
             ErrorCode::NotImplemented,
             "queue catalog is not implemented"
@@ -79,6 +99,16 @@ pub trait MetaMgr: Send + Sync {
         ))
     }
 
+    /// Creates a volatile, non-replicated cache from its schema, which shall
+    /// carry `SchemaClassKind::Cache` and mirror an existing table's shape.
+    /// The default fails with `NotImplemented`.
+    async fn create_cache(&self, _schema: &SchemaClass) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "cache catalog is not implemented"
+        ))
+    }
+
     /// Resolves a queue by schema and name with the same search-path
     /// semantics as [`MetaMgr::get_table_by_name`]; a name that resolves to a
     /// non-queue object reports `None`. The default returns `None`.
@@ -87,7 +117,7 @@ pub trait MetaMgr: Send + Sync {
     }
 
     /// Lists the schemas of all queues. The default returns an empty list.
-    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_queues(&self) -> RS<Vec<SchemaClass>> {
         Ok(Vec::new())
     }
 
@@ -99,10 +129,19 @@ pub trait MetaMgr: Send + Sync {
         ))
     }
 
+    /// Replaces a partition rule's definition in place (same oid; split /
+    /// merge bump `version`). The default fails with `NotImplemented`.
+    async fn update_partition_rule(&self, _rule: &PartitionRuleDesc) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition rule update is not implemented"
+        ))
+    }
+
     /// Resolves a partition rule by oid. The default reports no such rule.
     async fn get_partition_rule_by_id(&self, oid: OID) -> RS<PartitionRuleDesc> {
         Err(mudu::mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such partition rule {}", oid)
         ))
     }
@@ -115,6 +154,21 @@ pub trait MetaMgr: Send + Sync {
     /// Lists all partition rules. The default returns an empty list.
     async fn list_partition_rules(&self) -> RS<Vec<PartitionRuleDesc>> {
         Ok(Vec::new())
+    }
+
+    /// Finds the `(rule name, partition name)` of a partition oid by scanning
+    /// the partition rules. Cluster routing resolves static placements
+    /// through names (oids alone do not key the static topology); managers
+    /// with an index may override with a direct lookup.
+    async fn find_partition_names(&self, partition_id: OID) -> RS<Option<(String, String)>> {
+        for rule in self.list_partition_rules().await? {
+            for partition in &rule.partitions {
+                if partition.partition_id == partition_id {
+                    return Ok(Some((rule.name.clone(), partition.name.clone())));
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Binds a table to a partition rule. The default fails with
@@ -158,12 +212,23 @@ pub trait MetaMgr: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Removes a durable partition binding left by an interrupted object drop.
+    /// Must reject a still-existing table/queue and persist removal before
+    /// publishing it. Repeated cleanup of an absent binding is a no-op.
+    async fn remove_orphan_partition_binding(&self, _table_id: OID) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "orphan partition binding cleanup is not implemented"
+        ))
+    }
+
     /// Lists all table schemas. The default returns an empty list.
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         Ok(Vec::new())
     }
 
-    /// Creates a filesystem type and returns its id. The default fails with
+    /// Creates a filesystem type using its name-derived ID. Implementations
+    /// must reject ID collisions before writing. The default fails with
     /// `NotImplemented`.
     async fn create_fs_type(&self, _name: &str, _kind: FsTypeKind) -> RS<u64> {
         Err(mudu::mudu_error!(
@@ -195,6 +260,24 @@ pub trait MetaMgr: Send + Sync {
             "filesystem type catalog is not implemented"
         ))
     }
+
+    /// Captures a complete, versioned snapshot of the catalog definitions. The
+    /// default fails with `NotImplemented`.
+    async fn capture_catalog(&self) -> RS<CatalogSnapshot> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "catalog snapshot is not implemented"
+        ))
+    }
+
+    /// Rebuilds the catalog from a snapshot (a data-plane node joining the
+    /// cluster). The default fails with `NotImplemented`.
+    async fn restore_catalog(&self, _snapshot: &CatalogSnapshot) -> RS<()> {
+        Err(mudu::mudu_error!(
+            ErrorCode::NotImplemented,
+            "catalog restore is not implemented"
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -213,7 +296,7 @@ mod tests {
         }
         async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
             Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no table {oid}")
             ))
         }
@@ -224,7 +307,7 @@ mod tests {
         ) -> RS<Option<Arc<TableDesc>>> {
             Ok(None)
         }
-        async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+        async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
             Ok(())
         }
         async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -241,7 +324,7 @@ mod tests {
             assert_eq!(meta.catalog_version(), 0);
             assert!(meta.get_table_exact("s", "t").await.unwrap().is_none());
             assert!(meta
-                .create_queue(&SchemaTable::new("q".to_string(), vec![], vec![], vec![]))
+                .create_queue(&SchemaClass::new("q".to_string(), vec![], vec![], vec![]))
                 .await
                 .is_err());
             assert!(meta.drop_queue(1).await.is_err());

@@ -11,8 +11,8 @@ use mudu::common::result::RS;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::datum_desc::DatumDesc;
@@ -156,7 +156,7 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     }
     .ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -275,11 +275,11 @@ pub async fn mudu_range_async(
 }
 
 /// Executes a query on a MySQL session and returns the resulting record set.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let _trace = mudu_utils::task_trace!();
     let sql_text = normalize_sql(
         &sql_stmt.to_sql_string(),
@@ -296,7 +296,7 @@ pub fn mudu_query<R: Entity>(
             .into_iter()
             .map(row_to_tuple_value)
             .collect::<RS<Vec<_>>>()?;
-        Ok(EntitySet::new(
+        Ok(ObjectSet::new(
             Arc::new(LocalResultSet::new(tuple_rows)),
             Arc::new(desc),
         ))
@@ -304,11 +304,11 @@ pub fn mudu_query<R: Entity>(
 }
 
 /// Asynchronous version of [`mudu_query`].
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let sql_text = normalize_sql(
         &sql_stmt.to_sql_string(),
         params,
@@ -327,7 +327,7 @@ pub async fn mudu_query_async<R: Entity>(
         .into_iter()
         .map(async_row_to_tuple_value)
         .collect::<RS<Vec<_>>>()?;
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(tuple_rows)),
         Arc::new(desc),
     ))
@@ -409,7 +409,7 @@ fn ensure_session_exists(session_id: OID) -> RS<()> {
         Ok(())
     } else {
         Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         ))
     }
@@ -428,7 +428,7 @@ where
     let conn_ref = {
         let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })?;
@@ -448,7 +448,7 @@ async fn with_async_session(session_id: OID) -> RS<Arc<AMutex<MySqlAsyncSession>
         .cloned()
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })
@@ -646,7 +646,7 @@ pub(crate) fn sql_params_to_mysql(params: &dyn SQLParams) -> RS<Vec<Value>> {
     for idx in 0..params.size() {
         let datum = params.get_idx(idx).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("sql param index {idx} does not exist")
             )
         })?;
@@ -878,7 +878,7 @@ mod tests {
     #[test]
     fn session_helpers_reject_unknown_sessions_without_a_server() {
         let err = ensure_session_exists(999_999_999).unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(with_session(999_999_999, |_conn| Ok(())).is_err());
 
         // The public entry points fail the same way, before any network IO.

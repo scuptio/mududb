@@ -2,7 +2,7 @@
 """Full local verification suite across the group workspaces (cargo make check).
 
 Cross-platform port of the former script/shell/check_all.sh, with identical
-coverage and fail-fast semantics: one cargo invocation at a time to stay
+coverage and aggregated failure reporting: one cargo invocation at a time to stay
 within the shared memory budget (.cargo/config.toml: jobs = 4,
 RUST_TEST_THREADS = 4).
 
@@ -14,20 +14,19 @@ production test-feature ban, and code metrics over crates/ and example/.
 `--only` selects a subset by comma-separated step ids: per-workspace `fmt`,
 `clippy`, `test-compile`, `deny` (opt-in — requires cargo-deny), `group`
 (fmt+clippy+test-compile), or repo-level `deps`, `arch`, `test-feature`,
-`metrics`. The pre-commit hooks use `--only fmt,clippy,deny` as a fast gate.
+`metrics`, `todo-panic`. The pre-commit hooks use `--only fmt,clippy,deny` as
+a fast gate.
 """
 import argparse
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "script" / "lib"))
+from task_report import Report, add_options
 from cli import normalized_argv  # noqa: E402
-from output import cmd as echo_cmd  # noqa: E402
-from output import error, format_duration, highlight, status  # noqa: E402
+from output import error  # noqa: E402
 
 WS_GROUPS = ["crates/common", "crates/db-kernel", "crates/sdk", "example/mpk", "crates/tools"]
 
@@ -100,18 +99,21 @@ REPO_STEPS = [
         ],
         REPO_ROOT,
     ),
+    (
+        "todo-panic",
+        "TODO / panic-surface report (advisory)",
+        [sys.executable, str(REPO_ROOT / "script/ci/check_todo_panic.py")],
+        REPO_ROOT,
+    ),
+    (
+        "wit-ddl",
+        "DDL -> WIT projection drift (object-definition pipeline)",
+        [sys.executable, str(REPO_ROOT / "script/ci/check_wit_ddl.py")],
+        REPO_ROOT,
+    ),
 ]
 
 DEFAULT_GROUP_IDS = {step_id for step_id, _, _ in PER_GROUP_STEPS}
-
-
-def run_step(title: str, cmd: List[str], cwd: Path) -> None:
-    status("Checking", highlight(title))
-    echo_cmd(cmd)
-    proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-    if proc.returncode != 0:
-        error(f"step failed (exit {proc.returncode}): {title}")
-        raise SystemExit(proc.returncode)
 
 
 def parse_only(only: Optional[str]) -> Tuple[Set[str], Set[str]]:
@@ -139,7 +141,6 @@ def parse_only(only: Optional[str]) -> Tuple[Set[str], Set[str]]:
 
 
 def main() -> int:
-    started = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--only",
@@ -147,30 +148,23 @@ def main() -> int:
         help="Comma-separated step ids to run instead of everything: per-workspace "
         "'fmt', 'clippy', 'test-compile', 'deny' (opt-in, needs cargo-deny), "
         "'group' (fmt+clippy+test-compile), or repo-level 'deps', 'arch', "
-        "'test-feature', 'metrics'.",
+        "'test-feature', 'metrics', 'todo-panic'.",
     )
+    add_options(parser, "checks")
     args = parser.parse_args(normalized_argv())
     wanted_group, wanted_repo = parse_only(args.only)
 
+    report = Report(args, "MuduDB checks")
     for group in WS_GROUPS:
         for step_id, label, cmd in ALL_GROUP_STEPS:
             if step_id in wanted_group:
-                run_step(f"{group}: {label}", cmd, REPO_ROOT / group)
+                report.run(f"{group}: {label}", cmd, REPO_ROOT / group)
 
     for step_id, title, cmd, cwd in REPO_STEPS:
         if step_id in wanted_repo:
-            run_step(title, cmd, cwd)
+            report.run(title, cmd, cwd)
 
-    elapsed = format_duration(time.monotonic() - started)
-    if args.only:
-        status("Finished", f"step(s) '{args.only}' passed in {elapsed}")
-    else:
-        status(
-            "Finished",
-            "fmt, clippy, test compilation, dependency consistency, layering, "
-            f"and code metrics all passed in {elapsed}",
-        )
-    return 0
+    return report.finish()
 
 
 if __name__ == "__main__":

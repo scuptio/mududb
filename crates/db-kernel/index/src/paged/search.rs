@@ -145,7 +145,7 @@ impl<V: Send> PagedBTree<V> {
         }
     }
 
-    /// Records the descent's page links without decoding interior nodes; the
+    /// Structs the descent's page links without decoding interior nodes; the
     /// leaf link is the last element. Structural edits revalidate every page
     /// by revision at publication, so the descent needs no node copies.
     pub(super) async fn path_links(&self, access: &BufferAccess<'_>, key: &[u8]) -> RS<Vec<Link>> {

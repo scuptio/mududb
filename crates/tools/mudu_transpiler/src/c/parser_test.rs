@@ -1,5 +1,5 @@
 use super::discover_procedures;
-use crate::c::procedure::{CValueType, normalize_type_name};
+use crate::c::types::{CValueType, normalize_type_name};
 use mudu::error::ErrorCode;
 use std::error::Error;
 
@@ -214,12 +214,12 @@ int update_profile(const mudu_proc_param *param, mudu_datum *result, mudu_error 
     assert_eq!(procs.len(), 1);
     let proc = &procs[0];
     assert_eq!(proc.params.len(), 4);
-    assert_eq!(proc.params[1].value_type.datum_kind(), "MUDU_DATUM_RECORD");
-    let CValueType::Record(record) = &proc.params[1].value_type else {
+    assert_eq!(proc.params[1].value_type.datum_kind(), "MUDU_DATUM_STRUCT");
+    let CValueType::Struct(record) = &proc.params[1].value_type else {
         return Err("param 1 should resolve to a record".into());
     };
     assert_eq!(record.name, "Profile");
-    assert_eq!(record.data_type.type_family(), TypeFamily::Record);
+    assert_eq!(record.data_type.type_family(), TypeFamily::Struct);
     let CValueType::Enum(mode) = &proc.params[2].value_type else {
         return Err("param 2 should resolve to an enum".into());
     };
@@ -236,7 +236,7 @@ int update_profile(const mudu_proc_param *param, mudu_datum *result, mudu_error 
         proc.params[3].value_type.data_type().type_family(),
         TypeFamily::String
     );
-    let CValueType::Record(return_record) = &proc.return_value_type else {
+    let CValueType::Struct(return_record) = &proc.return_value_type else {
         return Err("the return type should resolve to a record".into());
     };
     assert_eq!(return_record.name, "Profile");

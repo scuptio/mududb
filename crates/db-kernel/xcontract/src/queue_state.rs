@@ -14,7 +14,18 @@
 //! under `\0mudu.queue.state.v1/<oid>`; the owner-side rebuild reads that
 //! record once and re-homes it into the sentinel row.
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::kv::tx::worker_rollback_tx;
+use crate::ops::_begin_tx;
+use crate::ops::locks::acquire_statement_lock;
+use crate::queue_types::ensure_local_shard_owner;
+use crate::queue_types::legacy_state_key;
+use crate::queue_types::shard_key;
+use crate::queue_types::QueueRegistry;
+use crate::queue_types::QueueShardId;
 use crate::utils::{build_key_tuple, build_value_tuple, project_selected_fields};
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
 use ::catalog::contract::queue::{
     decode_queue_seq, decode_queue_state_word, queue_lsn_datum, queue_receive_count_datum,
     queue_sentinel_seq, queue_seq_datum, queue_seq_local, queue_state_word_datum,
@@ -22,19 +33,6 @@ use ::catalog::contract::queue::{
     QUEUE_SEQ_LOCAL_MAX, QUEUE_SEQ_LOCAL_SENTINEL, QUEUE_STATE_HI_ATTR, QUEUE_STATE_LO_ATTR,
     QUEUE_STATUS_ATTR, QUEUE_STATUS_STATE,
 };
-
-const LEGACY_PREFIX: &[u8] = b"\0mudu.queue.state.v1/";
-
-/// KV key of the legacy (pre-sentinel) watermark record of a queue.
-pub(crate) fn legacy_state_key(oid: OID) -> Vec<u8> {
-    [LEGACY_PREFIX, &oid.to_be_bytes()].concat()
-}
-
-/// The queue oid of a legacy watermark KV key, when it is one.
-pub(crate) fn legacy_state_oid(key: &[u8]) -> Option<OID> {
-    let tail = key.strip_prefix(LEGACY_PREFIX)?;
-    Some(OID::from_be_bytes(tail.try_into().ok()?))
-}
 
 /// The four transactional watermark counters of one queue shard.
 #[derive(Default)]
@@ -131,6 +129,115 @@ fn sentinel_value(desc: &TableDesc, lsn: u64, state: &QueueState) -> RS<Vec<u8>>
     )
 }
 
+/// Reads the legacy pre-sentinel watermark of an unpartitioned queue from
+/// the worker KV, when present.
+pub(crate) async fn read_legacy_state(
+    storage: &Arc<WorkerStorage>,
+    queue_oid: OID,
+) -> RS<Option<QueueState>> {
+    let bytes = storage.kv_get(&legacy_state_key(queue_oid), None).await?;
+    bytes
+        .map(|bytes| QueueState::decode_legacy(&bytes))
+        .transpose()
+}
+
+/// Stages the shard watermark row in `tx` (absolute values; idempotent
+/// under the cross-partition apply replay).
+pub(crate) fn stage_shard_state(
+    tx: Arc<dyn TxMgr>,
+    shard: &QueueShard,
+    desc: &TableDesc,
+    state: &QueueState,
+) -> RS<()> {
+    let key = sentinel_key_tuple(desc, shard.shard_index)?;
+    let value = sentinel_value(desc, tx.xid(), state)?;
+    tx.put_relation(
+        PhysicalRelationId {
+            table_id: shard.queue_oid,
+            partition_id: shard.partition_id,
+        },
+        key,
+        value,
+    );
+    Ok(())
+}
+
+/// Publishes committed watermark counters to the in-memory registry
+/// (observability/activation mirror).
+pub(crate) fn publish_queue_state(
+    queue_registry: &QueueRegistry,
+    shard: QueueShardId,
+    next: u64,
+    frontier: u64,
+    depth: u64,
+    bytes: u64,
+) -> RS<()> {
+    queue_registry.set_durable(shard, next, frontier, depth, bytes)
+}
+
+/// Committed-only read of the shard sentinel for the owner-side rebuild
+/// (no transaction is taken: a throwaway read-only one is used).
+pub(crate) async fn read_shard_sentinel_committed(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    storage: &Arc<WorkerStorage>,
+    snapshot_mgr: &WorkerSnapshotMgr,
+    tx_lock: &XLockMgr,
+    worker_id: OID,
+    shard: &QueueShard,
+) -> RS<Option<QueueState>> {
+    ensure_local_shard_owner(shard, worker_id)?;
+    let desc = meta_mgr.get_table_by_id(shard.queue_oid).await?;
+    let key = sentinel_key_tuple(&desc, shard.shard_index)?;
+    let tx = _begin_tx(snapshot_mgr)?;
+    let value = storage
+        .get_on_partition(shard.queue_oid, Some(shard.partition_id), &key, tx.as_ref())
+        .await;
+    let _ = worker_rollback_tx(tx_lock, snapshot_mgr, tx);
+    let value = value?;
+    match value {
+        Some(value) => parse_sentinel_value(&desc, &key, &value),
+        None => Ok(None),
+    }
+}
+
+/// Extracts the shard watermarks staged in `tx`: every queue-relation
+/// sentinel-row write becomes one `(shard, next, frontier, depth, bytes)`
+/// entry, published to the in-memory registry after the commit applies.
+pub(crate) async fn staged_shard_states(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    tx: &dyn TxMgr,
+) -> RS<Vec<(QueueShardId, u64, u64, u64, u64)>> {
+    let staged = tx.staged_relation_ops();
+    if staged.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for (relation_id, rows) in staged {
+        let Ok(desc) = meta_mgr.get_table_by_id(relation_id.table_id).await else {
+            continue;
+        };
+        if !desc.is_queue() {
+            continue;
+        }
+        for (key, value) in &rows {
+            let Some(value) = value else { continue };
+            if !is_sentinel_key(&desc, key)? {
+                continue;
+            }
+            if let Some(state) = parse_sentinel_value(&desc, key, value)? {
+                out.push((
+                    (relation_id.table_id, relation_id.partition_id),
+                    state.next,
+                    state.frontier,
+                    state.depth,
+                    state.bytes,
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 impl WorkerXContract {
     /// Serializes the shard's watermark mutations until `tx` ends: the
     /// statement lock on the sentinel row key (taken on the owner, remotely
@@ -154,7 +261,7 @@ impl WorkerXContract {
             partition_id: shard.partition_id,
         };
         if shard.worker_id == self.worker_id {
-            self.acquire_statement_lock(tx, relation_id, key).await
+            acquire_statement_lock(&self.tx_lock, tx, relation_id, key).await
         } else {
             self.lock_remote_key_for_update(
                 tx,
@@ -191,8 +298,7 @@ impl WorkerXContract {
             }
         }
         let fields = if shard.worker_id == self.worker_id {
-            self.acquire_statement_lock(tx.as_ref(), relation_id, key.clone())
-                .await?;
+            acquire_statement_lock(&self.tx_lock, tx.as_ref(), relation_id, key.clone()).await?;
             let value = self
                 .storage
                 .get_on_partition(shard.queue_oid, Some(shard.partition_id), &key, tx.as_ref())
@@ -235,62 +341,6 @@ impl WorkerXContract {
         })
     }
 
-    /// Committed-only read of the shard sentinel for the owner-side rebuild
-    /// (no transaction is taken: a throwaway read-only one is used).
-    pub(crate) async fn read_shard_sentinel_committed(
-        &self,
-        shard: &QueueShard,
-    ) -> RS<Option<QueueState>> {
-        self.ensure_local_shard_owner(shard)?;
-        let desc = self.meta_mgr.get_table_by_id(shard.queue_oid).await?;
-        let key = sentinel_key_tuple(&desc, shard.shard_index)?;
-        let tx = self._begin_tx()?;
-        let value = self
-            .storage
-            .get_on_partition(shard.queue_oid, Some(shard.partition_id), &key, tx.as_ref())
-            .await;
-        let _ = self.worker_rollback_tx(tx);
-        let value = value?;
-        match value {
-            Some(value) => parse_sentinel_value(&desc, &key, &value),
-            None => Ok(None),
-        }
-    }
-
-    /// Reads the legacy pre-sentinel watermark of an unpartitioned queue from
-    /// the worker KV, when present.
-    pub(crate) async fn read_legacy_state(&self, queue_oid: OID) -> RS<Option<QueueState>> {
-        let bytes = self
-            .storage
-            .kv_get(&legacy_state_key(queue_oid), None)
-            .await?;
-        bytes
-            .map(|bytes| QueueState::decode_legacy(&bytes))
-            .transpose()
-    }
-
-    /// Stages the shard watermark row in `tx` (absolute values; idempotent
-    /// under the cross-partition apply replay).
-    pub(crate) fn stage_shard_state(
-        &self,
-        tx: Arc<dyn TxMgr>,
-        shard: &QueueShard,
-        desc: &TableDesc,
-        state: &QueueState,
-    ) -> RS<()> {
-        let key = sentinel_key_tuple(desc, shard.shard_index)?;
-        let value = sentinel_value(desc, tx.xid(), state)?;
-        tx.put_relation(
-            PhysicalRelationId {
-                table_id: shard.queue_oid,
-                partition_id: shard.partition_id,
-            },
-            key,
-            value,
-        );
-        Ok(())
-    }
-
     /// Reserves `count` local sequences and `bytes` payload bytes of `shard`
     /// in the enqueue transaction, returning the first local sequence.
     pub(crate) async fn reserve_queue(
@@ -322,7 +372,7 @@ impl WorkerXContract {
         state.depth += count;
         state.bytes += bytes;
         let desc = self.meta_mgr.get_table_by_id(shard.queue_oid).await?;
-        self.stage_shard_state(tx, shard, &desc, &state)?;
+        stage_shard_state(tx, shard, &desc, &state)?;
         Ok(first)
     }
 
@@ -345,66 +395,15 @@ impl WorkerXContract {
         state.depth = state.depth.saturating_sub(deleted);
         state.bytes = state.bytes.saturating_sub(deleted_bytes);
         let desc = self.meta_mgr.get_table_by_id(shard.queue_oid).await?;
-        self.stage_shard_state(tx, shard, &desc, &state)?;
+        stage_shard_state(tx, shard, &desc, &state)?;
         Ok(())
-    }
-
-    /// Publishes committed watermark counters to the in-memory registry
-    /// (observability/activation mirror).
-    pub(crate) fn publish_queue_state(
-        &self,
-        shard: QueueShardId,
-        next: u64,
-        frontier: u64,
-        depth: u64,
-        bytes: u64,
-    ) -> RS<()> {
-        self.queue_registry
-            .set_durable(shard, next, frontier, depth, bytes)
-    }
-
-    /// Extracts the shard watermarks staged in `tx`: every queue-relation
-    /// sentinel-row write becomes one `(shard, next, frontier, depth, bytes)`
-    /// entry, published to the in-memory registry after the commit applies.
-    pub(crate) async fn staged_shard_states(
-        &self,
-        tx: &dyn TxMgr,
-    ) -> RS<Vec<(QueueShardId, u64, u64, u64, u64)>> {
-        let staged = tx.staged_relation_ops();
-        if staged.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut out = Vec::new();
-        for (relation_id, rows) in staged {
-            let Ok(desc) = self.meta_mgr.get_table_by_id(relation_id.table_id).await else {
-                continue;
-            };
-            if !desc.is_queue() {
-                continue;
-            }
-            for (key, value) in &rows {
-                let Some(value) = value else { continue };
-                if !is_sentinel_key(&desc, key)? {
-                    continue;
-                }
-                if let Some(state) = parse_sentinel_value(&desc, key, value)? {
-                    out.push((
-                        (relation_id.table_id, relation_id.partition_id),
-                        state.next,
-                        state.frontier,
-                        state.depth,
-                        state.bytes,
-                    ));
-                }
-            }
-        }
-        Ok(out)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::queue_types::legacy_state_oid;
 
     #[test]
     fn legacy_state_v1_matches_golden_and_rejects_invalid_frames() -> RS<()> {

@@ -13,7 +13,7 @@ pub mod handle_sys_outcoming;
 pub(crate) mod handle_sys_query;
 pub mod handle_sys_session;
 /// SyscallPayload v1 codec: 16-byte MSSP header + MessagePack bodies for the
-/// `uni-syscall.wit` syscall surface (see `doc/cn/contract/syscall_payload_v1.md`).
+/// `uni-syscall.wit` syscall surface (see `doc/zh-CN/contract/syscall_payload_v1.md`).
 pub mod syscall_payload;
 use mudu::common::id::OID;
 use mudu_contract::database::sql_params::SQLParams;

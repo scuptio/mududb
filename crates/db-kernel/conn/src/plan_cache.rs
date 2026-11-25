@@ -22,7 +22,7 @@
 //! catalog version lives inside the entry) so lookups borrow both without
 //! allocating a key.
 
-use crate::mudu_conn_core::{query_exec_to_rows, tuple_field_to_value};
+use crate::query_exec::{query_exec_to_rows, tuple_field_to_value};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::sql::bound_stmt::BoundStmt;
 use ::sql::bound_template::{
@@ -253,7 +253,7 @@ impl CachedPlan {
         let key = fill_pairs(&template.key, slots, params)?;
         if key.is_empty() {
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "update key is empty"
             ));
         }
@@ -275,7 +275,7 @@ impl CachedPlan {
         }
         if absolute.is_empty() && delta_assignments.is_empty() && null_assignments.is_empty() {
             return Err(mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "update value is empty"
             ));
         }

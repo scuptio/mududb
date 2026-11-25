@@ -98,7 +98,7 @@ impl WorkerTask {
         self.waiting_on.take()
     }
 
-    /// Records the id of the IO operation the task is blocked on.
+    /// Structs the id of the IO operation the task is blocked on.
     pub fn set_waiting_on(&mut self, op_id: u64) {
         self.waiting_on = Some(op_id);
     }

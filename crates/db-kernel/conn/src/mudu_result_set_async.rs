@@ -30,7 +30,7 @@ impl MuduResultSetAsync {
 
     /// Drains a query executor into a materialized result set.
     pub async fn from_query_exec(exec: Arc<dyn QueryExec>) -> RS<Self> {
-        let (rows, desc) = super::mudu_conn_core::query_exec_to_rows(exec).await?;
+        let (rows, desc) = crate::query_exec::query_exec_to_rows(exec).await?;
         Ok(Self::from_rows(rows, desc))
     }
 }

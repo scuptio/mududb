@@ -5,7 +5,7 @@
 //! The content filesystem is an in-memory [`MemFs`]; `_fs_object` rows come
 //! from a [`MockFsObjectStore`] map; sessions are real
 //! [`WorkerSessionManager`] sessions (so these tests build a `MuduConnCore`
-//! and are excluded under Miri) carrying a [`RecordingTxMgr`] that records
+//! and are excluded under Miri) carrying a [`StructingTxMgr`] that records
 //! the staged `_fs_object` writes.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,7 +27,7 @@ use crate::fs_service::{FsObjectLookup, FsObjectStore, FsService, FS_IO_MAX_BYTE
 use crate::worker_session_manager::WorkerSessionManager;
 use ::catalog::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::meta::fs_object::{
@@ -355,14 +355,14 @@ impl MetaMgr for FsTestMetaMgr {
     }
 
     async fn get_table_by_id(&self, _oid: OID) -> RS<Arc<TableDesc>> {
-        Err(mudu_error!(ErrorCode::EntityNotFound, "no such table"))
+        Err(mudu_error!(ErrorCode::ObjectNotFound, "no such table"))
     }
 
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
 
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
 
@@ -377,11 +377,11 @@ impl MetaMgr for FsTestMetaMgr {
 
 type StagedOps = BTreeMap<PhysicalRelationId, BTreeMap<Vec<u8>, Option<Vec<u8>>>>;
 
-struct RecordingTxMgr {
+struct StructingTxMgr {
     staged: SMutex<StagedOps>,
 }
 
-impl RecordingTxMgr {
+impl StructingTxMgr {
     fn new() -> Self {
         Self {
             staged: SMutex::new(BTreeMap::new()),
@@ -400,7 +400,7 @@ impl RecordingTxMgr {
     }
 }
 
-impl TxMgr for RecordingTxMgr {
+impl TxMgr for StructingTxMgr {
     fn xid(&self) -> u64 {
         1
     }
@@ -491,7 +491,7 @@ impl TxMgr for RecordingTxMgr {
 struct Fixture {
     service: FsService,
     sessions: Arc<WorkerSessionManager>,
-    tx: Arc<RecordingTxMgr>,
+    tx: Arc<StructingTxMgr>,
     store: Arc<MockFsObjectStore>,
     fs: Arc<MemFs>,
     session_id: OID,
@@ -526,7 +526,7 @@ fn new_fixture() -> Fixture {
         None,
     ));
     let session_id = sessions.create_session(1).unwrap();
-    let tx = Arc::new(RecordingTxMgr::new());
+    let tx = Arc::new(StructingTxMgr::new());
     sessions.begin_session_tx(session_id, tx.clone()).unwrap();
     let service = FsService::new(
         data_dir.clone(),

@@ -21,7 +21,7 @@ mod tests {
             include_str!("ddl_item.sql"),
             include_str!("ddl_warehouse.sql"),
         ] {
-            let result = CodeGen::generate_entity_code_from_ddl_sql(text, "Rust", true)?;
+            let result = CodeGen::generate_object_code_from_ddl_sql(text, "Rust", true)?;
             for (_name, src) in result.source_code {
                 syn::parse_file(&src)
                     .map(|syntax| prettyplease::unparse(&syntax))

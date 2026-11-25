@@ -59,6 +59,9 @@ pub mod message;
 /// reply metadata, receive filters, and the `u128` serde adapters.
 pub mod wire;
 
+#[cfg(test)]
+mod message_test;
+
 pub use envelope::{Envelope, OutgoingMessage};
 pub use message::{ChannelMessage, ChannelReply, ServiceCtx};
 pub use wire::{

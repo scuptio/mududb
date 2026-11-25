@@ -1,7 +1,7 @@
-//! Unit tests for the `generated::order_line::OrderLine` entity.
+//! Unit tests for the `generated::order_line::OrderLine` object.
 
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::mudu::data_type::numeric::Numeric;
 use mududb::types::datum::{Datum, DatumDyn};
 
@@ -35,12 +35,12 @@ fn assert_same_order_line(lhs: &OrderLine, rhs: &OrderLine) {
 
 #[test]
 fn order_line_lifecycle() {
-    let entity = sample_order_line();
-    assert_eq!(entity.ol_number, 4);
-    assert_eq!(entity.ol_quantity, 10);
+    let object = sample_order_line();
+    assert_eq!(object.ol_number, 4);
+    assert_eq!(object.ol_quantity, 10);
 
-    // Entity metadata
-    assert_eq!(OrderLine::table_name(), "order_line");
+    // Object metadata
+    assert_eq!(OrderLine::class_name(), "order_line");
     assert_eq!(OrderLine::TABLE_NAME, "order_line");
     assert_eq!(OrderLine::tuple_desc().fields().len(), 9);
     assert_eq!(OrderLine::tuple_desc().fields()[0].name(), columns::OL_O_ID);
@@ -49,25 +49,25 @@ fn order_line_lifecycle() {
 
     // Datum / DatumDyn metadata
     let data_type = OrderLine::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple / value / binary / textual roundtrips
-    let tuple = entity.to_tuple().unwrap();
-    assert_same_order_line(&OrderLine::from_tuple(&tuple).unwrap(), &entity);
-    let value = entity.to_value(&data_type).unwrap();
-    assert_same_order_line(&OrderLine::from_value(&value).unwrap(), &entity);
-    let binary = entity.to_binary(&data_type).unwrap();
-    assert_same_order_line(&OrderLine::from_binary(binary.as_ref()).unwrap(), &entity);
-    let textual = entity.to_textual(&data_type).unwrap();
-    assert_same_order_line(&OrderLine::from_textual(textual.as_str()).unwrap(), &entity);
+    let tuple = object.to_tuple().unwrap();
+    assert_same_order_line(&OrderLine::from_tuple(&tuple).unwrap(), &object);
+    let value = object.to_value(&data_type).unwrap();
+    assert_same_order_line(&OrderLine::from_value(&value).unwrap(), &object);
+    let binary = object.to_binary(&data_type).unwrap();
+    assert_same_order_line(&OrderLine::from_binary(binary.as_ref()).unwrap(), &object);
+    let textual = object.to_textual(&data_type).unwrap();
+    assert_same_order_line(&OrderLine::from_textual(textual.as_str()).unwrap(), &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
-    assert_same_order_line(&OrderLine::from_value(&cloned_value).unwrap(), &entity);
+    assert_same_order_line(&OrderLine::from_value(&cloned_value).unwrap(), &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, 1);
     assert_eq!(params.6.as_deref(), Some("delivery_val"));
     assert_eq!(params.7, 10);
@@ -112,14 +112,14 @@ fn order_line_lifecycle() {
 
 #[test]
 fn order_line_nullable_fields_roundtrip() {
-    let entity = OrderLine::new(1, 2, 3, 4, 5, 6, None, 10, Numeric::from(100i32));
-    let tuple = entity.to_tuple().unwrap();
+    let object = OrderLine::new(1, 2, 3, 4, 5, 6, None, 10, Numeric::from(100i32));
+    let tuple = object.to_tuple().unwrap();
     assert!(tuple.is_null(6));
     let restored = OrderLine::from_tuple(&tuple).unwrap();
-    assert_same_order_line(&restored, &entity);
+    assert_same_order_line(&restored, &object);
 
-    let value = entity.to_tuple_value().unwrap();
+    let value = object.to_tuple_value().unwrap();
     assert!(value.values()[6].is_null());
     let restored = OrderLine::from_tuple_value(&value).unwrap();
-    assert_same_order_line(&restored, &entity);
+    assert_same_order_line(&restored, &object);
 }

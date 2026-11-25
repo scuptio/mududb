@@ -13,14 +13,14 @@ use mudu_sys::sync::async_::{AMutex, AMutexGuard};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub async fn create_libsql_async_conn(db_path: &String, app_name: &String) -> RS<DBConn> {
+pub(crate) async fn create_libsql_async_conn(db_path: &String, app_name: &String) -> RS<DBConn> {
     let db_file_path = PathBuf::from(db_path).join(app_name);
     let path = rs_option(db_file_path.to_str(), "path to string error")?.to_string();
     let conn = LibSQLAsyncConn::new(path).await?;
     Ok(DBConn::Async(Arc::new(conn)))
 }
 
-pub struct LibSQLAsyncConn {
+pub(crate) struct LibSQLAsyncConn {
     inner: Arc<AMutex<LibSQLAsyncConnInner>>,
 }
 

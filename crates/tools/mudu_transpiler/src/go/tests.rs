@@ -224,7 +224,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
     assert!(adapter.contains("gentypes \"shop_go/gentypes\""));
     assert!(adapter.contains("\"github.com/mududb/mududb-go/types\""));
     // record parameter: the record bridge feeds the generated codec
-    assert!(adapter.contains("profileFields, err := types.RecordFieldValues(p.Params[1])"));
+    assert!(adapter.contains("profileFields, err := types.StructFieldValues(p.Params[1])"));
     assert!(adapter.contains("profile, err := gentypes.ProfileFromValue(profileFields)"));
     // option scalar parameter: nil guard plus address-of the decoded value
     assert!(adapter.contains("var note *string"));
@@ -236,7 +236,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
     // record result: the generated codec renders the positional map the
     // record bridge wraps back into the record-case envelope
     assert!(adapter.contains("resultWire, err := gentypes.ProfileToValue(result)"));
-    assert!(adapter.contains("return types.RecordFromFieldValues(resultWire)"));
+    assert!(adapter.contains("return types.StructFromFieldValues(resultWire)"));
     assert!(adapter.contains("result, err := updateProfile(p.Session, id, profile, note, mode)"));
     assert_go_syntax(&adapter)?;
     Ok(())
@@ -324,9 +324,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
     });
     let i32_type = serde_json::json!({ "id": "I32", "param": null });
     let address_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Address",
                 "field": [
                     ["city", string_type],
@@ -336,9 +336,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
         }
     });
     let profile_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Profile",
                 "field": [
                     ["display-name", string_type],

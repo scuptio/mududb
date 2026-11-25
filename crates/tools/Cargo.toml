@@ -5,9 +5,11 @@ members = [
     "mpm_build",
     "mpm_crate",
     "mpm_install",
+    "mpm_tool",
     "mudu_cli",
     "mudu_gen",
     "mudu_transpiler",
+    "dev/mudu_arch",
     "dev/mudu_metrics",
 ]
 
@@ -36,6 +38,7 @@ debug = 1
 mpm_build = { path = "mpm_build" }
 mpm_crate = { path = "mpm_crate" }
 mpm_install = { path = "mpm_install" }
+mpm_tool = { path = "mpm_tool" }
 mudu_cli = { path = "mudu_cli" }
 mudu_gen = { path = "mudu_gen" }
 mudu_metrics = { path = "dev/mudu_metrics" }
@@ -45,6 +48,7 @@ mudu_transpiler = { path = "mudu_transpiler" }
 mudu = { path = "../common/mudu" }
 mudu_binding = { path = "../common/mudu_binding" }
 mudu_build_common = { path = "../common/mudu_build_common" }
+mudu_caf = { path = "../common/mudu_caf" }
 mudu_client = { path = "../common/mudu_client" }
 mudu_contract = { path = "../common/mudu_contract" }
 mudu_sys = { path = "../common/mudu_sys" }

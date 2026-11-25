@@ -186,7 +186,7 @@ mod tests {
 
     use super::*;
     use crate::server::worker_channel::TokioWorkerChannel;
-    use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
+    use crate::worker_registry::{WorkerIdobject, WorkerRegistry};
     use crossbeam_queue::SegQueue;
     use mudu_sys::sync::async_::notify_wait::create_notify_wait;
     use mudu_sys::tokio::sync::Notify;
@@ -206,12 +206,12 @@ mod tests {
     fn test_fabric() -> Fabric {
         let registry = Arc::new(
             WorkerRegistry::new(vec![
-                WorkerIdentity {
+                WorkerIdobject {
                     worker_index: 0,
                     worker_id: 11,
                     partition_ids: vec![101],
                 },
-                WorkerIdentity {
+                WorkerIdobject {
                     worker_index: 1,
                     worker_id: 12,
                     partition_ids: vec![102],
@@ -259,6 +259,7 @@ mod tests {
                 fabric.registry.clone(),
                 fabric.mailboxes.clone(),
                 fabric.wakes.clone(),
+                Arc::new(SMutex::new(None)),
             );
             let (gateway, guard) = gateway(&fabric, sid);
 
@@ -292,13 +293,13 @@ mod tests {
                 .send(777, OutgoingMessage::new(KIND, vec![]))
                 .await
                 .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
             drop(guard);
             let err = worker
                 .send(GW, OutgoingMessage::new(KIND, vec![]))
                 .await
                 .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         })
         .unwrap()
     }

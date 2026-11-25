@@ -36,7 +36,7 @@ public struct UniCommandArgv {
     public required UniSqlParam ParamList { get; set; }
     
     
-    public UniRecordType? ParamDesc { get; set; }
+    public UniStructType? ParamDesc { get; set; }
     
 }
 
@@ -44,7 +44,7 @@ public class UniCommandArgvFormatter : IMessagePackFormatter<UniCommandArgv>
 {
     public void Serialize(ref MessagePackWriter writer, UniCommandArgv value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order). WIT option fields are omitted
         // when they hold no value (proto3 presence semantics); decode
         // treats a missing key as the default.
@@ -74,7 +74,7 @@ public class UniCommandArgvFormatter : IMessagePackFormatter<UniCommandArgv>
             writer.Write(4);
         if (value.ParamDesc.HasValue)
         {
-            new UniRecordTypeFormatter().Serialize(ref writer, value.ParamDesc.Value, options);
+            new UniStructTypeFormatter().Serialize(ref writer, value.ParamDesc.Value, options);
         }
         else
         {
@@ -129,7 +129,7 @@ public class UniCommandArgvFormatter : IMessagePackFormatter<UniCommandArgv>
                 
                 case 4:
                 {
-        value.ParamDesc = new UniRecordTypeFormatter().Deserialize(ref reader, options);
+        value.ParamDesc = new UniStructTypeFormatter().Deserialize(ref reader, options);
 
                     break;
                 }

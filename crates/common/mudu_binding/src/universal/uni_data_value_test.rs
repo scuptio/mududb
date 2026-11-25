@@ -14,7 +14,7 @@ mod tests {
     }
 
     fn record() -> UniDataValue {
-        UniDataValue::from_record(vec![UniDataValueField {
+        UniDataValue::from_struct(vec![UniDataValueField {
             field_name: "flag".to_string(),
             field_value: scalar(),
         }])
@@ -57,12 +57,12 @@ mod tests {
     #[test]
     fn record_constructor_and_accessors() {
         let v = record();
-        assert_eq!(v.as_record().unwrap().len(), 1);
-        assert_eq!(v.expect_record().len(), 1);
+        assert_eq!(v.as_struct().unwrap().len(), 1);
+        assert_eq!(v.expect_struct().len(), 1);
 
-        assert!(scalar().as_record().is_none());
-        assert!(array().as_record().is_none());
-        assert!(binary().as_record().is_none());
+        assert!(scalar().as_struct().is_none());
+        assert!(array().as_struct().is_none());
+        assert!(binary().as_struct().is_none());
     }
 
     #[test]
@@ -138,7 +138,7 @@ mod tests {
                     assert_same_value(x, y);
                 }
             }
-            (UniDataValue::Record(a), UniDataValue::Record(b)) => {
+            (UniDataValue::Struct(a), UniDataValue::Struct(b)) => {
                 assert_eq!(a.len(), b.len());
                 for (x, y) in a.iter().zip(b.iter()) {
                     assert_eq!(x.field_name, y.field_name);

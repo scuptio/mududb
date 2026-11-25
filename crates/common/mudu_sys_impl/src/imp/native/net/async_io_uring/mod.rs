@@ -8,3 +8,6 @@ mod socket_opt;
 mod testing_async_io_uring_net;
 
 pub(crate) use async_io_uring_net::AsyncIoUringNet;
+
+#[cfg(test)]
+mod resource_tests;

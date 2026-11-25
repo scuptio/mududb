@@ -152,7 +152,7 @@ impl MuduConnAsync {
         }
         let addr = default_remote_addr().ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 "current worker local is not set and no default remote mududb addr is configured"
             )
         })?;
@@ -237,7 +237,7 @@ impl MuduConnAsync {
             ConnBackend::WorkerLocal(_) => self
                 .session_id
                 .lock()?
-                .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no active session")),
+                .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "no active session")),
             ConnBackend::Remote(remote) => remote.active_session_id().await,
         }
     }
@@ -374,6 +374,74 @@ impl MuduConnAsync {
         }
     }
 
+    /// Open a volatile cache by name (worker-level; not session-bound). The
+    /// bare name resolves through this connection's application schema.
+    pub async fn cache_open(&self, name: &str) -> RS<OID> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => {
+                worker_local
+                    .cache_open(name, self.app_name.as_deref())
+                    .await
+            }
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "cache access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Read a cache entry.
+    pub async fn cache_get(&self, cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => worker_local.cache_get(cache, key).await,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "cache access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Write a cache entry with an optional TTL in seconds.
+    pub async fn cache_put(
+        &self,
+        cache: OID,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        ttl_secs: Option<u64>,
+    ) -> RS<()> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => {
+                worker_local.cache_put(cache, key, value, ttl_secs).await
+            }
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "cache access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Remove a cache entry.
+    pub async fn cache_delete(&self, cache: OID, key: &[u8]) -> RS<bool> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => worker_local.cache_delete(cache, key).await,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "cache access is not supported without worker-local context"
+            )),
+        }
+    }
+
+    /// Read a cache entry's remaining TTL in seconds.
+    pub async fn cache_ttl(&self, cache: OID, key: &[u8]) -> RS<Option<u64>> {
+        match &self.backend {
+            ConnBackend::WorkerLocal(worker_local) => worker_local.cache_ttl(cache, key).await,
+            ConnBackend::Remote(_) => Err(mudu_error!(
+                ErrorCode::NotImplemented,
+                "cache access is not supported without worker-local context"
+            )),
+        }
+    }
+
     /// Close the worker session this connection opened, if any; a later
     /// operation opens a fresh session. Closing a connection that never
     /// opened a session is a no-op.
@@ -457,7 +525,7 @@ impl RemoteWorkerConn {
     async fn active_session_id(&self) -> RS<OID> {
         self.session_id
             .lock()?
-            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no active session"))
+            .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "no active session"))
     }
 
     async fn batch_sql(&self, sql: String) -> RS<u64> {

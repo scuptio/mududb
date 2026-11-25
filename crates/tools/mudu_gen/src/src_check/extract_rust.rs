@@ -9,9 +9,9 @@
 //! - when a literal appears in a call that also receives a parameter list
 //!   (`sql_params!(&(a, b))`, `&(a, b)`, `&vec![..]`), its tuple arity is
 //!   compared against the SQL `?` count by the driver;
-//! - when the call carries a turbofish entity (`mudu_query::<Wallets>` or
-//!   helpers such as `query_one_entity::<Customer>`) and the literal is a
-//!   `SELECT`, the result shape is compared against the entity's table
+//! - when the call carries a turbofish object (`mudu_query::<Wallets>` or
+//!   helpers such as `query_one_object::<Customer>`) and the literal is a
+//!   `SELECT`, the result shape is compared against the object's table
 //!   columns by the driver.
 
 use crate::src_check::sql_literal::{ExtractedSql, is_sql_candidate};
@@ -51,7 +51,7 @@ struct RustSqlVisitor {
 #[derive(Default)]
 struct OwnedContext {
     param_arity: Option<usize>,
-    entity: Option<String>,
+    object: Option<String>,
     param_literal_tags: Vec<Option<ParamTypeTag>>,
 }
 
@@ -72,7 +72,7 @@ impl RustSqlVisitor {
         let mut extracted = ExtractedSql::new(value, key.0, key.1);
         if let Some(context) = self.pending_context.remove(&key) {
             extracted.param_arity = context.param_arity;
-            extracted.entity = context.entity;
+            extracted.object = context.object;
             extracted.param_literal_tags = context.param_literal_tags;
         }
         self.index_by_span.insert(key, self.items.len());
@@ -85,7 +85,7 @@ impl RustSqlVisitor {
             Some(index) => {
                 let item = &mut self.items[*index];
                 item.param_arity = context.param_arity;
-                item.entity = context.entity;
+                item.object = context.object;
                 item.param_literal_tags = context.param_literal_tags;
             }
             None => {
@@ -117,15 +117,15 @@ impl RustSqlVisitor {
         let Some(lit) = literal else {
             return;
         };
-        let entity = turbofish_entity(&call.func);
-        if arity.is_none() && entity.is_none() && literal_tags.is_empty() {
+        let object = turbofish_object(&call.func);
+        if arity.is_none() && object.is_none() && literal_tags.is_empty() {
             return;
         }
         self.record_context(
             &lit,
             OwnedContext {
                 param_arity: arity,
-                entity,
+                object,
                 param_literal_tags: literal_tags,
             },
         );
@@ -296,7 +296,7 @@ fn literal_tag_of_lit(lit: &syn::Lit) -> Option<ParamTypeTag> {
 
 /// Return the turbofish type name of a call (`mudu_query::<Wallets>` →
 /// `Wallets`) when it is a single-segment type path.
-fn turbofish_entity(func: &Expr) -> Option<String> {
+fn turbofish_object(func: &Expr) -> Option<String> {
     let Expr::Path(expr_path) = func else {
         return None;
     };

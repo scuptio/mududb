@@ -1,4 +1,31 @@
-use super::*;
+use crate::worker_channel_state::{IncomingDispatch, WorkerChannelState};
+use crate::worker_registry::WorkerRegistry;
+use async_trait::async_trait;
+use crossbeam_queue::SegQueue;
+use mudu::channel::{
+    DeliveryMode, EndpointId, Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter,
+    ReplyStatus, ServerInstanceId,
+};
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+use mudu::error::ErrorCode;
+use mudu::mudu_error;
+use mudu_sys::sync::SMutex;
+use mudu_sys::tokio::sync::Notify;
+use mudu_utils::channel::{
+    channel_for, channel_now_ms, ChannelEndpoint, ChannelEndpointRef, KindHandler,
+};
+use mudu_utils::scoped_task_trace;
+use mudu_utils::task_async::spawn_local_detached;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+use super::cluster_transport::ClusterTransport;
+
+/// Shared slot for the node's cluster transport: created empty before the
+/// workers spawn (their channels hold a clone) and filled once the transport
+/// starts after the ready barrier.
+pub(crate) type ClusterTransportSlot = Arc<SMutex<Option<Arc<ClusterTransport>>>>;
 
 pub(crate) struct TokioWorkerChannel {
     local_worker_id: OID,
@@ -8,6 +35,7 @@ pub(crate) struct TokioWorkerChannel {
     mailbox_wakes: Vec<Arc<Notify>>,
     next_msg_id: AtomicU64,
     state: SMutex<WorkerChannelState>,
+    cluster: ClusterTransportSlot,
 }
 
 impl TokioWorkerChannel {
@@ -17,6 +45,7 @@ impl TokioWorkerChannel {
         registry: Arc<WorkerRegistry>,
         mailboxes: Vec<Arc<SegQueue<Envelope>>>,
         mailbox_wakes: Vec<Arc<Notify>>,
+        cluster: ClusterTransportSlot,
     ) -> Arc<Self> {
         Arc::new(Self {
             local_worker_id,
@@ -26,6 +55,7 @@ impl TokioWorkerChannel {
             mailbox_wakes,
             next_msg_id: AtomicU64::new(1),
             state: SMutex::new(WorkerChannelState::new()),
+            cluster,
         })
     }
 
@@ -92,6 +122,24 @@ impl TokioWorkerChannel {
                 Ok(())
             }
             None => {
+                // A worker of another node of the cluster: forward through
+                // the cluster transport when it is running.
+                let transport = self
+                    .cluster
+                    .lock()
+                    .map_err(|_| {
+                        mudu_error!(ErrorCode::Internal, "cluster transport slot lock poisoned")
+                    })?
+                    .clone();
+                if let Some(transport) = transport {
+                    if transport
+                        .directory()
+                        .node_of_worker(*envelope.dst())
+                        .is_some()
+                    {
+                        return transport.send_envelope(envelope);
+                    }
+                }
                 // Not a worker of this server: deliver through the channel
                 // registry (e.g. the management gateway endpoint).
                 let endpoint = channel_for(self.server_instance_id, *envelope.dst())?;
@@ -210,12 +258,12 @@ mod tests {
     ) {
         let registry = Arc::new(
             WorkerRegistry::new(vec![
-                crate::worker_registry::WorkerIdentity {
+                crate::worker_registry::WorkerIdobject {
                     worker_index: 0,
                     worker_id: 11,
                     partition_ids: vec![101],
                 },
-                crate::worker_registry::WorkerIdentity {
+                crate::worker_registry::WorkerIdobject {
                     worker_index: 1,
                     worker_id: 12,
                     partition_ids: vec![102],
@@ -226,9 +274,17 @@ mod tests {
         let mailboxes: Vec<Arc<SegQueue<Envelope>>> =
             vec![Arc::new(SegQueue::new()), Arc::new(SegQueue::new())];
         let wakes = vec![Arc::new(Notify::new()), Arc::new(Notify::new())];
-        let channel0 =
-            TokioWorkerChannel::new(11, 1, registry.clone(), mailboxes.clone(), wakes.clone());
-        let channel1 = TokioWorkerChannel::new(12, 1, registry, mailboxes.clone(), wakes);
+        let no_cluster: ClusterTransportSlot = Arc::new(SMutex::new(None));
+        let channel0 = TokioWorkerChannel::new(
+            11,
+            1,
+            registry.clone(),
+            mailboxes.clone(),
+            wakes.clone(),
+            no_cluster.clone(),
+        );
+        let channel1 =
+            TokioWorkerChannel::new(12, 1, registry, mailboxes.clone(), wakes, no_cluster);
         (channel0, channel1, mailboxes)
     }
 
@@ -253,7 +309,7 @@ mod tests {
                 .send(999_999, OutgoingMessage::new(MessageKind::User(1), vec![]))
                 .await
                 .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         })
         .unwrap()
     }
@@ -347,7 +403,7 @@ mod tests {
                     Arc::new(|_| Box::pin(async { Ok(()) })),
                 )
                 .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+            assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
         })
         .unwrap()
     }

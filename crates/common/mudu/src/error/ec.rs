@@ -40,8 +40,8 @@ pub enum ErrorCode {
     /// Permission denied.
     #[strum(message = "Permission denied")]
     PermissionDenied = 13, // EACCES
-    /// I/O entity not found.
-    #[strum(message = "I/O entity not found")]
+    /// I/O object not found.
+    #[strum(message = "I/O object not found")]
     NotFound = 2, // ENOENT
     /// Operation interrupted.
     #[strum(message = "Operation interrupted")]
@@ -61,8 +61,8 @@ pub enum ErrorCode {
     /// Resource busy.
     #[strum(message = "Resource busy")]
     ResourceBusy = 16, // EBUSY
-    /// I/O entity already exists.
-    #[strum(message = "I/O entity already exists")]
+    /// I/O object already exists.
+    #[strum(message = "I/O object already exists")]
     AlreadyExists = 17, // EEXIST
     /// Operation crosses devices.
     #[strum(message = "Operation crosses devices")]
@@ -197,18 +197,18 @@ pub enum ErrorCode {
     /// Parse error.
     #[strum(message = "Parse error")]
     Parse = 50008,
-    /// Entity not found.
-    #[strum(message = "Entity not found")]
-    EntityNotFound = 50009,
+    /// Object not found.
+    #[strum(message = "Object not found")]
+    ObjectNotFound = 50009,
     /// Invalid type.
     #[strum(message = "Invalid type")]
     InvalidType = 50010,
     /// I/O error.
     #[strum(message = "I/O error")]
     Io = 50011,
-    /// Entity already exists.
-    #[strum(message = "Entity already exists")]
-    EntityAlreadyExists = 50012,
+    /// Object already exists.
+    #[strum(message = "Object already exists")]
+    ObjectAlreadyExists = 50012,
     /// Unsupported operation.
     #[strum(message = "Unsupported operation")]
     UnsupportedOperation = 50013,
@@ -355,8 +355,8 @@ impl ErrorCode {
             | ErrorCode::DomainViolation
             | ErrorCode::IndexOutOfRange
             | ErrorCode::UnsupportedOperation
-            | ErrorCode::EntityNotFound
-            | ErrorCode::EntityAlreadyExists => Severity::User,
+            | ErrorCode::ObjectNotFound
+            | ErrorCode::ObjectAlreadyExists => Severity::User,
 
             ErrorCode::TimedOut
             | ErrorCode::WouldBlock

@@ -93,6 +93,6 @@ Version `1` is the current stable format. It may be deprecated only after:
 ## References
 
 - Tuple binary format: [tuple_binary_v1.md](tuple_binary_v1.md)
-- Implementation: [`mudu_kernel/src/storage/page/format/latest.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/page/format/latest.rs)
-- Tailer: [`mudu_kernel/src/storage/page/page_tailer.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/page/page_tailer.rs)
-- Slot layout: [`mudu_kernel/src/storage/page/record_slot.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/page/record_slot.rs)
+- Implementation: [`storage/src/page/format/latest.rs`](../../../crates/db-kernel/storage/src/page/format/latest.rs)
+- Tailer: [`storage/src/page/page_tailer.rs`](../../../crates/db-kernel/storage/src/page/page_tailer.rs)
+- Slot layout: [`storage/src/page/record_slot.rs`](../../../crates/db-kernel/storage/src/page/record_slot.rs)

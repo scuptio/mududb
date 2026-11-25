@@ -218,7 +218,7 @@ fn renders_record_enum_and_option_checks() -> Result<(), Box<dyn Error>> {
 
     let adapter = render_adapter_source(&procedures, Some("gentypes/Types.h"))?;
     assert!(adapter.contains(
-        "if (param->n_params != 4u || param->params[0].kind != MUDU_DATUM_I64 || param->params[1].kind != MUDU_DATUM_RECORD || param->params[2].kind != MUDU_DATUM_I64 || (param->params[3].kind != MUDU_DATUM_STR && param->params[3].kind != MUDU_DATUM_NULL)) {"
+        "if (param->n_params != 4u || param->params[0].kind != MUDU_DATUM_I64 || param->params[1].kind != MUDU_DATUM_STRUCT || param->params[2].kind != MUDU_DATUM_I64 || (param->params[3].kind != MUDU_DATUM_STR && param->params[3].kind != MUDU_DATUM_NULL)) {"
     ));
     assert!(adapter.contains(
         "\"update_profile expects (user_id: i64, p: Profile, mode: Mode, note: option<string>)\""
@@ -278,30 +278,30 @@ fn transpiles_custom_types_and_writes_record_desc() -> Result<(), Box<dyn Error>
     let desc = mudu_sys::fs::sync::sync_read_to_string(&output_proc_desc_path)?;
     let desc_json = serde_json::from_str::<serde_json::Value>(&desc)?;
     let update_desc = &desc_json["modules"]["shop_c"][0];
-    // the record parameter: the registry-resolved DataTypeParamRecord with
+    // the record parameter: the registry-resolved DataTypeParamStruct with
     // the WIT field names verbatim
     let profile_dt = &update_desc["param_desc"]["fields"][1]["data_type"];
-    assert_eq!(profile_dt["id"], "Record");
-    assert_eq!(profile_dt["param"]["Record"]["name"], "Profile");
-    let record_fields = profile_dt["param"]["Record"]["field"]
+    assert_eq!(profile_dt["id"], "Struct");
+    assert_eq!(profile_dt["param"]["Struct"]["name"], "Profile");
+    let struct_fields = profile_dt["param"]["Struct"]["field"]
         .as_array()
         .ok_or("record fields should be an array")?;
-    assert_eq!(record_fields.len(), 5);
-    assert_eq!(record_fields[0][0], "display-name");
-    assert_eq!(record_fields[0][1]["id"], "String");
-    assert_eq!(record_fields[1][0], "level");
-    assert_eq!(record_fields[1][1]["id"], "I32");
-    assert_eq!(record_fields[2][0], "vip");
-    assert_eq!(record_fields[2][1]["id"], "I32");
-    assert_eq!(record_fields[3][0], "tags");
-    assert_eq!(record_fields[3][1]["id"], "Array");
+    assert_eq!(struct_fields.len(), 5);
+    assert_eq!(struct_fields[0][0], "display-name");
+    assert_eq!(struct_fields[0][1]["id"], "String");
+    assert_eq!(struct_fields[1][0], "level");
+    assert_eq!(struct_fields[1][1]["id"], "I32");
+    assert_eq!(struct_fields[2][0], "vip");
+    assert_eq!(struct_fields[2][1]["id"], "I32");
+    assert_eq!(struct_fields[3][0], "tags");
+    assert_eq!(struct_fields[3][1]["id"], "Array");
     assert_eq!(
-        record_fields[3][1]["param"]["Array"]["data_type"]["id"],
+        struct_fields[3][1]["param"]["Array"]["data_type"]["id"],
         "String"
     );
-    assert_eq!(record_fields[4][0], "home");
-    assert_eq!(record_fields[4][1]["id"], "Record");
-    assert_eq!(record_fields[4][1]["param"]["Record"]["name"], "Address");
+    assert_eq!(struct_fields[4][0], "home");
+    assert_eq!(struct_fields[4][1]["id"], "Struct");
+    assert_eq!(struct_fields[4][1]["param"]["Struct"]["name"], "Address");
     // enum parameter: I32 (case ordinals); option parameter: nullable flag
     assert_eq!(
         update_desc["param_desc"]["fields"][2]["data_type"]["id"],
@@ -315,10 +315,10 @@ fn transpiles_custom_types_and_writes_record_desc() -> Result<(), Box<dyn Error>
     // the return descriptor carries the record type too
     assert_eq!(
         update_desc["return_desc"]["fields"][0]["data_type"]["id"],
-        "Record"
+        "Struct"
     );
     assert_eq!(
-        update_desc["return_desc"]["fields"][0]["data_type"]["param"]["Record"]["name"],
+        update_desc["return_desc"]["fields"][0]["data_type"]["param"]["Struct"]["name"],
         "Profile"
     );
     Ok(())

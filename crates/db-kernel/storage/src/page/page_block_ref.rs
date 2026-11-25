@@ -11,8 +11,8 @@ use crate::page::page_header::{
     PAGE_HEADER_OFF_VERSION, PAGE_HEADER_SIZE, VERSION as PAGE_VERSION,
 };
 use crate::page::page_tailer::{PageTailer, PAGE_TAILER_SIZE};
-use crate::page::record_slot::{RecordSlot, RECORD_SLOT_SIZE};
-use crate::page::record_slot_ref::RecordSlotRef;
+use crate::page::record_slot::{StructSlot, RECORD_SLOT_SIZE};
+use crate::page::record_slot_ref::StructSlotRef;
 use crate::page::PageId;
 use ::wal::lsn::LSN;
 use byteorder::{ByteOrder, LittleEndian};
@@ -232,13 +232,13 @@ impl<'a> PageBlockRef<'a> {
     }
 
     /// Returns the slot at `sorted_index` in ascending key order.
-    pub fn slot(&self, sorted_index: usize) -> RS<RecordSlot> {
+    pub fn slot(&self, sorted_index: usize) -> RS<StructSlot> {
         Ok(self.slot_ref(sorted_index)?.to_owned())
     }
 
     /// Returns a zero-copy reader for the slot at `sorted_index` in ascending
     /// key order.
-    pub fn slot_ref(&self, sorted_index: usize) -> RS<RecordSlotRef<'_>> {
+    pub fn slot_ref(&self, sorted_index: usize) -> RS<StructSlotRef<'_>> {
         self.check_page_len()?;
         let count = self.slot_count()?;
         if sorted_index >= count {
@@ -249,11 +249,11 @@ impl<'a> PageBlockRef<'a> {
         }
 
         let offset = self.slot_offset(sorted_index)?;
-        RecordSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
+        StructSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
     }
 
     /// Returns every slot in ascending key order.
-    pub fn slots(&self) -> RS<Vec<RecordSlot>> {
+    pub fn slots(&self) -> RS<Vec<StructSlot>> {
         let count = self.slot_count()?;
         (0..count).map(|idx| self.slot(idx)).collect()
     }
@@ -382,7 +382,7 @@ impl<'a> PageBlockRef<'a> {
             ));
         }
 
-        let mut prev: Option<RecordSlot> = None;
+        let mut prev: Option<StructSlot> = None;
         for idx in 0..count {
             let slot = self.slot(idx)?;
             if let Some(prev_slot) = prev {

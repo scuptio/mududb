@@ -165,7 +165,7 @@ impl WorkerStorage {
         let relation_id = self.relation_id(table_id, partition_id);
         let relation = match self.get_relation_by_id_async(&relation_id).await {
             Ok(relation) => relation,
-            Err(err) if err.ec() == ErrorCode::EntityNotFound => return Ok(None),
+            Err(err) if err.ec() == ErrorCode::ObjectNotFound => return Ok(None),
             Err(err) => return Err(err),
         };
         let rows = relation
@@ -224,7 +224,7 @@ impl WorkerStorage {
         );
         let relation = match self.get_relation_by_id_async(&relation_id).await {
             Ok(relation) => relation,
-            Err(err) if err.ec() == ErrorCode::EntityNotFound => return Ok(Vec::new()),
+            Err(err) if err.ec() == ErrorCode::ObjectNotFound => return Ok(Vec::new()),
             Err(err) => return Err(err),
         };
         let rows = relation
@@ -393,7 +393,7 @@ impl WorkerStorage {
         // `ensure_relation_index` and `get_relation_async`).
         let relation = match self.get_relation_async(oid, partition_id).await {
             Ok(relation) => relation,
-            Err(err) if err.ec() == ErrorCode::EntityNotFound => {
+            Err(err) if err.ec() == ErrorCode::ObjectNotFound => {
                 self.ensure_relation_index(oid, partition_id).await?;
                 self.get_relation_async(oid, partition_id).await?
             }

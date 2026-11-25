@@ -1,3 +1,4 @@
+use super::membership_gate::protocol_only_change;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_raft::RaftHandle;
@@ -89,7 +90,7 @@ pub fn raft_membership_update(
         ),
         leader_hint: None,
     })?;
-    let (_committed, new) = raft.conf().map_err(|error| ReplMembershipError {
+    let (committed, new) = raft.conf().map_err(|error| ReplMembershipError {
         error,
         leader_hint: None,
     })?;
@@ -125,9 +126,9 @@ pub fn raft_membership_update(
             });
         }
     }
-    let waiter = raft
-        .update_conf(conf_value, nid_vote, nid_log)
-        .map_err(|err| membership_error(err, http_port))?;
+    let expected = mudu_raft::stream::MembershipVersion::from_conf(&committed, &new);
+    let waiter =
+        begin_membership_change(&raft, expected, conf_value, nid_vote, nid_log, http_port)?;
     let deadline = *mudu_sys::time::instant_now() + MEMBERSHIP_COMMIT_TIMEOUT;
     loop {
         match waiter.recv_timeout(Duration::from_secs(1)) {
@@ -163,7 +164,48 @@ pub fn raft_membership_update(
     }
 }
 
-/// Reads the current committed conf into the endpoint's member view.
+/// Routes stream-bearing groups through the durable catch-up gate.
+fn begin_membership_change(
+    raft: &RaftHandle,
+    expected: mudu_raft::stream::MembershipVersion,
+    conf_value: mudu_raft::ConfValue,
+    nid_vote: Vec<u64>,
+    nid_log: Vec<u64>,
+    http_port: u16,
+) -> Result<mudu_raft::UpdateConfWaiter, ReplMembershipError> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime().map_err(|error| {
+        ReplMembershipError {
+            error,
+            leader_hint: None,
+        }
+    })?;
+    runtime
+        .block_on(async {
+            mudu_sys::timeout(MEMBERSHIP_COMMIT_TIMEOUT, async {
+                if let Some(service) = crate::data_plane::data_plane_for_node(raft.node_id()) {
+                    service
+                        .group()
+                        .update_membership(expected, conf_value, nid_vote, nid_log)
+                        .await
+                } else {
+                    protocol_only_change(raft, expected, conf_value, nid_vote, nid_log).await
+                }
+            })
+            .await
+            .ok_or_else(|| {
+                mudu_error!(
+                    ErrorCode::TimedOut,
+                    "membership proof/admission timed out; an admitted change may still complete"
+                )
+            })?
+        })
+        .map_err(|error| ReplMembershipError {
+            error,
+            leader_hint: leader_hint(raft, http_port),
+        })
+}
+
+/// Reads the current committed configuration into the endpoint member view.
 fn conf_members(raft: &Arc<RaftHandle>) -> Vec<ReplMembershipMember> {
     let mut members = raft
         .conf()
@@ -186,6 +228,16 @@ fn conf_members(raft: &Arc<RaftHandle>) -> Vec<ReplMembershipMember> {
         .unwrap_or_default();
     members.sort_by_key(|member| member.node_id);
     members
+}
+
+fn leader_hint(raft: &RaftHandle, http_port: u16) -> Option<ReplLeaderHttpHint> {
+    let node_id = raft.status().leader_id?;
+    let (host, _) = crate::repl_member_addr(node_id)?;
+    Some(ReplLeaderHttpHint {
+        node_id,
+        host,
+        http_port,
+    })
 }
 
 /// Maps an [`UpdateConfError`] to the endpoint error, resolving the leader

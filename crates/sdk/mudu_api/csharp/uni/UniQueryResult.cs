@@ -93,7 +93,7 @@ public class UniQueryReturnErr : UniQueryReturn
 public class UniQueryReturnFormatter : IMessagePackFormatter<UniQueryReturn?>
 {
     /// The proto3-style default instance of the variant: the first declared
-    /// case carrying its own default payload. Record fields of this variant
+    /// case carrying its own default payload. Struct fields of this variant
     /// type initialize to this value, so a field missing from the wire map
     /// decodes to the default case instead of null.
     public static UniQueryReturn DefaultInstance()
@@ -180,7 +180,7 @@ public struct UniQueryResult {
     public UniQueryResult()
     {
         
-        TupleDesc = new UniRecordType();
+        TupleDesc = new UniStructType();
         
         ResultSet = new UniResultSet();
         
@@ -188,7 +188,7 @@ public struct UniQueryResult {
     
     
     
-    public required UniRecordType TupleDesc { get; set; }
+    public required UniStructType TupleDesc { get; set; }
     
     
     public required UniResultSet ResultSet { get; set; }
@@ -199,12 +199,12 @@ public class UniQueryResultFormatter : IMessagePackFormatter<UniQueryResult>
 {
     public void Serialize(ref MessagePackWriter writer, UniQueryResult value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(2);
         
         writer.Write(1);
-        new UniRecordTypeFormatter().Serialize(ref writer, value.TupleDesc, options);
+        new UniStructTypeFormatter().Serialize(ref writer, value.TupleDesc, options);
 
         
         writer.Write(2);
@@ -235,7 +235,7 @@ public class UniQueryResultFormatter : IMessagePackFormatter<UniQueryResult>
                 
                 case 1:
                 {
-        value.TupleDesc = new UniRecordTypeFormatter().Deserialize(ref reader, options)!;
+        value.TupleDesc = new UniStructTypeFormatter().Deserialize(ref reader, options)!;
 
                     break;
                 }

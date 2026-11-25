@@ -258,7 +258,7 @@ class ImpactTests(unittest.TestCase):
             self.assertEqual(impact.affected_targets([path], check.TARGETS), set(check.TARGETS), path)
 
     def test_unrelated_change_affects_nothing(self):
-        self.assertEqual(impact.affected_targets(["doc/dev/formal_verification.md"], check.TARGETS), set())
+        self.assertEqual(impact.affected_targets(["doc/en/formal_verification.md"], check.TARGETS), set())
 
     def test_glob_matcher(self):
         self.assertTrue(impact.glob_covers("crates/db-kernel/wal/src/**", "crates/db-kernel/wal/src/part_chain.rs"))

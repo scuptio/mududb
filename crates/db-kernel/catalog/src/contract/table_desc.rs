@@ -1,7 +1,7 @@
 use mudu::common::id::{AttrIndex, OID};
 
 use crate::contract::field_info::FieldInfo;
-use crate::contract::schema_table::SchemaObjectKind;
+use crate::contract::schema_class::SchemaClassKind;
 use mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc as TupleDesc;
 use std::collections::HashMap;
 
@@ -12,7 +12,9 @@ pub struct TableDesc {
     name: String,
     schema: String,
     oid: OID,
-    kind: SchemaObjectKind,
+    kind: SchemaClassKind,
+    /// Default entry TTL in seconds when `kind` is `SchemaClassKind::Cache`.
+    ttl_secs: Option<u64>,
     key_oid: Vec<OID>,
     value_oid: Vec<OID>,
 
@@ -36,7 +38,9 @@ pub struct TableDescParams {
     /// Table oid.
     pub oid: OID,
     /// Kind of catalog object the descriptor describes.
-    pub kind: SchemaObjectKind,
+    pub kind: SchemaClassKind,
+    /// Default entry TTL in seconds when `kind` is `SchemaClassKind::Cache`.
+    pub ttl_secs: Option<u64>,
     /// Oids of the key fields in key order.
     pub key_oid: Vec<OID>,
     /// Oids of the value fields in value order.
@@ -66,6 +70,7 @@ impl TableDesc {
             schema: params.schema,
             oid: params.oid,
             kind: params.kind,
+            ttl_secs: params.ttl_secs,
             key_oid: params.key_oid,
             value_oid: params.value_oid,
             key_desc: params.key_desc,
@@ -163,13 +168,19 @@ impl TableDesc {
     }
 
     /// The kind of catalog object this descriptor describes.
-    pub fn kind(&self) -> SchemaObjectKind {
+    pub fn kind(&self) -> SchemaClassKind {
         self.kind
+    }
+
+    /// The default entry TTL in seconds of this cache, when this descriptor
+    /// describes a `SchemaClassKind::Cache` object.
+    pub fn ttl_secs(&self) -> Option<u64> {
+        self.ttl_secs
     }
 
     /// Whether this descriptor describes a queue.
     pub fn is_queue(&self) -> bool {
-        self.kind == SchemaObjectKind::Queue
+        self.kind == SchemaClassKind::Queue
     }
 
     /// Field oids in original column order.

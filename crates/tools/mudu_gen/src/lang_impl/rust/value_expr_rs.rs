@@ -106,7 +106,7 @@ pub fn rust_to_value(ty: &UniDataType, expr: &str, func_bin: bool) -> RS<String>
         }
         UniDataType::Box(inner) => rust_to_value(inner, expr, func_bin)?,
         UniDataType::Identifier(_) => format!("({expr}).to_value()"),
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("wire conversion for {ty:?} is not implemented")
@@ -195,7 +195,7 @@ pub fn rust_from_value(ty: &UniDataType, expr: &str) -> RS<String> {
             let name = uni_data_type_to_name(ty, &LangKind::Rust)?;
             format!("{name}::from_value({expr})")
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("wire conversion for {ty:?} is not implemented")

@@ -97,7 +97,7 @@ fn macro_body_literals_are_checked() {
 }
 
 #[test]
-fn unknown_arity_forms_are_not_recorded() {
+fn unknown_arity_forms_are_not_structed() {
     let source = r#"
 int f(mudu_oid session, mudu_datum *args, uint32_t n, mudu_rows *rows, mudu_error *err) {
     mudu_query(session, "SELECT quantity FROM items WHERE item_id = ?", args, n, &rows, err);

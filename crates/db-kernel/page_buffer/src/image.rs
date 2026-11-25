@@ -92,7 +92,7 @@ impl PageImage {
     pub fn validated_by(&self, policy: &'static ImageValidator) -> bool {
         std::ptr::eq(self.0.validator.get(), policy)
     }
-    /// Records a successful consumer validation. Only record facts established
+    /// Structs a successful consumer validation. Only record facts established
     /// for every byte in this image; a page ID alone is not a validation proof.
     pub fn mark_validated(&self, policy: &'static ImageValidator) {
         self.0.validator.set(std::ptr::from_ref(policy).cast_mut());
@@ -111,8 +111,8 @@ impl PageImage {
         }
     }
     /// Returns a weak identity without retaining page payload bytes.
-    pub fn identity(&self) -> ImageIdentity {
-        ImageIdentity(Rc::downgrade(&self.0))
+    pub fn identity(&self) -> ImageIdobject {
+        ImageIdobject(Rc::downgrade(&self.0))
     }
     /// Hands out the payload bytes, avoiding a copy when this is the only
     /// reference. Writers that rebuild an image from a resident snapshot use
@@ -132,8 +132,8 @@ impl Deref for PageImage {
 }
 /// Weak immutable-image identity; copy-on-write edits dissociate old weak tokens.
 #[derive(Clone)]
-pub struct ImageIdentity(std::rc::Weak<ImageBytes>);
-impl ImageIdentity {
+pub struct ImageIdobject(std::rc::Weak<ImageBytes>);
+impl ImageIdobject {
     /// Whether this token identifies exactly this immutable snapshot.
     pub fn matches(&self, image: &PageImage) -> bool {
         self.0.ptr_eq(&Rc::downgrade(&image.0))

@@ -28,13 +28,13 @@ MP_INLINE void uni_data_type_encode(mp_writer *w, const uni_data_type *value);
 MP_INLINE int uni_data_type_decode(mp_reader *r, mp_arena *a, uni_data_type *out);
 MP_INLINE uni_data_type *uni_data_type_decode_new(mp_reader *r, mp_arena *a);
 #endif /* MUDUD_FWD_UNI_DATA_TYPE */
-#ifndef MUDUD_FWD_UNI_RECORD_TYPE
-#define MUDUD_FWD_UNI_RECORD_TYPE
-typedef struct uni_record_type uni_record_type;
-MP_INLINE void uni_record_type_encode(mp_writer *w, const uni_record_type *value);
-MP_INLINE int uni_record_type_decode(mp_reader *r, mp_arena *a, uni_record_type *out);
-MP_INLINE uni_record_type *uni_record_type_decode_new(mp_reader *r, mp_arena *a);
-#endif /* MUDUD_FWD_UNI_RECORD_TYPE */
+#ifndef MUDUD_FWD_UNI_STRUCT_TYPE
+#define MUDUD_FWD_UNI_STRUCT_TYPE
+typedef struct uni_struct_type uni_struct_type;
+MP_INLINE void uni_struct_type_encode(mp_writer *w, const uni_struct_type *value);
+MP_INLINE int uni_struct_type_decode(mp_reader *r, mp_arena *a, uni_struct_type *out);
+MP_INLINE uni_struct_type *uni_struct_type_decode_new(mp_reader *r, mp_arena *a);
+#endif /* MUDUD_FWD_UNI_STRUCT_TYPE */
 #ifndef MUDUD_FWD_UNI_RESULT_TYPE
 #define MUDUD_FWD_UNI_RESULT_TYPE
 typedef struct uni_result_type uni_result_type;
@@ -46,7 +46,7 @@ MP_INLINE uni_result_type *uni_result_type_decode_new(mp_reader *r, mp_arena *a)
 typedef enum {
     UNI_DATA_TYPE_SCALAR = 0u,
     UNI_DATA_TYPE_ARRAY = 1u,
-    UNI_DATA_TYPE_RECORD = 2u,
+    UNI_DATA_TYPE_STRUCT = 2u,
     UNI_DATA_TYPE_OPTION = 3u,
     UNI_DATA_TYPE_TUPLE = 4u,
     UNI_DATA_TYPE_RESULT = 5u,
@@ -61,7 +61,7 @@ struct uni_data_type {
     union {
         uni_scalar scalar;
         uni_data_type * array;
-        uni_record_type * record;
+        uni_struct_type * struct_;
         uni_data_type * option;
         uni_data_type_tuple_list tuple;
         uni_result_type * result;
@@ -88,11 +88,11 @@ MP_INLINE void uni_data_type_encode(mp_writer *w, const uni_data_type *value) {
             uni_data_type_encode(w, &((*value->as.array)));
         }
         break;
-    case UNI_DATA_TYPE_RECORD:
-        if ((value->as.record) == 0) {
+    case UNI_DATA_TYPE_STRUCT:
+        if ((value->as.struct_) == 0) {
             mpw_fail(w);
         } else {
-            uni_record_type_encode(w, &((*value->as.record)));
+            uni_struct_type_encode(w, &((*value->as.struct_)));
         }
         break;
     case UNI_DATA_TYPE_OPTION:
@@ -166,13 +166,13 @@ MP_INLINE int uni_data_type_decode(mp_reader *r, mp_arena *a, uni_data_type *val
             }
             break;
         case 2u:
-            value->kind = UNI_DATA_TYPE_RECORD;
+            value->kind = UNI_DATA_TYPE_STRUCT;
             {
-                uni_record_type *p0 = uni_record_type_decode_new(r, a);
+                uni_struct_type *p0 = uni_struct_type_decode_new(r, a);
                 if (p0 == 0) {
                     mpr_fail(r);
                 } else {
-                    value->as.record = p0;
+                    value->as.struct_ = p0;
                 }
             }
             break;
@@ -273,7 +273,7 @@ MP_INLINE uni_data_type *uni_data_type_decode_new(mp_reader *r, mp_arena *a) {
 #ifdef __cplusplus
 }
 #endif
-#include "mududb/types/UniRecordType.h"
+#include "mududb/types/UniStructType.h"
 #include "mududb/types/UniResultType.h"
 
 #endif /* MUDUD_TYPES_UNI_DATA_TYPE_H */

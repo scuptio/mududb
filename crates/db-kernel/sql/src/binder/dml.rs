@@ -5,7 +5,7 @@ impl Binder {
     pub(super) async fn bind_select_template(
         &self,
         stmt: &sql_parser::ast::stmt_select::StmtSelect,
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<SelectTemplate> {
         let table_desc = self.resolve_table(stmt.get_table_reference()).await?;
         let (select_items, tuple_desc) =
@@ -25,7 +25,7 @@ impl Binder {
     pub(super) async fn bind_insert_template(
         &self,
         stmt: &StmtInsert,
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<InsertTemplate> {
         let table_desc = self.resolve_table(stmt.table_reference()).await?;
 
@@ -105,7 +105,7 @@ impl Binder {
     pub(super) async fn bind_update_template(
         &self,
         stmt: &StmtUpdate,
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<UpdateTemplate> {
         let table_desc = self.resolve_table(stmt.get_table_reference()).await?;
         if table_desc.is_queue() {
@@ -190,7 +190,7 @@ impl Binder {
         column_reference: &str,
         expr: &ExprType,
         column_type: &DataType,
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<SetValueTemplate> {
         let not_implemented = || {
             mudu_error!(
@@ -269,7 +269,7 @@ impl Binder {
     pub(super) async fn bind_delete_template(
         &self,
         stmt: &StmtDelete,
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<DeleteTemplate> {
         let table_desc = self.resolve_table(stmt.get_table_reference()).await?;
         if table_desc.is_queue() {
@@ -294,7 +294,7 @@ impl Binder {
         &self,
         table_desc: &TableDesc,
         predicates: &[ExprCompare],
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<(PredicateTemplate, Vec<ResidualTemplate>)> {
         if predicates.is_empty() {
             return Ok((PredicateTemplate::True, Vec::new()));
@@ -396,7 +396,7 @@ impl Binder {
         &self,
         table_desc: &TableDesc,
         predicates: &[ExprCompare],
-        recorder: &mut SlotRecorder,
+        recorder: &mut SlotStructer,
     ) -> RS<Vec<(usize, TemplateDatum)>> {
         let (predicate, residual) =
             self.bind_predicate_template(table_desc, predicates, recorder)?;

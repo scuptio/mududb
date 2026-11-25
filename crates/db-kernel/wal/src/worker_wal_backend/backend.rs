@@ -369,6 +369,40 @@ impl WorkerWALBackend {
         LSN::from(self.inner.next_lsn.load(Ordering::Relaxed))
     }
 
+    /// Advances an idle allocator to a verified durable snapshot's exclusive
+    /// end. The caller owns startup/install admission and must retain that
+    /// recovery base across restart; this method itself is not a disk witness.
+    pub fn resume_from_snapshot(&self, resume: LSN) -> RS<()> {
+        let queue = self.inner.log_queue.lock()?;
+        if !queue.is_empty() || self.inner.active_sessions.load(Ordering::Acquire) != 0 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "snapshot resume requires an idle WAL"
+            ));
+        }
+        for slot in self.flush_tasks.iter() {
+            if slot.lock()?.is_some() {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidState,
+                    "snapshot resume races WAL flush"
+                ));
+            }
+        }
+        if resume.as_u64() == u64::MAX {
+            return Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "snapshot WAL resume exhausted"
+            ));
+        }
+        if self.inner.next_lsn.load(Ordering::Acquire) < resume.as_u64() {
+            self.inner
+                .next_lsn
+                .store(resume.as_u64(), Ordering::Release);
+            self.inner.flush_waiter.reset(resume);
+        }
+        Ok(())
+    }
+
     /// Truncates the log at `lsn` on a live backend: every frame with a
     /// higher LSN is cut from the chunk files, queued flush batches above
     /// the cut are dropped, the LSN allocator, the durability watermark and

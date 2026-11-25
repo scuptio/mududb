@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-LOG_DIR="logs"
+LOG_DIR="${ACT_LOG_DIR:-logs/act}"
 JOBS=()
 WORKFLOW=""
 ACT_ARGS=()
@@ -23,10 +23,13 @@ Usage: $0 [-j JOB] [-W WORKFLOW] [WORKFLOW] [-- ACT_ARGS...]
 Run GitHub Actions workflows or jobs locally using \`act\` and summarize
 failures from captured logs.
 Paths are relative to the repository root; the default workflow is build.yaml.
+The final report names failed matrix jobs, steps and tests, with absolute local
+paths to summary.txt/json, complete console/job logs and failures.log.
 
 Options:
   -j JOB            Run a specific job with \`act -j JOB\` (can be repeated).
   -W WORKFLOW       Run a specific workflow file with \`act -W WORKFLOW\`.
+  --log-dir DIR     Parent directory for a unique run (default: logs/act).
   -h, --help        Show this help message.
   --                Pass remaining arguments to act (bind mode is disabled).
 
@@ -56,6 +59,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             WORKFLOW="$2"
+            shift 2
+            ;;
+        --log-dir)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --log-dir requires a directory." >&2
+                exit 2
+            fi
+            LOG_DIR="$2"
             shift 2
             ;;
         -h|--help)
@@ -93,9 +104,39 @@ if ! command -v act >/dev/null 2>&1; then
     exit 1
 fi
 
-python3 "$REPO_ROOT/script/ci/act_preflight.py" "${ACT_ARGS[@]}"
-
 mkdir -p "$LOG_DIR"
+LOG_DIR="$(mktemp -d "$LOG_DIR/$(date +%Y%m%d-%H%M%S)-XXXXXX")"
+LOG_DIR="$(cd "$LOG_DIR" && pwd -P)"
+FAILED=()
+SUMMARY_ARGS=()
+EXIT_ARGS=()
+
+finish_report() {
+    local code=$?
+    trap - EXIT
+    if [[ ${#SUMMARY_ARGS[@]} -gt 0 ]]; then
+        if [[ $code -eq 130 || $code -eq 143 ]]; then
+            local last_invocation="${SUMMARY_ARGS[${#SUMMARY_ARGS[@]}-1]}"
+            EXIT_ARGS+=(--exit-code "${last_invocation%%=*}=$code")
+        fi
+        python3 "$REPO_ROOT/script/ci/act_summary.py" --report-dir "$LOG_DIR" "${EXIT_ARGS[@]}" "${SUMMARY_ARGS[@]}" || {
+            echo "Report generation failed; full console logs: $LOG_DIR" >&2
+            if [[ $code -eq 0 ]]; then code=1; fi
+        }
+    fi
+    exit "$code"
+}
+trap finish_report EXIT
+
+if python3 "$REPO_ROOT/script/ci/act_preflight.py" "${ACT_ARGS[@]}" > "$LOG_DIR/preflight.log" 2>&1; then
+    cat "$LOG_DIR/preflight.log"
+else
+    code=$?
+    cat "$LOG_DIR/preflight.log" >&2
+    SUMMARY_ARGS+=("preflight=$LOG_DIR/preflight.log")
+    EXIT_ARGS+=(--exit-code "preflight=$code")
+    exit "$code"
+fi
 
 CONTAINER_OPTIONS="--privileged --security-opt=seccomp=unconfined --security-opt=apparmor=unconfined"
 
@@ -106,12 +147,10 @@ run_act() {
     act --container-options "$CONTAINER_OPTIONS" "$@" "${ACT_ARGS[@]}" --bind=false
 }
 
-FAILED=()
-SUMMARY_ARGS=()
-
 run_job() {
     local job="$1"
-    local log_file="$LOG_DIR/${job}.log"
+    local invocation="$((${#SUMMARY_ARGS[@]} + 1))-${job//\//-}"
+    local log_file="$LOG_DIR/${invocation}.console.log"
     # Without -W, act matches the job name in EVERY workflow file (e.g. the
     # SDK Publish workflow also has a "build" job); pin the default workflow.
     local workflow="${WORKFLOW:-.github/workflows/build.yaml}"
@@ -123,13 +162,16 @@ run_job() {
     echo "Log file:    $log_file"
     echo "=========================================="
 
+    SUMMARY_ARGS+=("$invocation=$log_file")
+    local code=0
     if run_act "${workflow_args[@]}" -j "$job" 2>&1 | tee "$log_file"; then
         echo "[OK] $job"
     else
+        code=$?
         FAILED+=("$job")
         echo "[FAIL] $job"
     fi
-    SUMMARY_ARGS+=("$job=$log_file")
+    EXIT_ARGS+=(--exit-code "$invocation=$code")
 }
 
 run_workflow() {
@@ -137,7 +179,8 @@ run_workflow() {
     local name
     name=$(basename "$workflow" .yaml)
     name=$(basename "$name" .yml)
-    local log_file="$LOG_DIR/${name}.log"
+    local invocation="$((${#SUMMARY_ARGS[@]} + 1))-${name}"
+    local log_file="$LOG_DIR/${invocation}.console.log"
 
     echo
     echo "=========================================="
@@ -145,13 +188,16 @@ run_workflow() {
     echo "Log file:         $log_file"
     echo "=========================================="
 
+    SUMMARY_ARGS+=("$invocation=$log_file")
+    local code=0
     if run_act -W "$workflow" 2>&1 | tee "$log_file"; then
         echo "[OK] $name"
     else
+        code=$?
         FAILED+=("$name")
         echo "[FAIL] $name"
     fi
-    SUMMARY_ARGS+=("$name=$log_file")
+    EXIT_ARGS+=(--exit-code "$invocation=$code")
 }
 
 if [[ ${#JOBS[@]} -gt 0 ]]; then
@@ -164,7 +210,6 @@ else
     run_workflow ".github/workflows/build.yaml"
 fi
 
-python3 "$REPO_ROOT/script/ci/act_summary.py" "${SUMMARY_ARGS[@]}"
 
 if [[ ${#FAILED[@]} -gt 0 ]]; then
     exit 1

@@ -9,7 +9,6 @@
 //! nack propagation are handled here; services never touch envelopes.
 
 use super::endpoint::{ChannelCallbackFuture, ChannelEndpointRef, KindHandler};
-use super::registry::{channel_now_ms, gen_request_id};
 use mudu::channel::{
     ChannelMessage, ChannelReply, DeliveryMode, EndpointId, Envelope, MessageKind, OutgoingMessage,
     RecvFilter, ReplyStatus, RequestId, ServiceCtx,
@@ -22,6 +21,21 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Milliseconds since the Unix epoch on the channel clock: the time base of
+/// `deadline_ms` fields and waiter sweeping.
+pub fn channel_now_ms() -> u64 {
+    mudu_sys::time::system_time_now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
+}
+
+/// Generates a fresh idempotency key for a logical channel operation.
+pub fn gen_request_id() -> mudu::channel::RequestId {
+    mudu_sys::random::uuid_v4().as_u128()
+}
 
 /// Typed view of a [`ChannelEndpointRef`]: endpoint handles and service
 /// registration.
@@ -181,7 +195,7 @@ impl ServiceRouter {
     }
 
     /// Registers `f` as the handler of message type `M`; fails with
-    /// `EntityAlreadyExists` when the kind is already taken on this router.
+    /// `ObjectAlreadyExists` when the kind is already taken on this router.
     ///
     /// The handler returns the reply (or an error, which nacks the
     /// request); responses are sent automatically, fire-and-forget messages
@@ -194,7 +208,7 @@ impl ServiceRouter {
     {
         if self.handlers.contains_key(&M::KIND) {
             return Err(mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!(
                     "message kind {:?} already registered on this router",
                     M::KIND
@@ -511,7 +525,7 @@ mod tests {
             let peer = self.hub().endpoints.lock().unwrap().get(&dst).cloned();
             let peer = peer.ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such endpoint {}", dst)
                 )
             })?;
@@ -541,7 +555,7 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             if state.handlers.contains_key(&kind) {
                 return Err(mudu_error!(
-                    ErrorCode::EntityAlreadyExists,
+                    ErrorCode::ObjectAlreadyExists,
                     format!("kind {:?} already registered", kind)
                 ));
             }
@@ -633,7 +647,7 @@ mod tests {
                 .unwrap();
             let result =
                 router.handle::<EchoMsg, _, _>(|msg, _ctx| async move { Ok(EchoReply(msg.0)) });
-            assert_eq!(result.err().unwrap().ec(), ErrorCode::EntityAlreadyExists);
+            assert_eq!(result.err().unwrap().ec(), ErrorCode::ObjectAlreadyExists);
 
             let first = server
                 .serve(
@@ -647,7 +661,7 @@ mod tests {
                     .handle::<EchoMsg, _, _>(|msg, _ctx| async move { Ok(EchoReply(msg.0)) })
                     .unwrap(),
             );
-            assert_eq!(second.err().unwrap().ec(), ErrorCode::EntityAlreadyExists);
+            assert_eq!(second.err().unwrap().ec(), ErrorCode::ObjectAlreadyExists);
             // The surviving registration still serves.
             let reply = server
                 .endpoint::<EchoMsg>(1)

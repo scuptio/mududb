@@ -5,6 +5,7 @@ use mudu::common::result::RS;
 use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::Datum;
+use mudu_type::datum::data_value_from_datum;
 
 /// Decodes a datum of type `T` from its binary form.
 pub fn datum_from_binary<T: Datum + 'static, B: AsRef<[u8]>>(datum: B, _: &DatumDesc) -> RS<T> {
@@ -19,7 +20,7 @@ pub fn datum_to_binary<T: Datum + 'static>(datum: &T, _: &DatumDesc) -> RS<Vec<u
 
 /// Encodes a datum into a memory value of type `data_type`.
 pub fn datum_to_value<T: Datum>(datum: &T, data_type: &DataType) -> RS<DataValue> {
-    let internal = DataValue::from_datum(datum.clone(), data_type)?;
+    let internal = data_value_from_datum(datum.clone(), data_type)?;
     Ok(internal)
 }
 

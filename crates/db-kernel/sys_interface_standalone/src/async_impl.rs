@@ -2,18 +2,18 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use sys_interface::fs::{FsDirEntry, FsStat};
 
 /// Execute a query against the session.
-pub async fn mudu_query<R: Entity>(
+pub async fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     mudu_adapter::syscall::mudu_query_async(oid, sql, params).await
 }
 

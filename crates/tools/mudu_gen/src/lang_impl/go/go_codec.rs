@@ -34,7 +34,7 @@ mod from_value;
 /// Func-signature context: `list<u8>`/`blob` encode as a MessagePack bin.
 pub const GO_FUNC_BIN: bool = true;
 
-/// Record/variant definition context: `list<u8>`/`blob` encode as an array.
+/// Struct/variant definition context: `list<u8>`/`blob` encode as an array.
 pub const GO_RECORD_BIN: bool = false;
 
 /// Import path of the hand-written MessagePack/MSSP runtime package the
@@ -72,7 +72,7 @@ pub fn go_package_name(namespace: &str) -> String {
 /// The Go type used for values of the given WIT type in the generated
 /// surface (record fields, variant payloads, func parameters/results).
 ///
-/// Unlike the guest entity layer (`lang_def`: every integer rides on the
+/// Unlike the guest object layer (`lang_def`: every integer rides on the
 /// `mudusys.go` `int64` datum), the binding package uses the natural Go
 /// widths so `u64` values keep their top bit.
 pub fn go_type_name(ty: &UniDataType) -> RS<String> {
@@ -108,7 +108,7 @@ pub fn go_type_name(ty: &UniDataType) -> RS<String> {
         // element values.
         UniDataType::Tuple(_) => "[]any",
         UniDataType::Box(inner) => return go_type_name(inner),
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Go type name for {ty:?} is not implemented")
@@ -255,7 +255,7 @@ pub fn go_zero(ty: &UniDataType, type_kinds: &HashMap<String, String>) -> RS<Str
                 _ => format!("{pascal}{{}}"),
             }
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Go default value for {ty:?} is not implemented")
@@ -359,7 +359,7 @@ fn to_value_at(
         UniDataType::Box(inner) => {
             to_value_at(inner, src, dst, tmp, ind, func_bin, lines)?;
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Go wire conversion for {ty:?} is not implemented")
@@ -556,7 +556,7 @@ fn wire_from_any_at(
         UniDataType::Box(inner) => {
             wire_from_any_at(inner, src, dst, tmp, ind, func_bin, lines)?;
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Go wire conversion for {ty:?} is not implemented")

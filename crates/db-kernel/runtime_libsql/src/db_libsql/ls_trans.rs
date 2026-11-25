@@ -17,7 +17,7 @@ use mudu_type::type_family::TypeFamily;
 use mudu_utils::task_async as blocking;
 use std::sync::Arc;
 
-pub struct LSTrans {
+pub(crate) struct LSTrans {
     xid: OID,
     trans: Transaction,
 }

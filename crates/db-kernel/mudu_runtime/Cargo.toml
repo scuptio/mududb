@@ -31,12 +31,14 @@ mudu_type = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_binding = { workspace = true }
+mudu_caf = { workspace = true }
 mudu_client = { workspace = true }
 as-slice = { version = "0.2.1" }
 sql_parser = { workspace = true }
 mudu = { workspace = true }
 runtime_libsql = { workspace = true }
 runtime_wasm = { workspace = true }
+ws_gateway = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }
 serde_json = { workspace = true }

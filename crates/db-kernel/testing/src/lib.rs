@@ -9,11 +9,14 @@
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
 use mudu_sys::net::sync::StdTcpListener;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 /// Common helpers used by integration tests.
 pub mod support;
+
+/// The in-process server fixture used by integration tests.
+pub mod in_process_server;
 
 #[cfg(test)]
 mod lib_test;
@@ -142,4 +145,26 @@ pub fn connect_sync_client_with_retry_within(port: u16, timeout: Duration) -> RS
             format!("timed out connecting SyncClient to TCP port {}", port)
         )),
     }
+}
+
+/// Connects a synchronous client to `host:port`, resolving the hostname first
+/// (the distributed e2e driver reaches node containers by their service name).
+pub fn connect_sync_client_host(host: &str, port: u16) -> RS<SyncClient> {
+    let addrs: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                format!("resolve host {host}"),
+                e
+            )
+        })?
+        .collect();
+    let addr = addrs.into_iter().next().ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
+            format!("no address resolved for host {host}")
+        )
+    })?;
+    SyncClient::connect(addr)
 }

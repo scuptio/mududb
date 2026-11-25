@@ -4,6 +4,7 @@
 #![allow(clippy::todo, clippy::unimplemented)]
 
 mod aggregate_schema;
+mod cache;
 mod ddl_fs_copy;
 mod dml;
 mod partition;
@@ -20,8 +21,8 @@ use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeDesc, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::{PartitionBound, PartitionRuleDesc, RangePartitionDef};
 use ::catalog::contract::partition_rule_binding::PartitionPlacement;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::xengine::api::DeltaOp;
@@ -33,7 +34,6 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
@@ -51,7 +51,7 @@ struct TestMetaMgr {
 }
 
 impl TestMetaMgr {
-    fn new(schema: SchemaTable) -> Self {
+    fn new(schema: SchemaClass) -> Self {
         let table = TableInfo::new(schema).unwrap().table_desc().unwrap();
         let mut tables = HashMap::new();
         tables.insert(table.id(), table);
@@ -62,13 +62,13 @@ impl TestMetaMgr {
         }
     }
 
-    fn with_rule(schema: SchemaTable, rule: PartitionRuleDesc) -> Self {
+    fn with_rule(schema: SchemaClass, rule: PartitionRuleDesc) -> Self {
         let mgr = Self::new(schema);
         mgr.rules.lock().unwrap().insert(rule.name.clone(), rule);
         mgr
     }
 
-    fn with_fs_type(schema: SchemaTable, fs_type: FsTypeDesc) -> Self {
+    fn with_fs_type(schema: SchemaClass, fs_type: FsTypeDesc) -> Self {
         let mgr = Self::new(schema);
         mgr.fs_types
             .lock()
@@ -90,7 +90,7 @@ impl MetaMgr for TestMetaMgr {
             .unwrap()
             .get(&oid)
             .cloned()
-            .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, format!("no such table {}", oid)))
+            .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, format!("no such table {}", oid)))
     }
 
     async fn get_table_by_name(&self, schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
@@ -110,7 +110,7 @@ impl MetaMgr for TestMetaMgr {
             .cloned())
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         let table = TableInfo::new(schema.clone())?.table_desc()?;
         self.tables.lock().unwrap().insert(table.id(), table);
         Ok(())
@@ -151,19 +151,23 @@ impl MetaMgr for TestMetaMgr {
     }
 }
 
-fn schema() -> SchemaTable {
-    SchemaTable::new(
+fn schema() -> SchemaClass {
+    SchemaClass::new(
         "users".to_string(),
         vec![
             SchemaColumn::new(
                 "id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "name".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
         ],
         vec![0],
@@ -171,24 +175,30 @@ fn schema() -> SchemaTable {
     )
 }
 
-fn composite_schema() -> SchemaTable {
-    SchemaTable::new(
+fn composite_schema() -> SchemaClass {
+    SchemaClass::new(
         "accounts".to_string(),
         vec![
             SchemaColumn::new(
                 "tenant_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "user_id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "name".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
         ],
         vec![0, 1],
@@ -196,21 +206,21 @@ fn composite_schema() -> SchemaTable {
     )
 }
 
-fn numeric_schema() -> SchemaTable {
+fn numeric_schema() -> SchemaClass {
     let amount_type = DataType::from_numeric(DataTypeParamNumeric::new(9, 2));
     let note_type = DataType::default_for(TypeFamily::String);
-    SchemaTable::new(
+    SchemaClass::new(
         "ledger".to_string(),
         vec![
             SchemaColumn::new(
                 "amount".to_string(),
                 TypeFamily::Numeric,
-                DataTypeInfo::from_opt_object(&amount_type),
+                mudu_type::data_type_codec::from_opt_object(&amount_type),
             ),
             SchemaColumn::new(
                 "note".to_string(),
                 TypeFamily::String,
-                DataTypeInfo::from_opt_object(&note_type),
+                mudu_type::data_type_codec::from_opt_object(&note_type),
             ),
         ],
         vec![0],
@@ -246,15 +256,15 @@ fn not_null_value_binder() -> Binder {
     let id = SchemaColumn::new(
         "id".to_string(),
         TypeFamily::I32,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::I32)),
     );
     let mut name = SchemaColumn::new(
         "name".to_string(),
         TypeFamily::String,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::String)),
     );
     name.set_nullable(false);
-    binder_arc(Arc::new(TestMetaMgr::new(SchemaTable::new(
+    binder_arc(Arc::new(TestMetaMgr::new(SchemaClass::new(
         "users".to_string(),
         vec![id, name],
         vec![0],

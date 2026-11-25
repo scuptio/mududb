@@ -640,6 +640,22 @@ mod tests {
 
     #[cfg(not(feature = "ds"))]
     #[test]
+    fn wait_until_ports_bindable_reports_busy_and_released_ports() {
+        let _guard = test_runtime_domain_lock()
+            .lock()
+            .expect("test runtime domain lock poisoned");
+        // A held listener keeps its port busy: the wait times out on it.
+        let held = TestListener::bind_local().unwrap().unwrap();
+        let busy_port = held.port().unwrap();
+        let err = wait_until_ports_bindable(&[busy_port], Duration::from_millis(150)).unwrap_err();
+        assert!(err.to_string().contains("still busy"));
+        // Once released, the port is bindable and the wait returns.
+        drop(held);
+        wait_until_ports_bindable(&[busy_port], Duration::from_secs(5)).unwrap();
+    }
+
+    #[cfg(not(feature = "ds"))]
+    #[test]
     fn wait_test_server_ready_ok_when_ports_open_and_ready_fires() {
         let _guard = test_runtime_domain_lock()
             .lock()

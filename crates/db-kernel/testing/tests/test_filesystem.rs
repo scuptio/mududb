@@ -22,7 +22,7 @@
 //!    by the in-process kernel test `fs_e2e_test` instead.)
 //! 4. `DROP TYPE` is refused (`InvalidState`) while a table column still
 //!    references the fs type; after `DROP TABLE` it succeeds.
-//! 5. An unknown fs type name in `CREATE TABLE` fails with `EntityNotFound`.
+//! 5. An unknown fs type name in `CREATE TABLE` fails with `ObjectNotFound`.
 //! 6. Sessionless (non-admin) requests cannot run fs type DDL
 //!    (`PermissionDenied`).
 //!
@@ -171,7 +171,7 @@ fn create_fs_types_and_product_table(
     );
     assert_eq!(
         err.ec(),
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "unknown fs type: {err}"
     );
     Ok(())
@@ -258,7 +258,7 @@ fn check_batch_rollback(
         session,
         "INSERT INTO product (id) VALUES (10); INSERT INTO missing_table (id) VALUES (1);",
     );
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound, "batch abort: {err}");
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound, "batch abort: {err}");
     assert_eq!(
         query_rows(
             runtime,
@@ -331,7 +331,7 @@ fn check_drop_type_rules(
     let err = exec_err(runtime, client, session, "DROP TYPE photo_fs");
     assert_eq!(
         err.ec(),
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "missing fs type: {err}"
     );
     Ok(())

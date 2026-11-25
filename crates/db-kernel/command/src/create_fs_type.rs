@@ -11,13 +11,22 @@ use std::sync::Arc;
 pub struct CreateFsType {
     param: PCreateFsType,
     meta_mgr: Arc<dyn MetaMgr>,
+    meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
 }
 
 impl CreateFsType {
     /// Creates an executor for the create-filesystem-type command `param`,
     /// reading the filesystem-type catalog through `meta_mgr`.
-    pub fn new(param: PCreateFsType, meta_mgr: Arc<dyn MetaMgr>) -> Self {
-        Self { param, meta_mgr }
+    pub fn new(
+        param: PCreateFsType,
+        meta_mgr: Arc<dyn MetaMgr>,
+        meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
+    ) -> Self {
+        Self {
+            param,
+            meta_mgr,
+            meta_group,
+        }
     }
 }
 
@@ -40,6 +49,15 @@ impl CmdExec for CreateFsType {
 
     async fn run(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
+        if let Some(meta_group) = &self.meta_group {
+            return meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::CreateFsType {
+                    name: self.param.name.clone(),
+                    kind: self.param.kind,
+                    fs_id: ::catalog::contract::derive_oid::derive_fs_id(&self.param.name),
+                })
+                .await;
+        }
         self.meta_mgr
             .create_fs_type(&self.param.name, self.param.kind)
             .await?;

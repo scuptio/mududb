@@ -1,7 +1,7 @@
 use crate::rust::procedures;
 use crate::rust::wallets::object::Wallets;
 use mududb::common::id::OID;
-use mududb::contract::database::entity_set::EntitySet;
+use mududb::contract::database::object_set::ObjectSet;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys::sync::SMutex;
 use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
@@ -265,7 +265,7 @@ impl TestDb {
     }
 
     fn query_wallet(&self, user_id: i32) -> Option<Wallets> {
-        let rs: EntitySet<Wallets> = self.query_records(Wallets::SQL_GET_BY_PK, &(user_id,));
+        let rs: ObjectSet<Wallets> = self.query_records(Wallets::SQL_GET_BY_PK, &(user_id,));
         rs.next_record().unwrap()
     }
 
@@ -288,13 +288,13 @@ impl TestDb {
     }
 
     fn query_records<
-        R: mududb::contract::database::entity::Entity,
+        R: mududb::contract::database::object::Object,
         P: mududb::contract::database::sql_params::SQLParams,
     >(
         &self,
         sql: &str,
         params: &P,
-    ) -> mududb::contract::database::entity_set::EntitySet<R> {
+    ) -> mududb::contract::database::object_set::ObjectSet<R> {
         mudu_query::<R>(self.current_session(), sql_stmt!(&sql), params).unwrap()
     }
 

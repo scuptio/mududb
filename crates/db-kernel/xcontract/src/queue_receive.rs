@@ -10,6 +10,12 @@
 //! owner's wait registry, so a remote caller dispatches the whole loop with
 //! the `QueueReceiveWait` partition RPC.
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::ops::_begin_tx;
+use crate::queue::resolve_queue_shards;
+use crate::queue_types::ensure_local_shard_owner;
+use crate::queue_types::shard_key;
+use ::catalog::contract::cluster_router::ClusterRouter;
 use ::catalog::contract::queue::{
     decode_queue_receive_count, decode_queue_seq, decode_queue_status, queue_dlq_name,
     queue_lsn_datum, queue_receive_count_datum, queue_seq_datum, queue_seq_encode, queue_seq_local,
@@ -28,6 +34,35 @@ pub(crate) struct ClaimedRow {
     pub receive_count: i32,
     /// Full attribute vector of the row as scanned (pre-claim values).
     pub fields: Vec<Option<Buf>>,
+}
+
+/// Resolves the (single) shard of the dead-letter queue; the DLQ must not
+/// be partitioned.
+async fn resolve_dlq_shard(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    worker_id: OID,
+    cluster_router: &Option<Arc<dyn ClusterRouter>>,
+    default_unpartitioned_worker_id: OID,
+    dlq_desc: &Arc<TableDesc>,
+) -> RS<QueueShard> {
+    let mut shards = resolve_queue_shards(
+        meta_mgr,
+        worker_id,
+        cluster_router,
+        default_unpartitioned_worker_id,
+        dlq_desc.id(),
+    )
+    .await?;
+    if shards.len() != 1 {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            format!(
+                "dead-letter queue {} must not be partitioned",
+                dlq_desc.name()
+            )
+        ));
+    }
+    Ok(shards.remove(0))
 }
 
 impl WorkerXContract {
@@ -205,22 +240,6 @@ impl WorkerXContract {
         }))
     }
 
-    /// Resolves the (single) shard of the dead-letter queue; DLQs are never
-    /// sharded.
-    async fn resolve_dlq_shard(&self, dlq_desc: &Arc<TableDesc>) -> RS<QueueShard> {
-        let mut shards = self.resolve_queue_shards(dlq_desc.id()).await?;
-        if shards.len() != 1 {
-            return Err(mudu_error!(
-                ErrorCode::InvalidState,
-                format!(
-                    "dead-letter queue {} must not be partitioned",
-                    dlq_desc.name()
-                )
-            ));
-        }
-        Ok(shards.remove(0))
-    }
-
     /// One fan-out scan round for a consumer cursor: appends the full field
     /// vectors of rows with local `__seq >= from_local` (in `__seq` order)
     /// until `count`; returns the local sequence the next round continues
@@ -303,7 +322,7 @@ impl WorkerXContract {
         wait: QueueWait,
         consumer: Option<String>,
     ) -> RS<Vec<Vec<Option<Buf>>>> {
-        self.ensure_local_shard_owner(shard)?;
+        ensure_local_shard_owner(shard, self.worker_id)?;
         let deadline = match wait {
             QueueWait::Timeout(ms) => Some(instant_now() + Duration::from_millis(ms)),
             QueueWait::Forever => None,
@@ -316,7 +335,7 @@ impl WorkerXContract {
                 .await?
                 .ok_or_else(|| {
                     mudu_error!(
-                        ErrorCode::EntityNotFound,
+                        ErrorCode::ObjectNotFound,
                         format!("no such consumer {consumer} on queue {}", shard.queue_oid)
                     )
                 })?,
@@ -324,33 +343,8 @@ impl WorkerXContract {
         };
         loop {
             waiter.clear_signal();
-            let round_tx = self._begin_tx()?;
-            let result = match &consumer {
-                Some(consumer) => {
-                    self.consumer_wait_round(
-                        round_tx.clone(),
-                        shard,
-                        consumer,
-                        &mut scan_from,
-                        &mut rows,
-                        count,
-                    )
-                    .await
-                }
-                None => {
-                    self.claim_wait_round(round_tx.clone(), shard, &mut rows, count)
-                        .await
-                }
-            };
-            match result {
-                Ok(()) => {
-                    self.worker_commit_routed_tx_async(round_tx).await?;
-                }
-                Err(err) => {
-                    let _ = self.worker_abort_tx_async(round_tx).await;
-                    return Err(err);
-                }
-            }
+            self.wait_round_with_retries(shard, &consumer, count, &mut rows, &mut scan_from)
+                .await?;
             if !rows.is_empty() || count == 0 {
                 return Ok(rows);
             }
@@ -365,6 +359,68 @@ impl WorkerXContract {
                 None => None,
             };
             waiter.park(remaining).await;
+        }
+    }
+
+    /// One scan/claim round with bounded SI-conflict retries: conflicts
+    /// against a concurrent round's commit are normal under epoch-coarse
+    /// stamping — abort the round and retry it with a fresh snapshot
+    /// (bounded; a persistent conflict surfaces).
+    async fn wait_round_with_retries(
+        &self,
+        shard: &QueueShard,
+        consumer: &Option<String>,
+        count: u64,
+        rows: &mut Vec<Vec<Option<Buf>>>,
+        scan_from: &mut u64,
+    ) -> RS<()> {
+        /// Bound on SI-conflict retries of one claim round.
+        const MAX_ROUND_RETRIES: u32 = 8;
+        let rows_before = rows.len();
+        let scan_from_before = *scan_from;
+        let mut round_retries = 0u32;
+        loop {
+            let round_tx = _begin_tx(&self.snapshot_mgr)?;
+            let result = match consumer {
+                Some(consumer) => {
+                    self.consumer_wait_round(
+                        round_tx.clone(),
+                        shard,
+                        consumer,
+                        scan_from,
+                        rows,
+                        count,
+                    )
+                    .await
+                }
+                None => {
+                    self.claim_wait_round(round_tx.clone(), shard, rows, count)
+                        .await
+                }
+            };
+            match result {
+                Ok(()) => match self.worker_commit_routed_tx_async(round_tx.clone()).await {
+                    Ok(_) => return Ok(()),
+                    Err(err)
+                        if err.ec() == ErrorCode::Transaction
+                            && round_retries < MAX_ROUND_RETRIES =>
+                    {
+                        round_retries += 1;
+                        let _ = self.worker_abort_tx_async(round_tx).await;
+                        rows.truncate(rows_before);
+                        *scan_from = scan_from_before;
+                        continue;
+                    }
+                    Err(err) => {
+                        let _ = self.worker_abort_tx_async(round_tx).await;
+                        return Err(err);
+                    }
+                },
+                Err(err) => {
+                    let _ = self.worker_abort_tx_async(round_tx).await;
+                    return Err(err);
+                }
+            }
         }
     }
 
@@ -391,7 +447,14 @@ impl WorkerXContract {
         for row in claimed {
             if row.receive_count >= QUEUE_POISON_RECEIVE_COUNT {
                 if let Some(dlq_desc) = &dlq {
-                    let dlq_shard = self.resolve_dlq_shard(dlq_desc).await?;
+                    let dlq_shard = resolve_dlq_shard(
+                        &self.meta_mgr,
+                        self.worker_id,
+                        &self.cluster_router,
+                        self.default_unpartitioned_worker_id,
+                        dlq_desc,
+                    )
+                    .await?;
                     self.queue_dlq_transfer_async(round_tx.clone(), shard, &dlq_shard, &row.fields)
                         .await?;
                     continue;
@@ -405,7 +468,7 @@ impl WorkerXContract {
     /// One fan-out WAIT round: read-only scan from the cursor frontier (the
     /// round transaction stages nothing, so committing it just ends it).
     /// Re-validates the cursor every round so a dropped cursor surfaces as
-    /// `EntityNotFound` instead of an endless rescan.
+    /// `ObjectNotFound` instead of an endless rescan.
     async fn consumer_wait_round(
         &self,
         round_tx: Arc<dyn TxMgr>,
@@ -422,7 +485,7 @@ impl WorkerXContract {
             .await?
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such consumer {consumer} on queue {}", shard.queue_oid)
                 )
             })?;

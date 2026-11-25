@@ -200,7 +200,7 @@ mudu_datum mudu_null(void) {
     d.f64 = 0;
     d.str = 0;
     d.str_len = 0;
-    d.record = 0;
+    d.struct_ = 0;
     return d;
 }
 
@@ -226,10 +226,10 @@ mudu_datum mudu_str(const char *data, uint32_t len) {
     return d;
 }
 
-mudu_datum mudu_record(const uni_data_value *value) {
+mudu_datum mudu_struct(const uni_data_value *value) {
     mudu_datum d = mudu_null();
-    d.kind = MUDU_DATUM_RECORD;
-    d.record = value;
+    d.kind = MUDU_DATUM_STRUCT;
+    d.struct_ = value;
     return d;
 }
 
@@ -262,9 +262,9 @@ static void datum_to_uni(const mudu_datum *d, uni_scalar_value *scalar, uni_data
         scalar->kind = UNI_SCALAR_VALUE_STRING;
         scalar->as.string = mp_str_from(d->str, d->str_len);
         break;
-    case MUDU_DATUM_RECORD:
-        if (d->record) {
-            *value = *d->record;
+    case MUDU_DATUM_STRUCT:
+        if (d->struct_) {
+            *value = *d->struct_;
             return;
         }
         scalar->kind = UNI_SCALAR_VALUE_NULL;
@@ -549,7 +549,7 @@ int mudu_command(mudu_oid session, const char *sql, const mudu_datum *args, uint
 
 /* Decode the bare-MessagePack `UniProcedureParam` the host passes to the
  * `mp2-*` exports; scalar parameters are unwrapped to datums, and a
- * record-case parameter passes through as a `MUDU_DATUM_RECORD` datum
+ * record-case parameter passes through as a `MUDU_DATUM_STRUCT` datum
  * holding the decoded envelope (it lives in the binding's decode arena,
  * which is backed by the guest arena and stays valid until the call ends). */
 static int decode_proc_param(const uint8_t *data, size_t len, mudu_proc_param *out) {
@@ -573,8 +573,8 @@ static int decode_proc_param(const uint8_t *data, size_t len, mudu_proc_param *o
         }
         for (i = 0; i < out->n_params; i++) {
             const uni_data_value *value = &decoded.param_list.items[i];
-            if (value->kind == UNI_DATA_VALUE_RECORD) {
-                out->params[i] = mudu_record(value);
+            if (value->kind == UNI_DATA_VALUE_STRUCT) {
+                out->params[i] = mudu_struct(value);
             } else if (uni_to_datum(value, &out->params[i]) != 0) {
                 return -1;
             }

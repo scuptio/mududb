@@ -2,13 +2,13 @@
 use crate::load_from_file::{LoadFromFile, LoadFromFileParams};
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
-use ::xengine::api::{OptInsert, VecDatum, XContract};
+use ::xengine::api::{OptInsert, VecDatum, XContract, XContractQueue};
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use async_trait::async_trait;
 use mudu::common::buf::Buf;
@@ -22,6 +22,7 @@ use mudu_sys::contract::async_net::AsyncNet;
 use mudu_sys::contract::file_options::FileOptions;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -36,8 +37,8 @@ where
         .block_on(fut)
 }
 
-fn sample_schema() -> SchemaTable {
-    SchemaTable::new(
+fn sample_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(
@@ -233,7 +234,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -255,7 +256,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -338,6 +339,8 @@ impl XContract for MockXContract {
         Ok(())
     }
 }
+
+impl XContractQueue for MockXContract {}
 
 fn csv_payload(rows: &[(&str, &str)]) -> Vec<u8> {
     let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
@@ -504,7 +507,7 @@ fn mock_tx_mgr_fixture_covers_its_trait_surface() {
 #[test]
 fn mock_meta_mgr_fixture_covers_its_trait_surface() {
     let meta = MockMetaMgr;
-    let schema = ::catalog::contract::schema_table::SchemaTable::new(
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
         "fixture_t".to_string(),
         vec![::catalog::contract::schema_column::SchemaColumn::new(
             "k".to_string(),

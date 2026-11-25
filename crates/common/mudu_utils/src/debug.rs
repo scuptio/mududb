@@ -1,8 +1,9 @@
 // Example hyper http server
 // https://github.com/hyperium/hyper/blob/master/examples/echo.rs
 
-#[cfg(feature = "debug_trace")]
+#[cfg(all(test, feature = "debug_trace"))]
 use mudu_sys::net::sync::StdTcpListener;
+#[cfg(any(feature = "debug_trace", test))]
 use std::net::SocketAddr;
 
 #[cfg(feature = "debug_trace")]
@@ -33,9 +34,11 @@ use crate::notifier::Notifier;
 use crate::notifier::NotifyWait;
 #[cfg(feature = "debug_trace")]
 use crate::task_async::CurrentThreadTaskRuntime;
+#[cfg(any(feature = "debug_trace", test))]
 use mudu::common::result::RS;
 #[cfg(feature = "debug_trace")]
 use mudu::error::ErrorCode;
+#[cfg(any(feature = "debug_trace", test))]
 use mudu::error::MuduError;
 #[cfg(feature = "debug_trace")]
 use mudu::mudu_error;
@@ -58,14 +61,14 @@ lazy_static! {
 /// Registers `h` as the handler for the additional debug HTTP endpoint at `url`.
 ///
 /// The handler is invoked with the request path and returns the response body.
-#[cfg(feature = "debug_trace")]
-pub fn register_debug_url(url: String, h: HandleURL) {
+#[cfg(all(test, feature = "debug_trace"))]
+pub(crate) fn register_debug_url(url: String, h: HandleURL) {
     let _ = HANDLE_URL.insert_sync(url, h);
 }
 
 /// Does nothing; debug endpoints exist only with the `debug_trace` feature.
-#[cfg(not(feature = "debug_trace"))]
-pub fn register_debug_url(_url: String, _h: fn(String) -> RS<String>) {}
+#[cfg(all(test, not(feature = "debug_trace")))]
+pub(crate) fn register_debug_url(_url: String, _h: fn(String) -> RS<String>) {}
 
 #[cfg(feature = "debug_trace")]
 async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, hyper::Error> {
@@ -108,14 +111,17 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
 /// Returns an error if the port is already served by another debug server in
 /// this process, or if binding or accepting on `addr` fails.
 #[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve_until(addr: SocketAddr, stop: NotifyWait) -> Result<(), MuduError> {
+pub(crate) async fn async_debug_serve_until(
+    addr: SocketAddr,
+    stop: NotifyWait,
+) -> Result<(), MuduError> {
     async_debug_serve_until_with_ready(addr, stop, None).await
 }
 
 /// Like [`async_debug_serve_until`], but notifies `ready` once the listener is
 /// bound and serving.
 #[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve_until_with_ready(
+async fn async_debug_serve_until_with_ready(
     addr: SocketAddr,
     stop: NotifyWait,
     ready: Option<Notifier>,
@@ -124,7 +130,7 @@ pub async fn async_debug_serve_until_with_ready(
     let port = addr.port();
     let r = SERVER.insert_sync(port);
     if r.is_err() {
-        return Err(mudu_error!(ErrorCode::EntityAlreadyExists, ""));
+        return Err(mudu_error!(ErrorCode::ObjectAlreadyExists, ""));
     }
 
     // Bind to the port and listen for incoming TCP connections
@@ -186,16 +192,10 @@ async fn async_debug_serve_with_tokio_listener(
     Ok(())
 }
 
-/// Serves the debug HTTP endpoints on `addr` without a stop signal.
-#[cfg(feature = "debug_trace")]
-pub async fn async_debug_serve(addr: SocketAddr) -> Result<(), MuduError> {
-    async_debug_serve_until(addr, NotifyWait::new()).await
-}
-
 /// Does nothing and returns `Ok`; the debug server exists only with the
 /// `debug_trace` feature.
-#[cfg(not(feature = "debug_trace"))]
-pub async fn async_debug_serve_until(
+#[cfg(all(test, not(feature = "debug_trace")))]
+pub(crate) async fn async_debug_serve_until(
     _addr: SocketAddr,
     _stop: NotifyWait,
 ) -> Result<(), MuduError> {
@@ -204,8 +204,8 @@ pub async fn async_debug_serve_until(
 
 /// Does nothing and returns `Ok`; the debug server exists only with the
 /// `debug_trace` feature.
-#[cfg(not(feature = "debug_trace"))]
-pub async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MuduError> {
+#[cfg(all(test, not(feature = "debug_trace")))]
+pub(crate) async fn async_debug_serve(_addr: SocketAddr) -> Result<(), MuduError> {
     Ok(())
 }
 
@@ -231,29 +231,14 @@ pub fn debug_serve(canceler: NotifyWait, port: u16) {
     });
 }
 
-/// Like [`debug_serve`], but notifies `ready` once the listener is bound and
-/// serving.
-#[cfg(feature = "debug_trace")]
-pub fn debug_serve_until_with_ready(canceler: NotifyWait, port: u16, ready: Notifier) {
-    let async_debug_serve = async_debug_serve_until_with_ready(
-        ([0, 0, 0, 0], port).into(),
-        canceler.clone(),
-        Some(ready),
-    );
-    let runtime = CurrentThreadTaskRuntime::new().unwrap();
-    let join = runtime
-        .local()
-        .spawn(canceler.as_waiter(), "debug_server", async_debug_serve)
-        .unwrap();
-    runtime.block_on(async {
-        let _ = join.await;
-    });
-}
-
 /// Like [`debug_serve`], but serves on the already-bound `listener` instead of
 /// binding a new socket.
-#[cfg(feature = "debug_trace")]
-pub fn debug_serve_with_listener(canceler: NotifyWait, listener: StdTcpListener, ready: Notifier) {
+#[cfg(all(test, feature = "debug_trace"))]
+pub(crate) fn debug_serve_with_listener(
+    canceler: NotifyWait,
+    listener: StdTcpListener,
+    ready: Notifier,
+) {
     let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
     let canceler_for_future = canceler.clone();
     let async_debug_serve = async move {

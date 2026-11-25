@@ -1,6 +1,6 @@
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::meta_mgr::MetaMgr;
-use ::catalog::contract::queue::queue_dlq_name;
+use ::catalog::contract::queue::resolve_queue_dlq_for_drop;
 use ::xengine::api::XContract;
 use ::xengine::x_param::PDropQueue;
 use async_trait::async_trait;
@@ -41,7 +41,7 @@ impl CmdExec for DropQueue {
         let desc = self.meta_mgr.get_table_by_id(self.drop_param.oid).await?;
         if !desc.is_queue() {
             return Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such queue {}", self.drop_param.oid)
             ));
         }
@@ -50,17 +50,37 @@ impl CmdExec for DropQueue {
 
     async fn run(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
+        // Cluster mode: the drop (queue + derived DLQ) travels the MetaGroup.
+        if let Some(meta_group) = self.x_contract.meta_group() {
+            return meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::DropQueue {
+                    oid: self.drop_param.oid,
+                })
+                .await;
+        }
         // The derived dead-letter queue `<name>_dlq` goes with its queue when
         // it still exists (it may have been dropped on its own).
         let desc = self.meta_mgr.get_table_by_id(self.drop_param.oid).await?;
-        let dlq = self
-            .meta_mgr
-            .get_queue(desc.schema(), &queue_dlq_name(desc.name()))
-            .await?;
+        let dlq = resolve_queue_dlq_for_drop(self.meta_mgr.as_ref(), desc.as_ref()).await?;
         if let Some(dlq) = dlq {
             self.x_contract
                 .drop_queue(self.drop_param.tx_mgr.clone(), dlq.id())
                 .await?;
+        } else {
+            let dlq_id = catalog::contract::derive_oid::derive_table_oid(
+                desc.schema(),
+                &catalog::contract::queue::queue_dlq_name(desc.name()),
+            );
+            if self
+                .meta_mgr
+                .get_table_partition_binding(dlq_id)
+                .await?
+                .is_some()
+            {
+                self.meta_mgr
+                    .remove_orphan_partition_binding(dlq_id)
+                    .await?;
+            }
         }
         self.x_contract
             .drop_queue(self.drop_param.tx_mgr.clone(), self.drop_param.oid)

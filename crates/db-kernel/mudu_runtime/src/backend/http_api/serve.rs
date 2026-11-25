@@ -1,19 +1,45 @@
 use super::handlers::{
     app_list, app_proc_detail, app_proc_list, backup, backup_delete, backup_list, backup_verify,
-    dump_logical, install, invoke, partition_route, queue_activation_register,
-    queue_activation_unregister, repl_follow, repl_membership, repl_promote, restore_logical,
-    server_queue_activations, server_queues, server_replication, server_topology, uninstall,
+    dump_logical, install, invoke, partition_merge, partition_move, partition_move_abort,
+    partition_route, partition_split, queue_activation_register, queue_activation_unregister,
+    repl_follow, repl_membership, repl_promote, restore_logical, server_queue_activations,
+    server_queues, server_replication, server_topology, uninstall,
 };
 use super::{HttpApi, HttpApiCapabilities, HttpApiContext};
 use crate::backend::mudud_cfg::MuduDBCfg;
 use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::{App, HttpServer, web};
+use mudu::common::result::RS;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_utils::notifier::Waiter;
 use mudu_utils::scoped_task_trace;
+use serde_json::Value;
 use std::sync::Arc;
 use tracing::error;
+use ws_gateway::{WsBackend, WsGateway};
+
+/// Adapts the [`HttpApi`] surface to the WebSocket gateway's narrower
+/// [`WsBackend`] view (procedure invocation + queue receive). The adapter
+/// keeps the gateway free of a `mudu_runtime` dependency, which would
+/// otherwise be circular.
+struct HttpApiWsAdapter(Arc<dyn HttpApi>);
+
+#[async_trait::async_trait(?Send)]
+impl WsBackend for HttpApiWsAdapter {
+    async fn invoke_json(&self, app: &str, module: &str, proc: &str, body: String) -> RS<Value> {
+        HttpApi::invoke_json(self.0.as_ref(), app, module, proc, body).await
+    }
+
+    async fn receive_queue(
+        &self,
+        queue: &str,
+        consumer: Option<&str>,
+        wait_forever: bool,
+    ) -> RS<Vec<Value>> {
+        HttpApi::receive_queue(self.0.as_ref(), queue, consumer, wait_forever).await
+    }
+}
 
 /// Binds the management HTTP API on the configured listen address and serves
 /// it.
@@ -51,7 +77,8 @@ pub async fn serve_http_api_on_listener_with_stop(
 ) -> std::io::Result<()> {
     scoped_task_trace!();
     let payload_limit = 500 * 1024 * 1024;
-    let data = web::Data::new(HttpApiContext { api });
+    let data = web::Data::new(HttpApiContext { api: api.clone() });
+    let ws_gateway = WsGateway::new(Arc::new(HttpApiWsAdapter(api)));
 
     let server = HttpServer::new(move || {
         let cors = Cors::permissive();
@@ -72,6 +99,14 @@ pub async fn serve_http_api_on_listener_with_stop(
             .app_data(web::FormConfig::default().limit(payload_limit))
             .wrap(actix_web::middleware::Logger::default())
             .configure(|cfg| configure_routes(cfg, capabilities))
+            // The WebSocket gateway invokes procedures, so it follows the
+            // invoke capability: deployments with `enable_invoke = false`
+            // must not expose it.
+            .configure(|cfg| {
+                if capabilities.enable_invoke {
+                    ws_gateway.configure(cfg);
+                }
+            })
     })
     .workers(worker_threads)
     .listen(listener.into_inner())?
@@ -101,6 +136,10 @@ pub(crate) fn configure_routes(cfg: &mut web::ServiceConfig, capabilities: HttpA
         .service(queue_activation_unregister)
         .service(server_queue_activations)
         .service(partition_route)
+        .service(partition_move)
+        .service(partition_move_abort)
+        .service(partition_split)
+        .service(partition_merge)
         .service(install)
         .service(backup)
         .service(backup_list)

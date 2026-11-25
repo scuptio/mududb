@@ -102,18 +102,18 @@ func UniQueryReturnFromValue(v any) (UniQueryReturn, error) {
 }
 
 type UniQueryResult struct {
-	TupleDesc UniRecordType
+	TupleDesc UniStructType
 	ResultSet UniResultSet
 }
 
 // UniQueryResultToValue converts x to its MSSP wire value: the
 // integer-keyed MessagePack map of the 1-based field numbers (WIT
 // declaration order). Option fields are omitted when nil (proto3 presence
-// semantics); []byte fields encode as arrays of u8 (the record-context form
+// semantics); []byte fields encode as arrays of u8 (the struct-context form
 // of list<u8>), NOT as MessagePack bin.
 func UniQueryResultToValue(x UniQueryResult) (any, error) {
 	_d := map[uint64]any{}
-	_c0, err := UniRecordTypeToValue(x.TupleDesc)
+	_c0, err := UniStructTypeToValue(x.TupleDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func UniQueryResultFromValue(v any) (UniQueryResult, error) {
 		}
 		switch _key {
 		case 1:
-			x.TupleDesc, err = UniRecordTypeFromValue(_val)
+			x.TupleDesc, err = UniStructTypeFromValue(_val)
 			if err != nil {
 				return x, err
 			}

@@ -87,7 +87,7 @@ impl WorkerChannelState {
     ) -> RS<()> {
         if self.handlers.contains_key(&kind) {
             return Err(mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!("worker channel kind {:?} already has a handler", kind)
             ));
         }
@@ -299,7 +299,7 @@ mod tests {
         let mut state = WorkerChannelState::new();
         state.register_kind_handler(KIND, handler()).unwrap();
         let result = state.register_kind_handler(KIND, handler());
-        assert_eq!(result.unwrap_err().ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(result.unwrap_err().ec(), ErrorCode::ObjectAlreadyExists);
         state.unregister_kind_handler(KIND).unwrap();
         state.register_kind_handler(KIND, handler()).unwrap();
     }

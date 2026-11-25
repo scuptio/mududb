@@ -10,15 +10,15 @@ use ::catalog::contract::queue::{
     queue_receive_count_datum, queue_seq_datum, queue_status_datum, queue_system_columns,
     QUEUE_STATUS_CLAIMED, QUEUE_STATUS_READY,
 };
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, TupleRow, VecDatum,
-    VecSelTerm, XContract,
+    VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PCreateConsumer;
@@ -30,7 +30,6 @@ use mudu::error::ErrorCode;
 use mudu_kernel::mudu_conn::mudu_conn_core::MuduConnCore;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -48,24 +47,24 @@ fn payload_column(name: &str, family: TypeFamily) -> SchemaColumn {
     SchemaColumn::new(
         name.to_string(),
         family,
-        DataTypeInfo::from_opt_object(&DataType::default_for(family)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(family)),
     )
 }
 
 /// Builds a queue schema the way the binder does: the four system columns
 /// first, then the payload columns; key is `__seq` alone.
-fn queue_schema(name: &str, payload: Vec<SchemaColumn>) -> SchemaTable {
+fn queue_schema(name: &str, payload: Vec<SchemaColumn>) -> SchemaClass {
     let mut columns = queue_system_columns();
     columns.extend(payload);
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn table_schema(name: &str) -> SchemaTable {
-    let mut schema = SchemaTable::new(
+fn table_schema(name: &str) -> SchemaClass {
+    let mut schema = SchemaClass::new(
         name.to_string(),
         vec![payload_column("k", TypeFamily::I64)],
         vec![0],
@@ -98,7 +97,7 @@ fn queue_row(seq: u64, lsn: u64, status: u8, receive_count: i32, body: &str) -> 
 }
 
 struct MockMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
 }
 
 impl MockMetaMgr {
@@ -108,13 +107,13 @@ impl MockMetaMgr {
         }
     }
 
-    fn add_schema(&self, schema: SchemaTable) -> OID {
+    fn add_schema(&self, schema: SchemaClass) -> OID {
         let oid = schema.id();
         self.schemas.lock().unwrap().insert(oid, schema);
         oid
     }
 
-    fn desc_of(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+    fn desc_of(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
     }
 }
@@ -130,7 +129,7 @@ impl MetaMgr for MockMetaMgr {
         match schema {
             Some(schema) => Self::desc_of(&schema),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -140,7 +139,7 @@ impl MetaMgr for MockMetaMgr {
         let schemas = self.schemas.lock().unwrap();
         let exact = schemas
             .values()
-            .find(|s| s.schema() == schema && s.table_name() == name)
+            .find(|s| s.schema() == schema && s.class_name() == name)
             .cloned();
         // Mirror the catalog search path: exact hit wins, then the default
         // schema fallback.
@@ -149,13 +148,13 @@ impl MetaMgr for MockMetaMgr {
         }
         schemas
             .values()
-            .find(|s| s.schema() == DEFAULT_SCHEMA && s.table_name() == name)
+            .find(|s| s.schema() == DEFAULT_SCHEMA && s.class_name() == name)
             .cloned()
             .map(|schema| Self::desc_of(&schema))
             .transpose()
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         self.add_schema(schema.clone());
         Ok(())
     }
@@ -165,7 +164,7 @@ impl MetaMgr for MockMetaMgr {
         Ok(())
     }
 
-    async fn create_queue(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_queue(&self, schema: &SchemaClass) -> RS<()> {
         self.add_schema(schema.clone());
         Ok(())
     }
@@ -288,7 +287,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -427,6 +426,29 @@ impl XContract for MockXContract {
         .await
     }
 
+    async fn read_range_on_partition(
+        &self,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        _partition_id: OID,
+        range: &RangeData,
+        select: &VecSelTerm,
+        opt: &OptRead,
+    ) -> RS<Arc<dyn RSCursor>> {
+        self.read_range(
+            tx_mgr,
+            table_id,
+            range,
+            &Predicate::CNF(Vec::new()),
+            select,
+            opt,
+        )
+        .await
+    }
+}
+
+#[async_trait]
+impl XContractQueue for MockXContract {
     async fn queue_claim_round(
         &self,
         _tx: Arc<dyn TxMgr>,
@@ -465,7 +487,7 @@ impl XContract for MockXContract {
         let frontier = self
             .consumer_frontier(shard, consumer)
             .await?
-            .ok_or_else(|| mudu::mudu_error!(ErrorCode::EntityNotFound, "no such consumer"))?;
+            .ok_or_else(|| mudu::mudu_error!(ErrorCode::ObjectNotFound, "no such consumer"))?;
         let store = self.store.lock().unwrap();
         Ok(store
             .rows
@@ -474,26 +496,6 @@ impl XContract for MockXContract {
             .take(count as usize)
             .map(|(_, row)| row.clone())
             .collect())
-    }
-
-    async fn read_range_on_partition(
-        &self,
-        tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        _partition_id: OID,
-        range: &RangeData,
-        select: &VecSelTerm,
-        opt: &OptRead,
-    ) -> RS<Arc<dyn RSCursor>> {
-        self.read_range(
-            tx_mgr,
-            table_id,
-            range,
-            &Predicate::CNF(Vec::new()),
-            select,
-            opt,
-        )
-        .await
     }
 
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
@@ -518,7 +520,7 @@ impl XContract for MockXContract {
         let mut store = self.store.lock().unwrap();
         if store.consumers.contains_key(consumer) {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!("consumer {consumer} already exists on queue {queue_oid}")
             ));
         }
@@ -535,7 +537,7 @@ impl XContract for MockXContract {
         match self.store.lock().unwrap().consumers.remove(consumer) {
             Some(_) => Ok(()),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {queue_oid}")
             )),
         }
@@ -611,7 +613,7 @@ fn create_consumer_duplicate_fails() {
     block_on(cmd.run()).unwrap();
     let cmd = make_create_consumer(queue_id, "cg", x_contract, meta);
     let err = block_on(cmd.run()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]
@@ -620,7 +622,7 @@ fn create_consumer_on_plain_table_fails_at_prepare() {
     let table_id = meta.add_schema(table_schema("t"));
     let cmd = make_create_consumer(table_id, "cg", Arc::new(MockXContract::new()), meta);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]

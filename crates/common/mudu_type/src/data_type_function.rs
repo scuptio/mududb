@@ -1,6 +1,7 @@
 use crate::data_type::DataType;
 use crate::data_value::DataValue;
 use crate::type_error::TyErr;
+use crate::type_family_ext::TypeFamilyExt;
 use std::sync::Arc;
 
 /// Wraps an `i32` into a shared value.

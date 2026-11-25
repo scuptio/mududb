@@ -125,7 +125,7 @@ async fn execute_partition_rpc_insert_then_read_key() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn execute_partition_rpc_insert_duplicate_returns_entity_already_exists() {
+async fn execute_partition_rpc_insert_duplicate_returns_object_already_exists() {
     tokio::task::LocalSet::new()
         .run_until(async {
             let contract = make_contract().await;
@@ -145,7 +145,7 @@ async fn execute_partition_rpc_insert_duplicate_returns_entity_already_exists() 
                 .unwrap();
             let result = contract.execute_partition_rpc(insert).await;
             assert!(result.is_err());
-            assert_eq!(result.unwrap_err().ec(), ErrorCode::EntityAlreadyExists);
+            assert_eq!(result.unwrap_err().ec(), ErrorCode::ObjectAlreadyExists);
         })
         .await;
 }
@@ -484,7 +484,7 @@ async fn handle_partition_rpc_message_dedups_replays() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn send_partition_rpc_without_channel_fails_entity_not_found() {
+async fn send_partition_rpc_without_channel_fails_object_not_found() {
     tokio::task::LocalSet::new()
         .run_until(async {
             unset_current_channel();
@@ -493,7 +493,7 @@ async fn send_partition_rpc_without_channel_fails_entity_not_found() {
                 .send_partition_rpc_with_timeout(2, read_key_request(), Duration::from_millis(30))
                 .await;
             assert!(result.is_err());
-            assert_eq!(result.unwrap_err().ec(), ErrorCode::EntityNotFound);
+            assert_eq!(result.unwrap_err().ec(), ErrorCode::ObjectNotFound);
         })
         .await;
 }

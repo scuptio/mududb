@@ -9,7 +9,7 @@ namespace mududb.db;
 
 /// <summary>
 /// Canonical facade `mududb.db`: the database session handle, mirroring the
-/// AssemblyScript `Database` semantics (`doc/dev/binding_api_surface.md`,
+/// AssemblyScript `Database` semantics (`doc/en/binding_api_surface.md`,
 /// section "Canonical facade surface"). Obtain one with
 /// <see cref="Open(string)"/> and release it with <see cref="Close"/>.
 /// Errors carried by a syscall's `UniError` arm surface as thrown

@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 #[derive(Clone)]
-pub struct LSSyncConn {
+pub(crate) struct LSSyncConn {
     inner: Arc<LSAsyncConnInner>,
 }
 
@@ -223,7 +223,7 @@ impl LSAsyncConnInner {
             Ok(xid)
         } else {
             Err(mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 "existing transaction"
             ))
         }
@@ -232,7 +232,7 @@ impl LSAsyncConnInner {
     pub fn tx_move_out(&self) -> RS<LSTrans> {
         let opt = self.trans.tx_move()?;
         let ls_trans =
-            opt.ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "no existing transaction"))?;
+            opt.ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "no existing transaction"))?;
         Ok(ls_trans)
     }
 

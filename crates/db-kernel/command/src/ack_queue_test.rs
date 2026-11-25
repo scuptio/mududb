@@ -10,15 +10,15 @@ use ::catalog::contract::queue::{
     QUEUE_PAYLOAD_ATTR_START, QUEUE_POISON_RECEIVE_COUNT, QUEUE_RECEIVE_COUNT_ATTR, QUEUE_SEQ_ATTR,
     QUEUE_STATUS_ATTR, QUEUE_STATUS_CLAIMED, QUEUE_STATUS_READY,
 };
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, TupleRow, VecDatum,
-    VecSelTerm, XContract,
+    VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PAckQueue;
@@ -29,7 +29,6 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -43,17 +42,17 @@ where
         .block_on(fut)
 }
 
-fn queue_schema(name: &str) -> SchemaTable {
+fn queue_schema(name: &str) -> SchemaClass {
     let mut columns = ::catalog::contract::queue::queue_system_columns();
     columns.push(SchemaColumn::new(
         "body".to_string(),
         TypeFamily::String,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::String)),
     ));
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
@@ -240,7 +239,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -359,6 +358,62 @@ impl XContract for MockXContract {
         store.tables.entry(table_id).or_default().insert(seq, row);
         Ok(())
     }
+
+    async fn read_range_on_partition(
+        &self,
+        _tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        _partition_id: OID,
+        pred_key: &RangeData,
+        select: &VecSelTerm,
+        _opt: &OptRead,
+    ) -> RS<Arc<dyn RSCursor>> {
+        // Apply the inclusive `__seq` end bound of the ACK scan.
+        let end_seq = match pred_key.end() {
+            std::ops::Bound::Included(items) => Some(decode_queue_seq(&items[0].1).unwrap()),
+            _ => None,
+        };
+        let store = self.store.lock().unwrap();
+        let rows = store
+            .tables
+            .get(&table_id)
+            .map(|table| {
+                table
+                    .iter()
+                    .filter(|(seq, _)| end_seq.is_none_or(|end| **seq <= end))
+                    .map(|(_, row)| {
+                        TupleRow::new_nullable(
+                            select.vec().iter().map(|attr| row[*attr].clone()).collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Arc::new(MockCursor {
+            rows: SMutex::new(rows),
+        }))
+    }
+
+    async fn delete_on_partition(
+        &self,
+        _tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        _partition_id: OID,
+        pred_key: &VecDatum,
+    ) -> RS<usize> {
+        let seq = decode_queue_seq(&pred_key.data()[0].1).unwrap();
+        let mut store = self.store.lock().unwrap();
+        let removed = store
+            .tables
+            .get_mut(&table_id)
+            .map(|rows| rows.remove(&seq).is_some())
+            .unwrap_or(false);
+        Ok(usize::from(removed))
+    }
+}
+
+#[async_trait]
+impl XContractQueue for MockXContract {
     async fn queue_shards(&self, table_id: OID) -> RS<Vec<::xengine::api::QueueShard>> {
         Ok(vec![Self::mock_shard(table_id)])
     }
@@ -432,13 +487,13 @@ impl XContract for MockXContract {
         let mut store = self.store.lock().unwrap();
         let Some(cursors) = store.consumers.get_mut(&queue_oid) else {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {queue_oid}")
             ));
         };
         let Some(cursor) = cursors.get_mut(consumer) else {
             return Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such consumer {consumer} on queue {queue_oid}")
             ));
         };
@@ -452,58 +507,6 @@ impl XContract for MockXContract {
         let before = rows.len();
         rows.retain(|seq, _| *seq > gc_seq);
         Ok((before - rows.len()) as u64)
-    }
-
-    async fn read_range_on_partition(
-        &self,
-        _tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        _partition_id: OID,
-        pred_key: &RangeData,
-        select: &VecSelTerm,
-        _opt: &OptRead,
-    ) -> RS<Arc<dyn RSCursor>> {
-        // Apply the inclusive `__seq` end bound of the ACK scan.
-        let end_seq = match pred_key.end() {
-            std::ops::Bound::Included(items) => Some(decode_queue_seq(&items[0].1).unwrap()),
-            _ => None,
-        };
-        let store = self.store.lock().unwrap();
-        let rows = store
-            .tables
-            .get(&table_id)
-            .map(|table| {
-                table
-                    .iter()
-                    .filter(|(seq, _)| end_seq.is_none_or(|end| **seq <= end))
-                    .map(|(_, row)| {
-                        TupleRow::new_nullable(
-                            select.vec().iter().map(|attr| row[*attr].clone()).collect(),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(Arc::new(MockCursor {
-            rows: SMutex::new(rows),
-        }))
-    }
-
-    async fn delete_on_partition(
-        &self,
-        _tx_mgr: Arc<dyn TxMgr>,
-        table_id: OID,
-        _partition_id: OID,
-        pred_key: &VecDatum,
-    ) -> RS<usize> {
-        let seq = decode_queue_seq(&pred_key.data()[0].1).unwrap();
-        let mut store = self.store.lock().unwrap();
-        let removed = store
-            .tables
-            .get_mut(&table_id)
-            .map(|rows| rows.remove(&seq).is_some())
-            .unwrap_or(false);
-        Ok(usize::from(removed))
     }
 
     /// Mirrors the real transfer: a fresh enqueue into the DLQ table with the
@@ -543,11 +546,11 @@ impl XContract for MockXContract {
 }
 
 struct MockMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
 }
 
 impl MockMetaMgr {
-    fn new(queue: SchemaTable, dlq: Option<SchemaTable>) -> Self {
+    fn new(queue: SchemaClass, dlq: Option<SchemaClass>) -> Self {
         let mut schemas = HashMap::new();
         schemas.insert(queue.id(), queue);
         if let Some(dlq) = dlq {
@@ -558,7 +561,7 @@ impl MockMetaMgr {
         }
     }
 
-    fn desc_of(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+    fn desc_of(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
     }
 }
@@ -573,7 +576,7 @@ impl MetaMgr for MockMetaMgr {
         match schema {
             Some(schema) => Self::desc_of(&schema),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -584,11 +587,11 @@ impl MetaMgr for MockMetaMgr {
             .lock()
             .unwrap()
             .values()
-            .find(|schema| schema.table_name() == name)
+            .find(|schema| schema.class_name() == name)
             .cloned();
         found.map(|schema| Self::desc_of(&schema)).transpose()
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -725,12 +728,12 @@ fn ack_deletes_poison_message_when_dlq_is_missing() {
 
 #[test]
 fn ack_on_non_queue_fails_at_prepare() {
-    let mut plain = SchemaTable::new(
+    let mut plain = SchemaClass::new(
         "t".to_string(),
         vec![SchemaColumn::new(
             "k".to_string(),
             TypeFamily::I64,
-            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I64)),
+            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::I64)),
         )],
         vec![0],
         vec![],
@@ -741,7 +744,7 @@ fn ack_on_non_queue_fails_at_prepare() {
     let meta = Arc::new(MockMetaMgr::new(plain, None));
     let cmd = make_ack(x_contract, meta, table_id, 0);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 fn make_ack_for(
@@ -836,9 +839,9 @@ fn ack_for_unknown_consumer_fails() {
     let meta = Arc::new(MockMetaMgr::new(queue, None));
     let cmd = make_ack_for(x_contract, meta, queue_id, 0, "missing");
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     let err = block_on(cmd.run()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 #[test]

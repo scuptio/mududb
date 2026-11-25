@@ -56,13 +56,13 @@ entry = "verification/extract/Cargo.toml"
 extract_module = "record_slot_core"
 platform = "x86_64-unknown-linux-gnu"
 features = []
-functions = ["RecordSlot::decode_bytes", "RecordSlot::encode_bytes", "RecordSlot::fragment_kind", "RecordSlot::set_fragment_kind"]
+functions = ["StructSlot::decode_bytes", "StructSlot::encode_bytes", "StructSlot::fragment_kind", "StructSlot::set_fragment_kind"]
 module = "crates.«db-kernel».storage.src.page.record_slot_core.proof"
 status = "proven"
 allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
 owner = "storage"
 assumptions = [
-  "The public RecordSlot API and the 32-byte little-endian disk layout are the contract",
+  "The public StructSlot API and the 32-byte little-endian disk layout are the contract",
 ]
 theorems = [
   "record_slot_proof.write_short",
@@ -82,7 +82,7 @@ sanity = [
 ]
 
 [[target.record_slot_core.premises]]
-note = "The public RecordSlot API rejects invalid slot counts before decoding into the core codec"
+note = "The public StructSlot API rejects invalid slot counts before decoding into the core codec"
 established_by = ["crates/db-kernel/storage/src/page/record_slot.rs::disk_fixture_and_short_buffers_preserve_all_bytes"]
 
 [[target.record_slot_core.premises]]

@@ -65,13 +65,23 @@ jobs:
 
     steps:
       - name: Checkout Code
+        id: checkout
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup
         if: matrix.os == 'ubuntu-latest'
         uses: ./.github/actions/rust-stable-setup
 
       - name: Free disk space
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk bash {0}
+        id: free_disk
         if: matrix.os == 'ubuntu-latest'
         run: |
           df -h
@@ -82,6 +92,7 @@ jobs:
           df -h
 
       - name: Cache Cargo Registry
+        id: cache
         uses: actions/cache@v4
         with:
           path: |
@@ -92,6 +103,8 @@ jobs:
             ${{ runner.os }}-cargo-stable-${{ matrix.group }}
 
       - name: Clean cargo cache (optional)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run clean bash {0}
+        id: clean
         if: env.ENABLE_CARGO_CLEAN == 'true'
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
@@ -99,6 +112,8 @@ jobs:
           cargo clean 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-clean.log
 
       - name: Check (debug)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_debug bash {0}
+        id: check_debug
         if: env.ENABLE_RELEASE_TEST != 'true'
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
@@ -106,6 +121,8 @@ jobs:
           cargo check 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-check-debug.log
 
       - name: Check (release)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run check_release bash {0}
+        id: check_release
         if: env.ENABLE_RELEASE_TEST == 'true'
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
@@ -113,12 +130,16 @@ jobs:
           cargo check --release 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-check-release.log
 
       - name: Clippy
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run clippy bash {0}
+        id: clippy
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
           cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-clippy.log
 
       - name: Verify Install Script (Linux)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install bash {0}
+        id: install
         if: matrix.os == 'ubuntu-latest' && matrix.group == 'crates/tools'
         working-directory: ${{ github.workspace }}
         run: |
@@ -127,6 +148,8 @@ jobs:
           python3 script/build/install_binaries.py --dry-run 2>&1 | tee logs/build-verify-install.log
 
       - name: Inspect io_uring Environment (Linux)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run iouring bash {0}
+        id: iouring
         if: matrix.os == 'ubuntu-latest' && matrix.group == 'crates/db-kernel'
         working-directory: ${{ github.workspace }}
         run: |
@@ -135,6 +158,8 @@ jobs:
           bash script/build/inspect_iouring_env.sh 2>&1 | tee logs/build-inspect-iouring.log
 
       - name: Test (debug)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run test_debug bash {0}
+        id: test_debug
         if: env.ENABLE_RELEASE_TEST != 'true'
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
@@ -142,11 +167,22 @@ jobs:
           cargo test -- --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-test-debug.log
 
       - name: Test (release)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run test_release bash {0}
+        id: test_release
         if: env.ENABLE_RELEASE_TEST == 'true'
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
           cargo test --release -- --test-threads=1 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/build-test-release.log
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   rustdoc:
     name: Rustdoc
@@ -155,12 +191,21 @@ jobs:
       CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned stable Rust
+        id: setup_pinned_stable_rust
         uses: ./.github/actions/rust-stable-setup
 
       - name: Cache Cargo Registry
+        id: cache_cargo_registry
         uses: actions/cache@v4
         with:
           path: |
@@ -171,9 +216,19 @@ jobs:
             ${{ runner.os }}-cargo-doc
 
       - name: Generate documentation
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run generate_documentation bash {0}
+        id: generate_documentation
         run: |
           # No root workspace exists; document each group workspace in turn.
           for group in crates/common crates/db-kernel crates/sdk crates/tools; do
             echo "=== cargo doc: ${group} ==="
             (cd "${group}" && cargo doc --workspace --no-deps)
           done
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

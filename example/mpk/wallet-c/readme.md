@@ -38,14 +38,14 @@ mpm-build ──► target/c-guest/wallet-c.mpk
   positionally as `mudu_datum`s. Annotation types: `i64`, `f64`, `string`,
   `option<T>` (nullable), and the user-defined record/enum names from
   `wit/types.wit` — the `mudu_datum` support surface of `mudu_sys.h`
-  (a record arrives as `MUDU_DATUM_RECORD`, an enum as an i32 ordinal in
+  (a record arrives as `MUDU_DATUM_STRUCT`, an enum as an i32 ordinal in
   `MUDU_DATUM_I64`).
 - `update_profile` decodes its record argument with two calls: the
-  binding's record bridge (`mp_record_bridge_write` in
-  `mududb/codec/record_bridge.h`) serializes the positional
+  binding's record bridge (`mp_struct_bridge_write` in
+  `mududb/codec/struct_bridge.h`) serializes the positional
   `uni-data-value` record envelope as the integer-keyed MessagePack map the
   generated `profile_decode` reads; the return path is symmetric
-  (`profile_encode` + `mp_record_bridge_read`). Bool fields cross as i32
+  (`profile_encode` + `mp_struct_bridge_read`). Bool fields cross as i32
   0/1 both directions (`mpr_bool` accepts integer markers 0/1 for exactly
   this); the nested optional address flattens into nullable columns and the
   tag list lands in a side table — see the function comments.
@@ -57,7 +57,7 @@ mpm-build ──► target/c-guest/wallet-c.mpk
   over the `mududb:api/system` byte pipe.
 - The binding is compiled **straight from source** (`Makefile.toml`
   `BINDING_DIR` adds `../../../crates/sdk/bindings/c` to the include path and puts
-  `mududb/codec/mpack.c` + `mpack_alloc.c` + `record_bridge.c` on the
+  `mududb/codec/mpack.c` + `mpack_alloc.c` + `struct_bridge.c` on the
   clang source list), so
   the example always builds against the live binding — the C analogue of
   wallet-go's `replace` in `go.mod`; nothing is vendored. The binding's

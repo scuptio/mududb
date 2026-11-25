@@ -304,4 +304,73 @@ mod tests {
 
         crate::sync::sync_::blocking::close_fd(fd).unwrap();
     }
+    #[test]
+    fn budgeted_polling_preserves_connection_results_and_background_drain() {
+        let registry = WorkerTaskRegistry::new_with_wake_fd(None);
+        assert!(registry.is_empty());
+        assert!(registry.is_drained_of_blocking());
+        registry.spawn(
+            Some(17),
+            Box::pin(async {
+                Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Io,
+                    "request failed"
+                ))
+            }),
+        );
+        registry.spawn(None, Box::pin(async { Ok(()) }));
+        let background_id = new_task_id();
+        registry.spawn_background_with_trace_id(background_id, Box::pin(std::future::pending()));
+        assert!(!registry.is_empty());
+        assert!(!registry.is_drained_of_blocking());
+        let (completed, more) = registry.poll_ready_budget(0);
+        assert!(completed.is_empty());
+        assert!(more);
+        let (mut completed, more) = registry.poll_ready_budget(1);
+        assert!(more);
+        let completed = completed.pop().unwrap();
+        assert_eq!(completed.conn_id(), Some(17));
+        assert!(!completed.is_system());
+        assert_eq!(
+            completed.into_result().unwrap_err().ec(),
+            mudu::error::ErrorCode::Io
+        );
+        let (mut completed, more) = registry.poll_ready_budget(2);
+        assert!(!more);
+        assert_eq!(completed.len(), 1);
+        let completed = completed.pop().unwrap();
+        assert_eq!(completed.conn_id(), None);
+        assert!(completed.is_system());
+        completed.into_result().unwrap();
+        assert!(!registry.is_empty());
+        assert!(registry.is_drained_of_blocking());
+        assert!(registry.poll_ready().is_empty());
+    }
+
+    #[test]
+    fn stale_completions_and_duplicate_wakes_do_not_poll_twice() {
+        let registry = WorkerTaskRegistry::new_with_wake_fd(None);
+        let polls = Arc::new(AtomicU64::new(0));
+        let seen = polls.clone();
+        registry.spawn(
+            Some(1),
+            Box::pin(std::future::poll_fn(move |cx| {
+                if seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                    cx.waker().wake_by_ref();
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })),
+        );
+        assert!(registry.poll_ready().is_empty());
+        registry.completion_queue.push(u64::MAX);
+        registry.drain_completions();
+        assert_eq!(registry.poll_ready().len(), 1);
+        assert_eq!(polls.load(Ordering::Relaxed), 2);
+        assert!(registry.is_empty());
+        assert_eq!(registry.drain_completions(), 0);
+        assert!(registry.poll_ready().is_empty());
+    }
 }

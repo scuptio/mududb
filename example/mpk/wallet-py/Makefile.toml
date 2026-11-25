@@ -19,7 +19,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in procedures.py against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md).
 [tasks.check-sql]
 command = "cargo"
 args = [

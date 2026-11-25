@@ -46,6 +46,7 @@ pub fn this_thread_id() -> TaskID {
     THREAD_CONTEXT.with(ThreadContextGuard::id)
 }
 
+#[doc(hidden)]
 /// Scoped trace guard for the current thread.
 ///
 /// Constructing the guard captures the current thread backtrace and pushes it
@@ -57,6 +58,7 @@ pub struct ThreadTrace {
     watch: HashSet<String>,
 }
 
+#[doc(hidden)]
 /// No-op counterpart of [`ThreadTrace`] used when the `debug_trace` feature
 /// is disabled.
 pub struct NoopThreadTrace;
@@ -100,7 +102,7 @@ impl ThreadTrace {
         }
     }
 
-    /// Records the `key`/`value` pair on the current thread's task context.
+    /// Structs the `key`/`value` pair on the current thread's task context.
     ///
     /// The key is remembered by this guard and removed from the context when
     /// the guard is dropped. Does nothing if the thread has no context.

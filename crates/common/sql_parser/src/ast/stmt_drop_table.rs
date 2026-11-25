@@ -25,7 +25,7 @@ impl StmtDropTable {
     }
 
     /// Return the bare table name (without the schema qualifier).
-    pub fn table_name(&self) -> &str {
+    pub fn class_name(&self) -> &str {
         self.table_reference.name()
     }
 

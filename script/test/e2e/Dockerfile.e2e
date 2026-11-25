@@ -1,0 +1,28 @@
+# Build the `mudud` server binary into a minimal runtime image used by the
+# distributed e2e compose (one container per endpoint). Extends the pinned dev
+# image (Dockerfile.dev) so the exact toolchain matches CI.
+#
+# The application package (wallet.mpk) is built separately (cargo make
+# package-wallet, which needs the full wasm toolchain) and mounted into the
+# node containers by distributed_e2e.py.
+
+FROM mududb-dev:local AS build
+ARG TARGETARCH
+USER root
+WORKDIR /workspace
+# Build-stage artifacts stay outside the dev image's runtime target volume.
+ENV CARGO_TARGET_DIR=/opt/mududb-e2e-target
+COPY . /workspace
+RUN --mount=type=cache,id=mududb-e2e-target-${TARGETARCH},target=/opt/mududb-e2e-target,sharing=locked \
+    --mount=type=cache,id=mududb-e2e-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=mududb-e2e-git-${TARGETARCH},target=/usr/local/cargo/git,sharing=locked \
+    cargo build --locked --manifest-path crates/db-kernel/Cargo.toml -p mudud --release && \
+    mkdir -p /opt/mududb-export && \
+    cp /opt/mududb-e2e-target/release/mudud /opt/mududb-export/mudud
+
+FROM ubuntu:24.04
+RUN apt-get update -y && \
+    apt-get install -y liburing2 && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/mududb-export/mudud /opt/mudud/mudud
+CMD ["/opt/mudud/mudud"]

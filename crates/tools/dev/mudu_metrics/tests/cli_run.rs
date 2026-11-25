@@ -112,3 +112,35 @@ fn unparsable_rust_is_a_reported_error() {
     assert!(!out.status.success());
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
 }
+
+#[test]
+fn report_counts_languages_and_rust_test_split() {
+    let dir = temp_tree("report");
+    mudu_sys::fs::sync::sync_create_dir_all(dir.join("tests")).unwrap();
+    // 7 lines: 2 non-test + a 5-line `#[cfg(test)]` block.
+    mudu_sys::fs::sync::sync_write(
+        dir.join("lib.rs"),
+        "fn a() {}\n\n#[cfg(test)]\nmod t {\n    #[test]\n    fn x() {}\n}\n",
+    )
+    .unwrap();
+    mudu_sys::fs::sync::sync_write(dir.join("tests").join("it.rs"), "fn it() {}\nfn it2() {}\n")
+        .unwrap();
+    mudu_sys::fs::sync::sync_write(dir.join("tool.py"), "print(1)\n").unwrap();
+    let root = dir.to_str().unwrap().to_string();
+    let out = run_metrics(&["report", "--root", &root]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Rust"), "stdout: {stdout}");
+    assert!(stdout.contains("Python"), "stdout: {stdout}");
+    assert!(stdout.contains("1 blocks, 5 lines"), "stdout: {stdout}");
+    assert!(stdout.contains("1 files, 2 lines"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("non-test:         2 lines"),
+        "stdout: {stdout}"
+    );
+    let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
+}

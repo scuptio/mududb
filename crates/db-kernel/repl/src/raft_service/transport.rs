@@ -1,7 +1,7 @@
 use super::{raft_msg_to_frame_bytes, RaftShare};
 use ::catalog::repl_cfg::ReplPeerCfg;
 use mudu::common::result::RS;
-use mudu_raft::core::conf::{ConfNodeValue, ConfVersion};
+use mudu_raft::core::conf::ConfNodeValue;
 use mudu_raft::core::message::RaftMsg;
 use mudu_raft::RaftHandle;
 use mudu_sys::net::AsyncTcpStream;
@@ -108,8 +108,14 @@ pub(super) async fn run_conf_sync(
                 return Ok(());
             }
         };
-        let (committed, _new) = pair;
-        let (members, voters) = conf_member_ids(&committed);
+        let (committed, incoming) = pair;
+        let (mut members, voters) = conf_member_ids(&committed);
+        // New members need payload and Raft transport before the joint
+        // configuration can commit. Removed members stay connected until
+        // the old configuration is no longer authoritative.
+        members.extend(incoming.node.nid_log.iter().copied());
+        members.sort_unstable();
+        members.dedup();
         trace!(
             node = share.node_id(),
             ?members,
@@ -239,50 +245,33 @@ fn spawn_missing_writers(
     }
 }
 
-/// Hooks the conf-change forwarder into the status stream: a small thread
-/// watches statuses (they carry conf versions) and forwards the full conf
-/// pair (queried from the handle, blocking-safe on that thread) whenever
-/// the committed version moves. The first observed status forwards too, so
-/// the recovered conf reaches the conf-sync task at startup.
+/// Forwards configuration changes as a task on the existing IO executor.
 pub(super) fn install_conf_sync_hook(
     raft: &Arc<RaftHandle>,
-    share: &Arc<RaftShare>,
     conf_sync_tx: UnboundedSender<(ConfNodeValue, ConfNodeValue)>,
-) {
+) -> RS<()> {
     let raft = raft.clone();
-    let share = share.clone();
-    if let Err(err) =
-        mudu_sys::task::sync::spawn_thread_named("raft-conf-watch".to_string(), move || {
-            let rx = raft.watch_status();
-            let mut last_committed: Option<ConfVersion> = None;
-            loop {
-                match rx.recv() {
-                    Ok(status) => {
-                        let version = status.conf_version_committed;
-                        let changed = last_committed.as_ref() != Some(&version);
-                        if !changed {
-                            continue;
-                        }
-                        last_committed = Some(version);
-                        match raft.conf() {
-                            Ok(pair) => {
-                                let _ = conf_sync_tx.send(pair);
-                            }
-                            Err(err) => {
-                                warn!("raft conf query failed in conf watcher: {err}");
-                            }
-                        }
-                    }
-                    Err(_) => return Ok::<(), mudu::error::MuduError>(()),
+    let mut rx = raft.watch_status_async()?;
+    let (_stop, wait) = notify_wait();
+    spawn_local_task(wait, "raft_conf_watch", async move {
+        let mut last_versions = None;
+        loop {
+            let status = rx.borrow_and_update().clone();
+            let versions = (status.conf_version_committed, status.conf_version_new);
+            if last_versions.as_ref() != Some(&versions) {
+                let pair = raft.conf_async().await?;
+                if conf_sync_tx.send(pair).is_err() {
+                    break;
                 }
+                last_versions = Some(versions);
             }
-        })
-    {
-        warn!(
-            share = share.node_id(),
-            "failed to spawn raft conf watcher: {err}"
-        );
-    }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+        Ok::<(), mudu::error::MuduError>(())
+    })?;
+    Ok(())
 }
 
 /// Per-peer outbound writer: maintains one connection to the peer's

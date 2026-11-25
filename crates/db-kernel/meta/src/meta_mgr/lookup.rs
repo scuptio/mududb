@@ -8,7 +8,7 @@ use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::fs_type::FsTypeDesc;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 
@@ -77,9 +77,9 @@ impl MetaMgrImpl {
         Ok(Some(table_desc))
     }
 
-    pub(crate) fn list_schemas_inner(&self) -> RS<Vec<SchemaTable>> {
+    pub(crate) fn list_schemas_inner(&self) -> RS<Vec<SchemaClass>> {
         let mut schemas = Vec::new();
-        self.table.iter_sync(|_table_name, table_info| {
+        self.table.iter_sync(|_class_name, table_info| {
             if let Ok(schema) = table_info.schema() {
                 schemas.push(schema.as_ref().clone());
             }
@@ -89,9 +89,9 @@ impl MetaMgrImpl {
         Ok(schemas)
     }
 
-    pub(crate) fn list_queues_inner(&self) -> RS<Vec<SchemaTable>> {
+    pub(crate) fn list_queues_inner(&self) -> RS<Vec<SchemaClass>> {
         let mut queues = Vec::new();
-        self.table.iter_sync(|_table_name, table_info| {
+        self.table.iter_sync(|_class_name, table_info| {
             if let Ok(schema) = table_info.schema() {
                 if schema.is_queue() {
                     queues.push(schema.as_ref().clone());

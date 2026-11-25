@@ -5,13 +5,13 @@ type UniQueryArgv struct {
 	Oid       UniOid
 	Query     UniSqlStmt
 	ParamList UniSqlParam
-	ParamDesc *UniRecordType
+	ParamDesc *UniStructType
 }
 
 // UniQueryArgvToValue converts x to its MSSP wire value: the
 // integer-keyed MessagePack map of the 1-based field numbers (WIT
 // declaration order). Option fields are omitted when nil (proto3 presence
-// semantics); []byte fields encode as arrays of u8 (the record-context form
+// semantics); []byte fields encode as arrays of u8 (the struct-context form
 // of list<u8>), NOT as MessagePack bin.
 func UniQueryArgvToValue(x UniQueryArgv) (any, error) {
 	_d := map[uint64]any{}
@@ -31,7 +31,7 @@ func UniQueryArgvToValue(x UniQueryArgv) (any, error) {
 	}
 	_d[3] = _c2
 	if x.ParamDesc != nil {
-		_c3, err := UniRecordTypeToValue(*x.ParamDesc)
+		_c3, err := UniStructTypeToValue(*x.ParamDesc)
 		if err != nil {
 			return nil, err
 		}
@@ -72,8 +72,8 @@ func UniQueryArgvFromValue(v any) (UniQueryArgv, error) {
 			}
 		case 4:
 			if _val != nil {
-				var _t0 UniRecordType
-				_t0, err = UniRecordTypeFromValue(_val)
+				var _t0 UniStructType
+				_t0, err = UniStructTypeFromValue(_val)
 				if err != nil {
 					return x, err
 				}

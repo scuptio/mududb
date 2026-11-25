@@ -15,7 +15,7 @@ package wasi:clocks@0.2.0;
 /// It is intended for reporting the current date and time for humans.
 interface wall-clock {
     /// A time and date in seconds plus nanoseconds.
-    record datetime {
+    struct datetime {
         seconds: u64,
         nanoseconds: u32,
     }

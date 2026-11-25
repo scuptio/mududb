@@ -18,7 +18,7 @@ use mudu::mudu_error;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::typed_bin::TypedBin;
 use mudu_sys::sync::async_::futures_mutex::FMutex;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;

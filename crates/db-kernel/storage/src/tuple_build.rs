@@ -10,6 +10,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::tuple::build_tuple::build_tuple;
 use mudu_contract::tuple::nullable_tuple::{NullableValue, TupleBuilder};
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// Encodes the primary-key datums of `data` into a key tuple, ordered by key
 /// field position. Every datum must belong to a primary-key field and the
@@ -155,8 +156,8 @@ pub fn decode_delta_assigns(delta: &[u8]) -> RS<Vec<DeltaAssign>> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use ::catalog::contract::table_info::TableInfo;
     use mudu::common::buf::Buf;
     use mudu_contract::tuple::nullable_tuple::{read_value, NullableValue};
@@ -165,7 +166,7 @@ mod tests {
     use std::sync::Arc;
 
     fn test_desc() -> Arc<TableDesc> {
-        TableInfo::new(SchemaTable::new(
+        TableInfo::new(SchemaClass::new(
             "t".to_string(),
             vec![
                 SchemaColumn::new(
@@ -215,7 +216,7 @@ mod tests {
                 DataTypeInfo::from_text(TypeFamily::I32, String::new()),
             )
         };
-        TableInfo::new(SchemaTable::new(
+        TableInfo::new(SchemaClass::new(
             "t".to_string(),
             vec![col("id1"), col("id2"), col("v")],
             vec![0, 1],
@@ -279,7 +280,7 @@ mod tests {
             DataTypeInfo::from_text(TypeFamily::I32, String::new()),
         );
         value_column.set_nullable(false);
-        let desc = TableInfo::new(SchemaTable::new(
+        let desc = TableInfo::new(SchemaClass::new(
             "t".to_string(),
             vec![
                 SchemaColumn::new(

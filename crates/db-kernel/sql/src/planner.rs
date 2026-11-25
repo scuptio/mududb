@@ -1,9 +1,9 @@
 use crate::bound_stmt::{
-    BoundAck, BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateConsumer, BoundCreateFsType,
-    BoundCreatePartitionPlacement, BoundCreatePartitionRule, BoundCreateQueue, BoundCreateTable,
-    BoundDelete, BoundDropConsumer, BoundDropQueue, BoundDropTable, BoundDropType, BoundInsert,
-    BoundPredicate, BoundQuery, BoundReceive, BoundSelect, BoundSelectItem, BoundSetValue,
-    BoundUpdate,
+    BoundAck, BoundCommand, BoundCopyFrom, BoundCopyTo, BoundCreateCache, BoundCreateConsumer,
+    BoundCreateFsType, BoundCreatePartitionPlacement, BoundCreatePartitionRule, BoundCreateQueue,
+    BoundCreateTable, BoundDelete, BoundDropConsumer, BoundDropQueue, BoundDropTable,
+    BoundDropType, BoundInsert, BoundPredicate, BoundQuery, BoundReceive, BoundSelect,
+    BoundSelectItem, BoundSetValue, BoundUpdate,
 };
 use crate::plan_ctx::PlanCtx;
 use ::catalog::contract::cmd_exec::CmdExec;
@@ -11,6 +11,7 @@ use ::catalog::contract::query_exec::QueryExec;
 use ::catalog::contract::queue::QueueWait;
 use ::catalog::contract::table_desc::TableDesc;
 use ::command::ack_queue::AckQueue;
+use ::command::create_cache::CreateCache;
 use ::command::create_consumer::CreateConsumer;
 use ::command::create_fs_type::CreateFsType;
 use ::command::create_partition_placement::CreatePartitionPlacement;
@@ -29,9 +30,10 @@ use ::command::save_to_file::{SaveToFile, SaveToFileParams};
 use ::command::update_key_value::UpdateKeyValue;
 use ::xengine::api::{DeltaAssign, OptRead, Predicate, RangeData, VecDatum, VecSelTerm};
 use ::xengine::x_param::{
-    PAccessKey, PAccessRange, PAckQueue, PCreateConsumer, PCreateFsType, PCreatePartitionPlacement,
-    PCreatePartitionRule, PCreateQueue, PCreateTable, PDeleteKeyValue, PDropConsumer, PDropQueue,
-    PDropTable, PDropType, PInsertKeyValue, PReceiveQueue, PUpdateKeyValue,
+    PAccessKey, PAccessRange, PAckQueue, PCreateCache, PCreateConsumer, PCreateFsType,
+    PCreatePartitionPlacement, PCreatePartitionRule, PCreateQueue, PCreateTable, PDeleteKeyValue,
+    PDropConsumer, PDropQueue, PDropTable, PDropType, PInsertKeyValue, PReceiveQueue,
+    PUpdateKeyValue,
 };
 use mudu::common::id::AttrIndex;
 use mudu::common::result::RS;
@@ -81,6 +83,7 @@ impl Planner {
             BoundCommand::DropType(stmt) => Ok(Arc::new(self.plan_drop_fs_type(stmt))),
             BoundCommand::CreateQueue(stmt) => Ok(Arc::new(self.plan_create_queue(stmt))),
             BoundCommand::DropQueue(stmt) => Ok(Arc::new(self.plan_drop_queue(stmt))),
+            BoundCommand::CreateCache(stmt) => Ok(Arc::new(self.plan_create_cache(stmt))),
             BoundCommand::CreateConsumer(stmt) => Ok(Arc::new(self.plan_create_consumer(stmt))),
             BoundCommand::DropConsumer(stmt) => Ok(Arc::new(self.plan_drop_consumer(stmt))),
             BoundCommand::Ack(stmt) => Ok(Arc::new(self.plan_ack(stmt))),
@@ -351,6 +354,7 @@ impl Planner {
                 placements: stmt.placements,
             },
             self.ctx.meta_mgr.clone(),
+            self.ctx.x_contract.meta_group(),
         )
     }
 
@@ -361,6 +365,7 @@ impl Planner {
                 rule: stmt.rule,
             },
             self.ctx.meta_mgr.clone(),
+            self.ctx.x_contract.meta_group(),
         )
     }
 
@@ -372,6 +377,17 @@ impl Planner {
                 partition_binding: stmt.partition_binding,
             },
             self.ctx.x_contract.clone(),
+            self.ctx.meta_mgr.clone(),
+        )
+    }
+
+    fn plan_create_cache(&self, stmt: BoundCreateCache) -> CreateCache {
+        CreateCache::new(
+            PCreateCache {
+                tx_mgr: self.ctx.tx_mgr.clone(),
+                schema: stmt.schema,
+                ttl_secs: stmt.ttl_secs,
+            },
             self.ctx.meta_mgr.clone(),
         )
     }
@@ -394,11 +410,16 @@ impl Planner {
                 kind: stmt.kind,
             },
             self.ctx.meta_mgr.clone(),
+            self.ctx.x_contract.meta_group(),
         )
     }
 
     fn plan_drop_fs_type(&self, stmt: BoundDropType) -> DropFsType {
-        DropFsType::new(PDropType { name: stmt.name }, self.ctx.meta_mgr.clone())
+        DropFsType::new(
+            PDropType { name: stmt.name },
+            self.ctx.meta_mgr.clone(),
+            self.ctx.x_contract.meta_group(),
+        )
     }
 
     fn plan_insert(&self, stmt: BoundInsert) -> InsertKeyValue {

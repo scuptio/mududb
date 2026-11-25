@@ -221,7 +221,7 @@ fn async_bytes_kv_flow_roundtrips() {
 
 use mudu::common::result::RS;
 use mudu_binding::system::{command_invoke, query_invoke};
-use mudu_contract::database::entity::{self, Entity};
+use mudu_contract::database::object::{self, Object};
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql_param_value::SQLParamValue;
 use mudu_contract::database::sql_params::SQLParamMarker;
@@ -237,7 +237,7 @@ use mudu_type::data_value::DataValue;
 use mudu_type::datum::{Datum, DatumDyn};
 use mudu_type::type_family::TypeFamily;
 
-/// Minimal hand-written entity with nullable columns, mirroring the shape
+/// Minimal hand-written object with nullable columns, mirroring the shape
 /// `mgen` generates from `CREATE TABLE t_null(id INT PRIMARY KEY, v TEXT, n INT)`.
 #[derive(Debug, Clone, Default)]
 struct NullRow {
@@ -254,46 +254,46 @@ impl Datum for NullRow {
     fn data_type() -> DataType {
         static ONCE_LOCK: OnceLock<DataType> = OnceLock::new();
         ONCE_LOCK
-            .get_or_init(entity::entity_data_type::<NullRow>)
+            .get_or_init(object::object_data_type::<NullRow>)
             .clone()
     }
 
     fn from_binary(binary: &[u8]) -> RS<Self> {
-        entity::entity_from_binary(binary)
+        object::object_from_binary(binary)
     }
 
     fn from_value(value: &DataValue) -> RS<Self> {
-        entity::entity_from_value(value)
+        object::object_from_value(value)
     }
 
     fn from_textual(textual: &str) -> RS<Self> {
-        entity::entity_from_textual(textual)
+        object::object_from_textual(textual)
     }
 }
 
 impl DatumDyn for NullRow {
     fn type_family(&self) -> RS<TypeFamily> {
-        entity::entity_type_family()
+        object::object_type_family()
     }
 
     fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-        entity::entity_to_binary(self, data_type)
+        object::object_to_binary(self, data_type)
     }
 
     fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-        entity::entity_to_textual(self, data_type)
+        object::object_to_textual(self, data_type)
     }
 
     fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-        entity::entity_to_value(self, data_type)
+        object::object_to_value(self, data_type)
     }
 
     fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-        entity::entity_clone_boxed(self)
+        object::object_clone_boxed(self)
     }
 }
 
-impl Entity for NullRow {
+impl Object for NullRow {
     fn tuple_desc() -> &'static TupleFieldDesc {
         static ONCE_LOCK: OnceLock<TupleFieldDesc> = OnceLock::new();
         ONCE_LOCK.get_or_init(|| {
@@ -305,43 +305,43 @@ impl Entity for NullRow {
         })
     }
 
-    fn table_name() -> &'static str {
+    fn class_name() -> &'static str {
         "t_null"
     }
 
     fn from_tuple(row: &TupleField) -> RS<Self> {
         let fields = row.fields();
-        entity::expect_field_count(fields.len(), 3)?;
+        object::expect_field_count(fields.len(), 3)?;
         Ok(Self {
-            id: entity::field_from_tuple_binary(Self::table_name(), "id", &fields[0])?,
-            v: entity::opt_field_from_tuple_binary(&fields[1])?,
-            n: entity::opt_field_from_tuple_binary(&fields[2])?,
+            id: object::field_from_tuple_binary(Self::class_name(), "id", &fields[0])?,
+            v: object::opt_field_from_tuple_binary(&fields[1])?,
+            n: object::opt_field_from_tuple_binary(&fields[2])?,
         })
     }
 
     fn from_tuple_value(row: &TupleValue) -> RS<Self> {
         let values = row.values();
-        entity::expect_field_count(values.len(), 3)?;
+        object::expect_field_count(values.len(), 3)?;
         Ok(Self {
-            id: entity::field_from_tuple_value(Self::table_name(), "id", &values[0])?,
-            v: entity::opt_field_from_tuple_value(&values[1])?,
-            n: entity::opt_field_from_tuple_value(&values[2])?,
+            id: object::field_from_tuple_value(Self::class_name(), "id", &values[0])?,
+            v: object::opt_field_from_tuple_value(&values[1])?,
+            n: object::opt_field_from_tuple_value(&values[2])?,
         })
     }
 
     fn to_tuple(&self) -> RS<TupleField> {
         Ok(TupleField::new_nullable(vec![
-            entity::field_to_tuple_binary(&self.id)?,
-            entity::opt_field_to_tuple_binary(&self.v)?,
-            entity::opt_field_to_tuple_binary(&self.n)?,
+            object::field_to_tuple_binary(&self.id)?,
+            object::opt_field_to_tuple_binary(&self.v)?,
+            object::opt_field_to_tuple_binary(&self.n)?,
         ]))
     }
 
     fn to_tuple_value(&self) -> RS<TupleValue> {
         Ok(TupleValue::from(vec![
-            entity::field_to_tuple_value(&self.id)?,
-            entity::opt_field_to_tuple_value(&self.v)?,
-            entity::opt_field_to_tuple_value(&self.n)?,
+            object::field_to_tuple_value(&self.id)?,
+            object::opt_field_to_tuple_value(&self.v)?,
+            object::opt_field_to_tuple_value(&self.n)?,
         ]))
     }
 }

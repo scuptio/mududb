@@ -15,8 +15,8 @@ mududb/
     mpack.h            hand-written MessagePack runtime + decode arena (the "mududb.codec" segment)
     mpack.c
     mpack_alloc.c      default libc-backed mp_realloc; replace to retarget allocation
-    record_bridge.h    record bridge: uni-data-value record envelope <-> generated record codec map
-    record_bridge.c
+    struct_bridge.h    record bridge: uni-data-value record envelope <-> generated record codec map
+    struct_bridge.c
   types/
     UniOid.h           generated type + codec headers, one per WIT file ("mududb.types")
     ...
@@ -72,7 +72,7 @@ A procedure parameter of a project record type (declared in the project's
 own `types.wit`, generated with `mgen message -l c`) travels the byte pipe
 as the `uni-data-value` **record case**: field entries in WIT declaration
 order, names possibly empty (the host drops them — positional semantics).
-`mududb/codec/record_bridge.h` converts between that envelope and the
+`mududb/codec/struct_bridge.h` converts between that envelope and the
 integer-keyed MessagePack map shape the generated `<type>_decode` /
 `<type>_encode` codecs use, so a record argument decodes with two calls:
 
@@ -82,7 +82,7 @@ mp_reader r;
 mp_arena a;
 profile p;
 mpw_init(&w);
-if (mp_record_bridge_write(record_envelope, &w) == 0) {  /* envelope -> map bytes */
+if (mp_struct_bridge_write(record_envelope, &w) == 0) {  /* envelope -> map bytes */
     mpr_init(&r, w.buf, w.len);
     mpa_init(&a);
     profile_decode(&r, &a, &p);                          /* generated codec */
@@ -90,7 +90,7 @@ if (mp_record_bridge_write(record_envelope, &w) == 0) {  /* envelope -> map byte
 ```
 
 and a record return value encodes symmetrically (`profile_encode` renders
-the map, `mp_record_bridge_read` wraps it back into the record-case
+the map, `mp_struct_bridge_read` wraps it back into the record-case
 envelope the host expects). The bridge header documents the exact wire
 rules — positional keys, bool fields crossing as i32 0/1 both directions
 (`mpr_bool` accepts integer markers 0/1 for exactly this reason), nil for

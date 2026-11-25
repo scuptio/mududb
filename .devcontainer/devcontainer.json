@@ -8,6 +8,9 @@
   "remoteUser": "developer",
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "mounts": [
+    "source=mududb-devcontainer-${devcontainerId}-target,target=/workspace/target,type=volume"
+  ],
   "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install toml tomli-w",
   "customizations": {
     "vscode": {

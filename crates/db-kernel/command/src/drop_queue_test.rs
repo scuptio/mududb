@@ -5,13 +5,13 @@ use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::queue::queue_system_columns;
+use ::catalog::contract::schema_class::{SchemaClass, SchemaClassKind};
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
-use ::xengine::api::XContract;
+use ::xengine::api::{XContract, XContractQueue};
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PDropQueue;
 use async_trait::async_trait;
@@ -20,7 +20,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -34,28 +34,28 @@ where
         .block_on(fut)
 }
 
-fn queue_schema(name: &str) -> SchemaTable {
+fn queue_schema(name: &str) -> SchemaClass {
     let columns = queue_system_columns();
     let value_indices = (1..columns.len()).collect();
-    let mut schema = SchemaTable::new(name.to_string(), columns, vec![0], value_indices);
+    let mut schema = SchemaClass::new(name.to_string(), columns, vec![0], value_indices);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
-    schema.set_kind(SchemaObjectKind::Queue);
+    schema.set_kind(SchemaClassKind::Queue);
     schema
 }
 
-fn table_schema(name: &str) -> SchemaTable {
+fn table_schema(name: &str) -> SchemaClass {
     let column = SchemaColumn::new(
         "k".to_string(),
         TypeFamily::I64,
-        DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I64)),
+        mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::I64)),
     );
-    let mut schema = SchemaTable::new(name.to_string(), vec![column], vec![0], vec![]);
+    let mut schema = SchemaClass::new(name.to_string(), vec![column], vec![0], vec![]);
     schema.set_schema(DEFAULT_SCHEMA.to_string());
     schema
 }
 
 struct MockMetaMgr {
-    schemas: SMutex<HashMap<OID, SchemaTable>>,
+    schemas: SMutex<HashMap<OID, SchemaClass>>,
 }
 
 impl MockMetaMgr {
@@ -65,7 +65,7 @@ impl MockMetaMgr {
         }
     }
 
-    fn add_schema(&self, schema: SchemaTable) -> OID {
+    fn add_schema(&self, schema: SchemaClass) -> OID {
         let oid = schema.id();
         self.schemas.lock().unwrap().insert(oid, schema);
         oid
@@ -75,7 +75,7 @@ impl MockMetaMgr {
         self.schemas.lock().unwrap().contains_key(&oid)
     }
 
-    fn desc_of(schema: &SchemaTable) -> RS<Arc<TableDesc>> {
+    fn desc_of(schema: &SchemaClass) -> RS<Arc<TableDesc>> {
         TableInfo::new(schema.clone())?.table_desc()
     }
 }
@@ -91,7 +91,7 @@ impl MetaMgr for MockMetaMgr {
         match schema {
             Some(schema) => Self::desc_of(&schema),
             None => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -103,12 +103,12 @@ impl MetaMgr for MockMetaMgr {
             .lock()
             .unwrap()
             .values()
-            .find(|s| s.schema() == schema && s.table_name() == name)
+            .find(|s| s.schema() == schema && s.class_name() == name)
             .cloned();
         found.map(|schema| Self::desc_of(&schema)).transpose()
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         self.add_schema(schema.clone());
         Ok(())
     }
@@ -126,7 +126,7 @@ impl MetaMgr for MockMetaMgr {
                 Ok(())
             }
             _ => Err(mudu::mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such queue {}", queue_id)
             )),
         }
@@ -199,7 +199,7 @@ struct MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -279,6 +279,8 @@ impl XContract for MockXContract {
     }
 }
 
+impl XContractQueue for MockXContract {}
+
 fn make_drop_queue(oid: OID, meta: Arc<MockMetaMgr>) -> DropQueue {
     DropQueue::new(
         PDropQueue {
@@ -309,7 +311,7 @@ fn drop_queue_prepare_fails_on_plain_table() {
 
     let cmd = make_drop_queue(table_oid, meta.clone());
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     assert!(meta.contains(table_oid));
 }
 
@@ -321,7 +323,7 @@ fn drop_queue_run_fails_on_plain_table() {
     // Skip prepare: the catalog drop in run is the authoritative guard.
     let cmd = make_drop_queue(table_oid, meta.clone());
     let err = block_on(cmd.run()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     assert!(meta.contains(table_oid));
 }
 
@@ -330,7 +332,7 @@ fn drop_queue_prepare_fails_when_queue_is_missing() {
     let meta = Arc::new(MockMetaMgr::new());
     let cmd = make_drop_queue(42, meta);
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 // Fixture self-tests: drive every mock method so the shared test fixture is
@@ -363,7 +365,7 @@ fn mock_tx_mgr_fixture_covers_its_trait_surface() {
 #[test]
 fn mock_meta_mgr_fixture_covers_its_trait_surface() {
     let meta = MockMetaMgr::new();
-    let schema = ::catalog::contract::schema_table::SchemaTable::new(
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
         "fixture_t".to_string(),
         vec![::catalog::contract::schema_column::SchemaColumn::new(
             "k".to_string(),
@@ -381,4 +383,36 @@ fn mock_meta_mgr_fixture_covers_its_trait_surface() {
         meta.create_table(&schema).await.unwrap();
         meta.drop_table(1).await.unwrap();
     });
+}
+
+#[test]
+fn drop_queue_checks_dlq_identity_before_dropping_either_object() {
+    for conflict in [false, true] {
+        let meta = Arc::new(MockMetaMgr::new());
+        let owner = queue_schema("owned");
+        let dlq = if conflict {
+            queue_schema("owned_dlq")
+        } else {
+            catalog::contract::queue::queue_dlq_schema(&owner)
+        };
+        let owner_id = meta.add_schema(owner);
+        let dlq_id = meta.add_schema(dlq);
+        let result = block_on(make_drop_queue(owner_id, meta.clone()).run());
+        assert_eq!(result.is_err(), conflict);
+        assert_eq!(meta.contains(owner_id), conflict);
+        assert_eq!(meta.contains(dlq_id), conflict);
+    }
+}
+
+#[test]
+fn drop_queue_plain_table_guard_precedes_dlq_removal() {
+    let meta = Arc::new(MockMetaMgr::new());
+    let owner = queue_schema("owned");
+    let dlq_id = meta.add_schema(catalog::contract::queue::queue_dlq_schema(&owner));
+    let mut owner = owner;
+    owner.set_kind(SchemaClassKind::Table);
+    let owner_id = meta.add_schema(owner);
+    assert!(block_on(make_drop_queue(owner_id, meta.clone()).run()).is_err());
+    assert!(meta.contains(owner_id));
+    assert!(meta.contains(dlq_id));
 }

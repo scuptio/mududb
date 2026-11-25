@@ -85,3 +85,20 @@ fn build_fails_when_the_script_fails() {
     assert!(!out.status.success());
     let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
 }
+
+#[test]
+fn missing_interpreter_reports_start_context() {
+    let dir = temp_project("no-interpreter", "pass");
+    let out = run_mpm(
+        &["build", "--python", "mpm-nonexistent-interpreter-coverage"],
+        &dir,
+    );
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("start mpm-nonexistent-interpreter-coverage"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("MPM_PYTHON"), "{stderr}");
+    mudu_sys::fs::sync::sync_remove_dir_all(&dir).unwrap();
+}

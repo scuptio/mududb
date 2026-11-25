@@ -27,6 +27,16 @@ interface system {
 
     relation-insert: func(relation-insert-in: list<u8>) -> list<u8>;
 
+    cache-open: func(cache-open-in: list<u8>) -> list<u8>;
+
+    cache-get: func(cache-get-in: list<u8>) -> list<u8>;
+
+    cache-put: func(cache-put-in: list<u8>) -> list<u8>;
+
+    cache-delete: func(cache-delete-in: list<u8>) -> list<u8>;
+
+    cache-ttl: func(cache-ttl-in: list<u8>) -> list<u8>;
+
     fs-open: func(fs-open-in: list<u8>) -> list<u8>;
 
     fs-close: func(fs-close-in: list<u8>) -> list<u8>;

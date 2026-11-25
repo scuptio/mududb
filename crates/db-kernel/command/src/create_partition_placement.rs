@@ -14,14 +14,23 @@ pub struct CreatePartitionPlacement {
 struct InnerCreatePartitionPlacement {
     param: PCreatePartitionPlacement,
     meta_mgr: Arc<dyn MetaMgr>,
+    meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
 }
 
 impl CreatePartitionPlacement {
     /// Creates an executor for the create-partition-placement command
     /// `param`, writing placements through `meta_mgr`.
-    pub fn new(param: PCreatePartitionPlacement, meta_mgr: Arc<dyn MetaMgr>) -> Self {
+    pub fn new(
+        param: PCreatePartitionPlacement,
+        meta_mgr: Arc<dyn MetaMgr>,
+        meta_group: Option<Arc<dyn ::catalog::contract::meta_op::MetaGroupApi>>,
+    ) -> Self {
         Self {
-            inner: AMutex::new(InnerCreatePartitionPlacement { param, meta_mgr }),
+            inner: AMutex::new(InnerCreatePartitionPlacement {
+                param,
+                meta_mgr,
+                meta_group,
+            }),
         }
     }
 }
@@ -35,6 +44,15 @@ impl CmdExec for CreatePartitionPlacement {
     async fn run(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
         let inner = self.inner.lock().await;
+        if let Some(meta_group) = &inner.meta_group {
+            return meta_group
+                .apply(
+                    ::catalog::contract::meta_op::MetaOp::UpsertPartitionPlacements {
+                        placements: inner.param.placements.clone(),
+                    },
+                )
+                .await;
+        }
         inner
             .meta_mgr
             .upsert_partition_placements(&inner.param.placements)

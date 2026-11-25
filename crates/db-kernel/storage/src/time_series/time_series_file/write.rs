@@ -1,7 +1,7 @@
 use super::inner::TsFileInner;
 use super::page::{build_entries_page_image, empty_page_image, page_entries_fit};
 use super::plan::{PlannedPageWrite, TimeSeriesFileMutationPlan};
-use super::TimeSeriesRecord;
+use super::TimeSeriesStruct;
 use crate::page::page_block_ref::PageBlockRef;
 use crate::page::page_block_ref_mut::PageBlockRefMut;
 use crate::page::page_header::NONE_PAGE_ID;
@@ -70,7 +70,7 @@ impl<'a> WriteOverlay<'a> {
         self.inner.read_page(page_id).await
     }
 
-    /// Records the batch's newest image of `page_id`; a later write to the
+    /// Structs the batch's newest image of `page_id`; a later write to the
     /// same page replaces the earlier one because intermediate batch states
     /// are never published.
     fn write_page_image(&mut self, page_id: PageId, image: Vec<u8>) {
@@ -398,7 +398,7 @@ impl TsFileInner {
         Ok(deleted)
     }
 
-    fn find_split_index(&self, entries: &[TimeSeriesRecord]) -> RS<usize> {
+    fn find_split_index(&self, entries: &[TimeSeriesStruct]) -> RS<usize> {
         for split_at in 1..entries.len() {
             if page_entries_fit(&entries[..split_at]) && page_entries_fit(&entries[split_at..]) {
                 return Ok(split_at);
@@ -410,12 +410,12 @@ impl TsFileInner {
         ))
     }
 
-    fn page_entries(&self, page: &PageBlockRef<'_>, page_id: PageId) -> RS<Vec<TimeSeriesRecord>> {
+    fn page_entries(&self, page: &PageBlockRef<'_>, page_id: PageId) -> RS<Vec<TimeSeriesStruct>> {
         let count = page.slot_count()?;
         let mut entries = Vec::with_capacity(count);
         for slot_index in 0..count {
             let slot = page.slot_ref(slot_index)?;
-            entries.push(TimeSeriesRecord {
+            entries.push(TimeSeriesStruct {
                 timestamp: slot.timestamp(),
                 tuple_id: slot.tuple_id(),
                 payload: page.record_bytes(slot_index)?.to_vec(),
@@ -506,7 +506,7 @@ impl TsFileInner {
         let page_buf = overlay.read_page(page_id).await?;
         let page = PageBlockRef::try_new(&page_buf)?;
         let mut entries = self.page_entries(&page, page_id)?;
-        entries.push(TimeSeriesRecord {
+        entries.push(TimeSeriesStruct {
             timestamp,
             tuple_id,
             payload: payload.to_vec(),

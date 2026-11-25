@@ -228,7 +228,7 @@ def data_type_name(t):
     raise ValueError("field_type serialization not covered by the sidecar conventions")
 
 
-def record_field_json(f):
+def struct_field_json(f):
     return {
         "field_name": f.field_name,
         "field_type": data_type_name(f.field_type),
@@ -256,8 +256,8 @@ def query_result_json(r):
     if len(r.result_set.row_set) != 0:
         raise ValueError("query row serialization not covered by the sidecar conventions")
     return {
-        "record_name": r.tuple_desc.record_name,
-        "fields": [record_field_json(f) for f in r.tuple_desc.record_fields],
+        "struct_name": r.tuple_desc.struct_name,
+        "fields": [struct_field_json(f) for f in r.tuple_desc.struct_fields],
         "eof": r.result_set.eof,
         "rows": [],
         "cursor_hex": r.result_set.cursor.hex(),

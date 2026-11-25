@@ -18,13 +18,13 @@ PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/wasip2/${PACKAGE_NAME}.
 command = "mkdir"
 args = ["-p", "${BUILD_DIR}", "${CARGO_MAKE_WORKING_DIRECTORY}/target/wasip2"]
 
-# Generate typed entity bindings from the DDL schema into the project root
+# Generate typed object bindings from the DDL schema into the project root
 # (one <table>.go per table, package main: row struct, row codec and typed
-# SQL helpers over mudusys.go; mgen entity).
+# SQL helpers over mudusys.go; mgen object).
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
@@ -32,7 +32,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in procedures.go against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md). Only procedures.go
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md). Only procedures.go
 # is scanned — binding/ and vendor/ contain no application SQL.
 [tasks.check-sql]
 dependencies = ["generate"]
@@ -44,7 +44,7 @@ args = [
     "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/procedures.go",
 ]
 
-# Generate the Go message types of the project WIT records (item-info) with
+# Generate the Go message types of the project WIT structs (item-info) with
 # mgen. types.go carries the structs plus their XxxToValue/XxxFromValue
 # codecs; wire.go is the helper runtime those codecs reference (mgen emits a
 # byte-identical copy of the Go binding's hand-written types/wire.go).
@@ -66,7 +66,7 @@ args = [
 # Transpile the `// mudu-proc` functions of procedures.go into the Exports
 # wiring module (main_gen.go, package main), the world WIT and the
 # procedure description — the artifacts that used to be maintained by hand.
-# --type-wit registers the project record types (wit/types.wit) so procedure
+# --type-wit registers the project struct types (wit/types.wit) so procedure
 # signatures may use them; --type-import points the generated adapter at the
 # mgen-generated types package.
 [tasks.transpile]

@@ -1,6 +1,6 @@
 use crate::backend::app_mgr::AppMgr;
 use crate::backend::initdb_drain::spawn_initdb_drain_thread;
-use crate::backend::management_thread::spawn_management_thread;
+use crate::backend::management_thread::{join_aux_threads, spawn_management_thread};
 use crate::backend::mudu_app_mgr::MuduAppMgr;
 use crate::backend::mudud_cfg::MuduDBCfg;
 use ::conn::mudu_conn_async::{
@@ -48,16 +48,16 @@ impl IoUringBackend {
         stop: Waiter,
         ready: Option<Notifier>,
     ) -> RS<()> {
-        let _default_remote_guard = default_remote_scope_lock().lock().map_err(|_| {
+        let default_remote_guard = default_remote_scope_lock().lock().map_err(|_| {
             mudu::mudu_error!(
                 mudu::error::ErrorCode::Mutex,
                 "default remote scope lock poisoned"
             )
         })?;
-        if cfg.replication.is_some() {
+        if cfg.data_plane.is_some() {
             return Err(mudu::mudu_error!(
                 mudu::error::ErrorCode::NotImplemented,
-                "primary-replica replication is not supported with server_mode \"IOUring\" in this release; use server_mode \"Tokio\""
+                "cluster topology is not supported with server_mode \"IOUring\" in this release; use server_mode \"Tokio\""
             ));
         }
         let worker_count = cfg.effective_worker_threads();
@@ -96,15 +96,7 @@ impl IoUringBackend {
         set_default_remote_async_runtime(server_deps.async_runtime());
         set_default_remote_addr(Some(default_remote_addr.clone()));
         set_default_remote_worker_id(default_remote_worker_id);
-        let procedure_cfg = cfg.clone();
-        let procedure_app_mgr = app_mgr.clone();
-        let procedure_runtimes = task_async::block_on_tokio_current_thread(async move {
-            let mut runtimes = Vec::with_capacity(worker_count);
-            for _ in 0..worker_count {
-                runtimes.push(procedure_app_mgr.create_invoker(&procedure_cfg).await?);
-            }
-            Ok::<_, mudu::error::MuduError>(runtimes)
-        })??;
+        let procedure_runtimes = build_procedure_runtimes(&app_mgr, &cfg, worker_count)?;
         server_deps = server_deps.with_worker_procedure_runtimes(procedure_runtimes);
         // Bind every worker listener before the management service starts so
         // a port conflict aborts startup here instead of surfacing later as a
@@ -112,7 +104,7 @@ impl IoUringBackend {
         let listeners = base_server_cfg.prebind_worker_listeners()?;
         let server_launch =
             ServerLaunch::new(base_server_cfg, server_deps).with_prebound_listeners(listeners);
-        spawn_management_thread(
+        let management_handle = spawn_management_thread(
             cfg.clone(),
             app_mgr.clone(),
             worker_registry,
@@ -124,13 +116,43 @@ impl IoUringBackend {
         // against the now-listening server, and only then does the caller's
         // ready fire (see `initdb_drain`).
         let (kernel_ready_notifier, kernel_ready_waiter) = notify_wait();
-        spawn_initdb_drain_thread(app_mgr.clone(), kernel_ready_waiter, stop.clone(), ready)?;
+        let drain_handle =
+            spawn_initdb_drain_thread(app_mgr.clone(), kernel_ready_waiter, stop.clone(), ready)?;
+        // The default-remote globals are installed above; the guard is only
+        // needed to serialize their installation. Holding it across the serve
+        // call would serialize co-located servers within one process — and
+        // deadlock a second io_uring server outright (see the tokio backend,
+        // which drops it at the same point). The globals are cleared
+        // conditionally on shutdown (`clear_default_remote_if_current`).
+        drop(default_remote_guard);
         let result = KernelWorkerTcpBackend::sync_serve_with_stop_and_ready(
             server_launch,
             stop,
             Some(kernel_ready_notifier),
         );
         clear_default_remote_if_current(&default_remote_addr, default_remote_worker_id);
-        result
+        // Join the auxiliary threads: they listen on `stop` and exit with the
+        // kernel, and without the join they would outlive the serve return —
+        // the management thread would hold the HTTP listener port into the
+        // next in-process boot, the drain thread its in-flight loopback
+        // connections.
+        join_aux_threads(Some(management_handle), drain_handle, result)
     }
+}
+
+/// Builds one procedure invoker per worker on a current-thread runtime.
+fn build_procedure_runtimes(
+    app_mgr: &Arc<MuduAppMgr>,
+    cfg: &MuduDBCfg,
+    worker_count: usize,
+) -> RS<Vec<Arc<dyn ::worker::async_func_runtime::AsyncFuncInvoker>>> {
+    let procedure_cfg = cfg.clone();
+    let procedure_app_mgr = app_mgr.clone();
+    task_async::block_on_tokio_current_thread(async move {
+        let mut runtimes = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            runtimes.push(procedure_app_mgr.create_invoker(&procedure_cfg).await?);
+        }
+        Ok::<_, mudu::error::MuduError>(runtimes)
+    })?
 }

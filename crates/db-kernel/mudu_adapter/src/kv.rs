@@ -3,8 +3,9 @@
 //! These functions assume the SQLite driver is active and operate on the
 //! shared `mudu_kv` table.
 
+use crate::config;
 use crate::config::Driver;
-use crate::{config, sqlite};
+use crate::connection::{connection_for, open_connection};
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -16,7 +17,7 @@ pub fn get(session_id: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
         unreachable!("sqlite kv module should not be called for non-sqlite drivers");
     }
     ensure_session_exists(session_id)?;
-    let conn = sqlite::connection_for(session_id)?;
+    let conn = connection_for(session_id)?;
     let conn = conn.lock()?;
     let mut stmt = conn
         .prepare("SELECT v FROM mudu_kv WHERE k = ?1")
@@ -49,7 +50,7 @@ pub fn put(session_id: OID, key: &[u8], value: &[u8]) -> RS<()> {
         unreachable!("sqlite kv module should not be called for non-sqlite drivers");
     }
     ensure_session_exists(session_id)?;
-    let conn = sqlite::connection_for(session_id)?;
+    let conn = connection_for(session_id)?;
     let conn = conn.lock()?;
     conn.execute(
         "INSERT INTO mudu_kv(k, v) VALUES(?1, ?2)
@@ -74,7 +75,7 @@ pub fn range(session_id: OID, start_key: &[u8], end_key: &[u8]) -> RS<Vec<(Vec<u
         unreachable!("sqlite kv module should not be called for non-sqlite drivers");
     }
     ensure_session_exists(session_id)?;
-    let conn = sqlite::connection_for(session_id)?;
+    let conn = connection_for(session_id)?;
     let conn = conn.lock()?;
     let sql = if end_key.is_empty() {
         "SELECT k, v FROM mudu_kv WHERE k >= ?1 ORDER BY k ASC"
@@ -140,7 +141,7 @@ pub fn ensure_session_exists(session_id: OID) -> RS<()> {
             "sqlite kv helper is only available for sqlite driver"
         ));
     }
-    let conn = sqlite::open_connection()?;
+    let conn = open_connection()?;
     let exists = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM mudu_session WHERE session_id = ?1)",
@@ -150,7 +151,7 @@ pub fn ensure_session_exists(session_id: OID) -> RS<()> {
         .map_err(|e| mudu_error!(ErrorCode::Database, "check session existence error", e))?;
     if exists == 0 {
         Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         ))
     } else {

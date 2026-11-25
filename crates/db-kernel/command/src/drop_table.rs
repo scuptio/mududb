@@ -42,6 +42,12 @@ impl CmdExec for DropTable {
     async fn run(&self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
         if let Some(table_id) = self.drop_param.oid {
+            // Cluster mode: the drop travels the MetaGroup's replicated log.
+            if let Some(meta_group) = self.x_contract.meta_group() {
+                return meta_group
+                    .apply(::catalog::contract::meta_op::MetaOp::DropTable { oid: table_id })
+                    .await;
+            }
             self.x_contract
                 .drop_table(self.drop_param.tx_mgr.clone(), table_id)
                 .await?;

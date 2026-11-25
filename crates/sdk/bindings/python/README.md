@@ -7,9 +7,9 @@ The `mududb` Python package supports three uses:
    `mududb.sys`, operation-aligned with the AssemblyScript, C#, and Rust
    guests) and compile them to a WASM component with componentize-py; see
    `example/mpk/wallet-py` for the full pipeline and
-   `doc/dev/binding_api_surface.md` for the canonical surface.
+   `doc/en/binding_api_surface.md` for the canonical surface.
 2. **Native adapter applications** — use [`mududb.adapter`](mududb/adapter.py)
-   with a separately installed adapter runtime. See [SDK execution modes](../../../../doc/dev/sdk_distribution.md#language-and-execution-modes) for the build and runtime requirements.
+   with a separately installed adapter runtime. See [SDK execution modes](../../../../doc/en/sdk_distribution.md#language-and-execution-modes) for the build and runtime requirements.
 3. **Tooling / corpus verification** — the generated MSSP codecs and the
    canonical MessagePack rules are validated byte-exact against the
    host-side Rust codec (`crates/common/mudu_binding/src/codec/

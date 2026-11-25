@@ -1,68 +1,101 @@
 use super::*;
-use crate::utils::{
-    apply_value_update, project_selected_fields, rpc_bound_as_ref, STATEMENT_LOCK_TIMEOUT,
-};
-use mudu::channel::{RequestId, ServiceCtx};
-use mudu_utils::channel::channel_now_ms;
-use std::collections::HashMap;
+use crate::kv::tx::{worker_begin_tx, worker_rollback_tx};
+use crate::lifecycle_cluster::cluster_non_serving_redirect;
+use crate::lifecycle_cluster::migration_fence;
+use crate::lifecycle_cluster::migration_inflight_enter;
+use crate::rpc::coordinator_client::tx_decision_client;
+use crate::utils::{project_selected_fields, rpc_bound_as_ref};
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
+use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::worker_snapshot::WorkerSnapshotMgr;
+use mudu::channel::ServiceCtx;
 
-/// How long a receiver-side dedup entry lives: long enough to cover the
-/// caller's whole retry sequence, short enough to bound memory.
-pub(crate) const RPC_DEDUP_TTL_MS: u64 = 60_000;
-/// Upper bound of dedup entries; past the cap new responses are simply not
-/// cached (a replay then re-executes, which retry policy only does for
-/// idempotent requests).
-pub(crate) const RPC_DEDUP_MAX_ENTRIES: usize = 4096;
-
-/// Receiver-side dedup cache of the partition RPC service: a replayed
-/// request (same `(src, request_id)`) is answered from the cache instead of
-/// re-executing.
-pub(crate) struct RpcDedupCache {
-    entries: SMutex<HashMap<(OID, RequestId), (u64, PartitionRpcResponse)>>,
+/// Serve `ReadKey`: read the committed value of `key` on `partition_id`
+/// under a fresh snapshot, projected to the `select` columns.
+#[allow(clippy::too_many_arguments)]
+async fn execute_rpc_read_key(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    storage: &Arc<WorkerStorage>,
+    snapshot_mgr: &WorkerSnapshotMgr,
+    tx_lock: &XLockMgr,
+    worker_id: OID,
+    table_id: OID,
+    partition_id: OID,
+    key: Vec<u8>,
+    select: Vec<AttrIndex>,
+) -> RS<PartitionRpcResponse> {
+    debug!(
+        worker_id,
+        table_id,
+        partition_id,
+        key_len = key.len(),
+        select_len = select.len(),
+        "execute partition rpc read_key"
+    );
+    let desc = meta_mgr.get_table_by_id(table_id).await?;
+    let tx_mgr = worker_begin_tx(snapshot_mgr)?;
+    let opt_value = storage
+        .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
+        .await?;
+    worker_rollback_tx(tx_lock, snapshot_mgr, tx_mgr)?;
+    let projected = opt_value
+        .map(|value| project_selected_fields(&desc, &key, &value, &VecSelTerm::new(select)))
+        .transpose()?;
+    Ok(PartitionRpcResponse::ReadKey(projected))
 }
 
-impl RpcDedupCache {
-    pub(crate) fn new() -> Self {
-        Self {
-            entries: SMutex::new(HashMap::new()),
-        }
+/// Serve `ReadRange`: scan the committed rows of `partition_id` within the
+/// `start`/`end` bounds with a fresh snapshot, projected to the `select`
+/// columns.
+#[allow(clippy::too_many_arguments)]
+async fn execute_rpc_read_range(
+    meta_mgr: &Arc<dyn MetaMgr>,
+    storage: &Arc<WorkerStorage>,
+    snapshot_mgr: &WorkerSnapshotMgr,
+    tx_lock: &XLockMgr,
+    worker_id: OID,
+    table_id: OID,
+    partition_id: OID,
+    start: RpcBound,
+    end: RpcBound,
+    select: Vec<AttrIndex>,
+) -> RS<PartitionRpcResponse> {
+    debug!(
+        worker_id,
+        table_id,
+        partition_id,
+        select_len = select.len(),
+        start = ?start,
+        end = ?end,
+        "execute partition rpc read_range"
+    );
+    let desc = meta_mgr.get_table_by_id(table_id).await?;
+    let tx_mgr = worker_begin_tx(snapshot_mgr)?;
+    let rows = storage
+        .range_on_partition(
+            table_id,
+            Some(partition_id),
+            (rpc_bound_as_ref(&start), rpc_bound_as_ref(&end)),
+            tx_mgr.as_ref(),
+        )
+        .await?;
+    worker_rollback_tx(tx_lock, snapshot_mgr, tx_mgr)?;
+    let mut projected = Vec::with_capacity(rows.len());
+    for (key, value) in rows {
+        projected.push(project_selected_fields(
+            &desc,
+            &key,
+            &value,
+            &VecSelTerm::new(select.clone()),
+        )?);
     }
-
-    pub(crate) fn lookup(&self, src: OID, request_id: RequestId) -> Option<PartitionRpcResponse> {
-        let mut entries = self.entries.lock().ok()?;
-        let expired = entries
-            .get(&(src, request_id))
-            .is_some_and(|(expire_ms, _)| channel_now_ms() >= *expire_ms);
-        if expired {
-            entries.remove(&(src, request_id));
-            return None;
-        }
-        entries
-            .get(&(src, request_id))
-            .map(|(_, response)| response.clone())
-    }
-
-    pub(crate) fn store(&self, src: OID, request_id: RequestId, response: PartitionRpcResponse) {
-        let Ok(mut entries) = self.entries.lock() else {
-            return;
-        };
-        let now = channel_now_ms();
-        entries.retain(|_, (expire_ms, _)| now < *expire_ms);
-        if entries.len() >= RPC_DEDUP_MAX_ENTRIES {
-            tracing::warn!("partition rpc dedup cache full; response not cached");
-            return;
-        }
-        entries.insert(
-            (src, request_id),
-            (now.saturating_add(RPC_DEDUP_TTL_MS), response),
-        );
-    }
+    Ok(PartitionRpcResponse::ReadRange(projected))
 }
 
 impl WorkerXContract {
-    /// Handles one typed partition-RPC request: a replay under an
-    /// already-seen `(src, request_id)` returns the cached response without
-    /// re-executing.
+    /// Handles one typed partition-RPC request; a replay under an
+    /// already-seen `(src, request_id)` returns the cached response.
     pub(crate) async fn handle_partition_rpc_message(
         &self,
         request: PartitionRpcRequest,
@@ -75,6 +108,75 @@ impl WorkerXContract {
             attempt = ctx.attempt(),
             "received partition rpc request"
         );
+        // Cluster mode: a partition RPC must run on the serving node of this
+        // node's group; a RaftFollower redirects to the Leader before any
+        // execution, so a redirected request was definitively not executed
+        // and the coordinator may retry it regardless of idempotency.
+        // Migration-control RPCs (phase 3) are exempt: the move driver
+        // addresses every member of a group (replicas adopt and drop their
+        // own copies too).
+        let migration_control = matches!(
+            request,
+            PartitionRpcRequest::PartitionSnapshotOffer { .. }
+                | PartitionRpcRequest::PartitionSnapshotFetch { .. }
+                | PartitionRpcRequest::PartitionAdopt { .. }
+                | PartitionRpcRequest::PartitionDrop { .. }
+                | PartitionRpcRequest::MigrationFenceQuery { .. }
+        );
+        let _inflight_guard = if request.migration_fenced() {
+            request
+                .route_partition()
+                .map(|partition| migration_inflight_enter(&self.migration_inflight, partition))
+        } else {
+            None
+        };
+        if self.cluster_router().is_some() && !migration_control {
+            if let Some(leader) = cluster_non_serving_redirect(
+                &self.cluster_router,
+                &self.snapshot_mgr,
+                &self.raft_share,
+                &self.repl_ctl,
+                &request,
+            )? {
+                debug!(
+                    worker_id = self.worker_id,
+                    redirect_to = ?leader,
+                    "partition rpc redirected to the group leader"
+                );
+                return Ok(PartitionRpcResponse::Redirect { node_id: leader });
+            }
+            // Phase 3 in-flight tracking: fenced write variants register
+            // BEFORE the fence check, so the cutover's drain observes every
+            // decider (register-first closes the check-then-register race).
+            // Phase 3 fence: reject writes fenced by an in-flight migration
+            // and requests for partitions this worker no longer owns. Runs
+            // before the dedup lookup so a retry sees the current state.
+            if let Some(fenced) = migration_fence(
+                &self.cluster_router,
+                &self.meta_mgr,
+                self.worker_id,
+                &request,
+            )
+            .await?
+            {
+                debug!(
+                    worker_id = self.worker_id,
+                    fenced = ?fenced,
+                    "partition rpc rejected by the migration fence"
+                );
+                return Ok(fenced);
+            }
+        }
+        // Lifecycle commands use durable state; reads need a fresh barrier.
+        if matches!(
+            request,
+            PartitionRpcRequest::QueryTxDecision { .. }
+                | PartitionRpcRequest::PrepareTx { .. }
+                | PartitionRpcRequest::CommitTx { .. }
+                | PartitionRpcRequest::AbortTx { .. }
+        ) {
+            return self.execute_partition_rpc(request).await;
+        }
         if let Some(cached) = self.rpc_dedup.lookup(ctx.src(), ctx.request_id()) {
             debug!(
                 worker_id = self.worker_id,
@@ -98,14 +200,31 @@ impl WorkerXContract {
         request: PartitionRpcRequest,
     ) -> RS<PartitionRpcResponse> {
         match request {
+            PartitionRpcRequest::QueryTxDecision { coordinator } => {
+                Ok(PartitionRpcResponse::TxDecisionStatus(
+                    tx_decision_client(&self.tx_decision_client)?
+                        .transaction_state(&coordinator)
+                        .await?,
+                ))
+            }
             PartitionRpcRequest::ReadKey {
                 table_id,
                 partition_id,
                 key,
                 select,
             } => {
-                self.execute_rpc_read_key(table_id, partition_id, key, select)
-                    .await
+                execute_rpc_read_key(
+                    &self.meta_mgr,
+                    &self.storage,
+                    &self.snapshot_mgr,
+                    &self.tx_lock,
+                    self.worker_id,
+                    table_id,
+                    partition_id,
+                    key,
+                    select,
+                )
+                .await
             }
             PartitionRpcRequest::ReadRange {
                 table_id,
@@ -114,412 +233,44 @@ impl WorkerXContract {
                 end,
                 select,
             } => {
-                self.execute_rpc_read_range(table_id, partition_id, start, end, select)
-                    .await
-            }
-            PartitionRpcRequest::Insert {
-                table_id,
-                partition_id,
-                key,
-                value,
-            } => {
-                self.execute_rpc_insert(table_id, partition_id, key, value)
-                    .await
-            }
-            PartitionRpcRequest::Delete {
-                table_id,
-                partition_id,
-                key,
-            } => self.execute_rpc_delete(table_id, partition_id, key).await,
-            PartitionRpcRequest::Update {
-                table_id,
-                partition_id,
-                key,
-                values,
-            } => {
-                self.execute_rpc_update(table_id, partition_id, key, values)
-                    .await
-            }
-            PartitionRpcRequest::ApplyCrossPartitionTx {
-                tx_id,
-                partition_id,
-                partition_write_set,
-                ..
-            } => {
-                self.execute_rpc_apply_cross_partition_tx(tx_id, partition_id, partition_write_set)
-                    .await
-            }
-            PartitionRpcRequest::CommitWriteSet {
-                tx_id,
-                lock_token,
-                writes,
-            } => {
-                self.execute_rpc_commit_write_set(tx_id, lock_token, writes)
-                    .await
-            }
-            PartitionRpcRequest::LockKeyForUpdate {
-                lock_token,
-                table_id,
-                partition_id,
-                key,
-                select,
-            } => {
-                self.execute_rpc_lock_key_for_update(
-                    lock_token,
+                execute_rpc_read_range(
+                    &self.meta_mgr,
+                    &self.storage,
+                    &self.snapshot_mgr,
+                    &self.tx_lock,
+                    self.worker_id,
                     table_id,
                     partition_id,
-                    key,
+                    start,
+                    end,
                     select,
                 )
                 .await
             }
-            PartitionRpcRequest::UnlockKeys { lock_token } => {
-                self.execute_rpc_unlock_keys(lock_token).await
+            write_request @ (PartitionRpcRequest::Insert { .. }
+            | PartitionRpcRequest::Delete { .. }
+            | PartitionRpcRequest::Update { .. }
+            | PartitionRpcRequest::CommitWriteSet { .. }
+            | PartitionRpcRequest::LockKeyForUpdate { .. }
+            | PartitionRpcRequest::UnlockKeys { .. }) => {
+                self.execute_write_rpc(write_request).await
+            }
+            tx_request @ (PartitionRpcRequest::ApplyCrossPartitionTx { .. }
+            | PartitionRpcRequest::PrepareTx { .. }
+            | PartitionRpcRequest::CommitTx { .. }
+            | PartitionRpcRequest::AbortTx { .. }) => self.execute_tx_rpc(tx_request).await,
+            migration_request @ (PartitionRpcRequest::PartitionSnapshotOffer { .. }
+            | PartitionRpcRequest::PartitionSnapshotFetch { .. }
+            | PartitionRpcRequest::PartitionAdopt { .. }
+            | PartitionRpcRequest::PartitionDrop { .. }
+            | PartitionRpcRequest::PartitionSplitData { .. }
+            | PartitionRpcRequest::PartitionMergeData { .. }
+            | PartitionRpcRequest::MigrationFenceQuery { .. }) => {
+                self.execute_migration_rpc(migration_request).await
             }
             queue_request @ (PartitionRpcRequest::QueuePrepare { .. }
             | PartitionRpcRequest::QueueReceiveWait { .. }
             | PartitionRpcRequest::QueueWake { .. }) => self.execute_queue_rpc(queue_request).await,
         }
-    }
-
-    /// Serve `ReadKey`: read the committed value of `key` on `partition_id`
-    /// with a fresh snapshot, projected to the `select` columns.
-    async fn execute_rpc_read_key(
-        &self,
-        table_id: OID,
-        partition_id: OID,
-        key: Vec<u8>,
-        select: Vec<AttrIndex>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            key_len = key.len(),
-            select_len = select.len(),
-            "execute partition rpc read_key"
-        );
-        let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        let tx_mgr = self.worker_begin_tx()?;
-        let opt_value = self
-            .storage
-            .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-            .await?;
-        self.worker_rollback_tx(tx_mgr)?;
-        let projected = opt_value
-            .map(|value| project_selected_fields(&desc, &key, &value, &VecSelTerm::new(select)))
-            .transpose()?;
-        Ok(PartitionRpcResponse::ReadKey(projected))
-    }
-
-    /// Serve `ReadRange`: scan the committed rows of `partition_id` within
-    /// the `start`/`end` bounds with a fresh snapshot, projected to the
-    /// `select` columns.
-    async fn execute_rpc_read_range(
-        &self,
-        table_id: OID,
-        partition_id: OID,
-        start: RpcBound,
-        end: RpcBound,
-        select: Vec<AttrIndex>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            select_len = select.len(),
-            start = ?start,
-            end = ?end,
-            "execute partition rpc read_range"
-        );
-        let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        let tx_mgr = self.worker_begin_tx()?;
-        let rows = self
-            .storage
-            .range_on_partition(
-                table_id,
-                Some(partition_id),
-                (rpc_bound_as_ref(&start), rpc_bound_as_ref(&end)),
-                tx_mgr.as_ref(),
-            )
-            .await?;
-        self.worker_rollback_tx(tx_mgr)?;
-        let mut projected = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            projected.push(project_selected_fields(
-                &desc,
-                &key,
-                &value,
-                &VecSelTerm::new(select.clone()),
-            )?);
-        }
-        Ok(PartitionRpcResponse::ReadRange(projected))
-    }
-
-    /// Serve `Insert`: fail when the key exists, otherwise stage and commit
-    /// the row through the normal local commit path.
-    async fn execute_rpc_insert(
-        &self,
-        table_id: OID,
-        partition_id: OID,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            key_len = key.len(),
-            value_len = value.len(),
-            "execute partition rpc insert"
-        );
-        let tx_mgr = self.worker_begin_tx()?;
-        let current = self
-            .storage
-            .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-            .await?;
-        if current.is_some() {
-            self.worker_rollback_tx(tx_mgr)?;
-            return Err(mudu_error!(ErrorCode::EntityAlreadyExists, "existing key"));
-        }
-        self.storage
-            .put_on_partition(table_id, Some(partition_id), key, value, tx_mgr.as_ref())
-            .await?;
-        self.worker_commit_tx_async(tx_mgr).await?;
-        Ok(PartitionRpcResponse::Insert)
-    }
-
-    /// Serve `Delete`: remove the key through the normal local commit path;
-    /// the response carries the number of removed rows.
-    async fn execute_rpc_delete(
-        &self,
-        table_id: OID,
-        partition_id: OID,
-        key: Vec<u8>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            key_len = key.len(),
-            "execute partition rpc delete"
-        );
-        let tx_mgr = self.worker_begin_tx()?;
-        let deleted = self
-            .storage
-            .remove_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-            .await?;
-        self.worker_commit_tx_async(tx_mgr).await?;
-        Ok(PartitionRpcResponse::Delete(usize::from(deleted.is_some())))
-    }
-
-    /// Serve `Update`: replace the given columns of `key`'s row through the
-    /// normal local commit path; the response carries the number of changed
-    /// rows.
-    async fn execute_rpc_update(
-        &self,
-        table_id: OID,
-        partition_id: OID,
-        key: Vec<u8>,
-        values: Vec<(AttrIndex, DataBin)>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            key_len = key.len(),
-            value_pairs = values.len(),
-            "execute partition rpc update"
-        );
-        let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        let tx_mgr = self.worker_begin_tx()?;
-        let current = self
-            .storage
-            .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-            .await?;
-        let Some(current) = current else {
-            self.worker_rollback_tx(tx_mgr)?;
-            return Ok(PartitionRpcResponse::Update(0));
-        };
-        let updated = apply_value_update(&current, &VecDatum::new(values), &[], &desc)?;
-        self.storage
-            .put_on_partition(table_id, Some(partition_id), key, updated, tx_mgr.as_ref())
-            .await?;
-        self.worker_commit_tx_async(tx_mgr).await?;
-        Ok(PartitionRpcResponse::Update(1))
-    }
-
-    /// Serve `ApplyCrossPartitionTx`: apply one participant partition's
-    /// write set of a cross-partition transaction (idempotent per
-    /// `(tx_id, partition_id)`).
-    async fn execute_rpc_apply_cross_partition_tx(
-        &self,
-        tx_id: OID,
-        partition_id: OID,
-        partition_write_set: Vec<XLWrite>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            tx_id,
-            partition_id,
-            writes = partition_write_set.len(),
-            "execute partition rpc apply_cross_partition_tx"
-        );
-        self.storage
-            .apply_cross_partition_tx_async(tx_id, &partition_write_set)
-            .await?;
-        Ok(PartitionRpcResponse::ApplyCrossPartitionTx)
-    }
-
-    /// Serve `CommitWriteSet`: stage the handed-off write set into a fresh
-    /// local transaction and commit it, retrying a bounded number of times
-    /// on commit-time transaction failures.
-    async fn execute_rpc_commit_write_set(
-        &self,
-        tx_id: OID,
-        lock_token: Option<OID>,
-        writes: Vec<XLWrite>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            coordinator_tx_id = tx_id,
-            writes = writes.len(),
-            "execute partition rpc commit_write_set"
-        );
-        let write_count = writes.len();
-        // The write set is fully materialized (final values) and each
-        // attempt commits it with a fresh owner-local snapshot, so a
-        // commit-time Transaction failure (commit-lock contention or
-        // a write-write conflict against a commit that landed inside
-        // this RPC's window) is retried a bounded number of times.
-        // Retrying does not weaken isolation: the coordinator's
-        // snapshot is deliberately not propagated to the owner.
-        const MAX_COMMIT_WRITE_SET_ATTEMPTS: u32 = 2;
-        let mut attempt = 0;
-        let result = loop {
-            attempt += 1;
-            match self.commit_write_set_once(&writes, lock_token).await {
-                Ok(()) => break Ok(()),
-                Err(err)
-                    if err.ec() == ErrorCode::Transaction
-                        && attempt < MAX_COMMIT_WRITE_SET_ATTEMPTS =>
-                {
-                    debug!(
-                        worker_id = self.worker_id,
-                        coordinator_tx_id = tx_id,
-                        attempt,
-                        "commit_write_set retrying after transaction failure"
-                    );
-                }
-                Err(err) => break Err(err),
-            }
-        };
-        // The commit path releases `lock_token`'s locks on every
-        // exit; this is the backstop for attempts that failed before
-        // reaching it.
-        if let Some(token) = lock_token {
-            self.tx_lock.release_all(token)?;
-        }
-        result?;
-        Ok(PartitionRpcResponse::CommitWriteSet(write_count))
-    }
-
-    /// Serve `LockKeyForUpdate`: take the statement-level write lock on
-    /// `key` under `lock_token`, then read the currently committed value
-    /// with a fresh snapshot (same as `ReadKey`).
-    async fn execute_rpc_lock_key_for_update(
-        &self,
-        lock_token: OID,
-        table_id: OID,
-        partition_id: OID,
-        key: Vec<u8>,
-        select: Vec<AttrIndex>,
-    ) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            partition_id,
-            key_len = key.len(),
-            "execute partition rpc lock_key_for_update"
-        );
-        let relation_id = PhysicalRelationId {
-            table_id,
-            partition_id,
-        };
-        let acquired = self
-            .tx_lock
-            .lock_some(
-                lock_token,
-                &[(relation_id, key.clone())],
-                STATEMENT_LOCK_TIMEOUT,
-            )
-            .await?;
-        if !acquired {
-            return Err(mudu_error!(
-                ErrorCode::Transaction,
-                "failed to acquire statement locks"
-            ));
-        }
-        // Locked: read the currently committed value with a fresh
-        // snapshot (same as ReadKey).
-        let desc = self.meta_mgr.get_table_by_id(table_id).await?;
-        let tx_mgr = self.worker_begin_tx()?;
-        let opt_value = self
-            .storage
-            .get_on_partition(table_id, Some(partition_id), &key, tx_mgr.as_ref())
-            .await?;
-        self.worker_rollback_tx(tx_mgr)?;
-        let projected = opt_value
-            .map(|value| project_selected_fields(&desc, &key, &value, &VecSelTerm::new(select)))
-            .transpose()?;
-        Ok(PartitionRpcResponse::ReadKey(projected))
-    }
-
-    /// Serve `UnlockKeys`: release every statement-level lock held by
-    /// `lock_token` on this worker.
-    async fn execute_rpc_unlock_keys(&self, lock_token: OID) -> RS<PartitionRpcResponse> {
-        debug!(
-            worker_id = self.worker_id,
-            "execute partition rpc unlock_keys"
-        );
-        self.tx_lock.release_all(lock_token)?;
-        Ok(PartitionRpcResponse::UnlockKeys)
-    }
-
-    /// Stage a handed-off write set into a fresh local transaction and commit
-    /// it through the normal local commit path. When `lock_token` is present
-    /// the commit runs under the coordinator's statement locks (re-entrant
-    /// acquisition) and they are all released when the commit returns.
-    async fn commit_write_set_once(&self, writes: &[XLWrite], lock_token: Option<OID>) -> RS<()> {
-        let tx_mgr = self.worker_begin_tx()?;
-        let lock_owner = lock_token.unwrap_or(tx_mgr.xid() as OID);
-        for write in writes {
-            match write {
-                XLWrite::Insert(insert) => tx_mgr.put_relation(
-                    PhysicalRelationId {
-                        table_id: insert.table_id,
-                        partition_id: insert.partition_id,
-                    },
-                    insert.key.clone(),
-                    insert.value.clone(),
-                ),
-                XLWrite::Delete(delete) => tx_mgr.delete_relation(
-                    PhysicalRelationId {
-                        table_id: delete.table_id,
-                        partition_id: delete.partition_id,
-                    },
-                    delete.key.clone(),
-                ),
-                XLWrite::Update(_) => {
-                    self.worker_rollback_tx(tx_mgr)?;
-                    return Err(mudu_error!(
-                        ErrorCode::NotImplemented,
-                        "commit_write_set does not support delta updates"
-                    ));
-                }
-            }
-        }
-        self.worker_commit_tx_with_lock_owner_async(tx_mgr, lock_owner)
-            .await
     }
 }

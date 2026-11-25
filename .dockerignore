@@ -1,0 +1,39 @@
+# Build artifacts (the shared target/ dir is enormous).
+target/
+**/target/
+
+# Lean build artifacts (verification/lean/.lake is several GB and is not
+# needed by the Rust images built from this context).
+verification/
+
+# VCS.
+.git/
+
+# Generated per-node e2e configs.
+script/test/e2e/configs/
+
+# Local venvs / editor junk.
+.venv/
+*.swp
+**/.venv/
+**/__pycache__/
+**/node_modules/
+logs/
+.test-results/
+.idea/
+.vscode/
+.codex/
+.agents/
+
+# Local credentials and environment overrides are not build inputs.
+.secrets/
+.aws/
+.ssh/
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+!**/.env.template
+
+# The runtime mounts this package; it is not part of either image.
+script/test/e2e/wallet.mpk

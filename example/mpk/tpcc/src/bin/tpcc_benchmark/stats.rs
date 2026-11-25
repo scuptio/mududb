@@ -106,7 +106,7 @@ fn percentile_of(values: impl Iterator<Item = f64>, p: f64) -> f64 {
     values[idx.min(values.len() - 1)]
 }
 
-/// Records the operation breakdown (t0 = op start, t1 = request issued,
+/// Structs the operation breakdown (t0 = op start, t1 = request issued,
 /// t2 = response decoded) for the per-op loops.
 pub(crate) struct OpTiming {
     start: Instant,

@@ -21,6 +21,15 @@ pub struct XLEntry {
     /// [`TxOp::Begin`] / [`TxOp::Commit`] together with zero or more logical
     /// row-level data operations in between.
     pub ops: Vec<TxOp>,
+    /// Commit epoch the entry's versions are stamped with, when an epoch
+    /// oracle drove the commit (phase 0.2 of the epoch MVCC design).
+    /// Replicas and recovery stamp versions with it so every copy is
+    /// identical; `None` means the pre-epoch xid stamping.
+    ///
+    /// Wire-compatible with pre-epoch entries: rmp-serde decodes older
+    /// two-field payloads with `commit_epoch = None`.
+    #[serde(default)]
+    pub commit_epoch: Option<u64>,
 }
 
 /// Transaction operations captured in WAL.
@@ -41,6 +50,10 @@ pub enum TxOp {
     Abort,
     /// Apply one tuple write to a table.
     Write(XLWrite),
+    /// Durable participant prepare; writes remain invisible until a matching decision.
+    Prepare(crate::participant::ParticipantPrepare),
+    /// Immutable participant outcome, scoped to transaction and partition.
+    ParticipantDecision(crate::participant::ParticipantDecision),
 }
 
 impl TxOp {
@@ -64,6 +77,14 @@ impl TxOp {
     pub fn commit_ts(&self) -> Option<CommitTimestamp> {
         match self {
             Self::Commit(ts) => Some(*ts),
+            Self::ParticipantDecision(record)
+                if matches!(
+                    record.decision,
+                    catalog::contract::tx_decision::TxDecision::Committed { .. }
+                ) =>
+            {
+                Some(record.commit_ts)
+            }
             _ => None,
         }
     }
@@ -102,6 +123,7 @@ mod tests {
                 TxOp::Write(sample_insert_write()),
                 TxOp::Commit(CommitTimestamp(42)),
             ],
+            commit_epoch: None,
         };
         let encoded = rmp_serde::to_vec(&orig).unwrap();
         let decoded: XLEntry = rmp_serde::from_slice(&encoded).unwrap();

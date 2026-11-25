@@ -15,7 +15,7 @@ async fn update_applies_mixed_absolute_and_delta_assignments() {
             let contract = make_contract().await;
             // A table with three value columns so one UPDATE can mix an absolute
             // assignment with multiple delta assignments, like TPC-C payment.
-            let schema = ::catalog::contract::schema_table::SchemaTable::new_with_oid(
+            let schema = ::catalog::contract::schema_class::SchemaClass::new_with_oid(
                 43,
                 "t2".to_string(),
                 ["id", "a", "b", "c"]
@@ -24,7 +24,9 @@ async fn update_applies_mixed_absolute_and_delta_assignments() {
                         SchemaColumn::new(
                             name.to_string(),
                             TypeFamily::I32,
-                            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                                TypeFamily::I32,
+                            )),
                         )
                     })
                     .collect(),

@@ -1,49 +1,13 @@
-use super::*;
+use crate::worker::{flush_worker_dirty_pages, WorkerRuntime};
+use ::wal::worker_log::ChunkedWorkerLogBackend;
+use ::xcontract::worker_storage::DIRTY_PAGE_FLUSH_INTERVAL;
+use mudu::common::result::RS;
+use mudu_sys::sync::async_::stop_flag::StopRx;
+use mudu_sys::tokio;
+use tracing::error;
 
 pub(crate) async fn recover_worker_log_tokio(worker: &WorkerRuntime) -> RS<()> {
-    let Some(log) = worker.worker_log()? else {
-        return Ok(());
-    };
-    let fs = log.fs();
-    let chunk_paths = log.chunk_paths_sorted().await?;
-    // Multi-part batches can straddle chunk boundaries; keep the
-    // not-yet-terminated frames across chunks and drop whatever is left
-    // unterminated at end-of-log (the writer crashed mid-batch). Each chunk
-    // is decoded up to its longest valid frame prefix: a crash can leave an
-    // un-fsynced tail behind, and the frame CRCs mark exactly where valid
-    // data ends.
-    let mut pending_frames = Vec::new();
-    let mut pending_start_lsn = None;
-    for path in chunk_paths {
-        let bytes = fs.read_all(&path).await?;
-        if bytes.is_empty() {
-            continue;
-        }
-        let prefix = scan_valid_frame_prefix(&bytes);
-        if let Some(reason) = &prefix.corrupt_reason {
-            warn!(
-                path = %path.display(),
-                truncated_bytes = bytes.len() - prefix.valid_len,
-                reason = %reason,
-                "dropping un-persisted worker log chunk tail during recovery"
-            );
-        }
-        let batches = decode_xl_batches_with_pending(
-            &prefix.frames,
-            &mut pending_frames,
-            &mut pending_start_lsn,
-        )?;
-        for batch in batches {
-            worker.replay_log_batch(batch).await?;
-        }
-    }
-    if !pending_frames.is_empty() {
-        warn!(
-            pending_frames = pending_frames.len(),
-            "dropping unterminated log entry at end of worker log"
-        );
-    }
-    Ok(())
+    ::repl::snapshot::recover_worker_storage(worker).await
 }
 
 /// Tokio WAL group-commit flush driver. Enqueued commit batches are written

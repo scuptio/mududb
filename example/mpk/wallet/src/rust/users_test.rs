@@ -1,8 +1,8 @@
-//! Unit tests for the `rust::users::Users` entity.
+//! Unit tests for the `rust::users::Users` object.
 
 use mududb::common::result::RS;
-use mududb::contract::database::entity::Entity;
 use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::users::object::{Users, UsersChange, columns};
@@ -31,12 +31,12 @@ fn assert_same_users(lhs: &Users, rhs: &Users) {
 
 #[test]
 fn users_lifecycle() -> RS<()> {
-    let entity = sample_users();
-    assert_eq!(entity.user_id, 1);
-    assert_eq!(entity.name.as_deref(), Some("name_val"));
+    let object = sample_users();
+    assert_eq!(object.user_id, 1);
+    assert_eq!(object.name.as_deref(), Some("name_val"));
 
-    // Entity metadata
-    assert_eq!(Users::table_name(), "users");
+    // Object metadata
+    assert_eq!(Users::class_name(), "users");
     assert_eq!(Users::TABLE_NAME, "users");
     assert_eq!(Users::tuple_desc().fields().len(), 7);
     assert_eq!(Users::tuple_desc().fields()[0].name(), columns::USER_ID);
@@ -45,36 +45,36 @@ fn users_lifecycle() -> RS<()> {
 
     // Datum / DatumDyn metadata
     let data_type = Users::data_type();
-    assert_eq!(entity.type_family()?, data_type.type_family());
+    assert_eq!(object.type_family()?, data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple()?;
+    let tuple = object.to_tuple()?;
     let from_tuple = Users::from_tuple(&tuple)?;
-    assert_same_users(&from_tuple, &entity);
+    assert_same_users(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type)?;
+    let value = object.to_value(&data_type)?;
     let from_value = Users::from_value(&value)?;
-    assert_same_users(&from_value, &entity);
+    assert_same_users(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type)?;
+    let binary = object.to_binary(&data_type)?;
     let from_binary = Users::from_binary(binary.as_ref())?;
-    assert_same_users(&from_binary, &entity);
+    assert_same_users(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type)?;
+    let textual = object.to_textual(&data_type)?;
     let from_textual = Users::from_textual(textual.as_str())?;
-    assert_same_users(&from_textual, &entity);
+    assert_same_users(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type)?;
     let from_cloned = Users::from_value(&cloned_value)?;
-    assert_same_users(&from_cloned, &entity);
+    assert_same_users(&from_cloned, &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params.0, 1);
     assert_eq!(params.1.as_deref(), Some("name_val"));
     assert_eq!(params.6, Some(1));
@@ -128,16 +128,16 @@ fn users_lifecycle() -> RS<()> {
 
 #[test]
 fn users_nullable_fields_roundtrip() -> RS<()> {
-    let entity = Users::new(2, None, None, None, None, None, None);
-    let tuple = entity.to_tuple()?;
+    let object = Users::new(2, None, None, None, None, None, None);
+    let tuple = object.to_tuple()?;
     assert!(tuple.is_null(1));
     assert!(tuple.is_null(6));
     let restored = Users::from_tuple(&tuple)?;
-    assert_same_users(&restored, &entity);
+    assert_same_users(&restored, &object);
 
-    let value = entity.to_tuple_value()?;
+    let value = object.to_tuple_value()?;
     assert!(value.values()[1].is_null());
     let restored = Users::from_tuple_value(&value)?;
-    assert_same_users(&restored, &entity);
+    assert_same_users(&restored, &object);
     Ok(())
 }

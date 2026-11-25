@@ -21,8 +21,17 @@ use mudu_sys::sync::async_::ANotify;
 use mudu_sys::task::async_::timeout;
 
 use ::xengine::api::QueueWaiter;
+use ::xengine::tx_mgr::TxMgr;
+use async_trait::async_trait;
 
-use super::*;
+use crate::queue_activation::ActivationRegistry;
+use crate::queue_types::QueueShardId;
+use mudu::common::id::OID;
+use mudu::common::result::RS;
+use mudu_sys::sync::SMutex;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// One parked waiter: a unique sequence number (identity for targeted
 /// removal) plus the private wake latch only this waiter ever parks on.
@@ -236,24 +245,26 @@ impl Drop for QueueWaiterGuard {
     }
 }
 
-impl WorkerXContract {
-    /// Distinct queue shards of the transaction's write set, collected only
-    /// when some queue receiver is parked or some queue activation is
-    /// registered; empty otherwise, so a commit without any queue consumer of
-    /// either kind pays one atomic load and nothing else.
-    pub(crate) fn queue_wait_wake_tables(&self, tx: &dyn TxMgr) -> Vec<QueueShardId> {
-        if !self.queue_wait_registry.has_waiters() && !self.activation_registry.has_any() {
-            return Vec::new();
-        }
-        let mut shards: Vec<QueueShardId> = tx
-            .write_ops()
-            .iter()
-            .map(|(relation_id, _)| (relation_id.table_id, relation_id.partition_id))
-            .collect();
-        shards.sort_unstable();
-        shards.dedup();
-        shards
+/// Distinct queue shards of the transaction's write set, collected only
+/// when some queue receiver is parked or some queue activation is
+/// registered; empty otherwise, so a commit without any queue consumer of
+/// either kind pays one atomic load and nothing else.
+pub(crate) fn queue_wait_wake_tables(
+    queue_wait_registry: &QueueWaitRegistry,
+    activation_registry: &ActivationRegistry,
+    tx: &dyn TxMgr,
+) -> Vec<QueueShardId> {
+    if !queue_wait_registry.has_waiters() && !activation_registry.has_any() {
+        return Vec::new();
     }
+    let mut shards: Vec<QueueShardId> = tx
+        .write_ops()
+        .iter()
+        .map(|(relation_id, _)| (relation_id.table_id, relation_id.partition_id))
+        .collect();
+    shards.sort_unstable();
+    shards.dedup();
+    shards
 }
 
 #[cfg(test)]

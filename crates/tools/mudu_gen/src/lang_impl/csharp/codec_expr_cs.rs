@@ -69,7 +69,7 @@ pub fn serialize_stmts(
         UniDataType::Box(inner) => {
             out.push_str(&serialize_stmts(inner, value, ind, tmp, type_kinds)?);
         }
-        UniDataType::Record(_) | UniDataType::Result(_) => {
+        UniDataType::Struct(_) | UniDataType::Result(_) => {
             serialize_fallback(&mut out, ind, value);
         }
     }

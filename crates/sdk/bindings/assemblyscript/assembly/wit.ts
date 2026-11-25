@@ -269,8 +269,8 @@ export class Value {
     if (input.kind == UniDataValueKind.Binary) {
       return Value.binary((input as UniDataValueBinary).inner);
     }
-    if (input.kind == UniDataValueKind.Array || input.kind == UniDataValueKind.Record) {
-      throw new Error("array and record data values are not supported");
+    if (input.kind == UniDataValueKind.Array || input.kind == UniDataValueKind.Struct) {
+      throw new Error("array and struct data values are not supported");
     }
     throw new Error("unsupported data value kind on the wire");
   }

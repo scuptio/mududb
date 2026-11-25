@@ -38,7 +38,7 @@ use super::*;
 //
 //   common:    oid N = UniOid { h: 0, l: N }; fds are u32 3; blobs are ASCII
 //   1  query            oid 1, sql "select 1", no params
-//                       ok: UniQueryResult default (record_name "", no
+//                       ok: UniQueryResult default (struct_name "", no
 //                       fields, eof false, no rows, empty cursor)
 //   2  command          oid 2, sql "update t set a = 1", no params
 //                       ok: affected_rows 3
@@ -350,6 +350,11 @@ pub(crate) fn message_kind_name(kind: MessageKind) -> &'static str {
         MessageKind::RelationGet => "relation-get",
         MessageKind::RelationUpdate => "relation-update",
         MessageKind::RelationInsert => "relation-insert",
+        MessageKind::CacheOpen => "cache-open",
+        MessageKind::CacheGet => "cache-get",
+        MessageKind::CachePut => "cache-put",
+        MessageKind::CacheDelete => "cache-delete",
+        MessageKind::CacheTtl => "cache-ttl",
     }
 }
 
@@ -392,7 +397,7 @@ fn sql_cases() -> Vec<SyscallFrameCase> {
         "response",
         encode_query_result(&Ok(result.clone())),
         json!({
-            "record_name": result.tuple_desc.record_name,
+            "struct_name": result.tuple_desc.struct_name,
             "fields": [],
             "eof": result.result_set.eof,
             "rows": [],

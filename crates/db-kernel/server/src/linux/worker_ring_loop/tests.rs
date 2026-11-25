@@ -106,6 +106,8 @@ async fn test_worker_loop() -> Option<WorkerRingLoop> {
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();

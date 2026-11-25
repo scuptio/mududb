@@ -11,7 +11,7 @@ use crate::check::param_type::{
     ParamTypeTag,
 };
 use crate::parser::ddl_parser::DDLParser;
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_type::data_value::DataValue;
 
 const DDL: &str = "
@@ -33,7 +33,7 @@ CREATE TABLE wallets
 );
 ";
 
-fn schema() -> Vec<TableDef> {
+fn schema() -> Vec<ClassDef> {
     let parser = DDLParser::new().unwrap();
     parser.parse(DDL).unwrap()
 }
@@ -147,13 +147,13 @@ fn no_placeholders_returns_empty() {
 #[test]
 fn compatibility_table_rules() {
     let schema = schema();
-    let wallets = schema.iter().find(|t| t.table_name() == "wallets").unwrap();
+    let wallets = schema.iter().find(|t| t.class_name() == "wallets").unwrap();
     let int_col = wallets
         .table_columns()
         .iter()
         .find(|c| c.column_name() == "balance")
         .unwrap();
-    let users = schema.iter().find(|t| t.table_name() == "users").unwrap();
+    let users = schema.iter().find(|t| t.class_name() == "users").unwrap();
     let text_col = users
         .table_columns()
         .iter()

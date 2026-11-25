@@ -30,7 +30,7 @@ impl StmtInsert {
     }
 
     /// Return the bare target table name (without the schema qualifier).
-    pub fn table_name(&self) -> &String {
+    pub fn class_name(&self) -> &String {
         self.table_reference.name()
     }
 

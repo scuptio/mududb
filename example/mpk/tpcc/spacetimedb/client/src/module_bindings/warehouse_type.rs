@@ -29,12 +29,12 @@ pub struct WarehouseCols {
 
 impl __sdk::__query_builder::HasCols for Warehouse {
     type Cols = WarehouseCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         WarehouseCols {
-            w_id: __sdk::__query_builder::Col::new(table_name, "w_id"),
-            w_name: __sdk::__query_builder::Col::new(table_name, "w_name"),
-            w_tax: __sdk::__query_builder::Col::new(table_name, "w_tax"),
-            w_ytd: __sdk::__query_builder::Col::new(table_name, "w_ytd"),
+            w_id: __sdk::__query_builder::Col::new(class_name, "w_id"),
+            w_name: __sdk::__query_builder::Col::new(class_name, "w_name"),
+            w_tax: __sdk::__query_builder::Col::new(class_name, "w_tax"),
+            w_ytd: __sdk::__query_builder::Col::new(class_name, "w_ytd"),
         }
     }
 }
@@ -48,9 +48,9 @@ pub struct WarehouseIxCols {
 
 impl __sdk::__query_builder::HasIxCols for Warehouse {
     type IxCols = WarehouseIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         WarehouseIxCols {
-            w_id: __sdk::__query_builder::IxCol::new(table_name, "w_id"),
+            w_id: __sdk::__query_builder::IxCol::new(class_name, "w_id"),
         }
     }
 }

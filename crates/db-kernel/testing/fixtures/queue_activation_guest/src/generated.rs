@@ -5,7 +5,7 @@ use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys_interface::async_api::mudu_command;
 
 /**mudu-proc**/
-/// Records a successful activation through the real guest syscall path.
+/// Structs a successful activation through the real guest syscall path.
 pub async fn activated(xid: OID, queue: String) -> RS<()> {
     mudu_command(
         xid,

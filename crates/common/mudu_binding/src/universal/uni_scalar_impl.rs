@@ -95,7 +95,7 @@ impl UniScalar {
                     "array type is not scalar"
                 ));
             }
-            TypeFamily::Record => {
+            TypeFamily::Struct => {
                 return Err(mudu_error!(
                     ErrorCode::InvalidType,
                     "record type is not scalar"
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn non_scalar_uni_from_rejected() {
-        for dat_id in [TypeFamily::Array, TypeFamily::Record] {
+        for dat_id in [TypeFamily::Array, TypeFamily::Struct] {
             let err = UniScalar::uni_from(DataType::new_no_param(dat_id)).unwrap_err();
             assert_eq!(err.ec(), ErrorCode::InvalidType);
         }

@@ -17,7 +17,7 @@
 //! and no DLQ interaction. The two modes are mutually exclusive per queue: a
 //! queue with at least one consumer cursor rejects the default competing ack
 //! with `InvalidArgument`, and an ack naming an unknown cursor fails with
-//! `EntityNotFound`.
+//! `ObjectNotFound`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -179,7 +179,7 @@ impl CmdExec for AckQueue {
         let desc = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if !desc.is_queue() {
             return Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such queue {}", self.param.table_id)
             ));
         }
@@ -193,7 +193,7 @@ impl CmdExec for AckQueue {
                     .await?
                     .ok_or_else(|| {
                         mudu_error!(
-                            ER::EntityNotFound,
+                            ER::ObjectNotFound,
                             format!(
                                 "no such consumer {consumer} on queue {}",
                                 self.param.table_id

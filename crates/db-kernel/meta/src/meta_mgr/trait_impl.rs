@@ -7,11 +7,14 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 
 use ::catalog::contract::fs_type::{FsTypeDesc, FsTypeKind};
-use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::meta_mgr::{CatalogSnapshot, MetaMgr};
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
+
+use crate::fs_object::fs_object_schema;
+use crate::queue_consumer::queue_consumer_schema;
 
 use super::MetaMgrImpl;
 
@@ -38,7 +41,7 @@ impl MetaMgr for MetaMgrImpl {
         match opt {
             Some(table) => table.table_desc(),
             None => Err(mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such table {}", oid)
             )),
         }
@@ -52,7 +55,7 @@ impl MetaMgr for MetaMgrImpl {
         self.lookup_table_exact(schema, name)
     }
 
-    async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
         self.create_table_inner(schema).await
     }
 
@@ -60,7 +63,7 @@ impl MetaMgr for MetaMgrImpl {
         self.drop_table_inner(table_id).await
     }
 
-    async fn create_queue(&self, schema: &SchemaTable) -> RS<()> {
+    async fn create_queue(&self, schema: &SchemaClass) -> RS<()> {
         self.create_queue_inner(schema).await
     }
 
@@ -68,11 +71,15 @@ impl MetaMgr for MetaMgrImpl {
         self.drop_queue_inner(queue_id).await
     }
 
+    async fn create_cache(&self, schema: &SchemaClass) -> RS<()> {
+        self.create_cache_inner(schema).await
+    }
+
     async fn get_queue(&self, schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
         self.lookup_queue_by_name(schema, name)
     }
 
-    async fn list_queues(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_queues(&self) -> RS<Vec<SchemaClass>> {
         self.list_queues_inner()
     }
 
@@ -80,10 +87,14 @@ impl MetaMgr for MetaMgrImpl {
         self.create_partition_rule_inner(rule).await
     }
 
+    async fn update_partition_rule(&self, rule: &PartitionRuleDesc) -> RS<()> {
+        self.update_partition_rule_inner(rule).await
+    }
+
     async fn get_partition_rule_by_id(&self, oid: OID) -> RS<PartitionRuleDesc> {
         self.lookup_partition_rule_by_id(oid).ok_or_else(|| {
             mudu_error!(
-                ER::EntityNotFound,
+                ER::ObjectNotFound,
                 format!("no such partition rule {}", oid)
             )
         })
@@ -95,6 +106,10 @@ impl MetaMgr for MetaMgrImpl {
 
     async fn list_partition_rules(&self) -> RS<Vec<PartitionRuleDesc>> {
         Ok(self.list_partition_rules_inner())
+    }
+
+    async fn remove_orphan_partition_binding(&self, table_id: OID) -> RS<()> {
+        self.remove_orphan_partition_binding_inner(table_id).await
     }
 
     async fn bind_table_partition(&self, binding: &TablePartitionBinding) -> RS<()> {
@@ -127,7 +142,7 @@ impl MetaMgr for MetaMgrImpl {
         Ok(self.list_partition_placements_inner())
     }
 
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         self.list_schemas_inner()
     }
 
@@ -149,5 +164,30 @@ impl MetaMgr for MetaMgrImpl {
 
     async fn drop_fs_type(&self, name: &str) -> RS<()> {
         self.drop_fs_type_inner(name).await
+    }
+
+    async fn capture_catalog(&self) -> RS<CatalogSnapshot> {
+        let builtins = [fs_object_schema().id(), queue_consumer_schema().id()];
+        let schemas = self
+            .list_schemas()
+            .await?
+            .into_iter()
+            .filter(|schema| !builtins.contains(&schema.id()))
+            .collect();
+        Ok(CatalogSnapshot {
+            version: self.catalog_version(),
+            schemas,
+            rules: self.list_partition_rules().await?,
+            bindings: self.list_partition_bindings().await?,
+            placements: self.list_partition_placements().await?,
+            fs_types: self.list_fs_types().await?,
+        })
+    }
+
+    async fn restore_catalog(&self, snapshot: &CatalogSnapshot) -> RS<()> {
+        let image = super::recovery::CatalogImage::from_snapshot(snapshot.clone())?;
+        let _ddl_guard = self.ddl_lock.lock().await;
+        image.publish(self);
+        Ok(())
     }
 }

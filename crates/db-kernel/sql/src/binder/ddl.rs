@@ -21,8 +21,15 @@ impl Binder {
             .map(|index| index + value_offset)
             .collect();
         columns.append(&mut value_columns);
-        let mut schema = SchemaTable::new(
-            stmt.table_name().clone(),
+        // The table oid derives from the qualified name so that the same DDL
+        // applied on every node group yields the same oid cluster-wide
+        // (cross-group RPC carries table/partition oids verbatim).
+        let mut schema = SchemaClass::new_with_oid(
+            ::catalog::contract::derive_oid::derive_table_oid(
+                &self.current_schema,
+                stmt.class_name(),
+            ),
+            stmt.class_name().clone(),
             columns,
             key_indices,
             value_indices,
@@ -44,9 +51,9 @@ impl Binder {
     /// Resolves a `PARTITION BY GLOBAL RULE ... REFERENCES (...)` clause
     /// against the bound schema: returns the binding (referenced columns
     /// mapped to attribute indices) and the resolved rule.
-    async fn build_partition_binding(
+    pub(super) async fn build_partition_binding(
         &self,
-        schema: &SchemaTable,
+        schema: &SchemaClass,
         partition: &sql_parser::ast::stmt_table_partition::StmtTablePartition,
     ) -> RS<(TablePartitionBinding, PartitionRuleDesc)> {
         let rule = self
@@ -55,7 +62,7 @@ impl Binder {
             .await?
             .ok_or_else(|| {
                 mudu_error!(
-                    ER::EntityNotFound,
+                    ER::ObjectNotFound,
                     format!("no such partition rule {}", partition.rule_name())
                 )
             })?;
@@ -69,7 +76,7 @@ impl Binder {
                     .position(|field| field.get_name() == column)
                     .ok_or_else(|| {
                         mudu_error!(
-                            ER::EntityNotFound,
+                            ER::ObjectNotFound,
                             format!("no such partition reference column {}", column)
                         )
                     })
@@ -95,11 +102,17 @@ impl Binder {
         &self,
         stmt: StmtCreatePartitionRule,
     ) -> RS<BoundCreatePartitionRule> {
+        // Rule and partition oids derive from names so every node group
+        // agrees on them (see `contract::derive_oid`).
         let partitions = stmt
             .partitions()
             .iter()
             .map(|partition| {
-                Ok(RangePartitionDef::new(
+                Ok(RangePartitionDef::new_with_oid(
+                    ::catalog::contract::derive_oid::derive_partition_oid(
+                        stmt.rule_name(),
+                        partition.name(),
+                    ),
                     partition.name().to_string(),
                     Self::bind_partition_bound(partition.start()),
                     Self::bind_partition_bound(partition.end()),
@@ -107,7 +120,8 @@ impl Binder {
             })
             .collect::<RS<Vec<_>>>()?;
         Ok(BoundCreatePartitionRule {
-            rule: PartitionRuleDesc::new_range(
+            rule: PartitionRuleDesc::new_range_with_oid(
+                ::catalog::contract::derive_oid::derive_partition_rule_oid(stmt.rule_name()),
                 stmt.rule_name().to_string(),
                 Self::infer_partition_rule_key_types(stmt.partitions())?,
                 partitions,
@@ -168,7 +182,7 @@ impl Binder {
             .await?
             .ok_or_else(|| {
                 mudu_error!(
-                    ER::EntityNotFound,
+                    ER::ObjectNotFound,
                     format!("no such partition rule {}", stmt.rule_name())
                 )
             })?;
@@ -180,7 +194,7 @@ impl Binder {
                 .find(|partition| partition.name == placement.partition_name())
                 .ok_or_else(|| {
                     mudu_error!(
-                        ER::EntityNotFound,
+                        ER::ObjectNotFound,
                         format!(
                             "no such partition {} in rule {}",
                             placement.partition_name(),
@@ -217,177 +231,49 @@ impl Binder {
             }),
             None if stmt.drop_if_exists() => Ok(BoundDropTable { oid: None }),
             None => Err(mudu_error!(
-                ER::EntityNotFound,
-                format!("cannot find table {}", stmt.table_name())
+                ER::ObjectNotFound,
+                format!("cannot find table {}", stmt.class_name())
             )),
         }
     }
 
-    pub(super) async fn bind_create_queue(&self, stmt: StmtCreateQueue) -> RS<BoundCreateQueue> {
-        let payload_columns = match stmt.payload() {
-            QueuePayload::Like(table_name) => self.queue_payload_from_like(table_name).await?,
-            QueuePayload::Columns(columns) => self.queue_payload_from_columns(columns).await?,
-        };
-        let mut columns = queue_system_columns();
-        columns.extend(payload_columns);
-        let key_indices = vec![0];
-        let value_indices = (1..columns.len()).collect();
-        let mut schema =
-            SchemaTable::new(stmt.name().to_string(), columns, key_indices, value_indices);
-        // Unqualified CREATE QUEUE lands in the current schema, the same
-        // convention as CREATE TABLE.
-        schema.set_schema(self.current_schema.clone());
-        schema.set_kind(SchemaObjectKind::Queue);
-        let partition_binding = match stmt.partition() {
-            Some(partition) => Some(self.bind_queue_partition(&schema, partition).await?),
-            None => None,
-        };
-        Ok(BoundCreateQueue {
-            schema,
-            partition_binding,
-        })
-    }
-
-    /// Binds the queue sharding clause: one payload column routed through a
-    /// range rule whose partition count fits the `__seq` shard bits.
-    async fn bind_queue_partition(
-        &self,
-        schema: &SchemaTable,
-        partition: &sql_parser::ast::stmt_table_partition::StmtTablePartition,
-    ) -> RS<TablePartitionBinding> {
-        if partition.reference_columns().len() != 1 {
-            return Err(mudu_error!(
-                ER::InvalidArgument,
-                "queue partition clause must reference exactly one payload column"
-            ));
-        }
-        let (binding, rule) = self.build_partition_binding(schema, partition).await?;
-        let attr = binding.ref_attr_indices[0];
-        if attr < QUEUE_PAYLOAD_ATTR_START {
-            return Err(mudu_error!(
-                ER::InvalidArgument,
-                format!(
-                    "queue partition column {} must be a payload column, not a system column",
-                    partition.reference_columns()[0]
-                )
-            ));
-        }
-        let column = &schema.columns()[attr];
-        if rule.key_types != [column.type_id()] {
-            return Err(mudu_error!(
-                ER::InvalidArgument,
-                format!(
-                    "queue partition column {} type {:?} does not match rule {} key types {:?}",
-                    partition.reference_columns()[0],
-                    column.type_id(),
-                    rule.name,
-                    rule.key_types
-                )
-            ));
-        }
-        if rule.partitions.len() as u64 > QUEUE_SEQ_MAX_SHARD + 1 {
-            return Err(mudu_error!(
-                ER::InvalidArgument,
-                format!(
-                    "partition rule {} has {} partitions, a queue supports at most {}",
-                    rule.name,
-                    rule.partitions.len(),
-                    QUEUE_SEQ_MAX_SHARD + 1
-                )
-            ));
-        }
-        Ok(binding)
-    }
-
-    // `LIKE <table>` payload: copy every source column (key and value alike)
-    // as a plain payload column — name, type and nullability are inherited,
-    // while primary-key/index marks and fs bindings are not (the queue primary
-    // key is always `__seq`).
-    async fn queue_payload_from_like(&self, table_name: &str) -> RS<Vec<SchemaColumn>> {
+    pub(super) async fn bind_create_cache(&self, stmt: StmtCreateCache) -> RS<BoundCreateCache> {
         let source = self
             .meta_mgr
-            .get_table_by_name(&self.current_schema, table_name)
+            .get_table_by_name(&self.current_schema, stmt.like())
             .await?
             .ok_or_else(|| {
-                mudu_error!(ER::EntityNotFound, format!("no such table {}", table_name))
+                mudu_error!(ER::ObjectNotFound, format!("no such table {}", stmt.like()))
             })?;
+        // A cache mirrors the `LIKE` table's shape: every column (key and
+        // value alike) with the same name, type and nullability, and the same
+        // key/value split. It never defines its own columns.
         let mut columns = Vec::with_capacity(source.fields().len());
         for field in source.fields() {
-            Self::check_queue_payload_name(field.name())?;
             let ty = field.type_desc();
             let mut column = SchemaColumn::new(
                 field.name().clone(),
                 ty.type_family(),
-                DataTypeInfo::from_opt_object(ty),
+                mudu_type::data_type_codec::from_opt_object(ty),
             );
             column.set_nullable(field.nullable());
             columns.push(column);
         }
-        Ok(columns)
-    }
-
-    async fn queue_payload_from_columns(
-        &self,
-        columns: &[sql_parser::ast::column_def::ColumnDef],
-    ) -> RS<Vec<SchemaColumn>> {
-        let mut result = Vec::with_capacity(columns.len());
-        for column in columns {
-            if column.is_primary_key() {
-                return Err(mudu_error!(
-                    ER::InvalidArgument,
-                    format!(
-                        "queue payload column {} cannot be a primary key: the queue primary key is always {}",
-                        column.column_name(),
-                        QUEUE_SEQ_COLUMN
-                    )
-                ));
-            }
-            Self::check_queue_payload_name(column.column_name())?;
-            let schema_column = self.schema_column_from_ast(column).await?;
-            if schema_column.fs_binding().is_some() {
-                // The enqueue path synthesizes the system columns and skips
-                // the fs DML hooks, so an fs-bound payload column would never
-                // get its object binding.
-                return Err(mudu_error!(
-                    ER::NotImplemented,
-                    format!(
-                        "queue payload column {} with a filesystem type is not supported yet",
-                        column.column_name()
-                    )
-                ));
-            }
-            result.push(schema_column);
-        }
-        Ok(result)
-    }
-
-    fn check_queue_payload_name(name: &str) -> RS<()> {
-        if is_queue_system_column(name) {
-            return Err(mudu_error!(
-                ER::InvalidArgument,
-                format!("queue payload column name {} is reserved", name)
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) async fn bind_drop_queue(&self, stmt: StmtDropQueue) -> RS<BoundDropQueue> {
-        // `get_queue` resolves through the same search path as a table
-        // reference and reports `None` when the name resolves to a non-queue
-        // object, so `DROP QUEUE` aimed at a plain table fails here.
-        match self
-            .meta_mgr
-            .get_queue(&self.current_schema, stmt.name())
-            .await?
-        {
-            Some(queue_desc) => Ok(BoundDropQueue {
-                oid: queue_desc.id(),
-            }),
-            None => Err(mudu_error!(
-                ER::EntityNotFound,
-                format!("no such queue {}", stmt.name())
-            )),
-        }
+        let key_indices = source.key_indices().clone();
+        let value_indices = source.value_indices().clone();
+        let mut schema = SchemaClass::new_with_oid(
+            ::catalog::contract::derive_oid::derive_table_oid(&self.current_schema, stmt.name()),
+            stmt.name().clone(),
+            columns,
+            key_indices,
+            value_indices,
+        );
+        schema.set_schema(self.current_schema.clone());
+        schema.set_kind(SchemaClassKind::Cache);
+        Ok(BoundCreateCache {
+            schema,
+            ttl_secs: stmt.ttl_secs(),
+        })
     }
 
     pub(super) fn bind_create_fs_type(stmt: &StmtCreateFsType) -> BoundCreateFsType {
@@ -445,4 +331,13 @@ impl Binder {
             value_indexing: layout.value_index().to_vec(),
         })
     }
+}
+
+/// Whether the statement is a `CREATE CACHE` declaration (text-level routing
+/// checks run before binding; see the worker's cluster guard).
+pub fn is_create_cache_stmt(stmt: &StmtType) -> bool {
+    matches!(
+        stmt,
+        StmtType::Command(sql_parser::ast::stmt_type::StmtCommand::CreateCache(_))
+    )
 }

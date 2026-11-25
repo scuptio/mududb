@@ -12,7 +12,7 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::async_::AMutex;
 use mudu_sys::SysIoContext;
 
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 use ::catalog::contract::data_row::DataRow;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::timestamp::Timestamp;
@@ -80,12 +80,12 @@ impl RelationInner {
     ) -> RS<Self> {
         scoped_task_trace!();
         trace!(table_id, partition_id, path = %path, "relation new_with_fs start");
-        let key_identity = TimeSeriesFileIdentity {
+        let key_identity = TimeSeriesFileIdobject {
             partition_id,
             table_id,
             file_index: KEY_FILE_INDEX,
         };
-        let value_identity = TimeSeriesFileIdentity {
+        let value_identity = TimeSeriesFileIdobject {
             partition_id,
             table_id,
             file_index: VALUE_FILE_INDEX,
@@ -148,7 +148,7 @@ impl RelationInner {
         fs: &Arc<dyn AsyncFs>,
         provider: &Option<Arc<dyn AsyncIoProvider>>,
         path: &str,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         schema_hash: u64,
     ) -> RS<TimeSeriesFile> {
         match provider {
@@ -228,7 +228,7 @@ impl RelationInner {
     }
 }
 
-fn tuple_schema_hash(
+pub(super) fn tuple_schema_hash(
     role: u8,
     desc: &mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc,
 ) -> u64 {
@@ -253,7 +253,7 @@ fn tuple_schema_hash(
         h = write(h, &off.to_le_bytes());
         h = write(h, &len.to_le_bytes());
         h = write(h, &[fd.is_fixed_len() as u8]);
-        let info = fd.type_obj().to_info();
+        let info = mudu_type::data_type_codec::TypeCodec::to_info(fd.type_obj());
         h = write(h, &(info.id as u32).to_le_bytes());
         let p = info.param.as_bytes();
         h = write(h, &(p.len() as u32).to_le_bytes());

@@ -141,6 +141,55 @@ pub trait WorkerLocal: Send + Sync {
         end_key: &[u8],
     ) -> RS<Vec<KvItem>>;
 
+    /// Opens a volatile cache by name and returns its catalog OID handle.
+    /// The bare name resolves through the caller's application schema
+    /// (`app_name` follows the same mapping as SQL: none/"default" resolve
+    /// in the default schema).
+    async fn cache_open(&self, _name: &str, _app_name: Option<&str>) -> RS<OID> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Reads a cache entry.
+    async fn cache_get(&self, _cache: OID, _key: &[u8]) -> RS<Option<Vec<u8>>> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Writes a cache entry with an optional TTL.
+    async fn cache_put(
+        &self,
+        _cache: OID,
+        _key: Vec<u8>,
+        _value: Vec<u8>,
+        _ttl_secs: Option<u64>,
+    ) -> RS<()> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Removes a cache entry.
+    async fn cache_delete(&self, _cache: OID, _key: &[u8]) -> RS<bool> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Reads a cache entry's remaining TTL in seconds.
+    async fn cache_ttl(&self, _cache: OID, _key: &[u8]) -> RS<Option<u64>> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
     /// Run a SQL query in the schema of `app_name` (`None`/sentinels map to
     /// the default schema; see `contract::app_schema::current_schema`).
     async fn query(
@@ -215,7 +264,7 @@ pub trait WorkerLocal: Send + Sync {
     }
 
     /// Insert one relation row inside the session transaction; a duplicate
-    /// primary key fails with `EntityAlreadyExists`. The bare table name
+    /// primary key fails with `ObjectAlreadyExists`. The bare table name
     /// resolves against the schema of `app_name`.
     async fn relation_insert(
         &self,

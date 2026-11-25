@@ -7,7 +7,6 @@
 )]
 
 use super::*;
-use ::wal::lsn::LSN;
 use ::wal::worker_log::{decode_frames, WorkerLogLayout};
 use ::wal::xl_batch::{append_xl_batch_async, XLBatch};
 use ::wal::xl_data_op::{XLInsert, XLWrite};
@@ -29,6 +28,7 @@ fn batch_with_payload(xid: u64, payload_size: usize) -> XLBatch {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }])
 }
 
@@ -126,30 +126,6 @@ fn chunk_cursor_errors_when_current_chunk_disappears() {
         let mut cursor = ChunkCursor::new(log, 0);
         cursor.current_path = Some(PathBuf::from("/no/such/chunk"));
         let err = cursor.next_batch().await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
-    });
-}
-
-#[test]
-fn gather_frames_in_range_filters_by_lsn_bounds() {
-    mudu_sys::task::async_::block_on_async_current(async move {
-        let (_layout, log) = log_with_batches(&[16, 16, 16]).await;
-        let lsns = frame_lsns(&log).await;
-        assert!(lsns.len() >= 3);
-        let all = gather_frames_in_range(&log, lsns[0], u64::MAX)
-            .await
-            .unwrap();
-        assert_eq!(all.len(), lsns.len());
-
-        let middle = gather_frames_in_range(&log, lsns[1], lsns[2])
-            .await
-            .unwrap();
-        assert_eq!(middle.len(), 1);
-        assert_eq!(frame_lsn(&middle[0]).unwrap(), LSN::from(lsns[1]));
-
-        let none = gather_frames_in_range(&log, lsns[2], lsns[2])
-            .await
-            .unwrap();
-        assert!(none.is_empty());
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     });
 }

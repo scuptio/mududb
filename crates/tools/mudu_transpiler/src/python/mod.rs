@@ -8,8 +8,8 @@
 
 mod desc;
 mod parser;
-mod procedure;
 mod render;
+mod types;
 
 // tree-sitter grammars are implemented in C and call foreign functions that Miri
 // does not support, so skip these parser tests under Miri.

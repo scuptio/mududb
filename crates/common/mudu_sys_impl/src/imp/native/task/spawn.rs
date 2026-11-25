@@ -7,7 +7,7 @@ use tokio::select;
 use tokio::task;
 use tracing::trace;
 
-use super::async_::TASK_ID;
+use super::id::TASK_ID;
 use super::{id, TaskContext, TaskJoinHandle};
 
 /// Spawns `future` as a named background task on the current Tokio runtime.

@@ -27,8 +27,8 @@ use sql_parser::ast::stmt_type::StmtType;
 
 use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
@@ -41,8 +41,9 @@ use ::sql::bound_stmt::BoundStmt;
 use ::sql::plan_ctx::PlanCtx;
 use ::sql::planner::Planner;
 use ::storage::relation::relation::Relation;
+use ::xcontract::contract::WorkerXContract;
+use ::xcontract::params::WorkerXContractParams;
 use ::xcontract::utils::build_key_tuple;
-use ::xcontract::{WorkerXContract, WorkerXContractParams};
 use ::xengine::api::{OptInsert, OptRead, VecDatum, VecSelTerm, XContract};
 use ::xengine::tx_mgr::TxMgr;
 
@@ -51,16 +52,15 @@ const ROWS_PER_COMMIT: i32 = 100;
 const ITERS: usize = 1000;
 const WARMUP: usize = 100;
 
-fn users_schema() -> SchemaTable {
-    use mudu_type::data_type_info::DataTypeInfo;
+fn users_schema() -> SchemaClass {
     let col = |name: &str, family: TypeFamily| {
         SchemaColumn::new(
             name.to_string(),
             family,
-            DataTypeInfo::from_opt_object(&DataType::default_for(family)),
+            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(family)),
         )
     };
-    SchemaTable::new(
+    SchemaClass::new(
         "users".to_string(),
         vec![
             col("user_id", TypeFamily::I32),
@@ -134,6 +134,8 @@ async fn setup() -> RS<BenchEnv> {
             data_dir,
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         },
     )?);
     let ddl = contract.begin_tx().await?;

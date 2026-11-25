@@ -86,7 +86,7 @@ impl WorkerRingLoop {
         let worker = self.worker.clone();
         let bootstrap_fut = worker.bootstrap_storage_async();
         let mut bootstrap_fut = std::pin::pin!(bootstrap_fut);
-        let waker = noop_waker();
+        let waker = super::bootstrap_waker::mailbox_waker(self.mailbox_fd)?;
         let mut cx = std::task::Context::from_waker(&waker);
         loop {
             match bootstrap_fut.as_mut().poll(&mut cx) {
@@ -156,7 +156,7 @@ impl WorkerRingLoop {
         F: Future<Output = RS<T>>,
     {
         let mut future = std::pin::pin!(future);
-        let waker = noop_waker();
+        let waker = super::bootstrap_waker::mailbox_waker(self.mailbox_fd)?;
         let mut cx = std::task::Context::from_waker(&waker);
         loop {
             match future.as_mut().poll(&mut cx) {
@@ -172,6 +172,10 @@ impl WorkerRingLoop {
     /// interrupted wait returns early so the caller can re-poll its future.
     /// `phase` labels the io_uring error messages.
     fn pump_ring_once(&mut self, phase: &str) -> RS<()> {
+        // Catalog locks and other cross-thread futures can wake without any
+        // file I/O completing. Keep the root/registry wake eventfd armed even
+        // before the service loop starts accepting connections.
+        self.submit_mailbox_read_if_needed()?;
         self.wake_expired_ring_timeouts()?;
         self.submit_user_ring_io_if_needed()?;
         let submitted = self.ring.submit();

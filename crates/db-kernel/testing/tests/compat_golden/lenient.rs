@@ -237,7 +237,7 @@ fn missing_field_vectors() -> Vec<LenientVector> {
                scalar(bool)) and field_attrs, and whose result_set is absent",
         frame: lenient_frame(MessageKind::Query, &body),
         expect: json!({
-            "record_name": "t",
+            "struct_name": "t",
             "fields": [
                 { "field_name": "a", "field_type": "scalar(bool)", "field_attrs": [] }
             ],
@@ -368,9 +368,9 @@ fn lenient_decode_v1_vectors() {
             }
             "record-missing-fields" => {
                 let result = decode_query_result(segment).expect("decode lenient query result");
-                assert_eq!(result.tuple_desc.record_name, "t");
-                assert_eq!(result.tuple_desc.record_fields.len(), 1);
-                let field = &result.tuple_desc.record_fields[0];
+                assert_eq!(result.tuple_desc.struct_name, "t");
+                assert_eq!(result.tuple_desc.struct_fields.len(), 1);
+                let field = &result.tuple_desc.struct_fields[0];
                 assert_eq!(field.field_name, "a");
                 // The missing variant field decodes to its default case.
                 assert!(matches!(

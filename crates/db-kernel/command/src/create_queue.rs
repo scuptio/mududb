@@ -71,7 +71,7 @@ impl _InnerCreateQueue {
     }
 
     async fn prepare(&self) -> RS<()> {
-        let queue_name = self.param.schema.table_name().clone();
+        let queue_name = self.param.schema.class_name().clone();
         // Queues share the (schema, name) namespace with tables, so the
         // collision check is scoped exactly to the schema the new queue
         // belongs to, as in create-table.
@@ -83,7 +83,7 @@ impl _InnerCreateQueue {
                 .is_some()
             {
                 return Err(mudu_error!(
-                    ER::EntityAlreadyExists,
+                    ER::ObjectAlreadyExists,
                     format!("queue {} already exists", name)
                 ));
             }
@@ -93,7 +93,25 @@ impl _InnerCreateQueue {
 
     async fn run(&mut self) -> RS<()> {
         mudu_utils::scoped_task_trace!();
-        trace!(queue = %self.param.schema.table_name(), "create_queue command run start");
+        trace!(queue = %self.param.schema.class_name(), "create_queue command run start");
+        // Cluster mode: the catalog rows (queue + derived DLQ + binding)
+        // travel the MetaGroup's replicated log; the runtime shard counters
+        // still prepare locally on each shard's owner.
+        if let Some(meta_group) = self.x_contract.meta_group() {
+            meta_group
+                .apply(::catalog::contract::meta_op::MetaOp::CreateQueue {
+                    schema: self.param.schema.clone(),
+                    binding: self.param.partition_binding.clone(),
+                })
+                .await?;
+            let dlq_schema = queue_dlq_schema(&self.param.schema);
+            for queue_id in [self.param.schema.id(), dlq_schema.id()] {
+                for shard in self.x_contract.queue_shards(queue_id).await? {
+                    self.x_contract.queue_prepare_shard(&shard).await?;
+                }
+            }
+            return Ok(());
+        }
         self.x_contract
             .create_queue(self.param.tx_mgr.clone(), &self.param.schema)
             .await?;
@@ -117,7 +135,7 @@ impl _InnerCreateQueue {
                 self.x_contract.queue_prepare_shard(&shard).await?;
             }
         }
-        trace!(queue = %self.param.schema.table_name(), "create_queue command run done");
+        trace!(queue = %self.param.schema.class_name(), "create_queue command run done");
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
-//! Unit tests for the `rust::new_order::NewOrder` entity.
+//! Unit tests for the `rust::new_order::NewOrder` object.
 
-use mududb::contract::database::entity::Entity;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
 use crate::rust::new_order::object::{NewOrder, columns};
@@ -17,12 +17,12 @@ fn assert_same_new_order(lhs: &NewOrder, rhs: &NewOrder) {
 
 #[test]
 fn new_order_lifecycle() {
-    let entity = sample_new_order();
-    assert_eq!(entity.no_o_id, 1);
-    assert_eq!(entity.no_w_id, 3);
+    let object = sample_new_order();
+    assert_eq!(object.no_o_id, 1);
+    assert_eq!(object.no_w_id, 3);
 
-    // Entity metadata (insert-only queue table: no changeset API)
-    assert_eq!(NewOrder::table_name(), "new_order");
+    // Object metadata (insert-only queue table: no changeset API)
+    assert_eq!(NewOrder::class_name(), "new_order");
     assert_eq!(NewOrder::TABLE_NAME, "new_order");
     assert_eq!(NewOrder::tuple_desc().fields().len(), 3);
     assert_eq!(NewOrder::tuple_desc().fields()[0].name(), columns::NO_O_ID);
@@ -30,24 +30,24 @@ fn new_order_lifecycle() {
 
     // Datum / DatumDyn metadata
     let data_type = NewOrder::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple / value / binary / textual roundtrips
-    let tuple = entity.to_tuple().unwrap();
-    assert_same_new_order(&NewOrder::from_tuple(&tuple).unwrap(), &entity);
-    let value = entity.to_value(&data_type).unwrap();
-    assert_same_new_order(&NewOrder::from_value(&value).unwrap(), &entity);
-    let binary = entity.to_binary(&data_type).unwrap();
-    assert_same_new_order(&NewOrder::from_binary(binary.as_ref()).unwrap(), &entity);
-    let textual = entity.to_textual(&data_type).unwrap();
-    assert_same_new_order(&NewOrder::from_textual(textual.as_str()).unwrap(), &entity);
+    let tuple = object.to_tuple().unwrap();
+    assert_same_new_order(&NewOrder::from_tuple(&tuple).unwrap(), &object);
+    let value = object.to_value(&data_type).unwrap();
+    assert_same_new_order(&NewOrder::from_value(&value).unwrap(), &object);
+    let binary = object.to_binary(&data_type).unwrap();
+    assert_same_new_order(&NewOrder::from_binary(binary.as_ref()).unwrap(), &object);
+    let textual = object.to_textual(&data_type).unwrap();
+    assert_same_new_order(&NewOrder::from_textual(textual.as_str()).unwrap(), &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
-    assert_same_new_order(&NewOrder::from_value(&cloned_value).unwrap(), &entity);
+    assert_same_new_order(&NewOrder::from_value(&cloned_value).unwrap(), &object);
 
     // Insert parameters follow the column declaration order
-    let params = entity.insert_params();
+    let params = object.insert_params();
     assert_eq!(params, (1, 2, 3));
 }

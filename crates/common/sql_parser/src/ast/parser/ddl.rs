@@ -55,8 +55,8 @@ impl SQLParser {
     ) -> RS<StmtCreateTable> {
         let opt_n_name = node.child_by_field_name(ts_field_name::TABLE_NAME);
         let n_name = rs_option(opt_n_name, "no table name in create table statement")?;
-        let table_name = self.visit_identifier(context, n_name)?;
-        let mut stmt_create_table = StmtCreateTable::new(table_name);
+        let class_name = self.visit_identifier(context, n_name)?;
+        let mut stmt_create_table = StmtCreateTable::new(class_name);
         let opt_n_cd = node.child_by_field_name(ts_field_name::COLUMN_DEFINITIONS);
         let n_cd = rs_option(opt_n_cd, "no column definitions in create table statement")?;
         self.visit_column_definitions(context, n_cd, &mut stmt_create_table)?;
@@ -134,7 +134,7 @@ impl SQLParser {
                 index += 1;
                 Ok(())
             } else {
-                Err(mudu_error!(ErrorCode::EntityNotFound))
+                Err(mudu_error!(ErrorCode::ObjectNotFound))
             }
         };
         self.visit_column_list(context, n, &mut f)?;

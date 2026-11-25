@@ -17,7 +17,7 @@ pub use edit::{PageEdit, PreparedEdit};
 pub use handles::{
     PagePin, PageReadGuard, PageRef, PageReservation, PageWriteGuard, PreparedWrite, ResidentPage,
 };
-pub use image::{ImageIdentity, ImageValidator, PageImage, PageWriteback};
+pub use image::{ImageIdobject, ImageValidator, PageImage, PageWriteback};
 use mudu::{common::result::RS, error::ErrorCode, mudu_error};
 pub use ordered_file::OrderedFile;
 use std::collections::HashSet;

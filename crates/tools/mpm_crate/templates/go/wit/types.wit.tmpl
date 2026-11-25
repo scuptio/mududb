@@ -6,11 +6,11 @@
 //     XxxToValue/XxxFromValue codecs (and a wire.go helper copy) — see the
 //     Makefile `gentypes` task;
 //   - `mtp ... --type-wit wit/types.wit` registers these names so procedure
-//     signatures in procedures.go may use them (record parameters/returns,
+//     signatures in procedures.go may use them (struct parameters/returns,
 //     enum parameters) — see the Makefile `transpile` task.
 //
-// On the procedure byte pipe a record travels as the positional
-// `uni-data-value` record case (declaration order, names dropped by the
+// On the procedure byte pipe a struct travels as the positional
+// `uni-data-value` struct case (declaration order, names dropped by the
 // host); the desc JSON keys are the WIT field names verbatim.
 //
 // The `package` clause matches world.wit: one WIT directory is one package,
@@ -22,7 +22,7 @@ package mududb:{{kebab_name}};
 interface types {
     // The item fact sheet: scalar fields (u32 and bool both cross the host
     // as i32 — bool as 0/1) and a list field.
-    record item-info {
+    struct item-info {
         name: string,
         price: u32,
         in-stock: bool,

@@ -1,8 +1,8 @@
 //! Queue system-column layout shared by the SQL binder, the command
 //! executors, and the queue runtime slices.
 //!
-//! A queue is stored as a [`crate::contract::schema_table::SchemaTable`]
-//! carrying [`crate::contract::schema_table::SchemaObjectKind::Queue`] with
+//! A queue is stored as a [`crate::contract::schema_class::SchemaClass`]
+//! carrying [`crate::contract::schema_class::SchemaClassKind::Queue`] with
 //! this fixed leading column layout:
 //!
 //! - key: `__seq` — per-shard monotonic sequence number assigned at enqueue
@@ -48,13 +48,12 @@ use mudu_contract::tuple::datum_desc::DatumDesc;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::typed_bin::TypedBin;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
 
+use crate::contract::schema_class::{SchemaClass, SchemaClassKind};
 use crate::contract::schema_column::SchemaColumn;
-use crate::contract::schema_table::{SchemaObjectKind, SchemaTable};
 use crate::contract::table_desc::TableDesc;
 
 /// Name of the queue primary-key column: the per-queue monotonic sequence.
@@ -185,18 +184,40 @@ pub enum QueueWait {
 /// `<name>_dlq` in the same schema (namespace). The DLQ is a plain queue
 /// object; it is created through the storage chain directly, so it never
 /// derives a DLQ of its own.
-pub fn queue_dlq_schema(schema: &SchemaTable) -> SchemaTable {
+pub fn queue_dlq_schema(schema: &SchemaClass) -> SchemaClass {
     let mut columns = queue_system_columns();
     columns.extend(schema.columns()[QUEUE_PAYLOAD_ATTR_START..].iter().cloned());
+    // This schema is derived while applying a replicated command. No fresh
+    // identity may escape into the durable catalog on replay or another node.
+    let name = queue_dlq_name(schema.class_name());
+    let columns: Vec<_> = columns
+        .into_iter()
+        .map(|column| {
+            let mut derived = SchemaColumn::new_with_oid(
+                crate::contract::derive_oid::derive_column_oid(
+                    schema.schema(),
+                    &name,
+                    column.get_name(),
+                ),
+                column.get_name().clone(),
+                column.type_id(),
+                column.type_param().clone(),
+            );
+            derived.set_nullable(column.nullable());
+            derived.set_fs_binding(column.fs_binding());
+            derived
+        })
+        .collect();
     let value_indices = (1..columns.len()).collect();
-    let mut dlq = SchemaTable::new(
-        queue_dlq_name(schema.table_name()),
+    let mut dlq = SchemaClass::new_with_oid(
+        crate::contract::derive_oid::derive_table_oid(schema.schema(), &name),
+        name,
         columns,
         vec![QUEUE_SEQ_ATTR],
         value_indices,
     );
     dlq.set_schema(schema.schema().clone());
-    dlq.set_kind(SchemaObjectKind::Queue);
+    dlq.set_kind(SchemaClassKind::Queue);
     dlq
 }
 
@@ -220,7 +241,7 @@ pub fn is_queue_system_column(name: &str) -> bool {
 /// rows; the shard watermarks on the sentinel row).
 ///
 /// The returned columns are in original column order; `__seq` is marked
-/// non-nullable here and [`crate::contract::schema_table::SchemaTable::new`]
+/// non-nullable here and [`crate::contract::schema_class::SchemaClass::new`]
 /// normalizes its key membership when the queue schema is assembled.
 pub fn queue_system_columns() -> Vec<SchemaColumn> {
     let system = [
@@ -233,8 +254,11 @@ pub fn queue_system_columns() -> Vec<SchemaColumn> {
         .into_iter()
         .map(|(name, family)| {
             let ty = DataType::default_for(family);
-            let mut column =
-                SchemaColumn::new(name.to_string(), family, DataTypeInfo::from_opt_object(&ty));
+            let mut column = SchemaColumn::new(
+                name.to_string(),
+                family,
+                mudu_type::data_type_codec::from_opt_object(&ty),
+            );
             column.set_nullable(false);
             column
         })
@@ -244,7 +268,7 @@ pub fn queue_system_columns() -> Vec<SchemaColumn> {
         columns.push(SchemaColumn::new(
             name.to_string(),
             TypeFamily::U128,
-            DataTypeInfo::from_opt_object(&ty),
+            mudu_type::data_type_codec::from_opt_object(&ty),
         ));
     }
     columns
@@ -409,4 +433,68 @@ mod tests {
         let max = queue_state_word_datum(u64::MAX, u64::MAX).unwrap();
         assert_eq!(decode_queue_state_word(&max).unwrap(), (u64::MAX, u64::MAX));
     }
+
+    #[test]
+    fn lsn_codec_roundtrip() {
+        let datum = queue_lsn_datum(42).unwrap();
+        assert_eq!(decode_queue_lsn(&datum).unwrap(), 42);
+        let max = queue_lsn_datum(i64::MAX as u64).unwrap();
+        assert_eq!(decode_queue_lsn(&max).unwrap(), i64::MAX as u64);
+        // A negative encoded value is rejected by the decode guard.
+        assert!(decode_queue_lsn(&encode_i64_datum(-1).unwrap()).is_err());
+    }
+
+    #[test]
+    fn seq_datum_roundtrip() {
+        let datum = queue_seq_datum(7).unwrap();
+        assert_eq!(decode_queue_seq(&datum).unwrap(), 7);
+        assert!(decode_queue_seq(&encode_i64_datum(-1).unwrap()).is_err());
+    }
+
+    #[test]
+    fn status_codec_roundtrip() {
+        for status in [QUEUE_STATUS_READY, QUEUE_STATUS_CLAIMED, QUEUE_STATUS_STATE] {
+            let datum = queue_status_datum(status).unwrap();
+            assert_eq!(decode_queue_status(&datum).unwrap(), status);
+        }
+        // Values outside the u8 range are rejected by the decode guard.
+        assert!(decode_queue_status(&encode_i32_datum(256).unwrap()).is_err());
+        assert!(decode_queue_status(&encode_i32_datum(-1).unwrap()).is_err());
+    }
+
+    #[test]
+    fn receive_count_codec_roundtrip() {
+        let datum = queue_receive_count_datum(5).unwrap();
+        assert_eq!(decode_queue_receive_count(&datum).unwrap(), 5);
+        let datum = queue_receive_count_datum(-1).unwrap();
+        assert_eq!(decode_queue_receive_count(&datum).unwrap(), -1);
+    }
+
+    #[test]
+    fn datum_encode_rejects_overflowing_seq_and_lsn() {
+        assert!(queue_seq_datum(u64::MAX).is_err());
+        assert!(queue_lsn_datum(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn queue_system_column_names_are_reserved() {
+        for name in [
+            QUEUE_SEQ_COLUMN,
+            QUEUE_LSN_COLUMN,
+            QUEUE_STATUS_COLUMN,
+            QUEUE_RECEIVE_COUNT_COLUMN,
+            QUEUE_STATE_HI_COLUMN,
+            QUEUE_STATE_LO_COLUMN,
+        ] {
+            assert!(is_queue_system_column(name), "{name}");
+        }
+        assert!(!is_queue_system_column("payload"));
+        assert!(!is_queue_system_column(""));
+    }
 }
+
+#[cfg(test)]
+mod dlq_tests;
+
+mod drop;
+pub use drop::resolve_queue_dlq_for_drop;

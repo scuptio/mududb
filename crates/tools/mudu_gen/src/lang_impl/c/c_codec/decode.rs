@@ -4,8 +4,8 @@ use mudu::mudu_error;
 use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_scalar::UniScalar;
 
+use super::ctype::CTypeNamer;
 use super::ctype::c_type;
-use super::holder::CTypeNamer;
 use super::{CCodecStyle, c_type_name, pad};
 
 /// Append the statements decoding a value of type `ty` into `target` (an
@@ -49,7 +49,7 @@ pub fn c_decode_stmts(
         UniDataType::Box(inner) => {
             c_decode_box(style, inner, target, indent, depth, out, namer)?;
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("C codec does not support {:?} in this position", ty)

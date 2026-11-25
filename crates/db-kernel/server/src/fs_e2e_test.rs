@@ -103,6 +103,8 @@ async fn build_worker(dirs: &TestDirs) -> WorkerRuntime {
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();
@@ -204,7 +206,7 @@ async fn fs_e2e_ddl(local: &dyn WorkerLocal, session: OID) {
         "CREATE TABLE bad (id BIGINT PRIMARY KEY, nope nope_fs)",
     )
     .await;
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     // An explicit value for an FS column is rejected; nothing is staged.
     begin(local, session).await;
     let err = exec_sql_err(local, session, "INSERT INTO t VALUES (9, 123)").await;
@@ -431,7 +433,7 @@ fn fs_e2e_full_flow() {
         exec_sql(local, session, "DROP TABLE t").await;
         exec_sql(local, session, "DROP TYPE photo_fs").await;
         let err = exec_sql_err(local, session, "DROP TYPE photo_fs").await;
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 
         // --- Non-admin sessions cannot run fs type DDL.
         let plain = worker.create_session(77).unwrap();

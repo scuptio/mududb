@@ -7,8 +7,8 @@
 //! files, copies them together with a dump of the in-memory kv store into a
 //! versioned snapshot directory, and publishes a manifest LAST (a directory
 //! is only valid once its manifest decodes and every listed file is
-//! present, so a crash mid-publish leaves an ignored partial version and no
-//! atomic rename primitive is needed).
+//! present with matching checksums). Files and directories are synced before
+//! atomic manifest publication; a version without a manifest is incomplete.
 //!
 //! Layout (`<data_dir>/snapshot/worker_<N>/`):
 //!
@@ -17,12 +17,25 @@
 //! - `v<committed_lsn>/meta/relation/*.dat` — shared catalogs on worker 0;
 //! - `v<committed_lsn>/kv.mp` — msgpack dump of the in-memory kv store
 //!   (latest version per key, tombstones included);
+//! - `v<committed_lsn>/recovery.mp` — local clocks and participant image at the row cut;
 //! - `v<committed_lsn>/manifest.mp` — the [`mudu_contract::protocol::ReplSnapshotManifest`],
 //!   fetched last so an incomplete directory is never offered.
 //!
 //! Older versions are reclaimed once a newer manifest is durable; the
 //! loader always picks the highest valid version, so a leftover partial
 //! version is harmless.
+
+mod base;
+mod install;
+mod startup;
+pub use base::recovery_base_resume;
+pub use startup::recover_worker_storage;
+mod manifest;
+mod recovery;
+pub(crate) use install::InstallJournal;
+pub use install::{ensure_no_pending_installs, recover_pending_installs};
+pub use manifest::{seal_snapshot, validate_snapshot_manifest};
+pub use recovery::restore_snapshot_recovery_metadata;
 
 use crate::seg_hash::SegHash;
 use ::worker::worker::flush_worker_dirty_pages;
@@ -35,6 +48,7 @@ use mudu::mudu_error;
 use mudu_contract::protocol::{ReplSnapshotFileEntry, ReplSnapshotManifest};
 use mudu_sys::contract::async_fs::AsyncFs;
 use mudu_sys::contract::file_options::FileOptions;
+#[cfg(test)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -61,9 +75,10 @@ pub fn snapshot_version_dir(data_dir: &str, worker_index: u32, committed_lsn: u6
     snapshot_worker_dir(data_dir, worker_index).join(format!("v{committed_lsn}"))
 }
 
-/// Loads the newest valid snapshot manifest of the worker: the highest
-/// version whose manifest decodes and whose files are all present with the
-/// recorded lengths. Returns `None` when no valid snapshot exists.
+/// Loads the newest sealed snapshot after identity, length and CRC checks.
+/// Unsealed versions are ignored. A corrupt sealed version fails closed:
+/// its prefix may already have been reclaimed, so an older cut is not a safe
+/// fallback. Returns `None` only when no sealed snapshot exists.
 pub(crate) fn load_latest_manifest(
     data_dir: &str,
     worker_index: u32,
@@ -85,26 +100,14 @@ pub(crate) fn load_latest_manifest(
         }
     }
     versions.sort_by_key(|(lsn, _)| *lsn);
-    for (_, dir) in versions.into_iter().rev() {
-        let manifest_path = dir.join(MANIFEST_FILE_NAME);
-        if !mudu_sys::fs::sync::sync_path_exists(&manifest_path) {
-            continue;
-        }
-        let bytes = mudu_sys::fs::sync::read(&manifest_path)?;
-        let manifest: ReplSnapshotManifest = match rmp_serde::from_slice(&bytes) {
-            Ok(manifest) => manifest,
-            Err(_) => continue,
-        };
-        if manifest.version != 1 {
-            continue;
-        }
-        let complete = manifest.files.iter().all(|entry| {
-            let path = dir.join(&entry.path);
-            mudu_sys::fs::sync::metadata(&path)
-                .map(|meta| meta.len() == entry.len)
-                .unwrap_or(false)
-        });
-        if complete {
+    for (lsn, dir) in versions.into_iter().rev() {
+        if let Some(manifest) = manifest::read_sealed(&dir)? {
+            if manifest.worker_index != worker_index || manifest.committed_lsn != lsn {
+                return Err(mudu_error!(
+                    ErrorCode::CorruptedData,
+                    "snapshot directory identity mismatch"
+                ));
+            }
             return Ok(Some(manifest));
         }
     }
@@ -114,6 +117,7 @@ pub(crate) fn load_latest_manifest(
 /// Verifies every file of the snapshot in `dir` against the manifest
 /// (length and CRC64). Used by the restoring replica after the fetch.
 pub fn verify_snapshot_files(dir: &Path, manifest: &ReplSnapshotManifest) -> RS<()> {
+    validate_snapshot_manifest(manifest)?;
     for entry in &manifest.files {
         let path = dir.join(&entry.path);
         let bytes = mudu_sys::fs::sync::read(&path)?;
@@ -139,6 +143,7 @@ pub fn verify_snapshot_files(dir: &Path, manifest: &ReplSnapshotManifest) -> RS<
             ));
         }
     }
+    recovery::read(dir, manifest)?;
     Ok(())
 }
 
@@ -150,6 +155,7 @@ pub(crate) async fn read_snapshot_page(
     offset: u64,
     len: u64,
 ) -> RS<Vec<u8>> {
+    manifest::validate_path(path)?;
     let rel = Path::new(path);
     if rel.is_absolute()
         || rel
@@ -165,7 +171,7 @@ pub(crate) async fn read_snapshot_page(
     let fs = mudu_sys::default_sys_io_context().provider_arc().fs_arc();
     if !fs.path_exists(&full).await? {
         return Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("snapshot file {} not found", full.display())
         ));
     }
@@ -193,6 +199,29 @@ pub async fn take_worker_snapshot(
     raft_term: u64,
     raft_index: u64,
 ) -> RS<ReplSnapshotManifest> {
+    // Hold this through manifest publication. Checking history before/after
+    // copying alone leaves a window for a new prepare to enter after the
+    // final check but before the snapshot is advertised.
+    if worker.worker_index() != worker_index as usize {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            "snapshot worker identity mismatch"
+        ));
+    }
+    let participant_storage = worker.storage();
+    let _participant_cut = participant_storage.capture_participant_snapshot().await?;
+    let resume = committed_lsn
+        .checked_add(1)
+        .ok_or_else(|| mudu_error!(ErrorCode::InvalidState, "snapshot WAL LSN exhausted"))?;
+    if raft_index != 0 || worker.raft_share().is_some() {
+        _participant_cut.require_wal_resume(resume)?;
+    }
+    if worker.storage().has_participant_history()? {
+        return Err(mudu_error!(
+            ErrorCode::InvalidState,
+            "participant WAL history requires a participant-aware snapshot"
+        ));
+    }
     let data_dir = worker.storage().relation_path().to_string();
     let fs = mudu_sys::default_sys_io_context().provider_arc().fs_arc();
     // 1. flush + fsync: the copied data files then cover every commit up to
@@ -202,11 +231,16 @@ pub async fn take_worker_snapshot(
     fsync_relation_files(&data_dir, fs.as_ref()).await?;
 
     let version_dir = snapshot_version_dir(&data_dir, worker_index, committed_lsn);
+    if let Some(existing) =
+        manifest::reusable_snapshot(&version_dir, worker_index, committed_lsn, seg_hash)?
+    {
+        base::publish(&data_dir, worker.worker_id(), &existing).await?;
+        return Ok(existing);
+    }
     if mudu_sys::fs::sync::sync_path_exists(&version_dir) {
         mudu_sys::fs::sync::sync_remove_dir_all(&version_dir)?;
     }
-    fs.create_dir_all(&version_dir.join(RELATION_DIR_NAME))
-        .await?;
+    crate::durable_io::ensure_dir(fs.as_ref(), &version_dir.join(RELATION_DIR_NAME)).await?;
 
     // 2. copy the relation files of this worker's partitions.
     let mut files = copy_relation_files(worker, &fs, &data_dir, &version_dir).await?;
@@ -216,10 +250,11 @@ pub async fn take_worker_snapshot(
 
     // 3. dump the in-memory kv store (latest version per key).
     files.push(dump_kv_into(worker, &fs, &version_dir).await?);
+    files.push(recovery::write(&fs, &version_dir, worker_index, resume, &_participant_cut).await?);
 
     // 4. manifest LAST: its presence marks the version as valid.
     let manifest = ReplSnapshotManifest {
-        version: 1,
+        version: 2,
         worker_index,
         committed_lsn,
         seg_hash,
@@ -231,9 +266,8 @@ pub async fn take_worker_snapshot(
             .unwrap_or(0),
         files,
     };
-    let manifest_bytes = rmp_serde::to_vec(&manifest)
-        .map_err(|e| mudu_error!(ErrorCode::Encode, "encode snapshot manifest error", e))?;
-    write_file_sync(&version_dir.join(MANIFEST_FILE_NAME), &manifest_bytes)?;
+    seal_snapshot(&version_dir, &manifest).await?;
+    base::publish(&data_dir, worker.worker_id(), &manifest).await?;
 
     // 5. reclaim older versions now that this one is valid.
     let worker_dir = snapshot_worker_dir(&data_dir, worker_index);
@@ -244,7 +278,7 @@ pub async fn take_worker_snapshot(
         files = manifest.files.len(),
         "worker snapshot taken"
     );
-    crate::status::note_snapshot_taken(worker.server_instance_id());
+    crate::counters::note_snapshot_taken(worker.server_instance_id());
     Ok(manifest)
 }
 
@@ -327,8 +361,21 @@ async fn dump_kv_into(
 /// Removes every snapshot version of the worker except `keep`; called once
 /// the new version's manifest is durable. Reclaim failures only log.
 fn reclaim_old_versions(worker_dir: &Path, keep: &Path) -> RS<()> {
+    if install::has_pending_install(worker_dir) {
+        return Ok(());
+    }
+    let pinned = base::pinned_version(worker_dir)?;
     for path in mudu_sys::fs::sync::read_dir(worker_dir)? {
-        if path != keep {
+        if pinned.as_ref() != Some(&path)
+            && path != keep
+            && path
+                .file_name()
+                .and_then(|p| p.to_str())
+                .is_some_and(|name| {
+                    name.strip_prefix('v')
+                        .is_some_and(|lsn| lsn.parse::<u64>().is_ok())
+                })
+        {
             if let Err(err) = mudu_sys::fs::sync::sync_remove_dir_all(&path) {
                 warn!(path = %path.display(), "snapshot old version reclaim failed: {err}");
             }
@@ -390,6 +437,7 @@ async fn write_bytes_into(
 }
 
 /// Writes bytes synchronously with an fsync (manifest publish).
+#[cfg(test)]
 fn write_file_sync(path: &Path, bytes: &[u8]) -> RS<()> {
     let mut options = mudu_sys::fs::sync::SOpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -417,6 +465,8 @@ pub async fn install_snapshot_relation_files(
     snapshot_dir: &Path,
     manifest: &ReplSnapshotManifest,
 ) -> RS<()> {
+    verify_snapshot_files(snapshot_dir, manifest)?;
+    let fs = mudu_sys::default_sys_io_context().provider_arc().fs_arc();
     let relation_prefix = format!("{RELATION_DIR_NAME}/");
     let catalog_prefix = format!("meta/{RELATION_DIR_NAME}/");
     for entry in &manifest.files {
@@ -430,11 +480,11 @@ pub async fn install_snapshot_relation_files(
         } else {
             continue;
         };
-        let bytes = mudu_sys::fs::sync::read(snapshot_dir.join(&entry.path))?;
+        let bytes = fs.read_all(&snapshot_dir.join(&entry.path)).await?;
         if let Some(parent) = dest.parent() {
-            mudu_sys::fs::sync::create_dir_all(parent)?;
+            crate::durable_io::ensure_dir(fs.as_ref(), parent).await?;
         }
-        write_file_sync(&dest, &bytes)?;
+        crate::durable_io::publish(fs.as_ref(), &dest, &bytes).await?;
     }
     Ok(())
 }
@@ -446,19 +496,43 @@ const SNAPSHOT_FETCH_PAGE: u64 = 4 * 1024 * 1024;
 const SNAPSHOT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Downloads every file of `manifest` from `addr` into `dest_dir`
-/// (the local snapshot version directory), writing the manifest LAST and
-/// verifying every file's CRC64 before returning. Recreated from scratch,
-/// so a failed fetch simply starts over on the next offer.
+/// (the local snapshot version directory), verifying every file before
+/// publishing the manifest. Only unsealed partial versions may be replaced;
+/// an identical sealed version is reused, never deleted by a retry.
 pub(crate) async fn fetch_snapshot(
     addr: &str,
     worker_index: u32,
     manifest: &ReplSnapshotManifest,
     dest_dir: &Path,
 ) -> RS<()> {
+    validate_snapshot_manifest(manifest)?;
+    if manifest.worker_index != worker_index {
+        return Err(mudu_error!(
+            ErrorCode::CorruptedData,
+            "snapshot worker identity mismatch"
+        ));
+    }
+    if let Some(existing) = manifest::read_sealed(dest_dir)? {
+        return if existing == *manifest {
+            Ok(())
+        } else {
+            Err(mudu_error!(
+                ErrorCode::InvalidState,
+                "refusing to overwrite a sealed snapshot"
+            ))
+        };
+    }
     if mudu_sys::fs::sync::sync_path_exists(dest_dir) {
         mudu_sys::fs::sync::sync_remove_dir_all(dest_dir)?;
     }
-    mudu_sys::fs::sync::create_dir_all(dest_dir)?;
+    crate::durable_io::ensure_dir(
+        mudu_sys::default_sys_io_context()
+            .provider_arc()
+            .fs_arc()
+            .as_ref(),
+        dest_dir,
+    )
+    .await?;
     let mut stream = mudu_sys::net::AsyncTcpStream::connect(addr)
         .await
         .map_err(|e| {
@@ -474,11 +548,7 @@ pub(crate) async fn fetch_snapshot(
     for entry in &manifest.files {
         fetch_snapshot_file(&mut stream, worker_index, manifest, entry, dest_dir).await?;
     }
-    // The manifest lands last: the version is only valid once complete.
-    let manifest_bytes = rmp_serde::to_vec(manifest)
-        .map_err(|e| mudu_error!(ErrorCode::Encode, "encode snapshot manifest error", e))?;
-    write_file_sync(&dest_dir.join(MANIFEST_FILE_NAME), &manifest_bytes)?;
-    verify_snapshot_files(dest_dir, manifest)
+    seal_snapshot(dest_dir, manifest).await
 }
 
 /// Pages one snapshot file from the source and writes it fsynced into the
@@ -562,15 +632,7 @@ async fn fetch_snapshot_file(
                 format!("snapshot fetch of {} timed out", entry.path)
             )
         })??;
-        if data.is_empty() && page_len > 0 {
-            return Err(mudu_error!(
-                ErrorCode::Network,
-                format!(
-                    "snapshot fetch of {} ended early at offset {offset} of {}",
-                    entry.path, entry.len
-                )
-            ));
-        }
+        manifest::validate_page_length(data.len() as u64, page_len)?;
         file.write_all_at(offset, &data).await?;
         offset += data.len() as u64;
         if offset >= entry.len {
@@ -623,8 +685,25 @@ mod tests {
             len: kv_bytes.len() as u64,
             crc64: crc64(&kv_bytes),
         });
-        let manifest = ReplSnapshotManifest {
+        let image = recovery::RecoveryImage {
             version: 1,
+            worker_index,
+            wal_resume: lsn + 1,
+            watermarks: xcontract::worker_storage::RecoveryWatermarks {
+                max_xid: kv_entries.iter().map(|(_, ts, _)| *ts).max().unwrap_or(0),
+                applied_epoch: 0,
+            },
+            participants: Default::default(),
+        };
+        let recovery_bytes = rmp_serde::to_vec(&image).unwrap();
+        write_file_sync(&dir.join(recovery::RECOVERY_FILE), &recovery_bytes).unwrap();
+        files.push(ReplSnapshotFileEntry {
+            path: recovery::RECOVERY_FILE.into(),
+            len: recovery_bytes.len() as u64,
+            crc64: crc64(&recovery_bytes),
+        });
+        let manifest = ReplSnapshotManifest {
+            version: 2,
             worker_index,
             committed_lsn: lsn,
             seg_hash: [3u8; 32],
@@ -681,7 +760,148 @@ mod tests {
         let dir1 = snapshot_version_dir(&data_dir, 1, 100);
         mudu_sys::fs::sync::sync_remove_dir_all(dir1.join(RELATION_DIR_NAME)).unwrap();
         assert!(verify_snapshot_files(&dir1, &manifest_missing).is_err());
-        // the loader skips the incomplete version and reports none
-        assert!(load_latest_manifest(&data_dir, 1).unwrap().is_none());
+        // A sealed snapshot missing bytes fails closed; it may already protect GC.
+        assert!(load_latest_manifest(&data_dir, 1).is_err());
+    }
+
+    #[test]
+    fn invalid_manifest_file_sets_are_rejected() {
+        assert!(manifest::validate_page_length(0, 1).is_err());
+        assert!(manifest::validate_page_length(2, 1).is_err());
+        assert!(manifest::validate_page_length(0, 0).is_ok());
+        assert!(manifest::validate_page_length(1, 2).is_ok());
+        let root = temp_snapshot_root();
+        let original = write_version(&root, 0, 1, &[], &[], false);
+        for path in [
+            "../kv.mp",
+            "/kv.mp",
+            "relation/../x.dat",
+            "relation//x.dat",
+            "relation/./x.dat",
+            "relation\\x.dat",
+            "manifest.mp",
+            "unknown.mp",
+        ] {
+            let mut manifest = original.clone();
+            manifest.files[0].path = path.to_string();
+            assert!(validate_snapshot_manifest(&manifest).is_err(), "{path}");
+        }
+        let mut manifest = original.clone();
+        manifest.files.push(manifest.files[0].clone());
+        assert!(validate_snapshot_manifest(&manifest).is_err());
+        manifest = original.clone();
+        manifest.files.clear();
+        assert!(validate_snapshot_manifest(&manifest).is_err());
+        manifest = original.clone();
+        manifest.version = 99;
+        assert!(validate_snapshot_manifest(&manifest).is_err());
+        manifest = original;
+        manifest.committed_lsn = u64::MAX;
+        assert!(validate_snapshot_manifest(&manifest).is_err());
+    }
+
+    #[test]
+    fn sealed_corruption_never_falls_back_to_an_older_cut() {
+        let root = temp_snapshot_root();
+        write_version(&root, 0, 1, &[], &[], true);
+        write_version(&root, 0, 2, &[], &[("x.dat", b"abc")], true);
+        let newer = snapshot_version_dir(&root, 0, 2);
+        mudu_sys::fs::sync::write(newer.join("relation/x.dat"), b"abd").unwrap();
+        assert!(load_latest_manifest(&root, 0).is_err());
+        // Same length does not make corrupted bytes a recoverable snapshot.
+        assert!(manifest::reusable_snapshot(&newer, 0, 2, [3; 32]).is_err());
+    }
+
+    #[test]
+    fn failed_seal_leaves_no_manifest_and_retry_publishes_verified_files() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let root = temp_snapshot_root();
+            let manifest = write_version(&root, 0, 1, &[], &[("x.dat", b"abc")], false);
+            let dir = snapshot_version_dir(&root, 0, 1);
+            mudu_sys::fs::sync::write(dir.join("relation/x.dat"), b"abd").unwrap();
+            assert!(seal_snapshot(&dir, &manifest).await.is_err());
+            assert!(!mudu_sys::fs::sync::sync_path_exists(
+                dir.join(MANIFEST_FILE_NAME)
+            ));
+            assert!(load_latest_manifest(&root, 0).unwrap().is_none());
+            mudu_sys::fs::sync::write(dir.join("relation/x.dat"), b"abc").unwrap();
+            seal_snapshot(&dir, &manifest).await.unwrap();
+            assert_eq!(
+                load_latest_manifest(&root, 0).unwrap(),
+                Some(manifest.clone())
+            );
+            let mut replacement = manifest.clone();
+            replacement.committed_lsn = 2;
+            assert!(seal_snapshot(&dir, &replacement).await.is_err());
+            assert_eq!(load_latest_manifest(&root, 0).unwrap(), Some(manifest));
+            assert!(manifest::reusable_snapshot(&dir, 1, 1, [3; 32]).is_err());
+            assert!(manifest::reusable_snapshot(&dir, 0, 1, [4; 32]).is_err());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn restore_checks_every_file_before_replacing_any_live_relation() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async {
+            let root = temp_snapshot_root();
+            let manifest = write_version(
+                &root,
+                0,
+                1,
+                &[],
+                &[("x.dat", b"new"), ("y.dat", b"abc")],
+                true,
+            );
+            let dir = snapshot_version_dir(&root, 0, 1);
+            let target = temp_snapshot_root();
+            mudu_sys::fs::sync::create_dir_all(Path::new(&target).join("relation")).unwrap();
+            let live = Path::new(&target).join("relation/x.dat");
+            mudu_sys::fs::sync::write(&live, b"old").unwrap();
+            mudu_sys::fs::sync::write(dir.join("relation/y.dat"), b"abd").unwrap();
+            assert!(install_snapshot_relation_files(&target, &dir, &manifest)
+                .await
+                .is_err());
+            assert_eq!(mudu_sys::fs::sync::read(&live).unwrap(), b"old");
+        })
+        .unwrap();
+    }
+    #[test]
+    fn recovery_image_rejects_foreign_cut_and_insufficient_clocks() {
+        let root = temp_snapshot_root();
+        let manifest = write_version(
+            &root,
+            0,
+            7,
+            &[(b"k".to_vec(), 9, Some(b"v".to_vec()))],
+            &[],
+            true,
+        );
+        let dir = snapshot_version_dir(&root, 0, 7);
+        let original = mudu_sys::fs::sync::read(dir.join(recovery::RECOVERY_FILE)).unwrap();
+        for kind in 0..4 {
+            let mut image: recovery::RecoveryImage = rmp_serde::from_slice(&original).unwrap();
+            match kind {
+                0 => image.worker_index = 1,
+                1 => image.wal_resume += 1,
+                2 => image.watermarks.max_xid = 8,
+                _ => image.version = 99,
+            }
+            let bytes = rmp_serde::to_vec(&image).unwrap();
+            write_file_sync(&dir.join(recovery::RECOVERY_FILE), &bytes).unwrap();
+            let mut amended = manifest.clone();
+            let entry = amended
+                .files
+                .iter_mut()
+                .find(|e| e.path == recovery::RECOVERY_FILE)
+                .unwrap();
+            entry.len = bytes.len() as u64;
+            entry.crc64 = crc64(&bytes);
+            // CRC alone is insufficient: even a correctly checksummed image
+            // must match the manifest cut and cover the stored row clocks.
+            assert!(verify_snapshot_files(&dir, &amended).is_err());
+        }
+        let mut old = manifest;
+        old.version = 1;
+        assert!(validate_snapshot_manifest(&old).is_err());
     }
 }

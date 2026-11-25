@@ -7,7 +7,7 @@
 //! types module):
 //!
 //! - scalars / unrecognized hints: `_from_uni(proc_param.param_list[i])`.
-//! - WIT records: `mududb.codec.bridge.record_field_values` unwraps the
+//! - WIT records: `mududb.codec.bridge.struct_field_values` unwraps the
 //!   `uni-data-value` record-case envelope into the positional field dict
 //!   the generated `xxx_from_value` codec decodes.
 //! - WIT enums: the generated `xxx_from_value` decodes the ordinal integer.
@@ -20,7 +20,7 @@
 //! the record-case envelope.
 
 use crate::common::ident::{is_valid_identifier, sanitize_identifier};
-use crate::python::procedure::{PyProcedure, PyValueType};
+use crate::python::types::{PyProcedure, PyValueType};
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -47,7 +47,7 @@ struct AdapterTemplate<'a> {
 /// types module (`--type-import`, e.g. `gentypes` or `gentypes.types`); it
 /// is required exactly when a procedure signature references a user-defined
 /// type from `--type-wit`.
-pub(super) fn render_adapter_source(
+pub fn render_adapter_source(
     input_path: &Path,
     procedures: &[PyProcedure],
     type_import: Option<&str>,
@@ -68,15 +68,15 @@ pub(super) fn render_adapter_source(
             "Python procedures reference user-defined types from --type-wit: pass --type-import with the dotted module path of the mgen-generated types module (e.g. \"gentypes\")"
         ));
     }
-    let uses_record_bridge = procedures.iter().any(|procedure| {
+    let uses_struct_bridge = procedures.iter().any(|procedure| {
         procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge())
+            .any(|param| param.value_type.uses_struct_bridge())
             || procedure
                 .return_value_types
                 .iter()
-                .any(|value_type| value_type.uses_record_bridge())
+                .any(|value_type| value_type.uses_struct_bridge())
     });
     let types_alias = match type_import {
         Some(type_import) => py_types_alias(type_import)?,
@@ -88,7 +88,7 @@ pub(super) fn render_adapter_source(
         .collect::<Vec<_>>();
     AdapterTemplate {
         source_module: source_module(input_path)?,
-        extra_imports: extra_imports(type_import, &types_alias, uses_record_bridge),
+        extra_imports: extra_imports(type_import, &types_alias, uses_struct_bridge),
         procedures: &adapter_procedures,
     }
     .render()
@@ -101,7 +101,7 @@ pub(super) fn render_adapter_source(
 /// encoded). Empty when neither applies, keeping the historical output
 /// byte-identical. A non-empty value ends with a newline so the template
 /// keeps one blank line before the transport wiring comment.
-fn extra_imports(type_import: Option<&str>, types_alias: &str, uses_record_bridge: bool) -> String {
+fn extra_imports(type_import: Option<&str>, types_alias: &str, uses_struct_bridge: bool) -> String {
     let mut imports = String::new();
     if let Some(type_import) = type_import {
         if type_import == types_alias {
@@ -110,9 +110,9 @@ fn extra_imports(type_import: Option<&str>, types_alias: &str, uses_record_bridg
             imports.push_str(&format!("import {type_import} as {types_alias}\n"));
         }
     }
-    if uses_record_bridge {
+    if uses_struct_bridge {
         imports.push_str(
-            "from mududb.codec.bridge import (\n    record_field_values as _record_fields,\n    record_from_field_values as _record_from_fields,\n)\n",
+            "from mududb.codec.bridge import (\n    struct_field_values as _struct_fields,\n    record_from_field_values as _record_from_fields,\n)\n",
         );
     }
     imports
@@ -189,7 +189,7 @@ impl AdapterProcedure {
         let custom_result = procedure
             .return_value_types
             .iter()
-            .any(|value_type| value_type.uses_record_bridge());
+            .any(|value_type| value_type.uses_struct_bridge());
         let result_values = if custom_result {
             let single = procedure.return_value_types.len() == 1;
             Some(
@@ -226,7 +226,7 @@ impl AdapterProcedure {
 /// the generic `_from_uni`.
 fn needs_custom_decode(value_type: &PyValueType) -> bool {
     match value_type {
-        PyValueType::Record(_) | PyValueType::Enum(_) => true,
+        PyValueType::Struct(_) | PyValueType::Enum(_) => true,
         PyValueType::Option(inner) => needs_custom_decode(inner),
         _ => false,
     }
@@ -237,8 +237,8 @@ fn needs_custom_decode(value_type: &PyValueType) -> bool {
 fn decode_line(value_type: &PyValueType, local: &str, index: usize, alias: &str) -> String {
     let param_expr = format!("proc_param.param_list[{index}]");
     match value_type {
-        PyValueType::Record(custom) => format!(
-            "{local} = {alias}.{}_from_value(_record_fields({param_expr}))",
+        PyValueType::Struct(custom) => format!(
+            "{local} = {alias}.{}_from_value(_struct_fields({param_expr}))",
             custom.name_snake
         ),
         PyValueType::Enum(custom) => format!(
@@ -246,8 +246,8 @@ fn decode_line(value_type: &PyValueType, local: &str, index: usize, alias: &str)
             custom.name_snake
         ),
         PyValueType::Option(inner) => match inner.as_ref() {
-            PyValueType::Record(custom) => format!(
-                "{local} = None if _from_uni({param_expr}) is None else {alias}.{}_from_value(_record_fields({param_expr}))",
+            PyValueType::Struct(custom) => format!(
+                "{local} = None if _from_uni({param_expr}) is None else {alias}.{}_from_value(_struct_fields({param_expr}))",
                 custom.name_snake
             ),
             PyValueType::Enum(custom) => format!(
@@ -265,7 +265,7 @@ fn decode_line(value_type: &PyValueType, local: &str, index: usize, alias: &str)
 /// bridge; everything else goes through the generic `_to_uni`.
 fn result_value_expr(value_type: &PyValueType, expr: &str, alias: &str) -> String {
     match value_type {
-        PyValueType::Record(custom) => {
+        PyValueType::Struct(custom) => {
             format!(
                 "_record_from_fields({alias}.{}_to_value({expr}))",
                 custom.name_snake
@@ -299,7 +299,7 @@ fn claim_local(used: &mut std::collections::HashSet<String>, name: &str, index: 
 /// root-level `mp2-<kebab>` byte-pipe function per procedure (the same world
 /// shape the AssemblyScript and C# guests use). Thin wrapper over the shared
 /// [`crate::common::wit::render_wit`].
-pub(super) fn render_wit(procedures: &[PyProcedure], module_name: &str) -> String {
+pub fn render_wit(procedures: &[PyProcedure], module_name: &str) -> String {
     let names = procedures
         .iter()
         .map(|procedure| procedure.name.clone())

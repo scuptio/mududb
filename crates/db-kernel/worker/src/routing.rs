@@ -104,7 +104,7 @@ impl SessionOpenConfig {
 /// A missing document, or a `worker_id` of 0, targets the accepting worker
 /// (`default_worker_index` / `default_worker_id`); any other `worker_id` is
 /// resolved to a worker index through `registry` and fails with
-/// `EntityNotFound` when no such worker exists. OID fields accept a number,
+/// `ObjectNotFound` when no such worker exists. OID fields accept a number,
 /// a decimal string, or a `{h, l}` pair.
 pub fn parse_session_open_config(
     config_json: Option<&str>,
@@ -130,7 +130,7 @@ pub fn parse_session_open_config(
                     .worker_index_by_worker_id(worker_id)
                     .ok_or_else(|| {
                         mudu_error!(
-                            ErrorCode::EntityNotFound,
+                            ErrorCode::ObjectNotFound,
                             format!("no such worker id {}", worker_id)
                         )
                     })?;

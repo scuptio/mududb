@@ -2,7 +2,7 @@
 
 use crate::common::ident::is_valid_identifier;
 use crate::common::type_registry::TypeRegistry;
-use crate::csharp::procedure::{CsParam, CsProcedure, CsValueType};
+use crate::csharp::types::{CsParam, CsProcedure, CsValueType};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

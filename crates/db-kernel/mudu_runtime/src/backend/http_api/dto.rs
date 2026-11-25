@@ -200,11 +200,11 @@ pub struct RaftStatusResponse {
 pub struct StreamStatusResponse {
     /// Current stream epoch.
     pub epoch: u64,
-    /// The primary this node is or follows.
+    /// The Primary this node is or follows.
     pub primary_node_id: Option<u64>,
-    /// Whether this node is the primary.
+    /// Whether this node is the Primary.
     pub is_primary: bool,
-    /// Whether the primary waits for a replica's durable ack per commit.
+    /// Whether the Primary waits for a StreamFollower's durable ack per commit.
     pub sync: bool,
     /// Synchronous replication wait timeout in milliseconds.
     pub sync_timeout_ms: u64,
@@ -275,14 +275,13 @@ pub struct ReplicationStorageResponse {
 /// Operational counters of the replication layer (this server's lifetime).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplicationCountersResponse {
-    /// Synchronous stream commits that failed on the replica-ack timeout.
+    /// Synchronous stream commits that failed on the StreamFollower ack timeout.
     pub sync_write_timeouts: u64,
     /// Worker snapshots taken locally.
     pub snapshots_taken: u64,
     /// Worker WAL chunks reclaimed by the prefix GC.
     pub wal_chunks_reclaimed: u64,
     /// Staging chunks reclaimed by the prefix GC.
-    pub staging_chunks_reclaimed: u64,
     /// Snapshot offers served to lagging subscribers.
     pub snapshot_offers_served: u64,
     /// Snapshot restores completed on this node.
@@ -315,7 +314,7 @@ pub struct ReplRoleResponse {
     pub role: String,
     /// The node's current stream epoch.
     pub epoch: u64,
-    /// Node id of the primary this node is or follows.
+    /// Node id of the Primary this node is or follows.
     pub primary_node_id: u64,
 }
 
@@ -334,6 +333,10 @@ pub struct PartitionRouteRequest {
     /// Range end key, exclusive (mutually exclusive with `key`).
     #[serde(default)]
     pub end: Option<Vec<String>>,
+    /// Batch of point-lookup keys (mutually exclusive with `key`/`start`/
+    /// `end`); the response carries one route group per key, in order.
+    #[serde(default)]
+    pub keys: Option<Vec<Vec<String>>>,
 }
 
 /// One routed partition and the worker hosting it.
@@ -351,6 +354,76 @@ pub struct PartitionRouteEntry {
         deserialize_with = "deserialize_oid_from_unioid"
     )]
     pub worker_id: mudu::common::id::OID,
+    /// Owning node group (cluster mode only).
+    #[serde(default)]
+    pub group_id: Option<u64>,
+    /// Serving node of the group (cluster mode only).
+    #[serde(default)]
+    pub node_id: Option<u64>,
+    /// Client (pgwire) address of the serving node (cluster mode only), for
+    /// direct client routing.
+    #[serde(default)]
+    pub client_addr: Option<String>,
+}
+
+/// Request of the partition-move endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PartitionMoveRequest {
+    /// Name of the partition rule.
+    pub rule: String,
+    /// Name of the partition within the rule.
+    pub partition: String,
+    /// Target node group.
+    pub group_id: u64,
+    /// Target worker index within the group's nodes (default 0).
+    #[serde(default)]
+    pub worker_index: Option<u32>,
+}
+
+/// Response of the partition-move endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PartitionMoveResponse {
+    /// The partition's route after the move.
+    pub routes: Vec<PartitionRouteEntry>,
+    /// The placement version the flip committed at (the MetaGroup raft
+    /// index), for route-cache invalidation.
+    pub placement_version: u64,
+    /// Rows re-homed by a split/merge (0 for a move).
+    #[serde(default)]
+    pub rows_rehomed: u64,
+}
+
+/// Request of the partition-split endpoint (phase 3 §9.3).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PartitionSplitRequest {
+    /// Name of the partition rule.
+    pub rule: String,
+    /// Name of the partition to split.
+    pub partition: String,
+    /// Split point: textual bound values, one per partition-key column.
+    pub at: Vec<String>,
+    /// Name of the new partition receiving the `[at, end)` range.
+    pub new_partition: String,
+}
+
+/// Request of the partition-merge endpoint (phase 3 §9.3).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PartitionMergeRequest {
+    /// Name of the partition rule.
+    pub rule: String,
+    /// Name of the surviving (left) partition.
+    pub left: String,
+    /// Name of the dropped (right) partition.
+    pub right: String,
+}
+
+/// Request of the partition-move abort endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PartitionMoveAbortRequest {
+    /// Name of the partition rule.
+    pub rule: String,
+    /// Name of the partition within the rule.
+    pub partition: String,
 }
 
 /// Response of the partition-route endpoint.
@@ -358,6 +431,17 @@ pub struct PartitionRouteEntry {
 pub struct PartitionRouteResponse {
     /// Routed partition/worker pairs.
     pub routes: Vec<PartitionRouteEntry>,
+    /// Version of the partition rule the routing used.
+    #[serde(default)]
+    pub rule_version: u64,
+    /// Cluster topology version (0 when the server is not in cluster mode).
+    #[serde(default)]
+    pub topology_version: u64,
+    /// Dynamic placement overlay version (phase 3; the raft index of the
+    /// last placement-affecting meta op applied on the responding node).
+    /// Route caches key on `(topology_version, placement_version)`.
+    #[serde(default)]
+    pub placement_version: u64,
 }
 
 /// Response of the queue observability endpoint (`GET /mudu/server/queues`).
@@ -563,6 +647,9 @@ mod tests {
         let entry = PartitionRouteEntry {
             partition_id: 1234,
             worker_id: 5678,
+            group_id: Some(2),
+            node_id: Some(7),
+            client_addr: Some("10.0.0.7:5432".to_string()),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: PartitionRouteEntry = serde_json::from_str(&json).unwrap();

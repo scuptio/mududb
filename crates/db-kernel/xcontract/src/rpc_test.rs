@@ -15,8 +15,7 @@ use async_trait::async_trait;
 use mudu::channel::{DeliveryMode, Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter};
 use mudu_sys::env_var::temp_dir;
 use mudu_sys::sync::SMutex;
-use mudu_type::data_type_fn_param::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
 use mudu_utils::channel::{
     set_current_channel, unset_current_channel, ChannelEndpoint, KindHandler,
@@ -31,24 +30,30 @@ mod assignments;
 mod cross_partition;
 #[path = "rpc_test/locks_deltas.rs"]
 mod locks_deltas;
+#[path = "rpc_test/migration.rs"]
+mod migration;
 #[path = "rpc_test/rpc_ops.rs"]
 mod rpc_ops;
 
-fn test_schema() -> ::catalog::contract::schema_table::SchemaTable {
+fn test_schema() -> ::catalog::contract::schema_class::SchemaClass {
     // Use a fixed OID so helper functions that rebuild the schema return the same table id.
-    ::catalog::contract::schema_table::SchemaTable::new_with_oid(
+    ::catalog::contract::schema_class::SchemaClass::new_with_oid(
         42,
         "t".to_string(),
         vec![
             SchemaColumn::new(
                 "id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "v".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
         ],
         vec![0],
@@ -56,7 +61,7 @@ fn test_schema() -> ::catalog::contract::schema_table::SchemaTable {
     )
 }
 
-fn meta_table(schema: &::catalog::contract::schema_table::SchemaTable) -> RS<Arc<TableDesc>> {
+fn meta_table(schema: &::catalog::contract::schema_class::SchemaClass) -> RS<Arc<TableDesc>> {
     ::catalog::contract::table_info::TableInfo::new(schema.clone())?.table_desc()
 }
 
@@ -95,6 +100,8 @@ async fn make_contract_with_worker(
         data_dir,
         async_runtime: None,
         server_instance_id: 0,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .unwrap();
     let schema = test_schema();

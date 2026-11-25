@@ -44,7 +44,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in src/ against the DDL
-# schema (see doc/dev/sql_subset.md).
+# schema (see doc/en/sql_subset.md).
 [tasks.check-sql]
 command = "cargo"
 args = [

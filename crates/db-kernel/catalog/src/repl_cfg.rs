@@ -3,12 +3,12 @@
 //! These are pure data types (no kernel-layer dependencies) shared by the
 //! server config and the replication (`repl`) layer.
 
-/// Replication role of a node in a static primary-replica cluster.
+/// Replication role of a node in a static stream-replication cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplRole {
-    /// The primary accepts writes and streams its WAL to followers.
+    /// The Primary accepts writes and streams its WAL to StreamFollowers.
     Primary,
-    /// A follower applies the primary's WAL stream and serves reads only.
+    /// A StreamFollower applies the Primary's WAL stream and serves reads only.
     Follower,
 }
 
@@ -51,14 +51,14 @@ impl ReplPeerCfg {
 pub enum ReplMode {
     /// Raft consensus fault tolerance (HA).
     Raft,
-    /// Primary-replica streaming replication without raft.
+    /// Stream replication without raft.
     Stream,
 }
 
 /// Kernel-side replication configuration.
 ///
-/// Stream mode: the primary is configured explicitly per node (`primary`);
-/// replicas stream from and redirect to it. Raft mode: the leader is
+/// Stream mode: the Primary is configured explicitly per node (`primary`);
+/// StreamFollowers stream from and redirect to it. Raft mode: the leader is
 /// elected. When `None` is attached to `ServerCfg`, the server runs as a
 /// single node.
 #[derive(Debug, Clone)]
@@ -79,8 +79,8 @@ pub struct ReplNodeCfg {
 
 impl ReplNodeCfg {
     /// Creates a replication configuration for this node.
-    // The fields map 1:1 onto the runtime `ReplicationCfg`; a params struct
-    // would only duplicate that definition.
+    // The fields map 1:1 onto the runtime config's data-group replica set; a
+    // params struct would only duplicate that definition.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         mode: ReplMode,
@@ -117,12 +117,12 @@ impl ReplNodeCfg {
         self.mode
     }
 
-    /// Whether this node is the configured primary (stream mode).
+    /// Whether this node is the configured Primary (stream mode).
     pub fn primary(&self) -> Option<bool> {
         self.primary
     }
 
-    /// Whether the primary waits for a replica's durable ack before
+    /// Whether the Primary waits for a StreamFollower's durable ack before
     /// answering a commit (stream mode).
     pub fn sync(&self) -> Option<bool> {
         self.sync
@@ -174,12 +174,12 @@ impl ReplNodeCfg {
         &self.peers
     }
 
-    /// The designated primary: the cluster member with the smallest node id.
+    /// The designated Primary: the cluster member with the smallest node id.
     pub(crate) fn primary_peer(&self) -> Option<&ReplPeerCfg> {
         self.peers.iter().min_by_key(|peer| peer.node_id())
     }
 
-    /// The configured primary's node id for stream mode: the non-self peer
+    /// The configured Primary's node id for stream mode: the non-self peer
     /// in a two-node cluster, else the smallest node id (mirrors
     /// [`Self::configured_primary_host`]).
     pub fn configured_primary_node_id(&self) -> Option<u64> {
@@ -193,9 +193,9 @@ impl ReplNodeCfg {
         self.primary_peer().map(|peer| peer.node_id())
     }
 
-    /// The configured primary's host for stream mode: the non-self
+    /// The configured Primary's host for stream mode: the non-self
     /// peer in a two-node cluster, else the smallest node id (the static
-    /// tie-break). Replicas stream from and redirect clients to this node.
+    /// tie-break). StreamFollowers stream from and redirect clients to this node.
     pub fn configured_primary_host(&self) -> Option<String> {
         if self.peers.len() == 2 {
             return self
@@ -207,7 +207,7 @@ impl ReplNodeCfg {
         self.primary_peer().map(|peer| peer.host().to_string())
     }
 
-    /// The configured primary's replication address (`host:repl_port`).
+    /// The configured Primary's replication address (`host:repl_port`).
     pub fn configured_primary_repl_addr(&self) -> Option<String> {
         if self.peers.len() == 2 {
             return self
@@ -219,7 +219,7 @@ impl ReplNodeCfg {
         self.primary_addr()
     }
 
-    /// Returns true when this node is the designated primary.
+    /// Returns true when this node is the designated Primary.
     pub fn is_primary(&self) -> bool {
         self.primary_peer()
             .is_some_and(|peer| peer.node_id() == self.node_id)
@@ -234,7 +234,7 @@ impl ReplNodeCfg {
         }
     }
 
-    /// `host:port` string of the designated primary's replication channel.
+    /// `host:port` string of the designated Primary's replication channel.
     pub fn primary_addr(&self) -> Option<String> {
         self.primary_peer()
             .map(|peer| format!("{}:{}", peer.host(), peer.port()))
@@ -277,7 +277,7 @@ mod tests {
             ReplPeerCfg::new(1, "10.0.0.1".to_string(), 7901),
             ReplPeerCfg::new(2, "10.0.0.2".to_string(), 7902),
         ];
-        // Two-node stream cluster: the non-self peer is the primary.
+        // Two-node stream cluster: the non-self peer is the Primary.
         let follower = node_cfg(2, peers.clone());
         assert_eq!(
             follower.configured_primary_host().as_deref(),

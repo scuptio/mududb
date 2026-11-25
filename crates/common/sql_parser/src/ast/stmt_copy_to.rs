@@ -31,7 +31,7 @@ impl StmtCopyTo {
     }
 
     /// Return the bare source table name (without the schema qualifier).
-    pub fn copy_from_table_name(&self) -> &String {
+    pub fn copy_from_class_name(&self) -> &String {
         self.table_reference.name()
     }
 
@@ -59,7 +59,7 @@ mod tests {
         );
 
         assert_eq!(stmt.copy_to_file_path(), "'users.csv'");
-        assert_eq!(stmt.copy_from_table_name(), "users");
+        assert_eq!(stmt.copy_from_class_name(), "users");
         assert_eq!(
             stmt.table_columns(),
             &vec!["id".to_string(), "name".to_string()]

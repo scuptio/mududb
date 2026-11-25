@@ -27,8 +27,8 @@ where
         .block_on(tokio::task::LocalSet::new().run_until(fut))
 }
 
-fn test_schema() -> SchemaTable {
-    SchemaTable::new(
+fn test_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(
@@ -445,6 +445,7 @@ async fn _worker_storage_replay_batch_restores_kv_and_relation_rows() -> RS<()> 
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     storage.replay_batch(batch).await?;
@@ -484,6 +485,7 @@ async fn _worker_storage_replay_batch_applies_kv_delete() -> RS<()> {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     storage.replay_batch(batch).await?;
@@ -553,6 +555,7 @@ async fn _worker_storage_replay_applies_deferred_delta_update() -> RS<()> {
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
     storage.replay_batch(batch).await?;
 
@@ -587,10 +590,10 @@ async fn _worker_storage_cross_partition_apply_covers_all_partitions_of_one_tx()
     });
 
     storage
-        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write_p1))
+        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write_p1), None)
         .await?;
     storage
-        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write_p2))
+        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write_p2), None)
         .await?;
 
     let tx = begin_tx(78, vec![]);
@@ -620,9 +623,11 @@ async fn _worker_storage_cross_partition_apply_is_idempotent() -> RS<()> {
     });
 
     storage
-        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write))
+        .apply_cross_partition_tx_async(77, std::slice::from_ref(&write), None)
         .await?;
-    storage.apply_cross_partition_tx_async(77, &[write]).await?;
+    storage
+        .apply_cross_partition_tx_async(77, &[write], None)
+        .await?;
 
     let tx = begin_tx(78, vec![]);
     assert_eq!(
@@ -672,6 +677,7 @@ async fn _worker_storage_bootstrap_uses_partition_zero_for_unpartitioned_tables(
             })),
             TxOp::Commit(Default::default()),
         ],
+        commit_epoch: None,
     }]);
 
     storage.replay_batch(batch).await?;

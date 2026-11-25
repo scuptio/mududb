@@ -4,7 +4,7 @@ interface udp {
     use network.{network, error-code, ip-socket-address, ip-address-family};
 
     /// A received datagram.
-    record incoming-datagram {
+    struct incoming-datagram {
         /// The payload.
         /// 
         /// Theoretical max size: ~64 KiB. In practice, typically less than 1500 bytes.
@@ -19,7 +19,7 @@ interface udp {
     }
 
     /// A datagram to be sent out.
-    record outgoing-datagram {
+    struct outgoing-datagram {
         /// The payload.
         data: list<u8>,
 
